@@ -999,7 +999,7 @@ let callable_mid_block_ret_is_rejected () =
   in
   (* Graph/sequence constructors already reject instructions after terminators.
      Corrupt the immutable low-level fixture in place so this exercises the
-     backend admission boundary itself rather than an earlier graph check. *)
+     backend source-authority boundary rather than the graph constructor. *)
   Obj.set_field (Obj.repr instructions) 0 (Obj.repr mid_block_ret);
   match compile_callable unit with
   | Ok _ -> Alcotest.fail "mid-block IC_RET unexpectedly compiled"
@@ -1008,8 +1008,8 @@ let callable_mid_block_ret_is_rejected () =
       Alcotest.(check string)
         "mid-block IC_RET rejects in callable preflight" "HCBACK0003" first.code;
       Alcotest.(check string)
-        "mid-block IC_RET reports the exact terminator contract"
-        "IC_RET: IC_RET must terminate its native source function block"
+        "mid-block IC_RET cannot replace the original checked graph"
+        "native literal storage requires its original callable graph"
         first.message
 
 let hex text =
@@ -1859,8 +1859,38 @@ let native_print_authority () =
         |> reject ~code:"HCBACK0003" "Print substituted hidden count"))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let shared_value_graph () =
+  verified ~entry:1
+    [
+      block 0 [ end_expression 0 0; jump 1 2 ];
+      block 1 [ imm 2 0 42L; jump 3 0 ];
+      block 2 [ stream_end 4 ];
+    ]
+
+let native_shared_values () =
+  List.iter
+    (fun status_abi ->
+      let graph = shared_value_graph () in
+      let compile ?(max_stack_bytes = 8) () =
+        Program.compile ~status_abi ~max_stack_bytes ~max_ir_instructions:5
+          ~max_code_bytes:65536 graph
+      in
+      let image = compile () |> require_ok program_errors in
+      Alcotest.(check int)
+        "shared home fits an 8-byte frame" 8
+        (Program.frame_bytes image);
+      ignore
+        (compile ~max_stack_bytes:7 ()
+        |> reject ~code:"HCBACK0004" "shared home one below");
+      Alcotest.(check string)
+        "shared homes have deterministic code" (Program.code image)
+        (Program.code (compile () |> require_ok program_errors)))
+    [ Encoder.Windows_x64; Encoder.System_v_x64 ]
+
 let tests =
   [
+    Alcotest.test_case "dominated values retain native homes in both ABIs"
+      `Quick native_shared_values;
     Alcotest.test_case "native Print retains argument and format authority"
       `Quick native_print_authority;
     Alcotest.test_case "native output retains original provider authority"

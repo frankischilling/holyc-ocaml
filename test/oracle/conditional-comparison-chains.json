@@ -1,0 +1,2198 @@
+{
+  "fixture_version": 1,
+  "id": "execution/conditional-comparison-chains-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-10-03",
+    "hypervisor": "QEMU 9.2.0",
+    "host": "Windows x86-64",
+    "accelerator": "TCG; 32 MiB translation cache",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified read-only ISO",
+    "persistent_disk": false,
+    "compilation_mode": "TempleOS native JIT shell; default options",
+    "boot": 4
+  },
+  "repeatability": {
+    "boots": 1,
+    "runs_per_field": 2,
+    "field_source_pairs": 50,
+    "result_observations": 100,
+    "scope": "Same boot only."
+  },
+  "observation_method": "Exact submitted commands and native output decoded from original captures with the pinned font. Every capture SHA256 rechecked before transcription; expected values are native observations.",
+  "source_references": [
+    "Compiler/PrsExp.HC:49-52,225-230",
+    "Compiler/OptPass012.HC:141-150,809-822",
+    "Compiler/OptPass4.HC:516-527",
+    "Compiler/OptPass789A.HC:158-242,286-292"
+  ],
+  "checks": [
+    {
+      "id": "boot4-class-values-K1-A",
+      "command": "DocClear;Print(\"K1=%016X,K2=%016X,K3=%016X\\n\",K1(-1,0,-1),K2(-1,0,-1),K3(0x8000000000000000,0,-1));",
+      "observed_fields": {
+        "K1": "0000000000000000",
+        "K2": "0000000000000001",
+        "K3": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-class-values-K1-A-source.png",
+        "sha256": "23c1e03f788c2288849004eb833acffce4c5c1ec3bdd6c4e0d48f23735f60802"
+      },
+      "result_capture": {
+        "file": "boot4-class-values-K1-A-result.png",
+        "sha256": "a7bf8c88fb940bf542951842f5a284e0d203cb9aa26eedf81c4588973648c22b"
+      },
+      "decoded_source": [
+        "0.000458s",
+        "T:/Home>DocClear;Print(\"K1=%016X,K2=%016X,K3=%016X\\n\",K1(-1,0,-1),K2(-1,0,-1)",
+        ",K3(0x8000000000000000,0,-1));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "K1=0000000000000000,K2=0000000000000001,K3=0000000000000000",
+        "0.000389s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-class-values-K1-B",
+      "command": "DocClear;Print(\"K1=%016X,K2=%016X,K3=%016X\\n\",K1(-1,0,-1),K2(-1,0,-1),K3(0x8000000000000000,0,-1));",
+      "observed_fields": {
+        "K1": "0000000000000000",
+        "K2": "0000000000000001",
+        "K3": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-class-values-K1-B-source.png",
+        "sha256": "cb547f0364f9b699d29865b8eab55c4a989bec075326ae9ed1974399b78aa91f"
+      },
+      "result_capture": {
+        "file": "boot4-class-values-K1-B-result.png",
+        "sha256": "3470d1f8ac54e6e5cbe2b0854ad2ba83c64d22c3e91d60146565e4e519fd831f"
+      },
+      "decoded_source": [
+        "K4=0000000000000001,K5=0000000000000001,K6=0000000000000001",
+        "0.000342s",
+        "T:/Home>DocClear;Print(\"K1=%016X,K2=%016X,K3=%016X\\n\",K1(-1,0,-1),K2(-1,0,-1)",
+        ",K3(0x8000000000000000,0,-1));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "K1=0000000000000000,K2=0000000000000001,K3=0000000000000000",
+        "0.000336s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-class-values-K4-A",
+      "command": "DocClear;Print(\"K4=%016X,K5=%016X,K6=%016X\\n\",K4(0x8000000000000000,0,-1),K5(0x8000000000000000,0,-1),K6(0x8000000000000000,0,-1));",
+      "observed_fields": {
+        "K4": "0000000000000001",
+        "K5": "0000000000000001",
+        "K6": "0000000000000001"
+      },
+      "source_capture": {
+        "file": "boot4-class-values-K4-A-source.png",
+        "sha256": "7a218ac570ce1dab4f368dfc0bac927b7269f43afcc180b10e189cbec6d90201"
+      },
+      "result_capture": {
+        "file": "boot4-class-values-K4-A-result.png",
+        "sha256": "9260896e67f34ace3279ac195d4502de94f0b95b1917ca677fdbcd296f1dfffc"
+      },
+      "decoded_source": [
+        "K1=0000000000000000,K2=0000000000000001,K3=0000000000000000",
+        "0.000389s",
+        "T:/Home>DocClear;Print(\"K4=%016X,K5=%016X,K6=%016X\\n\",K4(0x8000000000000000,0",
+        ",-1),K5(0x8000000000000000,0,-1),K6(0x8000000000000000,0,-1));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "K4=0000000000000001,K5=0000000000000001,K6=0000000000000001",
+        "0.000342s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-class-values-K4-B",
+      "command": "DocClear;Print(\"K4=%016X,K5=%016X,K6=%016X\\n\",K4(0x8000000000000000,0,-1),K5(0x8000000000000000,0,-1),K6(0x8000000000000000,0,-1));",
+      "observed_fields": {
+        "K4": "0000000000000001",
+        "K5": "0000000000000001",
+        "K6": "0000000000000001"
+      },
+      "source_capture": {
+        "file": "boot4-class-values-K4-B-source.png",
+        "sha256": "c05bff4dcb6ed0f8202a51836b430ee8f3dcfcf99b5c64247a663b2cb1081c74"
+      },
+      "result_capture": {
+        "file": "boot4-class-values-K4-B-result.png",
+        "sha256": "10bdd249a8985ac55c6d1ff6aa2d5ce48b0c50205488955cc883d39af7f6a09b"
+      },
+      "decoded_source": [
+        "K1=0000000000000000,K2=0000000000000001,K3=0000000000000000",
+        "0.000336s",
+        "T:/Home>DocClear;Print(\"K4=%016X,K5=%016X,K6=%016X\\n\",K4(0x8000000000000000,0",
+        ",-1),K5(0x8000000000000000,0,-1),K6(0x8000000000000000,0,-1));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "K4=0000000000000001,K5=0000000000000001,K6=0000000000000001",
+        "0.000240s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-CF-A",
+      "command": "DocClear;CCount=0;I64 CResult=CFalse();Print(\"CF=%016X CN=%016X\\n\",CResult,CCount);",
+      "observed_fields": {
+        "CF": "0000000000000009",
+        "CN": "0000000000000002"
+      },
+      "source_capture": {
+        "file": "boot4-conditional-CF-A-source.png",
+        "sha256": "f3e258013b464ca0890e9d3220e928ca3db5410ff6808a14403f2c5e12347e49"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-CF-A-result.png",
+        "sha256": "3b208a60795a14275978bc2f9506b3f460f2bd3fd1b227ab15dd9b326639f748"
+      },
+      "decoded_source": [
+        "0.001806s",
+        "T:/Home>DocClear;CCount=0;I64 CResult=CFalse();Print(\"CF=%016X CN=%016X\\n\",CR",
+        "esult,CCount);?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "CF=0000000000000009 CN=0000000000000002",
+        "0.000329s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-CF-B",
+      "command": "DocClear;CCount=0;I64 CResult=CFalse();Print(\"CF=%016X CN=%016X\\n\",CResult,CCount);",
+      "observed_fields": {
+        "CF": "0000000000000009",
+        "CN": "0000000000000002"
+      },
+      "source_capture": {
+        "file": "boot4-conditional-CF-B-source.png",
+        "sha256": "d8042238da82542433dd0ae5db514c23b5c40a7e2183f5fa64cf01dc7d72888a"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-CF-B-result.png",
+        "sha256": "53a96d87c2b1d876c64142908b0cd40a52d69fee535d04fa637d1bfedff7656b"
+      },
+      "decoded_source": [
+        "CU=0000000000000009 CP=0000000000000007",
+        "0.000541s",
+        "T:/Home>DocClear;CCount=0;I64 CResult=CFalse();Print(\"CF=%016X CN=%016X\\n\",CR",
+        "esult,CCount);?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "CF=0000000000000009 CN=0000000000000002",
+        "0.000340s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-CG-A",
+      "command": "DocClear;CCount=0;I64 CResult=CGroup();Print(\"CG=%016X CN=%016X\\n\",CResult,CCount);",
+      "observed_fields": {
+        "CG": "0000000000000007",
+        "CN": "0000000000000003"
+      },
+      "source_capture": {
+        "file": "boot4-conditional-CG-A-source.png",
+        "sha256": "16e7316980b3278ea620110e06d808ad643b9ecfc8fbad89193dc6af6a6e6511"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-CG-A-result.png",
+        "sha256": "d38f96fac727ec16333a44fae4531d80aa11d9afa7e863dcb24dfa5124e25e75"
+      },
+      "decoded_source": [
+        "CT=0000000000000007 CN=0000000000000003",
+        "0.000314s",
+        "T:/Home>DocClear;CCount=0;I64 CResult=CGroup();Print(\"CG=%016X CN=%016X\\n\",CR",
+        "esult,CCount);?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "CG=0000000000000007 CN=0000000000000003",
+        "0.000348s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-CG-B",
+      "command": "DocClear;CCount=0;I64 CResult=CGroup();Print(\"CG=%016X CN=%016X\\n\",CResult,CCount);",
+      "observed_fields": {
+        "CG": "0000000000000007",
+        "CN": "0000000000000003"
+      },
+      "source_capture": {
+        "file": "boot4-conditional-CG-B-source.png",
+        "sha256": "7f04bd422aeec6a6942f7abddc872e6091997f9961f40c5961062ebbb0b21863"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-CG-B-result.png",
+        "sha256": "85cbd0a872f184b02dd0d464bbe58d56fe461603bf6a3578c1be3c90f558aa9a"
+      },
+      "decoded_source": [
+        "CT=0000000000000007 CN=0000000000000003",
+        "0.000330s",
+        "T:/Home>DocClear;CCount=0;I64 CResult=CGroup();Print(\"CG=%016X CN=%016X\\n\",CR",
+        "esult,CCount);?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "CG=0000000000000007 CN=0000000000000003",
+        "0.000335s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-classes-A",
+      "command": "DocClear;Print(\"CU=%016X CP=%016X\\n\",CUnsigned(0x8000000000000000,0,-1),CGroupedUnsigned(0x8000000000000000,0,-1));",
+      "observed_fields": {
+        "CU": "0000000000000009",
+        "CP": "0000000000000007"
+      },
+      "source_capture": {
+        "file": "boot4-conditional-classes-A-source.png",
+        "sha256": "8bb2b30924fad874e886a3cd9ad9216139bfb49432c2fc565e1eabc8e1a72ebc"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-classes-A-result.png",
+        "sha256": "fb5b19f9b6bdfbb43181e30a7c387ba3f02b25ab6418aeee02bfd36074a0c609"
+      },
+      "decoded_source": [
+        "CG=0000000000000007 CN=0000000000000003",
+        "0.000348s",
+        "T:/Home>DocClear;Print(\"CU=%016X CP=%016X\\n\",CUnsigned(0x8000000000000000,0,-",
+        "1),CGroupedUnsigned(0x8000000000000000,0,-1));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "CU=0000000000000009 CP=0000000000000007",
+        "0.000541s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-classes-B",
+      "command": "DocClear;Print(\"CU=%016X CP=%016X\\n\",CUnsigned(0x8000000000000000,0,-1),CGroupedUnsigned(0x8000000000000000,0,-1));",
+      "observed_fields": {
+        "CU": "0000000000000009",
+        "CP": "0000000000000007"
+      },
+      "source_capture": {
+        "file": "boot4-conditional-classes-B-source.png",
+        "sha256": "9b7613fe665d16b5aedda9768d387013a5ed43ae3fe35b9eb617386bc5d7d9bd"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-classes-B-result.png",
+        "sha256": "dda4405f3441d3a7083e4e9c6872eab18beeebb8398e876e3c2e13e230f8ab37"
+      },
+      "decoded_source": [
+        "CG=0000000000000007 CN=0000000000000003",
+        "0.000335s",
+        "T:/Home>DocClear;Print(\"CU=%016X CP=%016X\\n\",CUnsigned(0x8000000000000000,0,-",
+        "1),CGroupedUnsigned(0x8000000000000000,0,-1));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "CU=0000000000000009 CP=0000000000000007",
+        "0.000405s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-CT-A",
+      "command": "DocClear;CCount=0;I64 CResult=CTrue();Print(\"CT=%016X CN=%016X\\n\",CResult,CCount);",
+      "observed_fields": {
+        "CT": "0000000000000007",
+        "CN": "0000000000000003"
+      },
+      "source_capture": {
+        "file": "boot4-conditional-CT-A-source.png",
+        "sha256": "0780158a038b66345d672f922cbfcdcc544ec398ff699d418482288065c24e64"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-CT-A-result.png",
+        "sha256": "9b2100d6ed1f85ac8200c05d113dd3f7f44162508e7906557183816101ce51e0"
+      },
+      "decoded_source": [
+        "CF=0000000000000009 CN=0000000000000002",
+        "0.000329s",
+        "T:/Home>DocClear;CCount=0;I64 CResult=CTrue();Print(\"CT=%016X CN=%016X\\n\",CRe",
+        "sult,CCount);?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "CT=0000000000000007 CN=0000000000000003",
+        "0.000314s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-CT-B",
+      "command": "DocClear;CCount=0;I64 CResult=CTrue();Print(\"CT=%016X CN=%016X\\n\",CResult,CCount);",
+      "observed_fields": {
+        "CT": "0000000000000007",
+        "CN": "0000000000000003"
+      },
+      "source_capture": {
+        "file": "boot4-conditional-CT-B-source.png",
+        "sha256": "5b870497a3d0c9e75f73d10f24688e7fed0edf0e4a52eee26c5bdad02bc54228"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-CT-B-result.png",
+        "sha256": "06e21770a320bdc8c146ab941d8f46995b4b2c1bb380ced4c8b7a84e6ae53a28"
+      },
+      "decoded_source": [
+        "CF=0000000000000009 CN=0000000000000002",
+        "0.000340s",
+        "T:/Home>DocClear;CCount=0;I64 CResult=CTrue();Print(\"CT=%016X CN=%016X\\n\",CRe",
+        "sult,CCount);?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "CT=0000000000000007 CN=0000000000000003",
+        "0.000330s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-literal-argument-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F14(),F18(),F22());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-literal-argument-A-source.png",
+        "sha256": "658266af7c0e075c5cedc3f2103769e41489e3645b151445ae8668f264470f2e"
+      },
+      "result_capture": {
+        "file": "boot4-values-literal-argument-A-result.png",
+        "sha256": "2c5439f57f6c27daa81e9641d349d63d2506dfe47bbd11d7e877f398d0dcbf85"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.003911s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F14(),F18(),F22());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000463s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-literal-argument-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F14(),F18(),F22());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-literal-argument-B-source.png",
+        "sha256": "78856bb46f098f6e4a57d776040748ff2151d1ab31a9770be668c8ba4a997566"
+      },
+      "result_capture": {
+        "file": "boot4-values-literal-argument-B-result.png",
+        "sha256": "76405072256ab35faa758a01cefdff0575a7e31726989a5a55eaf36ecf1dd4e6"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.004340s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F14(),F18(),F22());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000453s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-literal-condition-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F16(),F20(),F24());",
+      "observed_fields": {
+        "V4": "0000000000000007",
+        "V5": "0000000000000007",
+        "V6": "0000000000000009"
+      },
+      "source_capture": {
+        "file": "boot4-values-literal-condition-A-source.png",
+        "sha256": "b752777484a1fc52a52e4b7e4f0b17fd67df0002a8fafc973dca763e05e05ef0"
+      },
+      "result_capture": {
+        "file": "boot4-values-literal-condition-A-result.png",
+        "sha256": "b8f77f073bae0dacad9a69a8e0358820ac8a7c7f97fb5330a6064d1d601420b6"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000393s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F16(),F20(),F24());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000327s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-literal-condition-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F16(),F20(),F24());",
+      "observed_fields": {
+        "V4": "0000000000000007",
+        "V5": "0000000000000007",
+        "V6": "0000000000000009"
+      },
+      "source_capture": {
+        "file": "boot4-values-literal-condition-B-source.png",
+        "sha256": "970ea0dca8640ad6f52e6f589d8b755b4d536e9d559b56ff2360e5126ec35093"
+      },
+      "result_capture": {
+        "file": "boot4-values-literal-condition-B-result.png",
+        "sha256": "0bc79aa304f8a54270a61a4e0d0b2343fa2121a77f29f5b1bb9dd74818e22e0b"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000716s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F16(),F20(),F24());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000323s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-literal-return-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F15(),F19(),F23());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-literal-return-A-source.png",
+        "sha256": "82456a767bab918bb577464286ba1c24fde37868b74cace657ac0a45278b2ad2"
+      },
+      "result_capture": {
+        "file": "boot4-values-literal-return-A-result.png",
+        "sha256": "bf28d649cf231b59cdc54ee6bcbf5212f7843336e482adb5099299b0fc35f877"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000463s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F15(),F19(),F23());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000393s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-literal-return-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F15(),F19(),F23());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-literal-return-B-source.png",
+        "sha256": "85af951425963b29e8965347cc2184bb153b7f0a422c56a746f15f1db129880d"
+      },
+      "result_capture": {
+        "file": "boot4-values-literal-return-B-result.png",
+        "sha256": "af632d8370a643b61174e02b1506075dfffaf9089172023692943f5d29e02adb"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000453s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F15(),F19(),F23());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000716s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-literal-value-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"1==(2<3)==1;\"),ExePutS2(\"(1==2<3)==1;\"),ExePutS2(\"1<2==2<3;\"));",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-literal-value-A-source.png",
+        "sha256": "5bed15799bf6bf0e58b78ef2ebfdb48fefa48c819cef58b4ad5e83461c8c5127"
+      },
+      "result_capture": {
+        "file": "boot4-values-literal-value-A-result.png",
+        "sha256": "d94f54ad2ca8d772027e7261c8521bceaf6a213013939e5fe70966f388eb4e79"
+      },
+      "decoded_source": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F64'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F68'",
+        "0.001755s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"1==(2<3)==1;\"",
+        "),ExePutS2(\"(1==2<3)==1;\"),ExePutS2(\"1<2==2<3;\"));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.003911s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-literal-value-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"1==(2<3)==1;\"),ExePutS2(\"(1==2<3)==1;\"),ExePutS2(\"1<2==2<3;\"));",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-literal-value-B-source.png",
+        "sha256": "6ee76aad794bd109b159b12a1a3379d840a7eb966a59cb31e482254c33cab10f"
+      },
+      "result_capture": {
+        "file": "boot4-values-literal-value-B-result.png",
+        "sha256": "fbabdbb45c411eb86ddc8ad50d3a731f4edb8392be9200f9e7136d451dbee38b"
+      },
+      "decoded_source": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000549s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"1==(2<3)==1;\"",
+        "),ExePutS2(\"(1==2<3)==1;\"),ExePutS2(\"1<2==2<3;\"));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.004340s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-signed-argument-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F38(),F42(),F46());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-signed-argument-A-source.png",
+        "sha256": "0e929b653c86ffc254e11d32e0fbaa89867fd6626b3ea02780b2d5814b8abd06"
+      },
+      "result_capture": {
+        "file": "boot4-values-signed-argument-A-result.png",
+        "sha256": "1229800b7eccf94dcf98c26adf738691dd0b538b7cc0277784f5db45b43197df"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.008524s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F38(),F42(),F46());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000621s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-signed-argument-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F38(),F42(),F46());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-signed-argument-B-source.png",
+        "sha256": "71c37aaac038b15b5e6afa3c6d63997e82c614df697be092e4313856168a84a5"
+      },
+      "result_capture": {
+        "file": "boot4-values-signed-argument-B-result.png",
+        "sha256": "49ff89ceed66833f9b68e71e72b13844cdc7787025dd5be901e66fd29995024b"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.012230s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F38(),F42(),F46());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000429s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-signed-condition-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F40(),F44(),F48());",
+      "observed_fields": {
+        "V4": "0000000000000007",
+        "V5": "0000000000000007",
+        "V6": "0000000000000009"
+      },
+      "source_capture": {
+        "file": "boot4-values-signed-condition-A-source.png",
+        "sha256": "7c20e37f157e4648920500d5bb9a48607ccf5e1bfa49b077df9f5d8accc34df9"
+      },
+      "result_capture": {
+        "file": "boot4-values-signed-condition-A-result.png",
+        "sha256": "882813262315e6904f14977d65dff0dfb92b42eccaf0ab6192fc010f53f3735c"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000499s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F40(),F44(),F48());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000646s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-signed-condition-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F40(),F44(),F48());",
+      "observed_fields": {
+        "V4": "0000000000000007",
+        "V5": "0000000000000007",
+        "V6": "0000000000000009"
+      },
+      "source_capture": {
+        "file": "boot4-values-signed-condition-B-source.png",
+        "sha256": "dd23efdcd765e0fac757a6ce49014019736f66e144da61157608bbe1c5d7d08f"
+      },
+      "result_capture": {
+        "file": "boot4-values-signed-condition-B-result.png",
+        "sha256": "02948d8c27fae340523ff6140665c9b119c02deb0a19590737c4c0eb04f1aa3a"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000920s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F40(),F44(),F48());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000400s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-signed-return-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F39(),F43(),F47());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-signed-return-A-source.png",
+        "sha256": "5f84a9089e683a5e57b0256387bb747d876bb6b340067f740b8501e3d83ad46e"
+      },
+      "result_capture": {
+        "file": "boot4-values-signed-return-A-result.png",
+        "sha256": "cc0f71b83aed9cadc3bfb7f9eda022eb3635a29c15e338951ca47903de502a02"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000621s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F39(),F43(),F47());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000499s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-signed-return-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F39(),F43(),F47());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-signed-return-B-source.png",
+        "sha256": "a295582e751a82027fe073e828ddd13c4eff2a05cafeaf16c56276e4993c4cd7"
+      },
+      "result_capture": {
+        "file": "boot4-values-signed-return-B-result.png",
+        "sha256": "05fd1f63a57f958c0fa9366a326ce681d6fb48aaa2e4a6f3e7c175d37496233e"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000429s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F39(),F43(),F47());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000920s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-signed-value-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;a==(b<c)==d;\"),ExePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;\"),ExePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;\"));",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-signed-value-A-source.png",
+        "sha256": "2ec5d6874fab0bd2d794552a18641c1ac550300cef9a4f97cdefaab64fae070d"
+      },
+      "result_capture": {
+        "file": "boot4-values-signed-value-A-result.png",
+        "sha256": "c58e9168287ceb05ef6d9ea3b45618bbf146038508e5dd6a9a6ffae378828008"
+      },
+      "decoded_source": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000327s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"I64 a=1,b=2,c",
+        "=3,d=1,e=4;a==(b<c)==d;\"),ExePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;\"),Ex",
+        "ePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;\"));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.008524s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-signed-value-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;a==(b<c)==d;\"),ExePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;\"),ExePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;\"));",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-signed-value-B-source.png",
+        "sha256": "9a2e4352bc49764417ce1878f2b41eb1631f3bc450ed76351df2f3cb0c343276"
+      },
+      "result_capture": {
+        "file": "boot4-values-signed-value-B-result.png",
+        "sha256": "92b1fcb79ddad05c4cb5c77ddde46ec124fbe1ee706e7ed13003611bff9e7383"
+      },
+      "decoded_source": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000323s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"I64 a=1,b=2,c",
+        "=3,d=1,e=4;a==(b<c)==d;\"),ExePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;\"),Ex",
+        "ePutS2(\"I64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;\"));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.012230s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-unsigned-argument-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F62(),F66(),F70());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-unsigned-argument-A-source.png",
+        "sha256": "4ea4179af2fedc774a7fbe88b910bc7c84a2375b7da8794b6c3cfb4ac1f53afe"
+      },
+      "result_capture": {
+        "file": "boot4-values-unsigned-argument-A-result.png",
+        "sha256": "ee7f1300b0de78e4ffc2660e830bb7acc7f2cecd537da8d2e18234054c1a2a17"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.011780s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F62(),F66(),F70());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000632s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-unsigned-argument-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F62(),F66(),F70());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-unsigned-argument-B-source.png",
+        "sha256": "09f4c23786ab69a227cb04028e24cc00847d2922fb326979d5317f72ffaa930c"
+      },
+      "result_capture": {
+        "file": "boot4-values-unsigned-argument-B-result.png",
+        "sha256": "13e92d34b0d9e15dbf74c9aab511105dfda7a74b0d089d5e65fa45ba1aaf3616"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.015123s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F62(),F66(),F70());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000395s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-unsigned-condition-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F64(),F68(),F72());",
+      "observed_fields": {
+        "V4": "0000000000000007",
+        "V5": "0000000000000007",
+        "V6": "0000000000000009"
+      },
+      "source_capture": {
+        "file": "boot4-values-unsigned-condition-A-source.png",
+        "sha256": "f065b1faafc838e7726f1d6475f5610ad630eef296cb69d97f84dc34e593f67c"
+      },
+      "result_capture": {
+        "file": "boot4-values-unsigned-condition-A-result.png",
+        "sha256": "9fd13abd65c16375d0173cd61383b25a0371d9b607d07b712999d4c5533dc089"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000803s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F64(),F68(),F72());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000549s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-unsigned-condition-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F64(),F68(),F72());",
+      "observed_fields": {
+        "V4": "0000000000000007",
+        "V5": "0000000000000007",
+        "V6": "0000000000000009"
+      },
+      "source_capture": {
+        "file": "boot4-values-unsigned-condition-B-source.png",
+        "sha256": "d015177127f4c28c275c3ba62d4e7ef5489022010f2e703a8095b1ea819d83a8"
+      },
+      "result_capture": {
+        "file": "boot4-values-unsigned-condition-B-result.png",
+        "sha256": "eb2ed0af1286777fd9bdf7aeb46d26058627cb97e29f3bd0dc77749870d993ae"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000407s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F64(),F68(),F72());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000328s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-unsigned-return-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F63(),F67(),F71());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-unsigned-return-A-source.png",
+        "sha256": "4650132f0c765c547c0eb2decd7de573dd20278736b0bc0aaa65409d3ebe4c89"
+      },
+      "result_capture": {
+        "file": "boot4-values-unsigned-return-A-result.png",
+        "sha256": "cf5f25f2daa2eab40551748786f891a50de1fd2d2d25054976b52ccca07ee798"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000632s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F63(),F67(),F71());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000803s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-unsigned-return-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F63(),F67(),F71());",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-unsigned-return-B-source.png",
+        "sha256": "c17851cbd41bcee848829aed843b8fd5c14d05735475c727b1f40cc4a9d94edf"
+      },
+      "result_capture": {
+        "file": "boot4-values-unsigned-return-B-result.png",
+        "sha256": "ada7ecad3a660e8b407273a0f0e29dc19e5381a4417826edff4b95ddb878baf3"
+      },
+      "decoded_source": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000395s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",F63(),F67(),F71());?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.000407s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-unsigned-value-A",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;a==(b<c)==d;\"),ExePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;\"),ExePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;\"));",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-unsigned-value-A-source.png",
+        "sha256": "c82b818b4ddfd0735a521e077ba62edd4077d1e0ed3f2115bb5fce0405459009"
+      },
+      "result_capture": {
+        "file": "boot4-values-unsigned-value-A-result.png",
+        "sha256": "166898d920753338081c0f818df07b45c3a9cfaae72fd130c0d93b47cecfe7e8"
+      },
+      "decoded_source": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000646s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"U64 a=1,b=2,c",
+        "=3,d=1,e=4;a==(b<c)==d;\"),ExePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;\"),Ex",
+        "ePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;\"));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.011780s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-values-unsigned-value-B",
+      "command": "DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;a==(b<c)==d;\"),ExePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;\"),ExePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;\"));",
+      "observed_fields": {
+        "V4": "0000000000000001",
+        "V5": "0000000000000001",
+        "V6": "0000000000000000"
+      },
+      "source_capture": {
+        "file": "boot4-values-unsigned-value-B-source.png",
+        "sha256": "94f3df8c3b02e62161eb65d473eabf8928344df0676826b5aed371894a694f9c"
+      },
+      "result_capture": {
+        "file": "boot4-values-unsigned-value-B-result.png",
+        "sha256": "aba7f95e810e393195a6114ac610a3c71874e7694e622e2c97ec067c598a46ee"
+      },
+      "decoded_source": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000400s",
+        "T:/Home>DocClear;Print(\"V4=%016X V5=%016X V6=%016X\\n\",ExePutS2(\"U64 a=1,b=2,c",
+        "=3,d=1,e=4;a==(b<c)==d;\"),ExePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;\"),Ex",
+        "ePutS2(\"U64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;\"));?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "V4=0000000000000001 V5=0000000000000001 V6=0000000000000000",
+        "0.015123s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    }
+  ],
+  "hosted_value_projections": [
+    {
+      "case_id": "boot4-class-values-K1-A",
+      "repeat_case_id": "boot4-class-values-K1-B",
+      "field": "K1",
+      "holy_c_source": "I64 K1(U64 a,I64 b,I64 c){return a>b>c;}K1(-1,0,-1);"
+    },
+    {
+      "case_id": "boot4-class-values-K1-A",
+      "repeat_case_id": "boot4-class-values-K1-B",
+      "field": "K2",
+      "holy_c_source": "I64 K2(U64 a,I64 b,I64 c){return a>b<c;}K2(-1,0,-1);"
+    },
+    {
+      "case_id": "boot4-class-values-K1-A",
+      "repeat_case_id": "boot4-class-values-K1-B",
+      "field": "K3",
+      "holy_c_source": "I64 K3(U64 a,I64 b,I64 c){return (~a)>b>c;}K3(0x8000000000000000,0,-1);"
+    },
+    {
+      "case_id": "boot4-class-values-K4-A",
+      "repeat_case_id": "boot4-class-values-K4-B",
+      "field": "K4",
+      "holy_c_source": "I64 K4(U64 a,I64 b,I64 c){return (~a)>b<c;}K4(0x8000000000000000,0,-1);"
+    },
+    {
+      "case_id": "boot4-class-values-K4-A",
+      "repeat_case_id": "boot4-class-values-K4-B",
+      "field": "K5",
+      "holy_c_source": "I64 K5(U64 a,I64 b,I64 c){return ((~a)>b)>c;}K5(0x8000000000000000,0,-1);"
+    },
+    {
+      "case_id": "boot4-class-values-K4-A",
+      "repeat_case_id": "boot4-class-values-K4-B",
+      "field": "K6",
+      "holy_c_source": "I64 K6(U64 a,I64 b,I64 c){return b<(~a)>b;}K6(0x8000000000000000,0,-1);"
+    },
+    {
+      "case_id": "boot4-conditional-CF-A",
+      "repeat_case_id": "boot4-conditional-CF-B",
+      "field": "CF",
+      "holy_c_source": "I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}CFalse();"
+    },
+    {
+      "case_id": "boot4-conditional-CF-A",
+      "repeat_case_id": "boot4-conditional-CF-B",
+      "field": "CN",
+      "holy_c_source": "I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}CFalse();CCount;"
+    },
+    {
+      "case_id": "boot4-conditional-CG-A",
+      "repeat_case_id": "boot4-conditional-CG-B",
+      "field": "CG",
+      "holy_c_source": "I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}CGroup();"
+    },
+    {
+      "case_id": "boot4-conditional-CG-A",
+      "repeat_case_id": "boot4-conditional-CG-B",
+      "field": "CN",
+      "holy_c_source": "I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}CGroup();CCount;"
+    },
+    {
+      "case_id": "boot4-conditional-classes-A",
+      "repeat_case_id": "boot4-conditional-classes-B",
+      "field": "CU",
+      "holy_c_source": "I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}CUnsigned(0x8000000000000000,0,-1);"
+    },
+    {
+      "case_id": "boot4-conditional-classes-A",
+      "repeat_case_id": "boot4-conditional-classes-B",
+      "field": "CP",
+      "holy_c_source": "I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}CGroupedUnsigned(0x8000000000000000,0,-1);"
+    },
+    {
+      "case_id": "boot4-conditional-CT-A",
+      "repeat_case_id": "boot4-conditional-CT-B",
+      "field": "CT",
+      "holy_c_source": "I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}CTrue();"
+    },
+    {
+      "case_id": "boot4-conditional-CT-A",
+      "repeat_case_id": "boot4-conditional-CT-B",
+      "field": "CN",
+      "holy_c_source": "I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}CTrue();CCount;"
+    },
+    {
+      "case_id": "boot4-values-literal-argument-A",
+      "repeat_case_id": "boot4-values-literal-argument-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F14(){return J593(1==(2<3)==1);}F14();"
+    },
+    {
+      "case_id": "boot4-values-literal-argument-A",
+      "repeat_case_id": "boot4-values-literal-argument-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F18(){return J593((1==2<3)==1);}F18();"
+    },
+    {
+      "case_id": "boot4-values-literal-argument-A",
+      "repeat_case_id": "boot4-values-literal-argument-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F22(){return J593(1<2==2<3);}F22();"
+    },
+    {
+      "case_id": "boot4-values-literal-condition-A",
+      "repeat_case_id": "boot4-values-literal-condition-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F16(){if(1==(2<3)==1)return 7;return 9;}F16();"
+    },
+    {
+      "case_id": "boot4-values-literal-condition-A",
+      "repeat_case_id": "boot4-values-literal-condition-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F20(){if((1==2<3)==1)return 7;return 9;}F20();"
+    },
+    {
+      "case_id": "boot4-values-literal-condition-A",
+      "repeat_case_id": "boot4-values-literal-condition-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F24(){if(1<2==2<3)return 7;return 9;}F24();"
+    },
+    {
+      "case_id": "boot4-values-literal-return-A",
+      "repeat_case_id": "boot4-values-literal-return-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F15(){return 1==(2<3)==1;}F15();"
+    },
+    {
+      "case_id": "boot4-values-literal-return-A",
+      "repeat_case_id": "boot4-values-literal-return-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F19(){return (1==2<3)==1;}F19();"
+    },
+    {
+      "case_id": "boot4-values-literal-return-A",
+      "repeat_case_id": "boot4-values-literal-return-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F23(){return 1<2==2<3;}F23();"
+    },
+    {
+      "case_id": "boot4-values-literal-value-A",
+      "repeat_case_id": "boot4-values-literal-value-B",
+      "field": "V4",
+      "holy_c_source": "1==(2<3)==1;"
+    },
+    {
+      "case_id": "boot4-values-literal-value-A",
+      "repeat_case_id": "boot4-values-literal-value-B",
+      "field": "V5",
+      "holy_c_source": "(1==2<3)==1;"
+    },
+    {
+      "case_id": "boot4-values-literal-value-A",
+      "repeat_case_id": "boot4-values-literal-value-B",
+      "field": "V6",
+      "holy_c_source": "1<2==2<3;"
+    },
+    {
+      "case_id": "boot4-values-signed-argument-A",
+      "repeat_case_id": "boot4-values-signed-argument-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F38(){I64 a=1,b=2,c=3,d=1,e=4;return J593(a==(b<c)==d);}F38();"
+    },
+    {
+      "case_id": "boot4-values-signed-argument-A",
+      "repeat_case_id": "boot4-values-signed-argument-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F42(){I64 a=1,b=2,c=3,d=1,e=4;return J593((a==b<c)==d);}F42();"
+    },
+    {
+      "case_id": "boot4-values-signed-argument-A",
+      "repeat_case_id": "boot4-values-signed-argument-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F46(){I64 a=1,b=2,c=3,d=1,e=4;return J593(a<b==b<c);}F46();"
+    },
+    {
+      "case_id": "boot4-values-signed-condition-A",
+      "repeat_case_id": "boot4-values-signed-condition-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F40(){I64 a=1,b=2,c=3,d=1,e=4;if(a==(b<c)==d)return 7;return 9;}F40();"
+    },
+    {
+      "case_id": "boot4-values-signed-condition-A",
+      "repeat_case_id": "boot4-values-signed-condition-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F44(){I64 a=1,b=2,c=3,d=1,e=4;if((a==b<c)==d)return 7;return 9;}F44();"
+    },
+    {
+      "case_id": "boot4-values-signed-condition-A",
+      "repeat_case_id": "boot4-values-signed-condition-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F48(){I64 a=1,b=2,c=3,d=1,e=4;if(a<b==b<c)return 7;return 9;}F48();"
+    },
+    {
+      "case_id": "boot4-values-signed-return-A",
+      "repeat_case_id": "boot4-values-signed-return-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F39(){I64 a=1,b=2,c=3,d=1,e=4;return a==(b<c)==d;}F39();"
+    },
+    {
+      "case_id": "boot4-values-signed-return-A",
+      "repeat_case_id": "boot4-values-signed-return-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F43(){I64 a=1,b=2,c=3,d=1,e=4;return (a==b<c)==d;}F43();"
+    },
+    {
+      "case_id": "boot4-values-signed-return-A",
+      "repeat_case_id": "boot4-values-signed-return-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F47(){I64 a=1,b=2,c=3,d=1,e=4;return a<b==b<c;}F47();"
+    },
+    {
+      "case_id": "boot4-values-signed-value-A",
+      "repeat_case_id": "boot4-values-signed-value-B",
+      "field": "V4",
+      "holy_c_source": "I64 a=1,b=2,c=3,d=1,e=4;a==(b<c)==d;"
+    },
+    {
+      "case_id": "boot4-values-signed-value-A",
+      "repeat_case_id": "boot4-values-signed-value-B",
+      "field": "V5",
+      "holy_c_source": "I64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;"
+    },
+    {
+      "case_id": "boot4-values-signed-value-A",
+      "repeat_case_id": "boot4-values-signed-value-B",
+      "field": "V6",
+      "holy_c_source": "I64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;"
+    },
+    {
+      "case_id": "boot4-values-unsigned-argument-A",
+      "repeat_case_id": "boot4-values-unsigned-argument-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F62(){U64 a=1,b=2,c=3,d=1,e=4;return J593(a==(b<c)==d);}F62();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-argument-A",
+      "repeat_case_id": "boot4-values-unsigned-argument-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F66(){U64 a=1,b=2,c=3,d=1,e=4;return J593((a==b<c)==d);}F66();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-argument-A",
+      "repeat_case_id": "boot4-values-unsigned-argument-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F70(){U64 a=1,b=2,c=3,d=1,e=4;return J593(a<b==b<c);}F70();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-condition-A",
+      "repeat_case_id": "boot4-values-unsigned-condition-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F64(){U64 a=1,b=2,c=3,d=1,e=4;if(a==(b<c)==d)return 7;return 9;}F64();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-condition-A",
+      "repeat_case_id": "boot4-values-unsigned-condition-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F68(){U64 a=1,b=2,c=3,d=1,e=4;if((a==b<c)==d)return 7;return 9;}F68();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-condition-A",
+      "repeat_case_id": "boot4-values-unsigned-condition-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F72(){U64 a=1,b=2,c=3,d=1,e=4;if(a<b==b<c)return 7;return 9;}F72();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-return-A",
+      "repeat_case_id": "boot4-values-unsigned-return-B",
+      "field": "V4",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F63(){U64 a=1,b=2,c=3,d=1,e=4;return a==(b<c)==d;}F63();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-return-A",
+      "repeat_case_id": "boot4-values-unsigned-return-B",
+      "field": "V5",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F67(){U64 a=1,b=2,c=3,d=1,e=4;return (a==b<c)==d;}F67();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-return-A",
+      "repeat_case_id": "boot4-values-unsigned-return-B",
+      "field": "V6",
+      "holy_c_source": "I64 J593(I64 x){return x;}I64 F71(){U64 a=1,b=2,c=3,d=1,e=4;return a<b==b<c;}F71();"
+    },
+    {
+      "case_id": "boot4-values-unsigned-value-A",
+      "repeat_case_id": "boot4-values-unsigned-value-B",
+      "field": "V4",
+      "holy_c_source": "U64 a=1,b=2,c=3,d=1,e=4;a==(b<c)==d;"
+    },
+    {
+      "case_id": "boot4-values-unsigned-value-A",
+      "repeat_case_id": "boot4-values-unsigned-value-B",
+      "field": "V5",
+      "holy_c_source": "U64 a=1,b=2,c=3,d=1,e=4;(a==b<c)==d;"
+    },
+    {
+      "case_id": "boot4-values-unsigned-value-A",
+      "repeat_case_id": "boot4-values-unsigned-value-B",
+      "field": "V6",
+      "holy_c_source": "U64 a=1,b=2,c=3,d=1,e=4;a<b==b<c;"
+    }
+  ],
+  "excluded": "The pending-reduction forms 1==2<3==1, 1==2<3<4==1 and 1!=2>=3!=1 have compiler/listing evidence only. Their numerical execution results are not claimed by this fixture. F64 chains are outside this fixture.",
+  "hosted_regressions": [
+    {
+      "id": "false-prefix-effects",
+      "holy_c_source": "I64 N=0;I64 T(I64 n){N++;return n;}I64 F(){if(T(3)<T(2)<T(1))return -1;return N+40;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "true-shared-middle",
+      "holy_c_source": "I64 N=0;I64 T(I64 n){N++;return n;}I64 F(){if(T(1)<T(2)<T(3))return N+39;return -1;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "parentheses-break-sharing",
+      "holy_c_source": "I64 N=0;I64 T(I64 n){N++;return n;}I64 F(){if((T(3)<T(2))<T(1))return N+39;return -1;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "while-reentry",
+      "holy_c_source": "I64 F(){I64 n=0;while(0<=n<4)n++;return n+38;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "do-reentry",
+      "holy_c_source": "I64 F(){I64 n=0;do n++;while(0<n<4);return n+38;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "for-reentry",
+      "holy_c_source": "I64 F(){I64 n=0,total=0;for(n=0;0<=n<4;n++)total+=n;return total+36;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "nested-logical-and",
+      "holy_c_source": "I64 F(){I64 n=0;if(1 && 1<2<3 && 0<1<2)n=42;return n;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "nested-logical-or",
+      "holy_c_source": "I64 F(){I64 n=0;if(3<2<1 || 1<2<3)n=42;return n;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "logical-not",
+      "holy_c_source": "I64 F(){if(!(3<2<1))return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "unary-plus",
+      "holy_c_source": "I64 F(){if(+(1<2<3))return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "eager-arithmetic-wrapper",
+      "holy_c_source": "I64 N=0;I64 T(I64 n){N++;return n;}I64 F(){if((T(3)<T(2)<T(1))+1)return N+39;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "eager-assignment-wrapper",
+      "holy_c_source": "I64 N=0;I64 T(I64 n){N++;return n;}I64 F(){I64 x;if(x=T(3)<T(2)<T(1))return 9;return N+39;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "value-call-argument",
+      "holy_c_source": "I64 N=0;I64 T(I64 n){N++;return n;}I64 Id(I64 n){return n;}I64 F(){if(Id(T(3)<T(2)<T(1)))return 9;return N+39;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "recursive-activation",
+      "holy_c_source": "I64 R(I64 n){if(0<n<5)return 1<R(n-1)+1<7;return 1;}R(4)+41;",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "stored-original-middle",
+      "holy_c_source": "I64 F(){I64 n=1;if(n++<n++<n++)return n+38;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "array-middle",
+      "holy_c_source": "I64 F(){I64 a[3];a[0]=1;a[1]=2;a[2]=3;I64 i=0;if(a[i++]<a[i++]<a[i++])return i+39;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "static-reentry",
+      "holy_c_source": "I64 F(){static I64 n=0;if(0<=n++<2)return 40;return 2;}F();F();F()+40;",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "unreachable-chain",
+      "holy_c_source": "I64 F(){return 42;if(1<2<3)return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "parameter-default",
+      "holy_c_source": "I64 F(I64 x=2){if(1<x<3)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "mixed-pending-grouped",
+      "holy_c_source": "I64 F(){if(1==(2<3)==1)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "eager-pending-grouped",
+      "holy_c_source": "I64 F(){if((1==2<3)==1)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "mixed-shared-final",
+      "holy_c_source": "I64 F(){if(1<2==2<3)return 9;return 42;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "cumulative-unsigned",
+      "holy_c_source": "I64 F(U64 a,I64 b,I64 c){if((~a)>b>c)return 9;return 42;}F(0x8000000000000000,0,-1);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "grouped-unsigned",
+      "holy_c_source": "I64 F(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 42;return 9;}F(0x8000000000000000,0,-1);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "skipped-zero-divisor",
+      "holy_c_source": "I64 F(I64 z){if(3<2<1/z)return 9;return 42;}F(0);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "skipped-uninitialized",
+      "holy_c_source": "I64 F(){I64 x;if(3<2<x)return 9;return 42;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "operator-<",
+      "holy_c_source": "I64 F(){if(1<2<3)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "operator->",
+      "holy_c_source": "I64 F(){if(3>2>1)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "operator-<=",
+      "holy_c_source": "I64 F(){if(2<=2<=3)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "operator->=",
+      "holy_c_source": "I64 F(){if(3>=3>=2)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "operator-==",
+      "holy_c_source": "I64 F(){if(2==2==2)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "operator-!=",
+      "holy_c_source": "I64 F(){if(1!=2!=3)return 42;return 9;}F();",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-Bool",
+      "holy_c_source": "I64 F(Bool a,Bool b,Bool c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-I8",
+      "holy_c_source": "I64 F(I8 a,I8 b,I8 c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-U8",
+      "holy_c_source": "I64 F(U8 a,U8 b,U8 c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-I16",
+      "holy_c_source": "I64 F(I16 a,I16 b,I16 c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-U16",
+      "holy_c_source": "I64 F(U16 a,U16 b,U16 c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-I32",
+      "holy_c_source": "I64 F(I32 a,I32 b,I32 c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-U32",
+      "holy_c_source": "I64 F(U32 a,U32 b,U32 c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-I64",
+      "holy_c_source": "I64 F(I64 a,I64 b,I64 c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    },
+    {
+      "id": "storage-U64",
+      "holy_c_source": "I64 F(U64 a,U64 b,U64 c){if(a<b<c)return 42;return 9;}F(1,2,3);",
+      "expected_bits": "0x000000000000002a"
+    }
+  ],
+  "setup_checks": [
+    {
+      "id": "boot4-class-define-K1",
+      "command": "DocClear;I64 K1(U64 a,I64 b,I64 c){return a>b>c;}",
+      "source_capture": {
+        "file": "boot4-class-define-K1-source.png",
+        "sha256": "1485f9e9798af1da545c450a2063e1441711732d203970cb860f95eb07c11cf5"
+      },
+      "result_capture": {
+        "file": "boot4-class-define-K1-result.png",
+        "sha256": "f01e56acd56f72abc1ff730b1cf5ade4f725a2eec63ebc1f899113044656bd19"
+      },
+      "decoded_source": [
+        "????????????????????????",
+        "&PendingCondition+0x0000 55           PUSH      U64 RBP",
+        "&PendingCondition+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "&PendingCondition+0x0004 4D33C9       XOR       U64 R9,U64 R9",
+        "&PendingCondition+0x0007 41B101       MOV       U8 R9u8,U8 01",
+        "&PendingCondition+0x000A 33C9         XOR       U64 RCX,U64 RCX",
+        "&PendingCondition+0x000C B102         MOV       U8 CL,U8 02",
+        "&PendingCondition+0x000E 33C0         XOR       U64 RAX,U64 RAX",
+        "&PendingCondition+0x0010 4883F903     CMP       U64 RCX,I8 03",
+        "&PendingCondition+0x0014 6A03         PUSH      I8 03",
+        "&PendingCondition+0x0016 7D03         JGE       I8 ????????????????????????",
+        "&PendingCondition+0x0018 48FFC0       INC       U64 RAX",
+        "&PendingCondition+0x001B 5B           POP       U64 RBX",
+        "&PendingCondition+0x001C 50           PUSH      U64 RAX",
+        "&PendingCondition+0x001D 53           PUSH      U64 RBX",
+        "&PendingCondition+0x001E 59           POP       U64 RCX",
+        "&PendingCondition+0x001F 483BC8       CMP       U64 RCX,U64 RAX",
+        "&PendingCondition+0x0022 750F         JNE       I8 ????????????????????????",
+        "&PendingCondition+0x0024 4C8BC0       MOV       U64 R8,U64 RAX",
+        "&PendingCondition+0x0027 4983F801     CMP       U64 R8,I8 01",
+        "&PendingCondition+0x002B 7506         JNE       I8 ????????????????????????",
+        "&PendingCondition+0x002D 33C0         XOR       U64 RAX,U64 RAX",
+        "&PendingCondition+0x002F B007         MOV       U8 AL,U8 07",
+        "&PendingCondition+0x0031 EB04         JMP       I8 ????????????????????????",
+        "&PendingCondition+0x0033 33C0         XOR       U64 RAX,U64 RAX",
+        "&PendingCondition+0x0035 B009         MOV       U8 AL,U8 09",
+        "????????????????????????",
+        "&PendingCondition+0x0037 5D           POP       U64 RBP",
+        "&PendingCondition+0x0038 C3           R?T",
+        "&PendingCondition+0x0039 0000         AD?       U8 [RAX],U8 AL",
+        "&PendingCondition+0x003B 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x003D 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x003F 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x0041 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x0043 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x0045 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x0047 004000       ADD       U8 00[RAX],U8 AL",
+        "&PendingCondition+0x004A 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x004C 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x004E 0000         ADD       U8 [RAX],U8 AL",
+        "&PendingCondition+0x0050 B87AD61400   MOV       U32 EAX,I32 0014D67A",
+        "&PendingCondition+0x0055 0000         ADD       U8 [RAX],U8 AL",
+        "0.139630s ans=0x14D67BFF=349600767",
+        "T:/Home>DocClear;I64 K1(U64 a,I64 b,I64 c){return a>b>c;}?"
+      ],
+      "decoded_result": [
+        "0.004911s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-class-define-K2",
+      "command": "DocClear;I64 K2(U64 a,I64 b,I64 c){return a>b<c;}",
+      "source_capture": {
+        "file": "boot4-class-define-K2-source.png",
+        "sha256": "cddf5454911169fd0a11d02e381e4a98455d68c0f7840c47596c0ad0860eb3cc"
+      },
+      "result_capture": {
+        "file": "boot4-class-define-K2-result.png",
+        "sha256": "6673ed70bef300bcb7a710fb65f6c7fbd88ab230a1cf7cfe653754a50c173c99"
+      },
+      "decoded_source": [
+        "0.004911s",
+        "T:/Home>DocClear;I64 K2(U64 a,I64 b,I64 c){return a>b<c;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.000443s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-class-define-K3",
+      "command": "DocClear;I64 K3(U64 a,I64 b,I64 c){return (~a)>b>c;}",
+      "source_capture": {
+        "file": "boot4-class-define-K3-source.png",
+        "sha256": "026d99b3e808d9c175a0d3493c6da3ff43f6cbd21528f926b04276055a68a1f0"
+      },
+      "result_capture": {
+        "file": "boot4-class-define-K3-result.png",
+        "sha256": "bce33d399fcd7ffe4f73f36ba9cd7be16fd1b75d9202d796d7a73c3e52f5de8b"
+      },
+      "decoded_source": [
+        "0.000443s",
+        "T:/Home>DocClear;I64 K3(U64 a,I64 b,I64 c){return (~a)>b>c;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.000626s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-class-define-K4",
+      "command": "DocClear;I64 K4(U64 a,I64 b,I64 c){return (~a)>b<c;}",
+      "source_capture": {
+        "file": "boot4-class-define-K4-source.png",
+        "sha256": "30f575c9812ad6d1e578e4d0eb7b4f37a6cc7b8f99b600fd821fb6b1c612459e"
+      },
+      "result_capture": {
+        "file": "boot4-class-define-K4-result.png",
+        "sha256": "cab2cd605ca5978ea326ee32d1f35de53202eabff7ef6983ff3ce940b19ab13c"
+      },
+      "decoded_source": [
+        "0.000626s",
+        "T:/Home>DocClear;I64 K4(U64 a,I64 b,I64 c){return (~a)>b<c;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.000483s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-class-define-K5",
+      "command": "DocClear;I64 K5(U64 a,I64 b,I64 c){return ((~a)>b)>c;}",
+      "source_capture": {
+        "file": "boot4-class-define-K5-source.png",
+        "sha256": "a67b53eecb071c3a3bdd2cb92d921edc9e7e5e428274a1f5c2f35026454fe496"
+      },
+      "result_capture": {
+        "file": "boot4-class-define-K5-result.png",
+        "sha256": "dc6fef03751abd18c50512d519061f6d1d0d86fc3c075a52513401409474a987"
+      },
+      "decoded_source": [
+        "0.000483s",
+        "T:/Home>DocClear;I64 K5(U64 a,I64 b,I64 c){return ((~a)>b)>c;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.000614s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-class-define-K6",
+      "command": "DocClear;I64 K6(U64 a,I64 b,I64 c){return b<(~a)>b;}",
+      "source_capture": {
+        "file": "boot4-class-define-K6-source.png",
+        "sha256": "9e9b21e4c7c1aa842c74049e6a47aa4d1f332d9bddafe32e561ac2c83d8775a4"
+      },
+      "result_capture": {
+        "file": "boot4-class-define-K6-result.png",
+        "sha256": "7260e1a792b40406eaf79cf3b81d2aba0d591d07feed8f39e8a2473ece9c3c5b"
+      },
+      "decoded_source": [
+        "0.000614s",
+        "T:/Home>DocClear;I64 K6(U64 a,I64 b,I64 c){return b<(~a)>b;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.000458s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-conditional-chain-definitions",
+      "command": "DocClear;I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CTick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;return 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;return 9;}",
+      "source_capture": {
+        "file": "boot4-conditional-chain-definitions-source.png",
+        "sha256": "03365c4a09884147e3699ee28a54df16c0b89f6e8d031d2b3afe35230c40daf6"
+      },
+      "result_capture": {
+        "file": "boot4-conditional-chain-definitions-result.png",
+        "sha256": "fd4f6c36cadaf3b29440c78e9daa52876673e6351141d9fb917515af53d31911"
+      },
+      "decoded_source": [
+        "V4=0000000000000007 V5=0000000000000007 V6=0000000000000009",
+        "0.000328s",
+        "T:/Home>DocClear;I64 CCount=0;I64 CTick(I64 n){CCount++;return n;}I64 CFalse(",
+        "){if(CTick(3)<CTick(2)<CTick(1))return 7;return 9;}I64 CTrue(){if(CTick(1)<CT",
+        "ick(2)<CTick(3))return 7;return 9;}I64 CGroup(){if((CTick(3)<CTick(2))<CTick(",
+        "1))return 7;return 9;}I64 CUnsigned(U64 a,I64 b,I64 c){if((~a)>b>c)return 7;r",
+        "eturn 9;}I64 CGroupedUnsigned(U64 a,I64 b,I64 c){if(((~a)>b)>c)return 7;retur",
+        "n 9;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.001806s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-identity",
+      "command": "DocClear;I64 J593(I64 x){return x;}",
+      "source_capture": {
+        "file": "boot4-identity-source.png",
+        "sha256": "bd1b33aef9ef2205e0855844958985badc39b48498b0af8aad33f283019d05e5"
+      },
+      "result_capture": {
+        "file": "boot4-identity-result.png",
+        "sha256": "931000d07525b26a1c66b0fb93c32c77a9f23129c8f626c5f0d4854ff044986a"
+      },
+      "decoded_source": [
+        "K4=0000000000000001,K5=0000000000000001,K6=0000000000000001",
+        "0.000240s",
+        "T:/Home>DocClear;I64 J593(I64 x){return x;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.001467s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-literal-argument",
+      "command": "DocClear;I64 F14(){return J593(1==(2<3)==1);}I64 F18(){return J593((1==2<3)==1);}I64 F22(){return J593(1<2==2<3);}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-literal-argument-source.png",
+        "sha256": "e45e5b096ed887786803197818b61d70a094b9a91659d5dd0bd6d2d6a04a609a"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-literal-argument-result.png",
+        "sha256": "7d92cbdad99ba281f25bc6d5ff91b437479ac5c0c519d433f5ae088401e0c4a5"
+      },
+      "decoded_source": [
+        "0.001467s",
+        "T:/Home>DocClear;I64 F14(){return J593(1==(2<3)==1);}I64 F18(){return J593((1",
+        "==2<3)==1);}I64 F22(){return J593(1<2==2<3);}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.000797s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-literal-condition",
+      "command": "DocClear;I64 F16(){if(1==(2<3)==1)return 7;return 9;}I64 F20(){if((1==2<3)==1)return 7;return 9;}I64 F24(){if(1<2==2<3)return 7;return 9;}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-literal-condition-source.png",
+        "sha256": "17ed5ceff05adc8575efae5608436051a1346857f0423dadb925536e9569379b"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-literal-condition-result.png",
+        "sha256": "87f430d2d8b7e42e52ca5b40f49ebc654ca96f5daeac37a5de44b43546cee3ae"
+      },
+      "decoded_source": [
+        "0.000995s",
+        "T:/Home>DocClear;I64 F16(){if(1==(2<3)==1)return 7;return 9;}I64 F20(){if((1=",
+        "=2<3)==1)return 7;return 9;}I64 F24(){if(1<2==2<3)return 7;return 9;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.000794s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-literal-return",
+      "command": "DocClear;I64 F15(){return 1==(2<3)==1;}I64 F19(){return (1==2<3)==1;}I64 F23(){return 1<2==2<3;}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-literal-return-source.png",
+        "sha256": "75eacc4c55054e4c31729aeef3f762000ab9a6d4a694a58b091e3b02f9338fd0"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-literal-return-result.png",
+        "sha256": "b7891f1457b073959b260a8765a1717d2b39b68fa6d4b05c67511258be85b8de"
+      },
+      "decoded_source": [
+        "0.000797s",
+        "T:/Home>DocClear;I64 F15(){return 1==(2<3)==1;}I64 F19(){return (1==2<3)==1;}",
+        "I64 F23(){return 1<2==2<3;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "0.000995s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-signed-argument",
+      "command": "DocClear;I64 F38(){I64 a=1,b=2,c=3,d=1,e=4;return J593(a==(b<c)==d);}I64 F42(){I64 a=1,b=2,c=3,d=1,e=4;return J593((a==b<c)==d);}I64 F46(){I64 a=1,b=2,c=3,d=1,e=4;return J593(a<b==b<c);}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-signed-argument-source.png",
+        "sha256": "ad4cf4b40bf07d6727f9dec15c0686ae625037347568860f10754749735bfa8f"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-signed-argument-result.png",
+        "sha256": "be2961068ee811a099e218d03a559a6a26bfcaaa21629190de1fc4e989e3f06a"
+      },
+      "decoded_source": [
+        "0.000794s",
+        "T:/Home>DocClear;I64 F38(){I64 a=1,b=2,c=3,d=1,e=4;return J593(a==(b<c)==d);}",
+        "I64 F42(){I64 a=1,b=2,c=3,d=1,e=4;return J593((a==b<c)==d);}I64 F46(){I64 a=1",
+        ",b=2,c=3,d=1,e=4;return J593(a<b==b<c);}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F38'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F42'",
+        "0.000966s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-signed-condition",
+      "command": "DocClear;I64 F40(){I64 a=1,b=2,c=3,d=1,e=4;if(a==(b<c)==d)return 7;return 9;}I64 F44(){I64 a=1,b=2,c=3,d=1,e=4;if((a==b<c)==d)return 7;return 9;}I64 F48(){I64 a=1,b=2,c=3,d=1,e=4;if(a<b==b<c)return 7;return 9;}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-signed-condition-source.png",
+        "sha256": "3e0df0e864fecd5a142da5429b47673b2e00bcc46e283ecd12692c37221a4460"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-signed-condition-result.png",
+        "sha256": "a66aae599f7a6be755070ccbc7c94f3a3c3be8d3c14944a7a7bdb4e7156a89bc"
+      },
+      "decoded_source": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F39'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F43'",
+        "0.002877s",
+        "T:/Home>DocClear;I64 F40(){I64 a=1,b=2,c=3,d=1,e=4;if(a==(b<c)==d)return 7;re",
+        "turn 9;}I64 F44(){I64 a=1,b=2,c=3,d=1,e=4;if((a==b<c)==d)return 7;return 9;}I",
+        "64 F48(){I64 a=1,b=2,c=3,d=1,e=4;if(a<b==b<c)return 7;return 9;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F40'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F44'",
+        "0.001713s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-signed-return",
+      "command": "DocClear;I64 F39(){I64 a=1,b=2,c=3,d=1,e=4;return a==(b<c)==d;}I64 F43(){I64 a=1,b=2,c=3,d=1,e=4;return (a==b<c)==d;}I64 F47(){I64 a=1,b=2,c=3,d=1,e=4;return a<b==b<c;}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-signed-return-source.png",
+        "sha256": "e6d2365bdd45ca91aa486fe06599049b54d1df309d872285672752dadb72b94d"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-signed-return-result.png",
+        "sha256": "f9461e7122382c5f6d28aee449735cfb6cd76dc90f1eb7d2364ba935776bfec9"
+      },
+      "decoded_source": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F38'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F42'",
+        "0.000966s",
+        "T:/Home>DocClear;I64 F39(){I64 a=1,b=2,c=3,d=1,e=4;return a==(b<c)==d;}I64 F4",
+        "3(){I64 a=1,b=2,c=3,d=1,e=4;return (a==b<c)==d;}I64 F47(){I64 a=1,b=2,c=3,d=1",
+        ",e=4;return a<b==b<c;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F39'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F43'",
+        "0.002877s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-unsigned-argument",
+      "command": "DocClear;I64 F62(){U64 a=1,b=2,c=3,d=1,e=4;return J593(a==(b<c)==d);}I64 F66(){U64 a=1,b=2,c=3,d=1,e=4;return J593((a==b<c)==d);}I64 F70(){U64 a=1,b=2,c=3,d=1,e=4;return J593(a<b==b<c);}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-unsigned-argument-source.png",
+        "sha256": "52f3d2cc859f7b5f69890669bed8eae6a854d4ccb48d15737e4d1f8b70515029"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-unsigned-argument-result.png",
+        "sha256": "09487ae1581c8f175aac4771e84be4f566a4ba579bce57c6c6991307062c436e"
+      },
+      "decoded_source": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F40'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F44'",
+        "0.001713s",
+        "T:/Home>DocClear;I64 F62(){U64 a=1,b=2,c=3,d=1,e=4;return J593(a==(b<c)==d);}",
+        "I64 F66(){U64 a=1,b=2,c=3,d=1,e=4;return J593((a==b<c)==d);}I64 F70(){U64 a=1",
+        ",b=2,c=3,d=1,e=4;return J593(a<b==b<c);}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F62'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F66'",
+        "0.002045s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-unsigned-condition",
+      "command": "DocClear;I64 F64(){U64 a=1,b=2,c=3,d=1,e=4;if(a==(b<c)==d)return 7;return 9;}I64 F68(){U64 a=1,b=2,c=3,d=1,e=4;if((a==b<c)==d)return 7;return 9;}I64 F72(){U64 a=1,b=2,c=3,d=1,e=4;if(a<b==b<c)return 7;return 9;}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-unsigned-condition-source.png",
+        "sha256": "eda11279ef03a27ec716d89ae564d5e464362557ba6026ab709c508eda24612c"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-unsigned-condition-result.png",
+        "sha256": "686d5ac6b7f4aa674eef8dde453151dde49418125a8f45bd31bf458cae4c81ca"
+      },
+      "decoded_source": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F63'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F67'",
+        "0.001774s",
+        "T:/Home>DocClear;I64 F64(){U64 a=1,b=2,c=3,d=1,e=4;if(a==(b<c)==d)return 7;re",
+        "turn 9;}I64 F68(){U64 a=1,b=2,c=3,d=1,e=4;if((a==b<c)==d)return 7;return 9;}I",
+        "64 F72(){U64 a=1,b=2,c=3,d=1,e=4;if(a<b==b<c)return 7;return 9;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F64'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F68'",
+        "0.001755s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    },
+    {
+      "id": "boot4-valid-definitions-unsigned-return",
+      "command": "DocClear;I64 F63(){U64 a=1,b=2,c=3,d=1,e=4;return a==(b<c)==d;}I64 F67(){U64 a=1,b=2,c=3,d=1,e=4;return (a==b<c)==d;}I64 F71(){U64 a=1,b=2,c=3,d=1,e=4;return a<b==b<c;}",
+      "source_capture": {
+        "file": "boot4-valid-definitions-unsigned-return-source.png",
+        "sha256": "add971e8e1b36c1267ca809d52c6c64c33852db88b29321217aa471e70dc3d38"
+      },
+      "result_capture": {
+        "file": "boot4-valid-definitions-unsigned-return-result.png",
+        "sha256": "3c4174e17bcf507eee8943e61102bc5b350309847454ed51bec712cd29cd51a8"
+      },
+      "decoded_source": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F62'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin ???????? Unused var",
+        " ???????????????? 'e' in 'F66'",
+        "0.002045s",
+        "T:/Home>DocClear;I64 F63(){U64 a=1,b=2,c=3,d=1,e=4;return a==(b<c)==d;}I64 F6",
+        "7(){U64 a=1,b=2,c=3,d=1,e=4;return (a==b<c)==d;}I64 F71(){U64 a=1,b=2,c=3,d=1",
+        ",e=4;return a<b==b<c;}?",
+        "                                       ?",
+        "                                        ?"
+      ],
+      "decoded_result": [
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F63'",
+        "PrsFun PrsGlblVarLst PrsStmt &LexStmt2Bin WARNING: Unused var",
+        " ???????????????? 'e' in 'F67'",
+        "0.001774s",
+        "T:/Home>?",
+        "                                       ?",
+        "                                        ?"
+      ]
+    }
+  ]
+}

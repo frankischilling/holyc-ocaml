@@ -90,6 +90,9 @@ type intrinsic = {
 
 type graph_context = {
   owner : owner;
+  original_entry : Seq.Block_id.t;
+  original_blocks :
+    (Seq.Block_id.t * Seq.description list * Seq.Block_id.t list) list;
   source_producers : Seq.description Instructions.t;
   calls : call Instructions.t;
   discards : call Instructions.t;
@@ -219,6 +222,26 @@ let source_producers_match context =
         | Entry -> context.entry
         | Function body -> Function_body.x87 body
       in
+      let graph_ = X87_stack.graph checked in
+      let same_list equal left right =
+        List.length left = List.length right && List.for_all2 equal left right
+      in
+      let layout_matches =
+        Seq.Block_id.equal graph.original_entry
+          (Block_graph.entry graph_ |> Block_graph.block_id)
+        && same_list
+             (fun (id, original, successors) block ->
+               Seq.Block_id.equal id (Block_graph.block_id block)
+               && same_list Seq.Block_id.equal successors
+                    (Block_graph.successors block)
+               && same_list ( == ) original
+                    (Block_graph.instructions block
+                    |> Seq.instructions |> List.map Seq.description))
+             graph.original_blocks
+             (Block_graph.blocks graph_)
+      in
+      layout_matches
+      &&
       let current =
         X87_stack.graph checked |> Block_graph.blocks
         |> List.fold_left
@@ -1771,6 +1794,15 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
   done;
   {
     owner;
+    original_entry = Block_graph.entry graph |> Block_graph.block_id;
+    original_blocks =
+      List.map
+        (fun block ->
+          ( Block_graph.block_id block,
+            Block_graph.instructions block
+            |> Seq.instructions |> List.map Seq.description,
+            Block_graph.successors block ))
+        blocks;
     source_producers = !source_producers;
     calls = !calls;
     discards = !discards;

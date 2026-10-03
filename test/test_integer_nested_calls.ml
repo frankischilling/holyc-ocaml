@@ -170,13 +170,13 @@ let unsupported () =
     (fun mode ->
       let default = "I64 F(I64 n=1){return n;}(1+F());" in
       ignore (F.run ~mode default |> F.expect 2L);
+      ignore (F.run ~mode (identity ^ "if(0<Id(1)<3)42;") |> F.expect 42L);
       List.iter
         (fun text -> ignore (F.first_error (F.run ~mode text)))
         [
           "extern I64 F();(1+F());";
           "I64 F(I64 *n){return 1;}(1+F(0));";
           "F64 F(){return 1.0;}(F()+1.0);";
-          identity ^ "if(0<Id(1)<3)42;";
           identity ^ "(Id(1==2<3==1));";
         ])
     modes

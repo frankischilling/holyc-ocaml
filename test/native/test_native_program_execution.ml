@@ -118,7 +118,9 @@ let basic_execution_and_meter () =
   compare_vm "multiply differential" ~max_steps:5 (Fixture.multiply_graph ());
   compare_vm "branch differential" ~max_steps:32 (Fixture.branch_graph ());
   compare_vm "last-value differential" ~max_steps:5
-    (Fixture.last_value_graph ())
+    (Fixture.last_value_graph ());
+  compare_vm "dominated value with consumer before producer" ~max_steps:5
+    (Fixture.shared_value_graph ())
 
 let arithmetic_graph ?(type_ = Fixture.i64) opcode left right =
   Fixture.verified ~entry:0

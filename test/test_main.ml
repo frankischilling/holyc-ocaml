@@ -211,6 +211,7 @@ let () =
       ("initializer leaf evidence", Test_initializer_leaf_evidence.tests);
       ("persistent array safety", Test_integer_array_safety.tests);
       ("comparison chains", Test_ir_comparison_chains.tests);
+      ("conditional comparison chains", Test_conditional_comparison_chains.tests);
       ("integer frames", Test_ir_integer_frames.tests);
       ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);
       ("IR integer division", Test_ir_integer_division.tests);

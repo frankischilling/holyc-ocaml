@@ -1,5 +1,15 @@
 # Reference source map
 
+Issue #797 follows `PrsExp.HC:49-52,225-230` for shared comparison operands and
+`OptPass012.HC:141-150,809-822` for their cumulative computation classes.
+`OptPass4.HC:516-527` marks comparison branch destinations for stack cleanup;
+`OptPass789A.HC:158-242,286-292` emits comparison branches and label cleanup.
+The OCaml lowerer preserves the original middle word across verified blocks,
+with dominance checks and native private frame homes. Fifty native field/source
+pairs, each observed twice in one JIT boot, are retained in
+`test/oracle/conditional-comparison-chains.json`. See
+[conditional integer chains](conditional-comparison-chains.md).
+
 Issue #795 uses `Compiler/Lex.HC:493-509` for original hash/local selection,
 `PrsStmt.HC:140-207,915-939,1156-1193` for declaration dispatch and function
 teardown, and `PrsExp.HC:728-743,774-812,1018-1057` for grouping, values and

@@ -21,10 +21,18 @@ val create :
   entry:Block_id.t -> block_description list -> (t, error list) result
 (** Build an immutable graph in source order. The constructor validates each
     child sequence, global identities, terminators, targets, fallthrough, and
-    the unique stream-end marker. *)
+    the unique stream-end marker. A value used outside its defining block must
+    have a unique definition that dominates the use. Disconnected regions are
+    seeded in source order and checked as additional entries. *)
 
 val entry : t -> block
 val blocks : t -> block list
+
+val definition_order : t -> block list
+(** Return blocks in dominator-tree order. Every external value producer
+    precedes its consumers; instructions within each block retain source order.
+*)
+
 val find_block : t -> Block_id.t -> block option
 val block_id : block -> Block_id.t
 val instructions : block -> Instruction_sequence.t

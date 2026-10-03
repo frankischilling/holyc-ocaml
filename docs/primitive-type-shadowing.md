@@ -37,6 +37,6 @@ as function, global, local and parameter names, grouping, updates, replacement
 input, restored types, newer aggregate identities and unshadowed casts. Native
 CLI tests execute the emitted image on the active host. The wider spelling
 matrix is hosted regression evidence; the fixture identifies the independently
-observed TempleOS cases. Conditional comparison chains and pending comparison
-reductions remain separate work under #593. F64 values, the full ABI, module
+observed TempleOS cases. [Conditional integer chains](conditional-comparison-chains.md)
+are covered separately by #797; pending reductions remain under #593. F64 values, the full ABI, module
 loading and bootstrap retain their existing implementation requirements.

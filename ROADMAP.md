@@ -1,9 +1,14 @@
 # holyc-ocaml roadmap
 
+Issue #797 adds [conditional integer chains](docs/conditional-comparison-chains.md)
+with original middle values, branch-skipped effects, cumulative classes and
+checked cross-block definitions. Pending reductions and floating chains remain
+open; the native fixture identifies fifty field/source pairs observed twice.
+
 Issue #795 fixes [primitive type visibility](docs/primitive-type-shadowing.md)
 through original token selection, preserving local post-body lookahead.
-The separate comparison-stack and conditional-chain requirements remain under
-#593, and the complete compiler release remains under #682.
+The separate pending comparison-stack requirements remain under #593, and the
+complete compiler release remains under #682.
 
 Issue #793 connects original constant shifts and scalar right-shift updates to
 retained default/global/static preparation with sealed source authority.

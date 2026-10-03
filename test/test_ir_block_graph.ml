@@ -391,8 +391,207 @@ let deterministic_error_property =
           error_signature first = error_signature second
       | Ok _, _ | _, Ok _ -> false)
 
+let dominated_external_values () =
+  let graph =
+    require_graph ~entry:1
+      [
+        block 0
+          [
+            description
+              ~operands:[ value_id 0 ]
+              ~result:(result 1) ~target_type:i64 0 Opcode.Ic_com;
+            description ~payload:(Sequence.Block (block_id 2)) 1 Opcode.Ic_jmp;
+          ];
+        block 1
+          [
+            description ~result:(result 0) ~target_type:i64 2 Opcode.Ic_imm_i64;
+            description ~payload:(Sequence.Block (block_id 0)) 3 Opcode.Ic_jmp;
+          ];
+        block 2 [ description 4 Opcode.Ic_ret ];
+      ]
+  in
+  Alcotest.(check (list int))
+    "layout remains source ordered" [ 0; 1; 2 ] (block_numbers graph);
+  let order = Graph.definition_order graph |> List.map Graph.block_id in
+  let index id =
+    List.find_index (Graph.Block_id.equal (block_id id)) order |> Option.get
+  in
+  Alcotest.(check bool)
+    "producer precedes consumer for type preparation" true
+    (index 1 < index 0);
+  let loop =
+    [
+      block 0
+        [
+          description ~result:(result 0) ~target_type:i64 0 Opcode.Ic_imm_i64;
+          description ~payload:(Sequence.Block (block_id 1)) 1 Opcode.Ic_jmp;
+        ];
+      block 1
+        [
+          description
+            ~operands:[ value_id 0 ]
+            ~payload:(Sequence.Block (block_id 3))
+            2 Opcode.Ic_br_zero;
+        ];
+      block 2
+        [
+          description
+            ~operands:[ value_id 0 ]
+            ~result:(result 1) ~target_type:i64 3 Opcode.Ic_com;
+          description ~payload:(Sequence.Block (block_id 1)) 4 Opcode.Ic_jmp;
+        ];
+      block 3 [ description 5 Opcode.Ic_ret ];
+    ]
+  in
+  ignore (require_graph ~entry:0 loop);
+  (* The first disconnected source block is another entry, not an assumed
+     definition supplied by its later back edge. *)
+  ignore
+    (require_graph ~entry:9 (block 9 [ description 9 Opcode.Ic_ret ] :: loop))
+
+let external_values_require_dominance () =
+  let diamond =
+    [
+      block 0
+        [
+          description ~result:(result 0) ~target_type:i64 0 Opcode.Ic_imm_i64;
+          description
+            ~operands:[ value_id 0 ]
+            ~payload:(Sequence.Block (block_id 2))
+            1 Opcode.Ic_br_zero;
+        ];
+      block 1
+        [
+          description ~result:(result 1) ~target_type:i64 2 Opcode.Ic_imm_i64;
+          description ~payload:(Sequence.Block (block_id 3)) 3 Opcode.Ic_jmp;
+        ];
+      block 2
+        [ description ~payload:(Sequence.Block (block_id 3)) 4 Opcode.Ic_jmp ];
+      block 3
+        [
+          description
+            ~operands:[ value_id 1 ]
+            ~result:(result 2) ~target_type:i64 5 Opcode.Ic_com;
+          description 6 Opcode.Ic_ret;
+        ];
+    ]
+  in
+  graph_errors ~entry:0 diamond |> has_code "HCIR0009";
+  let back_edge =
+    [
+      block 0
+        [ description ~payload:(Sequence.Block (block_id 1)) 0 Opcode.Ic_jmp ];
+      block 1
+        [
+          description
+            ~operands:[ value_id 1 ]
+            ~result:(result 2) ~target_type:i64 1 Opcode.Ic_com;
+          description ~payload:(Sequence.Block (block_id 2)) 2 Opcode.Ic_jmp;
+        ];
+      block 2
+        [
+          description ~result:(result 1) ~target_type:i64 3 Opcode.Ic_imm_i64;
+          description ~payload:(Sequence.Block (block_id 1)) 4 Opcode.Ic_jmp;
+        ];
+    ]
+  in
+  graph_errors ~entry:0 back_edge |> has_code "HCIR0009";
+  let disconnected =
+    [
+      block 0
+        [
+          description ~result:(result 0) ~target_type:i64 0 Opcode.Ic_imm_i64;
+          description 1 Opcode.Ic_ret;
+        ];
+      block 1
+        [
+          description
+            ~operands:[ value_id 0 ]
+            ~result:(result 1) ~target_type:i64 2 Opcode.Ic_com;
+          description 3 Opcode.Ic_ret;
+        ];
+    ]
+  in
+  graph_errors ~entry:0 disconnected |> has_code "HCIR0009";
+  match
+    Sequence.create
+      [
+        description
+          ~operands:[ value_id 0 ]
+          ~result:(result 1) ~target_type:i64 0 Opcode.Ic_com;
+      ]
+  with
+  | Error errors ->
+      Alcotest.(check bool)
+        "standalone sequence remains closed" true
+        (List.exists (fun (e : Sequence.error) -> e.code = "HCIR0009") errors)
+  | Ok _ -> Alcotest.fail "standalone external value was accepted"
+
+let dominance_matches_path_removal =
+  QCheck.Test.make ~count:500
+    ~name:"external definitions agree with independent path removal"
+    QCheck.(
+      triple (list_size (Gen.int_range 2 12) nat_small) nat_small nat_small)
+    (fun (raw_targets, raw_owner, raw_use) ->
+      let count = List.length raw_targets in
+      let owner = raw_owner mod count and use = raw_use mod count in
+      let targets =
+        Array.of_list (List.map (fun n -> n mod count) raw_targets)
+      in
+      let seen = Array.make count false in
+      let pending = Queue.create () in
+      if owner <> 0 then Queue.add 0 pending;
+      while not (Queue.is_empty pending) do
+        let block = Queue.take pending in
+        if block <> owner && not seen.(block) then (
+          seen.(block) <- true;
+          if block + 1 < count then (
+            Queue.add (block + 1) pending;
+            Queue.add targets.(block) pending))
+      done;
+      let expected = owner = use || not seen.(use) in
+      let descriptions =
+        List.init count (fun index ->
+            let producer =
+              description ~result:(result index) ~target_type:i64 (index * 3)
+                Opcode.Ic_imm_i64
+            in
+            let consumer =
+              if index = use then
+                [
+                  description
+                    ~operands:[ value_id owner ]
+                    ~result:(result count) ~target_type:i64
+                    ((index * 3) + 1)
+                    Opcode.Ic_com;
+                ]
+              else []
+            in
+            let transfer =
+              if index + 1 = count then
+                description ((index * 3) + 2) Opcode.Ic_ret
+              else
+                description
+                  ~operands:[ value_id index ]
+                  ~payload:(Sequence.Block (block_id targets.(index)))
+                  ((index * 3) + 2)
+                  Opcode.Ic_br_zero
+            in
+            block index ((producer :: consumer) @ [ transfer ]))
+      in
+      match Graph.create ~entry:(block_id 0) descriptions with
+      | Ok _ -> expected
+      | Error errors ->
+          (not expected)
+          && List.exists (fun (e : Graph.error) -> e.code = "HCIR0009") errors)
+
 let tests =
   [
+    Alcotest.test_case "dominated values across blocks and back edges" `Quick
+      dominated_external_values;
+    Alcotest.test_case "external values require dominance" `Quick
+      external_values_require_dominance;
+    QCheck_alcotest.to_alcotest dominance_matches_path_removal;
     Alcotest.test_case "checked control-flow graph" `Quick
       checked_control_flow_graph;
     Alcotest.test_case "fallthrough and deterministic dump" `Quick

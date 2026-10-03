@@ -649,10 +649,19 @@ See [integer function frames](integer-function-frames.md) for its scope and
 The `comparison chains` group runs integer chains through the shared semantic
 and lowering passes and checks the observed VM result. It also checks shared
 middle operands, operator spans, eager faults, exact budgets, JIT/AOT function
-contexts and the unsupported conditional/floating domain. Run it with
+contexts and the unsupported floating and pending-reduction domains. Run it with
 `opam exec -- dune exec test/test_main.exe -- test "comparison chains"`.
 `dune runtest` evaluates `examples/integer-comparison-chain.hc` through the CLI
 in both parsing modes and checks its output of 42 with a ten-instruction limit.
+
+The `conditional comparison chains` group checks shared operands across blocks,
+dense identities, original graph authority, long chains and exact native limits
+for Windows x64 and System V encoding. The dedicated CLI test replays all 50
+native field/source pairs and 41 hosted regressions in both parsing modes;
+`@native-tests` repeats it through actual host-jit execution. It covers all six
+operators, loop re-entry, recursion, narrow storage, defaults, grouped and eager
+contexts, skipped faults, retained output and exact/one-below execution budgets.
+See [the conditional chain contract](conditional-comparison-chains.md).
 
 The `source integer program` group runs parsed top-level control flow through
 the checked semantic passes and VM. `test_integer_program_cli` invokes the built

@@ -70,6 +70,13 @@ val create : description list -> (t, error list) result
 (** Check instruction shapes, source order, IDs, spans, and flag bits before
     constructing an immutable sequence. *)
 
+val create_with_inputs :
+  inputs:Value_id.t list -> description list -> (t, error list) result
+(** Validate a block with explicitly supplied external values. Local definitions
+    still require source order, including self references. The enclosing graph
+    must validate each external definition and its dominance before execution.
+*)
+
 val bounded_switch_shape : description -> (bounded_switch_shape, string) result
 (** Validate the descriptor-local portion of canonical bounded [IC_SWITCH]. The
     ordered targets retain the default first and every table entry thereafter;

@@ -59,7 +59,9 @@ val create :
     original transitive producers are also sealed; replacing them with
     type-compatible records does not retain source authority. A numeric producer
     cannot be rewritten into a pointer comparison/difference or an unsealed
-    canonical constant shift. *)
+    canonical constant shift. The complete original graph layout, control edges
+    and instruction records are retained as well. Changed comparisons, branches
+    and copies cannot acquire that checked source context. *)
 
 val matches :
   t ->
@@ -67,8 +69,7 @@ val matches :
   initialization:Global_initialization.t option ->
   functions:Function_body.t list ->
   bool
-(** Require the original bundle and immutable pointer/integer-reduction producer
-    records. *)
+(** Require the original bundle, graph layout and instruction records. *)
 
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option
