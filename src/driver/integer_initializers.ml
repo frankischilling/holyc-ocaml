@@ -383,7 +383,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   Typed.top_level_root_value (Internal_binding.root destination),
                   None )
             | Default destination ->
-                ( Some (Default.symbol destination),
+                ( Default.symbol_opt destination,
                   Typed.top_level_root_value (Default.root destination),
                   None )
             | Fragment destination ->

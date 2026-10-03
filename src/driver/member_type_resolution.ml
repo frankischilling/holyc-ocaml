@@ -473,7 +473,8 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
       | Ok declarator_kind ->
           Result.bind (Register_request.of_list parameter.register_qualifiers)
             (fun register_requests ->
-              Sema.Function_type_resolution.make_parameter ~index
+              Sema.Function_type_resolution.make_parameter ~source:parameter
+                ~index
                 ~origin:(origin parameter.location)
                 ~register_requests
                 ?name:
@@ -506,7 +507,8 @@ and function_pointer_fact visible
       with
       | Error _ as error -> error
       | Ok signature ->
-          Sema.Member_type_resolution.make_function_pointer
+          Sema.Function_type_resolution.make_source_function_pointer
+            ~source:pointer
             ~origin:(origin pointer.function_pointer_location)
             ~opening_origin:(origin pointer.declarator_opening_parenthesis)
             ~indirection_origins:(pointer_origins pointer.indirection_layers)

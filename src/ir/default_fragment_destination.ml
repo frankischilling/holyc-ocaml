@@ -16,10 +16,8 @@ let root value = value.root_
 let globals value = value.globals_
 let type_ value = value.type_
 let span value = value.span_
-
-let symbol value =
-  Fragment.publication value.fragment_
-  |> Sema.Declaration_collection.publication_symbol
+let symbol_opt value = Fragment.symbol_opt value.fragment_
+let symbol value = Option.get (symbol_opt value)
 
 let create_with_globals globals typed =
   let ( let* ) = Result.bind in
@@ -39,9 +37,11 @@ let create_with_globals globals typed =
     | Sema.Top_level_expression_tree.Default_fragment fragment -> Ok fragment
     | _ -> Error "default destination requires its original default root"
   in
-  let receipt = Fragment.receipt fragment_ in
+  let type_specifier, pointer_layers, function_pointer =
+    Fragment.parameter_parts fragment_
+  in
   let* type_ =
-    match receipt.default_function_pointer with
+    match function_pointer with
     | Some pointer when List.length pointer.indirection_layers = 1 ->
         (* LexExpression2Bin returns a word; PrsFunCall later materializes that
            saved word with the original member's RT_PTR storage class. *)
@@ -50,8 +50,7 @@ let create_with_globals globals typed =
     | Some _ ->
         Error "HCRUN0001: callback defaults require one original pointer star"
     | None ->
-        Sema.Source_type_reference.builtin receipt.default_type_specifier
-          receipt.default_pointer_layers
+        Sema.Source_type_reference.builtin type_specifier pointer_layers
         |> Result.map Sema.Type_reference.resolved_type
   in
   let value = Typed.top_level_root_value root_ in
@@ -79,7 +78,7 @@ let create_with_globals globals typed =
       root_;
       globals_;
       type_;
-      span_ = receipt.default_ast.location.span;
+      span_ = (Fragment.ast fragment_).location.span;
     }
 
 let create ~task_view =

@@ -163,3 +163,9 @@ val implicit_binding_available :
   Frontend.Parser.implicit_output_selection ->
   committed:bool ->
   bool
+
+val callback_default :
+  t option -> Frontend.Parser.completed_callback_default -> bool
+
+val callback_default_completion :
+  t option -> Frontend.Parser.completed_callback_signature -> bool

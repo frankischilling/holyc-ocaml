@@ -14,6 +14,7 @@ type parameter_default =
 type declarator_kind = Object | Function_pointer of function_pointer
 
 and function_pointer = {
+  pointer_source : Frontend.Ast.function_pointer_declarator option;
   pointer_origin : Symbol.origin;
   pointer_opening_origin : Symbol.origin;
   pointer_indirection_origins : Symbol.origin list;
@@ -313,12 +314,34 @@ let make_function_pointer ~origin ~opening_origin ~indirection_origins
   else
     Ok
       {
+        pointer_source = None;
         pointer_origin = origin;
         pointer_opening_origin = opening_origin;
         pointer_indirection_origins = indirection_origins;
         pointer_closing_origin = closing_origin;
         pointer_signature = signature;
       }
+
+let function_pointer_source pointer = pointer.pointer_source
+
+let make_source_function_pointer ~source ~origin ~opening_origin
+    ~indirection_origins ~closing_origin ~signature =
+  let parameters = signature.signature_parameters_ in
+  if
+    List.length parameters
+    <> List.length source.Frontend.Ast.signature_parameters
+    || not
+         (List.for_all2
+            (fun parameter ast ->
+              Option.fold ~none:false ~some:(( == ) ast)
+                parameter.parameter_source_)
+            parameters source.signature_parameters)
+  then Error "callback source signature has another original parameter list"
+  else
+    Result.map
+      (fun pointer -> { pointer with pointer_source = Some source })
+      (make_function_pointer ~origin ~opening_origin ~indirection_origins
+         ~closing_origin ~signature)
 
 let make_signature ~opening_origin ~parameters ?variadic_origin
     ?(variadic_register_requests = []) ?closing_origin () =

@@ -48,6 +48,7 @@ type task_publication =
   | Function_publication of Retained_function.t
 
 type task_catalog = {
+  mutable callback_defaults : Prepared_callback_default.t list;
   mutable defaults : Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
   mutable namespace : Sema.Declaration_collection.namespace option;
@@ -57,6 +58,7 @@ type task_catalog = {
 }
 
 type task_view = {
+  callback_defaults : Prepared_callback_default.t list;
   defaults : Prepared_parameter_default.t list;
   catalog : task_catalog;
   environment : Sema.Outer_environment.t;
@@ -75,6 +77,7 @@ type fragment_kind =
   | Offset_context
 
 type t = {
+  source_callback_defaults : Prepared_callback_default.t list;
   source_defaults : Prepared_parameter_default.t list;
   fragment_kind_ : fragment_kind option;
   declared_slots_ : declared_slot list;
@@ -98,6 +101,7 @@ let fragment_context view fragment =
     Ok
       {
         fragment_kind_ = Some Initializer_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -118,6 +122,7 @@ let default_context view fragment =
     Ok
       {
         fragment_kind_ = Some Default_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -138,6 +143,7 @@ let dimension_context view fragment =
     Ok
       {
         fragment_kind_ = Some Dimension_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -158,6 +164,7 @@ let internal_binding_context view fragment =
     Ok
       {
         fragment_kind_ = Some Internal_binding_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -184,6 +191,7 @@ let offset_context view fragment =
     Ok
       {
         fragment_kind_ = Some Offset_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -205,6 +213,7 @@ let is_initializer_fragment globals =
 let isolated_default_context mode =
   Ok
     {
+      source_callback_defaults = [];
       source_defaults = [];
       fragment_kind_ = Some Default_context;
       declared_slots_ = [];
@@ -640,6 +649,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           Ok
             {
               fragment_kind_ = None;
+              source_callback_defaults = [];
               source_defaults = [];
               declared_slots_ = [];
               slots_ = List.rev reversed;
@@ -883,6 +893,7 @@ let create_with_layout ~layout ?initializers ~span records =
 
 let create_task_catalog ~table =
   {
+    callback_defaults = [];
     defaults = [];
     table;
     namespace = None;
@@ -1180,6 +1191,7 @@ let snapshot_task catalog =
       entries;
       function_entries;
       source_command = None;
+      callback_defaults = catalog.callback_defaults;
       defaults = catalog.defaults;
     }
 
@@ -1337,6 +1349,7 @@ let prepare_declared catalog declaration =
     Ok
       ( {
           fragment_kind_ = None;
+          source_callback_defaults = [];
           source_defaults = [];
           declared_slots_ = [ slot ];
           slots_ = [];
@@ -2175,3 +2188,43 @@ let offset_dependencies globals =
 let check_suspended_completion catalog ~suspension receipt =
   Sema.Task_command_order.check_suspended_completion catalog.source_order
     ~admitted:catalog.admitted_commands ~suspension receipt
+
+let with_source_callback_defaults globals defaults =
+  if
+    globals.mode <> Resolution.Aot
+    || Option.is_some globals.task_view
+    || globals.source_callback_defaults <> []
+  then
+    Error
+      "anonymous source defaults require their original isolated AOT context"
+  else Ok { globals with source_callback_defaults = defaults }
+
+let publish_callback_defaults catalog ~namespace defaults =
+  if
+    (not (task_catalog_owns_namespace catalog namespace))
+    || List.exists
+         (fun value ->
+           Prepared_callback_default.namespace value != namespace
+           || List.exists
+                (fun prior ->
+                  Prepared_callback_default.receipt prior
+                  == Prepared_callback_default.receipt value)
+                catalog.callback_defaults)
+         defaults
+  then
+    Error
+      "anonymous defaults have another namespace or already published original \
+       receipt"
+  else (
+    catalog.callback_defaults <- defaults @ catalog.callback_defaults;
+    Ok ())
+
+let prepared_callback_default globals ~pointer ~parameter =
+  let find =
+    List.find_opt (fun value ->
+        Prepared_callback_default.matches value ~pointer ~parameter)
+  in
+  match find globals.source_callback_defaults with
+  | Some _ as found -> found
+  | None ->
+      Option.bind globals.task_view (fun view -> find view.callback_defaults)

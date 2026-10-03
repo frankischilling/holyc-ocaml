@@ -366,8 +366,7 @@ and initializer_attempt = {
 
 type default_attempt = {
   default_catalog : Integer_globals.task_catalog;
-  default_publication : Sema.Declaration_collection.publication;
-  default_receipt : Frontend.Parser.completed_parameter_default;
+  default_source : Sema.Default_fragment.source;
   default_preparation_before : int;
   mutable default_state : initializer_attempt_state;
   mutable default_bits : int64 option;
@@ -1787,7 +1786,8 @@ let begin_task_default task ~namespace ~publication receipt =
         | Frontend.Ast.Expression_default _ ->
             List.exists
               (fun attempt ->
-                attempt.default_receipt == prior
+                Sema.Default_fragment.same_source attempt.default_source
+                  (Named (publication, prior))
                 && attempt.default_state = Successful_initializer)
               task.defaults)
   in
@@ -1807,7 +1807,9 @@ let begin_task_default task ~namespace ~publication receipt =
              (Sema.Declaration_collection.publication_source_function
                 publication)))
     || List.exists
-         (fun attempt -> attempt.default_receipt == receipt)
+         (fun attempt ->
+           Sema.Default_fragment.same_source attempt.default_source
+             (Named (publication, receipt)))
          task.defaults
   then
     Error
@@ -1816,8 +1818,7 @@ let begin_task_default task ~namespace ~publication receipt =
     let attempt =
       {
         default_catalog = task.catalog;
-        default_publication = publication;
-        default_receipt = receipt;
+        default_source = Sema.Default_fragment.Named (publication, receipt);
         default_preparation_before = task.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
@@ -1842,7 +1843,9 @@ let task_default_bits task receipt =
   List.find_map
     (fun attempt ->
       if
-        attempt.default_receipt == receipt
+        (match attempt.default_source with
+          | Named (_, original) -> original == receipt
+          | Callback _ -> false)
         && attempt.default_state = Successful_initializer
       then attempt.default_bits
       else None)
@@ -2206,10 +2209,12 @@ let complete_task_defaults task ~namespace header =
           match
             List.find_opt
               (fun attempt ->
-                attempt.default_receipt.default_function
-                == header.function_publication
-                && attempt.default_receipt.default_parameter_index = index
-                && attempt.default_receipt.default_ast == default)
+                match attempt.default_source with
+                | Sema.Default_fragment.Named (_, r) ->
+                    r.default_function == header.function_publication
+                    && r.default_parameter_index = index
+                    && r.default_ast == default
+                | Callback _ -> false)
               task.defaults
           with
           | Some attempt
@@ -2220,10 +2225,13 @@ let complete_task_defaults task ~namespace header =
                 "function header requires each successful original default \
                  preparation"
         in
+        let publication, receipt =
+          match attempt.default_source with
+          | Named (p, r) -> (p, r)
+          | Callback _ -> assert false
+        in
         let* value =
-          Prepared_parameter_default.create
-            ~publication:attempt.default_publication ~header
-            ~receipt:attempt.default_receipt
+          Prepared_parameter_default.create ~publication ~header ~receipt
             ~bits:(Option.get attempt.default_bits)
         in
         collect (value :: rev) rest
@@ -8092,7 +8100,7 @@ let consume_default_constant task value =
   let fragment =
     Sema.Default_fragment.authorized_fragment value.constant_authority
   in
-  let receipt = Sema.Default_fragment.receipt fragment in
+  let source = Sema.Default_fragment.source fragment in
   if
     value.constant_catalog != task.catalog
     || (not (List.exists (( == ) value) task.default_constants))
@@ -8106,13 +8114,13 @@ let consume_default_constant task value =
                (Sema.Function_call_expression_result.top_level_root_value
                   (Default_fragment_destination.root value.constant_destination))))
     || (not
-          (Frontend.Parser.parameter_default_is_current receipt
-          || (not
-                (Integer_globals.is_isolated_default
-                   (Default_fragment_destination.globals
-                      value.constant_destination)))
-             && Sema.Source_activation.parameter_default task.source_activation
-                  receipt))
+          (Sema.Default_fragment.current_source
+             ~allow_activation:
+               (not
+                  (Integer_globals.is_isolated_default
+                     (Default_fragment_destination.globals
+                        value.constant_destination)))
+             ~activation:task.source_activation source))
     || task.initializer_steps
        <> value.constant_preparation_before + value.constant_steps
   then
@@ -8151,13 +8159,12 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
       || (not (List.exists (( == ) attempt) task.defaults))
       || attempt.default_state <> Preparing_initializer
       || (not
-            (Frontend.Parser.parameter_default_is_current
-               attempt.default_receipt
-            || Sema.Source_activation.parameter_default task.source_activation
-                 attempt.default_receipt))
-      || Sema.Default_fragment.receipt fragment != attempt.default_receipt
-      || Sema.Default_fragment.publication fragment
-         != attempt.default_publication
+            (Sema.Default_fragment.current_source
+               ~activation:task.source_activation attempt.default_source))
+      || (not
+            (Sema.Default_fragment.same_source
+               (Sema.Default_fragment.source fragment)
+               attempt.default_source))
       || Sema.Default_fragment.authorized_fragment authority != fragment
       || (not
             (Integer_globals.owns_task_storage task.catalog
@@ -8752,7 +8759,7 @@ let check_task_suspended_completion task ~suspension receipt =
 let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   let module Destination = Default_fragment_destination in
   let fragment = Destination.fragment destination in
-  let receipt = Sema.Default_fragment.receipt fragment in
+  let source = Sema.Default_fragment.source fragment in
   let span = Destination.span destination in
   let invalid code message =
     Error [ make_error ~stage:Preflight ~span ~executed_steps:0 code message ]
@@ -8760,10 +8767,9 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   let globals = Destination.globals destination in
   let graph = Integer_program_lowering.graph lowered in
   let current =
-    Frontend.Parser.parameter_default_is_current receipt
-    || (not (Integer_globals.is_isolated_default globals))
-       && Sema.Source_activation.parameter_default task.source_activation
-            receipt
+    Sema.Default_fragment.current_source
+      ~allow_activation:(not (Integer_globals.is_isolated_default globals))
+      ~activation:task.source_activation source
   in
   let pure =
     Block_graph.blocks (X87.graph graph)
@@ -8800,9 +8806,11 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   else if
     List.exists
       (fun result ->
-        Sema.Default_fragment.receipt
-          (Sema.Default_fragment.authorized_fragment result.constant_authority)
-        == receipt)
+        Sema.Default_fragment.same_source
+          (Sema.Default_fragment.source
+             (Sema.Default_fragment.authorized_fragment
+                result.constant_authority))
+          source)
       task.default_constants
   then invalid "HCIRVM0026" "constant default evaluation cannot replay"
   else
@@ -8859,3 +8867,91 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
             proof.constant_bits <- Some word.bits;
             proof.constant_state <- Successful_initializer;
             Ok proof)
+
+let begin_task_callback_default task ~namespace receipt =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let source = Sema.Default_fragment.Callback (namespace, receipt) in
+  let rec predecessor = function
+    | None -> true
+    | Some prior -> (
+        match prior.Frontend.Parser.callback_default_ast.value with
+        | Frontend.Ast.Lastclass_default _ ->
+            predecessor prior.callback_default_predecessor
+        | Expression_default _ ->
+            List.exists
+              (fun a ->
+                Sema.Default_fragment.same_source a.default_source
+                  (Callback (namespace, prior))
+                && a.default_state = Successful_initializer)
+              task.defaults)
+  in
+  if
+    (not (source_dimensions_ready task))
+    || (not
+          (Sema.Default_fragment.current_source
+             ~activation:task.source_activation source))
+    || (not (predecessor receipt.callback_default_predecessor))
+    || List.exists
+         (fun a -> Sema.Default_fragment.same_source a.default_source source)
+         task.defaults
+  then
+    Error
+      "anonymous default requires its original active source and successful \
+       predecessor"
+  else
+    let attempt =
+      {
+        default_catalog = task.catalog;
+        default_source = source;
+        default_preparation_before = task.initializer_steps;
+        default_state = Preparing_initializer;
+        default_bits = None;
+      }
+    in
+    task.defaults <- attempt :: task.defaults;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let complete_task_callback_defaults task ~namespace header =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  if
+    not
+      (Frontend.Parser.callback_signature_completion_is_current header
+      || Sema.Source_activation.callback_default_completion
+           task.source_activation header)
+  then
+    Error "anonymous default completion requires its original source boundary"
+  else
+    let rec collect rev = function
+      | [] ->
+          Integer_globals.publish_callback_defaults task.catalog ~namespace
+            (List.rev rev)
+      | receipt :: rest -> (
+          match receipt.Frontend.Parser.callback_default_ast.value with
+          | Frontend.Ast.Lastclass_default _ -> collect rev rest
+          | Expression_default _ ->
+              let* bits =
+                match
+                  List.find_opt
+                    (fun a ->
+                      Sema.Default_fragment.same_source a.default_source
+                        (Callback (namespace, receipt))
+                      && a.default_state = Successful_initializer)
+                    task.defaults
+                with
+                | Some a when Option.is_some a.default_bits ->
+                    Ok (Option.get a.default_bits)
+                | _ ->
+                    Error
+                      "anonymous signature requires every successful original \
+                       default"
+              in
+              let* value =
+                Prepared_callback_default.create ~namespace ~header ~receipt
+                  ~bits
+              in
+              collect (value :: rev) rest)
+    in
+    collect [] header.callback_defaults

@@ -22,6 +22,7 @@ type lowering_result = Lowered of t | Unsupported_call
 
 type argument =
   | Provided of Result.expression_result
+  | Prepared_callback_default of Prepared_callback_default.t
   | Prepared_default of Prepared_parameter_default.t
 
 type call_shape =
@@ -268,7 +269,7 @@ let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
          &&
          match argument with
          | Provided _ -> true
-         | Prepared_default _ -> false)
+         | Prepared_default _ | Prepared_callback_default _ -> false)
        (List.mapi (fun index parameter -> (index, parameter)) parameters)
        arguments
 
@@ -346,7 +347,7 @@ let lower_intrinsic ?frame ?globals ?lower_call ?optimize_shifts
             | Ok (items, value, instruction_id, value_id) ->
                 lower_arguments instruction_id value_id (descriptions @ items)
                   (value :: operands) rest))
-    | Prepared_default _ :: _ -> Ok None
+    | (Prepared_default _ | Prepared_callback_default _) :: _ -> Ok None
   in
   let start_id = instruction_id in
   match next_instruction_id ~span start_id with
@@ -458,6 +459,23 @@ let lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
                   (Some
                      (Sequence.Integer
                         (Prepared_parameter_default.bits prepared)))
+                ~span ~result:{ Sequence.value_id } ~flags:push_result_flag ()
+            in
+            loop (item :: rev_descriptions) next_instruction_id next_value_id
+              rest)
+    | Prepared_callback_default prepared :: rest -> (
+        match
+          ( next_instruction_id ~span instruction_id,
+            next_value_id ~span value_id )
+        with
+        | Error error, _ | _, Error error -> Error [ error ]
+        | Ok next_instruction_id, Ok next_value_id ->
+            let item =
+              description ~instruction_id ~opcode:Opcode.Ic_imm_i64
+                ~target_type:(Some (Prepared_callback_default.type_ prepared))
+                ~payload:
+                  (Some
+                     (Sequence.Integer (Prepared_callback_default.bits prepared)))
                 ~span ~result:{ Sequence.value_id } ~flags:push_result_flag ()
             in
             loop (item :: rev_descriptions) next_instruction_id next_value_id
@@ -996,7 +1014,16 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
       (fun fixed ->
         match Result.fixed_path fixed with
         | Result.Provided_result value -> Some (Provided value)
-        | Result.Declared_default_result _ -> None)
+        | Result.Declared_default_result _ ->
+            let parameter =
+              fixed |> Result.fixed_source
+              |> Sema.Function_call_conversion_policy.fixed_source
+              |> Resolution.fixed_parameter
+            in
+            Option.bind globals (fun globals ->
+                Integer_globals.prepared_callback_default globals ~pointer
+                  ~parameter)
+            |> Option.map (fun prepared -> Prepared_callback_default prepared))
       fixed
   in
   let matches =

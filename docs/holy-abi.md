@@ -95,9 +95,26 @@ effects. The materializer requires the original completed parameter and physical
 producer. Resolved `&Function` values selected through an outer task scope now
 retain that scope's original function declaration and registered executable owner.
 
+Anonymous callback headers also retain their own ordered declaration receipts.
+`PrsFunJoin` creates the unnamed signature and `PrsVarLst` evaluates each original
+member default once. Our parser publishes that scope separately from named
+functions. The evaluator and saved-word receipt keep the original signature AST
+and parameter; the indirect call materializer consumes that signature's saved
+value, independently of defaults on the reached target. A callback member uses
+its physical `RT_PTR` class. Closed integer expressions work in both IR modes;
+JIT retained calls and effects execute during declaration. The existing callee
+capture, right-to-left pushes and cleanup remain tied to the original signature.
+An equal copied signature or producer has no saved-default authority.
+
+Anonymous `$$` defaults still need their own size/position receipt. AOT defaults
+with references, F64 expressions, owned-code values and hosted native emission
+remain outside this consumer. A reached runtime failure retains prior output;
+constant-divisor preparation that needs unresolved optimizer behavior rejects
+before execution.
+
 These values do not supply concrete numeric addresses. Address arithmetic,
-numeric address output, callback globals/statics/arrays and updates, callback
-anonymous signature defaults, owned-code defaults, dereferenced or multistar callback forms, live task
+numeric address output, callback globals/statics/arrays and updates, anonymous
+compiler-position defaults, owned-code defaults, dereferenced or multistar callback forms, live task
 address linking and hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the
 earlier native observations do not validate this new implementation. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)

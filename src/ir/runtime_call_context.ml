@@ -52,6 +52,7 @@ type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 
 type argument = {
+  prepared_callback_default : Prepared_callback_default.t option;
   prepared_default : Prepared_parameter_default.t option;
   role : argument_role;
   producer : Seq.Instruction_id.t;
@@ -589,7 +590,8 @@ let original_prepared_defaults context ~owner =
           (fun item ->
             List.exists
               (fun argument ->
-                Option.is_some argument.prepared_default
+                (Option.is_some argument.prepared_default
+                || Option.is_some argument.prepared_callback_default)
                 && Seq.Instruction_id.equal argument.producer
                      item.Seq.instruction_id)
               arguments)
@@ -725,6 +727,7 @@ let intrinsic_opcode_of_source source =
 
 type fixed_value =
   | Provided of Typed.expression_result
+  | Prepared_callback_default of Prepared_callback_default.t
   | Prepared_default of Prepared_parameter_default.t
 
 type shape = {
@@ -1207,12 +1210,13 @@ let approved_intrinsic shape opcode =
          &&
          match argument with
          | Provided _ -> true
-         | Prepared_default _ -> false)
+         | Prepared_default _ | Prepared_callback_default _ -> false)
        (List.mapi (fun index fixed -> (index, fixed)) shape.fixed)
   && shape.variadic = []
   && Option.is_none shape.count_type
 
 type expected_argument = {
+  expected_callback_default : Prepared_callback_default.t option;
   expected_default : Prepared_parameter_default.t option;
   expected_role : argument_role;
   expected_source : Type.t;
@@ -1344,6 +1348,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
       expected_target = Option.value target ~default:source;
       expected_origin = producer_origin value;
       expected_count = None;
+      expected_callback_default = None;
       expected_default = None;
     }
   in
@@ -1353,6 +1358,16 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
         match value with
         | Provided value ->
             actual (Fixed i) (Some (parameter_type parameter)) value
+        | Prepared_callback_default prepared ->
+            {
+              expected_role = Fixed i;
+              expected_source = Prepared_callback_default.type_ prepared;
+              expected_target = parameter_type parameter;
+              expected_origin = span;
+              expected_count = Some (Prepared_callback_default.bits prepared);
+              expected_callback_default = Some prepared;
+              expected_default = None;
+            }
         | Prepared_default prepared ->
             {
               expected_role = Fixed i;
@@ -1360,6 +1375,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
               expected_target = parameter_type parameter;
               expected_origin = span;
               expected_count = Some (Prepared_parameter_default.bits prepared);
+              expected_callback_default = None;
               expected_default = Some prepared;
             })
       fixed_values
@@ -1378,6 +1394,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
             expected_target = type_;
             expected_origin = span;
             expected_count = Some (Int64.of_int (List.length variadic_values));
+            expected_callback_default = None;
             expected_default = None;
           };
         ]
@@ -1516,8 +1533,16 @@ let callback_shape ~globals ~validate_source owner graph description =
         in
         match Typed.fixed_path result with
         | Typed.Provided_result value -> (parameter, Provided value)
-        | Typed.Declared_default_result _ ->
-            fail ?span "callback default has no retained preparation receipt")
+        | Typed.Declared_default_result _ -> (
+            match
+              Integer_globals.prepared_callback_default globals ~pointer
+                ~parameter
+            with
+            | Some prepared -> (parameter, Prepared_callback_default prepared)
+            | None ->
+                fail ?span
+                  "callback default has no original anonymous signature \
+                   preparation"))
       (Typed.indirect_fixed_results call)
   in
   let signature = Headers.function_pointer_signature pointer in
@@ -1964,6 +1989,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                       require ?span
                         (expected.expected_role = Fixed index
                         && Option.is_none expected.expected_default
+                        && Option.is_none expected.expected_callback_default
                         && Option.is_none expected.expected_count)
                         "checked internal argument is not its provided fixed \
                          value";
@@ -2001,6 +2027,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                       previous_producer := Some producer.instruction_id;
                       {
                         role = expected.expected_role;
+                        prepared_callback_default = None;
                         prepared_default = None;
                         producer = producer.instruction_id;
                         value;
@@ -2207,6 +2234,8 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                pending.cb_pushes <-
                  {
                    role = expected.expected_role;
+                   prepared_callback_default =
+                     expected.expected_callback_default;
                    prepared_default = expected.expected_default;
                    producer = item.instruction_id;
                    value;
@@ -2255,6 +2284,8 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                    pending.pushes <-
                      {
                        role = expected.expected_role;
+                       prepared_callback_default =
+                         expected.expected_callback_default;
                        prepared_default = expected.expected_default;
                        producer = item.instruction_id;
                        value;
@@ -2781,3 +2812,6 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
 let dimension_dependencies context = context.dimension_dependencies_
 let owns_top_level context typed = context.typed_top_level == typed
 let offset_dependencies value = value.offset_dependencies_
+
+let argument_prepared_callback_default argument =
+  argument.prepared_callback_default

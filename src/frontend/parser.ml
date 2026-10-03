@@ -615,6 +615,85 @@ let parameter_default_is_current receipt =
        .command_context
        .context_active
 
+type callback_signature_activity = {
+  mutable callback_start_active : bool;
+  mutable callback_scope_active : bool;
+  mutable callback_completion_active : bool;
+}
+
+type callback_signature_publication = {
+  callback_command : command_start;
+  callback_opening : Ast.location;
+  callback_indirection_layers : Ast.pointer_layer list;
+  callback_activity : callback_signature_activity;
+}
+
+type callback_parameter_publication = {
+  callback_parameter_signature : callback_signature_publication;
+  callback_parameter_index : int;
+  callback_parameter_predecessor : completed_callback_parameter option;
+  callback_parameter_register_qualifiers : Ast.register_qualifier list;
+  callback_parameter_type_specifier : Ast.type_specifier;
+  callback_parameter_pointer_layers : Ast.pointer_layer list;
+  callback_parameter_name : Ast.identifier option;
+  callback_parameter_function_pointer : Ast.function_pointer_declarator option;
+  callback_parameter_activity : function_parameter_activity;
+}
+
+and completed_callback_parameter = {
+  callback_parameter_publication : callback_parameter_publication;
+  callback_parameter_ast : Ast.function_parameter;
+  callback_parameter_completion_activity : parameter_completion_activity;
+}
+
+type completed_callback_default = {
+  callback_default_signature : callback_signature_publication;
+  callback_default_parameter : callback_parameter_publication;
+  callback_default_index : int;
+  callback_default_predecessor : completed_callback_default option;
+  callback_default_ast : Ast.parameter_default;
+  callback_default_activity : parameter_default_activity;
+}
+
+type completed_callback_signature = {
+  callback_signature_publication : callback_signature_publication;
+  callback_pointer : Ast.function_pointer_declarator;
+  callback_parameters : completed_callback_parameter list;
+  callback_defaults : completed_callback_default list;
+  callback_completion_activity : callback_signature_activity;
+}
+
+let callback_signature_is_current source =
+  source.callback_activity.callback_start_active
+  && source.callback_command.command_context.context_active
+
+let callback_parameter_is_current source =
+  source.callback_parameter_activity.function_parameter_active
+  && source.callback_parameter_signature.callback_activity.callback_scope_active
+  && source.callback_parameter_signature.callback_command.command_context
+       .context_active
+
+let callback_default_is_current source =
+  source.callback_default_activity.parameter_default_active
+  && source.callback_default_signature.callback_activity.callback_scope_active
+  && source.callback_default_signature.callback_command.command_context
+       .context_active
+
+let callback_parameter_completion_is_current source =
+  source.callback_parameter_completion_activity.parameter_completion_active
+  && source.callback_parameter_publication.callback_parameter_signature
+       .callback_activity
+       .callback_scope_active
+  && source.callback_parameter_publication.callback_parameter_signature
+       .callback_command
+       .command_context
+       .context_active
+
+let callback_signature_completion_is_current source =
+  source.callback_completion_activity.callback_completion_active
+  && source.callback_signature_publication.callback_command.command_context
+       .context_active
+
 type function_header_activity = {
   mutable function_header_active : bool;
   mutable function_body_active : Ast.function_definition option;
@@ -834,6 +913,11 @@ type declaration_event =
   | Function_local_allocated of function_local_allocation
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
+  | Callback_signature_started of callback_signature_publication
+  | Callback_parameter_declared of callback_parameter_publication
+  | Callback_default_completed of completed_callback_default
+  | Callback_parameter_completed of completed_callback_parameter
+  | Callback_signature_completed of completed_callback_signature
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter
@@ -5292,9 +5376,9 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                     (Ast.Aggregate_definition definition))
                 parsed_tail)
 
-let finish_function_parameter ?default_context cursor ~register_qualifiers
-    ~type_specifier ~type_selection ~pointer_layers ~name ~function_pointer
-    ~tokens =
+let finish_function_parameter ?default_context ?callback_context cursor
+    ~register_qualifiers ~type_specifier ~type_selection ~pointer_layers ~name
+    ~function_pointer ~tokens =
   (* PrsType leaves the following token current. Native MemberAdd precedes
      default input, including any directive reached by Lex beyond '='. *)
   let following_head = peek cursor in
@@ -5323,6 +5407,36 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
               (Function_parameter_declared publication));
         publication)
       default_context
+  in
+  let callback_publication =
+    Option.map
+      (fun ( callback_parameter_signature,
+             callback_parameter_index,
+             _,
+             completions,
+             _ ) ->
+        let source =
+          {
+            callback_parameter_signature;
+            callback_parameter_index;
+            callback_parameter_predecessor = List.nth_opt !completions 0;
+            callback_parameter_register_qualifiers = register_qualifiers;
+            callback_parameter_type_specifier = type_specifier;
+            callback_parameter_pointer_layers = pointer_layers;
+            callback_parameter_name = name;
+            callback_parameter_function_pointer = function_pointer;
+            callback_parameter_activity = { function_parameter_active = true };
+          }
+        in
+        Fun.protect
+          ~finally:(fun () ->
+            source.callback_parameter_activity.function_parameter_active <-
+              false)
+          (fun () ->
+            publish_declaration cursor following_head
+              (Callback_parameter_declared source));
+        source)
+      callback_context
   in
   let parsed_default =
     if following_head.token.kind = Token_kind.Punctuation '=' then
@@ -5355,6 +5469,34 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
           publish_declaration cursor (peek cursor)
             (Parameter_default_completed receipt));
       previous := Some receipt
+  | _ -> ());
+  (match (callback_context, callback_publication, parsed_default) with
+  | ( Some
+        ( callback_default_signature,
+          callback_default_index,
+          previous,
+          _,
+          defaults ),
+      Some callback_default_parameter,
+      Some (Some parsed) ) ->
+      let source =
+        {
+          callback_default_signature;
+          callback_default_parameter;
+          callback_default_index;
+          callback_default_predecessor = !previous;
+          callback_default_ast = parsed.node;
+          callback_default_activity = { parameter_default_active = true };
+        }
+      in
+      Fun.protect
+        ~finally:(fun () ->
+          source.callback_default_activity.parameter_default_active <- false)
+        (fun () ->
+          publish_declaration cursor (peek cursor)
+            (Callback_default_completed source));
+      previous := Some source;
+      defaults := source :: !defaults
   | _ -> ());
   match parsed_default with
   | None -> None
@@ -5437,11 +5579,31 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
                     (Function_parameter_completed completed));
               completions := completed :: !completions
           | _ -> ());
+          (match (callback_publication, callback_context) with
+          | Some callback_parameter_publication, Some (_, _, _, completions, _)
+            ->
+              let source =
+                {
+                  callback_parameter_publication;
+                  callback_parameter_ast = node;
+                  callback_parameter_completion_activity =
+                    { parameter_completion_active = true };
+                }
+              in
+              Fun.protect
+                ~finally:(fun () ->
+                  source.callback_parameter_completion_activity.parameter_completion_active <-
+                    false)
+                (fun () ->
+                  publish_declaration cursor following_item
+                    (Callback_parameter_completed source));
+              completions := source :: !completions
+          | _ -> ());
           Some ({ node; tokens } : parsed_parameter)
       | _ -> fail_special_form ())
 
-let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
-    ~prefix_tokens ~function_pointer_depth =
+let rec parse_function_parameter ?default_context ?callback_context cursor
+    ~prefix_qualifiers ~prefix_tokens ~function_pointer_depth =
   let type_item = peek cursor in
   match type_specifier_with_selection_of_item cursor type_item with
   | Some (type_specifier, type_selection) -> (
@@ -5467,8 +5629,8 @@ let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
             with
             | None -> None
             | Some parsed ->
-                finish_function_parameter ?default_context cursor
-                  ~register_qualifiers ~type_specifier ~type_selection
+                finish_function_parameter ?default_context ?callback_context
+                  cursor ~register_qualifiers ~type_specifier ~type_selection
                   ~pointer_layers ~name:parsed.name
                   ~function_pointer:(Some parsed.node)
                   ~tokens:(leading_tokens @ parsed.tokens)
@@ -5478,12 +5640,12 @@ let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
               Ast.make_identifier ~spelling:name_item.token.raw
                 ~location:(token_location name_item.token)
             in
-            finish_function_parameter ?default_context cursor
+            finish_function_parameter ?default_context ?callback_context cursor
               ~register_qualifiers ~type_specifier ~type_selection
               ~pointer_layers ~name:(Some name) ~function_pointer:None
               ~tokens:(leading_tokens @ [ name_item.token ])
           else
-            finish_function_parameter ?default_context cursor
+            finish_function_parameter ?default_context ?callback_context cursor
               ~register_qualifiers ~type_specifier ~type_selection
               ~pointer_layers ~name:None ~function_pointer:None
               ~tokens:leading_tokens)
@@ -5546,7 +5708,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
           0 [] []
       with
       | None -> None
-      | Some (pointer_layers, pointer_items) -> (
+      | Some (pointer_layers, pointer_items) ->
           let pointer_tokens =
             List.map (fun item -> item.token) pointer_items
           in
@@ -5640,47 +5802,108 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                        (token_description signature_opening.token))
               else
                 let signature_opening = take cursor in
-                match
-                  parse_function_parameters cursor [] [] []
-                    ~function_pointer_depth:(function_pointer_depth + 1)
-                with
-                | None -> None
-                | Some parsed_parameters ->
-                    let tokens =
-                      [ opening_item.token ] @ pointer_tokens @ name_tokens
-                      @ [ closing_item.token; signature_opening.token ]
-                      @ parsed_parameters.tokens
-                    in
-                    let node =
-                      Ast.make_function_pointer_declarator
-                        ~declarator_opening_parenthesis:
-                          (token_location opening_item.token)
-                        ~indirection_layers:pointer_layers
-                        ~declarator_closing_parenthesis:
-                          (token_location closing_item.token)
-                        ~signature_opening_parenthesis:
-                          (token_location signature_opening.token)
-                        ~signature_parameters:parsed_parameters.parameters
-                        ~signature_empty_parameter_entries:
-                          parsed_parameters.empty_parameter_entries
-                        ~signature_variadic:parsed_parameters.variadic
-                        ~signature_closing_parenthesis:
-                          parsed_parameters.closing_parenthesis
-                        ~function_pointer_location:(location_from_tokens tokens)
-                    in
-                    Some
-                      {
-                        node;
-                        name;
-                        tokens;
-                        name_selection =
-                          (if name_is_identifier then name_item.selection
-                           else None);
-                      })
+                let callback_owner =
+                  Option.map
+                    (fun callback_command ->
+                      let publication =
+                        {
+                          callback_command;
+                          callback_opening =
+                            token_location signature_opening.token;
+                          callback_indirection_layers = pointer_layers;
+                          callback_activity =
+                            {
+                              callback_start_active = true;
+                              callback_scope_active = true;
+                              callback_completion_active = false;
+                            };
+                        }
+                      in
+                      Fun.protect
+                        ~finally:(fun () ->
+                          publication.callback_activity.callback_start_active <-
+                            false)
+                        (fun () ->
+                          publish_declaration cursor signature_opening
+                            (Callback_signature_started publication));
+                      (publication, ref None, ref [], ref []))
+                    cursor.current_command
+                in
+                Fun.protect
+                  ~finally:(fun () ->
+                    Option.iter
+                      (fun (publication, _, _, _) ->
+                        publication.callback_activity.callback_scope_active <-
+                          false)
+                      callback_owner)
+                  (fun () ->
+                    match
+                      parse_function_parameters ?callback_owner cursor [] [] []
+                        ~function_pointer_depth:(function_pointer_depth + 1)
+                    with
+                    | None -> None
+                    | Some parsed_parameters ->
+                        let tokens =
+                          [ opening_item.token ] @ pointer_tokens @ name_tokens
+                          @ [ closing_item.token; signature_opening.token ]
+                          @ parsed_parameters.tokens
+                        in
+                        let node =
+                          Ast.make_function_pointer_declarator
+                            ~declarator_opening_parenthesis:
+                              (token_location opening_item.token)
+                            ~indirection_layers:pointer_layers
+                            ~declarator_closing_parenthesis:
+                              (token_location closing_item.token)
+                            ~signature_opening_parenthesis:
+                              (token_location signature_opening.token)
+                            ~signature_parameters:parsed_parameters.parameters
+                            ~signature_empty_parameter_entries:
+                              parsed_parameters.empty_parameter_entries
+                            ~signature_variadic:parsed_parameters.variadic
+                            ~signature_closing_parenthesis:
+                              parsed_parameters.closing_parenthesis
+                            ~function_pointer_location:
+                              (location_from_tokens tokens)
+                        in
+                        Option.iter
+                          (fun ( callback_signature_publication,
+                                 _,
+                                 parameters,
+                                 defaults ) ->
+                            let activity =
+                              callback_signature_publication.callback_activity
+                            in
+                            let source =
+                              {
+                                callback_signature_publication;
+                                callback_pointer = node;
+                                callback_parameters = List.rev !parameters;
+                                callback_defaults = List.rev !defaults;
+                                callback_completion_activity = activity;
+                              }
+                            in
+                            activity.callback_completion_active <- true;
+                            Fun.protect
+                              ~finally:(fun () ->
+                                activity.callback_completion_active <- false)
+                              (fun () ->
+                                publish_declaration cursor (peek cursor)
+                                  (Callback_signature_completed source)))
+                          callback_owner;
+                        Some
+                          {
+                            node;
+                            name;
+                            tokens;
+                            name_selection =
+                              (if name_is_identifier then name_item.selection
+                               else None);
+                          })
 
-and parse_function_parameters ?default_owner ?(reset_position = true) cursor
-    parameters_rev empty_entries_rev tokens_rev ~function_pointer_depth :
-    parsed_parameter_list option =
+and parse_function_parameters ?default_owner ?callback_owner
+    ?(reset_position = true) cursor parameters_rev empty_entries_rev tokens_rev
+    ~function_pointer_depth : parsed_parameter_list option =
   (* PrsVarLst writes the native function size after opening/delimiter
      lookahead, before skipping empty semicolons. Named headers supply original
      semantic evidence; unnamed callback writes remain unavailable. *)
@@ -5816,8 +6039,8 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
           ~preceding_parameter_count:(List.length parameters_rev)
           ~delimiter
       in
-      parse_function_parameters ?default_owner ~reset_position:false cursor
-        parameters_rev
+      parse_function_parameters ?default_owner ?callback_owner
+        ~reset_position:false cursor parameters_rev
         (empty_entry :: empty_entries_rev)
         (semicolon.token :: tokens_rev)
         ~function_pointer_depth
@@ -5834,6 +6057,15 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
                (fun (owner, previous, completions) ->
                  (owner, List.length parameters_rev, previous, completions))
                default_owner)
+          ?callback_context:
+            (Option.map
+               (fun (owner, previous, completions, defaults) ->
+                 ( owner,
+                   List.length parameters_rev,
+                   previous,
+                   completions,
+                   defaults ))
+               callback_owner)
           cursor ~prefix_qualifiers:prefix.nodes ~prefix_tokens:prefix.tokens
           ~function_pointer_depth
       with
@@ -5841,7 +6073,7 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
       | Some parameter ->
           let tokens_rev = List.rev_append parameter.tokens tokens_rev in
           let parameters_rev = parameter.node :: parameters_rev in
-          parse_function_parameters ?default_owner
+          parse_function_parameters ?default_owner ?callback_owner
             ~reset_position:(Option.is_some parameter.node.delimiter)
             cursor parameters_rev empty_entries_rev tokens_rev
             ~function_pointer_depth)

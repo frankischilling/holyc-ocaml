@@ -244,6 +244,25 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       ])
           in
           let* globals_ =
+            match source_command with
+            | None -> Ok globals_
+            | Some command ->
+                let* defaults =
+                  Task_declarations.source_callback_defaults
+                    ~table:(Session.semantic_symbols session)
+                    ~ast command
+                in
+                if defaults = [] then Ok globals_
+                else
+                  Ir.Integer_globals.with_source_callback_defaults globals_
+                    defaults
+                  |> Result.map_error (fun message ->
+                      [
+                        Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                          message;
+                      ])
+          in
+          let* globals_ =
             Option.fold ~none:(Ok globals_)
               ~some:(fun view ->
                 Ir.Integer_globals.join_declared view globals_

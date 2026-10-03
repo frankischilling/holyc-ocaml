@@ -31,6 +31,7 @@ module Ir_global_address_lowering = Ir.Global_address_lowering
 module Ir_initializer_fragment_destination = Ir.Initializer_fragment_destination
 module Ir_initializer_fragment_program = Ir.Initializer_fragment_program
 module Ir_integer_interpreter = Ir.Integer_interpreter
+module Ir_prepared_callback_default = Ir.Prepared_callback_default
 module Ir_runtime_call_context = Ir.Runtime_call_context
 module Native_parameter_defaults = Driver.Native_parameter_defaults
 module Native_global_initializers = Driver.Native_global_initializers

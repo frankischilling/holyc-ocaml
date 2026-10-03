@@ -165,6 +165,31 @@ let prepare_default_context task receipt =
   in
   Ok (context, authority, task_view, typed)
 
+let prepare_callback_default_context task receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.callback_default_ast.location.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* task_view = VM.task_snapshot task.state |> diagnose in
+  let* authority =
+    Task_declarations.callback_default_fragment_authority task.declarations
+      ~runtime:task.state ~task_view receipt
+  in
+  let fragment = Sema.Default_fragment.authorized_fragment authority in
+  let* context =
+    Initializer_fragment_typing.create_context
+      ~table:(Session.semantic_symbols task.session)
+      ~parent:(Task_declarations.initializer_scope task.declarations)
+    |> diagnose
+  in
+  let* typed =
+    Initializer_fragment_typing.prepare_default context fragment |> diagnose
+  in
+  Ok (context, authority, task_view, typed)
+
 let prepare_parameter_default task receipt =
   prepare_default_context task receipt
   |> Result.map (fun (_, _, _, typed) -> typed)
@@ -221,6 +246,60 @@ let prepare_source_default task ~session ~ledger receipt =
   in
 
   Task_declarations.finish_source_default ledger result
+
+let prepare_source_callback_default task ~session ~ledger receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.callback_default_ast.location.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* authority =
+    Task_declarations.begin_source_callback_default ledger ~runtime:task.state
+      receipt
+  in
+  let fragment = Sema.Default_fragment.authorized_fragment authority in
+  let* () =
+    if
+      Expression_facts.contains_string_literal
+        (Sema.Default_fragment.expression fragment)
+    then
+      Error
+        "HCRUN0006: defaults containing string storage require native \
+         owned-default preparation" |> diagnose
+    else Ok ()
+  in
+  let* context =
+    Initializer_fragment_typing.create_aot_context
+      ~table:(Session.semantic_symbols session)
+      ~parent:(Task_declarations.initializer_scope ledger)
+    |> diagnose
+  in
+  let* typed =
+    Initializer_fragment_typing.prepare_default context fragment |> diagnose
+  in
+  let* destination =
+    Ir.Default_fragment_destination.create_source typed |> diagnose
+  in
+  let before = VM.task_initializer_steps task.state in
+  let* classification, _steps =
+    Integer_initializers.prepare_default ~runtime:task.state ~authority
+      ~on_progress:(fun steps ->
+        VM.record_task_preparation task.state ~before ~steps)
+      ~max_steps:(VM.task_initializer_limit task.state - before)
+      ~top_calls:[] destination
+  in
+  let* result =
+    match classification with
+    | Integer_initializers.Prepared_default result -> Ok result
+    | Scheduled_default ->
+        Error
+          "HCRUN0006: AOT default requires proven output relocation and \
+           callable authority" |> diagnose
+  in
+
+  Task_declarations.finish_source_callback_default ledger result
 
 let prepare_initializer_destination_context task ~destination receipt =
   let ( let* ) = Result.bind in
@@ -309,6 +388,36 @@ let execute_parameter_default ?(use_active_stream = true) ?stream_exe_print task
       prepare_default_context task receipt
     in
     let span = receipt.Frontend.Parser.default_ast.location.span in
+    let* destination =
+      Ir.Default_fragment_destination.create ~task_view typed
+      |> Result.map_error (fun message ->
+          [ Integer_source.message_diagnostic ~span message ])
+    in
+    let* execution =
+      Default_fragment_lowering.prepare ~context ~authority ~runtime:task.state
+        destination
+    in
+    VM.execute_task_default ~use_active_stream ?stream_exe_print task.state
+      attempt execution
+    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+  in
+  (match outcome with
+  | Error _ -> ignore (VM.fail_task_default task.state attempt)
+  | Ok () -> ());
+  outcome
+
+let execute_callback_default ?(use_active_stream = true) ?stream_exe_print task
+    receipt =
+  let ( let* ) = Result.bind in
+  let* attempt =
+    Task_declarations.begin_callback_default_attempt task.declarations
+      ~runtime:task.state receipt
+  in
+  let outcome =
+    let* context, authority, task_view, typed =
+      prepare_callback_default_context task receipt
+    in
+    let span = receipt.Frontend.Parser.callback_default_ast.location.span in
     let* destination =
       Ir.Default_fragment_destination.create ~task_view typed
       |> Result.map_error (fun message ->
@@ -494,6 +603,15 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf ~use_active_stream ?stream_exe_print task
           receipt
+    | Frontend.Parser.Callback_default_completed receipt -> (
+        match receipt.callback_default_ast.value with
+        | Frontend.Ast.Expression_default _ ->
+            execute_callback_default ~use_active_stream ?stream_exe_print task
+              receipt
+        | Lastclass_default _ -> Ok ())
+    | Frontend.Parser.Callback_signature_completed header ->
+        Task_declarations.complete_callback_defaults_runtime task.declarations
+          ~runtime:task.state header
     | Frontend.Parser.Parameter_default_completed receipt -> (
         match receipt.default_ast.value with
         | Frontend.Ast.Expression_default _ ->
@@ -776,6 +894,16 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
             .declaration_command
       | Function_variadic_started p | Function_variadic_completed p ->
           p.variadic_function.function_header.declaration_command
+      | Callback_signature_started p -> p.callback_command
+      | Callback_parameter_declared p ->
+          p.callback_parameter_signature.callback_command
+      | Callback_parameter_completed p ->
+          p.callback_parameter_publication.callback_parameter_signature
+            .callback_command
+      | Callback_default_completed p ->
+          p.callback_default_signature.callback_command
+      | Callback_signature_completed p ->
+          p.callback_signature_publication.callback_command
       | Parameter_default_completed receipt ->
           receipt.default_function.function_header.declaration_command
       | Function_header_completed header | Function_body_completed (header, _)

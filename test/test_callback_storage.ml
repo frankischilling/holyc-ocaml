@@ -1243,8 +1243,316 @@ let callback_default_producers_require_original_ownership () =
       reject "copied default cannot execute" (execute ~runtime_calls:context ()))
     modes
 
+let anonymous_signature_defaults_execute () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected) ->
+          ignore
+            (Test_integer_globals.run ~mode source
+            |> Test_integer_functions.expect expected))
+        [
+          ( "I64 A(I64 n=41){return n+2;}I64 Run(){I64 (*p)(I64 \
+             n=40);p=&A;return p();}Run();",
+            42L );
+          ( "I64 A(I64 n=41){return n+2;}I64 Apply(I64 (*p)(I64 n=40)){return \
+             p();}Apply(&A);",
+            42L );
+          ( "I64 Check(I64 (*inner)()){return inner==0;}I64 Run(){I64 (*p)(I64 \
+             (*inner)()=0);p=&Check;return p();}Run();",
+            1L );
+          ( "I64 A(I64 a,I64 b){return a+b;}I64 Run(){I64 (*p)(I64 a=40,I64 \
+             b=99);p=&A;return p(,2);}Run();",
+            42L );
+          ( "I64 A(I64 n,...){return n+argc;}I64 Run(){I64 (*p)(I64 \
+             n=40,...);p=&A;return p(,1,2);}Run();",
+            42L );
+          ( "I64 A(I8 n){return n+40;}I64 Run(){I64 (*p)(I8 n=258);p=&A;return \
+             p();}Run();",
+            42L );
+          ("I64 Check(I64 (*p)(I64 n=42)=0){return p==0;}Check();", 1L);
+          ( "I64 A(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n=99);p=&A;return \
+             p(40);}Run();",
+            42L );
+          ( "I64 A(I64 a,I64 b){return a+b;}I64 Run(){I64 (*p)(I64 a=40,I64 \
+             b=2);p=&A;return p();}Run();",
+            42L );
+          ( "I64 A(I64 n){return n+2;}I64 Run(){I64 (*p)(;I64 \
+             n=40;);p=&A;return p();}Run();",
+            42L );
+          ( "I64 A(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 \
+             n=40)=0){p=&A;return p();}Apply();",
+            42L );
+          ( "U0 A(I64 n){I64 x=n;}I64 Run(){U0 (*p)(I64 n=40);p=&A;p();return \
+             42;}Run();",
+            42L );
+        ])
+    modes;
+  ignore
+    (Test_integer_globals.run ~mode:Preprocessor.Jit
+       "I64 A(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n=40);p=&A;return \
+        p();}I64 Old(){return Run();}I64 Run(){I64 (*p)(I64 n=1);p=&A;return \
+        p();}Old()*100+Run();"
+    |> Test_integer_functions.expect 4203L)
+
+let anonymous_defaults_preserve_declaration_effects () =
+  ignore
+    (Test_integer_globals.run
+       "I64 Count;Count=0;I64 A(I64 n){return n;}I64 Run(){I64 (*p)(I64 \
+        n=(Count=Count+1));p=&A;return p();}Run()+Run()+Count;"
+    |> Test_integer_functions.expect 3L);
+  ignore
+    (Test_integer_globals.run
+       "I64 Count;Count=0;I64 Apply(I64 (*p)(I64 n=(Count=Count+1))){return \
+        7;}Count;"
+    |> Test_integer_functions.expect 1L);
+  ignore
+    (Test_integer_output.run
+       "extern U0 Print(U8 *fmt,...);I64 D(){Print(\"default\");return 40;}I64 \
+        A(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n=D());p=&A;return \
+        p();}Run()+Run();"
+    |> Test_integer_output.expect ~value:(Some 84L) "default")
+
+let anonymous_default_words_retain_reached_faults () =
+  List.iter
+    (fun mode ->
+      let source =
+        "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"argument\");return \
+         2;}I64 Run(){I64 (*p)(I64 a=40,I64 b=99);p=0;return \
+         p(,Side());}Run();"
+      in
+      let report = Test_integer_output.run ~mode source in
+      Alcotest.(check string)
+        "reached null target retains argument output" "argument"
+        (integer_program_report_output_bytes report);
+      Alcotest.(check string)
+        "numeric word grants no executable owner" "HCIRVM0024"
+        (Test_integer_functions.first_error
+           (integer_program_report_outcome report))
+          .code;
+      let source =
+        "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"argument\");return \
+         2;}I64 A(I64 a){return a;}I64 Run(){I64 (*p)(I64 a=40,I64 \
+         b=99);p=&A;return p(,Side());}Run();"
+      in
+      let report = Test_integer_output.run ~mode source in
+      Alcotest.(check string)
+        "reached mismatch retains argument output" "argument"
+        (integer_program_report_output_bytes report);
+      Alcotest.(check string)
+        "anonymous signature is checked against reached owner" "HCIRVM0014"
+        (Test_integer_functions.first_error
+           (integer_program_report_outcome report))
+          .code)
+    modes;
+  let report =
+    Test_integer_output.run
+      "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"default\");return \
+       0;}I64 Run(){I64 (*p)(I64 n=42/Side());return 42;}42;"
+  in
+  Alcotest.(check string)
+    "failed default retains earlier declaration output" "default"
+    (integer_program_report_output_bytes report);
+  Alcotest.(check string)
+    "failed default prevents signature admission" "HCIRVM0009"
+    (Test_integer_functions.first_error (integer_program_report_outcome report))
+      .code
+
+let anonymous_default_limits_and_boundaries () =
+  List.iter
+    (fun mode ->
+      let source =
+        "I64 A(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n=40);p=&A;return \
+         p();}Run();"
+      in
+      let result =
+        Test_integer_globals.run ~mode source
+        |> Test_integer_functions.expect 42L
+      in
+      let steps = Ir_integer_interpreter.executed_steps result in
+      ignore
+        (Test_integer_globals.run ~mode ~max_steps:steps source
+        |> Test_integer_functions.expect 42L);
+      Alcotest.(check string)
+        "one fewer runtime step fails" "HCIRVM0007"
+        (Test_integer_functions.first_error
+           (Test_integer_globals.run ~mode ~max_steps:(steps - 1) source))
+          .code;
+      ignore
+        (Test_integer_output.run ~mode ~max_initializer_steps:3 source
+        |> Test_integer_output.expect "");
+      Alcotest.(check string)
+        "one fewer default preparation step fails" "HCIRVM0007"
+        (Test_integer_functions.first_error
+           (Test_integer_output.run ~mode ~max_initializer_steps:2 source
+           |> integer_program_report_outcome))
+          .code;
+      Alcotest.(check bool)
+        "F64 expressions need their own preparation consumer" true
+        (Result.is_error
+           (Test_integer_globals.run ~mode
+              "I64 Run(){I64 (*p)(F64 n=1.5);return 42;}42;"));
+      Alcotest.(check bool)
+        "owned-code defaults cannot become numeric bits" true
+        (Result.is_error
+           (Test_integer_globals.run ~mode
+              "I64 A(){return 42;}I64 Run(){I64 (*p)(I64 (*f)()=&A);return \
+               42;}42;"));
+      Alcotest.(check bool)
+        "anonymous compiler position needs an original size receipt" true
+        (Result.is_error
+           (Test_integer_globals.run ~mode
+              "I64 A(I64 n){return n;}I64 Run(){I64 (*p)(I64 n=$$);p=&A;return \
+               p();}Run();")))
+    modes
+
+let anonymous_defaults_require_original_producers () =
+  let module C = Ir_runtime_call_context in
+  let module P = Ir_prepared_callback_default in
+  let module VM = Ir_integer_interpreter in
+  let module Seq = Ir_instruction_sequence in
+  let module Graph = Ir_block_graph in
+  List.iter
+    (fun mode ->
+      let source =
+        "I64 Check(I64 (*inner)()){return inner==0;}I64 Run(){I64 (*p)(I64 \
+         (*inner)()=0);p=&Check;return p();}Run();"
+      in
+      let compiled =
+        match mode with
+        | Preprocessor.Aot -> Test_integer_globals.compile ~mode source
+        | Jit ->
+            let session, config, source =
+              Test_integer_functions.inputs ~mode source
+            in
+            let report =
+              compile_integer_program_report session ~config ~source
+            in
+            ignore
+              (Test_integer_functions.checked
+                 (integer_program_compilation_result report));
+            integer_program_compilation_units report
+            |> List.find (fun unit_ ->
+                integer_program_functions unit_
+                |> List.exists (fun (d : VM.function_definition) ->
+                    Semantic_symbol.name (Ir_function_body.symbol d.body)
+                    = "Run"))
+      in
+      let context = integer_program_runtime_calls compiled in
+      let body =
+        integer_program_functions compiled
+        |> List.find (fun (d : VM.function_definition) ->
+            Semantic_symbol.name (Ir_function_body.symbol d.body) = "Run")
+        |> fun d -> d.body
+      in
+      let callback =
+        C.original_callback_calls context ~owner:(C.Function body)
+        |> Option.get |> List.hd
+      in
+      let prepared =
+        callback.callback_arguments
+        |> List.find_map C.argument_prepared_callback_default
+        |> Option.get
+      in
+      Alcotest.(check int64) "saved anonymous member word" 0L (P.bits prepared);
+      let header = P.header prepared in
+      let pointer = callback.callback_pointer in
+      Alcotest.(check bool)
+        "original anonymous declarator is retained" true
+        (Option.fold ~none:false
+           ~some:(( == ) header.Parser.callback_pointer)
+           (F.function_pointer_source pointer));
+      let parameter =
+        F.function_pointer_signature pointer
+        |> F.signature_parameters |> List.hd
+      in
+      Alcotest.(check bool)
+        "original pointer and member own the default" true
+        (P.matches prepared ~pointer ~parameter);
+      let ast = header.callback_pointer in
+      let copied_ast =
+        Ast.make_function_pointer_declarator
+          ~declarator_opening_parenthesis:ast.declarator_opening_parenthesis
+          ~indirection_layers:ast.indirection_layers
+          ~declarator_closing_parenthesis:ast.declarator_closing_parenthesis
+          ~signature_opening_parenthesis:ast.signature_opening_parenthesis
+          ~signature_parameters:(List.map Fun.id ast.signature_parameters)
+          ~signature_empty_parameter_entries:
+            ast.signature_empty_parameter_entries
+          ~signature_variadic:ast.signature_variadic
+          ~signature_closing_parenthesis:ast.signature_closing_parenthesis
+          ~function_pointer_location:ast.function_pointer_location
+      in
+      let copied_pointer =
+        F.make_source_function_pointer ~source:copied_ast
+          ~origin:(F.function_pointer_origin pointer)
+          ~opening_origin:(F.function_pointer_opening_origin pointer)
+          ~indirection_origins:(F.function_pointer_indirection_origins pointer)
+          ~closing_origin:(F.function_pointer_closing_origin pointer)
+          ~signature:(F.function_pointer_signature pointer)
+        |> Result.get_ok
+      in
+      Alcotest.(check bool)
+        "equal signature does not adopt original saved member" false
+        (P.matches prepared ~pointer:copied_pointer ~parameter);
+      let original =
+        C.original_prepared_defaults context ~owner:(C.Function body)
+        |> Option.get |> List.hd
+      in
+      check_word_pointer 1 original.target_type;
+      let rec find = function
+        | [] -> None
+        | item :: rest as cell ->
+            if Seq.description item == original then Some cell else find rest
+      in
+      let cell =
+        Ir_function_body.body body |> Graph.blocks
+        |> List.find_map (fun block ->
+            Graph.instructions block |> Seq.instructions |> find)
+        |> Option.get
+      in
+      Obj.set_field (Obj.repr cell) 0
+        (Obj.repr
+           { original with Seq.operands = List.map Fun.id original.operands });
+      Alcotest.(check bool)
+        "copied default invalidates its complete owner" true
+        (Option.is_none
+           (C.original_prepared_defaults context ~owner:(C.Function body)));
+      let rejected =
+        VM.execute_program
+          ~globals:(integer_program_globals compiled)
+          ~initialization:(integer_program_initialization compiled)
+          ~functions:(integer_program_functions compiled)
+          ~runtime_calls:context ~max_steps:10000 ~max_frame_bytes:1024
+          ~max_call_depth:16
+          (integer_program_entry compiled)
+      in
+      match rejected with
+      | Ok _ -> Alcotest.fail "copied anonymous default executed"
+      | Error errors ->
+          Alcotest.(check bool)
+            "copied graph fails before execution" true
+            (List.for_all
+               (fun (e : VM.error) ->
+                 e.stage = VM.Preflight && e.executed_steps = 0)
+               errors))
+    modes
+
 let tests =
   [
+    Alcotest.test_case
+      "anonymous signature defaults materialize their own values" `Quick
+      anonymous_signature_defaults_execute;
+    Alcotest.test_case "anonymous defaults execute once during declaration"
+      `Quick anonymous_defaults_preserve_declaration_effects;
+    Alcotest.test_case "anonymous default calls preserve reached effects" `Quick
+      anonymous_default_words_retain_reached_faults;
+    Alcotest.test_case
+      "anonymous defaults preserve limits and explicit boundaries" `Quick
+      anonymous_default_limits_and_boundaries;
+    Alcotest.test_case
+      "anonymous defaults require exact original producer ownership" `Quick
+      anonymous_defaults_require_original_producers;
     Alcotest.test_case
       "callback parameter defaults materialize original word storage" `Quick
       callback_parameter_defaults_execute;

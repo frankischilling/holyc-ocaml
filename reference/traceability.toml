@@ -12975,3 +12975,26 @@ execution = "Omitted callback parameters accept saved null and numeric words. Th
 retained_addresses = "A resolved outer function address retains the original source occurrence, physical outer binding and exact resolved declaration. Lowering consumes the originally registered executable link and body owner; a later same-name publication does not retarget it."
 verification_boundary = "Five new groups cover closed word defaults in both IR modes, independent callback return classes, provided and omitted slots, nested calls, original declaration effects, retained body replacement, reached numeric faults with output, copied/missing producer authority and exact/one-below limits. This entry does not claim hosted native callback or new independent TempleOS oracle verification."
 excluded = ["anonymous callback signature defaults", "owned-code defaults", "callback defaults with more than one indirection star", "F64 default expressions", "aggregate callback signature layout admission", "hosted native callback/default emission", "live task expiry"]
+
+[[feature]]
+id = "HC-IR-ANONYMOUS-CALLBACK-WORD-DEFAULTS"
+description = "Anonymous callback signatures evaluate and materialize their own original integer defaults through ordinary IR invocation."
+sources = [
+  "Compiler/PrsVar.HC:285-369 callback return/storage separation and original anonymous signature",
+  "Compiler/PrsVar.HC:408-658 anonymous parameter order and declaration-time saved default evaluation",
+  "Compiler/PrsStmt.HC:62-139 unnamed function record and fixed-slot cleanup policy",
+  "Compiler/PrsExp.HC:453-470 saved default materialization with the original member class",
+  "Compiler/PrsExp.HC:383-588 original callback signature, callee capture and right-to-left argument materialization"
+]
+implementation = ["src/frontend/parser.ml", "src/sema/default_fragment.ml", "src/sema/source_activation.ml", "src/sema/function_type_resolution.ml", "src/driver/task_declarations.ml", "src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/ir/prepared_callback_default.ml", "src/ir/default_fragment_destination.ml", "src/ir/integer_globals.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Each original anonymous signature owns ordered parser parameter/default/completion receipts and a separate source scope. No named symbol or enclosing named-header receipt is fabricated. Materialization joins the exact original signature AST, parameter, successful saved word and physical pushed producer. Equal copied signatures and graphs do not acquire authority."
+preparation = "Closed integer expressions execute once in both IR source modes. JIT original task references, retained calls and effects run during declaration, including signatures inside unused function bodies. Repeated omission reuses that signature's saved value rather than a default on its reached executable target."
+execution = "Scalar automatic-local and fixed-parameter callbacks consume their own fixed defaults and word variadic tails with original capture/cleanup. Narrow integer conversions, nested callback-member word defaults and integer/U0 results compose with ordinary source lowering. Saved callback words retain physical RT_PTR storage and do not grant executable authority."
+verification_boundary = "Five groups cover both IR modes, own-versus-target defaults, omitted/provided slots, nested members, variadic and U0 calls, once-only JIT effects, reached target and default faults with retained output, JIT replacement, exact/one-below preparation and runtime limits, and original-versus-copied source/producer authority. This is IR verification and does not establish hosted native emission or a new independent TempleOS comparison."
+excluded = ["anonymous compiler-position and size-dependent defaults", "AOT reference-bearing default relocation", "F64 default expressions", "owned-code defaults", "unresolved constant-divisor default optimization", "aggregate signature execution", "AOT repeated same-name definitions", "hosted native callback/default emission", "live task expiry"]

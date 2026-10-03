@@ -706,3 +706,44 @@ val finish_runtime_internal_binding :
   succeeded:bool ->
   Frontend.Parser.internal_binding_preparation ->
   (unit, Common.Diagnostic.t list) result
+
+val begin_callback_default_attempt :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_callback_default ->
+  (Ir.Integer_interpreter.default_attempt, Common.Diagnostic.t list) result
+
+val callback_default_fragment_authority :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.completed_callback_default ->
+  (Sema.Default_fragment.authority, Common.Diagnostic.t list) result
+
+val complete_callback_defaults_runtime :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_callback_signature ->
+  (unit, Common.Diagnostic.t list) result
+
+val begin_source_callback_default :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_callback_default ->
+  (Sema.Default_fragment.authority, Common.Diagnostic.t list) result
+
+val finish_source_callback_default :
+  t ->
+  Ir.Integer_interpreter.default_constant ->
+  (unit, Common.Diagnostic.t list) result
+
+val complete_source_callback_defaults :
+  t ->
+  Frontend.Parser.completed_callback_signature ->
+  (unit, Common.Diagnostic.t list) result
+
+val source_callback_defaults :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Ir.Prepared_callback_default.t list, Common.Diagnostic.t list) result

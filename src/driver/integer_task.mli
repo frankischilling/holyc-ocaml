@@ -254,3 +254,10 @@ val stream_executor :
 
 val run_suspended :
   t -> source:Common.Source_file.t -> (unit, Common.Diagnostic.t list) result
+
+val prepare_source_callback_default :
+  t ->
+  session:Session.t ->
+  ledger:Task_declarations.t ->
+  Frontend.Parser.completed_callback_default ->
+  (unit, Common.Diagnostic.t list) result

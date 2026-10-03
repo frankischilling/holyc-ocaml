@@ -49,7 +49,7 @@ function-address values across same-name replacement. Scalar frame callbacks
 now invoke the captured original prepared body, including an earlier executable
 after a later same-name publication. The callee is captured before right-to-left
 arguments. Reached target mismatches preserve earlier argument effects.
-Live task address linking, callback globals/statics/arrays, defaults and native
+Live task address linking, callback globals/statics/arrays, owned-code defaults and native
 invocation remain under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). The broader callback and mixed-value ABI requirements remain in
 [issue #688](https://github.com/frankischilling/holyc-ocaml/issues/688).
 
@@ -59,5 +59,13 @@ saved word using the callback parameter's physical pointer class. That word
 does not become executable code. Function addresses encountered after a default
 activates the JIT task retain their original outer occurrence, declaration and
 registered code owner, including an earlier body after same-name replacement.
-Anonymous signature defaults and defaults containing owned executable values
-still need their own preparation and value receipts.
+Anonymous signatures now have their own original declaration scope, ordered
+member/default receipts and successful saved-word preparations. The source
+ledger evaluates each integer default once and publishes it with that signature,
+including defaults inside unused function bodies. Indirect invocation consumes
+the original callback default rather than the executable target's default.
+Closed expressions work in both IR modes; JIT references and effects retain the
+original task snapshot. Numeric callback-member defaults have no executable
+authority. Equal signatures, copied producers and raw graphs cannot adopt the
+saved value. Anonymous compiler-position defaults and defaults containing owned
+executable values still need their own preparation and value receipts.

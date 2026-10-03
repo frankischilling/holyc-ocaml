@@ -376,3 +376,18 @@ val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
 
 val native_static_initializer_context :
   Sema.Static_initializer_fragment.t -> (t, string) result
+
+val with_source_callback_defaults :
+  t -> Prepared_callback_default.t list -> (t, string) result
+
+val publish_callback_defaults :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Prepared_callback_default.t list ->
+  (unit, string) result
+
+val prepared_callback_default :
+  t ->
+  pointer:Sema.Function_type_resolution.function_pointer ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  Prepared_callback_default.t option
