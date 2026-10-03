@@ -1215,10 +1215,10 @@ let source_arithmetic_fault_mapping () =
     [
       ("84/0;", Program.Division_by_zero, "HCIRVM0009");
       ("85%0;", Program.Division_by_zero, "HCIRVM0009");
-      ( "0x8000000000000000(I64i)/-1;",
+      ( "I64 F(I64 x){return x/-1;}F(0x8000000000000000);",
         Program.Signed_division_overflow,
         "HCIRVM0010" );
-      ( "0x8000000000000000(I64i)%-1;",
+      ( "I64 F(I64 x){return x%-1;}F(0x8000000000000000);",
         Program.Signed_division_overflow,
         "HCIRVM0010" );
     ]
@@ -1235,7 +1235,22 @@ let source_arithmetic_fault_mapping () =
             (Fixture.kind_name fault.kind);
           Alcotest.(check string)
             (source ^ " diagnostic") code (List.hd diagnostics).code)
-        cases)
+        cases;
+      List.iter
+        (fun source ->
+          let report = source_report ~mode ~max_steps:100 source in
+          Alcotest.(check bool)
+            "constant overflow has no image" true
+            (Option.is_none (Native_program.image report));
+          Alcotest.(check bool)
+            "constant overflow did not execute" true
+            (Option.is_none (Native_program.native_outcome report));
+          match Native_program.outcome report with
+          | Error (d :: _) ->
+              Alcotest.(check string)
+                "constant overflow compilation" "HCIRL0007" d.code
+          | _ -> Alcotest.fail "constant signed overflow compiled")
+        [ "0x8000000000000000(I64i)/-1;"; "0x8000000000000000(I64i)%-1;" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let exact_loop_budgets () =

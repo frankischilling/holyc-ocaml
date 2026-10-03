@@ -1,0 +1,2372 @@
+{
+  "fixture_version": 1,
+  "id": "arithmetic/division-strength-reductions-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-10-02",
+    "hypervisor": "QEMU 9.2.0 (v9.2.0-12071-g3dd0aeb44b)",
+    "host": "Windows x86-64",
+    "accelerator": "tcg",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified ISO attached read-only",
+    "persistent_disk": false,
+    "display": "none; PNG captures through owned QMP stdio relay on loopback",
+    "compilation_mode": "TempleOS native JIT shell with default compiler options",
+    "target": "TempleOS x86-64",
+    "implementation_baseline_commit": "b4948b78d8d009f75e0486a333f896c339a56dd5"
+  },
+  "input_delivery": {
+    "qmp_command": "input-send-event",
+    "key_events": "modifier down; 40 ms; key down; 50 ms; key up; 40 ms; modifier up",
+    "inter_key_milliseconds": 80,
+    "pre_submit_settle_milliseconds": 500,
+    "post_line_milliseconds": 2000,
+    "source_validation": "Each accepted pre-submit image contains the exact requested command, decoded with the pinned font.",
+    "retry_timing": "The ASSIGN-B retry uses 80 ms key hold and 120 ms inter-key delay; other accepted commands use 50/80 ms. Earlier definition captures precede the 500 ms source-settle interval."
+  },
+  "setup": [
+    "Decline installation and the tour.",
+    "AutoComplete(OFF);WinMax;"
+  ],
+  "observation_method": "Decode original pixels with the pinned font and verify exact submitted source; visually inspect representative value and instruction images. Field tokens below transcribe the decoded native fields, without computing expected arithmetic.",
+  "repeatability": {
+    "boots": 1,
+    "runs_per_field": 2,
+    "fields": 38,
+    "result_observations": 76,
+    "scope": "Same boot only."
+  },
+  "source_references": [
+    "Compiler/OptPass012.HC:180-266,403-455,838-854",
+    "Compiler/OptLib.HC:96-225",
+    "Compiler/OptPass789A.HC:676-687",
+    "Compiler/BackA.HC:573-601"
+  ],
+  "checks": [
+    {
+      "id": "define-DS2",
+      "kind": "definition",
+      "command": "DocClear;I64 O585DS2(I64 x){return x/2;}",
+      "source_capture": {
+        "file": "define-DS2-source.png",
+        "sha256": "86c9465b3c8361f8e1c58db063225c9006c585762eae191348fbd33885268385"
+      },
+      "result_capture": {
+        "file": "define-DS2-result.png",
+        "sha256": "6bdb0a475b8f58a3c3f5d2983a73d00b73875483d40dac11de0fb6ce22d9c70a"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-MS2",
+      "kind": "definition",
+      "command": "DocClear;I64 O585MS2(I64 x){return x%2;}",
+      "source_capture": {
+        "file": "define-MS2-source.png",
+        "sha256": "b6f0689908825997cf634ec77cbca40ae94dd94ee031511bedb8e1913505b901"
+      },
+      "result_capture": {
+        "file": "define-MS2-result.png",
+        "sha256": "3a025d78f927edb02dac8b2a2dbe4cbc1b780d93bdea02ae460483d6a32af80c"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-DS64",
+      "kind": "definition",
+      "command": "DocClear;I64 O585DS64(I64 x){return x/64;}",
+      "source_capture": {
+        "file": "define-DS64-source.png",
+        "sha256": "ab385421bb055f21732a1af78829211de95c225d463a90bd76e0376015f91c2a"
+      },
+      "result_capture": {
+        "file": "define-DS64-result.png",
+        "sha256": "bd96135af747fd8ff882c6948929f46ab554c01dd19bb33956a751898a90c3be"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-MS64",
+      "kind": "definition",
+      "command": "DocClear;I64 O585MS64(I64 x){return x%64;}",
+      "source_capture": {
+        "file": "define-MS64-source.png",
+        "sha256": "d9430743a8376795a979460d4a60d6f5b96c5fd13c11bcab680302c01d81baaa"
+      },
+      "result_capture": {
+        "file": "define-MS64-result.png",
+        "sha256": "f492f8a9ff641f0010328a37058f7e68fa48abac3c56150327acbd680956e398"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-UD64",
+      "kind": "definition",
+      "command": "DocClear;U64 O585UD64(U64 x){return x/64;}",
+      "source_capture": {
+        "file": "define-UD64-source.png",
+        "sha256": "0aa098709944d9b2cb44a471bf000c2997f4480d88378a7afa88cfa0fb9eaf08"
+      },
+      "result_capture": {
+        "file": "define-UD64-result.png",
+        "sha256": "39df2919df56bfbf5490d6bc908c5f9a86d9fce38e8c92817fc21696cecb44aa"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-UM64",
+      "kind": "definition",
+      "command": "DocClear;U64 O585UM64(U64 x){return x%64;}",
+      "source_capture": {
+        "file": "define-UM64-source.png",
+        "sha256": "2cf7c0ae7fdcb0088ba2d0c21da9437e3930083bc105e15c0d4f62164ffd8d44"
+      },
+      "result_capture": {
+        "file": "define-UM64-result.png",
+        "sha256": "992bf655f62b2f06d404c90369f7ef6cf7ba730aefdb67715c581227c58a87d3"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-MH",
+      "kind": "definition",
+      "command": "DocClear;U64 O585MH(I64 x){return x%0x8000000000000000;}",
+      "source_capture": {
+        "file": "define-MH-source.png",
+        "sha256": "133891e616b31f83c5847ea192da46199df0a924131c6554b46cc3a5b3376988"
+      },
+      "result_capture": {
+        "file": "define-MH-result.png",
+        "sha256": "48ec5c76380e53fb7e9cea8e08cf65c2a5a1c71dff69f2df4a0ba01b3ebcb677"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-DE64",
+      "kind": "definition",
+      "command": "DocClear;I64 O585DE64(I64 x){x/=64;return x;}",
+      "source_capture": {
+        "file": "define-DE64-source.png",
+        "sha256": "298a0f4894202cf64606f12aacf87d458e0185dde073c71a9160a5ab14c6e170"
+      },
+      "result_capture": {
+        "file": "define-DE64-result.png",
+        "sha256": "e45456b4d4ab8fd5e976e50b887866ef03aaa82d6356a83475ae1d400dd68373"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-ME64",
+      "kind": "definition",
+      "command": "DocClear;I64 O585ME64(I64 x){x%=64;return x;}",
+      "source_capture": {
+        "file": "define-ME64-source.png",
+        "sha256": "5d949dd46939640ecc0af274943a537de1ae27d52ef9a8ddb00d0c0df69738c0"
+      },
+      "result_capture": {
+        "file": "define-ME64-result.png",
+        "sha256": "cc3723d08436d98e27c5620bc603e3d839f3fd26f5e8bf5876d66ce865a0b5b1"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-UDE64",
+      "kind": "definition",
+      "command": "DocClear;U64 O585UDE64(U64 x){x/=64;return x;}",
+      "source_capture": {
+        "file": "define-UDE64-source.png",
+        "sha256": "7894792c78d2389cf0d3adda820d95acac0478da3fa1c6fe05655ea4dfb278dc"
+      },
+      "result_capture": {
+        "file": "define-UDE64-result.png",
+        "sha256": "9be1ca3b6fd0e2288adf595bcc5cc3fdc4b6d3239ef156145099999086301763"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-UME64",
+      "kind": "definition",
+      "command": "DocClear;U64 O585UME64(U64 x){x%=64;return x;}",
+      "source_capture": {
+        "file": "define-UME64-source.png",
+        "sha256": "b465f0450d61fe3da97cfd1a5b538ea39236722b01bce7573fac88b76300e2b3"
+      },
+      "result_capture": {
+        "file": "define-UME64-result.png",
+        "sha256": "b6967e9462ad48d6606d13daebb54c12239f87cc0be347f4a8893d5969e9c8ea"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-DEH",
+      "kind": "definition",
+      "command": "DocClear;I64 O585DEH(I64 x){x/=0x8000000000000000;return x;}",
+      "source_capture": {
+        "file": "define-DEH-source.png",
+        "sha256": "54b2b00b91bf1c1ecb11aeca526745c40c4d660dab5135822aeaed9cc121af53"
+      },
+      "result_capture": {
+        "file": "define-DEH-result.png",
+        "sha256": "96bf962d31890591f6cd3bc8e2eb6ec6e93e01efc3f7bfe6cd50481ca3abd19b"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-MEH",
+      "kind": "definition",
+      "command": "DocClear;I64 O585MEH(I64 x){x%=0x8000000000000000;return x;}",
+      "source_capture": {
+        "file": "define-MEH-source.png",
+        "sha256": "9f0a0b61563b51e1c22bbd12b0dd5e3f3677e91516fb92135c1ba78940be8fd1"
+      },
+      "result_capture": {
+        "file": "define-MEH-result.png",
+        "sha256": "345693376239be61d5e6e7e3b61513d211556443fb9912db60da4f66ad247a63"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-D1U",
+      "kind": "definition",
+      "command": "DocClear;I64 O585D1U(I64 x){return x/1(U64);}",
+      "source_capture": {
+        "file": "define-D1U-source.png",
+        "sha256": "b678ecd4d55c21c4f9977f8cf4073db2d7ce2677f9baa64e369e4477c1bd03c5"
+      },
+      "result_capture": {
+        "file": "define-D1U-result.png",
+        "sha256": "bc0f7e15848636bd00e23abb4c6cc9c763a1dc1ca53ff592f4f5d80415f8ab01"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-CD1U",
+      "kind": "definition",
+      "command": "DocClear;I64 O585CD1U(I64 x){return (x/1(U64))<0;}",
+      "source_capture": {
+        "file": "define-CD1U-source.png",
+        "sha256": "f65555e6fd36e748ae945fdcfb22b0c50d31172cfa74a1a4a7fef64e08ede5f4"
+      },
+      "result_capture": {
+        "file": "define-CD1U-result.png",
+        "sha256": "7b8d052a3e98c866c45c0ca3b1056f27be06aa3053b2d44379f7f423736060c2"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-CDH",
+      "kind": "definition",
+      "command": "DocClear;I64 O585CDH(I64 x){return (x/0x8000000000000000)<0;}",
+      "source_capture": {
+        "file": "define-CDH-source.png",
+        "sha256": "f21e83d386631b9db29327c8989e707cf535fa9baa9046d9d3fae3b4914f1890"
+      },
+      "result_capture": {
+        "file": "define-CDH-result.png",
+        "sha256": "77196db1a0174557fab6665bf87e0c5a3f7eed3e5f3e41a766e94b8f2a08a9a2"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-CD2U",
+      "kind": "definition",
+      "command": "DocClear;I64 O585CD2U(I64 x){return (x/2(U64))<0;}",
+      "source_capture": {
+        "file": "define-CD2U-source.png",
+        "sha256": "fd28f197240eb253b78b247867661d2d2ece7efb677d306d03795eaef51b1876"
+      },
+      "result_capture": {
+        "file": "define-CD2U-result.png",
+        "sha256": "beceed56156fc7fa7874b5e55c6d9838cf9781c0d4812133c722390c2c483266"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-VARH",
+      "kind": "definition",
+      "command": "DocClear;U64 O585VARH(I64 x,U64 d){return x/d;}",
+      "source_capture": {
+        "file": "define-VARH-source.png",
+        "sha256": "c9d783c08593a812e5b0cfb8d84304879f672099be39692bb5c966e55b568049"
+      },
+      "result_capture": {
+        "file": "define-VARH-result.png",
+        "sha256": "6e4cc5877ded93343c4a7ddbe004eacb48fb0c26c0f5092d4180dfd4b9888ab6"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-DSMERGE",
+      "kind": "definition",
+      "command": "DocClear;I64 O585DSMERGE(I64 x){return (x/2)>>63;}",
+      "source_capture": {
+        "file": "define-DSMERGE-source.png",
+        "sha256": "8b5bd6a583a69e2e8c75b693ba344fe8983e3b1d909a18df885e87c7199c04b1"
+      },
+      "result_capture": {
+        "file": "define-DSMERGE-result.png",
+        "sha256": "e6208fe007792d5db6e048e991ffcfd1badc4f44738bbde1bafa037addf7f592"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-DDMERGE",
+      "kind": "definition",
+      "command": "DocClear;I64 O585DDMERGE(I64 x){return (x/0x8000000000000000)/2;}",
+      "source_capture": {
+        "file": "define-DDMERGE-source.png",
+        "sha256": "73acbc1f90eb9e8ea927771562395c620069b356aa9282ce108e4573978a3fa9"
+      },
+      "result_capture": {
+        "file": "define-DDMERGE-result.png",
+        "sha256": "8f2eea105d2695b904726e4a52923adb79df822ae1729a7bc2add56eb7293121"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-USMERGE",
+      "kind": "definition",
+      "command": "DocClear;U64 O585USMERGE(U64 x){return (x/2)>>63;}",
+      "source_capture": {
+        "file": "define-USMERGE-source.png",
+        "sha256": "78f84387c5569da323527285dde0d7a6231ef149da967bd99833455c2282a44d"
+      },
+      "result_capture": {
+        "file": "define-USMERGE-result.png",
+        "sha256": "38b614819acba6fcd4fe21ca3c779a323285643f4ee5ece6f755c1202a345645"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-MREST",
+      "kind": "definition",
+      "command": "DocClear;I64 O585MREST(I64 x){return (x>>0x8000000000000000)%2;}",
+      "source_capture": {
+        "file": "define-MREST-source.png",
+        "sha256": "60397540c3debb4557e6b38a0fc51378aad0e084bf5ba1f941edb08280dc3676"
+      },
+      "result_capture": {
+        "file": "define-MREST-result.png",
+        "sha256": "7deb24efcd4ec79f6a44cf4fdac4496f627f14fc56642aad5ec39aba7c344115"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-FOLLOW",
+      "kind": "definition",
+      "command": "DocClear;I64 O585FOLLOW(I64 x){return (x/0x8000000000000000)/3;}",
+      "source_capture": {
+        "file": "define-FOLLOW-source.png",
+        "sha256": "dfc9b0c78a3ff0c34b6537fece91087bd98a52a43b59f3cff0ef404ecaad926a"
+      },
+      "result_capture": {
+        "file": "define-FOLLOW-result.png",
+        "sha256": "c9cad9b396a90921751c2a2ff2e86527a291df2102e78e6362d5b2834cde08e7"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-N8",
+      "kind": "definition",
+      "command": "DocClear;I64 O585N8(){I8 x=-7;x/=2;return x;}",
+      "source_capture": {
+        "file": "define-N8-source.png",
+        "sha256": "77e06ff66c69e077ba216ddefe0f4e673b4ee086d988ed86f99c17a7ab21a4ae"
+      },
+      "result_capture": {
+        "file": "define-N8-result.png",
+        "sha256": "38caf5d5363959f88a17506345d5f95c3289b1c56c1514ee9daf67a6acc3e77c"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-PTR",
+      "kind": "definition",
+      "command": "DocClear;I64 O585PTR(){I64 x=-7;I64 *p=&x;*p/=2;return x;}",
+      "source_capture": {
+        "file": "define-PTR-source.png",
+        "sha256": "3f10f9c6e9eb7514516cbfca4dcfa0e68a0d15a62addd86a4f75a9e0311784a3"
+      },
+      "result_capture": {
+        "file": "define-PTR-result.png",
+        "sha256": "10a6813ba19bb1d9d7bc985b8cab21f46fec77bb1ac9fa4a007a83783f7f78a3"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-effect-storage",
+      "kind": "definition",
+      "command": "DocClear;I64 O585N;I64 O585Write(){O585N=-7;return 2;}",
+      "source_capture": {
+        "file": "define-effect-storage-source.png",
+        "sha256": "02761389a47a9811b37ae4f51f207a40cbabffbc0bd9236da4728dcd12a0c5d2"
+      },
+      "result_capture": {
+        "file": "define-effect-storage-result.png",
+        "sha256": "fabfffb0b14629f64eaa5e879ba3e24aa98ce68edced9498334175dca95080d0"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-EVAR",
+      "kind": "definition",
+      "command": "DocClear;I64 O585EVAR(){O585N=-9;O585N/=O585Write();return O585N;}",
+      "source_capture": {
+        "file": "define-EVAR-source.png",
+        "sha256": "32db247b55a84a776323b901b0424e3006c2122b847754961589faa47f44881c"
+      },
+      "result_capture": {
+        "file": "define-EVAR-result.png",
+        "sha256": "caf769fb15e0e425ba7c70e1d9ed4b1f8d9e247a49de9693296f316dd415034c"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-EONCE",
+      "kind": "definition",
+      "command": "DocClear;I64 O585Read(){return ++O585N;}I64 O585EONCE(){O585N=6;return (O585Read()/2)*10+O585N;}",
+      "source_capture": {
+        "file": "define-EONCE-source.png",
+        "sha256": "7e9dc19d36fdc02ec9bd6f6671a0d080aea34da4ab324cb6b4f8a02b5cf42ec5"
+      },
+      "result_capture": {
+        "file": "define-EONCE-result.png",
+        "sha256": "d90dbbe0eb158d713ba1cf208fcd466385e1bc806c583588c52dfec7a6177bcb"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-NPUB",
+      "kind": "definition",
+      "command": "DocClear;U64 O585NPUB(U64 x){return (-x)>>1;}",
+      "source_capture": {
+        "file": "define-NPUB-source.png",
+        "sha256": "fb233fbc8fdf351316111c24cdf2eba3ebd1e265dca0a43cc4b319e6246482bb"
+      },
+      "result_capture": {
+        "file": "define-NPUB-result.png",
+        "sha256": "62ef508d94ed55a575cfbbe62a9ebaf7bd8d58116dbe160b2639ff11b9c442eb"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-WORD",
+      "kind": "definition",
+      "command": "DocClear;U64 O585WORD(){return 7;}",
+      "source_capture": {
+        "file": "define-WORD-source.png",
+        "sha256": "b228264c780159da14f1de75dcaca80c6c7413a4a44b25772bc25fbcab6a4a23"
+      },
+      "result_capture": {
+        "file": "define-WORD-result.png",
+        "sha256": "94abdf1b7633615f7e5fe2321c3df15115c4cc5f6bd1acf0404eb73543b6fccc"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-NCALL",
+      "kind": "definition",
+      "command": "DocClear;U64 O585NCALL(){return (-O585WORD())>>1;}",
+      "source_capture": {
+        "file": "define-NCALL-source.png",
+        "sha256": "a662bf810ed7d6b23a467221f5d8ce8778298b6ffe1bd5127dfaecc5aece3b96"
+      },
+      "result_capture": {
+        "file": "define-NCALL-result.png",
+        "sha256": "363f91cc295c81f90b2e51152bb37a644400bd138c78d73f688940101275f291"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-NCAST",
+      "kind": "definition",
+      "command": "DocClear;U64 O585NCAST(){return (-7(U64))>>1;}",
+      "source_capture": {
+        "file": "define-NCAST-source.png",
+        "sha256": "1ad5d2a5f4dc11c7c38474470dfff85d0d118481e849186fe6bc5a0760d9dc8a"
+      },
+      "result_capture": {
+        "file": "define-NCAST-result.png",
+        "sha256": "04860e807e2899baccba0f233988321b07abd1c3eb703a8bbdc77f71d1ac2216"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-NCOMP",
+      "kind": "definition",
+      "command": "DocClear;I64 O585NCOMP(){return ((-O585WORD())>>1)<0;}",
+      "source_capture": {
+        "file": "define-NCOMP-source.png",
+        "sha256": "9700c846ffbeb983bd9dc3c30d80235fcd8869828206d937fbf476d478da8ceb"
+      },
+      "result_capture": {
+        "file": "define-NCOMP-result.png",
+        "sha256": "f32ca68d735037bd0b0b95926a5ebd0ca6dd537037b661246a3ca634ffcb9a28"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-D2U",
+      "kind": "definition",
+      "command": "DocClear;I64 O585D2U(I64 x){return x/2(U64);}",
+      "source_capture": {
+        "file": "define-D2U-source.png",
+        "sha256": "8cf0052d09f4d277c656d3918015ddcc6ff9698ad29a34430e265dab8aa51a30"
+      },
+      "result_capture": {
+        "file": "define-D2U-result.png",
+        "sha256": "dc11fdd8338961eda2e95d6fb54d3598dcf58bcda563a919ab15ba50d5f6d72b"
+      },
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-ROUND-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_ROUND DS2=%016X MS2=%016X DS64=%016X MS64=%016X\\n\",O585DS2(-7),O585MS2(-7),O585DS64(-7),O585MS64(-7);",
+      "source_capture": {
+        "file": "result-ROUND-A-source.png",
+        "sha256": "a0abc4e4851511abee19e40f2bfaf06fd25ad999ce6e1fc93b102f4b7ad53be2"
+      },
+      "result_capture": {
+        "file": "result-ROUND-A-result.png",
+        "sha256": "a18ea4ed024932da85a7843c33e00a536fcdc6ad8c8cc505e47386cc9dc58f35"
+      },
+      "observed_fields": {
+        "DS2": "FFFFFFFFFFFFFFFC",
+        "MS2": "FFFFFFFFFFFFFFFF",
+        "DS64": "FFFFFFFFFFFFFFFF",
+        "MS64": "FFFFFFFFFFFFFFF9"
+      },
+      "observed_output": [
+        "DS2=FFFFFFFFFFFFFFFC MS2=FFFFFFFFFFFFFFFF DS64=FFFFFFFFFFFFFFFF MS64=FFFFFFFFFFFFFFF9"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-UNSIGNED-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_UNSIGNED UD64=%016X UM64=%016X MH=%016X\\n\",O585UD64(-1),O585UM64(-1),O585MH(-7);",
+      "source_capture": {
+        "file": "result-UNSIGNED-A-source.png",
+        "sha256": "1486f9fb7bdc340431dd88d4ec26006d0846d68d049af8819c0f2509a50ae06e"
+      },
+      "result_capture": {
+        "file": "result-UNSIGNED-A-result.png",
+        "sha256": "49fd4738c0d7f38ca57e8860ac5bd8a0706b3b523783b495229f5666effcabce"
+      },
+      "observed_fields": {
+        "UD64": "03FFFFFFFFFFFFFF",
+        "UM64": "000000000000003F",
+        "MH": "7FFFFFFFFFFFFFF9"
+      },
+      "observed_output": [
+        "UD64=03FFFFFFFFFFFFFF UM64=000000000000003F MH=7FFFFFFFFFFFFFF9"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-ASSIGN-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_ASSIGN DE64=%016X ME64=%016X UDE64=%016X UME64=%016X\\n\",O585DE64(-7),O585ME64(-7),O585UDE64(-1),O585UME64(-1);",
+      "source_capture": {
+        "file": "result-ASSIGN-A-source.png",
+        "sha256": "060b004050a10d57b0f27c7183ba577055055a7994b2b39b3faf3325b9ceafc4"
+      },
+      "result_capture": {
+        "file": "result-ASSIGN-A-result.png",
+        "sha256": "5c16dba4fc1a36b209c6e716f1123c424e2e9f74932bef59570e623516aca6f0"
+      },
+      "observed_fields": {
+        "DE64": "FFFFFFFFFFFFFFFF",
+        "ME64": "0000000000000039",
+        "UDE64": "03FFFFFFFFFFFFFF",
+        "UME64": "000000000000003F"
+      },
+      "observed_output": [
+        "DE64=FFFFFFFFFFFFFFFF ME64=0000000000000039 UDE64=03FFFFFFFFFFFFFF UME64=000000000000003F"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-HIGH-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_HIGH DEH=%016X MEH=%016X VARH=%016X\\n\",O585DEH(-7),O585MEH(-7),O585VARH(-7,0x8000000000000000);",
+      "source_capture": {
+        "file": "result-HIGH-A-source.png",
+        "sha256": "f791a08197d0ea7f02f34cf0c410a1722912061fbcb4a51cbcea68ac5a956a22"
+      },
+      "result_capture": {
+        "file": "result-HIGH-A-result.png",
+        "sha256": "49cb808aff4848cbf972e9619457954be66a7d1392059a927ada12948a1be6c0"
+      },
+      "observed_fields": {
+        "DEH": "FFFFFFFFFFFFFFFF",
+        "MEH": "7FFFFFFFFFFFFFF9",
+        "VARH": "0000000000000001"
+      },
+      "observed_output": [
+        "DEH=FFFFFFFFFFFFFFFF MEH=7FFFFFFFFFFFFFF9 VARH=0000000000000001"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-CLASS-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_CLASS D1U=%016X CD1U=%016X CDH=%016X CD2U=%016X\\n\",O585D1U(-7),O585CD1U(-7),O585CDH(-7),O585CD2U(-7);",
+      "source_capture": {
+        "file": "result-CLASS-A-source.png",
+        "sha256": "df03ac5a99d1456fd95805658b8844e068f6f3d9afb94fea58f105b89dfe9feb"
+      },
+      "result_capture": {
+        "file": "result-CLASS-A-result.png",
+        "sha256": "d8c7a45a56be2afb2a96da5b2915c89f764ef68462968ab91d246b38d902858c"
+      },
+      "observed_fields": {
+        "D1U": "FFFFFFFFFFFFFFF9",
+        "CD1U": "0000000000000001",
+        "CDH": "0000000000000000",
+        "CD2U": "0000000000000000"
+      },
+      "observed_output": [
+        "D1U=FFFFFFFFFFFFFFF9 CD1U=0000000000000001 CDH=0000000000000000 CD2U=0000000000000000"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-NEST-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_NEST DSMERGE=%016X DDMERGE=%016X USMERGE=%016X CONSTCH=%016X\\n\",O585DSMERGE(-7),O585DDMERGE(-7),O585USMERGE(-1),(-7/2)>>63;",
+      "source_capture": {
+        "file": "result-NEST-A-source.png",
+        "sha256": "716e0291821d7411b5a8387378e0d3088a31fe7e2121732e7181f5d75cb8f7a8"
+      },
+      "result_capture": {
+        "file": "result-NEST-A-result.png",
+        "sha256": "2e1456de1ba2146ff33376674c041f43a0500336d3c1c2f4edf8ed3e88d8b0a3"
+      },
+      "observed_fields": {
+        "DSMERGE": "FFFFFFFFFFFFFFF9",
+        "DDMERGE": "FFFFFFFFFFFFFFF9",
+        "USMERGE": "FFFFFFFFFFFFFFFF",
+        "CONSTCH": "FFFFFFFFFFFFFFFF"
+      },
+      "observed_output": [
+        "DSMERGE=FFFFFFFFFFFFFFF9 DDMERGE=FFFFFFFFFFFFFFF9 USMERGE=FFFFFFFFFFFFFFFF CONSTCH=FFFFFFFFFFFFFFFF"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-RESTORE-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_RESTORE MREST=%016X FOLLOW=%016X CONSTHI=%016X\\n\",O585MREST(-7),O585FOLLOW(-7),-7/0x8000000000000000;",
+      "source_capture": {
+        "file": "result-RESTORE-A-source.png",
+        "sha256": "7667f056bf6aa887b455200b979d4e3bd6299a23cd183c8e2f9366cb0057ecac"
+      },
+      "result_capture": {
+        "file": "result-RESTORE-A-result.png",
+        "sha256": "6839b7dac7bbc12a2f4dff9f2687e9b11cc6bbaa0fefa095ce2073beb17a78f4"
+      },
+      "observed_fields": {
+        "MREST": "FFFFFFFFFFFFFFFF",
+        "FOLLOW": "0000000000000000",
+        "CONSTHI": "0000000000000001"
+      },
+      "observed_output": [
+        "MREST=FFFFFFFFFFFFFFFF FOLLOW=0000000000000000 CONSTHI=0000000000000001"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-EFFECT-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_EFFECT EVAR=%016X EONCE=%016X N8=%016X PTR=%016X\\n\",O585EVAR(),O585EONCE(),O585N8(),O585PTR();",
+      "source_capture": {
+        "file": "result-EFFECT-A-source.png",
+        "sha256": "7bfa18c66ddf84fd1754c0ba0169ad769d6d044db89045d3b2ff952cc1f13817"
+      },
+      "result_capture": {
+        "file": "result-EFFECT-A-result.png",
+        "sha256": "d9e9216ec5e28eeed9715c3013aab928e4f9482c20e009f7b01d979b221861cf"
+      },
+      "observed_fields": {
+        "EVAR": "FFFFFFFFFFFFFFFD",
+        "EONCE": "0000000000000025",
+        "N8": "FFFFFFFFFFFFFFFC",
+        "PTR": "FFFFFFFFFFFFFFFC"
+      },
+      "observed_output": [
+        "EVAR=FFFFFFFFFFFFFFFD EONCE=0000000000000025 N8=FFFFFFFFFFFFFFFC PTR=FFFFFFFFFFFFFFFC"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-CONST-A",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_CONST CD64=%016X CM64=%016X CMHIGH=%016X CZDIV=%016X\\n\",-7/64,-7%64,-7%0x8000000000000000,0/3;",
+      "source_capture": {
+        "file": "result-CONST-A-source.png",
+        "sha256": "d50df5140ad4f6545a5f1adad3179839baa6bd3677c1ee72549fd475547b54f6"
+      },
+      "result_capture": {
+        "file": "result-CONST-A-result.png",
+        "sha256": "49af4fe2e352d7e3b9e61aa2f4a86ed5b9129705433ecedf2d6e46b8c5ac2b48"
+      },
+      "observed_fields": {
+        "CD64": "0000000000000000",
+        "CM64": "FFFFFFFFFFFFFFF9",
+        "CMHIGH": "7FFFFFFFFFFFFFF9",
+        "CZDIV": "0000000000000000"
+      },
+      "observed_output": [
+        "CD64=0000000000000000 CM64=FFFFFFFFFFFFFFF9 CMHIGH=7FFFFFFFFFFFFFF9 CZDIV=0000000000000000"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-PUBLIC-A-retry1",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_PUBLIC:NPUB=%016X|NCALL=%016X|NCAST=%016X|NCOMP=%016X|D2U=%016X\\n\",O585NPUB(7),O585NCALL(),O585NCAST(),O585NCOMP(),O585D2U(-7);",
+      "source_capture": {
+        "file": "result-PUBLIC-A-retry1-source.png",
+        "sha256": "06d91ff1fe10b2429d9e73c18decebc1f76b9e844c6c02998c82c09cc559f523"
+      },
+      "result_capture": {
+        "file": "result-PUBLIC-A-retry1-result.png",
+        "sha256": "474b86984b5f519bcdb6adb6ca5fd954f4fcb7551b8c76baff5534112e15f982"
+      },
+      "observed_fields": {
+        "NPUB": "FFFFFFFFFFFFFFFC",
+        "NCALL": "7FFFFFFFFFFFFFFC",
+        "NCAST": "7FFFFFFFFFFFFFFC",
+        "NCOMP": "0000000000000000",
+        "D2U": "FFFFFFFFFFFFFFFC"
+      },
+      "observed_output": [
+        "NPUB=FFFFFFFFFFFFFFFC NCALL=7FFFFFFFFFFFFFFC NCAST=7FFFFFFFFFFFFFFC NCOMP=0000000000000000 D2U=FFFFFFFFFFFFFFFC"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-ROUND-B",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_ROUND DS2=%016X MS2=%016X DS64=%016X MS64=%016X\\n\",O585DS2(-7),O585MS2(-7),O585DS64(-7),O585MS64(-7);",
+      "source_capture": {
+        "file": "result-ROUND-B-source.png",
+        "sha256": "91fe5f0d8d41af5d3d0ed61a4fb8e826aec5e0ce4f1fbcfb62a53e6cd3052a5a"
+      },
+      "result_capture": {
+        "file": "result-ROUND-B-result.png",
+        "sha256": "59c22d3d219e01d1bb9e3f37fcb7811fd0c9ad11c2765cef34c53589d6e79b65"
+      },
+      "observed_fields": {
+        "DS2": "FFFFFFFFFFFFFFFC",
+        "MS2": "FFFFFFFFFFFFFFFF",
+        "DS64": "FFFFFFFFFFFFFFFF",
+        "MS64": "FFFFFFFFFFFFFFF9"
+      },
+      "observed_output": [
+        "DS2=FFFFFFFFFFFFFFFC MS2=FFFFFFFFFFFFFFFF DS64=FFFFFFFFFFFFFFFF MS64=FFFFFFFFFFFFFFF9"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-UNSIGNED-B",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_UNSIGNED UD64=%016X UM64=%016X MH=%016X\\n\",O585UD64(-1),O585UM64(-1),O585MH(-7);",
+      "source_capture": {
+        "file": "result-UNSIGNED-B-source.png",
+        "sha256": "72d8430192258bfef76142cd423e2f865d6dd3f68add33d2f866afce94169ed4"
+      },
+      "result_capture": {
+        "file": "result-UNSIGNED-B-result.png",
+        "sha256": "1bd539d13713c2fd6500c566d637de75a4e6dfce114d5c26a9917628aff15ba6"
+      },
+      "observed_fields": {
+        "UD64": "03FFFFFFFFFFFFFF",
+        "UM64": "000000000000003F",
+        "MH": "7FFFFFFFFFFFFFF9"
+      },
+      "observed_output": [
+        "UD64=03FFFFFFFFFFFFFF UM64=000000000000003F MH=7FFFFFFFFFFFFFF9"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-ASSIGN-B-retry1",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_ASSIGN DE64=%016X ME64=%016X UDE64=%016X UME64=%016X\\n\",O585DE64(-7),O585ME64(-7),O585UDE64(-1),O585UME64(-1);",
+      "source_capture": {
+        "file": "result-ASSIGN-B-retry1-source.png",
+        "sha256": "d8bf88120c012f8cd327622abba5b581457f8c19f115c4e61ab021817be12769"
+      },
+      "result_capture": {
+        "file": "result-ASSIGN-B-retry1-result.png",
+        "sha256": "e17a825e3feec4c75ff1c612dec66c5248dff39ee208740606cf37726c027832"
+      },
+      "observed_fields": {
+        "DE64": "FFFFFFFFFFFFFFFF",
+        "ME64": "0000000000000039",
+        "UDE64": "03FFFFFFFFFFFFFF",
+        "UME64": "000000000000003F"
+      },
+      "observed_output": [
+        "DE64=FFFFFFFFFFFFFFFF ME64=0000000000000039 UDE64=03FFFFFFFFFFFFFF UME64=000000000000003F"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-HIGH-B",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_HIGH DEH=%016X MEH=%016X VARH=%016X\\n\",O585DEH(-7),O585MEH(-7),O585VARH(-7,0x8000000000000000);",
+      "source_capture": {
+        "file": "result-HIGH-B-source.png",
+        "sha256": "309c4e51819bdf8ce8774a91cf245c2215fcf59f7c2007ac391cc06d1cf3e18f"
+      },
+      "result_capture": {
+        "file": "result-HIGH-B-result.png",
+        "sha256": "75a308834e1e8b6f27bb5e144b6afa601a0c3df60ef51a12c466ddef9ab9a6ae"
+      },
+      "observed_fields": {
+        "DEH": "FFFFFFFFFFFFFFFF",
+        "MEH": "7FFFFFFFFFFFFFF9",
+        "VARH": "0000000000000001"
+      },
+      "observed_output": [
+        "DEH=FFFFFFFFFFFFFFFF MEH=7FFFFFFFFFFFFFF9 VARH=0000000000000001"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-CLASS-B",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_CLASS D1U=%016X CD1U=%016X CDH=%016X CD2U=%016X\\n\",O585D1U(-7),O585CD1U(-7),O585CDH(-7),O585CD2U(-7);",
+      "source_capture": {
+        "file": "result-CLASS-B-source.png",
+        "sha256": "ecfd21580eda1b076f9b45336600e8beb2a3f96ab5142e47f46c41c08d8eca1a"
+      },
+      "result_capture": {
+        "file": "result-CLASS-B-result.png",
+        "sha256": "14d72335a1c8b99dfc6a0026df1f1a73104b332c4385b9f566e70410c5367884"
+      },
+      "observed_fields": {
+        "D1U": "FFFFFFFFFFFFFFF9",
+        "CD1U": "0000000000000001",
+        "CDH": "0000000000000000",
+        "CD2U": "0000000000000000"
+      },
+      "observed_output": [
+        "D1U=FFFFFFFFFFFFFFF9 CD1U=0000000000000001 CDH=0000000000000000 CD2U=0000000000000000"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-NEST-B",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_NEST DSMERGE=%016X DDMERGE=%016X USMERGE=%016X CONSTCH=%016X\\n\",O585DSMERGE(-7),O585DDMERGE(-7),O585USMERGE(-1),(-7/2)>>63;",
+      "source_capture": {
+        "file": "result-NEST-B-source.png",
+        "sha256": "e8451e0a3c7b6e6f39fcad635a7b3540bcd42f4f49a4d8dc5a86092b331ea0d1"
+      },
+      "result_capture": {
+        "file": "result-NEST-B-result.png",
+        "sha256": "573e48e322323d512c96ce3f856678fa812464db437534cbbb14658947d35649"
+      },
+      "observed_fields": {
+        "DSMERGE": "FFFFFFFFFFFFFFF9",
+        "DDMERGE": "FFFFFFFFFFFFFFF9",
+        "USMERGE": "FFFFFFFFFFFFFFFF",
+        "CONSTCH": "FFFFFFFFFFFFFFFF"
+      },
+      "observed_output": [
+        "DSMERGE=FFFFFFFFFFFFFFF9 DDMERGE=FFFFFFFFFFFFFFF9 USMERGE=FFFFFFFFFFFFFFFF CONSTCH=FFFFFFFFFFFFFFFF"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-RESTORE-B",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_RESTORE MREST=%016X FOLLOW=%016X CONSTHI=%016X\\n\",O585MREST(-7),O585FOLLOW(-7),-7/0x8000000000000000;",
+      "source_capture": {
+        "file": "result-RESTORE-B-source.png",
+        "sha256": "dd1e5e94a41c50638e64afd4bfcf086eac6522db931c1b44bafd1bbfbd1ecb43"
+      },
+      "result_capture": {
+        "file": "result-RESTORE-B-result.png",
+        "sha256": "1902b7508ed830e7abd76350f4432234907b36be1950a6454e7d3796c4173477"
+      },
+      "observed_fields": {
+        "MREST": "FFFFFFFFFFFFFFFF",
+        "FOLLOW": "0000000000000000",
+        "CONSTHI": "0000000000000001"
+      },
+      "observed_output": [
+        "MREST=FFFFFFFFFFFFFFFF FOLLOW=0000000000000000 CONSTHI=0000000000000001"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-EFFECT-B",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_EFFECT EVAR=%016X EONCE=%016X N8=%016X PTR=%016X\\n\",O585EVAR(),O585EONCE(),O585N8(),O585PTR();",
+      "source_capture": {
+        "file": "result-EFFECT-B-source.png",
+        "sha256": "3a3e4c6ccade0a9b71c834a188c18a25fa61f99337cb76294d949e7c2e8be610"
+      },
+      "result_capture": {
+        "file": "result-EFFECT-B-result.png",
+        "sha256": "f54de3f452ee5332feb21fa30648405936269d60ceb2ce65af964dbc7c3b5d58"
+      },
+      "observed_fields": {
+        "EVAR": "FFFFFFFFFFFFFFFD",
+        "EONCE": "0000000000000025",
+        "N8": "FFFFFFFFFFFFFFFC",
+        "PTR": "FFFFFFFFFFFFFFFC"
+      },
+      "observed_output": [
+        "EVAR=FFFFFFFFFFFFFFFD EONCE=0000000000000025 N8=FFFFFFFFFFFFFFFC PTR=FFFFFFFFFFFFFFFC"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-CONST-B",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_CONST CD64=%016X CM64=%016X CMHIGH=%016X CZDIV=%016X\\n\",-7/64,-7%64,-7%0x8000000000000000,0/3;",
+      "source_capture": {
+        "file": "result-CONST-B-source.png",
+        "sha256": "ad00c3ea0662ccc2b678584b5839331f97ed83bcda08b0898de1fdf9800b2038"
+      },
+      "result_capture": {
+        "file": "result-CONST-B-result.png",
+        "sha256": "49ed917a16f50fbf4aa16afac2a2192211673939a7b6550521d7f7be64f62450"
+      },
+      "observed_fields": {
+        "CD64": "0000000000000000",
+        "CM64": "FFFFFFFFFFFFFFF9",
+        "CMHIGH": "7FFFFFFFFFFFFFF9",
+        "CZDIV": "0000000000000000"
+      },
+      "observed_output": [
+        "CD64=0000000000000000 CM64=FFFFFFFFFFFFFFF9 CMHIGH=7FFFFFFFFFFFFFF9 CZDIV=0000000000000000"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-PUBLIC-B-retry1",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_PUBLIC:NPUB=%016X|NCALL=%016X|NCAST=%016X|NCOMP=%016X|D2U=%016X\\n\",O585NPUB(7),O585NCALL(),O585NCAST(),O585NCOMP(),O585D2U(-7);",
+      "source_capture": {
+        "file": "result-PUBLIC-B-retry1-source.png",
+        "sha256": "01031c2dcc3557e4142508c4f290ebcd8b27c379998dab5cc7325fc7160a4d9e"
+      },
+      "result_capture": {
+        "file": "result-PUBLIC-B-retry1-result.png",
+        "sha256": "b077eae983d60f1857c2d7d83596272e5fe36c21ed15a79b4342e06b186149e9"
+      },
+      "observed_fields": {
+        "NPUB": "FFFFFFFFFFFFFFFC",
+        "NCALL": "7FFFFFFFFFFFFFFC",
+        "NCAST": "7FFFFFFFFFFFFFFC",
+        "NCOMP": "0000000000000000",
+        "D2U": "FFFFFFFFFFFFFFFC"
+      },
+      "observed_output": [
+        "NPUB=FFFFFFFFFFFFFFFC NCALL=7FFFFFFFFFFFFFFC NCAST=7FFFFFFFFFFFFFFC NCOMP=0000000000000000 D2U=FFFFFFFFFFFFFFFC"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-DS64",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585DS64);",
+      "source_capture": {
+        "file": "disasm-DS64-source.png",
+        "sha256": "2e1bb58b924a27bf5b261ba6520ccbdaf2ef52fc481d15a9066eef68c92b270d"
+      },
+      "result_capture": {
+        "file": "disasm-DS64-result.png",
+        "sha256": "d0fcde93ba39a112e6528b4005a939d4030498e0f501677a148e37e42140114e"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585DS64",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585DS64",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585DS64",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585DS64",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585DS64",
+          "offset": "0009",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585DS64",
+          "offset": "000C",
+          "bytes": "48C1F806",
+          "text": "SAR       U64 RAX,U8 06"
+        },
+        {
+          "symbol": "O585DS64",
+          "offset": "0010",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585DS64",
+          "offset": "0011",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585DS64",
+          "offset": "0012",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-MS64-retry1",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585MS64);",
+      "source_capture": {
+        "file": "disasm-MS64-retry1-source.png",
+        "sha256": "c25b0c0f46361655f080c01fc0098945d8cdd5a43057e6683a9ae00215e8a2bd"
+      },
+      "result_capture": {
+        "file": "disasm-MS64-retry1-result.png",
+        "sha256": "eabdf0245ed6fa60fc62164ac9ee49cc908a4fbef6f91fec107cadd08c611d39"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585MS64",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0009",
+          "bytes": "33C9",
+          "text": "XOR       U64 RCX,U64 RCX"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "000B",
+          "bytes": "B140",
+          "text": "MOV       U8 CL,U8 40"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "000D",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0010",
+          "bytes": "4899",
+          "text": "CQO"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0012",
+          "bytes": "48F7F9",
+          "text": "IDIV      U64 RCX"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0015",
+          "bytes": "488BC2",
+          "text": "MOV       U64 RAX,U64 RDX"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0018",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "0019",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585MS64",
+          "offset": "001A",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-UM64",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585UM64);",
+      "source_capture": {
+        "file": "disasm-UM64-source.png",
+        "sha256": "36728793e2d5f1e5ad0f6ba894fca3b7c0148bafea609ebc2960f24b0639179f"
+      },
+      "result_capture": {
+        "file": "disasm-UM64-result.png",
+        "sha256": "1792e70c3714a67313c7886318efa8aee761b6eea2a763bf5642d55ee50a378c"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585UM64",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "0009",
+          "bytes": "33C0",
+          "text": "XOR       U64 RAX,U64 RAX"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "000B",
+          "bytes": "B03F",
+          "text": "MOV       U8 AL,U8 3F"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "000D",
+          "bytes": "4823C6",
+          "text": "AND       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "0010",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "0011",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585UM64",
+          "offset": "0012",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-DE64",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585DE64);",
+      "source_capture": {
+        "file": "disasm-DE64-source.png",
+        "sha256": "99e9a31c09b161b13b92e368a13c3a2c24292e7e0e3ac0178046e9d6952d67c8"
+      },
+      "result_capture": {
+        "file": "disasm-DE64-result.png",
+        "sha256": "a1cf40992d387e0d65a0f4a8dbaf4c2e1793310ea736b11f6d77af467936bfc5"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585DE64",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585DE64",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585DE64",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585DE64",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585DE64",
+          "offset": "0009",
+          "bytes": "48C1FE06",
+          "text": "SAR       U64 RSI,U8 06"
+        },
+        {
+          "symbol": "O585DE64",
+          "offset": "000D",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585DE64",
+          "offset": "0010",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585DE64",
+          "offset": "0011",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585DE64",
+          "offset": "0012",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-ME64",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585ME64);",
+      "source_capture": {
+        "file": "disasm-ME64-source.png",
+        "sha256": "43266487b3838e7c731688b68ab7ce862a66ba81a6b99e46e96af741f23dfe77"
+      },
+      "result_capture": {
+        "file": "disasm-ME64-result.png",
+        "sha256": "b973298c1927456a105741876d90ccf5f9c0ca2e4ac19d225f992b02dbb0ea96"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585ME64",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585ME64",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585ME64",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585ME64",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585ME64",
+          "offset": "0009",
+          "bytes": "4883E63F",
+          "text": "AND       U64 RSI,I8 3F"
+        },
+        {
+          "symbol": "O585ME64",
+          "offset": "000D",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585ME64",
+          "offset": "0010",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585ME64",
+          "offset": "0011",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585ME64",
+          "offset": "0012",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-DEH",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585DEH);",
+      "source_capture": {
+        "file": "disasm-DEH-source.png",
+        "sha256": "51fa20b3e48612e59e4415ed3988181549ef840b83ceb74cdbe4156ab59803f0"
+      },
+      "result_capture": {
+        "file": "disasm-DEH-result.png",
+        "sha256": "de36c615ace368ed3e928264be59d1404f32e3453c4d262a168cb95a103ffeb2"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585DEH",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585DEH",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585DEH",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585DEH",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585DEH",
+          "offset": "0009",
+          "bytes": "48C1FE3F",
+          "text": "SAR       U64 RSI,U8 3F"
+        },
+        {
+          "symbol": "O585DEH",
+          "offset": "000D",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585DEH",
+          "offset": "0010",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585DEH",
+          "offset": "0011",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585DEH",
+          "offset": "0012",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-CD1U",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585CD1U);",
+      "source_capture": {
+        "file": "disasm-CD1U-source.png",
+        "sha256": "86982258161f6dc5fe785603f3b9975eb3ba625fc7973514aa8a284653ec9685"
+      },
+      "result_capture": {
+        "file": "disasm-CD1U-result.png",
+        "sha256": "e49b6b687d780e8994ac2f6168dfb1f410855a750e7d55166ab06c3fd9e7f2be"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585CD1U",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "0009",
+          "bytes": "33C0",
+          "text": "XOR       U64 RAX,U64 RAX"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "000B",
+          "bytes": "4883FE00",
+          "text": "CMP       U64 RSI,I8 00"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "000F",
+          "bytes": "7D03",
+          "text": "JGE       I8 ????????????????"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "0011",
+          "bytes": "48FFC0",
+          "text": "INC       U64 RAX"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "0014",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "0015",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585CD1U",
+          "offset": "0016",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-CDH",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585CDH);",
+      "source_capture": {
+        "file": "disasm-CDH-source.png",
+        "sha256": "54c6b627c250ca88ed56085855c0a601923c1b3fe3ebb0d548857f93f4d5e9d9"
+      },
+      "result_capture": {
+        "file": "disasm-CDH-result.png",
+        "sha256": "d113c1e5956c2012f6322bc331572e3ef7a1872fbd0e867b9cd08bf3d9778f61"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585CDH",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "0009",
+          "bytes": "4C8BC6",
+          "text": "MOV       U64 R8,U64 RSI"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "000C",
+          "bytes": "49C1F83F",
+          "text": "SAR       U64 R8,U8 3F"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "0010",
+          "bytes": "33C0",
+          "text": "XOR       U64 RAX,U64 RAX"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "0012",
+          "bytes": "4983F800",
+          "text": "CMP       U64 R8,I8 00"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "0016",
+          "bytes": "7303",
+          "text": "JAE       I8 ???????????????"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "0018",
+          "bytes": "48FFC0",
+          "text": "INC       U64 RAX"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "001B",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "001C",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585CDH",
+          "offset": "001D",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-CD2U",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585CD2U);",
+      "source_capture": {
+        "file": "disasm-CD2U-source.png",
+        "sha256": "7f894e37e6a5e0e0d6e2ed8d364268d3f1e7bd3f0f4ecd36026023f4c91799c4"
+      },
+      "result_capture": {
+        "file": "disasm-CD2U-result.png",
+        "sha256": "51ba6961321239526d4835f4e5782f03d9a20f839250daedd1d78c0133c952bc"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585CD2U",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "0009",
+          "bytes": "4C8BC6",
+          "text": "MOV       U64 R8,U64 RSI"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "000C",
+          "bytes": "49D1F8",
+          "text": "SAR1      U64 R8"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "000F",
+          "bytes": "33C0",
+          "text": "XOR       U64 RAX,U64 RAX"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "0011",
+          "bytes": "4983F800",
+          "text": "CMP       U64 R8,I8 00"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "0015",
+          "bytes": "7303",
+          "text": "JAE       I8 ????????????????"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "0017",
+          "bytes": "48FFC0",
+          "text": "INC       U64 RAX"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "001A",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "001B",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585CD2U",
+          "offset": "001C",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-DSMERGE",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585DSMERGE);",
+      "source_capture": {
+        "file": "disasm-DSMERGE-source.png",
+        "sha256": "9ef4bea61075e772921b1138a749fc1b7762f48732fbaa503827addc0187d93d"
+      },
+      "result_capture": {
+        "file": "disasm-DSMERGE-result.png",
+        "sha256": "2edd426cc01cdde5a7411f1f2f951fa8b70301a489930accfaa26ba136a7a758"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "0009",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "000C",
+          "bytes": "48C1F840",
+          "text": "SAR       U64 RAX,U8 40"
+        },
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "0010",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "0011",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585DSMERGE",
+          "offset": "0012",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-DDMERGE",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585DDMERGE);",
+      "source_capture": {
+        "file": "disasm-DDMERGE-source.png",
+        "sha256": "60ed53003d23f71d9c65f3502f1fc39f7338cdf050ece14b3f7e987c50ace6b2"
+      },
+      "result_capture": {
+        "file": "disasm-DDMERGE-result.png",
+        "sha256": "00663f93a57df17015caf3db205ced248fdaa69397107caa33a8757956257147"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "0009",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "000C",
+          "bytes": "48C1F840",
+          "text": "SAR       U64 RAX,U8 40"
+        },
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "0010",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "0011",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585DDMERGE",
+          "offset": "0012",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-MREST",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585MREST);",
+      "source_capture": {
+        "file": "disasm-MREST-source.png",
+        "sha256": "42b259c2f2ca0f12eec5309054e0b1c775d6a766a973e1a956c0bb6849839d68"
+      },
+      "result_capture": {
+        "file": "disasm-MREST-result.png",
+        "sha256": "75b784672008def4047cc0e827af64874f9afa346c9309385df513b29dc746b2"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585MREST",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0009",
+          "bytes": "4C8BC6",
+          "text": "MOV       U64 R8,U64 RSI"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "000C",
+          "bytes": "49C1F800",
+          "text": "SAR       U64 R8,U8 00"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0010",
+          "bytes": "33C9",
+          "text": "XOR       U64 RCX,U64 RCX"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0012",
+          "bytes": "B102",
+          "text": "MOV       U8 CL,U8 02"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0014",
+          "bytes": "498BC0",
+          "text": "MOV       U64 RAX,U64 R8"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0017",
+          "bytes": "4899",
+          "text": "CQO"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0019",
+          "bytes": "48F7F9",
+          "text": "IDIV      U64 RCX"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "001C",
+          "bytes": "488BC2",
+          "text": "MOV       U64 RAX,U64 RDX"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "001F",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0020",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585MREST",
+          "offset": "0021",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-NPUB",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585NPUB);",
+      "source_capture": {
+        "file": "disasm-NPUB-source.png",
+        "sha256": "cc4460eb62bec34006d3742b948e6b01367d24fd4da4cfda9a43680df04da702"
+      },
+      "result_capture": {
+        "file": "disasm-NPUB-result.png",
+        "sha256": "36288a980c85dfd89b89dbdf3b7b5e2cf304640b18a4442335c15b19dfccd5cf"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585NPUB",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0009",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "000C",
+          "bytes": "48F7D8",
+          "text": "NEG       U64 RAX"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "000F",
+          "bytes": "48D1F8",
+          "text": "SAR1      U64 RAX"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0012",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0013",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0014",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-NCALL",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585NCALL);",
+      "source_capture": {
+        "file": "disasm-NCALL-source.png",
+        "sha256": "e5ed4dc57a55a9d335757c355bb6e3f0292e3507162496540ff2a4b6c0ef9501"
+      },
+      "result_capture": {
+        "file": "disasm-NCALL-result.png",
+        "sha256": "e076feb8b0d9a3bbf319e7b993f1e80c4fb83fd43ce99c660d080850901cc2b7"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585NCALL",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "0004",
+          "bytes": "E8F7090100",
+          "text": "CALL      I32 ????????????????"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "0009",
+          "bytes": "48F7D8",
+          "text": "NEG       U64 RAX"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "000C",
+          "bytes": "48D1E8",
+          "text": "SHR1      U64 RAX"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "000F",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "0010",
+          "bytes": "C3",
+          "text": "RET"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-NCAST",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585NCAST);",
+      "source_capture": {
+        "file": "disasm-NCAST-source.png",
+        "sha256": "0be9cdfcb701b9e4bf711d9bfaf0654ca769afbc77886f3f3d23434a37fc747d"
+      },
+      "result_capture": {
+        "file": "disasm-NCAST-result.png",
+        "sha256": "e17c32583bf7f3988c2b69077c06ef9406bdc57badfba7726c3182675c304526"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585NCAST",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "0004",
+          "bytes": "48B8FCFFFFFF",
+          "text": "MOV       U64 RAX,I64 7FFFFFFFFFFFFFFC"
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "000A",
+          "bytes": "FFFFFF7F",
+          "text": ""
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "000E",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "000F",
+          "bytes": "C3",
+          "text": "RET"
+        }
+      ],
+      "first_failing_phase": "none"
+    }
+  ],
+  "hosted_value_projections": [
+    {
+      "field": "DS2",
+      "case_id": "result-ROUND-A",
+      "repeat_case_id": "result-ROUND-B",
+      "holy_c_source": "I64 O585DS2(I64 x){return x/2;}\nO585DS2(-7);\n"
+    },
+    {
+      "field": "MS2",
+      "case_id": "result-ROUND-A",
+      "repeat_case_id": "result-ROUND-B",
+      "holy_c_source": "I64 O585MS2(I64 x){return x%2;}\nO585MS2(-7);\n"
+    },
+    {
+      "field": "DS64",
+      "case_id": "result-ROUND-A",
+      "repeat_case_id": "result-ROUND-B",
+      "holy_c_source": "I64 O585DS64(I64 x){return x/64;}\nO585DS64(-7);\n"
+    },
+    {
+      "field": "MS64",
+      "case_id": "result-ROUND-A",
+      "repeat_case_id": "result-ROUND-B",
+      "holy_c_source": "I64 O585MS64(I64 x){return x%64;}\nO585MS64(-7);\n"
+    },
+    {
+      "field": "UD64",
+      "case_id": "result-UNSIGNED-A",
+      "repeat_case_id": "result-UNSIGNED-B",
+      "holy_c_source": "U64 O585UD64(U64 x){return x/64;}\nO585UD64(-1);\n"
+    },
+    {
+      "field": "UM64",
+      "case_id": "result-UNSIGNED-A",
+      "repeat_case_id": "result-UNSIGNED-B",
+      "holy_c_source": "U64 O585UM64(U64 x){return x%64;}\nO585UM64(-1);\n"
+    },
+    {
+      "field": "MH",
+      "case_id": "result-UNSIGNED-A",
+      "repeat_case_id": "result-UNSIGNED-B",
+      "holy_c_source": "U64 O585MH(I64 x){return x%0x8000000000000000;}\nO585MH(-7);\n"
+    },
+    {
+      "field": "DE64",
+      "case_id": "result-ASSIGN-A",
+      "repeat_case_id": "result-ASSIGN-B-retry1",
+      "holy_c_source": "I64 O585DE64(I64 x){x/=64;return x;}\nO585DE64(-7);\n"
+    },
+    {
+      "field": "ME64",
+      "case_id": "result-ASSIGN-A",
+      "repeat_case_id": "result-ASSIGN-B-retry1",
+      "holy_c_source": "I64 O585ME64(I64 x){x%=64;return x;}\nO585ME64(-7);\n"
+    },
+    {
+      "field": "UDE64",
+      "case_id": "result-ASSIGN-A",
+      "repeat_case_id": "result-ASSIGN-B-retry1",
+      "holy_c_source": "U64 O585UDE64(U64 x){x/=64;return x;}\nO585UDE64(-1);\n"
+    },
+    {
+      "field": "UME64",
+      "case_id": "result-ASSIGN-A",
+      "repeat_case_id": "result-ASSIGN-B-retry1",
+      "holy_c_source": "U64 O585UME64(U64 x){x%=64;return x;}\nO585UME64(-1);\n"
+    },
+    {
+      "field": "DEH",
+      "case_id": "result-HIGH-A",
+      "repeat_case_id": "result-HIGH-B",
+      "holy_c_source": "I64 O585DEH(I64 x){x/=0x8000000000000000;return x;}\nO585DEH(-7);\n"
+    },
+    {
+      "field": "MEH",
+      "case_id": "result-HIGH-A",
+      "repeat_case_id": "result-HIGH-B",
+      "holy_c_source": "I64 O585MEH(I64 x){x%=0x8000000000000000;return x;}\nO585MEH(-7);\n"
+    },
+    {
+      "field": "VARH",
+      "case_id": "result-HIGH-A",
+      "repeat_case_id": "result-HIGH-B",
+      "holy_c_source": "U64 O585VARH(I64 x,U64 d){return x/d;}\nO585VARH(-7,0x8000000000000000);\n"
+    },
+    {
+      "field": "D1U",
+      "case_id": "result-CLASS-A",
+      "repeat_case_id": "result-CLASS-B",
+      "holy_c_source": "I64 O585D1U(I64 x){return x/1(U64);}\nO585D1U(-7);\n"
+    },
+    {
+      "field": "CD1U",
+      "case_id": "result-CLASS-A",
+      "repeat_case_id": "result-CLASS-B",
+      "holy_c_source": "I64 O585CD1U(I64 x){return (x/1(U64))<0;}\nO585CD1U(-7);\n"
+    },
+    {
+      "field": "CDH",
+      "case_id": "result-CLASS-A",
+      "repeat_case_id": "result-CLASS-B",
+      "holy_c_source": "I64 O585CDH(I64 x){return (x/0x8000000000000000)<0;}\nO585CDH(-7);\n"
+    },
+    {
+      "field": "CD2U",
+      "case_id": "result-CLASS-A",
+      "repeat_case_id": "result-CLASS-B",
+      "holy_c_source": "I64 O585CD2U(I64 x){return (x/2(U64))<0;}\nO585CD2U(-7);\n"
+    },
+    {
+      "field": "DSMERGE",
+      "case_id": "result-NEST-A",
+      "repeat_case_id": "result-NEST-B",
+      "holy_c_source": "I64 O585DSMERGE(I64 x){return (x/2)>>63;}\nO585DSMERGE(-7);\n"
+    },
+    {
+      "field": "DDMERGE",
+      "case_id": "result-NEST-A",
+      "repeat_case_id": "result-NEST-B",
+      "holy_c_source": "I64 O585DDMERGE(I64 x){return (x/0x8000000000000000)/2;}\nO585DDMERGE(-7);\n"
+    },
+    {
+      "field": "USMERGE",
+      "case_id": "result-NEST-A",
+      "repeat_case_id": "result-NEST-B",
+      "holy_c_source": "U64 O585USMERGE(U64 x){return (x/2)>>63;}\nO585USMERGE(-1);\n"
+    },
+    {
+      "field": "CONSTCH",
+      "case_id": "result-NEST-A",
+      "repeat_case_id": "result-NEST-B",
+      "holy_c_source": "\n(-7/2)>>63;\n"
+    },
+    {
+      "field": "MREST",
+      "case_id": "result-RESTORE-A",
+      "repeat_case_id": "result-RESTORE-B",
+      "holy_c_source": "I64 O585MREST(I64 x){return (x>>0x8000000000000000)%2;}\nO585MREST(-7);\n"
+    },
+    {
+      "field": "FOLLOW",
+      "case_id": "result-RESTORE-A",
+      "repeat_case_id": "result-RESTORE-B",
+      "holy_c_source": "I64 O585FOLLOW(I64 x){return (x/0x8000000000000000)/3;}\nO585FOLLOW(-7);\n"
+    },
+    {
+      "field": "CONSTHI",
+      "case_id": "result-RESTORE-A",
+      "repeat_case_id": "result-RESTORE-B",
+      "holy_c_source": "\n-7/0x8000000000000000;\n"
+    },
+    {
+      "field": "EVAR",
+      "case_id": "result-EFFECT-A",
+      "repeat_case_id": "result-EFFECT-B",
+      "holy_c_source": "I64 O585N;I64 O585Write(){O585N=-7;return 2;}\nI64 O585EVAR(){O585N=-9;O585N/=O585Write();return O585N;}\nO585EVAR();\n"
+    },
+    {
+      "field": "EONCE",
+      "case_id": "result-EFFECT-A",
+      "repeat_case_id": "result-EFFECT-B",
+      "holy_c_source": "I64 O585N;I64 O585Write(){O585N=-7;return 2;}\nI64 O585Read(){return ++O585N;}I64 O585EONCE(){O585N=6;return (O585Read()/2)*10+O585N;}\nO585EONCE();\n"
+    },
+    {
+      "field": "N8",
+      "case_id": "result-EFFECT-A",
+      "repeat_case_id": "result-EFFECT-B",
+      "holy_c_source": "I64 O585N8(){I8 x=-7;x/=2;return x;}\nO585N8();\n"
+    },
+    {
+      "field": "PTR",
+      "case_id": "result-EFFECT-A",
+      "repeat_case_id": "result-EFFECT-B",
+      "holy_c_source": "I64 O585PTR(){I64 x=-7;I64 *p=&x;*p/=2;return x;}\nO585PTR();\n"
+    },
+    {
+      "field": "CD64",
+      "case_id": "result-CONST-A",
+      "repeat_case_id": "result-CONST-B",
+      "holy_c_source": "\n-7/64;\n"
+    },
+    {
+      "field": "CM64",
+      "case_id": "result-CONST-A",
+      "repeat_case_id": "result-CONST-B",
+      "holy_c_source": "\n-7%64;\n"
+    },
+    {
+      "field": "CMHIGH",
+      "case_id": "result-CONST-A",
+      "repeat_case_id": "result-CONST-B",
+      "holy_c_source": "\n-7%0x8000000000000000;\n"
+    },
+    {
+      "field": "CZDIV",
+      "case_id": "result-CONST-A",
+      "repeat_case_id": "result-CONST-B",
+      "holy_c_source": "\n0/3;\n"
+    },
+    {
+      "field": "NPUB",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "U64 O585NPUB(U64 x){return (-x)>>1;}\nO585NPUB(7);\n"
+    },
+    {
+      "field": "NCALL",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "U64 O585WORD(){return 7;}\nU64 O585NCALL(){return (-O585WORD())>>1;}\nO585NCALL();\n"
+    },
+    {
+      "field": "NCAST",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "U64 O585NCAST(){return (-7(U64))>>1;}\nO585NCAST();\n"
+    },
+    {
+      "field": "NCOMP",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "U64 O585WORD(){return 7;}\nI64 O585NCOMP(){return ((-O585WORD())>>1)<0;}\nO585NCOMP();\n"
+    },
+    {
+      "field": "D2U",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "I64 O585D2U(I64 x){return x/2(U64);}\nO585D2U(-7);\n"
+    }
+  ],
+  "boundary": "Successful native probes cover the recorded divisor, computation-class, nesting, destination and evaluation-order shapes. Maintained hosted regressions compare the 38 primary fields and their same-boot repeats with source execution. Arithmetic-fault phase evidence remains in integer-division.json. Machine listings stop at the first return; post-return output is excluded. This fixture does not establish general HolyC execution or independent-machine repeatability."
+}

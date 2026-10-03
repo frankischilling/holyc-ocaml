@@ -101,7 +101,9 @@ let instructions compiled =
 let canonical_preflight () =
   let examples =
     List.map
-      (fun (_, operator, _, _, _, opcode) -> ("G" ^ operator ^ "1", opcode))
+      (fun (_, operator, _, _, _, opcode) ->
+        let rhs = if operator = "/=" || operator = "%=" then "R" else "1" in
+        ("G" ^ operator ^ rhs, opcode))
       compound_rows
     @ List.map
         (fun (_, update, _, _, opcode) -> (update, opcode))
@@ -111,7 +113,7 @@ let canonical_preflight () =
     (fun mode ->
       List.iter
         (fun (update, opcode) ->
-          let source = "U8 G;G=42;" ^ update ^ ";G;" in
+          let source = "U8 G;I64 R;G=42;R=1;" ^ update ^ ";G;" in
           let compiled = G.compile ~mode source in
           let entry = integer_program_entry compiled in
           let globals = integer_program_globals compiled in

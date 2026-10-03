@@ -8,6 +8,7 @@ val lower_function_return :
   ?globals:Integer_globals.t ->
   ?lower_call:Expression_lowering.call_lowerer ->
   ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   leave:Instruction_sequence.Block_id.t ->

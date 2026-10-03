@@ -255,14 +255,14 @@ let fixture_modes () =
         "default-free native fixture performs no declaration preparation";
       check_word report "i64" "42" "0x000000000000002a";
       require
-        (report |> member "executed_steps" |> to_int = 26)
-        "maintained control fixture executes its exact 26 IR steps";
+        (report |> member "executed_steps" |> to_int = 24)
+        "maintained control fixture executes its exact 24 IR steps";
       let one_below =
-        native_json ~status:1 ~mode ~options:[ "--step-limit=25" ]
+        native_json ~status:1 ~mode ~options:[ "--step-limit=23" ]
           native_fixture
       in
       require
-        (one_below |> member "executed_steps" |> to_int = 25
+        (one_below |> member "executed_steps" |> to_int = 23
         && first_code one_below = "HCIRVM0007")
         "maintained control fixture one-below stops before its final END")
     [ "jit"; "aot" ]
@@ -529,8 +529,8 @@ let faults_and_loops () =
     [
       ("84/0;", "HCIRVM0009");
       ("85%0;", "HCIRVM0009");
-      ("0x8000000000000000(I64i)/-1;", "HCIRVM0010");
-      ("0x8000000000000000(I64i)%-1;", "HCIRVM0010");
+      ("I64 F(I64 x){return x/-1;}F(0x8000000000000000);", "HCIRVM0010");
+      ("I64 F(I64 x){return x%-1;}F(0x8000000000000000);", "HCIRVM0010");
     ]
   in
   List.iter
@@ -544,6 +544,20 @@ let faults_and_loops () =
             && first_code report = code)
             (contents ^ " native arithmetic fault report")))
     cases;
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun contents ->
+          with_file ".hc" contents (fun source ->
+              let report = native_json ~status:1 ~mode source in
+              require
+                (first_code report = "HCIRL0007"
+                && member "executed_steps" report = `Null
+                && member "final_value" report = `Null
+                && report |> member "native" |> member "image" = `Null)
+                "constant signed overflow fails before native entry"))
+        [ "0x8000000000000000(I64i)/-1;"; "0x8000000000000000(I64i)%-1;" ])
+    [ "jit"; "aot" ];
   List.iter
     (fun contents ->
       with_file ".hc" contents (fun source ->

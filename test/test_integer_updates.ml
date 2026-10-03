@@ -137,18 +137,25 @@ let initializer_optimizer_boundary () =
   List.iter
     (fun mode ->
       List.iter
+        (fun text -> ignore (G.run ~mode text |> F.expect ~type_:VM.I64 1L))
+        [
+          "I64 G=-3;I64 H=(G%=(1+1));H;";
+          "I64 Mod(I64 n){return n%=2;}I64 Outer(I64 n){return Mod(n);}I64 \
+           G=Outer(-3);G;";
+        ])
+    G.modes;
+  List.iter
+    (fun mode ->
+      List.iter
         (fun text ->
           Alcotest.(check string)
             "compound optimizer boundary" "HCRUN0006"
             (F.first_error (G.run ~mode text)).code)
         [
           "I64 G=-3;I64 H=(G/=2);H;";
-          "I64 G=-3;I64 H=(G%=(1+1));H;";
           "I64 G=1,D=2;I64 H=(G<<=D);H;";
           "I64 G=1;I64 H=(G>>=1);H;";
           "I64 Half(I64 n){return n/=2;}I64 G=Half(-3);G;";
-          "I64 Mod(I64 n){return n%=2;}I64 Outer(I64 n){return Mod(n);}I64 \
-           G=Outer(-3);G;";
         ])
     G.modes
 
@@ -305,7 +312,7 @@ let canonical_opcodes () =
       Ir_opcode.Ic_add_equ;
       Ic_sub_equ;
       Ic_mul_equ;
-      Ic_div_equ;
+      Ic_shr_equ;
       Ic_mod_equ;
       Ic_and_equ;
       Ic_or_equ;

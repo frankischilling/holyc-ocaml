@@ -1,5 +1,15 @@
 (rule
  (alias native-tests)
+ (deps ../oracle/division-strength-reductions.json)
+ (action
+  (run
+   %{exe:../test_division_strength_reduction_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../oracle/division-strength-reductions.json}
+   --native)))
+
+(rule
+ (alias native-tests)
  (deps ../oracle/constant-shifts.json ../oracle/public-shift-classes.json)
  (action
   (progn
@@ -414,6 +424,21 @@
 (copy_files ../source_constant_shift_cases.ml)
 
 (copy_files ../public_shift_class_cases.ml)
+
+(copy_files ../division_strength_reduction_cases.ml)
+
+(executable
+ (name test_source_division_execution)
+ (modules test_source_division_execution division_strength_reduction_cases)
+ (libraries holyc_lib native_scalar_support alcotest yojson))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../oracle/division-strength-reductions.json
+  ../oracle/integer-division.json)
+ (action
+  (run %{exe:test_source_division_execution.exe})))
 
 (executable
  (name test_source_constant_shift_execution)

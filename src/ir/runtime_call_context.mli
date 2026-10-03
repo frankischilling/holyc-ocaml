@@ -32,6 +32,12 @@ type t
 
 val original_phases : t -> Sema.Function_call_phase.t list
 
+val argument_producer_origin :
+  Sema.Function_call_expression_result.expression_result -> Common.Span.t option
+(** Return the checked producer origin, forwarding transparent grouping and
+    unary plus. Argument views use this source site when an optimizer removes
+    the original operator. This query does not construct source authority. *)
+
 val create :
   records:Sema.Function_record_classification.t ->
   function_sources:Sema.Function_call_expression_result.t ->
@@ -49,10 +55,11 @@ val create :
     output statements cannot belong to initializer regions. Matching spellings
     or table-local symbol IDs do not establish ownership. Pointer
     scale/add/subtract, difference size/division and comparison instructions and
-    canonical constant shifts and their original transitive producers are also
-    sealed; replacing them with type-compatible records does not retain source
-    authority. A numeric producer cannot be rewritten into a pointer
-    comparison/difference or an unsealed canonical constant shift. *)
+    canonical constant shifts, integer AND and AND/SHR updates and their
+    original transitive producers are also sealed; replacing them with
+    type-compatible records does not retain source authority. A numeric producer
+    cannot be rewritten into a pointer comparison/difference or an unsealed
+    canonical constant shift. *)
 
 val matches :
   t ->
@@ -60,7 +67,7 @@ val matches :
   initialization:Global_initialization.t option ->
   functions:Function_body.t list ->
   bool
-(** Require the original bundle and immutable pointer/constant-shift producer
+(** Require the original bundle and immutable pointer/integer-reduction producer
     records. *)
 
 val find_start :

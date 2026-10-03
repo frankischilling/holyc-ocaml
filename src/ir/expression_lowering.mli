@@ -18,6 +18,7 @@ val lower_typed_result :
   ?globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
   ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.expression_result ->
@@ -89,14 +90,28 @@ val lower_typed_result :
     same-direction counts and preserves surviving classes, established unsigned
     comparison decisions and single evaluation. Public call and cast computation
     classes survive until each operation applies its own forwarding rule; unary
-    negation distinguishes them from internal unsigned values. Shared/address
-    plans and other operand domains retain their raw contract. *)
+    negation distinguishes them from internal unsigned values. Standalone
+    shared/address plans and other operand domains retain their raw contract. *)
+
+(** [optimize_division] independently defaults to false. Public program
+    providers enable full-word integer constant division/remainder folding,
+    division by one elimination, literal power-of-two division shifts and
+    unsigned remainder masks. Scalar compound assignments reduce to addressed
+    SHR/AND updates. Rewrites require zero flags and no result conversion.
+    Constant signed minimum with minus one fails with [HCIRL0007] before
+    publication, including discarded or unreachable expressions; zero divisors
+    retain their reached runtime fault. Division by one erases the divisor's
+    early computation class; other shift reductions retain established unsigned
+    comparison decisions. Address plans retain opaque dependencies and original
+    evaluation order. Shared comparison chains retain raw nonconstant division
+    shifts and plain remainder masks. *)
 
 val lower_initializer :
   frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
   ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.initializer_result ->
@@ -110,6 +125,7 @@ val lower_static_initializer :
   ?root:Sema.Function_call_expression_result.initializer_result ->
   ?lower_call:call_lowerer ->
   ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Integer_globals.static_slot ->
@@ -121,6 +137,7 @@ val lower_global_initializer :
   globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
   ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.top_level_root_result ->
@@ -135,6 +152,7 @@ val sequence : t -> Instruction_sequence.t
 val lower_fragment_initializer :
   ?lower_call:call_lowerer ->
   ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Initializer_fragment_destination.t ->

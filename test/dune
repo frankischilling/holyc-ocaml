@@ -1,4 +1,15 @@
 (test
+ (name test_division_strength_reduction_cli)
+ (modules test_division_strength_reduction_cli)
+ (libraries unix yojson)
+ (deps oracle/division-strength-reductions.json)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:oracle/division-strength-reductions.json})))
+
+(test
  (name test_constant_shift_cli)
  (modules test_constant_shift_cli)
  (libraries unix yojson)
@@ -311,6 +322,8 @@
   test_native_expression
   test_constant_shifts
   test_source_constant_shifts
+  test_source_division_strength_reductions
+  division_strength_reduction_cases
   source_constant_shift_cases
   public_shift_class_cases
   test_native_program
@@ -594,6 +607,7 @@
   oracle/conditional-recovery.json
   oracle/function-definitions.json
   oracle/integer-division.json
+  oracle/division-strength-reductions.json
   oracle/constant-shifts.json
   oracle/public-shift-classes.json
   oracle/local-declarations.json

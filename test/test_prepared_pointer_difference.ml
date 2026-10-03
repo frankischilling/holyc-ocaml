@@ -257,16 +257,13 @@ let user_divisions () =
                   ds)))
         [
           ("84/2;", 42L, 0);
-          ("I8 q[3];(q-(q+1))/2;", 0L, 0);
+          ("I8 q[3];(q-(q+1))/2;", -1L, 0);
           ("I64 q[3];((q+3)-q)/2;", 1L, 1);
         ])
     T.modes
 
 let rejected =
   [
-    wrap "N++;return 84/2;";
-    wrap "N++;return -1/2;";
-    wrap "N++;return 9%2;";
     wrap "N++;return N<<2;";
     wrap "N++;return -N>>1;";
     wrap "N++;I64 *p=Q;return (p-(Q+1))/2;";
@@ -276,6 +273,20 @@ let rejected =
   ]
 
 let gates () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let _, execution = D.success mode source in
+          Alcotest.(check (option int64))
+            "folded division preparation now admitted" (Some 42L)
+            (Option.map (fun word -> word.VM.bits) (VM.final_value execution)))
+        [
+          wrap "N++;return 84/2;";
+          wrap "N++;return 42+(-1/2);";
+          wrap "N++;return 41+9%2;";
+        ])
+    T.modes;
   List.iter
     (fun mode ->
       List.iter

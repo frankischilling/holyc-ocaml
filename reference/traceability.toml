@@ -11012,10 +11012,10 @@ excluded = ["F64 division", "compound assignments", "division strength reduction
 
 [[feature]]
 id = "HC-OPT-DIVISION-FAULT-PHASE-ORACLE"
-description = "Captured native division strength reductions, signedness changes and arithmetic fault phases; hosted optimizer emulation remains pending."
+description = "Verified full-word integer source division/remainder folding, literal-divisor and scalar compound reductions preserve recorded classes, effects and fault phases."
 sources = ["Compiler/OptPass012.HC:193-226,403-455,838-854", "Compiler/OptLib.HC:96-179,196-225", "Compiler/BackA.HC:355-440,573-600", "Compiler/OptPass789A.HC:524-534,676-687", "Kernel/KInts.HC:150-164", "Kernel/KExcept.HC:throw", "Adam/ADbg.HC:254-272"]
-implementation = []
-tests = ["test/oracle/integer-division.json", "test/test_ir_integer_division.ml", "test/dune"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/oracle/integer-division.json", "test/oracle/division-strength-reductions.json", "test/test_ir_integer_division.ml", "test/division_strength_reduction_cases.ml", "test/test_source_division_strength_reductions.ml", "test/native/test_source_division_execution.ml", "test/test_division_strength_reduction_cli.ml", "test/dune", "test/native/dune"]
 documentation = ["docs/integer-division.md", "docs/optimizer.md", "docs/compatibility.md", "docs/oracle-fixtures.md", "docs/testing.md", "docs/reference-source-map.md"]
 status = "partial"
 issue = 585
@@ -11027,7 +11027,11 @@ native_fixture = "test/oracle/integer-division.json"
 hosted_value_projections = 13
 hosted_fault_projections = 4
 observed_differences = ["signed -7/2 is -3 when constant or using a variable divisor, but -4 through a literal-divisor function or /=", "signed -7%2 is -1, but %=2 produces 1", "removing a literal unsigned high-bit divisor can lead to an arithmetic shift of the surviving signed dividend", "constant signed overflow faults during compilation even in skipped or discarded expressions; literal zero division faults only when reached"]
-remaining = ["source optimizer emulation and broader differential coverage", "constant-form shift questions in issue #574", "native exception delivery in the hosted implementation"]
+source_native_fixture = "test/oracle/division-strength-reductions.json"
+source_native_fields = 38
+source_native_same_boot_repeats = 38
+source_compilation_fault_controls = 4
+remaining = ["nonconstant division/shift preparation and retained native source publication", "shared comparison-chain reductions and broader numeric/flagged domains", "broader differential coverage and native exception delivery"]
 
 [[feature]]
 id = "HC-SOURCE-INTEGER-CONTROL-FLOW"
@@ -11952,7 +11956,7 @@ status = "implemented"
 issue = 657
 ir_epic = 396
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-source_gate = "run --target=host-jit accepts closed expression/empty/block/sequence/if/while/do/for/break source in both preprocessing modes. native-integer-program.hc retains I64 42 in 26 reached instructions; integer-control-flow.hc retains I64 0 in 23 because its final for initializer updates the last-expression latch."
+source_gate = "run --target=host-jit accepts closed expression/empty/block/sequence/if/while/do/for/break source in both preprocessing modes. native-integer-program.hc retains I64 42 in 24 reached instructions after constant division folding; integer-control-flow.hc retains I64 0 in 23 because its final for initializer updates the last-expression latch."
 compile_authority = "Parser.parse has no command/stream execution callbacks. An iterative fail-fast AST gate rejects declarations/functions/storage/calls/implicit output before Integer_unit.compile_ast; a defensive compiled-unit check requires zero functions, storage, calls, initialization and preparation. The ordinary entry is never interpreted during native compilation."
 graph = "whole-graph preflight includes unreachable code and preserves block order, canonical END_EXP/JMP/BR_ZERO/BR_NOT_ZERO/END forms, checked targets and source-order fallthrough; IR values and spill ownership are block-local; dense metadata sites retain original sparse block/instruction IDs and spans"
 meter = "R10 is loaded from the private positive budget once; before every IR instruction TEST/JE checks exhaustion and DEC consumes one step. Arithmetic faults consume their instruction; budget faults name the next instruction; end on the last step succeeds. Empty-block transfers and compiler housekeeping cost no extra IR steps."

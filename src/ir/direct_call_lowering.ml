@@ -280,6 +280,15 @@ let argument_fragment ~span argument lowered =
   let value = Expression.result_value lowered
   and instruction = Expression.next_instruction_id lowered
   and next_value = Expression.next_value_id lowered in
+  let producer =
+    List.find
+      (fun (d : Sequence.description) ->
+        Option.fold ~none:false
+          ~some:(fun r -> r.Sequence.value_id = value)
+          d.result)
+      descriptions
+  in
+  let origin = Runtime_call_context.argument_producer_origin argument in
   let full_word type_ =
     Type.pointer_depth type_ = 0
     &&
@@ -289,25 +298,18 @@ let argument_fragment ~span argument lowered =
   in
   match Result.result_type argument with
   | Some original
-    when (not (Type.equal original (Expression.result_type lowered)))
+    when ((not (Type.equal original (Expression.result_type lowered)))
+         || producer.span <> origin)
          && full_word original
          && full_word (Expression.result_type lowered) -> (
-      (* The canonical shift uses the surviving word's computation class. The
-         checked call still owns its original source class. A full-width view
-         preserves those bits without changing that source authority. *)
+      (* A rewrite can forward a different class or erase the source operator.
+         The checked call still owns its original class and producer origin.
+         A full-width view retains both without changing the payload. *)
       match
         (next_instruction_id ~span instruction, next_value_id ~span next_value)
       with
       | Error error, _ | _, Error error -> Error [ error ]
       | Ok next_instruction, Ok after_value ->
-          let producer =
-            List.find
-              (fun (d : Sequence.description) ->
-                Option.fold ~none:false
-                  ~some:(fun r -> r.Sequence.value_id = value)
-                  d.result)
-              descriptions
-          in
           let view : Sequence.description =
             {
               instruction_id = instruction;
@@ -317,23 +319,24 @@ let argument_fragment ~span argument lowered =
               target_type = Some original;
               payload = Some (Sequence.Integer 0L);
               flags = 0L;
-              span = producer.span;
+              span = origin;
             }
           in
           Ok (descriptions @ [ view ], next_value, next_instruction, after_value)
       )
   | _ -> Ok (descriptions, value, instruction, next_value)
 
-let lower_intrinsic ?frame ?globals ?lower_call ?optimize_shifts ~span
-    ~instruction_id ~value_id ~source ~symbol ~opcode ~arguments ~result_type ()
-    =
+let lower_intrinsic ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~span ~instruction_id ~value_id ~source ~symbol ~opcode
+    ~arguments ~result_type () =
   let rec lower_arguments instruction_id value_id descriptions operands =
     function
     | [] -> Ok (Some (descriptions, operands, instruction_id, value_id))
     | Provided argument :: rest -> (
         match
           Expression.lower_typed_result ?frame ?globals ?lower_call
-            ?optimize_shifts ~instruction_id ~value_id argument
+            ?optimize_shifts ?optimize_division ~instruction_id ~value_id
+            argument
         with
         | Error _ as error -> error
         | Ok Expression.Unsupported_expression -> Ok None
@@ -435,8 +438,8 @@ let mark_argument_result ~span result_value descriptions =
       (metadata_error ~span
          "direct-call argument lowering has no unique result producer")
 
-let lower_arguments ?frame ?globals ?lower_call ?optimize_shifts ~span
-    ~instruction_id ~value_id arguments =
+let lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~span ~instruction_id ~value_id arguments =
   let rec loop rev_descriptions instruction_id value_id = function
     | [] ->
         Ok
@@ -462,7 +465,8 @@ let lower_arguments ?frame ?globals ?lower_call ?optimize_shifts ~span
     | Provided argument :: rest -> (
         match
           Expression.lower_typed_result ?frame ?globals ?lower_call
-            ?optimize_shifts ~instruction_id ~value_id argument
+            ?optimize_shifts ?optimize_division ~instruction_id ~value_id
+            argument
         with
         | Error errors -> Error errors
         | Ok Expression.Unsupported_expression -> Ok Unsupported_argument
@@ -498,17 +502,18 @@ let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
               next_instruction_id,
               next_value_id ))
 
-let lower_supported ?frame ?globals ?lower_call ?optimize_shifts ~span
-    ~instruction_id ~value_id ~source ~symbol ~record ~arguments
-    ~variadic_count_type ~variadic_count ~variadic_arguments ~call_opcode
-    result_type =
+let lower_supported ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~span ~instruction_id ~value_id ~source ~symbol ~record
+    ~arguments ~variadic_count_type ~variadic_count ~variadic_arguments
+    ~call_opcode result_type =
   let start_id = instruction_id in
   match next_instruction_id ~span instruction_id with
   | Error error -> Error [ error ]
   | Ok argument_instruction_id -> (
       match
-        lower_arguments ?frame ?globals ?lower_call ?optimize_shifts ~span
-          ~instruction_id:argument_instruction_id ~value_id
+        lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
+          ?optimize_division ~span ~instruction_id:argument_instruction_id
+          ~value_id
           (List.map (fun value -> Provided value) variadic_arguments)
       with
       | Error _ as error -> error
@@ -524,7 +529,7 @@ let lower_supported ?frame ?globals ?lower_call ?optimize_shifts ~span
           | Ok (count_descriptions, fixed_instruction_id, fixed_value_id) -> (
               match
                 lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
-                  ~span ~instruction_id:fixed_instruction_id
+                  ?optimize_division ~span ~instruction_id:fixed_instruction_id
                   ~value_id:fixed_value_id arguments
               with
               | Error _ as error -> error
@@ -601,8 +606,8 @@ let lower_supported ?frame ?globals ?lower_call ?optimize_shifts ~span
                                      };
                                }))))))
 
-let lower ?frame ?globals ?lower_call ?optimize_shifts ~instruction_id ~value_id
-    ~target result =
+let lower ?frame ?globals ?lower_call ?optimize_shifts ?optimize_division
+    ~instruction_id ~value_id ~target result =
   match span_of_origin (Result.result_origin result) with
   | Error error -> Error [ error ]
   | Ok span -> (
@@ -646,7 +651,7 @@ let lower ?frame ?globals ?lower_call ?optimize_shifts ~instruction_id ~value_id
                             ~arguments ~variadic_count_type ~variadic_count
                             ~variadic_arguments ~result_type ->
                     lower_intrinsic ?frame ?globals ?lower_call ?optimize_shifts
-                      ~span ~instruction_id ~value_id ~source
+                      ?optimize_division ~span ~instruction_id ~value_id ~source
                       ~symbol:(Resolution.direct_target_symbol direct)
                       ~opcode ~arguments ~result_type ()
                 | Records.Internal_operation, _, _ -> Ok Unsupported_call
@@ -655,15 +660,15 @@ let lower ?frame ?globals ?lower_call ?optimize_shifts ~instruction_id ~value_id
                     | None -> Ok Unsupported_call
                     | Some call_opcode ->
                         lower_supported ?frame ?globals ?lower_call
-                          ?optimize_shifts ~span ~instruction_id ~value_id
-                          ~source
+                          ?optimize_shifts ?optimize_division ~span
+                          ~instruction_id ~value_id ~source
                           ~symbol:(Resolution.direct_target_symbol direct)
                           ~record:(Target.record target) ~arguments
                           ~variadic_count_type ~variadic_count
                           ~variadic_arguments ~call_opcode result_type))))
 
-let lower_top_level ?frame ?globals ?lower_call ?optimize_shifts ~instruction_id
-    ~value_id ~target result =
+let lower_top_level ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id ~target result =
   match span_of_origin (Result.result_origin result) with
   | Error error -> Error [ error ]
   | Ok span -> (
@@ -708,7 +713,7 @@ let lower_top_level ?frame ?globals ?lower_call ?optimize_shifts ~instruction_id
                             ~arguments ~variadic_count_type ~variadic_count
                             ~variadic_arguments ~result_type ->
                     lower_intrinsic ?frame ?globals ?lower_call ?optimize_shifts
-                      ~span ~instruction_id ~value_id ~source
+                      ?optimize_division ~span ~instruction_id ~value_id ~source
                       ~symbol:(Result.top_level_direct_target_symbol typed)
                       ~opcode ~arguments ~result_type ()
                 | Records.Internal_operation, _, _ -> Ok Unsupported_call
@@ -717,16 +722,16 @@ let lower_top_level ?frame ?globals ?lower_call ?optimize_shifts ~instruction_id
                     | None -> Ok Unsupported_call
                     | Some call_opcode ->
                         lower_supported ?frame ?globals ?lower_call
-                          ?optimize_shifts ~span ~instruction_id ~value_id
-                          ~source
+                          ?optimize_shifts ?optimize_division ~span
+                          ~instruction_id ~value_id ~source
                           ~symbol:(Result.top_level_direct_target_symbol typed)
                           ~record:(Top_target.record target) ~arguments
                           ~variadic_count_type ~variadic_count
                           ~variadic_arguments ~call_opcode result_type))))
 
-let lower_output ?frame ?globals ?lower_call ?optimize_shifts ?outer_binding
-    ~records ~instruction_id ~value_id ~source ~origin ~header ~declaration
-    ~symbol ~arguments ~variadic_arguments () =
+let lower_output ?frame ?globals ?lower_call ?optimize_shifts ?optimize_division
+    ?outer_binding ~records ~instruction_id ~value_id ~source ~origin ~header
+    ~declaration ~symbol ~arguments ~variadic_arguments () =
   match span_of_origin origin with
   | Error error -> Error [ error ]
   | Ok span -> (
@@ -834,8 +839,9 @@ let lower_output ?frame ?globals ?lower_call ?optimize_shifts ?outer_binding
                       |> Sema.Type_reference.resolved_type
                     in
                     lower_supported ?frame ?globals ?lower_call ?optimize_shifts
-                      ~span ~instruction_id ~value_id ~source ~symbol ~record
-                      ~arguments:(List.map snd arguments) ~variadic_count_type
+                      ?optimize_division ~span ~instruction_id ~value_id ~source
+                      ~symbol ~record ~arguments:(List.map snd arguments)
+                      ~variadic_count_type
                       ~variadic_count:
                         (Int64.of_int (List.length variadic_arguments))
                       ~variadic_arguments ~call_opcode result_type))
@@ -849,8 +855,8 @@ let outer_output_identity binding =
         Some binding ))
     (Sema.Outer_environment.entry_function_metadata entry)
 
-let lower_implicit_output ?frame ?globals ?lower_call ?optimize_shifts ~records
-    ~instruction_id ~value_id output =
+let lower_implicit_output ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~records ~instruction_id ~value_id output =
   let module Bound = Sema.Implicit_output_argument_binding in
   let module Target = Sema.Implicit_output_target_resolution in
   let target = Bound.bound_source output in
@@ -900,8 +906,8 @@ let lower_implicit_output ?frame ?globals ?lower_call ?optimize_shifts ~records
               "implicit output has no checked discarded-result intent";
           ]
       else
-        lower_output ?frame ?globals ?lower_call ?optimize_shifts ?outer_binding
-          ~records ~instruction_id ~value_id
+        lower_output ?frame ?globals ?lower_call ?optimize_shifts
+          ?optimize_division ?outer_binding ~records ~instruction_id ~value_id
           ~source:(Runtime_call_context.Function_output output)
           ~origin:
             (typed |> Result.implicit_output_source
@@ -913,7 +919,7 @@ let lower_implicit_output ?frame ?globals ?lower_call ?optimize_shifts ~records
           ()
 
 let lower_top_level_implicit_output ?frame ?globals ?lower_call ?optimize_shifts
-    ~records ~instruction_id ~value_id output =
+    ?optimize_division ~records ~instruction_id ~value_id output =
   let module Bound = Sema.Top_level_implicit_output_argument_binding in
   let module Target = Sema.Top_level_implicit_output_target_resolution in
   let source = Bound.bound_source output in
@@ -955,8 +961,8 @@ let lower_top_level_implicit_output ?frame ?globals ?lower_call ?optimize_shifts
                 | None -> None)
             | _ -> None)
       in
-      lower_output ?frame ?globals ?lower_call ?optimize_shifts ?outer_binding
-        ~records ~instruction_id ~value_id
+      lower_output ?frame ?globals ?lower_call ?optimize_shifts
+        ?optimize_division ?outer_binding ~records ~instruction_id ~value_id
         ~source:(Runtime_call_context.Top_level_output output)
         ~origin:(Target.output_marker_origin source)
         ~header:(Bound.bound_header output)

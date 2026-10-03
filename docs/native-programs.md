@@ -9,13 +9,14 @@ or replace its result with a constant.
 
 ```text
 opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --format=json examples/native-integer-program.hc
-opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --mode=aot --step-limit=26 --format=json examples/native-integer-program.hc
+opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --mode=aot --step-limit=24 --format=json examples/native-integer-program.hc
 ```
 
-The fixture returns I64 42 in 26 reached IR instructions. It combines nested
+The fixture returns I64 42 in 24 reached IR instructions. Folding `84/2` removes
+two instructions from its earlier 26-instruction execution. It combines nested
 `if`, conditional `&&` and `||`, `for`, `do`/`while`, `break`, comparison and
 guarded division. Its skipped bodies, loop update and short-circuited operands
-contain zero divisors. A 26-step budget succeeds; 25 stops before stream end.
+contain zero divisors. A 24-step budget succeeds; 23 stops before stream end.
 Both preprocessing modes execute the resulting host image immediately. Selecting
 AOT preprocessing does not produce an object, executable or TempleOS BIN file.
 

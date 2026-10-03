@@ -4,6 +4,8 @@ let () =
       ("source", Test_source.tests);
       ("constant shift policy", Test_constant_shifts.tests);
       ("source constant shifts", Test_source_constant_shifts.tests);
+      ( "source division reductions",
+        Test_source_division_strength_reductions.tests );
       ("native expression encoding", Test_native_expression.tests);
       ("native program encoding", Test_native_program.tests);
       ("native literal storage", Test_native_literal_storage.tests);
