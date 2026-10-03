@@ -13048,3 +13048,28 @@ limits = "Each scalar static cell charges eight persistent bytes and no automati
 initial_image = "Uninitialized JIT static cells retain the hosted unknown-value boundary. The AOT image contains numeric zero, which carries no executable capability. Static callback initializer syntax remains rejected."
 verification_boundary = "Source-grounded IR tests do not establish a new independent TempleOS native comparison or hosted native callback emission."
 excluded = ["global/array/member callback storage", "static callback initializers", "callback updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-LOCAL-CALLBACK-ARRAY-INVOCATION"
+description = "Fully indexed automatic/static callback arrays preserve original executable owners through checked word storage and integer/U0 calls."
+sources = [
+  "Compiler/PrsVar.HC:247-283 original array dimensions and cumulative element counts, with parameter arrays rejected",
+  "Compiler/PrsVar.HC:285-369 anonymous callback header and internal RT_PTR storage independent of return class",
+  "Compiler/PrsVar.HC:514-535 zero local specifier flags and physical element size multiplied by the original dimensions",
+  "Compiler/PrsVar.HC:537-609 persistent static allocation and automatic frame extent",
+  "Compiler/PrsExp.HC:1055-1101 original bracket chain, remaining dimensions, integer subscripts, IC_MUL and IC_ADD",
+  "Compiler/PrsExp.HC:383-588 callee capture before reverse arguments, saved defaults, hidden argc and source cleanup"
+]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_statics.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Every index retains the exact checked array root, original anonymous header, integer subscript and remaining strides. A fully indexed original load must match the header and declaring frame. Matching pointer types, names, copied producers and foreign graphs provide no invocation authority."
+execution = "Eight-byte elements store, copy, clear, compare and transfer opaque executable owners into explicit callback parameters. Calls capture the selected element before arguments and use its header's own saved defaults, fixed slots, word tails and cleanup. Static elements survive calls and JIT replacement; automatic elements belong to their activation."
+faults = "Index effects precede capture; arguments precede reached null/numeric and signature faults. Uninitialized automatic and JIT static elements fail during load. AOT static zero is a numeric word without code authority. Earlier output survives reached faults. Bounds and offset overflow use the declared object's hosted arena."
+limits = "A [2][3] callback array charges 48 bytes independently of return class. Tests exercise exact and one-below automatic/persistent storage, instruction and call-depth limits."
+verification_boundary = "Source-grounded IR tests do not establish new independent TempleOS native comparisons or hosted native callback emission."
+excluded = ["global/member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]

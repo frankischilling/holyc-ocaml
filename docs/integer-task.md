@@ -120,7 +120,14 @@ JIT same-name replacement. Invocation captures that owner before right-to-left
 arguments and checks the reached signature after argument effects. Saved
 integer defaults and word variadic tails use the original callback header.
 Static cells charge the persistent byte quota; they add no automatic frame
-slot. Static callback initializers, arrays, updates and native invocation remain
+slot. One-star automatic/static callback arrays retain their exact root, original
+anonymous header and remaining strides through each subscript. Fully indexed
+elements support word storage, copies, parameter transfer and integer/U0
+invocation with the selected header's saved defaults. Static elements survive
+later calls and JIT same-name replacement; automatic elements belong to their
+activation. Bounds and offset overflow use the declared object's hosted arena.
+Each element charges eight bytes independently of the callback return type.
+Global/member callbacks, callback initializers, updates and native invocation remain
 unfinished under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801).
 
 Each deferred operation requires its exact active journal event. Failure or

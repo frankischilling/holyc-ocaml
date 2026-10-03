@@ -149,7 +149,6 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     | Some pointer
                       when Frame.location_declarator_shape location
                            = Frame.Function_pointer
-                           && Frame.location_dimensions location = []
                            && List.length
                                 (Sema.Function_type_resolution
                                  .function_pointer_indirection_origins pointer)

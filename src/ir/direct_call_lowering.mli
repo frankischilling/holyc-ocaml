@@ -35,11 +35,14 @@ val lower_indirect :
   Sema.Function_call_expression_result.expression_result ->
   (lowering_result, Instruction_sequence.error list) result
 
-(** Compose an original one-star scalar automatic or named parameter callback
-    through its callee snapshot, saved RAX, explicit right-to-left arguments,
-    hidden variadic count, indirect call and original anonymous-header cleanup.
-    The exact frame declarator authorizes the local/parameter zero-specifier
-    PrsFunJoin policy. Defaults and other storage forms remain unsupported. *)
+(** Compose an original one-star automatic/static callback or scalar named
+    callback parameter through its callee snapshot, saved RAX, right-to-left
+    arguments, hidden variadic count, indirect call and original
+    anonymous-header cleanup. Fully indexed arrays retain the exact frame root,
+    original header and checked dimensions. The original declarator authorizes
+    the local/parameter zero-specifier PrsFunJoin policy and its prepared
+    integer-word defaults. Global/member storage and broader callback execution
+    remain unsupported. *)
 
 val lower_top_level :
   ?frame:Sema.Function_frame_layout.function_layout ->

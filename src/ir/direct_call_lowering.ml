@@ -1001,7 +1001,10 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
   let original_frame_cell =
     Sema.Function_frame_layout.function_locations frame
     |> List.exists (fun location ->
-        Sema.Function_frame_layout.location_dimensions location = []
+        (Sema.Function_frame_layout.location_dimensions location = []
+        || Sema.Function_frame_layout.location_kind location <> Named_parameter
+           && Sema.Function_frame_layout.location_source_dimensions_checked
+                location)
         && (match Sema.Function_frame_layout.location_kind location with
           | Named_parameter | Automatic_local -> true
           | Static_local ->

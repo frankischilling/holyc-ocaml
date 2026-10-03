@@ -56,7 +56,15 @@ owner, the callback's saved defaults and its original cleanup flags. Static
 callback initializers remain rejected; JIT uninitialized cells remain unknown,
 while the AOT initial image contains a numeric zero with no executable authority.
 
-Live task address linking, callback globals/arrays, static callback initializers, owned-code defaults and native
+Fully indexed automatic/static callback arrays preserve the same executable
+owners. Each subscript carries the original storage root, anonymous header and
+remaining strides. Copies into another element or scalar callback parameter do
+not change the executable owner; invocation uses the selected callback header's
+saved defaults. Static elements persist across calls and JIT replacement, while
+automatic elements belong to their activation. The hosted arena checks the
+declared object extent and offset overflow.
+
+Live task address linking, callback globals/members, callback initializers, owned-code defaults and native
 invocation remain under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). The broader callback and mixed-value ABI requirements remain in
 [issue #688](https://github.com/frankischilling/holyc-ocaml/issues/688).
 

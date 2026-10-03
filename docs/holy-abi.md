@@ -54,7 +54,8 @@ internal `RT_PTR`, and emits `IC_SET_RAX` followed by `IC_NOP2`. This follows
 `PrsFunCall` before its call-start and saved-callee push. The fragment preserves
 the original loaded value and consumes no additional value identity. Argument
 pushes and dispatch now compose through the ordinary integer program lowerer
-for one-star scalar automatic locals and named callback parameters. The original
+for one-star automatic/static locals, fully indexed automatic/static arrays
+and scalar named callback parameters. The original
 anonymous signature determines fixed slots, hidden argc and word variadic tails.
 Local and parameter `PrsType` passes zero function specifier flags;
 `PrsFunJoin` derives RET1 for nonvariadic argument bytes from 1 through 32767.
@@ -78,7 +79,8 @@ The IR runner now resolves checked JIT immediate and AOT absolute `&Function`
 producers to their original registered publication and prepared integer/U0 body.
 It carries an opaque value with that executable owner through ordinary word
 locals, globals, full-word casts and explicit fixed parameters. Scalar automatic
-callback locals, scalar static locals and named callback parameters use the original declarator to
+callback locals, static locals, fully indexed automatic/static arrays and
+scalar named callback parameters use the original declarator to
 select eight-byte storage, including signatures that return F64 or U0. Plain
 assignment, copies, clearing to zero and equality with owned code or null execute
 in both source modes. JIT replacement keeps the earlier address bound to its
@@ -127,8 +129,20 @@ remain outside this consumer. A reached runtime failure retains prior output;
 constant-divisor preparation that needs unresolved optimizer behavior rejects
 before execution.
 
+Automatic and static callback arrays use the same original header and physical
+pointer word. Index lowering retains the exact declared storage root, each
+checked subscript, the eight-byte element width and the remaining strides.
+Only a fully indexed element supplies an invocation load. The interpreter checks
+the original header and declaring frame before using that load; a matching
+pointer type does not authorize a call. Copies between array elements, scalar
+cells and explicit callback parameters retain the executable owner. Each call
+uses the selected storage header's defaults, including when the same executable
+is copied between headers with different saved defaults. Static elements persist
+across calls and JIT replacement. Automatic arrays are fresh on every activation.
+The hosted arena checks the declared object's extent and offset overflow.
+
 These values do not supply concrete numeric addresses. Address arithmetic,
-numeric address output, callback globals/arrays, static callback initializers and updates,
+numeric address output, callback globals/members, callback initializers and updates,
 owned-code defaults, dereferenced or multistar callback forms, live task
 address linking and hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the

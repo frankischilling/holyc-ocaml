@@ -354,21 +354,39 @@ let scalar_pointer_type type_ =
   | Ok pointee -> Option.is_some (Integer_scalar_storage.of_type pointee)
   | Error _ -> false
 
+let callback_word_type type_ =
+  Type.pointer_depth type_ = 1
+  && Type.base type_
+     = Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64)
+
+let array_pointer_type type_ =
+  scalar_pointer_type type_
+  || Option.fold ~none:false ~some:callback_word_type
+       (Type.dereference type_ |> Result.to_option)
+
 let storage_element_size type_ =
-  Option.map
-    (fun scalar -> Int64.of_int (Integer_scalar_storage.byte_size scalar))
-    (Integer_scalar_storage.of_type type_)
+  if callback_word_type type_ then Some 8L
+  else
+    Option.map
+      (fun scalar -> Int64.of_int (Integer_scalar_storage.byte_size scalar))
+      (Integer_scalar_storage.of_type type_)
 
 let pointer_element_size type_ =
   match Type.dereference type_ with
   | Ok pointee -> storage_element_size pointee
   | Error _ -> None
 
+let array_storage_address result =
+  Semantic_result.result_is_array_address result
+  || Semantic_result.result_category result = Semantic_result.Array_value
+     && Semantic_result.result_array_rank result > 0
+     && Option.is_some (Semantic_result.result_callback_pointer result)
+
 let checked_frame_value result =
-  match Semantic_result.result_type result with
-  | Some type_ when Semantic_result.result_is_array_address result -> (
+  match Semantic_result.result_storage_type result with
+  | Some type_ when array_storage_address result -> (
       match Type.pointer_to type_ with
-      | Ok pointer when scalar_pointer_type pointer -> Ok (Checked_type pointer)
+      | Ok pointer when array_pointer_type pointer -> Ok (Checked_type pointer)
       | _ -> Ok Unsupported_type)
   | Some type_
     when scalar_pointer_type type_
@@ -1611,8 +1629,7 @@ let rec prepare_index_address ?frame ?globals result =
       | Semantic_source.Top_level_bound_identifier_expression _
       | Semantic_source.Unresolved_expression
           Semantic_source.Identifier_expression
-        when Semantic_result.result_is_array_address result
-             && Option.is_some globals -> (
+        when array_storage_address result && Option.is_some globals -> (
           let* prepared =
             Global_address_lowering.prepare ?frame ~globals:(Option.get globals)
               result
@@ -1625,7 +1642,7 @@ let rec prepare_index_address ?frame ?globals result =
                      Global_address_lowering.strides address ))
           | None -> prepare_index_address ?frame result)
       | Semantic_source.Bound_identifier_expression identifier
-        when Semantic_result.result_is_array_address result -> (
+        when array_storage_address result -> (
           match frame with
           | None -> Ok None
           | Some frame -> (
@@ -1648,8 +1665,24 @@ let rec prepare_index_address ?frame ?globals result =
                             F.location_kind location <> F.Automatic_local
                             && F.location_kind location <> F.Variadic_argv
                             || F.location_declarator_shape location <> F.Object
+                               && not
+                                    (Option.fold ~none:false
+                                       ~some:(fun pointer ->
+                                         List.length
+                                           (Sema.Function_type_resolution
+                                            .function_pointer_indirection_origins
+                                              pointer)
+                                         = 1
+                                         && Option.fold ~none:false
+                                              ~some:(( == ) pointer)
+                                              (Semantic_result
+                                               .result_callback_pointer result)
+                                         && F.location_source_dimensions_checked
+                                              location)
+                                       (F.location_callback_pointer location))
                             || storage_element_size
-                                 (F.location_checked_type location)
+                                 (F.location_storage_type location
+                                 |> Result.get_ok)
                                <> Some (F.location_element_size location)
                           then Ok None
                           else
@@ -1718,7 +1751,7 @@ let rec prepare_index_address ?frame ?globals result =
                       invalid "index operand lost its integer conversion intent"
                     else
                       let* base_address =
-                        if Semantic_result.result_is_array_address base then
+                        if array_storage_address base then
                           prepare_index_address ?frame ?globals base
                         else
                           match checked_frame_value base with
@@ -1744,11 +1777,11 @@ let rec prepare_index_address ?frame ?globals result =
                           invalid "index base has no checked remaining stride"
                       | Some (address, stride :: remaining) ->
                           let base_type =
-                            Option.get (Semantic_result.result_type base)
+                            Option.get
+                              (Semantic_result.result_storage_type base)
                           in
                           let* element =
-                            (if Semantic_result.result_is_array_address base
-                             then Ok base_type
+                            (if array_storage_address base then Ok base_type
                              else Type.dereference base_type)
                             |> Result.map_error (fun message ->
                                 [
@@ -1761,10 +1794,18 @@ let rec prepare_index_address ?frame ?globals result =
                             (not
                                (Option.fold ~none:false
                                   ~some:(Type.equal element)
-                                  (Semantic_result.result_type result)))
+                                  (Semantic_result.result_storage_type result)))
+                            || (match
+                                  ( Semantic_result.result_callback_pointer base,
+                                    Semantic_result.result_callback_pointer
+                                      result )
+                                with
+                              | None, None -> false
+                              | Some left, Some right -> left != right
+                              | _ -> true)
                             || Semantic_result.result_array_rank result
                                <> expected_rank
-                            || Semantic_result.result_is_array_address result
+                            || array_storage_address result
                                <> (expected_rank > 0)
                             ||
                             if expected_rank > 0 then
@@ -1775,6 +1816,9 @@ let rec prepare_index_address ?frame ?globals result =
                               <> Semantic_result.Object_value
                               && Semantic_result.result_category result
                                  <> Semantic_result.Lvalue
+                              && not
+                                   (Semantic_result.result_is_callback_storage
+                                      result)
                           then
                             invalid
                               "index result disagrees with its element type \
@@ -1948,7 +1992,7 @@ let plan ?frame ?globals ~allow_calls root =
     match (checked_frame_value operand, result_span result) with
     | Error item, _ -> error := Some item
     | Ok (Checked_type pointer_type), Some span
-      when scalar_pointer_type pointer_type && conversion = Keep_result -> (
+      when array_pointer_type pointer_type && conversion = Keep_result -> (
         match prepare_index_address ?frame ?globals operand with
         | Error (item :: _) -> error := Some item
         | Ok (Some (address, _)) ->
@@ -1993,7 +2037,7 @@ let plan ?frame ?globals ~allow_calls root =
               Semantic_result.result_source result
               |> Semantic_source.argument_expression_kind
             with
-            | _ when Semantic_result.result_is_array_address result ->
+            | _ when array_storage_address result ->
                 array_value result result conversion
             | Semantic_source.Index_expression _ -> (
                 match
@@ -3504,9 +3548,12 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
     else (nodes, Int_map.empty, Int_map.empty, None)
   in
   let result_type result =
-    match Int_map.find_opt (result_key result) optimized_types with
-    | Some type_ -> Some type_
-    | None -> Semantic_result.result_type result
+    if Semantic_result.result_is_callback_storage result then
+      Semantic_result.result_storage_type result
+    else
+      match Int_map.find_opt (result_key result) optimized_types with
+      | Some type_ -> Some type_
+      | None -> Semantic_result.result_type result
   in
   let allocator =
     {

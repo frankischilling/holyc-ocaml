@@ -1259,7 +1259,7 @@ let argument_producer_origin = producer_origin
 let rec producer_type ~globals result =
   let span = origin_span (Typed.result_origin result) in
   let type_ =
-    match Typed.result_type result with
+    match Typed.result_storage_type result with
     | Some type_ -> type_
     | None -> fail ?span "call argument has no checked result type"
   in

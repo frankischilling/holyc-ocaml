@@ -550,32 +550,37 @@ val execute_program :
     frame and options. Static address producers and storage consumers also
     accept their owner's checked entry initializer region. Other entry
     instructions and functions fail preflight; region authority never enters a
-    called function. JIT static calls require transitively earlier definitions
-    in the supplied bodies. Checked one-level integer pointer locals and fixed
-    parameters hold references to nonzero scalar integer objects and automatic
-    array elements. Memory stores retain low declared bits and reads sign- or
-    zero-extend them. Plain assignment expressions retain the full RHS bits
-    independently of narrowed storage. Arithmetic retains checked raw classes
-    and separately derived native computation classes. Ordinary binary selection
-    takes the greater raw ID; comparisons retain their unsigned-operand rule.
-    Direct public unsigned calls, forwarded storage and COM node/result classes
-    remain distinct. Updates store low declared bits and normalize
-    prefix/postfix results. This canonical reference path retains zero flags and
-    a materialized result; it does not select native BY_VAL or discarded-result
-    optimizations. Unsigned internal negation selects the signed partner while
-    retaining full register bits. Checked indexing retains declared-object
-    extents and remaining array strides; grouping/materialization consumes
-    dimensions. Final pointer values may be one-past; memory access must be
-    within the original object. Scale/add overflow and object bounds report
-    HCIRVM0020 and HCIRVM0019 respectively. Offsets, strides and object extents
-    use actual element byte widths. Active allocation charges the checked padded
-    local frame plus eight-byte parameter slots. Cell counts and allocation
-    bytes are bounded before expansion. [IC_ADDR] materializes a reference
-    without reading the object, with its own static-consumer ownership check.
-    Dereferences and updates retain the actual caller or recursive activation,
-    even when slots have identical offsets. Explicit references can pass to
-    callees without granting canonical static-address authority. Returned frames
-    are invalidated; pointer returns, arbitrary integer addresses and pointer
+    called function. One-star automatic/static callback arrays retain their
+    original storage root, anonymous header and remaining strides through each
+    index. Fully indexed word loads preserve executable owners for copies and
+    integer/U0 calls. Static elements persist across calls; automatic elements
+    belong to their activation. Return types do not select element width. JIT
+    static calls require transitively earlier definitions in the supplied
+    bodies. Checked one-level integer pointer locals and fixed parameters hold
+    references to nonzero scalar integer objects and automatic array elements.
+    Memory stores retain low declared bits and reads sign- or zero-extend them.
+    Plain assignment expressions retain the full RHS bits independently of
+    narrowed storage. Arithmetic retains checked raw classes and separately
+    derived native computation classes. Ordinary binary selection takes the
+    greater raw ID; comparisons retain their unsigned-operand rule. Direct
+    public unsigned calls, forwarded storage and COM node/result classes remain
+    distinct. Updates store low declared bits and normalize prefix/postfix
+    results. This canonical reference path retains zero flags and a materialized
+    result; it does not select native BY_VAL or discarded-result optimizations.
+    Unsigned internal negation selects the signed partner while retaining full
+    register bits. Checked indexing retains declared-object extents and
+    remaining array strides; grouping/materialization consumes dimensions. Final
+    pointer values may be one-past; memory access must be within the original
+    object. Scale/add overflow and object bounds report HCIRVM0020 and
+    HCIRVM0019 respectively. Offsets, strides and object extents use actual
+    element byte widths. Active allocation charges the checked padded local
+    frame plus eight-byte parameter slots. Cell counts and allocation bytes are
+    bounded before expansion. [IC_ADDR] materializes a reference without reading
+    the object, with its own static-consumer ownership check. Dereferences and
+    updates retain the actual caller or recursive activation, even when slots
+    have identical offsets. Explicit references can pass to callees without
+    granting canonical static-address authority. Returned frames are
+    invalidated; pointer returns, arbitrary integer addresses and pointer
     arithmetic remain unsupported. Canonical [IC_STR_CONST] instructions own
     mutable byte regions containing the exact payload followed by one zero byte.
     Every literal site in every definition and the entry is checked before
