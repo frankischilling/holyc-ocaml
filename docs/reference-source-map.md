@@ -1,5 +1,7 @@
 # Reference source map
 
+Integer source division reductions consume `OptPass012.HC:403-455,838-854` before instruction allocation. `OptLib.HC:96-225` distinguishes early comparison decisions from the surviving operand class, including division by one. The full-word folding, power-of-two shifts, unsigned masks and scalar compound updates are compared with 38 repeated native fields in `test/oracle/division-strength-reductions.json`. Constant signed overflow fails during compilation, while zero divisors retain reached runtime faults. [The division contract](integer-division.md) records the supported contexts and remaining preparation/shared-expression boundaries under #585.
+
 Issue #785 uses `Compiler/PrsExp.HC:14-62`,
 `OptPass012.HC:403-440`, `OptPass789A.HC:682-688` and
 `BackA.HC:573-601` for retained pointer-difference preparation. Valid aligned

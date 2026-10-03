@@ -3,9 +3,12 @@
 Reference commit: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 `Ir.Integer_interpreter` executes raw `IC_DIV` and `IC_MOD` on internal scalar
-`I64` and `U64` words. The existing source driver exposes both through
-`holyc eval`. For example, `examples/integer-division.hc` contains
-`(85/2)+(85%2);` and returns `43`.
+`I64` and `U64` words. `holyc eval examples/integer-division.hc` evaluates
+`(85/2)+(85%2);` and returns `43`. Public program lowering additionally applies
+the verified integer source rewrites before allocating instruction identities
+and sealing source ownership. `holyc run examples/division-strength-reductions.hc`
+returns `42` in JIT and AOT modes through both interpreted and native execution.
+Raw expression and fragment callers keep their existing default behavior.
 
 ## Source contract
 
@@ -34,7 +37,13 @@ whose quotient overflows at that boundary even when only the remainder is
 needed. The interpreter checks these cases before calling host arithmetic.
 The unsigned pairing with the same bits is valid.
 
-These are execution errors. Whole-graph preflight first validates all opcodes,
+These raw arithmetic faults are execution errors. Source constant signed
+minimum divided or reduced modulo minus one instead reports `HCIRL0007`
+during lowering, before a graph or native image is published. Discarding the
+result or placing the expression in `if(0)` does not suppress that compilation
+fault. A zero divisor is not folded and faults only when reached.
+
+Whole-graph preflight first validates all opcodes,
 types, flags and payloads, including unreachable blocks. A supported arithmetic
 operation in a skipped block does not fault. A reached fault consumes one
 instruction step and retains its block, instruction and source span. A spent
@@ -46,7 +55,7 @@ value expressions. `0&&(1/0);` and `1||(1%0);` therefore reach their faults.
 The [integer program driver](integer-programs.md) lowers conditional AND and OR
 into short-circuit branches. General exception handling remains unfinished.
 
-## Evidence and remaining work
+## Evidence and regression coverage
 
 The division test group has six table/control tests and a 500-case property
 that compares both results with independent bit-at-a-time long division.
@@ -67,7 +76,23 @@ target faults into the verified integer IR interpreter. This covers all four
 signed/unsigned operand pairings. It does not run the native functions in
 the hosted compiler or emulate native exception delivery.
 
-## Observed optimizer differences
+The [division-strength-reduction fixture](../test/oracle/division-strength-reductions.json)
+adds 34 accepted definitions, 20 result commands and 15 disassemblies from
+2026-10-02. Its 38 primary fields were each observed twice within one boot.
+All 69 commands retain accepted-source and result image hashes. Machine
+listings end at the first return. The source regressions compare those fields
+through both compilation modes, both native status ABIs and fresh executable
+images. CLI regressions compare the same fields through `ir` and `host-jit`.
+The original fixture remains the arithmetic-fault phase evidence.
+
+Additional controls check addressed and indexed updates, effects retained
+after divisor elimination, following comparisons, folded global/static/default
+preparation, retained and live leaves, and exact runtime and preparation
+allowances. Original masks, reduced updates and canonical shifts retain their
+transitive source records; copies, mutations, foreign contexts and new
+post-publication reductions fail ownership checks.
+
+## Source optimizer behavior
 
 For signed `x = -7` and variable `y = 2`, the native fixture observed:
 
@@ -92,9 +117,26 @@ returned `1`. The source explanation is that the division rewrite removes
 the unsigned divisor, while `OptFixupUnaryOp` at `OptLib.HC:196-225` forwards
 the surviving operand's class when the constant shift is revisited.
 `OptPass789A.HC:682-687` and `BackA.HC:573-600` then select the signed shift.
-This is a source explanation of the captured difference; it does not settle
-the count-merging policy now captured in [constant shifts](constant-shifts.md); verified full-word source shifts are integrated under #787; division strength reductions remain under #585/#696/#697. An unsigned `x/2`
-function emitted `SHR` and agreed with raw and constant unsigned division.
+The source rewrite now follows that captured class forwarding and the complete
+count-merging policy in [constant shifts](constant-shifts.md). An unsigned
+`x/2` function emits `SHR` and agrees with raw and constant unsigned division.
+
+Fully constant nonzero division and remainder fold with the common integer
+class. A nonconstant dividend divided by a literal one-bit value becomes a
+constant shift using its bit-scan position. Consecutive right shifts and
+division reductions merge their complete 64-bit counts before the consumer
+masks them. Unsigned plain remainder by a one-bit value becomes an AND mask;
+signed plain remainder retains `IC_MOD`. Compound `/=` and `%=` instead reduce
+to addressed SHR and AND updates for supported scalar destinations, including
+the captured `I8` and pointer destinations. The address is evaluated once and
+the update reads its destination after evaluating the RHS.
+
+Division by one is removed before early comparison classes are selected:
+`(x/1(U64))<0` returns `1` for signed `x=-7`. Other divisor reductions can
+retain an earlier unsigned comparison decision even after the shift recovers
+its signed dividend class: `(x/2(U64))<0` returns `0`. The optimizer keeps that
+early decision separately from the surviving operation's computation class.
+Public call and cast classes retain their operation-specific forwarding rules.
 
 ## Observed fault phases
 
@@ -118,7 +160,13 @@ captures are excluded from the fixture.
 
 [Issue #584](https://github.com/frankischilling/holyc-ocaml/issues/584) implements
 the raw operations. [Issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585)
-now has native evidence for these source shapes; implementing the corresponding
-optimizer behavior and expanding its coverage remain open. Floating-point
-division, compound assignment, native code generation and whole-program
-execution remain outside the hosted implementation.
+tracks the remaining contexts beyond this verified integer rewrite. Nonconstant
+division reductions in retained initializer callees still report `HCRUN0006`;
+ordinary nonconstant shifts keep that preparation boundary too. Fully folded
+division and remainder prepare through the existing immediate-value path, as
+shown by [the retained example](../examples/stream-division-strength-reductions.hc).
+Native publication of retained `#exe` source remains `HCPP0008`. Shared
+comparison-chain power-of-two division shifts and plain remainder masks retain
+their raw operations; other numeric or flagged domains keep their existing
+contract. This increment does not establish general optimizer
+coverage, native exception delivery, loader acceptance or compiler bootstrap.

@@ -173,7 +173,7 @@ and signed `INT64_MIN/-1` overflow before `DIV`/`IDIV` can fault the host.
 integer subset, explicit execution boundary, diagnostics and limits.
 
 `holyc run --target=host-jit --format=json examples/native-integer-program.hc`
-executes closed integer control flow and returns I64 42 in 26 IR steps. The
+executes closed integer control flow and returns I64 42 in 24 IR steps. The
 generated image checks a positive step budget before each reached instruction,
 including loop transfers and arithmetic faults.
 `holyc run --target=host-jit examples/native-integer-functions.hc` returns I64 42
@@ -294,9 +294,14 @@ operands and unsigned arithmetic when either operand is `U64`. Zero divisors
 report `HCIRVM0009`; signed minimum divided or reduced modulo minus one reports
 `HCIRVM0010`. Faults produce diagnostics without a successful output value.
 
-These are raw runtime IR operations. The [native division audit](docs/integer-division.md)
-records TempleOS results, disassembly and fault phases. Implementing its source
-optimizer differences remains tracked in
+`holyc run examples/division-strength-reductions.hc` returns `42` through the
+source optimizer. For signed `x=-7`, `x/2` becomes an arithmetic shift and
+returns `-4`, while constant `-7/2` folds to `-3`. Plain signed `x%2` keeps
+division semantics; `x%=2` becomes a mask. Constant signed minimum with minus
+one reports `HCIRL0007` during compilation, including skipped and discarded
+expressions. Zero divisors fault only when reached. The
+[division audit](docs/integer-division.md) records values, disassembly, class
+decisions and the remaining preparation and shared-expression boundaries under
 [issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585).
 
 `holyc dump-ir examples/integer-expression.hc` prints the checked arithmetic and

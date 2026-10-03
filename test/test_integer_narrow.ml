@@ -401,7 +401,7 @@ let preflight_storage () =
           let compiled =
             G.compile ~mode
               (name ^ " Id(" ^ name ^ " n){return n;}" ^ name ^ " F(" ^ name
-             ^ " n){n+=1;n-=1;n*=1;n/=1;n%=43;n&=255;"
+             ^ " n){I64 d=1;n+=1;n-=1;n*=1;n/=d;n%=43;n&=255;"
              ^ "n|=0;n^=0;n<<=0;n>>=0;++n;--n;n++;n--;return Id(n);}F(42);")
           in
           let functions = integer_program_functions compiled in

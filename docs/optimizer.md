@@ -4,18 +4,21 @@ Every TempleOS source claim on this page refers to commit `c26482bb6ad3f80106d28
 
 ## Current implementation boundary
 
-Raw division and remainder execute in the bounded interpreter. Their constant
-folding and strength reductions are outside the implemented optimizer. The
+Raw division and remainder execute in the bounded interpreter. Public integer
+program lowering also folds nonzero constant operands, eliminates division by
+one and applies verified literal-divisor and compound reductions before source
+publication. The
 power-of-two rewrite at `Compiler/OptPass012.HC:403-434` has a captured native
 difference: signed `x/2` returns `-4` for `x = -7`, while division by a variable
 returns `-3`. A signed dividend with a literal high-bit unsigned divisor can
 also lose that divisor's unsigned class during rewriting. The native fixture
 records these results, compound modulo differences and compilation-versus-
 execution fault phases. [Issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585)
-tracks the remaining implementation and coverage; [the division audit](integer-division.md)
-describes the evidence and the accepted raw runtime operations.
+tracks the remaining preparation, shared-expression and broader optimizer
+coverage; [the division audit](integer-division.md) describes the implemented
+shapes, early comparison classes, compilation faults and native evidence.
 
-The optimizer currently consists of one source-audited pass, `Holyc_lib.Ir_integer_unary_folding`. It folds a checked integer immediate through bitwise complement, logical not, or unary minus. The public entry point is `fold : Ir.X87_stack.t -> (t, error list) result`, so an unchecked instruction sequence or block graph cannot enter the pass.
+The standalone pass `Holyc_lib.Ir_integer_unary_folding` folds a checked integer immediate through bitwise complement, logical not, or unary minus. Its public entry point is `fold : Ir.X87_stack.t -> (t, error list) result`, so an unchecked instruction sequence or block graph cannot enter that pass. Source shift and division plans instead rewrite checked semantic nodes before instruction allocation. The remaining sections describe the standalone unary pass.
 
 Compatibility is exact for the accepted subset, not approximate. For each accepted type and opcode pair, the pass applies the pinned 64-bit operation and preserves the checked facts listed below. Inputs outside that subset are left unchanged or fail at an earlier verifier boundary. This classification does not apply to the TempleOS optimizer as a whole, which is not implemented.
 

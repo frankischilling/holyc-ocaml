@@ -77,6 +77,16 @@ the labeled output and decoded instruction excerpts; ignore timing and
 function addresses. Repeated checks use one boot, so they establish replay
 stability within that environment only.
 
+[`test/oracle/division-strength-reductions.json`](../test/oracle/division-strength-reductions.json)
+extends this evidence with 69 accepted commands from 2026-10-02: 34 definitions,
+20 result commands and 15 machine listings. All 38 primary fields have a
+same-boot repeat and an exact HolyC source projection. Source and native
+regressions now compare those fields through the public program compiler;
+the earlier fixture retains the first-failing-phase observations. The newer
+run used the same verified ISO and isolation settings and retained 138 capture
+hashes. Machine excerpts stop at the first return. This is bounded source
+rewrite evidence, not general compiler or loader compatibility.
+
 ## Local declarations
 
 [`test/oracle/local-declarations.json`](../test/oracle/local-declarations.json) records automatic, static, variadic, nested, pointer, array, register-qualified, and comma-following locals compiled by the native TempleOS compiler. The first two calls to one static-local function returned 42 and 43, confirming retained storage. A local name was visible in its own initializer, and a name declared inside a nested block remained visible later in the function.

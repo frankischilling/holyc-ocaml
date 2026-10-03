@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added verified integer source division and remainder reductions. Constant
+  arithmetic folds, literal power-of-two division becomes a shift, unsigned
+  remainder becomes a mask, and scalar compound updates keep their addressed
+  effects. Early comparison classes and complete merged counts are preserved.
+  Constant signed overflow fails during compilation; zero divisors fault when
+  reached. Nonconstant division preparation and broader optimizer work remain
+  open. Source and native tests compare 38 repeated native fields.
+
 - Added preparation of wider scalar pointer differences reached through
   retained calls. The completed original source context authorizes only its
   original size divisions. Defaults execute once; generic division, modulo,

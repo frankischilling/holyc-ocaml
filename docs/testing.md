@@ -662,6 +662,15 @@ Quoted aliases work in both PowerShell and POSIX shells.
 
 The integer-division group also replays 13 raw-value and four fault projections from the native fixture in `test/oracle/integer-division.json`. Those projections compare captured native output with verified integer IR execution; they do not claim source optimizer or native exception-delivery compatibility.
 
+The source division-reduction suite compares all 38 repeated native fields in
+`test/oracle/division-strength-reductions.json`. Five source groups and three
+native groups additionally check IR shapes, early comparison signedness,
+indexed destinations, effects, compilation overflow and reached arithmetic
+faults, original ownership, folded retained/live preparation and exact limits.
+Native controls compile both status ABIs and execute fresh host images twice.
+Separate CLI runners compare every captured field in both compilation modes
+through `ir` and `host-jit`. Nonconstant preparation remains an explicit gate.
+
 CI also runs `opam exec -- pwsh -NoProfile -File tools/test-version-metadata.ps1`.
 On Windows PowerShell, use `opam exec -- powershell -NoProfile -File
 tools/test-version-metadata.ps1` (or the shell's full path). The probe copies

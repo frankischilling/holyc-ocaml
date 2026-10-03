@@ -207,9 +207,9 @@ let pointer_difference_division produced (description : Seq.description) =
       | None -> false)
   | [] -> false
 
-let constant_shift (description : Seq.description) =
-  description.opcode = Opcode.Ic_shl_const
-  || description.opcode = Opcode.Ic_shr_const
+let integer_reduction (description : Seq.description) =
+  List.mem description.opcode
+    [ Opcode.Ic_shl_const; Ic_shr_const; Ic_and; Ic_and_equ; Ic_shr_equ ]
 
 let source_producers_match context =
   List.for_all
@@ -247,7 +247,7 @@ let source_producers_match context =
             not
               (pointer_relation produced supplied
               || pointer_difference_division produced supplied
-              || constant_shift supplied)
+              || integer_reduction supplied)
           then true
           else
             match Instructions.find_opt id graph.source_producers with
@@ -1054,6 +1054,8 @@ let rec producer_origin result =
         origin_span (Resolution.binary_operator_origin binary)
     | _ -> own ()
 
+let argument_producer_origin = producer_origin
+
 let rec producer_type ~globals result =
   let span = origin_span (Typed.result_origin result) in
   let type_ =
@@ -1683,7 +1685,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                 item.target_type
            || pointer_relation produced item
            || pointer_difference_division produced item
-           || constant_shift item)
+           || integer_reduction item)
          all_items)
   in
   let source_producers = ref Instructions.empty in
