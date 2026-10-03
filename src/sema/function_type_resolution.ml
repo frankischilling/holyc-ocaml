@@ -144,6 +144,10 @@ let function_pointer_opening_origin pointer = pointer.pointer_opening_origin
 let function_pointer_indirection_origins pointer =
   pointer.pointer_indirection_origins
 
+let function_pointer_storage_type pointer =
+  Type.make_primitive ~form:Type.Internal_storage ~primitive:Primitive_type.I64
+    ~pointer_depth:(List.length pointer.pointer_indirection_origins)
+
 let function_pointer_closing_origin pointer = pointer.pointer_closing_origin
 let function_pointer_signature pointer = pointer.pointer_signature
 let parameter_binding_index binding = binding.binding_parameter_index

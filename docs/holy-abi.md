@@ -35,6 +35,19 @@ This state is input to later compiler work, not an allocation result. `OPTf_NO_R
 
 This is syntax and metadata capture, not ABI implementation. Checked direct and pointer member calls now recover the exact stored callback header through `MLF_FUN` and use it for semantic slots and return typing. They do not read the field or decide its machine address. Function type compatibility, indirect-call lowering, calling flags inside callback types, register assignment, and native invocation remain unavailable.
 
+Callback storage keeps that original declarator separately from its return type.
+`PrsType` selects internal `RT_PTR` with the callback indirection count; an
+`F64 (*callback)(I64)` cell stores an integer address. The checker accepts scalar
+callback assignments and updates, and selects the same storage class after all
+callback-array dimensions are consumed. The returned value still uses the
+callback signature's return class. Frame metadata retains the exact parameter
+or local callback declarator. Symbolic frame-address lowering checks that
+identity before emitting its RBP-relative fragment. These facts do not grant
+executable address or invocation authority. [Issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801)
+owns the execution connection. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)
+include assignment, member storage, eight-byte updates, callee capture before
+arguments, right-to-left arguments, callback defaults and word variadic tails.
+
 ## Resolved signature facts
 
 `Compiler/PrsStmt.HC:PrsGlblVarLst` passes the selected return class to `PrsFunJoin`. `PrsVarLst` then creates one fixed slot per source parameter; an unnamed slot remains in the signature even though it receives no `CMemberLst` name. `PrsType` can recurse through callback parameters, preserving zero through four return-pointer layers and requiring one through four callback-indirection stars. Defaults are per-slot flags, so an ordinary expression default, `lastclass`, and no default remain different even when a required slot follows a defaulted one.

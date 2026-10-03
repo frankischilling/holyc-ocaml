@@ -499,6 +499,7 @@
   test_function_call_resolution
   test_function_call_conversion_policy
   test_function_call_expression_result
+  test_callback_storage
   test_implicit_output_target_resolution
   test_top_level_implicit_output_target_resolution
   test_top_level_implicit_output_argument_binding

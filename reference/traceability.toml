@@ -12850,3 +12850,52 @@ execution = "All six integer comparison operators compose with if/while/do/for c
 resources = "Unique dominating cross-block definitions, fresh invocation maps, native permanent shared-word homes under existing stack bounds, dense IDs, atomic allocation exhaustion, exact runtime/IR/block/code/frame limits."
 verification_boundary = "Fifty native field/source pairs observed twice in one verified final-ISO TempleOS JIT boot: thirty-six context fields, six cumulative-class fields and eight conditional result/effect fields. Hosted regressions extend coverage to loops, recursion, narrow storage, defaults, faults, output and both native ABI encodings. Native AOT parity is not claimed."
 excluded = ["F64 comparison chains", "multiple pending comparison reductions under #593", "full optimizer/ABI, module loader and bootstrap requirements"]
+
+[[feature]]
+id = "HC-SEMA-CALLBACK-STORAGE-IDENTITY"
+description = "Callback cells retain their original declarator and integer address storage separately from the callback return type."
+sources = [
+  "Compiler/PrsVar.HC:285-366 callback signature and internal RT_PTR storage selection",
+  "Compiler/PrsExp.HC:96-116 storage loads and updates",
+  "Compiler/PrsExp.HC:195-202 assignment lvalue validation",
+  "Compiler/PrsExp.HC:764-809 local callback and frame selection",
+  "Compiler/PrsExp.HC:868-904 global callback selection",
+  "Compiler/PrsExp.HC:997-1022 callback member selection",
+  "Compiler/PrsExp.HC:1055-1100 indexing and callback flag preservation"
+]
+implementation = [
+  "src/sema/function_type_resolution.ml",
+  "src/sema/function_type_resolution.mli",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/function_frame_layout.ml",
+  "src/sema/function_frame_layout.mli",
+  "src/ir/frame_address_lowering.ml",
+  "src/ir/frame_address_lowering.mli",
+  "src/ir/expression_lowering.ml"
+]
+tests = [
+  "test/test_callback_storage.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_top_level_expression_result.ml",
+  "test/test_ir_frame_address_lowering.ml",
+  "test/test_ir_expression_lowering.ml",
+  "test/oracle/callback-storage-and-calls.json"
+]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "semantic scalar and fully indexed callback storage; original parameter/local frame metadata and symbolic RBP-relative addresses"
+storage = "internal RT_PTR represented by intrinsic I64 with the callback declarator indirection count; source return type and recursive signature remain separate"
+identity = "The original callback pointer object is carried from the checked declarator through identifier typing, grouping, indexing, and exact frame selection. A nonordinary array or a matching Type.t cannot invent a callback signature."
+assignments_and_updates = "Scalar callback cells and fully indexed callback arrays are writable; assignment/update result types use storage rather than return class. Call and arithmetic results do not inherit callable expression metadata."
+array_class = "Fully indexed callback arrays produce integer callback addresses, including F64 and backed-aggregate return signatures."
+frame_address = "Exact original frame binding, symbol, source type, callback declarator, rank, location kind and span are checked before a symbolic RBP/displacement/add fragment is emitted. Foreign frames and swapped declarators have no address authority."
+native_oracle = "Twelve field/source pairs and twenty-four original observations from one verified read-only TempleOS JIT boot; native AOT has not been observed."
+compilation_modes = ["jit", "aot"]
+execution_connection = "unfinished under issue 801; symbolic addresses and semantic callback metadata do not grant retained executable authority"
+remaining = ["callback runtime storage", "indirect invocation", "retained executable ownership and lifetime", "checked reached signature and cleanup", "native callback emission", "callback returns and aggregate runtime consumers", "general noninteger variadics under issue 688"]

@@ -1975,7 +1975,7 @@ let top_level_indexed_outer_callback_arrays () =
       in
       Alcotest.(check string)
         "indexed outer callback keeps its completed callee result"
-        "I64:object-value:integer-result:rank-0" (descriptor first_callee);
+        "I64:callback-value:integer-result:rank-0" (descriptor first_callee);
       Alcotest.(check (list string))
         "indexed outer callback defaults stay separate from provided arguments"
         [
@@ -2234,7 +2234,7 @@ let top_level_indexed_global_callback_calls () =
        |> Semantic_function_call_resolution.identifier_value_shape_name);
       Alcotest.(check string)
         "indexed callback keeps its completed callee result"
-        "I64:object-value:integer-result:rank-0"
+        "I64:callback-value:integer-result:rank-0"
         (first
        |> Semantic_function_call_expression_result
           .top_level_indexed_global_callback_callee_result |> descriptor);

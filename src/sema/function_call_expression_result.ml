@@ -52,6 +52,7 @@ type expression_result = {
   execution_class : result_class option;
   array_rank : int;
   array_address : bool;
+  callback_pointer : Function_type_resolution.function_pointer option;
   intrinsic_conversion : intrinsic_conversion;
   member_lookup : Aggregate_member_index.lookup option;
   aggregate_offset_path : aggregate_offset_path option;
@@ -715,10 +716,25 @@ let result_binary_operands (result : expression_result) = result.binary_operands
 let result_index_operands (result : expression_result) = result.index_operands
 let result_type (result : expression_result) = result.source_type
 
+let result_callback_pointer (result : expression_result) =
+  result.callback_pointer
+
+let result_storage_type (result : expression_result) =
+  match result.callback_pointer with
+  | None -> result.source_type
+  | Some pointer ->
+      Function_type_resolution.function_pointer_storage_type pointer
+      |> Result.to_option
+
+let result_is_callback_storage (result : expression_result) =
+  result.category = Callback_value
+  && result.array_rank = 0
+  && Option.is_some result.callback_pointer
+
 let rec result_computation_type (result : expression_result) =
   let module C = Integer_computation_class in
-  let declared () = Option.map C.declared result.source_type in
-  let forwarded () = Option.map C.forward result.source_type in
+  let declared () = Option.map C.declared (result_storage_type result) in
+  let forwarded () = Option.map C.forward (result_storage_type result) in
   match result.call_resolution with
   | Some _ -> declared ()
   | None -> (
@@ -891,8 +907,9 @@ let record state result =
 
 let make_result ?operand_result ?binary_operands ?index_operands
     ?(array_rank = 0) ?(array_address = false) ?execution_class ?member_lookup
-    ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
-    ?outer_binding ?call_resolution ?function_declaration ?function_address_path
+    ?callback_pointer ?aggregate_offset_path ?outer_occurrence
+    ?top_level_outer_occurrence ?outer_binding ?call_resolution
+    ?function_declaration ?function_address_path
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
     ~source_type ~category ~result_class =
   record state
@@ -909,6 +926,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
       execution_class;
       array_rank;
       array_address;
+      callback_pointer;
       intrinsic_conversion;
       member_lookup;
       aggregate_offset_path;
@@ -923,6 +941,33 @@ let make_result ?operand_result ?binary_operands ?index_operands
 let known_type table type_ =
   if type_is_owned table type_ then Ok type_
   else Error (invalid_input "expression type belongs to another symbol table")
+
+let rec known_callback_pointer table pointer =
+  let parameters =
+    pointer |> Function_type_resolution.function_pointer_signature
+    |> Function_type_resolution.signature_parameters
+  in
+  let rec check = function
+    | [] -> Ok ()
+    | parameter :: rest -> (
+        match
+          parameter |> Function_type_resolution.parameter_type_reference
+          |> Type_reference.resolved_type |> known_type table
+        with
+        | Error _ as error -> error
+        | Ok _ -> (
+            match
+              match
+                Function_type_resolution.parameter_declarator_kind parameter
+              with
+              | Function_type_resolution.Object -> Ok ()
+              | Function_type_resolution.Function_pointer pointer ->
+                  known_callback_pointer table pointer
+            with
+            | Error _ as error -> error
+            | Ok () -> check rest))
+  in
+  check parameters
 
 let replace_result state replacement =
   let replaced = ref false in
@@ -978,13 +1023,13 @@ let select_known_binary_type left right result_class =
 
 let scalar_pointer_integer_arithmetic_type left right =
   let pointer =
-    match left.source_type with
+    match result_storage_type left with
     | Some type_ when left.array_address && left.array_rank = 1 ->
         Result.to_option (Type.pointer_to type_)
     | type_ when left.array_rank = 0 -> type_
     | _ -> None
   in
-  match (pointer, right.source_type) with
+  match (pointer, result_storage_type right) with
   | Some pointer, Some integer
     when left.result_class = Integer_result
          && right.result_class = Integer_result
@@ -1004,7 +1049,7 @@ let scalar_pointer_integer_arithmetic_type left right =
 
 let scalar_pointer_difference left right =
   let pointer result =
-    match result.source_type with
+    match result_storage_type result with
     | Some type_ when result.array_address && result.array_rank = 1 ->
         Result.to_option (Type.pointer_to type_)
     | type_ when result.array_rank = 0 -> type_
@@ -1036,6 +1081,7 @@ let is_writable_storage_type = function
 let validate_update_operand operand ~operator_origin ~operator_name =
   let invalid message = Error (invalid_input ~origin:operator_origin message) in
   match (operand.category, operand.source_type) with
+  | Callback_value, Some _ when result_is_callback_storage operand -> Ok ()
   | Lvalue, Some _ when is_writable_storage_type operand.source_type -> Ok ()
   | Unavailable, _ -> invalid (operator_name ^ " operand is unavailable")
   | Lvalue, None -> invalid (operator_name ^ " operand has no checked type")
@@ -1633,15 +1679,23 @@ let rec type_expression table members policies ~before_item_index ~context
   | Ok (id, state) -> (
       let finish ?operand_result ?(source_type = None) ?(array_rank = 0)
           ?array_address ?member_lookup ?aggregate_offset_path ?outer_occurrence
-          ?top_level_outer_occurrence ?outer_binding ?call_resolution
-          ?function_declaration ?function_address_path category result_class
-          state =
-        Ok
-          (make_result ?operand_result ~array_rank ?array_address ?member_lookup
-             ?aggregate_offset_path ?outer_occurrence
-             ?top_level_outer_occurrence ?outer_binding ?call_resolution
-             ?function_declaration ?function_address_path ~intrinsic_conversion
-             state ~id ~source ~source_type ~category ~result_class)
+          ?callback_pointer ?top_level_outer_occurrence ?outer_binding
+          ?call_resolution ?function_declaration ?function_address_path category
+          result_class state =
+        let checked_pointer =
+          match callback_pointer with
+          | None -> Ok ()
+          | Some pointer -> known_callback_pointer table pointer
+        in
+        Result.map
+          (fun () ->
+            make_result ?operand_result ~array_rank ?array_address
+              ?member_lookup ?callback_pointer ?aggregate_offset_path
+              ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
+              ?call_resolution ?function_declaration ?function_address_path
+              ~intrinsic_conversion state ~id ~source ~source_type ~category
+              ~result_class)
+          checked_pointer
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal value
@@ -1678,6 +1732,7 @@ let rec type_expression table members policies ~before_item_index ~context
                        "ordinary array grouping has no element pointer type"))
           | Ok (grouped_result, state) ->
               finish ~operand_result:grouped_result
+                ?callback_pointer:grouped_result.callback_pointer
                 ~source_type:grouped_result.source_type
                 ~array_rank:grouped_result.array_rank
                 ?member_lookup:grouped_result.member_lookup
@@ -1858,6 +1913,9 @@ let rec type_expression table members policies ~before_item_index ~context
                 Function_call_resolution.bound_identifier_array_rank identifier
               in
               finish ~source_type:(Some source_type) ~array_rank
+                ?callback_pointer:
+                  (Function_call_resolution.bound_identifier_function_pointer
+                     identifier)
                 ~array_address:
                   (Function_call_resolution.bound_identifier_is_ordinary_array
                      identifier)
@@ -1938,6 +1996,14 @@ let rec type_expression table members policies ~before_item_index ~context
                                           ~before_item_index source_type )
                               in
                               finish ~source_type:(Some source_type) ~array_rank
+                                ?callback_pointer:
+                                  (match
+                                     Outer_environment.global_declarator_kind
+                                       metadata
+                                   with
+                                  | Outer_environment.Function_pointer_global
+                                      pointer -> Some pointer
+                                  | Outer_environment.Object_global -> None)
                                 ~array_address:
                                   (array_rank > 0
                                   && Outer_environment.global_declarator_kind
@@ -2010,6 +2076,9 @@ let rec type_expression table members policies ~before_item_index ~context
                                     source_type )
                           in
                           finish ~source_type:(Some source_type)
+                            ?callback_pointer:
+                              (Function_call_resolution
+                               .identifier_value_function_pointer value)
                             ~array_address:
                               (Function_call_resolution
                                .identifier_value_is_ordinary_array value)
@@ -2083,6 +2152,14 @@ let rec type_expression table members policies ~before_item_index ~context
                                       source_type )
                           in
                           finish ~source_type:(Some source_type) ~array_rank
+                            ?callback_pointer:
+                              (match
+                                 Outer_environment.global_declarator_kind
+                                   metadata
+                               with
+                              | Outer_environment.Function_pointer_global
+                                  pointer -> Some pointer
+                              | Outer_environment.Object_global -> None)
                             ~array_address:
                               (array_rank > 0
                               && Outer_environment.global_declarator_kind
@@ -2214,7 +2291,7 @@ and type_prefix table members policies ~before_item_index ~context
       | Function_call_resolution.Address_of -> (
           match
             ( operand.category,
-              operand.source_type,
+              result_storage_type operand,
               result_is_direct_function operand )
           with
           | Offset_value, _, _ ->
@@ -2293,8 +2370,9 @@ and type_prefix table members policies ~before_item_index ~context
           with
           | Error _ as error -> error
           | Ok () ->
-              finish ~source_type:operand.source_type Object_value
-                operand.result_class)
+              finish
+                ~source_type:(result_storage_type operand)
+                Object_value operand.result_class)
       | Function_call_resolution.Dereference -> (
           let value_category =
             match context with
@@ -2361,6 +2439,7 @@ and type_index table members policies ~before_item_index ~context
         | Ok (index_value, state) ->
             Ok
               (make_result ~index_operands:(base, index_value)
+                 ?callback_pointer:base.callback_pointer
                  ~array_address:(base.array_address && array_rank > 0)
                  ~array_rank ?member_lookup ~intrinsic_conversion state ~id
                  ~source ~source_type ~category ~result_class)
@@ -2379,10 +2458,13 @@ and type_index table members policies ~before_item_index ~context
           else
             let array_rank = base.array_rank - 1 in
             let category =
-              if array_rank = 0 then value_category else Array_value
+              if array_rank = 0 then
+                if Option.is_some base.callback_pointer then Callback_value
+                else value_category
+              else Array_value
             in
             let result_class =
-              if array_rank = 0 then
+              if array_rank = 0 && Option.is_none base.callback_pointer then
                 forwarded_class policies ~before_item_index source_type
               else Integer_result
             in
@@ -2423,11 +2505,12 @@ and type_member table members policies ~before_item_index ~context
   | Error _ as error -> error
   | Ok (base, state) -> (
       let finish ?(source_type = None) ?(array_rank = 0) ?array_address
-          ?member_lookup ?aggregate_offset_path category result_class =
+          ?callback_pointer ?member_lookup ?aggregate_offset_path category
+          result_class =
         Ok
-          (make_result ~array_rank ?array_address ~intrinsic_conversion
-             ?member_lookup ?aggregate_offset_path state ~id ~source
-             ~source_type ~category ~result_class)
+          (make_result ~array_rank ?array_address ?callback_pointer
+             ~intrinsic_conversion ?member_lookup ?aggregate_offset_path state
+             ~id ~source ~source_type ~category ~result_class)
       in
       let operator_origin =
         Function_call_resolution.member_operator_origin member
@@ -2544,6 +2627,9 @@ and type_member table members policies ~before_item_index ~context
                               member_type )
                       in
                       finish ~source_type:(Some member_type) ~array_rank
+                        ?callback_pointer:
+                          (Aggregate_member_index.member_function_pointer
+                             indexed_member)
                         ~array_address:
                           (array_rank > 0
                           && not
@@ -2574,8 +2660,9 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
       | Ok () ->
           Ok
             (make_result ~operand_result:operand ~intrinsic_conversion state ~id
-               ~source ~source_type:operand.source_type ~category:Object_value
-               ~result_class:operand.result_class))
+               ~source
+               ~source_type:(result_storage_type operand)
+               ~category:Object_value ~result_class:operand.result_class))
 
 and type_assignment table members policies ~before_item_index
     ~intrinsic_conversion state id source binary assignment_kind =
@@ -2592,9 +2679,12 @@ and type_assignment table members policies ~before_item_index
   with
   | Error _ as error -> error
   | Ok (left, state) -> (
-      let destination_type = left.source_type in
+      let destination_type = result_storage_type left in
       let valid_storage_type = is_writable_storage_type destination_type in
-      match (left.category, destination_type, valid_storage_type) with
+      let category =
+        if result_is_callback_storage left then Lvalue else left.category
+      in
+      match (category, destination_type, valid_storage_type) with
       | Lvalue, Some destination_type, true -> (
           match
             type_expression table members policies ~before_item_index

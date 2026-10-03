@@ -417,7 +417,6 @@ let unsupported_locations_never_expose_an_address_fragment () =
   let candidates =
     [
       List.nth values 0;
-      List.nth values 1;
       List.nth values 2;
       List.nth values 3;
       direct_function;
@@ -426,9 +425,8 @@ let unsupported_locations_never_expose_an_address_fragment () =
     ]
   in
   Alcotest.(check (list bool))
-    "static, callback, module, direct-function, literal, and outer paths are \
-     explicit"
-    [ true; true; true; true; true; true; true ]
+    "static, module, direct-function, literal, and outer paths are explicit"
+    [ true; true; true; true; true; true ]
     (candidates
     |> List.map (fun result ->
         match

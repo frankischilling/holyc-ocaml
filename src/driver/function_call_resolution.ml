@@ -527,6 +527,8 @@ let identifier_value_for_typed_value value =
   Sema.Function_call_resolution.make_identifier_value
     ~resolved_type:value.resolved_type ~shape:value.shape
     ~array_rank:value.array_rank ~ordinary_array:value.ordinary_array
+    ?function_pointer:
+      (Option.map Sema.Function_call_resolution.callable_pointer value.callable)
     ?function_declaration:value.function_declaration
     ?function_address_path:value.function_address_path ()
 
@@ -991,6 +993,10 @@ let rec argument_expression member_index before_item_index visible locals
                       ~resolved_type:value.resolved_type ~shape:value.shape
                       ~array_rank:value.array_rank
                       ~ordinary_array:value.ordinary_array
+                      ?function_pointer:
+                        (Option.map
+                           Sema.Function_call_resolution.callable_pointer
+                           value.callable)
                       ?function_declaration:value.function_declaration
                       ?function_address_path:value.function_address_path ())))
     | Frontend.Ast.Current_position_expression _ ->

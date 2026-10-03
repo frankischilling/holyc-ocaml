@@ -1193,9 +1193,11 @@ let checked_numeric_unary_types result opcode operand =
               operator rule")
 
 let checked_pointer_unary_types result opcode operand =
-  match
-    (Semantic_result.result_type result, Semantic_result.result_type operand)
-  with
+  let operand_type =
+    if opcode = Opcode.Ic_addr then Semantic_result.result_storage_type operand
+    else Semantic_result.result_type operand
+  in
+  match (Semantic_result.result_type result, operand_type) with
   | None, _ | _, None ->
       Error
         (metadata_error ?span:(result_span result)

@@ -265,6 +265,7 @@ val make_bound_identifier_argument_expression :
   shape:identifier_value_shape ->
   array_rank:int ->
   ?ordinary_array:bool ->
+  ?function_pointer:Function_type_resolution.function_pointer ->
   ?function_declaration:Function_resolution.resolved_declaration ->
   ?function_address_path:direct_function_address_path ->
   unit ->
@@ -290,6 +291,7 @@ val make_identifier_value :
   shape:identifier_value_shape ->
   array_rank:int ->
   ?ordinary_array:bool ->
+  ?function_pointer:Function_type_resolution.function_pointer ->
   ?function_declaration:Function_resolution.resolved_declaration ->
   ?function_address_path:direct_function_address_path ->
   unit ->
@@ -311,6 +313,13 @@ val identifier_value_is_ordinary_array : identifier_value -> bool
     Type.t. *)
 
 val identifier_value_shape : identifier_value -> identifier_value_shape
+
+val identifier_value_function_pointer :
+  identifier_value -> Function_type_resolution.function_pointer option
+(** The original callback declarator, when supplied, is separate from the
+    callback return type. Neither a nonordinary array nor a matching [Type.t]
+    supplies this evidence. *)
+
 val identifier_value_array_rank : identifier_value -> int
 
 val identifier_value_function_declaration :
@@ -787,6 +796,10 @@ val aggregate_offset_base_publication :
 val bound_identifier_type : bound_identifier -> Type.t
 val bound_identifier_is_ordinary_array : bound_identifier -> bool
 val bound_identifier_shape : bound_identifier -> identifier_value_shape
+
+val bound_identifier_function_pointer :
+  bound_identifier -> Function_type_resolution.function_pointer option
+
 val bound_identifier_array_rank : bound_identifier -> int
 
 val bound_identifier_function_declaration :

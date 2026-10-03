@@ -25,6 +25,7 @@ type location = {
   type_reference : Type_reference.t option;
   checked_type : Type.t;
   declarator_shape : declarator_shape;
+  callback_pointer : Function_type_resolution.function_pointer option;
   value_shape : value_shape;
   dimensions : dimension list;
   source_dimensions_checked : bool;
@@ -110,6 +111,13 @@ let function_frame_size (function_ : function_layout) = function_.frame_size
 let location_binding (location : location) = location.binding
 let location_symbol (location : location) = location.symbol
 let location_kind (location : location) = location.kind
+let location_callback_pointer (location : location) = location.callback_pointer
+
+let location_storage_type (location : location) =
+  match location.callback_pointer with
+  | None -> Ok location.checked_type
+  | Some pointer ->
+      Function_type_resolution.function_pointer_storage_type pointer
 
 let location_register_selection (location : location) =
   location.register_selection
@@ -622,6 +630,14 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                       type_reference = Some type_reference;
                       checked_type;
                       declarator_shape;
+                      callback_pointer =
+                        (match
+                           Function_type_resolution.parameter_declarator_kind
+                             parameter
+                         with
+                        | Function_type_resolution.Function_pointer pointer ->
+                            Some pointer
+                        | Function_type_resolution.Object -> None);
                       value_shape = Scalar;
                       dimensions = [];
                       source_dimensions_checked = true;
@@ -725,6 +741,7 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                     type_reference = None;
                     checked_type;
                     declarator_shape = Object;
+                    callback_pointer = None;
                     value_shape;
                     dimensions;
                     source_dimensions_checked = dimensions = [];
@@ -783,6 +800,11 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
       Local_type_resolution.local_declarator_kind local
       |> declarator_shape_of_local
     in
+    let callback_pointer =
+      match Local_type_resolution.local_declarator_kind local with
+      | Local_type_resolution.Function_pointer pointer -> Some pointer
+      | Local_type_resolution.Object -> None
+    in
     Result.bind
       (element_size table aggregate_layouts ~before_item:function_item origin
          declarator_shape checked_type) (fun element_size ->
@@ -831,6 +853,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                             type_reference = Some type_reference;
                             checked_type;
                             declarator_shape;
+                            callback_pointer;
                             value_shape;
                             dimensions;
                             source_dimensions_checked;
@@ -855,6 +878,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                             type_reference = Some type_reference;
                             checked_type;
                             declarator_shape;
+                            callback_pointer;
                             value_shape;
                             dimensions;
                             source_dimensions_checked;

@@ -499,6 +499,22 @@ val result_index_operands :
 
 val result_type : expression_result -> Type.t option
 
+val result_callback_pointer :
+  expression_result -> Function_type_resolution.function_pointer option
+(** Original callback declarator evidence propagated through storage selection,
+    grouping and indexing. Call results and arithmetic values do not inherit the
+    callee signature. *)
+
+val result_storage_type : expression_result -> Type.t option
+(** Callback cells use the internal [RT_PTR] class and the callback declarator's
+    indirection count. [result_type] separately retains the callback return
+    type. Ordinary expressions retain their checked type. This supplies no
+    executable address or authority to invoke code. *)
+
+val result_is_callback_storage : expression_result -> bool
+(** True for a scalar or fully indexed callback cell with positive declarator
+    evidence. An unindexed or partial callback array is not writable storage. *)
+
 val result_computation_type : expression_result -> Type.t option
 (** Effective native integer producer class, derived from retained expression
     provenance while preserving [result_type] for exact declaration joins. *)

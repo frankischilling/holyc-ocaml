@@ -36,3 +36,12 @@ join the newest retained unresolved extern. See [incremental task inputs](task-i
 
 Native extern address-slot updates, parent-table joins, general default values,
 alternate bindings and native linkage remain unfinished.
+
+Callback cells now retain their original recursive declarator and physical
+storage class separately from the callback return type. Their symbolic frame
+addresses check the exact frame binding and declarator. They do not establish
+which retained executable a stored address can invoke. That connection remains
+under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801),
+including preserving an earlier selected executable across later same-name
+publications. The broader callback and mixed-value ABI requirements remain in
+[issue #688](https://github.com/frankischilling/holyc-ocaml/issues/688).

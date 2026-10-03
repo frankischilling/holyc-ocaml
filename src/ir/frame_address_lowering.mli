@@ -32,10 +32,11 @@ val lower :
   (lowering_result, Instruction_sequence.error list) result
 (** Lower the checked address of one frame-slot-backed bound identifier. The
     result is an address fragment; loading or otherwise consuming that address
-    remains a separate lowering step. Unsupported storage and expression forms
-    return [Unsupported_location] without a sequence. Inconsistent semantic or
-    frame evidence reports [HCIRL0004], and identity exhaustion reports
-    [HCIRL0005]. *)
+    remains a separate lowering step. Callback locations additionally require
+    their exact original declarator and use its physical RT_PTR storage type.
+    Unsupported storage and expression forms return [Unsupported_location]
+    without a sequence. Inconsistent semantic or frame evidence reports
+    [HCIRL0004], and identity exhaustion reports [HCIRL0005]. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_value : t -> Instruction_sequence.Value_id.t
