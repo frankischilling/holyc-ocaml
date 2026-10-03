@@ -191,6 +191,10 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_result list
 
+val function_all_results : resolved_function -> expression_result list
+(** The original checked expression results owned by this function, including
+    nested callees and arguments. Results from other functions are excluded. *)
+
 val function_outer_callback_calls :
   resolved_function -> outer_callback_call list
 (** Source-ordered calls through scalar or fully indexed outer callbacks. Each

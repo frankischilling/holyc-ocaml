@@ -1058,7 +1058,7 @@ let newest_publications publications =
 
 let function_publications globals = globals.function_publications_
 
-let with_function_publications ~records globals =
+let with_function_publications ?(retain_replaced = false) ~records globals =
   let module Outer = Sema.Outer_environment in
   let ( let* ) = Result.bind in
   let* publications =
@@ -1080,7 +1080,8 @@ let with_function_publications ~records globals =
       (Sema.Function_record_classification.declarations records)
   in
   let function_publications_ =
-    newest_publications (List.rev publications)
+    (if retain_replaced then List.rev publications
+     else newest_publications (List.rev publications))
     |> List.filter_map (function
       | Function_publication reference -> Some reference
       | Global_publication _ | Declared_publication _ -> None)

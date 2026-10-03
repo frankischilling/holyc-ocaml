@@ -88,6 +88,14 @@ type intrinsic = {
   declaration_ : Functions.resolved_declaration;
 }
 
+type function_address = {
+  address_instruction : Seq.description;
+  address_source : Typed.expression_result;
+  address_declaration : Functions.resolved_declaration;
+  address_link : Retained_function.t;
+  address_body : Function_body.t option;
+}
+
 type graph_context = {
   owner : owner;
   original_entry : Seq.Block_id.t;
@@ -99,6 +107,7 @@ type graph_context = {
   intrinsic_starts : intrinsic Instructions.t;
   intrinsic_instructions : intrinsic Instructions.t;
   intrinsic_ends : intrinsic Instructions.t;
+  function_addresses : function_address Instructions.t;
 }
 
 type t = {
@@ -296,6 +305,25 @@ let matches context ~entry ~initialization ~functions =
 
 let find_graph context owner =
   List.find_opt (fun graph -> same_owner graph.owner owner) context.graphs
+
+type function_addresses = function_address Instructions.t
+
+let original_function_addresses context ~owner =
+  if source_producers_match context then
+    Option.map
+      (fun graph -> graph.function_addresses)
+      (find_graph context owner)
+  else None
+
+let original_function_address addresses description =
+  Option.bind (Instructions.find_opt description.Seq.instruction_id addresses)
+    (fun address ->
+      if address.address_instruction == description then Some address else None)
+
+let function_address_source address = address.address_source
+let function_address_declaration address = address.address_declaration
+let function_address_link address = address.address_link
+let function_address_body address = address.address_body
 
 type pointer_difference_divisions = Seq.description Instructions.t
 
@@ -641,8 +669,12 @@ type shape = {
 }
 
 let parameter_type parameter =
-  parameter |> Headers.parameter_type_reference
-  |> Sema.Type_reference.resolved_type
+  match Headers.parameter_declarator_kind parameter with
+  | Headers.Function_pointer pointer ->
+      Headers.function_pointer_storage_type pointer |> Result.get_ok
+  | Headers.Object ->
+      parameter |> Headers.parameter_type_reference
+      |> Sema.Type_reference.resolved_type
 
 let prepared_default ~globals ~header ~parameter ?span () =
   match
@@ -1809,6 +1841,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
     intrinsic_starts = !intrinsic_starts;
     intrinsic_instructions = !intrinsic_instructions;
     intrinsic_ends = !intrinsic_ends;
+    function_addresses = Instructions.empty;
   }
 
 let create ~records ~function_sources ~top_level ~initialization ~entry
@@ -2078,6 +2111,119 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
         (X87_stack.graph entry) entry_calls
       :: checked_functions [] functions
     in
+    let function_link declaration =
+      match
+        Integer_globals.retained_function_declaration globals declaration
+      with
+      | Some _ as original -> original
+      | None ->
+          Integer_globals.function_publications globals
+          |> List.find_opt (fun link ->
+              Retained_function.metadata link
+              |> Sema.Outer_environment.function_declaration
+              |> fun original -> original == declaration)
+    in
+    let seal_addresses graph =
+      let sources =
+        match graph.owner with
+        | Entry -> Typed.top_level_all_results top_level
+        | Function body ->
+            source_function ?span:(Function_body.span body)
+              (Function_body.symbol body)
+            |> Typed.function_all_results
+      in
+      let addresses =
+        List.concat_map (fun (_, items, _) -> items) graph.original_blocks
+        |> List.fold_left
+             (fun addresses (instruction : Seq.description) ->
+               let candidates =
+                 List.filter
+                   (fun source ->
+                     match
+                       ( Typed.result_category source,
+                         Typed.result_function_declaration source,
+                         Typed.result_function_address_path source,
+                         instruction.payload )
+                     with
+                     | ( Typed.Address_value,
+                         Some declaration,
+                         Some path,
+                         Some (Seq.Symbol symbol) )
+                       when symbol
+                            == Functions.resolved_declaration_identity_symbol
+                                 declaration
+                            && (match
+                                  Resolution.argument_expression_kind
+                                    (Typed.result_source source)
+                                with
+                              | Resolution.Prefix_expression prefix
+                                when Resolution.prefix_operator prefix
+                                     = Resolution.Address_of ->
+                                  instruction.span
+                                  = origin_span
+                                      (Resolution.prefix_operator_origin prefix)
+                              | _ -> false)
+                            && instruction.operands = []
+                            && Option.is_some instruction.result
+                            && Int64.logand instruction.flags
+                                 (Int64.lognot 0x2000L)
+                               = 0L -> (
+                         (path = Resolution.Jit_immediate
+                          && instruction.opcode = Opcode.Ic_imm_i64
+                         || path = Resolution.Aot_absolute
+                            && instruction.opcode = Opcode.Ic_abs_addr)
+                         &&
+                         match Typed.result_type source with
+                         | Some type_ -> (
+                             instruction.target_type = Some type_
+                             && Type.pointer_depth type_ = 0
+                             &&
+                             match Type.base type_ with
+                             | Type.Primitive
+                                 (Type.Internal_storage, Sema.Primitive_type.I64)
+                               -> true
+                             | _ -> false)
+                         | None -> false)
+                     | _ -> false)
+                   sources
+               in
+               match candidates with
+               | [ source ] -> (
+                   let declaration =
+                     Typed.result_function_declaration source |> Option.get
+                   in
+                   match function_link declaration with
+                   | None -> addresses
+                   | Some link ->
+                       let body =
+                         List.find_map
+                           (fun (body, _) ->
+                             if
+                               Option.fold ~none:false
+                                 ~some:(fun original -> original == declaration)
+                                 (Function_body.definition_declaration body)
+                             then Some body
+                             else None)
+                           functions
+                       in
+                       Instructions.add instruction.instruction_id
+                         {
+                           address_instruction = instruction;
+                           address_source = source;
+                           address_declaration = declaration;
+                           address_link = link;
+                           address_body = body;
+                         }
+                         addresses)
+               | [] -> addresses
+               | _ ->
+                   fail ?span:instruction.span
+                     "function address has ambiguous original source ownership")
+             Instructions.empty
+      in
+      { graph with function_addresses = addresses }
+    in
+    let graphs = List.map seal_addresses graphs in
     Ok
       {
         typed_top_level = top_level;

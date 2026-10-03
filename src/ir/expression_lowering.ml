@@ -297,26 +297,39 @@ let lowering_error ?span code message =
 let metadata_error ?span message = lowering_error ?span "HCIRL0004" message
 
 let checked_integer_type result =
-  match Semantic_result.result_type result with
-  | None ->
-      Error
-        (metadata_error ?span:(result_span result)
-           "typed semantic expression does not have a checked result type")
-  | Some type_ -> (
-      match
-        ( Semantic_result.result_class result,
-          Type.pointer_depth type_,
-          Type.base type_ )
-      with
-      | Semantic_result.Integer_result, 0, Type.Primitive (_, primitive)
-        when (Sema.Primitive_type.info primitive).category
-             <> Sema.Primitive_type.Floating
-             && not (Sema.Primitive_type.is_zero_sized primitive) ->
-          Ok (Checked_type type_)
-      | Semantic_result.Integer_result, _, (Type.Primitive _ | Type.Aggregate _)
-      | ( (Semantic_result.F64_result | Semantic_result.Unresolved_actual_class),
-          _,
-          (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
+  if
+    Semantic_result.result_is_callback_storage result
+    && Semantic_result.result_class result = Semantic_result.Integer_result
+  then
+    Ok
+      (Checked_type
+         (Type.make_primitive ~form:Type.Internal_storage
+            ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+         |> Result.get_ok))
+  else
+    match Semantic_result.result_type result with
+    | None ->
+        Error
+          (metadata_error ?span:(result_span result)
+             "typed semantic expression does not have a checked result type")
+    | Some type_ -> (
+        match
+          ( Semantic_result.result_class result,
+            Type.pointer_depth type_,
+            Type.base type_ )
+        with
+        | Semantic_result.Integer_result, 0, Type.Primitive (_, primitive)
+          when (Sema.Primitive_type.info primitive).category
+               <> Sema.Primitive_type.Floating
+               && not (Sema.Primitive_type.is_zero_sized primitive) ->
+            Ok (Checked_type type_)
+        | ( Semantic_result.Integer_result,
+            _,
+            (Type.Primitive _ | Type.Aggregate _) )
+        | ( ( Semantic_result.F64_result
+            | Semantic_result.Unresolved_actual_class ),
+            _,
+            (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
 
 let checked_frame_integer result =
   match checked_integer_type result with
@@ -1740,22 +1753,36 @@ let rec prepare_assignment_address ?frame ?globals result =
 
 let validate_frame_assignment result left right =
   let ( let* ) = Result.bind in
-  let* valid = validate_binary_with checked_frame_value result left right in
-  if not valid then Ok false
-  else
-    let r = Option.get (Semantic_result.result_type result)
-    and l = Option.get (Semantic_result.result_type left)
-    and v =
-      match checked_frame_value right with
-      | Ok (Checked_type v) -> v
-      | _ -> assert false
-    in
+  if Semantic_result.result_is_callback_storage left then
+    let* right_type = checked_integer_type right in
     Ok
-      (Type.pointer_depth r = 0
-       && Type.pointer_depth l = 0
-       && Type.pointer_depth v = 0
-      || scalar_pointer_type r && Type.equal r l
-         && Integer_scalar_storage.compatible_pointer l v)
+      (match
+         ( right_type,
+           Semantic_result.result_storage_type left,
+           Semantic_result.result_type result )
+       with
+      | Checked_type _, Some storage, Some type_ ->
+          Type.equal storage type_
+          && Semantic_result.result_class result
+             = Semantic_result.Integer_result
+      | _ -> false)
+  else
+    let* valid = validate_binary_with checked_frame_value result left right in
+    if not valid then Ok false
+    else
+      let r = Option.get (Semantic_result.result_type result)
+      and l = Option.get (Semantic_result.result_type left)
+      and v =
+        match checked_frame_value right with
+        | Ok (Checked_type v) -> v
+        | _ -> assert false
+      in
+      Ok
+        (Type.pointer_depth r = 0
+         && Type.pointer_depth l = 0
+         && Type.pointer_depth v = 0
+        || scalar_pointer_type r && Type.equal r l
+           && Integer_scalar_storage.compatible_pointer l v)
 
 let compound_assignment = function
   | Opcode.Ic_add_equ

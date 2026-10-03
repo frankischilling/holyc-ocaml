@@ -268,15 +268,12 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               task_view
           in
           let* globals_ =
-            if Option.is_none task_view then Ok globals_
-            else
-              Ir.Integer_globals.with_function_publications
-                ~records:(Integer_source.records prepared)
-                globals_
-              |> Result.map_error (fun message ->
-                  [
-                    Integer_source.diagnostic ~span:ast.span "HCRUN0004" message;
-                  ])
+            Ir.Integer_globals.with_function_publications
+              ~retain_replaced:(Option.is_none task_view)
+              ~records:(Integer_source.records prepared)
+              globals_
+            |> Result.map_error (fun message ->
+                [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
           in
           let root_map values =
             List.fold_left

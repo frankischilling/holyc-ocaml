@@ -41,8 +41,12 @@ Callback cells now retain their original recursive declarator and physical
 storage class separately from the callback return type. Their symbolic frame
 addresses and scalar frame loads check the exact frame binding and declarator.
 Calls retain their original callee value before arguments, and the callee
-fragment loads and captures a supported frame callback in RAX. Selecting the
-retained executable that this value can invoke remains
+fragment loads and captures a supported frame callback in RAX. Resolved function addresses now retain their original registered publication,
+prepared body and executable owner in the IR runner. Scalar automatic callback
+locals and named callback parameters can store, copy, clear and compare those
+values in JIT and AOT mode. An isolated JIT source bundle retains earlier
+function-address values across same-name replacement. Live task address linking
+and selecting the retained executable for indirect invocation remain
 under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801),
 including preserving an earlier selected executable across later same-name
 publications. The broader callback and mixed-value ABI requirements remain in

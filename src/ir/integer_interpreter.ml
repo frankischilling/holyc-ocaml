@@ -48,46 +48,6 @@ type stored_type =
   | Stored_narrow of Scalar.t
   | Stored_pointer of Type.t
 
-type runtime_value =
-  | Runtime_word of word
-  | Runtime_pointer of runtime_address
-  | Runtime_offset of int64
-  | Runtime_void
-
-and runtime_address = {
-  pointer_storage : runtime_storage;
-  pointer_base : int;
-  pointer_count : int;
-  pointer_element_bytes : int;
-  pointer_extent_bytes : int64;
-  pointer_offset : int64;
-  pointer_pointee : Type.t;
-}
-
-and runtime_storage = {
-  cells : runtime_value option array;
-  mutable live : bool;
-  unknown_message : string;
-}
-
-type frame_slot = {
-  slot_type : Type.t;
-  stored_type : stored_type;
-  initial : runtime_value option;
-  object_count : int;
-  strides : int64 list;
-}
-
-type frame_context = {
-  layout : Frame.function_layout;
-  slots : frame_slot array;
-  offsets : int Offset_map.t;
-  return_type : Type.t;
-  allocated_bytes : int;
-  variadic_location : (int64 * Type.t) option;
-  initial_variadic : runtime_value option array;
-}
-
 type termination = Stream_end | Returned of word option
 type error_stage = Configuration | Preflight | Execution
 
@@ -194,7 +154,49 @@ type storage_location =
   | Indirect_slot of prepared_pointer
   | Indexed_slot of prepared_pointer
 
-type prepared_operation =
+type runtime_value =
+  | Runtime_word of word
+  | Runtime_code of runtime_code
+  | Runtime_pointer of runtime_address
+  | Runtime_offset of int64
+  | Runtime_void
+
+and runtime_address = {
+  pointer_storage : runtime_storage;
+  pointer_base : int;
+  pointer_count : int;
+  pointer_element_bytes : int;
+  pointer_extent_bytes : int64;
+  pointer_offset : int64;
+  pointer_pointee : Type.t;
+}
+
+and runtime_storage = {
+  cells : runtime_value option array;
+  mutable live : bool;
+  unknown_message : string;
+}
+
+and frame_slot = {
+  slot_type : Type.t;
+  slot_callback : Sema.Function_type_resolution.function_pointer option;
+  stored_type : stored_type;
+  initial : runtime_value option;
+  object_count : int;
+  strides : int64 list;
+}
+
+and frame_context = {
+  layout : Frame.function_layout;
+  slots : frame_slot array;
+  offsets : int Offset_map.t;
+  return_type : Type.t;
+  allocated_bytes : int;
+  variadic_location : (int64 * Type.t) option;
+  initial_variadic : runtime_value option array;
+}
+
+and prepared_operation =
   | Call_start of int option
   | Call of int
   | Retained_call of Retained_function.t
@@ -224,6 +226,7 @@ type prepared_operation =
       * Value_id.t
       * stored_type
   | Immediate of Value_id.t * word
+  | Function_address of Value_id.t * Runtime.function_address
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Constant_shift of
       binary_operation * prepared_operand * int64 * Value_id.t * word_type
@@ -246,7 +249,7 @@ type prepared_operation =
   | Return
   | End
 
-type prepared_instruction = {
+and prepared_instruction = {
   instruction_id : Instruction_id.t;
   span : Common.Span.t option;
   operation : prepared_operation;
@@ -254,13 +257,13 @@ type prepared_instruction = {
   capture_discard : bool;
 }
 
-type prepared_block = {
+and prepared_block = {
   block_id : Block_id.t;
   instructions : prepared_instruction array;
   fallthrough : int option;
 }
 
-type prepared = {
+and prepared = {
   blocks : prepared_block array;
   entry_index : int;
   initial_slots : runtime_value option array;
@@ -271,7 +274,7 @@ type prepared = {
   owner : (int * string) option;
 }
 
-type callee = {
+and callee = {
   callee_index : int;
   callee_symbol : Sema.Symbol.t;
   callee_definition : Sema.Function_resolution.resolved_declaration option;
@@ -282,19 +285,25 @@ type callee = {
   variadic : bool;
 }
 
-(* A prepared index and a literal offset are meaningful only in the command
-   that admitted them. Keep that owner when a body outlives its entry. *)
-type executable_owner = {
+and executable_owner = {
   owner_callees : (callee * prepared) array;
   owner_literals : runtime_storage;
 }
 
-type retained_executable = {
+and retained_executable = {
   function_link : Retained_function.t;
   function_callee : callee;
   function_program : prepared;
   function_owner : executable_owner;
   function_source : task_function_source;
+}
+
+and runtime_code = {
+  code_type : word_type;
+  code_address : Runtime.function_address;
+  code_callee : callee;
+  code_program : prepared;
+  code_owner : executable_owner;
 }
 
 type task_stream = { stream_output : Output.t }
@@ -2951,8 +2960,24 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     List.iter
       (fun location ->
         let dimensions = Frame.location_dimensions location in
+        let callback =
+          match
+            ( Frame.location_declarator_shape location,
+              Frame.location_callback_pointer location )
+          with
+          | Frame.Function_pointer, Some pointer
+            when List.length
+                   (Sema.Function_type_resolution
+                    .function_pointer_indirection_origins pointer)
+                 = 1
+                 && dimensions = [] -> Some pointer
+          | _ -> None
+        in
         let storage_kind =
-          frame_stored_type (Frame.location_checked_type location)
+          if Option.is_some callback then Some (Stored_word I64)
+          else if Frame.location_declarator_shape location = Frame.Object then
+            frame_stored_type (Frame.location_checked_type location)
+          else None
         in
         let allocation_bytes object_bytes =
           if
@@ -2981,7 +3006,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             array_strides dimensions )
         with
         | Some stored_type, Some slot, Some (bytes, strides)
-          when Frame.location_declarator_shape location = Frame.Object
+          when (Frame.location_declarator_shape location = Frame.Object
+               || Option.is_some callback)
                && Frame.location_element_size location
                   = Int64.of_int (stored_bytes stored_type)
                && Frame.location_allocated_size location
@@ -3038,7 +3064,12 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               in
               let entry =
                 {
-                  slot_type = Frame.location_checked_type location;
+                  slot_type =
+                    (match callback with
+                    | Some _ ->
+                        Frame.location_storage_type location |> Result.get_ok
+                    | None -> Frame.location_checked_type location);
+                  slot_callback = callback;
                   stored_type;
                   initial;
                   object_count = Int64.to_int count;
@@ -3063,6 +3094,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             (Int64.to_int !total_cells)
             {
               slot_type = Function.return_type function_;
+              slot_callback = None;
               stored_type = Stored_word I64;
               initial = None;
               object_count = 1;
@@ -3248,6 +3280,20 @@ let declared_types ?frame ?globals ?literals ?initialization
   |> List.fold_left
        (fun types instruction ->
          let description = Sequence.description instruction in
+         let callback_value =
+           match (frame, description.operands, description.target_type) with
+           | Some context, address :: _, Some type_
+             when description.opcode = Opcode.Ic_deref
+                  || description.opcode = Opcode.Ic_assign -> (
+               match Value_map.find_opt address types with
+               | Some (Frame_address index) ->
+                   let slot = context.slots.(index) in
+                   Option.is_some slot.slot_callback
+                   && slot.strides = []
+                   && Type.equal type_ slot.slot_type
+               | _ -> false)
+           | _ -> false
+         in
          let supported word_type type_ =
            let computation_type =
              match (description.opcode, description.operands) with
@@ -3273,7 +3319,15 @@ let declared_types ?frame ?globals ?literals ?initialization
                | None -> (
                    match description.target_type with
                    | Some type_ -> (
-                       if
+                       if callback_value then
+                         Supported
+                           ( I64,
+                             type_,
+                             Type.make_primitive ~form:Type.Internal_storage
+                               ~primitive:Sema.Primitive_type.I64
+                               ~pointer_depth:0
+                             |> Result.get_ok )
+                       else if
                          Option.is_some literals
                          && description.opcode = Opcode.Ic_str_const
                          && literal_pointer_type type_
@@ -4231,6 +4285,14 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
 let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     ?(retained_functions = []) ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
+  let function_addresses =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_function_addresses context ~owner:runtime_owner)
+  in
+  let original_function_address description =
+    Option.bind function_addresses (fun addresses ->
+        Runtime.original_function_address addresses description)
+  in
   let is_default id =
     Option.fold ~none:false
       ~some:(fun context ->
@@ -4988,10 +5050,47 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               else description
             in
             match
-              if Option.is_some callees then prepare_call checked_description
-              else
-                prepare_instruction ?frame ?globals ?literals ?initialization
-                  block_index types block_id description
+              match original_function_address description with
+              | Some address ->
+                  let declaration =
+                    Runtime.function_address_declaration address
+                  in
+                  let local =
+                    Option.fold ~none:false
+                      ~some:(fun callees ->
+                        List.exists
+                          (fun callee ->
+                            Option.fold ~none:false
+                              ~some:(fun original -> original == declaration)
+                              callee.callee_definition)
+                          callees)
+                      callees
+                  in
+                  let retained =
+                    List.exists
+                      (fun executable ->
+                        Retained_function.same executable.function_link
+                          (Runtime.function_address_link address)
+                        && Option.fold ~none:false
+                             ~some:(fun original -> original == declaration)
+                             executable.function_callee.callee_definition)
+                      retained_functions
+                  in
+                  if local || retained then
+                    call_instruction description
+                      (Function_address
+                         ((Option.get description.result).value_id, address))
+                  else
+                    Error
+                      (call_error description
+                         "function address has no original prepared executable \
+                          body")
+              | None ->
+                  if Option.is_some callees then
+                    prepare_call checked_description
+                  else
+                    prepare_instruction ?frame ?globals ?literals
+                      ?initialization block_index types block_id description
             with
             | Ok prepared ->
                 let control_transfer =
@@ -5349,6 +5448,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         Some
           (if computation then { word with type_ = operand.computation_type }
            else word)
+    | Some (Runtime_code _) ->
+        failed :=
+          Some
+            (runtime_error ~instruction block !steps "HCIRVM0024"
+               "opaque function address has no numeric word representation");
+        None
     | Some _ | None ->
         failed :=
           Some
@@ -5416,10 +5521,14 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         None
   in
   let require_value block instruction = function
-    | Word_operand operand ->
-        Option.map
-          (fun word -> Runtime_word word)
-          (require_operand block instruction operand)
+    | Word_operand operand -> (
+        match Value_map.find_opt operand.value_id !values with
+        | Some (Runtime_code code) when code.code_type = operand.expected_type
+          -> Some (Runtime_code code)
+        | _ ->
+            Option.map
+              (fun word -> Runtime_word word)
+              (require_operand block instruction operand))
     | Pointer_operand operand ->
         Option.map
           (fun address -> Runtime_pointer address)
@@ -5427,6 +5536,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let coerce_value expected = function
     | Runtime_offset _ | Runtime_void -> None
+    | Runtime_code code -> (
+        match expected with
+        | Stored_word code_type -> Some (Runtime_code { code with code_type })
+        | Stored_narrow _ | Stored_pointer _ -> None)
     | Runtime_word word -> (
         match expected with
         | Stored_word type_ -> Some (Runtime_word { type_; bits = word.bits })
@@ -5752,7 +5865,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     variadic (Output.Word word.bits :: rev) rest
                 | Runtime_pointer address :: rest ->
                     variadic (Output.Pointer address :: rev) rest
-                | (Runtime_offset _ | Runtime_void) :: _ ->
+                | (Runtime_code _ | Runtime_offset _ | Runtime_void) :: _ ->
                     error "HCIRVM0008"
                       "prepared variadic output argument is invalid"
               in
@@ -6434,8 +6547,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                               (runtime_error ~instruction block !steps
                                  "HCIRVM0012" storage.unknown_message)
                       | Some
-                          (Runtime_pointer _ | Runtime_offset _ | Runtime_void)
-                        ->
+                          ( Runtime_code _
+                          | Runtime_pointer _
+                          | Runtime_offset _
+                          | Runtime_void ) ->
                           failed :=
                             Some
                               (runtime_error ~instruction block !steps
@@ -6474,6 +6589,53 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                   !values))))
           | Immediate (result, word) ->
               values := Value_map.add result (Runtime_word word) !values
+          | Function_address (result, address) -> (
+              let declaration = Runtime.function_address_declaration address in
+              let local =
+                Array.to_list !owner.owner_callees
+                |> List.find_opt (fun (callee, _) ->
+                    Option.fold ~none:false
+                      ~some:(fun original -> original == declaration)
+                      callee.callee_definition)
+                |> Option.map (fun (callee, program) ->
+                    (callee, program, !owner))
+              in
+              let executable =
+                match local with
+                | Some _ as original -> original
+                | None ->
+                    List.find_opt
+                      (fun executable ->
+                        Retained_function.same executable.function_link
+                          (Runtime.function_address_link address)
+                        && Option.fold ~none:false
+                             ~some:(fun original -> original == declaration)
+                             executable.function_callee.callee_definition)
+                      retained_functions
+                    |> Option.map (fun executable ->
+                        ( executable.function_callee,
+                          executable.function_program,
+                          executable.function_owner ))
+              in
+              match executable with
+              | Some (code_callee, code_program, code_owner) ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_code
+                         {
+                           code_type = I64;
+                           code_address = address;
+                           code_callee;
+                           code_program;
+                           code_owner;
+                         })
+                      !values
+              | None ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0024"
+                         "function address has lost its original executable \
+                          owner"))
           | Unary (operation, operand, result, result_type) -> (
               match require_operand block instruction operand with
               | None -> ()
@@ -6508,13 +6670,20 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       (Runtime_word { type_ = result_type; bits })
                       !values)
           | Word_view (operand, result, result_type) -> (
-              match require_operand block instruction operand with
+              match require_value block instruction (Word_operand operand) with
               | None -> ()
-              | Some operand ->
+              | Some (Runtime_word operand) ->
                   values :=
                     Value_map.add result
                       (Runtime_word { type_ = result_type; bits = operand.bits })
-                      !values)
+                      !values
+              | Some (Runtime_code code) ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_code { code with code_type = result_type })
+                      !values
+              | Some (Runtime_pointer _ | Runtime_offset _ | Runtime_void) ->
+                  assert false)
           | Subtract_pointers (left, right, result) -> (
               match require_pointer block instruction left with
               | None -> ()
@@ -6591,6 +6760,63 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                  bits = (if predicate then 1L else 0L);
                                })
                             !values))
+          | Binary
+              ( (Compare (Equal | Not_equal) as operation),
+                left,
+                right,
+                result,
+                result_type )
+            when match
+                   ( Value_map.find_opt left.value_id !values,
+                     Value_map.find_opt right.value_id !values )
+                 with
+                 | Some (Runtime_code _), _ | _, Some (Runtime_code _) -> true
+                 | _ -> false -> (
+              let operands =
+                Option.bind
+                  (require_value block instruction (Word_operand left))
+                  (fun left ->
+                    Option.map
+                      (fun right -> (left, right))
+                      (require_value block instruction (Word_operand right)))
+              in
+              match operands with
+              | None -> ()
+              | Some (left, right) -> (
+                  let equal =
+                    match (left, right) with
+                    | Runtime_code left, Runtime_code right ->
+                        Some
+                          (Retained_function.same
+                             (Runtime.function_address_link left.code_address)
+                             (Runtime.function_address_link right.code_address)
+                          && left.code_program == right.code_program
+                          && left.code_callee == right.code_callee
+                          && left.code_owner == right.code_owner)
+                    | Runtime_code _, Runtime_word { bits = 0L; _ }
+                    | Runtime_word { bits = 0L; _ }, Runtime_code _ ->
+                        Some false
+                    | _ -> None
+                  in
+                  match equal with
+                  | Some equal ->
+                      let predicate =
+                        if operation = Compare Equal then equal else not equal
+                      in
+                      values :=
+                        Value_map.add result
+                          (Runtime_word
+                             {
+                               type_ = result_type;
+                               bits = (if predicate then 1L else 0L);
+                             })
+                          !values
+                  | None ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0024"
+                             "opaque function addresses can compare only with \
+                              owned code or null")))
           | Binary (operation, left, right, result, result_type) -> (
               match
                 require_operand ~computation:true block instruction left
@@ -6617,7 +6843,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               let value =
                 Option.bind (require_value block instruction operand) (function
                   | Runtime_word word -> Some word
-                  | Runtime_pointer _ | Runtime_offset _ | Runtime_void -> None)
+                  | Runtime_code _
+                  | Runtime_pointer _
+                  | Runtime_offset _
+                  | Runtime_void -> None)
               in
               if
                 capture_last && instruction.capture_discard

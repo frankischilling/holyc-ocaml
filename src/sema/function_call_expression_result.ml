@@ -272,6 +272,7 @@ type resolved_function = {
   switch_cases : switch_case_result list;
   returns : return_result list;
   initializers : initializer_result list;
+  expression_results : expression_result list;
 }
 
 and initializer_result = {
@@ -352,6 +353,7 @@ let owns_outer result outer =
 let compilation_mode result = result.compilation_mode
 let functions result = result.functions
 let all_results result = result.all_results
+let function_all_results result = result.expression_results
 let top_level_owns_table result table = result.top_level_table == table
 let top_level_owns_members result members = result.top_level_members == members
 
@@ -4185,6 +4187,7 @@ let type_initializer table members policies ~before_item_index state source =
                   state )))
 
 let type_function table members policies outer state source =
+  let first_result = state.next_id in
   let outer_function =
     Option.bind outer (fun outer ->
         Outer_expression_binding.find_function outer
@@ -4302,6 +4305,14 @@ let type_function table members policies outer state source =
                                         switch_cases;
                                         returns;
                                         initializers;
+                                        expression_results =
+                                          List.filter
+                                            (fun result ->
+                                              Id.to_int result.id
+                                              >= first_result)
+                                            state.results_rev
+                                          |> List.sort (fun left right ->
+                                              Id.compare left.id right.id);
                                       },
                                       state ))))))))
 

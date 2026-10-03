@@ -74,6 +74,31 @@ val matches :
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option
 
+type function_address
+type function_addresses
+
+val original_function_addresses : t -> owner:owner -> function_addresses option
+(** Collect source-owned resolved function-address producers after checking the
+    complete original graph. JIT immediates and AOT absolute producers retain
+    the exact declaration, registered publication and original body when local.
+    Unresolved extern slots do not acquire executable authority here. *)
+
+val original_function_address :
+  function_addresses ->
+  Instruction_sequence.description ->
+  function_address option
+(** Only the physically original producer can select its receipt. Matching
+    names, instruction IDs, spans, copied records or another graph cannot. *)
+
+val function_address_source :
+  function_address -> Sema.Function_call_expression_result.expression_result
+
+val function_address_declaration :
+  function_address -> Sema.Function_resolution.resolved_declaration
+
+val function_address_link : function_address -> Retained_function.t
+val function_address_body : function_address -> Function_body.t option
+
 type pointer_difference_divisions
 
 val original_pointer_difference_divisions :

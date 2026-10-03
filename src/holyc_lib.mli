@@ -996,12 +996,18 @@ val run_integer_program :
     Scheduled arithmetic uses runtime IR semantics; initializers and their
     transitive callees retain explicit shift/divisor and narrow read/range
     optimizer boundaries. Supported pure constants supply initial-image bits.
-    General memory, arbitrary indirect/external calls and native code remain
-    unsupported. Checked Print/PutChars calls execute under separate positive
-    output/work limits (both default 1,048,576). This convenience entrypoint
-    projects the outcome; use [run_integer_program_report] to retain captured
-    bytes on both success and failure. Implicit output preserves the last
-    ordinary expression. *)
+    Resolved function addresses retain their original registered publication,
+    prepared body and executable owner as opaque values. Full-word copies, casts
+    and equality with owned code or null execute through ordinary word storage
+    and checked scalar callback locals or named parameters. Callback return
+    types remain separate from their word storage. Concrete numeric code
+    addresses, callback globals/statics/arrays, default materialization and
+    indirect invocation remain unsupported. General memory and native code also
+    remain unsupported. Checked Print/PutChars calls execute under separate
+    positive output/work limits (both default 1,048,576). This convenience
+    entrypoint projects the outcome; use [run_integer_program_report] to retain
+    captured bytes on both success and failure. Implicit output preserves the
+    last ordinary expression. *)
 
 type integer_program_report
 

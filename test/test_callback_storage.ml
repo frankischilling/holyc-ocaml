@@ -575,6 +575,259 @@ let scalar_call_rejects_another_callee_value () =
       | Ok _ -> Alcotest.fail "another callback supplied the callee value")
     modes
 
+let owned_function_address_execution () =
+  let module G = Test_integer_globals in
+  let module T = Test_integer_functions in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, expected) -> ignore (G.run ~mode text |> T.expect expected))
+        [
+          ("I64 Target(I64 n){return n+2;}(&Target==&Target);", 1L);
+          ("I64 A(){return 1;}I64 B(){return 1;}(&A==&B);", 0L);
+          ("I64 A(){return 1;}I64 B(){return 1;}(&A!=&B);", 1L);
+          ("I64 A(){return 1;}(&A!=0);", 1L);
+          ("I64 A(){return 1;}(0==&A);", 0L);
+          ("I64 A(){return 1;}I64 P;P=&A;(P==&A);", 1L);
+          ("I64 A(){return 1;}U64 P;P=&A;(P==&A);", 1L);
+          ("I64 A(){return 1;}I64 P,Q;P=&A;Q=P;(Q==&A);", 1L);
+          ("I64 A(){return 1;}I64 Check(){I64 p=&A;return p==&A;}Check();", 1L);
+          ("I64 A(){return 1;}I64 Check(I64 p){return p==&A;}Check(&A);", 1L);
+          ("I64 A(){return 1;}(&A)(U64)==&A;", 1L);
+          ("I64 A(){return 1;}&A;42;", 42L);
+        ])
+    modes
+
+let scalar_callback_storage_execution () =
+  let module G = Test_integer_globals in
+  let module T = Test_integer_functions in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, expected) -> ignore (G.run ~mode text |> T.expect expected))
+        [
+          ( "I64 A(){return 1;}I64 Check(){I64 (*p)();p=&A;return \
+             p==&A;}Check();",
+            1L );
+          ( "I64 A(){return 1;}I64 Check(){F64 (*p)();p=&A;return \
+             p==&A;}Check();",
+            1L );
+          ( "I64 A(){return 1;}I64 Check(){U0 (*p)();p=&A;return p==&A;}Check();",
+            1L );
+          ( "I64 A(){return 1;}I64 Check(){I64 (*p)(),(*q)();p=&A;q=p;return \
+             q==&A;}Check();",
+            1L );
+          ( "I64 A(){return 1;}I64 Check(){I64 (*p)();(p)=&A;return \
+             p==&A;}Check();",
+            1L );
+          ("I64 Check(){I64 (*p)();p=0;return p==0;}Check();", 1L);
+          ( "I64 A(){return 1;}I64 Check(){I64 (*p)();p=&A;p=0;return \
+             p==0;}Check();",
+            1L );
+          ( "I64 A(){return 1;}I64 Check(I64 (*p)()){return p==&A;}Check(&A);",
+            1L );
+          ( "I64 A(){return 1;}I64 Check(F64 (*p)()){return p==&A;}Check(&A);",
+            1L );
+          ( "I64 A(){return 1;}I64 Check(U0 (*p)()){p=&A;return p==&A;}Check(0);",
+            1L );
+        ])
+    modes
+
+let function_address_receipts () =
+  let module G = Test_integer_globals in
+  let module C = Ir_runtime_call_context in
+  let module Seq = Ir_instruction_sequence in
+  let module Graph = Ir_block_graph in
+  let source = "I64 A(){return 1;}I64 Check(){return &A==&A;}Check();&A==&A;" in
+  List.iter
+    (fun mode ->
+      let compiled = G.compile ~mode source in
+      let foreign = G.compile ~mode source in
+      let context = integer_program_runtime_calls compiled in
+      let publications =
+        integer_program_globals compiled
+        |> Holyc_lib__Ir.Integer_globals.function_publications
+      in
+      let owners =
+        (C.Entry, integer_program_entry compiled)
+        :: List.map
+             (fun definition ->
+               ( C.Function definition.Ir_integer_interpreter.body,
+                 Ir_function_body.x87 definition.body ))
+             (integer_program_functions compiled)
+      in
+      let count = ref 0 in
+      List.iter
+        (fun (owner, graph) ->
+          let addresses =
+            C.original_function_addresses context ~owner |> Option.get
+          in
+          let foreign_addresses =
+            C.original_function_addresses
+              (integer_program_runtime_calls foreign)
+              ~owner
+          in
+          Ir_x87_stack.graph graph |> Graph.blocks
+          |> List.iter (fun block ->
+              Graph.instructions block |> Seq.instructions
+              |> List.iter (fun instruction ->
+                  let description = Seq.description instruction in
+                  match C.original_function_address addresses description with
+                  | None -> ()
+                  | Some address ->
+                      incr count;
+                      Alcotest.(check bool)
+                        "original registered link" true
+                        (List.exists
+                           (fun link ->
+                             Holyc_lib__Ir.Retained_function.same link
+                               (C.function_address_link address))
+                           publications);
+                      let declaration =
+                        C.function_address_declaration address
+                      in
+                      Alcotest.(check bool)
+                        "original checked declaration" true
+                        (Option.get
+                           (R.result_function_declaration
+                              (C.function_address_source address))
+                        == declaration);
+                      Alcotest.(check bool)
+                        "original definition body" true
+                        (List.exists
+                           (fun definition ->
+                             Option.fold ~none:false
+                               ~some:(fun body ->
+                                 body == definition.Ir_integer_interpreter.body)
+                               (C.function_address_body address)
+                             && Option.get
+                                  (Ir_function_body.definition_declaration
+                                     definition.body)
+                                == declaration)
+                           (integer_program_functions compiled));
+                      let copy =
+                        {
+                          description with
+                          Seq.operands = List.map Fun.id description.operands;
+                        }
+                      in
+                      Alcotest.(check bool)
+                        "copied producer has no receipt" true
+                        (Option.is_none
+                           (C.original_function_address addresses copy));
+                      Alcotest.(check bool)
+                        "foreign context has no receipt" true
+                        (Option.is_none
+                           (Option.bind foreign_addresses (fun addresses ->
+                                C.original_function_address addresses
+                                  description))))))
+        owners;
+      Alcotest.(check int)
+        "two original body and two original entry addresses" 4 !count)
+    modes
+
+let function_address_graph_ownership () =
+  let module G = Test_integer_globals in
+  let module VM = Ir_integer_interpreter in
+  let module Seq = Ir_instruction_sequence in
+  let module Graph = Ir_block_graph in
+  let module C = Ir_runtime_call_context in
+  let source = "I64 A(){return 1;}(&A==&A);" in
+  List.iter
+    (fun mode ->
+      let compiled = G.compile ~mode source in
+      let execute ?runtime_calls () =
+        VM.execute_program
+          ~globals:(integer_program_globals compiled)
+          ~initialization:(integer_program_initialization compiled)
+          ?runtime_calls
+          ~functions:(integer_program_functions compiled)
+          ~max_steps:1000 ~max_frame_bytes:64 ~max_call_depth:2
+          (integer_program_entry compiled)
+      in
+      let rejects label = function
+        | Ok _ -> Alcotest.fail label
+        | Error errors ->
+            Alcotest.(check bool)
+              label true
+              (List.for_all
+                 (fun (error : VM.error) ->
+                   error.stage = VM.Preflight && error.executed_steps = 0)
+                 errors)
+      in
+      rejects "raw symbolic graph cannot resolve executable addresses"
+        (execute ());
+      let context = integer_program_runtime_calls compiled in
+      let addresses =
+        C.original_function_addresses context ~owner:C.Entry |> Option.get
+      in
+      let cell =
+        integer_program_entry compiled
+        |> Ir_x87_stack.graph |> Graph.blocks
+        |> List.find_map (fun block ->
+            let rec find = function
+              | [] -> None
+              | instruction :: rest as cell ->
+                  if
+                    Option.is_some
+                      (C.original_function_address addresses
+                         (Seq.description instruction))
+                  then Some cell
+                  else find rest
+            in
+            Graph.instructions block |> Seq.instructions |> find)
+        |> Option.get
+      in
+      let original = Seq.description (List.hd cell) in
+      Obj.set_field (Obj.repr cell) 0
+        (Obj.repr
+           { original with Seq.operands = List.map Fun.id original.operands });
+      Alcotest.(check bool)
+        "copied instruction invalidates complete address graph" true
+        (Option.is_none (C.original_function_addresses context ~owner:C.Entry));
+      rejects "copied instruction cannot execute with original context"
+        (execute ~runtime_calls:context ()))
+    modes
+
+let function_address_limits_and_reached_faults () =
+  let module G = Test_integer_globals in
+  let module T = Test_integer_functions in
+  let module VM = Ir_integer_interpreter in
+  let source =
+    "I64 A(){return 1;}I64 Check(){I64 (*p)();p=&A;return p==&A;}Check();"
+  in
+  List.iter
+    (fun mode ->
+      let result = G.run ~mode source |> T.expect 1L in
+      let steps = VM.executed_steps result in
+      ignore (G.run ~mode ~max_steps:steps source |> T.expect 1L);
+      Alcotest.(check string)
+        "one below actual instruction budget" "HCIRVM0007"
+        (T.first_error (G.run ~mode ~max_steps:(steps - 1) source)).code;
+      ignore (G.run ~mode ~max_frame_bytes:8 source |> T.expect 1L);
+      Alcotest.(check string)
+        "one below callback cell frame allocation" "HCIRVM0011"
+        (T.first_error (G.run ~mode ~max_frame_bytes:7 source)).code;
+      let report =
+        Test_integer_output.run ~mode
+          "extern U0 Print(U8 *fmt,...);I64 A(){return \
+           1;}Print(\"kept\");&A==1;"
+      in
+      ignore (Test_integer_output.fault ~output:"kept" "HCIRVM0024" report);
+      Alcotest.(check string)
+        "reached unsupported numeric address retains earlier output" "kept"
+        (integer_program_report_output_bytes report))
+    modes
+
+let replaced_function_address_keeps_original_body () =
+  let source =
+    "I64 A(){return 1;}I64 P;P=&A;I64 Old(){return P==&A;}I64 A(){return \
+     2;}(Old()*100+(P!=&A));"
+  in
+  ignore
+    (Test_integer_globals.run ~mode:Preprocessor.Jit source
+    |> Test_integer_functions.expect 101L)
+
 let tests =
   [
     Alcotest.test_case
@@ -602,4 +855,18 @@ let tests =
       callback_callee_snapshot_matches_prs_fun_call;
     Alcotest.test_case "a scalar call rejects another callee value" `Quick
       scalar_call_rejects_another_callee_value;
+    Alcotest.test_case "owned function addresses execute and retain identity"
+      `Quick owned_function_address_execution;
+    Alcotest.test_case "scalar callback cells store owned executable values"
+      `Quick scalar_callback_storage_execution;
+    Alcotest.test_case "function address receipts retain original owners" `Quick
+      function_address_receipts;
+    Alcotest.test_case
+      "function address graphs reject copied and missing authority" `Quick
+      function_address_graph_ownership;
+    Alcotest.test_case
+      "function address storage preserves limits and reached effects" `Quick
+      function_address_limits_and_reached_faults;
+    Alcotest.test_case "replaced function address keeps its original body"
+      `Quick replaced_function_address_keeps_original_body;
   ]

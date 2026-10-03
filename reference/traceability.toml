@@ -12903,5 +12903,29 @@ compilation_modes = ["jit", "aot"]
 callee = "Identifier and dereferenced identifier calls retain a separate original callee value without changing syntactic form. Member and indexed calls retain and type their original computed callee. Scalar top-level and retained outer callbacks keep the same source tree. Identifier callee values must match the original occurrence, name, origin and dereference depth."
 callee_fragment = "A supported original frame cell is loaded once; PrsFunCall retags that producer to internal RT_PTR before SET_RAX/NOP2. The fragment ends before CALL_START and does not emit argument pushes, the saved-callee push or cleanup. Exact instruction/value capacity and foreign frames are checked."
 callback_defaults = "Callback parameter defaults keep their source return type and original parameter while exposing physical RT_PTR storage and the integer address class. Runtime default materialization remains unfinished."
-execution_connection = "unfinished under issue 801; callee fragments do not grant retained executable authority or complete indirect-call lowering"
-remaining = ["callback runtime storage", "indirect invocation", "retained executable ownership and lifetime", "checked reached signature and cleanup", "native callback emission", "callback returns and aggregate runtime consumers", "general noninteger variadics under issue 688"]
+execution_connection = "Resolved source-owned function addresses now carry their original registered publication, prepared body and executable owner in the IR runner. Scalar automatic callback locals and named parameters store, copy, clear and compare those values. Complete indirect-call lowering and invocation remain unfinished under issue 801."
+remaining = ["callback runtime globals/statics/arrays and updates", "indirect invocation", "live task executable linking and reached lifetime", "checked reached signature and cleanup", "native callback emission", "callback returns and aggregate runtime consumers", "general noninteger variadics under issue 688"]
+
+[[feature]]
+id = "HC-IR-OWNED-FUNCTION-ADDRESS-VALUES"
+description = "Resolved function-address values retain their original registered publication, prepared body and executable owner through scalar storage."
+sources = [
+  "Compiler/PrsExp.HC:622-655 original selected executable address, JIT immediate and AOT absolute producers",
+  "Compiler/PrsVar.HC:285-366 callback return signature and physical RT_PTR storage",
+  "Compiler/PrsExp.HC:96-116 ordinary assignment and storage consumers",
+  "Compiler/OptPass789A.HC:99-112 AOT absolute immediate and relocation boundary"
+]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml", "src/ir/expression_lowering.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The exact checked function or top-level result owns the original resolved declaration and address path. The completed graph seals the physical producer. Copies, foreign contexts and matching numeric instruction IDs or symbols cannot select its receipt."
+executable_identity = "Capture consumes the original registered function link and exact prepared declaration/body owner; no latest-name lookup, fabricated numeric function ID, fresh identity wrapper or ambient host pointer is used. Isolated source bundles register all original declarations so a replaced JIT address retains its original body."
+storage = "Opaque code values survive ordinary full-word locals/globals, full-word views, explicit fixed arguments and checked one-star scalar automatic callback locals and named callback parameters. Callback cells retain their original signature separately from physical integer storage. Plain assignment and clearing accept numeric words without treating them as executable authority."
+comparisons = "Equality and inequality compare original registered links, prepared body/callee and executable owner; null compares unequal to owned code. Nonzero numeric comparison and numeric consumers fail when reached with HCIRVM0024, preserving earlier output."
+resources = "Original source producers use ordinary instruction ticks; callback frame cells occupy eight bytes. Exact and one-below actual instruction and frame limits are exercised."
+verification_boundary = "Six new groups exercise 44 JIT/AOT source programs plus JIT same-name replacement, exact original receipts, copied/foreign/missing contexts and reached fault effects. Earlier callback native controls are retained separately and do not validate this new IR execution implementation."
+excluded = ["concrete numeric code addresses and arithmetic", "numeric code address output and returns", "callback globals/statics/arrays and updates", "callback default materialization", "unresolved extern address slots and live task address linking", "indirect invocation and reached signature/lifetime checks", "hosted native address and callback emission", "general F64/mixed/aggregate callback execution under issue 688"]

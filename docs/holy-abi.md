@@ -33,7 +33,7 @@ This state is input to later compiler work, not an allocation result. `OPTf_NO_R
 
 `Compiler/PrsVar.HC:PrsType` parses a parenthesized function-pointer declarator and calls `PrsFunJoin` with a null name for its signature metadata. One through four stars inside the declarator determine the function-pointer type, while any stars between the primitive type and the declarator belong to the callback return type. `PrsVarLst` stores the returned function metadata in `CMemberLst.fun_ptr` and sets `MLF_FUN`. The parser keeps these parts separate in a recursive AST and accepts empty, fixed, variadic, and nested callback signatures. Semantic aggregate members retain the complete recursive signature and the checked `MLF_FUN` mask `0x8`; ordinary aggregate members carry zero.
 
-This is syntax and metadata capture, not ABI implementation. Checked direct and pointer member calls now recover the exact stored callback header through `MLF_FUN` and use it for semantic slots and return typing. They do not read the field or decide its machine address. Function type compatibility, indirect-call lowering, calling flags inside callback types, register assignment, and native invocation remain unavailable.
+Checked direct and pointer member calls recover the exact stored callback header through `MLF_FUN` for semantic slots and return typing. Runtime member-field access, function type compatibility, complete indirect-call lowering, calling flags inside callback types, register assignment and native invocation remain unfinished.
 
 Callback storage keeps that original declarator separately from its return type.
 `PrsType` selects internal `RT_PTR` with the callback indirection count; an
@@ -55,7 +55,23 @@ internal `RT_PTR`, and emits `IC_SET_RAX` followed by `IC_NOP2`. This follows
 the original loaded value and consumes no additional value identity. Argument
 pushes, saved-callee cleanup, retained executable selection and runtime dispatch
 remain unfinished. [Issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801)
-owns the execution connection. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)
+owns the execution connection.
+
+The IR runner now resolves checked JIT immediate and AOT absolute `&Function`
+producers to their original registered publication and prepared integer/U0 body.
+It carries an opaque value with that executable owner through ordinary word
+locals, globals, full-word casts and explicit fixed parameters. Scalar automatic
+callback locals and named callback parameters use the original declarator to
+select eight-byte storage, including signatures that return F64 or U0. Plain
+assignment, copies, clearing to zero and equality with owned code or null execute
+in both source modes. JIT replacement keeps the earlier address bound to its
+original body. A matching name or numeric word cannot select executable code.
+
+These values do not supply concrete numeric addresses. Address arithmetic,
+numeric address output, callback globals/statics/arrays and updates, callback
+default materialization, live task address linking, indirect invocation and
+hosted native emission remain unfinished. The tests exercise IR execution; the
+earlier native observations do not validate this new implementation. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)
 include assignment, member storage, eight-byte updates, callee capture before
 arguments, right-to-left arguments, callback defaults and word variadic tails.
 

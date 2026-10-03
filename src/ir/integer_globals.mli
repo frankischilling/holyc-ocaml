@@ -156,7 +156,13 @@ val task_function_binding :
 val with_task_view : task_view -> t -> t
 
 val with_function_publications :
-  records:Sema.Function_record_classification.t -> t -> (t, string) result
+  ?retain_replaced:bool ->
+  records:Sema.Function_record_classification.t ->
+  t ->
+  (t, string) result
+(** Register original function links once for this source bundle. Task commands
+    publish the newest declaration; isolated programs retain replaced
+    declarations as well so an earlier address keeps its original target. *)
 
 val function_publications : t -> Retained_function.t list
 
