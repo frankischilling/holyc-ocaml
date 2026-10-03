@@ -175,6 +175,8 @@ let event_context = function
         | Parser.Function_variadic_started p
         | Parser.Function_variadic_completed p ->
             p.variadic_function.function_header.declaration_command
+        | Parser.Callback_position_written p ->
+            p.callback_position_signature.callback_command
         | Parser.Callback_signature_started p -> p.callback_command
         | Parser.Callback_parameter_declared p ->
             p.callback_parameter_signature.callback_command

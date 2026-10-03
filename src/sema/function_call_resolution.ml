@@ -11,6 +11,7 @@ type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
   | Aggregate_position_expression of Offset_fragment.position
+  | Default_position_expression of Default_fragment.position
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
@@ -769,6 +770,7 @@ let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
   | Aggregate_position_expression _ -> "aggregate-position"
+  | Default_position_expression _ -> "default-position"
   | Offset_expression -> "offset"
   | Postfix_cast_expression -> "postfix-cast"
   | Call_expression -> "call"
@@ -1874,7 +1876,7 @@ let make_return ~index ~keyword_origin ~expression ~origin =
   else Ok { index; keyword_origin; expression; origin }
 
 let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
-    ?(callee_expressions = []) ?(call_expressions = []) () =
+    ?default_fragment ?(callee_expressions = []) ?(call_expressions = []) () =
   let module Ast = Frontend.Ast in
   let origin = Initializer_source.origin_of_location in
   let same_list check left right =
@@ -2006,7 +2008,13 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
            = origin ast.location
     | ( Ast.Current_position_expression _,
         Unresolved_expression Current_position_expression ) ->
-        Option.is_none offset_fragment
+        Option.is_none offset_fragment && Option.is_none default_fragment
+    | ( Ast.Current_position_expression _,
+        Unresolved_expression (Default_position_expression position) ) ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
+            Default_fragment.position_matches position fragment ast)
+          default_fragment
     | ( Ast.Current_position_expression _,
         Unresolved_expression (Aggregate_position_expression position) ) ->
         Option.fold ~none:false
@@ -2142,9 +2150,10 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
       "initializer expression or calls do not match its retained source leaf"
 
 let validate_source_expression ~source ~expression ~calls ?offset_fragment
-    ?callee_expressions ?call_expressions () =
+    ?default_fragment ?callee_expressions ?call_expressions () =
   validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
-    ~calls ?offset_fragment ?callee_expressions ?call_expressions ()
+    ~calls ?offset_fragment ?default_fragment ?callee_expressions
+    ?call_expressions ()
 
 let validate_initializer_expression ~leaf ~expression ~calls ?callee_expressions
     ?call_expressions () =

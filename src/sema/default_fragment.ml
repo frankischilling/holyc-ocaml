@@ -12,6 +12,8 @@ type t = {
   expression_ : Frontend.Ast.expression;
   environment_ : Outer_environment.t;
   references_ : (Frontend.Ast.identifier * Reference_selection.t) list;
+  position_reads_ :
+    (Frontend.Ast.expression * Compiler_record.compiler_position) list;
   queries_ : Query_selection.t list;
 }
 
@@ -163,6 +165,7 @@ let create_common ~table ~source ~environment ~references ~queries =
       expression_;
       environment_ = environment;
       references_ = references;
+      position_reads_ = [];
       queries_ = queries;
     }
 
@@ -239,3 +242,72 @@ let query_for fragment expression =
   with
   | Some query -> Ok query
   | None -> Error "query is absent from the original default fragment"
+
+type position = {
+  position_fragment_ : t;
+  position_source_ : Frontend.Ast.expression;
+  position_value_ : Compiler_record.compiler_position;
+}
+
+let source_position_reads = function
+  | Named (_, r) -> r.Frontend.Parser.default_position_reads
+  | Callback (_, r) -> r.Frontend.Parser.callback_default_position_reads
+
+let with_positions ~compiler_positions fragment =
+  let ( let* ) = Result.bind in
+  let reads = source_position_reads fragment.source_ in
+  let expected =
+    Initializer_source.expression_position_nodes fragment.expression_
+  in
+  if
+    List.length expected <> List.length reads
+    || not
+         (List.for_all2
+            (fun expected (actual, _) -> expected == actual)
+            expected reads)
+  then
+    Error
+      "default positions differ from its exact original ordered expression \
+       nodes"
+  else
+    let sources =
+      match fragment.source_ with
+      | Named (_, r) -> r.default_function.function_header.declaration_sources
+      | Callback (_, r) ->
+          Frontend.Parser.context_sources
+            r.callback_default_signature.callback_command.command_context
+    in
+    let* position_reads_ =
+      Compiler_record.resolve_default_position_reads compiler_positions ~sources
+        reads
+    in
+    Ok { fragment with position_reads_ }
+
+let position_for fragment source =
+  match
+    List.find_opt (fun (node, _) -> node == source) fragment.position_reads_
+  with
+  | Some (_, position_value_) ->
+      Ok
+        {
+          position_fragment_ = fragment;
+          position_source_ = source;
+          position_value_;
+        }
+  | None ->
+      Error
+        "default current position has no original lexical write and expression \
+         receipt"
+
+let position_matches position fragment source =
+  position.position_fragment_ == fragment && position.position_source_ == source
+
+let position_value position =
+  Compiler_record.compiler_position_value position.position_value_
+
+let position_dependencies position =
+  Compiler_record.compiler_position_dependencies position.position_value_
+
+let position_runtime_dependencies position =
+  Compiler_record.compiler_position_runtime_dependencies
+    position.position_value_

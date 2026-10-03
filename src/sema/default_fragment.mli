@@ -74,3 +74,18 @@ val current_source :
   activation:Source_activation.t option ->
   source ->
   bool
+
+type position
+
+val with_positions :
+  compiler_positions:Compiler_record.compiler_positions ->
+  t ->
+  (t, string) result
+
+val position_for : t -> Frontend.Ast.expression -> (position, string) result
+val position_matches : position -> t -> Frontend.Ast.expression -> bool
+val position_value : position -> int64
+val position_dependencies : position -> Compiler_record.aggregate_offset list
+
+val position_runtime_dependencies :
+  position -> Compiler_record.runtime_dimension_proposal list

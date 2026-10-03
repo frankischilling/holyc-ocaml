@@ -25,6 +25,9 @@ let direct_expression value =
   | Resolution.Unresolved_expression
       (Resolution.Aggregate_position_expression position) ->
       Sema.Offset_fragment.position_dependencies position
+  | Resolution.Unresolved_expression
+      (Resolution.Default_position_expression position) ->
+      Sema.Default_fragment.position_dependencies position
   | _ -> query_expression value
 
 let rec expression value =

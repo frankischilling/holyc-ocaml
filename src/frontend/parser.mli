@@ -520,6 +520,8 @@ type completed_parameter_default = private {
   default_pointer_layers : Ast.pointer_layer list;
   default_parameter_name : Ast.identifier option;
   default_function_pointer : Ast.function_pointer_declarator option;
+  default_position_reads :
+    (Ast.expression * compiler_position_source option) list;
   default_ast : Ast.parameter_default;
   default_activity : parameter_default_activity;
 }
@@ -556,11 +558,20 @@ and completed_callback_parameter = private {
   callback_parameter_completion_activity : parameter_completion_activity;
 }
 
+type callback_position_write = private {
+  callback_position_signature : callback_signature_publication;
+  callback_position_source : compiler_position_source;
+  callback_position_predecessor : completed_callback_parameter option;
+  callback_position_activity : function_position_activity;
+}
+
 type completed_callback_default = private {
   callback_default_signature : callback_signature_publication;
   callback_default_parameter : callback_parameter_publication;
   callback_default_index : int;
   callback_default_predecessor : completed_callback_default option;
+  callback_default_position_reads :
+    (Ast.expression * compiler_position_source option) list;
   callback_default_ast : Ast.parameter_default;
   callback_default_activity : parameter_default_activity;
 }
@@ -760,6 +771,7 @@ type declaration_event = private
   | Function_local_allocated of function_local_allocation
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
+  | Callback_position_written of callback_position_write
   | Callback_signature_started of callback_signature_publication
   | Callback_parameter_declared of callback_parameter_publication
   | Callback_default_completed of completed_callback_default
@@ -908,3 +920,5 @@ val parse_suspended :
 val suspension_owns_sequence : suspension -> completed_sequence -> bool
 (** Only the exact accepted nested sequence belongs to a consumed token. This
     establishes syntax ownership; runtime admission remains separate. *)
+
+val callback_position_is_current : callback_position_write -> bool

@@ -605,6 +605,8 @@ type completed_parameter_default = {
   default_pointer_layers : Ast.pointer_layer list;
   default_parameter_name : Ast.identifier option;
   default_function_pointer : Ast.function_pointer_declarator option;
+  default_position_reads :
+    (Ast.expression * compiler_position_source option) list;
   default_ast : Ast.parameter_default;
   default_activity : parameter_default_activity;
 }
@@ -646,11 +648,20 @@ and completed_callback_parameter = {
   callback_parameter_completion_activity : parameter_completion_activity;
 }
 
+type callback_position_write = {
+  callback_position_signature : callback_signature_publication;
+  callback_position_source : compiler_position_source;
+  callback_position_predecessor : completed_callback_parameter option;
+  callback_position_activity : function_position_activity;
+}
+
 type completed_callback_default = {
   callback_default_signature : callback_signature_publication;
   callback_default_parameter : callback_parameter_publication;
   callback_default_index : int;
   callback_default_predecessor : completed_callback_default option;
+  callback_default_position_reads :
+    (Ast.expression * compiler_position_source option) list;
   callback_default_ast : Ast.parameter_default;
   callback_default_activity : parameter_default_activity;
 }
@@ -666,6 +677,17 @@ type completed_callback_signature = {
 let callback_signature_is_current source =
   source.callback_activity.callback_start_active
   && source.callback_command.command_context.context_active
+
+let callback_position_is_current receipt =
+  let context =
+    receipt.callback_position_signature.callback_command.command_context
+  in
+  !(receipt.callback_position_activity)
+  && context.context_active
+  && receipt.callback_position_signature.callback_activity.callback_scope_active
+  && Option.fold ~none:false
+       ~some:(( == ) receipt.callback_position_source)
+       context.context_compiler_position.position_source
 
 let callback_parameter_is_current source =
   source.callback_parameter_activity.function_parameter_active
@@ -913,6 +935,7 @@ type declaration_event =
   | Function_local_allocated of function_local_allocation
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
+  | Callback_position_written of callback_position_write
   | Callback_signature_started of callback_signature_publication
   | Callback_parameter_declared of callback_parameter_publication
   | Callback_default_completed of completed_callback_default
@@ -1047,6 +1070,8 @@ type offset_position_capture = {
 
 type cursor = {
   mutable internal_bindings : internal_binding_preparation list;
+  mutable default_position_capture :
+    (Ast.expression * compiler_position_source option) list ref option;
   mutable offset_position_capture : offset_position_capture option;
   command_stack : command_position ref list ref;
   mutable current_command : command_start option;
@@ -1225,6 +1250,7 @@ type direct_function_resolution =
   | Direct_function_with_shape of Symbol_visibility.function_call_shape
 
 type parsed_parameter_default = {
+  position_reads : (Ast.expression * compiler_position_source option) list;
   node : Ast.parameter_default;
   tokens : Token.t list;
 }
@@ -2937,6 +2963,15 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
             (node, context.context_compiler_position.position_source)
             :: capture.capture_positions_rev)
         cursor.offset_position_capture;
+      Option.iter
+        (fun capture ->
+          let position =
+            Option.bind cursor.current_command (fun command ->
+                command.command_context.context_compiler_position
+                  .position_source)
+          in
+          capture := (node, position) :: !capture)
+        cursor.default_position_capture;
       Some { node; tokens = [ item.token ] }
   | Token_kind.Keyword Keyword.Sizeof, _ ->
       parse_sizeof_expression cursor ~context
@@ -3974,38 +4009,48 @@ and parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
   | _ -> Some left
 
 let parse_parameter_default cursor =
-  let equals = take cursor in
-  let item = peek cursor in
-  match item.token.kind with
-  | Token_kind.Keyword Keyword.Lastclass ->
-      let keyword = take cursor in
-      let tokens = [ equals.token; keyword.token ] in
-      let lastclass =
-        Ast.make_lastclass_default ~spelling:keyword.token.raw
-          ~location:(token_location keyword.token)
-      in
-      let node =
-        Ast.make_parameter_default
-          ~equals:(token_location equals.token)
-          ~value:(Ast.Lastclass_default lastclass)
-          ~location:(location_from_expression_tokens tokens)
-      in
-      Some ({ node; tokens } : parsed_parameter_default)
-  | _ -> (
-      match
-        parse_expression cursor ~context:Default_expression ~depth:0
-          ~minimum_binding_power:0
-      with
-      | None -> None
-      | Some (expression : parsed_expression) ->
-          let tokens = equals.token :: expression.tokens in
+  let positions = ref [] in
+  let prior = cursor.default_position_capture in
+  Fun.protect
+    ~finally:(fun () -> cursor.default_position_capture <- prior)
+    (fun () ->
+      cursor.default_position_capture <- Some positions;
+      let equals = take cursor in
+      let item = peek cursor in
+      match item.token.kind with
+      | Token_kind.Keyword Keyword.Lastclass ->
+          let keyword = take cursor in
+          let tokens = [ equals.token; keyword.token ] in
+          let lastclass =
+            Ast.make_lastclass_default ~spelling:keyword.token.raw
+              ~location:(token_location keyword.token)
+          in
           let node =
             Ast.make_parameter_default
               ~equals:(token_location equals.token)
-              ~value:(Ast.Expression_default expression.node)
+              ~value:(Ast.Lastclass_default lastclass)
               ~location:(location_from_expression_tokens tokens)
           in
-          Some ({ node; tokens } : parsed_parameter_default))
+          Some
+            ({ node; tokens; position_reads = List.rev !positions }
+              : parsed_parameter_default)
+      | _ -> (
+          match
+            parse_expression cursor ~context:Default_expression ~depth:0
+              ~minimum_binding_power:0
+          with
+          | None -> None
+          | Some (expression : parsed_expression) ->
+              let tokens = equals.token :: expression.tokens in
+              let node =
+                Ast.make_parameter_default
+                  ~equals:(token_location equals.token)
+                  ~value:(Ast.Expression_default expression.node)
+                  ~location:(location_from_expression_tokens tokens)
+              in
+              Some
+                ({ node; tokens; position_reads = List.rev !positions }
+                  : parsed_parameter_default)))
 
 let declaration_binding_kind token =
   match token.Token.kind with
@@ -5458,6 +5503,7 @@ let finish_function_parameter ?default_context ?callback_context cursor
           default_pointer_layers = pointer_layers;
           default_parameter_name = name;
           default_function_pointer = function_pointer;
+          default_position_reads = parsed.position_reads;
           default_ast = parsed.node;
           default_activity = { parameter_default_active = true };
         }
@@ -5485,6 +5531,7 @@ let finish_function_parameter ?default_context ?callback_context cursor
           callback_default_parameter;
           callback_default_index;
           callback_default_predecessor = !previous;
+          callback_default_position_reads = parsed.position_reads;
           callback_default_ast = parsed.node;
           callback_default_activity = { parameter_default_active = true };
         }
@@ -5930,9 +5977,29 @@ and parse_function_parameters ?default_owner ?callback_owner
            (fun () ->
              publish_declaration cursor (peek cursor)
                (Function_position_written receipt))
-     | _, Some command ->
-         command.command_context.context_compiler_position.position_source <-
-           None
+     | None, Some command -> (
+         match callback_owner with
+         | Some (callback_position_signature, _, completions, _) ->
+             let state = command.command_context.context_compiler_position in
+             let callback_position_source = ref state.next_position in
+             state.next_position <- state.next_position + 1;
+             state.position_source <- Some callback_position_source;
+             let receipt =
+               {
+                 callback_position_signature;
+                 callback_position_source;
+                 callback_position_predecessor = List.nth_opt !completions 0;
+                 callback_position_activity = ref true;
+               }
+             in
+             Fun.protect
+               ~finally:(fun () -> receipt.callback_position_activity := false)
+               (fun () ->
+                 publish_declaration cursor (peek cursor)
+                   (Callback_position_written receipt))
+         | None ->
+             command.command_context.context_compiler_position.position_source <-
+               None)
      | _ -> ());
   let parameter_completions () =
     match default_owner with
@@ -10058,6 +10125,7 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     invalid_arg "an array count reader requires a declaration observer";
   {
     command_stack;
+    default_position_capture = None;
     offset_position_capture = None;
     current_command = None;
     internal_bindings = [];

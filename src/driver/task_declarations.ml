@@ -2198,6 +2198,22 @@ let validate_callback_command ledger publication span =
 let observe ?offset_runtime ledger event =
   protect (fun () ->
       match event with
+      | Parser.Callback_position_written receipt ->
+          let owner = receipt.callback_position_signature in
+          let span = owner.callback_opening.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            Option.is_some state.callback_header
+            || Option.is_some state.callback_pending
+          then
+            fail span
+              "anonymous position is outside its original member boundary";
+          Sema.Compiler_record.record_callback_position
+            ledger.compiler_positions
+            ~parameters:(List.rev state.callback_members_rev)
+            receipt
+          |> checked span
       | Parser.Callback_signature_started publication ->
           let span = publication.callback_opening.span in
           validate_callback_command ledger publication span;
@@ -2678,13 +2694,22 @@ let observe ?offset_runtime ledger event =
           if not (Parser.function_position_is_current receipt) then
             fail span "function position write is outside its original callback";
           match (find ledger publication.function_name).source with
-          | Function state when state.publication == publication ->
-              Option.iter
-                (fun record ->
+          | Function state when state.publication == publication -> (
+              match state.native_record with
+              | Some record ->
                   Sema.Compiler_record.record_function_position
                     ledger.compiler_positions record receipt
-                  |> checked span)
-                state.native_record
+                  |> checked span
+              | None when not receipt.position_is_local ->
+                  Option.iter
+                    (fun source ->
+                      Sema.Compiler_record.record_source_header_position
+                        ledger.compiler_positions
+                        (Sema.Provisional_function.snapshot source)
+                        receipt
+                      |> checked span)
+                    state.provisional_source
+              | None -> ())
           | _ -> fail span "function position belongs to another declaration")
       | ( Parser.Function_parameter_declared _
         | Parser.Function_parameter_completed _
@@ -4395,6 +4420,10 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
         Sema.Default_fragment.create ~table:ledger.table
           ~publication:assigned.publication ~receipt ~environment ~references
           ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
         |> checked span
       in
       Sema.Default_fragment.authorize ?activation:ledger.activation
@@ -4502,6 +4531,10 @@ let begin_source_default_with_owner owner ledger ~runtime receipt =
         Sema.Default_fragment.create ~table:ledger.table
           ~publication:assigned.publication ~receipt ~environment ~references:[]
           ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
         |> checked span
       in
       let authority =
@@ -5366,6 +5399,10 @@ let callback_default_fragment_authority ledger ~runtime ~task_view receipt =
       let fragment =
         Sema.Default_fragment.create_callback ~table:ledger.table
           ~namespace:ledger.namespace ~receipt ~environment ~references ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
         |> checked span
       in
       Sema.Default_fragment.authorize ?activation:ledger.activation
@@ -5462,6 +5499,10 @@ let begin_source_callback_default ledger ~runtime receipt =
         Sema.Default_fragment.create_callback ~table:ledger.table
           ~namespace:ledger.namespace ~receipt ~environment ~references:[]
           ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
         |> checked span
       in
       let authority =

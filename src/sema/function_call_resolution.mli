@@ -11,6 +11,7 @@ type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
   | Aggregate_position_expression of Offset_fragment.position
+  | Default_position_expression of Default_fragment.position
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
@@ -383,6 +384,7 @@ val validate_source_expression :
   expression:argument_expression ->
   calls:call list ->
   ?offset_fragment:Offset_fragment.t ->
+  ?default_fragment:Default_fragment.t ->
   ?callee_expressions:(call * argument_expression) list ->
   ?call_expressions:(call * argument_expression) list ->
   unit ->

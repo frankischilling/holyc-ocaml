@@ -2080,6 +2080,20 @@ let plan ?frame ?globals ~allow_calls root =
                       Integer_constant
                         { result; span; result_type; value; conversion }
                       :: !reversed)
+            | Semantic_source.Unresolved_expression
+                (Semantic_source.Default_position_expression position) -> (
+                match
+                  checked_internal_i64_constant result
+                    ~description:"default position expression"
+                    (Some (Sema.Default_fragment.position_value position))
+                with
+                | Error item -> error := Some item
+                | Ok Deferred_constant -> unsupported := true
+                | Ok (Checked_constant (span, result_type, value)) ->
+                    reversed :=
+                      Integer_constant
+                        { result; span; result_type; value; conversion }
+                      :: !reversed)
             | Semantic_source.Defined_expression defined -> (
                 match checked_defined result defined with
                 | Error item -> error := Some item

@@ -12997,4 +12997,28 @@ source_identity = "Each original anonymous signature owns ordered parser paramet
 preparation = "Closed integer expressions execute once in both IR source modes. JIT original task references, retained calls and effects run during declaration, including signatures inside unused function bodies. Repeated omission reuses that signature's saved value rather than a default on its reached executable target."
 execution = "Scalar automatic-local and fixed-parameter callbacks consume their own fixed defaults and word variadic tails with original capture/cleanup. Narrow integer conversions, nested callback-member word defaults and integer/U0 results compose with ordinary source lowering. Saved callback words retain physical RT_PTR storage and do not grant executable authority."
 verification_boundary = "Five groups cover both IR modes, own-versus-target defaults, omitted/provided slots, nested members, variadic and U0 calls, once-only JIT effects, reached target and default faults with retained output, JIT replacement, exact/one-below preparation and runtime limits, and original-versus-copied source/producer authority. This is IR verification and does not establish hosted native emission or a new independent TempleOS comparison."
-excluded = ["anonymous compiler-position and size-dependent defaults", "AOT reference-bearing default relocation", "F64 default expressions", "owned-code defaults", "unresolved constant-divisor default optimization", "aggregate signature execution", "AOT repeated same-name definitions", "hosted native callback/default emission", "live task expiry"]
+excluded = ["untracked or reused AOT header positions", "AOT reference-bearing default relocation", "F64 default expressions", "owned-code defaults", "unresolved constant-divisor default optimization", "aggregate signature execution", "AOT repeated same-name definitions", "hosted native callback/default emission", "live task expiry"]
+
+[[feature]]
+id = "HC-IR-CALLBACK-DEFAULT-POSITIONS"
+description = "Original anonymous header position writes reach saved integer defaults and retained callback invocation."
+sources = [
+  "Compiler/PrsVar.HC:423-432 class_dol_offset write before member type/default input and skipped semicolons",
+  "Compiler/PrsVar.HC:619-658 fixed eight-byte member slots and declaration-time default evaluation",
+  "Compiler/PrsVar.HC:683-710 delimiter recursion and closing without another position write",
+  "Compiler/PrsVar.HC:373-404 variadic hidden members after the fixed-member position write",
+  "Compiler/PrsStmt.HC:62-139 unnamed PrsFunJoin and retained nested compiler state",
+  "Compiler/PrsExp.HC:453-470 original member-class saved default materialization"
+]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/default_fragment.ml", "src/sema/initializer_source.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/sema/top_level_expression_tree.ml", "src/driver/task_declarations.ml", "src/driver/top_level_expression_tree.ml", "src/ir/expression_lowering.ml", "src/ir/dimension_requirements.ml", "src/ir/offset_requirements.ml"]
+tests = ["test/test_callback_storage.ml", "test/aot_default_authority/test_aot_default_authority.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "An anonymous write retains its live original signature and completed predecessor cursor. Each named or anonymous default records the selected compiler-position source at its exact $$ node. A fragment resolves those reads through the original source manager and checked position store. Copied nodes, equal fragments, missing writes and replayed writes acquire no position authority."
+semantics = "Fixed argument members occupy eight bytes independently of callback return class. Writes precede the next member's type/default input. Nested signatures leave their final write current; closing does not restore the enclosing position. Empty semicolons add no members, a trailing delimiter writes the completed size, and variadic argc/argv insertion does not change the preceding fixed-member write. Fresh AOT named headers use their original completed-member source cursor; reused or untracked headers remain unavailable."
+execution = "The checked positional expression is an I64 value and lowers to its retained integer, then executes through the existing original default evaluator. Saved values, narrow conversion, physical callback word class, callee capture, right-to-left arguments and cleanup follow the original anonymous signature. JIT declaration effects execute once and closed expressions work in both IR modes."
+verification_boundary = "Real calls cover first/second writes, own versus target defaults, nested and trailing delimiters, skipped semicolons, variadic headers, named and callback parameter defaults, once-only declaration effects, reached faults with output, exact preparation/runtime limits and copied producer rejection. Separate AOT authority tests reject copied nodes, foreign or missing writes, substituted fragments and replay. This establishes the IR consumer; no new independent TempleOS run or hosted native callback implementation is claimed."
+excluded = ["AOT reference-bearing default relocation", "AOT local or reused/untracked header positions", "F64 default expressions", "owned-code defaults", "aggregate callback execution", "hosted native callback/default emission", "live task expiry"]

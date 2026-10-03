@@ -1398,15 +1398,150 @@ let anonymous_default_limits_and_boundaries () =
            (Test_integer_globals.run ~mode
               "I64 A(){return 42;}I64 Run(){I64 (*p)(I64 (*f)()=&A);return \
                42;}42;"));
-      Alcotest.(check bool)
-        "anonymous compiler position needs an original size receipt" true
-        (Result.is_error
-           (Test_integer_globals.run ~mode
-              "I64 A(I64 n){return n;}I64 Run(){I64 (*p)(I64 n=$$);p=&A;return \
-               p();}Run();")))
+      ignore
+        (Test_integer_globals.run ~mode
+           "I64 A(I64 n){return n;}I64 Run(){I64 (*p)(I64 n=$$);p=&A;return \
+            p();}Run();"
+        |> Test_integer_functions.expect 0L))
     modes
 
-let anonymous_defaults_require_original_producers () =
+let anonymous_position_defaults_execute () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, expected) ->
+          ignore
+            (Test_integer_globals.run ~mode source
+            |> Test_integer_functions.expect expected);
+          ignore label)
+        [
+          ( "first",
+            "I64 A(I64 n){return n;}I64 Run(){I64 (*p)(I64 n=$$);p=&A;return \
+             p();}Run();",
+            0L );
+          ( "own-offset",
+            "I64 A(I64 a=99,I64 b=99){return a+b;}I64 Run(){I64 (*p)(I64 \
+             a=$$,I64 b=$$+34);p=&A;return p();}Run();",
+            42L );
+          ( "parameter",
+            "I64 A(I64 a,I64 b){return a+b;}I64 Apply(I64 pad,I64 (*p)(I64 \
+             a=$$,I64 b=$$+34)){return p();}Apply(99,&A);",
+            42L );
+          ( "nested",
+            "I64 Check(I64 (*q)(I64 a,I64 b),I64 n){return (q==8)*34+n;}I64 \
+             Run(){I64 (*p)(I64 (*q)(I64 a,I64 b)=$$,I64 n=$$);p=&Check;return \
+             p();}Run();",
+            42L );
+          ( "nested-trailing",
+            "I64 Check(I64 (*q)(I64 a,I64 b;),I64 n){return (q==16)*34+n;}I64 \
+             Run(){I64 (*p)(I64 (*q)(I64 a,I64 b;)= $$,I64 \
+             n=$$);p=&Check;return p();}Run();",
+            42L );
+          ( "skipped",
+            "I64 A(I64 a,I64 b){return a+b;}I64 Run(){I64 (*p)(;;;I64 \
+             a=$$;;;I64 b=$$+34;;;);p=&A;return p();}Run();",
+            42L );
+          ( "variadic",
+            "I64 Check(I64 (*q)(I64 a,I64 b,...)){return q==16;}I64 Run(){I64 \
+             (*p)(I64 (*q)(I64 a,I64 b,...)=$$);p=&Check;return p();}Run();",
+            1L );
+          ( "named-outer",
+            "I64 Check(I64 pad,I64 (*p)(I64 a,I64 b)=$$){return \
+             p==8;}Check(99);",
+            1L );
+          ("named", "I64 A(I64 a=$$,I64 b=$$+34){return a+b;}A();", 42L);
+          ( "word-default",
+            "I64 Check(I64 (*p)(I64 a,I64 b)=$$){return p==8;}Check();",
+            1L );
+        ])
+    modes
+
+let anonymous_position_defaults_evaluate_once () =
+  ignore
+    (Test_integer_globals.run
+       "I64 Count;Count=0;I64 Unused(I64 (*p)(I64 a=$$,I64 \
+        b=(Count=Count+1)+$$)){return 42;}Count;"
+    |> Test_integer_functions.expect 1L);
+  ignore
+    (Test_integer_globals.run
+       "I64 Count;Count=0;I64 A(I64 a,I64 b){return a+b;}I64 Run(){I64 \
+        (*p)(I64 a=(Count=Count+1)+$$,I64 b=$$+33);p=&A;return \
+        p();}Run()+Run()+Count;"
+    |> Test_integer_functions.expect 85L);
+  ignore
+    (Test_integer_output.run
+       "extern U0 Print(U8 *fmt,...);I64 D(I64 n){Print(\"default\");return \
+        n+34;}I64 A(I64 a,I64 b){return a+b;}I64 Run(){I64 (*p)(I64 a=$$,I64 \
+        b=D($$));p=&A;return p();}Run()+Run();"
+    |> Test_integer_output.expect ~value:(Some 84L) "default")
+
+let anonymous_position_defaults_preserve_reached_faults () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (target, code) ->
+          let source =
+            "extern U0 Print(U8 *fmt,...);I64 \
+             Side(){Print(\"argument\");return 2;}I64 A(I64 a){return a;}I64 \
+             Run(){I64 (*p)(I64 a=$$+40,I64 b=$$+91);p=" ^ target
+            ^ ";return p(,Side());}Run();"
+          in
+          let report = Test_integer_output.run ~mode source in
+          Alcotest.(check string)
+            "reached argument retains output" "argument"
+            (integer_program_report_output_bytes report);
+          Alcotest.(check string)
+            "position value grants no target authority" code
+            (Test_integer_functions.first_error
+               (integer_program_report_outcome report))
+              .code)
+        [ ("0", "HCIRVM0024"); ("&A", "HCIRVM0014") ])
+    modes;
+  let report =
+    Test_integer_output.run
+      "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"default\");return \
+       0;}I64 Run(){I64 (*p)(I64 n=($$+42)/Side());return 42;}42;"
+  in
+  Alcotest.(check string)
+    "failed positional default retains output" "default"
+    (integer_program_report_output_bytes report);
+  Alcotest.(check string)
+    "failed positional default prevents admission" "HCIRVM0009"
+    (Test_integer_functions.first_error (integer_program_report_outcome report))
+      .code
+
+let anonymous_position_defaults_charge_exact_work () =
+  List.iter
+    (fun mode ->
+      let source =
+        "I64 A(I64 a,I64 b){return a+b;}I64 Run(){I64 (*p)(I64 a=$$,I64 \
+         b=$$+34);p=&A;return p();}Run();"
+      in
+      let result =
+        Test_integer_globals.run ~mode source
+        |> Test_integer_functions.expect 42L
+      in
+      let steps = Ir_integer_interpreter.executed_steps result in
+      ignore
+        (Test_integer_globals.run ~mode ~max_steps:steps source
+        |> Test_integer_functions.expect 42L);
+      Alcotest.(check string)
+        "one fewer reached step fails" "HCIRVM0007"
+        (Test_integer_functions.first_error
+           (Test_integer_globals.run ~mode ~max_steps:(steps - 1) source))
+          .code;
+      ignore
+        (Test_integer_output.run ~mode ~max_initializer_steps:8 source
+        |> Test_integer_output.expect ~value:(Some 42L) "");
+      Alcotest.(check string)
+        "one fewer position preparation step fails" "HCIRVM0007"
+        (Test_integer_functions.first_error
+           (Test_integer_output.run ~mode ~max_initializer_steps:7 source
+           |> integer_program_report_outcome))
+          .code)
+    modes
+
+let anonymous_defaults_require_original_producers ?(position = false) () =
   let module C = Ir_runtime_call_context in
   let module P = Ir_prepared_callback_default in
   let module VM = Ir_integer_interpreter in
@@ -1415,8 +1550,12 @@ let anonymous_defaults_require_original_producers () =
   List.iter
     (fun mode ->
       let source =
-        "I64 Check(I64 (*inner)()){return inner==0;}I64 Run(){I64 (*p)(I64 \
-         (*inner)()=0);p=&Check;return p();}Run();"
+        if position then
+          "I64 Check(I64 (*inner)(I64 a,I64 b)){return inner==8;}I64 Run(){I64 \
+           (*p)(I64 (*inner)(I64 a,I64 b)=$$);p=&Check;return p();}Run();"
+        else
+          "I64 Check(I64 (*inner)()){return inner==0;}I64 Run(){I64 (*p)(I64 \
+           (*inner)()=0);p=&Check;return p();}Run();"
       in
       let compiled =
         match mode with
@@ -1454,7 +1593,10 @@ let anonymous_defaults_require_original_producers () =
         |> List.find_map C.argument_prepared_callback_default
         |> Option.get
       in
-      Alcotest.(check int64) "saved anonymous member word" 0L (P.bits prepared);
+      Alcotest.(check int64)
+        "saved anonymous member word"
+        (if position then 8L else 0L)
+        (P.bits prepared);
       let header = P.header prepared in
       let pointer = callback.callback_pointer in
       Alcotest.(check bool)
@@ -1541,6 +1683,19 @@ let anonymous_defaults_require_original_producers () =
 let tests =
   [
     Alcotest.test_case
+      "anonymous position defaults execute original lexical writes" `Quick
+      anonymous_position_defaults_execute;
+    Alcotest.test_case "position defaults execute once at declaration" `Quick
+      anonymous_position_defaults_evaluate_once;
+    Alcotest.test_case "position defaults preserve reached faults and output"
+      `Quick anonymous_position_defaults_preserve_reached_faults;
+    Alcotest.test_case
+      "position defaults charge actual preparation and runtime work" `Quick
+      anonymous_position_defaults_charge_exact_work;
+    Alcotest.test_case
+      "position word defaults retain original producer ownership" `Quick
+      (anonymous_defaults_require_original_producers ~position:true);
+    Alcotest.test_case
       "anonymous signature defaults materialize their own values" `Quick
       anonymous_signature_defaults_execute;
     Alcotest.test_case "anonymous defaults execute once during declaration"
@@ -1552,7 +1707,7 @@ let tests =
       anonymous_default_limits_and_boundaries;
     Alcotest.test_case
       "anonymous defaults require exact original producer ownership" `Quick
-      anonymous_defaults_require_original_producers;
+      (anonymous_defaults_require_original_producers ~position:false);
     Alcotest.test_case
       "callback parameter defaults materialize original word storage" `Quick
       callback_parameter_defaults_execute;

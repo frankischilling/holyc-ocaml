@@ -106,15 +106,24 @@ JIT retained calls and effects execute during declaration. The existing callee
 capture, right-to-left pushes and cleanup remain tied to the original signature.
 An equal copied signature or producer has no saved-default authority.
 
-Anonymous `$$` defaults still need their own size/position receipt. AOT defaults
+Anonymous `$$` defaults retain their original lexical position write and expression
+node. Each completed fixed member advances the header size by eight bytes.
+The write precedes the next member, including its type and default input. A
+nested signature leaves its last write current; its closing delimiter does not
+restore the enclosing header position. A trailing parameter delimiter writes
+the completed size, skipped empty semicolons add no members, and the write before
+`...` precedes its hidden argc/argv members. The checked default lowers to an I64
+constant and follows the ordinary saved-word evaluator and producer checks.
+Fresh named AOT headers supply positions from their own completed-member cursor;
+reused AOT headers retain an unavailable position. AOT defaults
 with references, F64 expressions, owned-code values and hosted native emission
 remain outside this consumer. A reached runtime failure retains prior output;
 constant-divisor preparation that needs unresolved optimizer behavior rejects
 before execution.
 
 These values do not supply concrete numeric addresses. Address arithmetic,
-numeric address output, callback globals/statics/arrays and updates, anonymous
-compiler-position defaults, owned-code defaults, dereferenced or multistar callback forms, live task
+numeric address output, callback globals/statics/arrays and updates,
+owned-code defaults, dereferenced or multistar callback forms, live task
 address linking and hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the
 earlier native observations do not validate this new implementation. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)

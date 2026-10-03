@@ -478,3 +478,24 @@ val declared_global_offset_dependencies :
   declared_global -> aggregate_offset list
 
 val global_extent_offset_dependencies : global_extent -> aggregate_offset list
+
+val record_callback_position :
+  compiler_positions ->
+  parameters:Frontend.Parser.completed_callback_parameter list ->
+  Frontend.Parser.callback_position_write ->
+  (unit, string) result
+
+val resolve_default_position_reads :
+  compiler_positions ->
+  sources:Common.Source_manager.t ->
+  (Frontend.Ast.expression * Frontend.Parser.compiler_position_source option)
+  list ->
+  ((Frontend.Ast.expression * compiler_position) list, string) result
+
+val record_source_header_position :
+  compiler_positions ->
+  Provisional_function.snapshot ->
+  Frontend.Parser.function_position_write ->
+  (unit, string) result
+(** Record a fresh AOT header iteration from its original completed members. A
+    reused or untracked prior function retains an unavailable position. *)
