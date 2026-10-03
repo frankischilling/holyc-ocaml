@@ -63,6 +63,7 @@ let cases =
        a*10+b;}Pair((Next()<<63)<<1,(Next()<<63)<<1)*10+N;",
       212L );
   ]
+  @ Public_shift_class_cases.cases ()
 
 let retained =
   "#exe {I64 N=0;I64 Init(){N++;return 1<<2;}I64 Saved(I64 n=Init()){return \

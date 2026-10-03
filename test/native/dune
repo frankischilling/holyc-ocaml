@@ -1,12 +1,18 @@
 (rule
  (alias native-tests)
- (deps ../oracle/constant-shifts.json)
+ (deps ../oracle/constant-shifts.json ../oracle/public-shift-classes.json)
  (action
-  (run
-   %{exe:../test_constant_shift_cli.exe}
-   %{exe:../../bin/holyc.exe}
-   %{dep:../oracle/constant-shifts.json}
-   --native)))
+  (progn
+   (run
+    %{exe:../test_constant_shift_cli.exe}
+    %{exe:../../bin/holyc.exe}
+    %{dep:../oracle/constant-shifts.json}
+    --native)
+   (run
+    %{exe:../test_constant_shift_cli.exe}
+    %{exe:../../bin/holyc.exe}
+    %{dep:../oracle/public-shift-classes.json}
+    --native))))
 
 (rule
  (alias native-tests)
@@ -407,11 +413,14 @@
 
 (copy_files ../source_constant_shift_cases.ml)
 
+(copy_files ../public_shift_class_cases.ml)
+
 (executable
  (name test_source_constant_shift_execution)
  (modules
   test_source_constant_shift_execution
   source_constant_shift_cases
+  public_shift_class_cases
   test_constant_shifts
   test_internal_strlen_authority
   test_native_expression)
@@ -419,7 +428,7 @@
 
 (rule
  (alias native-tests)
- (deps ../oracle/constant-shifts.json)
+ (deps ../oracle/constant-shifts.json ../oracle/public-shift-classes.json)
  (action
   (run %{exe:test_source_constant_shift_execution.exe})))
 

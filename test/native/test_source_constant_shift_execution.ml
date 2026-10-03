@@ -65,6 +65,33 @@ let values () =
           let native = report mode contents in
           let execution = (success native).execution in
           bits expected execution.final_value;
+          (match Public_shift_class_cases.result_type label with
+          | None -> ()
+          | Some type_ -> (
+              let expected_type = if type_ = "U64" then Program.U64 else I64 in
+              Alcotest.(check bool)
+                "public-class declared native result" true
+                (Option.fold ~none:false
+                   ~some:(fun (w : Program.word) -> w.type_ = expected_type)
+                   execution.final_value);
+              bits expected
+                (success
+                   (report ~max_steps:execution.executed_steps mode contents))
+                  .execution
+                  .final_value;
+              match
+                Native_program.native_outcome
+                  (report
+                     ~max_steps:(execution.executed_steps - 1)
+                     mode contents)
+              with
+              | Some (Program.Fault fault) ->
+                  Alcotest.(check bool)
+                    "public-class one-below native allowance" true
+                    (fault.kind = Program.Step_limit_exceeded)
+              | _ ->
+                  Alcotest.fail
+                    "public-class one-below native execution succeeded"));
           let expected_steps =
             let declared_default =
               String.starts_with ~prefix:"folded default" label
