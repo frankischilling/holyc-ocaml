@@ -87,6 +87,16 @@ run used the same verified ISO and isolation settings and retained 138 capture
 hashes. Machine excerpts stop at the first return. This is bounded source
 rewrite evidence, not general compiler or loader compatibility.
 
+## Retained shift preparation
+
+The [retained shift fixture](../test/oracle/prepared-integer-shifts.json) records
+32 accepted commands and 64 source/result PNG hashes from 2026-10-03. Nineteen
+fields repeat in one isolated boot, including saved defaults/global/static
+values, original counters, shifts and narrow updates. Two default-compilation
+probes raise `DivZero` after one increment. Machine excerpts end at the first
+return; failed source-capture attempts remain excluded. Hosted projections
+compare both source modes. See [the contract](prepared-integer-shifts.md).
+
 ## Local declarations
 
 [`test/oracle/local-declarations.json`](../test/oracle/local-declarations.json) records automatic, static, variadic, nested, pointer, array, register-qualified, and comma-following locals compiled by the native TempleOS compiler. The first two calls to one static-local function returned 42 and 43, confirming retained storage. A local name was visible in its own initializer, and a name declared inside a nested block remained visible later in the function.

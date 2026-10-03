@@ -120,6 +120,23 @@ let () =
             "saved signed element count";
           output report "" 0 7);
       List.iter
+        (fun source ->
+          with_file ".hc" source (fun path ->
+              let report = invoke ~target:"ir" ~mode path in
+              require
+                (member "outcome" report = `String "success")
+                "original outer division shift prepares";
+              require
+                (member "final_value" report |> member "value" = `String "42")
+                "saved original element-count shift";
+              output report "" 0 7))
+        [
+          "#exe {I64 Q[4];I64 Init(){return 41+((Q+3)-Q)/2;}I64 Saved(I64 \
+           x=Init()){return x;}StreamPrint(\"%d;\",Saved());}";
+          "#exe {U8 Q[4];I64 Init(){return 43+(Q-(Q+1))/2;}I64 Saved(I64 \
+           x=Init()){return x;}StreamPrint(\"%d;\",Saved());}";
+        ];
+      List.iter
         (fun (source, code, capture) ->
           with_file ".hc" source (fun path ->
               let report = invoke ~target:"ir" ~mode ~status:1 path in
@@ -128,14 +145,6 @@ let () =
                 (member "output_hex" report = `String capture)
                 "reached preparation bytes"))
         [
-          ( "#exe {I64 Q[4];I64 Init(){return ((Q+3)-Q)/2;}I64 Saved(I64 \
-             x=Init()){return x;}Saved();}",
-            "HCRUN0006",
-            "" );
-          ( "#exe {U8 Q[4];I64 Init(){return (Q-(Q+1))/2;}I64 Saved(I64 \
-             x=Init()){return x;}Saved();}",
-            "HCRUN0006",
-            "" );
           ( "#exe {I64 Q[4];I64 Init(){Print(\"kept\");I64 *p;return p-Q;}I64 \
              Saved(I64 x=Init()){return x;}Saved();}",
             "HCIRVM0012",

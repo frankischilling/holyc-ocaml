@@ -160,9 +160,10 @@ captures are excluded from the fixture.
 
 [Issue #584](https://github.com/frankischilling/holyc-ocaml/issues/584) implements
 the raw operations. [Issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585)
-tracks the remaining contexts beyond this verified integer rewrite. Nonconstant
-division reductions in retained initializer callees still report `HCRUN0006`;
-ordinary nonconstant shifts keep that preparation boundary too. Fully folded
+tracks the remaining contexts beyond this verified integer rewrite. Original
+division shifts in published retained callees prepare through their completed
+source context; see [retained shift preparation](prepared-integer-shifts.md).
+Direct/unsealed and general division preparation still report `HCRUN0006`. Fully folded
 division and remainder prepare through the existing immediate-value path, as
 shown by [the retained example](../examples/stream-division-strength-reductions.hc).
 Native publication of retained `#exe` source remains `HCPP0008`. Shared

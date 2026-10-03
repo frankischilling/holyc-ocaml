@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+Seven retained integer-shift groups compare nineteen repeated native fields in
+both modes and test saved default/global/static/nested/live values, original
+and transitive authority, complete counts, narrow range invariants, reached
+effects/faults and exact/one-below allowances. Public CLI checks replay all
+38 projections and the measured example, including native publication's
+remaining boundary. See [retained shift preparation](prepared-integer-shifts.md).
+
 Seven retained pointer-difference groups check 53 independent saved values
 across all nine scalar types, both modes, signed/interior/one-past differences,
 snapshots, rows, aliases, loops and nested/recursive calls. Original, copied,

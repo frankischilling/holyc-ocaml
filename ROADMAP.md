@@ -1,5 +1,12 @@
 # holyc-ocaml roadmap
 
+Issue #793 connects original constant shifts and scalar right-shift updates to
+retained default/global/static preparation with sealed source authority.
+Nineteen repeated native fields and original effects/faults back the supported
+path. Direct/unsealed preparation, broader optimizer passes, native retained
+publication and loader/bootstrap requirements remain open. See
+[retained shift preparation](docs/prepared-integer-shifts.md).
+
 Issue #783 adds [owned scalar pointer difference](docs/pointer-difference.md),
 including signed element counts, one-past references, operand snapshots and
 original subtraction/size/division authority. Issue #785 prepares wider

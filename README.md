@@ -304,6 +304,13 @@ expressions. Zero divisors fault only when reached. The
 decisions and the remaining preparation and shared-expression boundaries under
 [issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585).
 
+`holyc run examples/stream-prepared-integer-shifts.hc` returns `42` from
+retained default, global and static values. Original constant shifts and
+supported scalar right-shift updates prepare once in both modes, including
+signed `x/2` saving `-4` for `x=-7`. See
+[retained shift preparation](docs/prepared-integer-shifts.md) for native
+captures, original-record authority, narrow storage and remaining boundaries.
+
 `holyc dump-ir examples/integer-expression.hc` prints the checked arithmetic and
 return harness without executing it. Both commands accept the parser's include,
 JIT/AOT mode, and deterministic preprocessing options.

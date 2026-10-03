@@ -18,6 +18,12 @@ tracks the remaining preparation, shared-expression and broader optimizer
 coverage; [the division audit](integer-division.md) describes the implemented
 shapes, early comparison classes, compilation faults and native evidence.
 
+Published retained callees prepare original full-word constant shifts and
+supported scalar right-shift updates with their sealed transitive producers.
+This connects nonconstant division reductions to saved defaults/global/static
+values. Unsealed preparation and shared/numeric/flagged plans keep their
+documented boundaries. See [retained shifts](prepared-integer-shifts.md).
+
 The standalone pass `Holyc_lib.Ir_integer_unary_folding` folds a checked integer immediate through bitwise complement, logical not, or unary minus. Its public entry point is `fold : Ir.X87_stack.t -> (t, error list) result`, so an unchecked instruction sequence or block graph cannot enter that pass. Source shift and division plans instead rewrite checked semantic nodes before instruction allocation. The remaining sections describe the standalone unary pass.
 
 Compatibility is exact for the accepted subset, not approximate. For each accepted type and opcode pair, the pass applies the pinned 64-bit operation and preserves the checked facts listed below. Inputs outside that subset are left unchanged or fail at an earlier verifier boundary. This classification does not apply to the TempleOS optimizer as a whole, which is not implemented.
