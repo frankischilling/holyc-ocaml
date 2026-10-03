@@ -83,18 +83,32 @@ let prepare_retained ~globals result =
             invalid "outer global is absent from the compiled task storage view"
         | Some (reference, slot) -> (
             let type_ = Integer_globals.storage_type slot in
+            let callback = Integer_globals.storage_callback_pointer slot in
+            let selected_type =
+              if Option.is_some callback then Result.result_storage_type result
+              else Result.result_type result
+            in
             let rank = Integer_globals.storage_dimensions slot |> List.length in
             if
               (not
-                 (Option.fold ~none:false ~some:(Type.equal type_)
-                    (Result.result_type result)))
+                 (Option.fold ~none:false ~some:(Type.equal type_) selected_type))
+              || (not
+                    (match
+                       (callback, Result.result_callback_pointer result)
+                     with
+                    | None, None -> true
+                    | Some original, Some actual -> original == actual
+                    | _ -> false))
               || Result.result_array_rank result <> rank
-              || Result.result_is_array_address result <> (rank > 0)
+              || Result.result_is_array_address result
+                 <> (rank > 0 && Option.is_none callback)
               || Option.is_some (Result.result_function_declaration result)
               || Option.is_some (Result.result_function_address_path result)
               || not
                    (match Result.result_category result with
                    | Result.Object_value | Result.Lvalue -> rank = 0
+                   | Result.Callback_value ->
+                       rank = 0 && Option.is_some callback
                    | Result.Array_value -> rank > 0
                    | _ -> false)
             then
@@ -177,6 +191,18 @@ let prepare_global ~globals result =
               |> Sema.Global_record_classification.classified_record_source
               |> Sema.Global_resolution.global_record_global
             in
+            let callback =
+              Integer_globals.storage_callback_pointer
+                (Integer_globals.global_storage slot)
+            in
+            let selected_type =
+              if Option.is_some callback then Result.result_storage_type result
+              else Result.result_type result
+            in
+            let declared_type =
+              Global.global_type_reference global
+              |> Sema.Type_reference.resolved_type
+            in
             if
               Binding.publication_canonical_symbol publication != symbol
               || Binding.publication_item_index publication
@@ -194,10 +220,17 @@ let prepare_global ~globals result =
                 "global identifier origins disagree across semantic results"
             else if
               (not
-                 (Option.fold ~none:false ~some:(Type.equal type_)
-                    (Result.result_type result)))
+                 (Option.fold ~none:false ~some:(Type.equal type_) selected_type))
+              || (not
+                    (match
+                       (callback, Result.result_callback_pointer result)
+                     with
+                    | None, None -> true
+                    | Some original, Some actual -> original == actual
+                    | _ -> false))
               || Result.result_array_rank result <> rank
-              || Result.result_is_array_address result <> (rank > 0)
+              || Result.result_is_array_address result
+                 <> (rank > 0 && Option.is_none callback)
               || Option.is_some (Result.result_function_declaration result)
               || Option.is_some (Result.result_function_address_path result)
             then
@@ -208,6 +241,7 @@ let prepare_global ~globals result =
               not
                 (match Result.result_category result with
                 | Result.Object_value | Result.Lvalue -> rank = 0
+                | Result.Callback_value -> rank = 0 && Option.is_some callback
                 | Result.Array_value -> rank > 0
                 | _ -> false)
             then
@@ -218,10 +252,15 @@ let prepare_global ~globals result =
                 (match source_type with
                 | None -> true
                 | Some (source_type, source_rank, shape) ->
-                    Type.equal source_type type_
+                    Type.equal source_type declared_type
                     && source_rank = rank
                     &&
-                    if rank = 0 then shape = Source.Object_value
+                    if rank = 0 then
+                      shape
+                      =
+                      if Option.is_some callback then
+                        Source.Function_pointer_value
+                      else Source.Object_value
                     else shape = Source.Array_value)
             then
               invalid

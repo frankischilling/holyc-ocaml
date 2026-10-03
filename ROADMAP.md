@@ -194,4 +194,10 @@ conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS
 loader acceptance, whole-tree compilation and bootstrap retain their own gates.
 
+Issue #801 connects original callback storage and checked integer/U0 invocation
+through the IR runner. [Global callbacks](docs/global-callbacks.md) now include
+scalar cells and fully indexed arrays, saved declaration defaults and original
+global calling flags. Native invocation, member storage, initializers, updates,
+top-level indirect calls and broader return domains remain open.
+
 This file does not mark planned work as implemented. Current support is listed in the README and generated compatibility reports.

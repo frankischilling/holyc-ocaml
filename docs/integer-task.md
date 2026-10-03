@@ -127,7 +127,11 @@ invocation with the selected header's saved defaults. Static elements survive
 later calls and JIT same-name replacement; automatic elements belong to their
 activation. Bounds and offset overflow use the declared object's hosted arena.
 Each element charges eight bytes independently of the callback return type.
-Global/member callbacks, callback initializers, updates and native invocation remain
+One-star [global callback cells and arrays](global-callbacks.md) share this
+storage contract. Retained completion keeps the original allocation and outer
+reference; the checked header supplies its saved defaults and original calling
+flags to later functions. Top-level assignments can install or copy addresses.
+Top-level indirect calls, member callbacks, callback initializers, updates and native invocation remain
 unfinished under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801).
 
 Each deferred operation requires its exact active journal event. Failure or

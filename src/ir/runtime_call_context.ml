@@ -1577,7 +1577,7 @@ let callback_shape ~globals ~validate_source owner graph description =
     cb_variadic =
       (if has_tail then Some (Int64.of_int (List.length variadic)) else None);
     cb_bytes = bytes;
-    cb_callee_pop = (not has_tail) && count > 0 && bytes <= 32767L;
+    cb_callee_pop = Integer_globals.callback_callee_pop globals pointer;
   }
 
 type phase =

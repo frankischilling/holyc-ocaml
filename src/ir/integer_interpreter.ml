@@ -3353,16 +3353,19 @@ let declared_types ?frame ?globals ?literals ?initialization
        (fun types instruction ->
          let description = Sequence.description instruction in
          let callback_value =
-           match (frame, description.operands, description.target_type) with
-           | Some context, address :: _, Some type_
+           match (description.operands, description.target_type) with
+           | address :: _, Some type_
              when description.opcode = Opcode.Ic_deref
                   || description.opcode = Opcode.Ic_assign -> (
                match Value_map.find_opt address types with
                | Some (Frame_address index) ->
-                   let slot = context.slots.(index) in
-                   Option.is_some slot.slot_callback
-                   && slot.strides = []
-                   && Type.equal type_ slot.slot_type
+                   Option.fold ~none:false
+                     ~some:(fun context ->
+                       let slot = context.slots.(index) in
+                       Option.is_some slot.slot_callback
+                       && slot.strides = []
+                       && Type.equal type_ slot.slot_type)
+                     frame
                | Some (Global_address slot) ->
                    Option.is_some
                      (Integer_globals.storage_callback_pointer slot)
@@ -4592,13 +4595,22 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                     | _ -> None)
               in
               let symbol =
-                Option.bind frame (fun frame ->
-                    Frame.function_locations frame.layout
-                    |> List.find_opt (fun location ->
-                        Option.fold ~none:false
-                          ~some:(( == ) callback.callback_pointer)
-                          (Frame.location_callback_pointer location))
-                    |> Option.map Frame.location_symbol)
+                let local =
+                  Option.bind frame (fun frame ->
+                      Frame.function_locations frame.layout
+                      |> List.find_opt (fun location ->
+                          Option.fold ~none:false
+                            ~some:(( == ) callback.callback_pointer)
+                            (Frame.location_callback_pointer location))
+                      |> Option.map Frame.location_symbol)
+                in
+                match local with
+                | Some _ -> local
+                | None ->
+                    Option.bind globals (fun globals ->
+                        Integer_globals.global_callback_storage globals
+                          callback.callback_pointer
+                        |> Option.map Integer_globals.storage_symbol)
               in
               match
                 ( symbol,
@@ -5374,9 +5386,18 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                         when Option.fold ~none:false
                                ~some:(( == ) callback.callback_pointer)
                                (Integer_globals.storage_callback_pointer slot)
-                             && Option.fold ~none:false
-                                  ~some:(( == ) frame.layout)
-                                  (Integer_globals.storage_frame slot)
+                             && (match Integer_globals.storage_frame slot with
+                               | Some owner -> owner == frame.layout
+                               | None ->
+                                   Option.fold ~none:false
+                                     ~some:(fun globals ->
+                                       Option.fold ~none:false
+                                         ~some:
+                                           (Integer_globals.same_storage slot)
+                                         (Integer_globals
+                                          .global_callback_storage globals
+                                            callback.callback_pointer))
+                                     globals)
                              && Integer_globals.storage_dimensions slot = [] ->
                           call_instruction description
                             (Load_slot
@@ -5398,9 +5419,21 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                                  Option.fold ~none:false ~some:(( == ) header)
                                    (Integer_globals.storage_callback_pointer
                                       slot)
-                                 && Option.fold ~none:false
-                                      ~some:(( == ) frame.layout)
-                                      (Integer_globals.storage_frame slot)
+                                 && (match
+                                       Integer_globals.storage_frame slot
+                                     with
+                                   | Some owner -> owner == frame.layout
+                                   | None ->
+                                       Option.fold ~none:false
+                                         ~some:(fun globals ->
+                                           Option.fold ~none:false
+                                             ~some:
+                                               (Integer_globals.same_storage
+                                                  slot)
+                                             (Integer_globals
+                                              .global_callback_storage globals
+                                                header))
+                                         globals)
                                  && Integer_globals.storage_dimensions slot
                                     <> []
                              | _ -> false ->

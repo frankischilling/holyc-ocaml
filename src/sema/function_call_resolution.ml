@@ -4144,6 +4144,43 @@ let bind_indexed_identifier_call occurrence (call : call) computed base
 
 let resolve_call ?members ?outer ~before_item_index types declarations
     occurrence (call : call) =
+  let outer_callback =
+    match Module_expression_binding.occurrence_resolution occurrence with
+    | Module_expression_binding.Outer_candidate ->
+        Option.bind outer (fun outer ->
+            Outer_expression_binding.functions outer
+            |> List.find_map (fun function_ ->
+                Outer_expression_binding.function_occurrences function_
+                |> List.find_map (fun selected ->
+                    if
+                      Outer_expression_binding.occurrence_source selected
+                      != occurrence
+                    then None
+                    else
+                      match
+                        Outer_expression_binding.occurrence_resolution selected
+                      with
+                      | Outer_expression_binding.Outer_binding binding ->
+                          Option.bind
+                            (Outer_environment.entry_global_metadata
+                               (Outer_environment.binding_entry binding))
+                            (fun metadata ->
+                              match
+                                Outer_environment.global_declarator_kind
+                                  metadata
+                              with
+                              | Outer_environment.Function_pointer_global
+                                  pointer ->
+                                  Some
+                                    (make_callable
+                                       ~return_type:
+                                         (Outer_environment
+                                          .global_type_reference metadata)
+                                       ~function_pointer:pointer)
+                              | Outer_environment.Object_global -> None)
+                      | _ -> None)))
+    | _ -> None
+  in
   let indirect_or_deferred reason =
     match call.callable with
     | None -> Ok (Deferred_call { call; occurrence; reason })
@@ -4163,157 +4200,185 @@ let resolve_call ?members ?outer ~before_item_index types declarations
                    variadic_count;
                  }))
   in
-  if call.callee_form = Member_callee then
-    match (call.computed_callee, members) with
-    | Some computed, _ -> (
-        match indexed_identifier_callee computed with
-        | Some (base, actual_rank) ->
-            bind_indexed_identifier_call occurrence call computed base
-              actual_rank
-        | None -> (
-            match members with
+  match outer_callback with
+  | Some callable -> (
+      match bind_indirect_arguments call callable with
+      | Error _ as error -> error
+      | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+          Ok
+            (Indirect_call
+               {
+                 source = call;
+                 occurrence;
+                 callable;
+                 member_lookup = None;
+                 fixed_arguments;
+                 variadic_arguments;
+                 variadic_count;
+               }))
+  | None -> (
+      if call.callee_form = Member_callee then
+        match (call.computed_callee, members) with
+        | Some computed, _ -> (
+            match indexed_identifier_callee computed with
+            | Some (base, actual_rank) ->
+                bind_indexed_identifier_call occurrence call computed base
+                  actual_rank
+            | None -> (
+                match members with
+                | None ->
+                    Ok
+                      (Deferred_call
+                         {
+                           call;
+                           occurrence;
+                           reason = Computed_member_callee computed;
+                         })
+                | Some members -> (
+                    match
+                      resolve_member_callable members ~before_item_index
+                        computed
+                    with
+                    | Error _ as error -> error
+                    | Ok (member_lookup, callable) -> (
+                        match bind_indirect_arguments call callable with
+                        | Error _ as error -> error
+                        | Ok
+                            (fixed_arguments, variadic_arguments, variadic_count)
+                          ->
+                            Ok
+                              (Indirect_call
+                                 {
+                                   source = call;
+                                   occurrence;
+                                   callable;
+                                   member_lookup = Some member_lookup;
+                                   fixed_arguments;
+                                   variadic_arguments;
+                                   variadic_count;
+                                 })))))
+        | None, _ -> Error (invalid_input "member call has no computed callee")
+      else
+        match Module_expression_binding.occurrence_resolution occurrence with
+        | Module_expression_binding.Local_binding binding ->
+            indirect_or_deferred (Local_callee binding)
+        | Module_expression_binding.Outer_candidate -> (
+            let selected =
+              Option.bind outer (fun outer ->
+                  outer |> Outer_expression_binding.functions
+                  |> List.find_map (fun function_ ->
+                      function_ |> Outer_expression_binding.function_occurrences
+                      |> List.find_opt (fun candidate ->
+                          Outer_expression_binding.occurrence_source candidate
+                          == occurrence)))
+            in
+            let metadata =
+              Option.bind selected (fun selected ->
+                  match
+                    Outer_expression_binding.occurrence_resolution selected
+                  with
+                  | Outer_expression_binding.Outer_binding binding ->
+                      binding |> Outer_environment.binding_entry
+                      |> Outer_environment.entry_function_metadata
+                      |> Option.map (fun metadata -> (binding, metadata))
+                  | Outer_expression_binding.Local_binding _
+                  | Outer_expression_binding.Module_binding _ -> None)
+            in
+            match metadata with
             | None ->
+                Ok (Deferred_call { call; occurrence; reason = Outer_callee })
+            | Some _ when call.callee_form <> Identifier_callee ->
+                Ok (Deferred_call { call; occurrence; reason = Outer_callee })
+            | Some _ when Option.is_some call.callable ->
+                Error
+                  (invalid_input
+                     "outer direct function call unexpectedly carries a \
+                      callback header")
+            | Some (binding, metadata) -> (
+                let declaration =
+                  Outer_environment.function_declaration metadata
+                in
+                let ( let* ) = Result.bind in
+                let* active_header = argument_header call declaration in
+                match bind_direct_arguments call active_header with
+                | Error _ as error -> error
+                | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+                    Ok
+                      (Direct_call
+                         {
+                           source = call;
+                           occurrence;
+                           declaration;
+                           active_header;
+                           outer_binding = Some binding;
+                           target_symbol =
+                             Function_resolution
+                             .resolved_declaration_identity_symbol declaration;
+                           fixed_arguments;
+                           variadic_arguments;
+                           variadic_count;
+                         })))
+        | Module_expression_binding.Module_binding publication -> (
+            match Module_expression_binding.publication_kind publication with
+            | Module_expression_binding.Global_variable ->
+                indirect_or_deferred (Global_callee publication)
+            | Module_expression_binding.Aggregate ->
                 Ok
                   (Deferred_call
-                     {
-                       call;
-                       occurrence;
-                       reason = Computed_member_callee computed;
-                     })
-            | Some members -> (
-                match
-                  resolve_member_callable members ~before_item_index computed
-                with
-                | Error _ as error -> error
-                | Ok (member_lookup, callable) -> (
-                    match bind_indirect_arguments call callable with
-                    | Error _ as error -> error
-                    | Ok (fixed_arguments, variadic_arguments, variadic_count)
-                      ->
-                        Ok
-                          (Indirect_call
-                             {
-                               source = call;
-                               occurrence;
-                               callable;
-                               member_lookup = Some member_lookup;
-                               fixed_arguments;
-                               variadic_arguments;
-                               variadic_count;
-                             })))))
-    | None, _ -> Error (invalid_input "member call has no computed callee")
-  else
-    match Module_expression_binding.occurrence_resolution occurrence with
-    | Module_expression_binding.Local_binding binding ->
-        indirect_or_deferred (Local_callee binding)
-    | Module_expression_binding.Outer_candidate -> (
-        let selected =
-          Option.bind outer (fun outer ->
-              outer |> Outer_expression_binding.functions
-              |> List.find_map (fun function_ ->
-                  function_ |> Outer_expression_binding.function_occurrences
-                  |> List.find_opt (fun candidate ->
-                      Outer_expression_binding.occurrence_source candidate
-                      == occurrence)))
-        in
-        let metadata =
-          Option.bind selected (fun selected ->
-              match Outer_expression_binding.occurrence_resolution selected with
-              | Outer_expression_binding.Outer_binding binding ->
-                  binding |> Outer_environment.binding_entry
-                  |> Outer_environment.entry_function_metadata
-                  |> Option.map (fun metadata -> (binding, metadata))
-              | Outer_expression_binding.Local_binding _
-              | Outer_expression_binding.Module_binding _ -> None)
-        in
-        match metadata with
-        | None -> Ok (Deferred_call { call; occurrence; reason = Outer_callee })
-        | Some _ when call.callee_form <> Identifier_callee ->
-            Ok (Deferred_call { call; occurrence; reason = Outer_callee })
-        | Some _ when Option.is_some call.callable ->
-            Error
-              (invalid_input
-                 "outer direct function call unexpectedly carries a callback \
-                  header")
-        | Some (binding, metadata) -> (
-            let declaration = Outer_environment.function_declaration metadata in
-            let ( let* ) = Result.bind in
-            let* active_header = argument_header call declaration in
-            match bind_direct_arguments call active_header with
-            | Error _ as error -> error
-            | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
-                Ok
-                  (Direct_call
-                     {
-                       source = call;
-                       occurrence;
-                       declaration;
-                       active_header;
-                       outer_binding = Some binding;
-                       target_symbol =
-                         Function_resolution
-                         .resolved_declaration_identity_symbol declaration;
-                       fixed_arguments;
-                       variadic_arguments;
-                       variadic_count;
-                     })))
-    | Module_expression_binding.Module_binding publication -> (
-        match Module_expression_binding.publication_kind publication with
-        | Module_expression_binding.Global_variable ->
-            indirect_or_deferred (Global_callee publication)
-        | Module_expression_binding.Aggregate ->
-            Ok
-              (Deferred_call
-                 { call; occurrence; reason = Aggregate_callee publication })
-        | Module_expression_binding.Function -> (
-            if Option.is_some call.callable then
-              Error
-                (invalid_input
-                   "direct function call unexpectedly carries a callback header")
-            else if call.callee_form <> Identifier_callee then
-              Ok
-                (Deferred_call
-                   { call; occurrence; reason = Global_callee publication })
-            else
-              let source =
-                Module_expression_binding.publication_source_symbol publication
-              in
-              let number = symbol_number source in
-              match
-                ( Int_map.find_opt number types,
-                  Int_map.find_opt number declarations )
-              with
-              | Some _, Some declaration
-                when same_publication_target publication declaration -> (
-                  let ( let* ) = Result.bind in
-                  let* active_header = argument_header call declaration in
-                  match bind_direct_arguments call active_header with
-                  | Error _ as error -> error
-                  | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
-                      Ok
-                        (Direct_call
-                           {
-                             source = call;
-                             occurrence;
-                             declaration;
-                             outer_binding = None;
-                             active_header;
-                             target_symbol =
-                               Module_expression_binding
-                               .publication_canonical_symbol publication;
-                             fixed_arguments;
-                             variadic_arguments;
-                             variadic_count;
-                           }))
-              | Some _, Some _ ->
+                     { call; occurrence; reason = Aggregate_callee publication })
+            | Module_expression_binding.Function -> (
+                if Option.is_some call.callable then
                   Error
                     (invalid_input
-                       "function call publication disagrees with function \
-                        identity resolution")
-              | None, _ | _, None ->
-                  Error
-                    (invalid_input
-                       "function call publication has no active typed header")))
+                       "direct function call unexpectedly carries a callback \
+                        header")
+                else if call.callee_form <> Identifier_callee then
+                  Ok
+                    (Deferred_call
+                       { call; occurrence; reason = Global_callee publication })
+                else
+                  let source =
+                    Module_expression_binding.publication_source_symbol
+                      publication
+                  in
+                  let number = symbol_number source in
+                  match
+                    ( Int_map.find_opt number types,
+                      Int_map.find_opt number declarations )
+                  with
+                  | Some _, Some declaration
+                    when same_publication_target publication declaration -> (
+                      let ( let* ) = Result.bind in
+                      let* active_header = argument_header call declaration in
+                      match bind_direct_arguments call active_header with
+                      | Error _ as error -> error
+                      | Ok (fixed_arguments, variadic_arguments, variadic_count)
+                        ->
+                          Ok
+                            (Direct_call
+                               {
+                                 source = call;
+                                 occurrence;
+                                 declaration;
+                                 outer_binding = None;
+                                 active_header;
+                                 target_symbol =
+                                   Module_expression_binding
+                                   .publication_canonical_symbol publication;
+                                 fixed_arguments;
+                                 variadic_arguments;
+                                 variadic_count;
+                               }))
+                  | Some _, Some _ ->
+                      Error
+                        (invalid_input
+                           "function call publication disagrees with function \
+                            identity resolution")
+                  | None, _ | _, None ->
+                      Error
+                        (invalid_input
+                           "function call publication has no active typed \
+                            header"))))
 
 let resolve_function ?members ?outer types declarations expected
     (input : function_input) =

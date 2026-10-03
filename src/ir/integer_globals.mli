@@ -253,6 +253,16 @@ val storage_type : storage_slot -> Sema.Type.t
 val storage_callback_pointer :
   storage_slot -> Sema.Function_type_resolution.function_pointer option
 
+val global_callback_storage :
+  t -> Sema.Function_type_resolution.function_pointer -> storage_slot option
+(** Find the completed global storage owning this exact callback header,
+    including retained task bindings. *)
+
+val callback_callee_pop :
+  t -> Sema.Function_type_resolution.function_pointer -> bool
+(** Use original global declaration flags when present; frame callbacks retain
+    the zero-specifier [PrsType] policy. *)
+
 val storage_opcode : storage_slot -> Opcode.t
 val storage_initial_bits : storage_slot -> int64 option
 val storage_preparation_steps : storage_slot -> int

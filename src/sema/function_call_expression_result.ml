@@ -2284,22 +2284,49 @@ let rec type_expression table members policies ~before_item_index ~context
                   (Some
                      (Function_call_resolution.Indirect_call indirect as call))
                 -> (
-                  let source_type =
-                    indirect |> Function_call_resolution.indirect_callable
-                    |> Function_call_resolution.callable_return_type
-                    |> Type_reference.resolved_type
+                  let selected =
+                    Option.bind state.outer_function (fun function_ ->
+                        Outer_expression_binding.function_occurrences function_
+                        |> List.find_opt (fun selected ->
+                            Outer_expression_binding.occurrence_source selected
+                            == Function_call_resolution.indirect_occurrence
+                                 indirect))
                   in
-                  match known_type table source_type with
-                  | Error _ as error -> error
-                  | Ok source_type ->
-                      let category =
-                        if Type.pointer_depth source_type > 0 then Address_value
-                        else Object_value
+                  match
+                    Option.bind selected (fun occurrence ->
+                        match
+                          Outer_expression_binding.occurrence_resolution
+                            occurrence
+                        with
+                        | Outer_expression_binding.Outer_binding binding ->
+                            Some (occurrence, binding)
+                        | _ -> None)
+                  with
+                  | Some (occurrence, binding) ->
+                      type_outer_callback_call table members policies
+                        ~before_item_index ~intrinsic_conversion state id source
+                        call
+                        (Function_call_resolution.indirect_source indirect)
+                        occurrence binding
+                  | None -> (
+                      let source_type =
+                        indirect |> Function_call_resolution.indirect_callable
+                        |> Function_call_resolution.callable_return_type
+                        |> Type_reference.resolved_type
                       in
-                      finish ~source_type:(Some source_type)
-                        ~call_resolution:call category
-                        (forwarded_class policies ~before_item_index source_type)
-                        state)
+                      match known_type table source_type with
+                      | Error _ as error -> error
+                      | Ok source_type ->
+                          let category =
+                            if Type.pointer_depth source_type > 0 then
+                              Address_value
+                            else Object_value
+                          in
+                          finish ~source_type:(Some source_type)
+                            ~call_resolution:call category
+                            (forwarded_class policies ~before_item_index
+                               source_type)
+                            state))
               | Ok (Some (Function_call_resolution.Direct_call direct as call))
                 -> (
                   let source_type =

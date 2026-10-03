@@ -58,6 +58,11 @@ val declared_global_source :
   declared_global -> Frontend.Parser.global_publication
 
 val declared_global_type : declared_global -> Type_reference.t
+
+val declared_global_storage_type : declared_global -> (Type.t, string) result
+(** Preserve physical [RT_PTR] storage separately from callback return metadata.
+*)
+
 val declared_global_dimensions : declared_global -> int64 list
 
 val declared_global_runtime_dependencies :

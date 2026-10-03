@@ -492,14 +492,57 @@ let storage_symbol = function
 
 let storage_type = function
   | Declared slot ->
-      Sema.Compiler_record.declared_global_type slot.declaration
-      |> Sema.Type_reference.resolved_type
+      Sema.Compiler_record.declared_global_storage_type slot.declaration
+      |> Result.get_ok
   | Global slot -> slot.type_
   | Static slot -> Integer_statics.type_ slot
 
 let storage_callback_pointer = function
-  | Global _ | Declared _ -> None
+  | Global slot -> (
+      let global =
+        Records.classified_record_source slot.record
+        |> Resolution.global_record_global
+      in
+      match Global.global_declarator_kind global with
+      | Global.Function_pointer pointer -> Some pointer
+      | Global.Object -> None)
+  | Declared _ -> None
   | Static slot -> Integer_statics.callback_pointer slot
+
+let global_callback_storage globals pointer =
+  let slots =
+    List.map global_storage globals.slots_
+    @ Option.fold ~none:[]
+        ~some:(fun view -> List.map (fun (_, _, slot) -> slot) view.entries)
+        globals.task_view
+  in
+  List.find_opt
+    (fun slot ->
+      Option.fold ~none:false ~some:(( == ) pointer)
+        (storage_callback_pointer slot))
+    slots
+
+let callback_callee_pop globals pointer =
+  let module H = Sema.Function_type_resolution in
+  let signature = H.function_pointer_signature pointer in
+  let variadic = Option.is_some (H.signature_variadic_origin signature) in
+  let argument_count =
+    List.length (H.signature_parameters signature) |> Int64.of_int
+  in
+  let staging =
+    match global_callback_storage globals pointer with
+    | Some (Global slot) ->
+        Records.classified_record_state slot.record
+        |> Records.record_state_staging_mask
+    | _ -> 0L
+  in
+  let flags = Sema.Function_flag.stored_mask_of_staging staging in
+  let flags =
+    if Sema.Function_flag.derives_ret1 ~argument_count ~variadic then
+      Sema.Function_flag.Stored.set ~mask:flags Sema.Function_flag.Stored.Ret1
+    else flags
+  in
+  Sema.Function_flag.caller_expects_callee_pop ~stored_mask:flags
 
 let storage_opcode = function
   | Declared _ -> Opcode.Ic_imm_i64
@@ -686,9 +729,39 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                 ();
             ]
         in
-        let type_ =
+        let declared_type =
           Global.global_type_reference global
           |> Sema.Type_reference.resolved_type
+        in
+        let callback =
+          match Global.global_declarator_kind global with
+          | Global.Function_pointer pointer
+            when List.length
+                   (Sema.Function_type_resolution
+                    .function_pointer_indirection_origins pointer)
+                 = 1 -> Some pointer
+          | _ -> None
+        in
+        let* type_ =
+          match callback with
+          | None -> Ok declared_type
+          | Some pointer ->
+              Sema.Function_type_resolution.function_pointer_storage_type
+                pointer
+              |> Result.map_error (fun message ->
+                  [
+                    Common.Diagnostic.make ~code:"HCIRL0004"
+                      ~severity:Common.Diagnostic.Error ~message
+                      ~primary:(Option.value span ~default:unit_span)
+                      ();
+                  ])
+        in
+        let shape_type =
+          if Option.is_some callback then
+            Type.make_primitive ~form:Type.Public_spelling
+              ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+            |> Result.get_ok
+          else type_
         in
         if symbol != Global.global_symbol global || Option.is_none span then
           fail "HCIRL0004"
@@ -712,8 +785,9 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           fail "HCRUN0001"
             "global declaration initializer execution is not implemented"
         else if
-          Option.is_none (Scalar.public_byte_size type_)
+          Option.is_none (Scalar.public_byte_size shape_type)
           || Global.global_declarator_kind global <> Global.Object
+             && Option.is_none callback
         then
           fail "HCRUN0001"
             "global execution requires public nonzero integer objects"
@@ -743,7 +817,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                        extents")
           in
           let* shape =
-            match Shape.create ~type_ ~dimensions with
+            match Shape.create ~type_:shape_type ~dimensions with
             | Ok shape -> Ok shape
             | Error Shape.Overflow ->
                 fail "HCIRL0005"
@@ -765,6 +839,16 @@ let create_impl ?layout ?initializers ~span:unit_span records =
             Option.map
               (fun (owner, roots) -> (owner, List.rev roots))
               (Symbols.find_opt (Symbol.id symbol) roots)
+          in
+          let* () =
+            if
+              Option.is_some callback
+              && Option.is_some (Global.global_initializer global)
+            then
+              fail "HCRUN0001"
+                "global callback initializers require their own saved word or \
+                 executable preparation"
+            else Ok ()
           in
           let* array_initializers =
             if dimensions = [] then Ok None
@@ -1325,9 +1409,16 @@ let prepare_declared catalog declaration =
         ~publication:(Declared.declared_global_source declaration)
         ~predecessor:(Declared.declared_global_predecessor declaration)
     in
+    let* physical_type = Declared.declared_global_storage_type declaration in
     let type_ =
-      Declared.declared_global_type declaration
-      |> Sema.Type_reference.resolved_type
+      if
+        Option.is_some
+          (Declared.declared_global_source declaration).global_function_pointer
+      then
+        Type.make_primitive ~form:Type.Public_spelling
+          ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+        |> Result.get_ok
+      else physical_type
     in
     let* declared_shape =
       match
@@ -1850,6 +1941,33 @@ let check_task_command catalog globals =
                     view.entries))
 
 let publish_task catalog globals =
+  let completed_callbacks =
+    List.filter_map
+      (fun slot ->
+        match (slot.declared_owner, storage_callback_pointer (Global slot)) with
+        | Some owner, Some _ ->
+            List.find_map
+              (function
+                | Declared_publication (reference, pending)
+                  when pending == owner ->
+                    Some (Global_publication (reference, slot))
+                | _ -> None)
+              catalog.published
+        | _ -> None)
+      globals.slots_
+  in
+  catalog.published <-
+    List.map
+      (fun prior ->
+        match
+          List.find_opt
+            (fun completed ->
+              publication_symbol completed == publication_symbol prior)
+            completed_callbacks
+        with
+        | Some completed -> completed
+        | None -> prior)
+      catalog.published;
   Option.iter
     (fun view ->
       Option.iter
@@ -1888,7 +2006,7 @@ let publish_task catalog globals =
     |> List.stable_sort (fun left right -> compare (order left) (order right))
   in
   catalog.published <- catalog.published @ publications;
-  publications
+  completed_callbacks @ publications
 
 let with_initial_values ~span globals values =
   let invalid message =

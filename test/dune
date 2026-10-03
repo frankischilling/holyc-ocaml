@@ -158,6 +158,17 @@
    %{dep:../examples/stream-swap-internals.hc})))
 
 (test
+ (name test_global_callback_cli)
+ (modules test_global_callback_cli)
+ (libraries unix yojson)
+ (deps ../examples/global-callbacks.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/global-callbacks.hc})))
+
+(test
  (name test_pointer_bit_cli)
  (modules test_pointer_bit_cli)
  (libraries unix yojson)

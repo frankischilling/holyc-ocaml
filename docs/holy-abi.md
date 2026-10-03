@@ -49,12 +49,12 @@ scalar, indexed and member calls. Callback parameter defaults use the integer
 address class while retaining their declared return type.
 
 `Expression_lowering.lower_indirect_callee` checks the exact source value tree
-and selected declarator, loads a supported frame cell, retags its producer to
+and selected declarator, loads a supported frame or global cell, retags its producer to
 internal `RT_PTR`, and emits `IC_SET_RAX` followed by `IC_NOP2`. This follows
 `PrsFunCall` before its call-start and saved-callee push. The fragment preserves
 the original loaded value and consumes no additional value identity. Argument
 pushes and dispatch now compose through the ordinary integer program lowerer
-for one-star automatic/static locals, fully indexed automatic/static arrays
+for one-star automatic/static/global cells, fully indexed arrays
 and scalar named callback parameters. The original
 anonymous signature determines fixed slots, hidden argc and word variadic tails.
 Local and parameter `PrsType` passes zero function specifier flags;
@@ -64,6 +64,11 @@ as the `IC_CALL_INDIRECT` payload, and emits either `IC_ADD_RSP1(arguments)`
 followed by `IC_ADD_RSP(8)`, or `IC_ADD_RSP(arguments+8)`. The final
 `IC_CALL_END` retains the original callback declarator. The reached target's
 flags are checked for compatibility; they do not choose the caller's cleanup.
+
+[Global callbacks](global-callbacks.md) retain their declaration's original
+`fsp_flags` through the anonymous header. `argpop` and derived RET1 request
+callee cleanup unless `noargpop` is present. Their physical eight-byte element
+type remains separate from callback return metadata and retained source binding.
 
 The IR interpreter captures the opaque executable value before arguments and
 dispatches through its original prepared body and owner. Explicit fixed slots,
@@ -142,7 +147,7 @@ across calls and JIT replacement. Automatic arrays are fresh on every activation
 The hosted arena checks the declared object's extent and offset overflow.
 
 These values do not supply concrete numeric addresses. Address arithmetic,
-numeric address output, callback globals/members, callback initializers and updates,
+numeric address output, callback members, top-level indirect calls, callback initializers and updates,
 owned-code defaults, dereferenced or multistar callback forms, live task
 address linking and hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the

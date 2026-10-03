@@ -1319,3 +1319,11 @@ The native CLI suite exercises maintained array examples in both modes and
 checks human/JSON reports. `test_native_index_faults.ml` separately fixes fault
 precedence, exact instruction sites, decoder validation, repeated images and
 exact/one-below step budgets. See [native arrays](native-arrays.md).
+
+The `callback storage` group covers original one-star global cells and fully
+indexed arrays alongside automatic/static storage. It checks saved defaults,
+callee capture, reverse arguments, word variadics, original global calling flags,
+retained JIT bodies, source ownership, fault effects and resource limits.
+`test_global_callback_cli.ml` runs the maintained global example in both IR modes
+with exact and one-below quotas, JSON counters, reached output and retained
+replacement. See [global callbacks](global-callbacks.md) for the remaining scope.

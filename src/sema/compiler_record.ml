@@ -962,36 +962,37 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
     match Declaration_collection.publication_source_global publication with
     | None -> Error "compiler record has no original parser global publication"
     | Some source ->
-        if Option.is_some source.global_function_pointer then
-          Error "sizeof requires the selected function-pointer signature"
-        else
-          let* type_reference =
-            Source_type_reference.builtin source.global_header.type_specifier
-              source.global_pointer_layers
-          in
-          let* byte_size =
-            scalar_size (Type_reference.resolved_type type_reference)
-          in
-          let* byte_size =
-            declared_array_size ~table ~namespace
-              ~command:source.global_header.declaration_command
-              ~name:source.global_name ~dimensions:source.global_dimensions
-              ~checked:dimensions byte_size
-          in
-          Ok
-            {
-              table;
-              entry = source.global_entry;
-              symbol = Declaration_collection.publication_symbol publication;
-              primitive = None;
-              byte_size;
-              internal = false;
-              runtime_dimensions =
-                List.concat_map dimension_runtime_dependencies dimensions;
-              runtime_offsets =
-                List.concat_map dimension_offset_dependencies dimensions;
-              aggregate_stamp = None;
-            }
+        let* byte_size =
+          match source.global_function_pointer with
+          | Some _ -> Ok 8L
+          | None ->
+              let* type_reference =
+                Source_type_reference.builtin
+                  source.global_header.type_specifier
+                  source.global_pointer_layers
+              in
+              scalar_size (Type_reference.resolved_type type_reference)
+        in
+        let* byte_size =
+          declared_array_size ~table ~namespace
+            ~command:source.global_header.declaration_command
+            ~name:source.global_name ~dimensions:source.global_dimensions
+            ~checked:dimensions byte_size
+        in
+        Ok
+          {
+            table;
+            entry = source.global_entry;
+            symbol = Declaration_collection.publication_symbol publication;
+            primitive = None;
+            byte_size;
+            internal = false;
+            runtime_dimensions =
+              List.concat_map dimension_runtime_dependencies dimensions;
+            runtime_offsets =
+              List.concat_map dimension_offset_dependencies dimensions;
+            aggregate_stamp = None;
+          }
 
 let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
     publication =
@@ -1003,7 +1004,10 @@ let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
     Option.is_some source.global_header.binding
     || List.exists
          (fun (modifier : Ast.declaration_modifier) ->
-           modifier.kind <> Ast.Public)
+           modifier.kind <> Ast.Public
+           && (Option.is_none source.global_function_pointer
+              || modifier.kind <> Ast.Argument_pop
+                 && modifier.kind <> Ast.No_argument_pop))
          source.global_header.modifiers
   then Error "partial storage requires an ordinary code-heap definition"
   else
@@ -1029,6 +1033,15 @@ let declared_global_symbol declaration =
 
 let declared_global_source declaration = declaration.declared_source
 let declared_global_type declaration = declaration.declared_type
+
+let declared_global_storage_type declaration =
+  match declaration.declared_source.global_function_pointer with
+  | None -> Ok (Type_reference.resolved_type declaration.declared_type)
+  | Some pointer when List.length pointer.Ast.indirection_layers = 1 ->
+      Type.make_primitive ~form:Type.Internal_storage
+        ~primitive:Primitive_type.I64 ~pointer_depth:1
+  | Some _ ->
+      Error "declared callback storage requires one original indirection layer"
 
 let declared_global_dimensions declaration =
   List.map dimension_count declaration.declared_dimensions
@@ -1077,7 +1090,16 @@ let validate_declared_global_type declaration global =
   let dimensions = Global.global_array_dimensions global in
   if
     Global.global_symbol global != declared_global_symbol declaration
-    || Global.global_declarator_kind global <> Global.Object
+    || (not
+          (match
+             ( declaration.declared_source.global_function_pointer,
+               Global.global_declarator_kind global )
+           with
+          | None, Global.Object -> true
+          | Some original, Global.Function_pointer pointer ->
+              Option.fold ~none:false ~some:(( == ) original)
+                (Function_type_resolution.function_pointer_source pointer)
+          | _ -> false))
     || (not
           (Type.equal
              (Type_reference.resolved_type reference)
@@ -1111,7 +1133,18 @@ let bind_retained_scalar ~table ~entry global =
   else
     match Global_type_resolution.global_declarator_kind global with
     | Global_type_resolution.Function_pointer _ ->
-        Error "sizeof requires the retained function-pointer signature"
+        Ok
+          {
+            table;
+            entry;
+            symbol;
+            primitive = None;
+            byte_size = 8L;
+            internal = false;
+            runtime_dimensions = [];
+            runtime_offsets = [];
+            aggregate_stamp = None;
+          }
     | Global_type_resolution.Object ->
         let* byte_size =
           scalar_size
@@ -2077,14 +2110,13 @@ let bind_retained_global ~table ~entry ~record ~extent =
         || Visibility.kind entry <> Visibility.Global_variable
         || Symbol.name symbol <> Visibility.name entry
       then Error "retained compiler record has a foreign symbol or entry"
-      else if
-        Global_type_resolution.global_declarator_kind global
-        <> Global_type_resolution.Object
-      then Error "sizeof requires the retained function-pointer signature"
       else
         let* byte_size =
-          Global_type_resolution.global_type_reference global
-          |> Type_reference.resolved_type |> scalar_size
+          match Global_type_resolution.global_declarator_kind global with
+          | Global_type_resolution.Function_pointer _ -> Ok 8L
+          | Global_type_resolution.Object ->
+              Global_type_resolution.global_type_reference global
+              |> Type_reference.resolved_type |> scalar_size
         in
         Ok
           {

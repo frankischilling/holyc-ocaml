@@ -13073,3 +13073,28 @@ faults = "Index effects precede capture; arguments precede reached null/numeric 
 limits = "A [2][3] callback array charges 48 bytes independently of return class. Tests exercise exact and one-below automatic/persistent storage, instruction and call-depth limits."
 verification_boundary = "Source-grounded IR tests do not establish new independent TempleOS native comparisons or hosted native callback emission."
 excluded = ["global/member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-GLOBAL-CALLBACK-INVOCATION"
+description = "Original one-star global cells and fully indexed arrays preserve opaque executable owners through checked integer/U0 calls."
+sources = [
+  "Compiler/PrsStmt.HC:223-224 original global fsp_flags passed to PrsType",
+  "Compiler/PrsVar.HC:247-283 checked dimensions and cumulative element counts",
+  "Compiler/PrsVar.HC:285-369 anonymous header flags and internal RT_PTR storage independent of return class",
+  "Compiler/PrsStmt.HC:403-407 global callback header kept separately from its physical class",
+  "Compiler/PrsExp.HC:383-588 callee capture before reverse arguments, saved defaults, hidden argc and original cleanup",
+  "Compiler/PrsExp.HC:1055-1101 original bracket chain, remaining dimensions and integer subscripts"
+]
+implementation = ["src/sema/compiler_record.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml", "test/test_global_callback_cli.ml", "examples/global-callbacks.hc"]
+documentation = ["docs/global-callbacks.md", "docs/integer-globals.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/compatibility.md", "docs/testing.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The exact global publication, selected anonymous header, original occurrence, declared return metadata and physical storage type authorize the load. Retained bindings also require their original outer occurrence and storage reference. Completing a declared callback reuses its allocation and reference without changing an earlier snapshot. Copied or foreign graphs acquire no invocation authority."
+execution = "Scalar cells and fully indexed arrays store, copy, clear, compare and transfer opaque executable owners. Top-level assignments can install addresses for calls in checked functions. Calls capture the owner before reverse arguments and use the selected callback's own saved integer defaults, fixed slots, word tails and original global fsp_flags. RET1 or argpop requests callee cleanup unless noargpop is present. The reached target must agree and cannot choose caller cleanup. JIT replacement preserves earlier stored bodies."
+faults = "JIT unknown values fail during callee load before arguments. AOT initial zero and explicitly stored null fail at reached invocation after arguments, as do signature and cleanup mismatches. Array bounds and offset overflow fail before callee loading and argument effects. Earlier output survives reached faults."
+limits = "Each element occupies eight global bytes independently of return class. The CLI example charges 56 global bytes, eight simultaneous frame bytes and two call levels; exact and one-below quotas and instruction counts are checked in both modes."
+verification_boundary = "Source-grounded IR and CLI tests do not establish a new independent TempleOS native comparison or hosted native callback emission."
+excluded = ["top-level indirect invocation", "member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]

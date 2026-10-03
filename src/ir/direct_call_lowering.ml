@@ -1021,6 +1021,12 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
         && Option.fold ~none:false ~some:(( == ) pointer)
              (Sema.Function_frame_layout.location_callback_pointer location))
   in
+  let original_global_cell =
+    Option.fold ~none:false
+      ~some:(fun globals ->
+        Option.is_some (Integer_globals.global_callback_storage globals pointer))
+      globals
+  in
   let fixed = Result.indirect_fixed_results call in
   let provided =
     List.filter_map
@@ -1045,7 +1051,8 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
     | _ -> false
   in
   if
-    (not matches) || (not original_frame_cell)
+    (not matches)
+    || (not (original_frame_cell || original_global_cell))
     || List.length (Headers.function_pointer_indirection_origins pointer) <> 1
     || List.length provided <> List.length fixed
   then Ok Unsupported_call
@@ -1114,10 +1121,11 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
                       + if variadic then 1 + List.length tail else 0
                     in
                     let bytes = Int64.mul 8L (Int64.of_int slots) in
-                    (* Anonymous local/parameter PrsType passes fsp_flags=0. PrsFunJoin
-               derives RET1 from the fixed argument bytes, excluding variadics. *)
                     let callee_pop =
-                      (not variadic) && slots > 0 && bytes <= 32767L
+                      match globals with
+                      | Some globals ->
+                          Integer_globals.callback_callee_pop globals pointer
+                      | None -> (not variadic) && slots > 0 && bytes <= 32767L
                     in
                     let* cleanup_id = next call_id in
                     let* saved_cleanup_id = next cleanup_id in

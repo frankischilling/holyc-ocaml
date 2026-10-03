@@ -1,0 +1,165 @@
+open Yojson.Safe.Util
+
+let require condition message = if not condition then failwith message
+
+let read path =
+  let channel = open_in_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_in channel)
+    (fun () -> really_input_string channel (in_channel_length channel))
+
+let with_file suffix contents action =
+  let path = Filename.temp_file "holyc global callback cli " suffix in
+  Fun.protect
+    ~finally:(fun () -> if Sys.file_exists path then Sys.remove path)
+    (fun () ->
+      let channel = open_out_bin path in
+      Fun.protect
+        ~finally:(fun () -> close_out channel)
+        (fun () -> output_string channel contents);
+      action path)
+
+let () = require (Array.length Sys.argv = 3) "expected compiler and example"
+let compiler = Sys.argv.(1)
+let example = Sys.argv.(2)
+
+let invoke ~mode ?(target = "ir") ?(options = []) ?(status = 0) path =
+  let arguments =
+    [
+      "run";
+      "--report-version=2";
+      "--format=json";
+      "--target=" ^ target;
+      "--mode=" ^ mode;
+    ]
+    @ options @ [ path ]
+  in
+  with_file ".stdout" "" (fun stdout ->
+      with_file ".stderr" "" (fun stderr ->
+          let out_fd =
+            Unix.openfile stdout [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600
+          and err_fd =
+            Unix.openfile stderr [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600
+          in
+          let pid =
+            Fun.protect
+              ~finally:(fun () ->
+                Unix.close out_fd;
+                Unix.close err_fd)
+              (fun () ->
+                Unix.create_process compiler
+                  (Array.of_list (compiler :: arguments))
+                  Unix.stdin out_fd err_fd)
+          in
+          let _, actual = Unix.waitpid [] pid in
+          let output = read stdout in
+          require
+            (actual = Unix.WEXITED status)
+            ("unexpected exit: " ^ output ^ read stderr);
+          require (read stderr = "") "JSON command wrote diagnostics to stderr";
+          Yojson.Safe.from_string output))
+
+let output report text =
+  let hex =
+    String.to_seq text |> List.of_seq
+    |> List.map (fun byte -> Printf.sprintf "%02x" (Char.code byte))
+    |> String.concat ""
+  in
+  require (member "output_hex" report = `String hex) "captured bytes";
+  require
+    (member "output_byte_length" report = `Int (String.length text))
+    "captured length"
+
+let success report value =
+  require (member "schema" report = `String "holyc-integer-program-v2") "schema";
+  require (member "outcome" report = `String "success") "success outcome";
+  require (member "diagnostics" report = `List []) "success diagnostics";
+  require
+    (member "final_value" report |> member "type" = `String "i64")
+    "result class";
+  require
+    (member "final_value" report |> member "value" = `String value)
+    "source result"
+
+let error report code text =
+  require (member "outcome" report = `String "error") "fault outcome";
+  require (member "final_value" report = `Null) "fault retained a final value";
+  (match member "diagnostics" report |> to_list with
+  | first :: _ ->
+      require (member "code" first = `String code) "fault diagnostic"
+  | [] -> failwith "fault has no diagnostic");
+  output report text
+
+let () =
+  List.iter
+    (fun mode ->
+      let steps, prep = if mode = "jit" then (79, 8) else (75, 6) in
+      let exact =
+        [
+          "--global-byte-limit=56";
+          "--frame-byte-limit=8";
+          "--call-depth-limit=2";
+          "--step-limit=" ^ string_of_int steps;
+        ]
+      in
+      let report = invoke ~mode ~options:exact example in
+      success report "42";
+      output report "";
+      require (member "executed_steps" report = `Int steps) "runtime work";
+      require
+        (member "compiled_initializer_steps" report = `Int prep)
+        "declaration work";
+      require
+        (member "dimension_preparation_work" report = `Int 2)
+        "original array dimensions";
+      List.iter
+        (fun (option, code) ->
+          error (invoke ~mode ~options:[ option ] ~status:1 example) code "")
+        [
+          ("--global-byte-limit=55", "HCIRVM0016");
+          ("--frame-byte-limit=7", "HCIRVM0011");
+          ("--call-depth-limit=1", "HCIRVM0015");
+          ("--step-limit=" ^ string_of_int (steps - 1), "HCIRVM0007");
+        ];
+      let prefix =
+        "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"arg\");return 40;}"
+      in
+      List.iter
+        (fun (source, code, text) ->
+          with_file ".HC" (prefix ^ source) (fun path ->
+              error (invoke ~mode ~status:1 path) code text))
+        [
+          ( "I64 (*p)(I64 n);I64 Run(){p=0;return \
+             p(Side());}Print(\"before\");Run();",
+            "HCIRVM0024",
+            "beforearg" );
+          ( "I64 (*p)(I64 n);I64 Run(){return \
+             p(Side());}Print(\"before\");Run();",
+            (if mode = "jit" then "HCIRVM0012" else "HCIRVM0024"),
+            if mode = "jit" then "before" else "beforearg" );
+          ( "I64 (*p)(I64 n)[2];I64 Run(){return \
+             p[2](Side());}Print(\"before\");Run();",
+            "HCIRVM0019",
+            "before" );
+          ( "I64 Add(I64 n){return n+2;}noargpop I64 (*p)(I64 n);I64 \
+             Run(){p=&Add;return p(Side());}Print(\"before\");Run();",
+            "HCIRVM0014",
+            "beforearg" );
+        ];
+      List.iter
+        (fun (source, target, code) ->
+          with_file ".HC" source (fun path ->
+              error (invoke ~mode ~target ~status:1 path) code ""))
+        [
+          ("I64 A(){return 42;}I64 (*p)();p=&A;p();", "ir", "HCRUN0003");
+          ("I64 (*p)()=0;42;", "ir", "HCRUN0001");
+          ( "I64 A(){return 42;}I64 (*p)();I64 Run(){p=&A;return p();}Run();",
+            "host-jit",
+            "HCRUN0001" );
+        ])
+    [ "jit"; "aot" ];
+  with_file ".HC"
+    "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n=40);p=&Add;I64 Run(){return \
+     p();}Run();I64 Add(I64 n){return n+100;}Run();" (fun path ->
+      success (invoke ~mode:"jit" path) "42");
+  print_endline "Global callback CLI checks passed."
