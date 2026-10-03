@@ -1,4 +1,18 @@
 (test
+ (name test_primitive_type_shadowing_cli)
+ (modules test_primitive_type_shadowing_cli)
+ (libraries unix yojson)
+ (deps
+  oracle/primitive-type-shadowing.json
+  ../examples/primitive-type-shadowing.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:oracle/primitive-type-shadowing.json}
+   %{dep:../examples/primitive-type-shadowing.hc})))
+
+(test
  (name test_prepared_integer_shifts_cli)
  (modules test_prepared_integer_shifts_cli)
  (libraries unix yojson)
@@ -413,6 +427,7 @@
   test_integer_array_safety
   test_integer_global_initializers
   test_ir_comparison_chains
+  test_primitive_type_shadowing
   test_ir_integer_frames
   test_ir_integer_division
   test_source

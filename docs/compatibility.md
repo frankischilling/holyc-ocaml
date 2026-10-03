@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+Issue #795 connects primitive type recognition to original symbol selection.
+Functions, globals, locals and parameters can shadow primitive spellings in both
+source modes and execution targets. Live post-body lookahead keeps its selected
+local; callback-free parsing retains its separate contract. Eight native value
+fields and two compilation controls were each captured twice. See
+[primitive type visibility](primitive-type-shadowing.md).
+
 Issue #793 prepares original full-word constant shifts and supported scalar
 right-shift updates in published retained callees. Saved default/global/static
 values and narrow storage match nineteen repeated native fields in both modes.

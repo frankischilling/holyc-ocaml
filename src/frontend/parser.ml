@@ -1958,10 +1958,24 @@ let pointer_definition_trace pointer_items =
 let type_spelling base_spelling pointer_layers =
   base_spelling ^ String.make (List.length pointer_layers) '*'
 
-let primitive_type_of_token token =
-  match token.Token.kind with
-  | Token_kind.Identifier ->
-      Common.Primitive_type.of_spelling (token_text token)
+let primitive_type_of_item cursor item =
+  match item.token.Token.kind with
+  | Token_kind.Identifier -> (
+      let lookup =
+        match item.selection with
+        | Some (_, lookup) -> lookup
+        | None ->
+            Symbol_visibility.Environment.find_preprocessor cursor.symbols
+              (token_text item.token)
+      in
+      match lookup with
+      | Symbol_visibility.Present entry -> (
+          match Symbol_visibility.kind entry with
+          | Symbol_visibility.Class -> Symbol_visibility.public_primitive entry
+          | Symbol_visibility.Internal_type ->
+              Common.Primitive_type.of_spelling (token_text item.token)
+          | _ -> None)
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local -> None)
   | _ -> None
 
 let internal_type_from_lookup token = function
@@ -2021,7 +2035,7 @@ let type_specifier_with_selection_of_item cursor item =
       Some
         (type_specifier, Some { type_specifier; identifier; environment; entry })
   | None -> (
-      match primitive_type_of_token item.token with
+      match primitive_type_of_item cursor item with
       | Some primitive ->
           Some
             ( Ast.Primitive_type_specifier
@@ -6853,7 +6867,7 @@ let token_starts_statement_expression cursor token =
   | _ -> false
 
 let token_starts_global_declaration cursor item =
-  Option.is_some (primitive_type_of_token item.token)
+  Option.is_some (primitive_type_of_item cursor item)
   || Option.is_some (internal_type_of_item cursor item)
   || item_is_named_type cursor item
   || Option.is_some (aggregate_kind_of_token item.token)
@@ -8331,7 +8345,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
       parse_label_statement cursor
   | Token_kind.Identifier
     when Option.is_some cursor.local_context
-         && (Option.is_some (primitive_type_of_token item.token)
+         && (Option.is_some (primitive_type_of_item cursor item)
             || Option.is_some (internal_type_of_item cursor item)
             || item_is_named_type cursor item) ->
       parse_local_declaration cursor ~boundary

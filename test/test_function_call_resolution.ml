@@ -1900,7 +1900,7 @@ let primitive_sizeof_values_follow_checked_queries () =
         facts;
       let shadowed =
         prepare ~mode ~path:"function-shadowed-primitive-sizeof.HC"
-          "I64 I64;I64 Caller(I64 Bool){sizeof(I64);sizeof(Bool);return 0;}"
+          "I64 I64;I64i Caller(I64i Bool){sizeof(I64);sizeof(Bool);return 0;}"
       in
       let shadowed_facts =
         resolve shadowed |> checked |> fun result ->
@@ -1941,7 +1941,7 @@ let bound_scalar_sizeof_values_follow_checked_types () =
   let source =
     "class Box{I64 value;};F64 module_value;I64 Target(I64 value){return \
      value;}I64 Caller(U8 parameter,I64 (*callback)(I64)){U16 automatic;static \
-     U32 stored;U8 I64;I64 *pointer;U8 array[2];Box box;Box \
+     U32 stored;I64 *pointer;U8 I64;U8 array[2];Box box;Box \
      *box_pointer;sizeof(parameter);sizeof(automatic);sizeof(stored);sizeof(module_value);sizeof(pointer);sizeof(callback);sizeof(I64);sizeof(box_pointer);sizeof(automatic*);sizeof(array);sizeof(box);sizeof(Target);return \
      0;}"
   in

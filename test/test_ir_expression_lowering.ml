@@ -3167,7 +3167,7 @@ let bound_scalar_sizeof_constants_lower_in_both_modes () =
   let source =
     "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h);F64 \
      module_value;I64 Caller(U8 parameter,I64 (*callback)(I64)){U16 \
-     automatic;static U32 stored;U8 I64;I64 *pointer;return \
+     automatic;static U32 stored;I64 *pointer;U8 I64;return \
      Target(sizeof(parameter),sizeof(automatic),sizeof(stored),sizeof(module_value),sizeof(pointer),sizeof(callback),sizeof(I64),sizeof(automatic*));}"
   in
   let expected = [ 1L; 2L; 4L; 8L; 8L; 8L; 1L; 8L ] in
@@ -3305,8 +3305,8 @@ let shadowed_and_nonprimitive_sizeof_return_no_sequence () =
       in
       let top_level_roots =
         top_level_roots ~mode ~path:"ir-unsupported-sizeof.HC"
-          "I64 I64;class Box{I64 \
-           member;};sizeof(I64);sizeof(Box.member);sizeof(Missing);"
+          "class Box{I64 member;};I64 \
+           I64;sizeof(I64);sizeof(Box.member);sizeof(Missing);"
       in
       List.iter
         (fun root ->

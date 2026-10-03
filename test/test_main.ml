@@ -40,6 +40,7 @@ let () =
       ("preprocessor", Test_preprocessor.tests);
       ("conditional recovery", Test_conditional_recovery.tests);
       ("parser", Test_parser.tests);
+      ("primitive type shadowing", Test_primitive_type_shadowing.tests);
       ("conditional expressions", Test_conditional_expression.tests);
       ("assert directives", Test_assert_directive.tests);
       ("help directives", Test_help_directive.tests);

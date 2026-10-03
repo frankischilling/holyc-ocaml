@@ -1,5 +1,18 @@
 (rule
  (alias native-tests)
+ (deps
+  ../oracle/primitive-type-shadowing.json
+  ../../examples/primitive-type-shadowing.hc)
+ (action
+  (run
+   %{exe:../test_primitive_type_shadowing_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../oracle/primitive-type-shadowing.json}
+   %{dep:../../examples/primitive-type-shadowing.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
  (deps ../oracle/division-strength-reductions.json)
  (action
   (run

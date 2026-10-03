@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed primitive type recognition after a source function, global, local or
+  parameter shadows that spelling. Calls, grouping and updates use the selected
+  value; live post-body lookahead retains its original local selection.
+
 - Added retained preparation of original integer constant shifts and supported
   scalar right-shift updates, including power-of-two division reductions.
   Default/global/static values save once; original effects, fault phases,

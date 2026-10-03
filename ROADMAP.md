@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #795 fixes [primitive type visibility](docs/primitive-type-shadowing.md)
+through original token selection, preserving local post-body lookahead.
+The separate comparison-stack and conditional-chain requirements remain under
+#593, and the complete compiler release remains under #682.
+
 Issue #793 connects original constant shifts and scalar right-shift updates to
 retained default/global/static preparation with sealed source authority.
 Nineteen repeated native fields and original effects/faults back the supported

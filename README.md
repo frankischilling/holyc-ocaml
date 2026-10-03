@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+[Primitive type visibility](docs/primitive-type-shadowing.md) lets source
+functions and variables shadow primitive names. The maintained
+`examples/primitive-type-shadowing.hc` uses `F64`, `U64`, `U16` and `I8` as value
+names and returns I64 42 through IR and native execution in both source modes.
+
 Issue #783 executes [owned scalar pointer difference](docs/pointer-difference.md)
 through IR and hosted native programs. Original byte subtraction and optional
 pointee-size division return signed I64 element counts within one live object.
