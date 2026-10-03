@@ -84,9 +84,20 @@ assignment, copies, clearing to zero and equality with owned code or null execut
 in both source modes. JIT replacement keeps the earlier address bound to its
 original body. A matching name or numeric word cannot select executable code.
 
+Named functions now prepare integer-word defaults for one-star callback
+parameters through the original declaration-time evaluator. The saved value is
+materialized as `IC_IMM_I64` with the parameter's physical internal `RT_PTR`
+class, independently of its callback return class. Closed defaults work in both
+IR source modes; JIT defaults can also retain declaration-time calls and effects.
+Repeated omission reuses the saved word. A numeric default grants no executable
+authority, and a reached invocation still checks the target after argument
+effects. The materializer requires the original completed parameter and physical
+producer. Resolved `&Function` values selected through an outer task scope now
+retain that scope's original function declaration and registered executable owner.
+
 These values do not supply concrete numeric addresses. Address arithmetic,
 numeric address output, callback globals/statics/arrays and updates, callback
-default materialization, dereferenced or multistar callback forms, live task
+anonymous signature defaults, owned-code defaults, dereferenced or multistar callback forms, live task
 address linking and hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the
 earlier native observations do not validate this new implementation. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)

@@ -571,18 +571,37 @@ let entry_item_index context call =
                 (Global_initialization.storage_frame region)))
   | _ -> None
 
+let original_prepared_defaults context ~owner =
+  if not (source_producers_match context) then None
+  else
+    Option.map
+      (fun graph ->
+        let arguments =
+          (Instructions.bindings graph.calls
+          |> List.concat_map (fun (_, call) -> call.arguments_))
+          @ (Instructions.bindings graph.callback_calls
+            |> List.concat_map (fun (_, call) -> call.callback_arguments))
+        in
+        let items =
+          List.concat_map (fun (_, items, _) -> items) graph.original_blocks
+        in
+        List.filter
+          (fun item ->
+            List.exists
+              (fun argument ->
+                Option.is_some argument.prepared_default
+                && Seq.Instruction_id.equal argument.producer
+                     item.Seq.instruction_id)
+              arguments)
+          items)
+      (find_graph context owner)
+
 let is_prepared_default context ~owner id =
   Option.fold ~none:false
-    ~some:(fun graph ->
-      Instructions.exists
-        (fun _ call ->
-          List.exists
-            (fun argument ->
-              Option.is_some argument.prepared_default
-              && Seq.Instruction_id.equal argument.producer id)
-            call.arguments_)
-        graph.calls)
-    (find_graph context owner)
+    ~some:
+      (List.exists (fun item ->
+           Seq.Instruction_id.equal item.Seq.instruction_id id))
+    (original_prepared_defaults context ~owner)
 
 let is_implicit_discard context ~owner id =
   Option.fold ~none:false

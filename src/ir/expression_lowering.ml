@@ -1044,6 +1044,71 @@ let checked_bound_direct_function_source operand operand_type identifier
         else Ok ()
     | _ -> invalid "direct function operand has inconsistent retained metadata"
 
+let checked_outer_direct_function_source operand declaration =
+  let invalid message =
+    Error (metadata_error ?span:(result_span operand) message)
+  in
+  match Semantic_result.result_outer_binding operand with
+  | None -> invalid "retained function address has no original outer binding"
+  | Some binding ->
+      let owns_occurrence =
+        match
+          ( Semantic_result.result_outer_occurrence operand,
+            Semantic_result.result_top_level_outer_occurrence operand )
+        with
+        | Some occurrence, None ->
+            Sema.Outer_expression_binding.occurrence_origin occurrence
+            = Semantic_result.result_origin operand
+            && (match
+                  Sema.Outer_expression_binding.occurrence_resolution occurrence
+                with
+              | Sema.Outer_expression_binding.Outer_binding original ->
+                  original == binding
+              | _ -> false)
+            && Option.fold ~none:false
+                 ~some:(fun source ->
+                   source
+                   == Sema.Outer_expression_binding.occurrence_source occurrence)
+                 (Semantic_source.argument_expression_source_identifier
+                    (Semantic_result.result_source operand))
+        | None, Some occurrence -> (
+            Sema.Top_level_outer_expression_binding.occurrence_origin occurrence
+            = Semantic_result.result_origin operand
+            && (match
+                  Sema.Top_level_outer_expression_binding.occurrence_resolution
+                    occurrence
+                with
+              | Sema.Top_level_outer_expression_binding.Outer_binding original
+                -> original == binding
+              | _ -> false)
+            &&
+            match
+              Semantic_source.argument_expression_kind
+                (Semantic_result.result_source operand)
+            with
+            | Semantic_source.Top_level_bound_identifier_expression source ->
+                Semantic_source.top_level_bound_identifier_occurrence source
+                == occurrence
+            | _ -> false)
+        | _ -> false
+      in
+      let original =
+        Sema.Outer_environment.binding_entry binding
+        |> Sema.Outer_environment.entry_function_metadata
+      in
+      if
+        owns_occurrence
+        && Option.fold ~none:false
+             ~some:(fun metadata ->
+               Sema.Outer_environment.function_declaration metadata
+               == declaration)
+             original
+      then Ok ()
+      else
+        invalid
+          "retained function address differs from its original occurrence or \
+           declaration"
+
 let checked_top_level_direct_function_source operand identifier declaration =
   let invalid message =
     Error (metadata_error ?span:(result_span operand) message)
@@ -1067,8 +1132,6 @@ let checked_top_level_direct_function_source operand identifier declaration =
              (Sema.Top_level_outer_expression_binding.occurrence_name occurrence)
              (Sema.Symbol.name source_symbol)))
     || Sema.Symbol.kind source_symbol <> Sema.Symbol.Function
-    || Option.is_some
-         (Semantic_result.result_top_level_outer_occurrence operand)
   in
   if invalid_metadata then
     invalid "top-level direct function operand metadata disagrees"
@@ -1078,8 +1141,9 @@ let checked_top_level_direct_function_source operand identifier declaration =
     with
     | Sema.Top_level_outer_expression_binding.Module_binding publication
       when function_publication_matches declaration publication -> Ok ()
-    | Sema.Top_level_outer_expression_binding.Module_binding _
     | Sema.Top_level_outer_expression_binding.Outer_binding _ ->
+        checked_outer_direct_function_source operand declaration
+    | Sema.Top_level_outer_expression_binding.Module_binding _ ->
         invalid "top-level direct function publication disagrees"
 
 let checked_direct_function_address result prefix operand =
@@ -1095,6 +1159,14 @@ let checked_direct_function_address result prefix operand =
     | Semantic_source.Top_level_bound_identifier_expression identifier
       when Semantic_result.result_category operand
            = Semantic_result.Function_value -> Some (`Top_level identifier)
+    | Semantic_source.Unresolved_expression
+        Semantic_source.Identifier_expression
+      when Semantic_result.result_category operand
+           = Semantic_result.Function_value
+           && Option.is_some (Semantic_result.result_outer_occurrence operand)
+           && Option.is_some
+                (Semantic_result.result_function_declaration operand) ->
+        Some `Outer
     | _ -> None
   in
   match direct_source with
@@ -1143,6 +1215,24 @@ let checked_direct_function_address result prefix operand =
               "direct function address path disagrees with its declaration"
           else
             match source_kind with
+            | `Outer -> (
+                match
+                  checked_outer_direct_function_source operand declaration
+                with
+                | Error _ as error -> error
+                | Ok () -> (
+                    match
+                      unary_span result "retained function address" prefix
+                    with
+                    | Error _ as error -> error
+                    | Ok span ->
+                        Ok
+                          (Some
+                             ( span,
+                               result_type,
+                               Function_resolution
+                               .resolved_declaration_identity_symbol declaration,
+                               path ))))
             | `Bound identifier -> (
                 match
                   checked_bound_direct_function_source operand operand_type

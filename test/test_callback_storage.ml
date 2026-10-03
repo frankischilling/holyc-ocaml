@@ -1049,8 +1049,214 @@ let callback_graph_ownership () =
         (execute ~runtime_calls:context ()))
     modes
 
+let callback_parameter_defaults_execute () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected) ->
+          ignore
+            (Test_integer_globals.run ~mode source
+            |> Test_integer_functions.expect expected))
+        [
+          ("I64 Check(I64 (*p)()=0){return p==0;}Check();", 1L);
+          ("I64 Check(F64 (*p)()=0){return p==0;}Check();", 1L);
+          ("I64 Check(U0 (*p)()=0){return p==0;}Check();", 1L);
+          ("I64 Check(I64 *(*p)()=0){return p==0;}Check();", 1L);
+          ("I64 Check(I64 (*p)()=40+2){return p==42;}Check();", 1L);
+          ("I64 Check(I64 (*p)()=0,I64 n=42){return (p==0)*n;}Check();", 42L);
+          ("I64 Check(I64 n=42,I64 (*p)()=0){return (p==0)*n;}Check();", 42L);
+          ( "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 \
+             n)=0){p=&Add;return p(40);}Apply();",
+            42L );
+          ( "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n)=0){return \
+             p(40);}Apply(&Add);",
+            42L );
+          ( "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 \
+             n)=0){p=&Add;return p(40);}I64 Run(){return Apply();}Run();",
+            42L );
+          ( "I64 Check(I64 (*p)()=0){return p==0;}I64 Run(){return \
+             Check()+Check();}Run();",
+            2L );
+        ])
+    modes
+
+let callback_defaults_preserve_declaration_effects () =
+  let source =
+    "I64 Count;Count=0;I64 Check(I64 (*p)()=(Count=Count+1)){return \
+     p==1;}Check()+Check()+Count;"
+  in
+  ignore (Test_integer_globals.run source |> Test_integer_functions.expect 3L);
+  let source =
+    "extern U0 Print(U8 *fmt,...);I64 Default(){Print(\"default\");return \
+     0;}I64 Check(I64 (*p)()=Default()){return p==0;}Check()+Check();"
+  in
+  ignore
+    (Test_integer_output.run source
+    |> Test_integer_output.expect ~value:(Some 2L) "default")
+
+let callback_defaults_keep_original_header_and_limits () =
+  ignore
+    (Test_integer_globals.run
+       "I64 A(){return 1;}I64 Check(I64 (*p)()=0){return p==0;}I64 Run(){I64 \
+        (*p)();p=&A;return p();}I64 A(){return 2;}Run()*100+A();"
+    |> Test_integer_functions.expect 102L);
+  ignore
+    (Test_integer_globals.run
+       "I64 Check(I64 (*p)()=0){return p==0;}I64 Old(){return Check();}I64 \
+        Check(I64 (*p)()=123){return p==123;}Old()*10+Check();"
+    |> Test_integer_functions.expect 11L);
+  List.iter
+    (fun mode ->
+      let source = "I64 Check(I64 (*p)()=0){return p==0;}Check();" in
+      let result =
+        Test_integer_globals.run ~mode source
+        |> Test_integer_functions.expect 1L
+      in
+      let steps = Ir_integer_interpreter.executed_steps result in
+      ignore
+        (Test_integer_globals.run ~mode ~max_steps:steps source
+        |> Test_integer_functions.expect 1L);
+      Alcotest.(check string)
+        "one fewer step cannot finish" "HCIRVM0007"
+        (Test_integer_functions.first_error
+           (Test_integer_globals.run ~mode ~max_steps:(steps - 1) source))
+          .code;
+      Alcotest.(check string)
+        "multistar callback default is outside word storage" "HCRUN0001"
+        (Test_integer_functions.first_error
+           (Test_integer_globals.run ~mode
+              "I64 Check(I64 (**p)()=0){return 42;}Check();"))
+          .code;
+      Alcotest.(check string)
+        "aggregate default signature still needs layout admission"
+        (if mode = Preprocessor.Jit then "HCRUN0004" else "HCEVAL0003")
+        (Test_integer_functions.first_error
+           (Test_integer_globals.run ~mode
+              "class Box {I64 n;};I64 Check(Box (*p)()=0){return p==0;}Check();"))
+          .code;
+      Alcotest.(check string)
+        "owned-code defaults need their original value receipt"
+        (if mode = Preprocessor.Jit then "HCRUN0001" else "HCRUN0006")
+        (Test_integer_functions.first_error
+           (Test_integer_globals.run ~mode
+              "I64 A(){return 42;}I64 Apply(I64 (*p)()=&A){return p();}Apply();"))
+          .code)
+    modes
+
+let callback_default_words_have_no_executable_authority () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun initial ->
+          let source =
+            "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"arg\");return \
+             40;}I64 Apply(I64 (*p)(I64 n)=" ^ initial
+            ^ "){return p(Side());}Print(\"before\");Apply();"
+          in
+          let error =
+            Test_integer_output.run ~mode source
+            |> Test_integer_output.fault ~output:"beforearg" "HCIRVM0024"
+          in
+          Alcotest.(check bool)
+            "numeric default fails after argument effects" true
+            (List.mem "stage=execution" error.notes
+            && not (List.mem "executed_steps=0" error.notes)))
+        [ "0"; "123" ])
+    modes
+
+let callback_default_producers_require_original_ownership () =
+  let module VM = Ir_integer_interpreter in
+  let module C = Ir_runtime_call_context in
+  let module Seq = Ir_instruction_sequence in
+  List.iter
+    (fun mode ->
+      let source = "I64 Check(I64 (*p)()=0){return p==0;}Check();" in
+      let compiled =
+        match mode with
+        | Preprocessor.Aot -> Test_integer_globals.compile ~mode source
+        | Preprocessor.Jit ->
+            let session, config, source =
+              Test_integer_functions.inputs ~mode source
+            in
+            let report =
+              compile_integer_program_report session ~config ~source
+            in
+            ignore
+              (Test_integer_functions.checked
+                 (integer_program_compilation_result report));
+            integer_program_compilation_units report
+            |> List.find (fun unit_ ->
+                integer_program_runtime_calls unit_ |> fun context ->
+                C.original_prepared_defaults context ~owner:C.Entry
+                |> Option.fold ~none:false ~some:(fun items -> items <> []))
+      in
+      let context = integer_program_runtime_calls compiled in
+      let original =
+        C.original_prepared_defaults context ~owner:C.Entry
+        |> Option.get |> List.hd
+      in
+      check_word_pointer 1 original.Seq.target_type;
+      Alcotest.(check bool)
+        "original default has checked receipt" true
+        (C.is_prepared_default context ~owner:C.Entry original.instruction_id);
+      let execute ?runtime_calls () =
+        VM.execute_program
+          ~globals:(integer_program_globals compiled)
+          ~initialization:(integer_program_initialization compiled)
+          ~functions:(integer_program_functions compiled)
+          ?runtime_calls ~max_steps:10000 ~max_frame_bytes:1024
+          ~max_call_depth:16
+          (integer_program_entry compiled)
+      in
+      let reject label = function
+        | Ok _ -> Alcotest.fail label
+        | Error errors ->
+            Alcotest.(check bool)
+              label true
+              (List.for_all
+                 (fun (error : VM.error) ->
+                   error.stage = VM.Preflight && error.executed_steps = 0)
+                 errors)
+      in
+      reject "raw default graph has no saved-default authority" (execute ());
+      let rec find = function
+        | [] -> None
+        | item :: rest as cell ->
+            if Seq.description item == original then Some cell else find rest
+      in
+      let cell =
+        integer_program_entry compiled
+        |> Ir_x87_stack.graph |> Ir_block_graph.blocks
+        |> List.find_map (fun block ->
+            Ir_block_graph.instructions block |> Seq.instructions |> find)
+        |> Option.get
+      in
+      Obj.set_field (Obj.repr cell) 0
+        (Obj.repr
+           { original with Seq.operands = List.map Fun.id original.operands });
+      Alcotest.(check bool)
+        "copied default loses complete graph authority" true
+        (Option.is_none (C.original_prepared_defaults context ~owner:C.Entry));
+      Alcotest.(check bool)
+        "copied default ID supplies no receipt" false
+        (C.is_prepared_default context ~owner:C.Entry original.instruction_id);
+      reject "copied default cannot execute" (execute ~runtime_calls:context ()))
+    modes
+
 let tests =
   [
+    Alcotest.test_case
+      "callback parameter defaults materialize original word storage" `Quick
+      callback_parameter_defaults_execute;
+    Alcotest.test_case "callback defaults evaluate once at their declaration"
+      `Quick callback_defaults_preserve_declaration_effects;
+    Alcotest.test_case
+      "callback defaults retain their original header and budgets" `Quick
+      callback_defaults_keep_original_header_and_limits;
+    Alcotest.test_case "numeric callback defaults grant no executable authority"
+      `Quick callback_default_words_have_no_executable_authority;
+    Alcotest.test_case "callback defaults require physical original producers"
+      `Quick callback_default_producers_require_original_ownership;
     Alcotest.test_case "callback target faults retain argument effects" `Quick
       callback_reached_faults_and_effects;
     Alcotest.test_case "callback invocation preserves exact runtime limits"

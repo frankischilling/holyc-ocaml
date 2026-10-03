@@ -813,6 +813,11 @@ let result_is_direct_function (result : expression_result) =
   | Function_call_resolution.Top_level_bound_identifier_expression _ ->
       result.category = Function_value
       && Option.is_some result.function_declaration
+  | Function_call_resolution.Unresolved_expression
+      Function_call_resolution.Identifier_expression ->
+      result.category = Function_value
+      && Option.is_some result.outer_occurrence
+      && Option.is_some result.function_declaration
   | _ -> false
 
 let result_direct_function_name (result : expression_result) =
@@ -824,6 +829,10 @@ let result_direct_function_name (result : expression_result) =
       identifier
       |> Function_call_resolution.top_level_bound_identifier_occurrence
       |> Top_level_outer_expression_binding.occurrence_name
+  | Function_call_resolution.Unresolved_expression
+      Function_call_resolution.Identifier_expression ->
+      Option.fold ~none:"<function>"
+        ~some:Outer_expression_binding.occurrence_name result.outer_occurrence
   | _ -> "<function>"
 
 let value_category_name = function
@@ -1971,8 +1980,31 @@ let rec type_expression table members policies ~before_item_index ~context
                   match
                     Top_level_identifier_resolution.leaf_resolution leaf
                   with
-                  | Top_level_id.Outer_type_required binding
-                  | Top_level_id.Outer_function_value { binding; _ } ->
+                  | Top_level_id.Outer_function_value { binding; metadata } -> (
+                      let declaration =
+                        Outer_environment.function_declaration metadata
+                      in
+                      match
+                        Function_call_resolution.direct_function_address_path
+                          (Function_call_conversion_policy.compilation_mode
+                             policies)
+                          declaration
+                      with
+                      | Error message ->
+                          Error
+                            (invalid_top_level_input
+                               ~origin:
+                                 (Top_level_outer_expression_binding
+                                  .occurrence_origin occurrence)
+                               message)
+                      | Ok path ->
+                          finish ~source_type:integer_type
+                            ~top_level_outer_occurrence:occurrence
+                            ~outer_binding:binding
+                            ~function_declaration:declaration
+                            ~function_address_path:path Function_value
+                            Integer_result state)
+                  | Top_level_id.Outer_type_required binding ->
                       finish ~top_level_outer_occurrence:occurrence
                         ~outer_binding:binding Unavailable
                         Unresolved_actual_class state
@@ -2145,7 +2177,32 @@ let rec type_expression table members policies ~before_item_index ~context
                       Unresolved_actual_class state
                   in
                   match Outer_environment.entry_global_metadata entry with
-                  | None -> unavailable ()
+                  | None -> (
+                      match Outer_environment.entry_function_metadata entry with
+                      | None -> unavailable ()
+                      | Some metadata -> (
+                          let declaration =
+                            Outer_environment.function_declaration metadata
+                          in
+                          match
+                            Function_call_resolution
+                            .direct_function_address_path
+                              (Function_call_conversion_policy.compilation_mode
+                                 policies)
+                              declaration
+                          with
+                          | Error message ->
+                              Error
+                                (invalid_input
+                                   ~origin:
+                                     (Outer_expression_binding.occurrence_origin
+                                        outer_occurrence)
+                                   message)
+                          | Ok path ->
+                              finish ~source_type:integer_type ~outer_occurrence
+                                ~outer_binding ~function_declaration:declaration
+                                ~function_address_path:path Function_value
+                                Integer_result state))
                   | Some metadata -> (
                       match
                         metadata |> Outer_environment.global_type_reference

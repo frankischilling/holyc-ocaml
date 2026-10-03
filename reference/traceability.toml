@@ -12952,4 +12952,26 @@ argument_order = "Callee evaluation and capture precede saved RAX and right-to-l
 cleanup = "Only one-star scalar automatic and named parameter frame cells authorize this consumer. Original local/parameter PrsType passes fsp_flags=0; anonymous PrsFunJoin derives RET1 for nonvariadic argument bytes in 1..32767. CALL_INDIRECT carries argument bytes. Callee pop uses ADD_RSP1(arguments) then ADD_RSP(8); caller pop uses ADD_RSP(arguments+8). The actual target flags do not select the caller policy."
 reached_checks = "Null/numeric callees fail with HCIRVM0024. Reached return/fixed/variadic signature or cleanup mismatches fail with HCIRVM0014 after argument effects. Unused mismatches can be overwritten before invocation. Whole-graph and receipt failures reject at preflight with zero executed steps. Live task expiry is outside this retained-owner consumer."
 verification_boundary = "Four new groups exercise 36 JIT/AOT explicit-argument invocation programs, reached output effects, skipped null calls, original and copied receipts, missing/copied graph authority and exact/one-below step, frame and depth limits. A JIT source program invokes the earlier executable after a same-name replacement. Earlier TempleOS JIT controls remain separate; this implementation has no hosted native callback proof."
-excluded = ["callback globals/statics/arrays and updates", "callback declaration-time defaults", "dereferenced and multistar invocation", "concrete numeric code addresses", "live task linking and reached expiry", "hosted native function addresses and callbacks", "F64/mixed/aggregate callback execution under issue 688"]
+excluded = ["callback globals/statics/arrays and updates", "anonymous callback signature defaults and owned-code parameter defaults", "dereferenced and multistar invocation", "concrete numeric code addresses", "live task linking and reached expiry", "hosted native function addresses and callbacks", "F64/mixed/aggregate callback execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-CALLBACK-PARAMETER-WORD-DEFAULTS"
+description = "Named-function callback parameters materialize their original saved integer default with the physical callback storage class."
+sources = [
+  "Compiler/PrsVar.HC:619-658 original parameter default compilation, execution and saved-word conversion",
+  "Compiler/PrsExp.HC:453-470 materialization with the original member_class",
+  "Compiler/PrsExp.HC:622-655 selected function address through the source hash chain"
+]
+implementation = ["src/ir/default_fragment_destination.ml", "src/ir/prepared_parameter_default.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The original named-function publication, completed header, parameter/default AST and physical default producer authorize materialization. The callback storage class is internal I64 with pointer depth one, independently of its return class. Equal copied producers and raw graphs reject before execution."
+preparation = "The existing declaration-time evaluator executes a checked integer expression once. Closed defaults work in both IR modes; JIT defaults also execute original retained calls and effects. Calls that omit the slot reuse its saved word. F64 default expressions and owned executable values are not converted to numeric address bits."
+execution = "Omitted callback parameters accept saved null and numeric words. These remain ordinary runtime words with no executable authority. A callback may be overwritten with an owned function address before invocation; a reached numeric target fails after argument effects. Defaults retain their original header across JIT replacement and preserve exact execution limits."
+retained_addresses = "A resolved outer function address retains the original source occurrence, physical outer binding and exact resolved declaration. Lowering consumes the originally registered executable link and body owner; a later same-name publication does not retarget it."
+verification_boundary = "Five new groups cover closed word defaults in both IR modes, independent callback return classes, provided and omitted slots, nested calls, original declaration effects, retained body replacement, reached numeric faults with output, copied/missing producer authority and exact/one-below limits. This entry does not claim hosted native callback or new independent TempleOS oracle verification."
+excluded = ["anonymous callback signature defaults", "owned-code defaults", "callback defaults with more than one indirection star", "F64 default expressions", "aggregate callback signature layout admission", "hosted native callback/default emission", "live task expiry"]

@@ -2744,6 +2744,18 @@ let scalar_value_type ~allow_byte ~allow_public type_ =
 let function_return_word_type type_ =
   scalar_value_type ~allow_byte:true ~allow_public:true type_
 
+(* Only a sealed call's original prepared-default producer may materialize a
+   saved word with the callback parameter's physical RT_PTR class. Numeric bits
+   remain Runtime_word values and never become owned executable code. *)
+let prepared_default_word_type type_ =
+  match scalar_value_type ~allow_byte:true ~allow_public:true type_ with
+  | Some _ as word -> word
+  | None -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64), 1 ->
+          Some I64
+      | _ -> None)
+
 let checked_return_kind type_ =
   match function_return_word_type type_ with
   | Some word -> Some (Word_return word)
@@ -3355,12 +3367,17 @@ let declared_types ?frame ?globals ?literals ?initialization
                          | None -> Unsupported
                        else
                          match (frame, description.opcode) with
-                         | _, Opcode.Ic_imm_i64
-                           when is_default description.instruction_id -> (
-                             match
-                               scalar_value_type ~allow_byte:true
-                                 ~allow_public:true type_
-                             with
+                         | _, Opcode.Ic_imm_i64 when is_default description -> (
+                             match prepared_default_word_type type_ with
+                             | Some word_type when Type.pointer_depth type_ = 1
+                               ->
+                                 Supported
+                                   ( word_type,
+                                     type_,
+                                     Type.make_primitive ~form:Internal_storage
+                                       ~primitive:Sema.Primitive_type.I64
+                                       ~pointer_depth:0
+                                     |> Result.get_ok )
                              | Some word_type -> supported word_type type_
                              | None -> Unsupported)
                          | _, opcode
@@ -3726,6 +3743,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
   in
   let kind =
     match (frame, description.opcode) with
+    | _, Opcode.Ic_imm_i64 when is_default -> Some Immediate_kind
     | _, Opcode.Ic_str_const when Option.is_some literals ->
         Some Literal_address_kind
     | _, Opcode.Ic_mul
@@ -3968,9 +3986,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               with
               | [], Some result, Some type_, Some (Sequence.Integer bits) -> (
                   match
-                    if is_default then
-                      scalar_value_type ~allow_byte:true ~allow_public:true
-                        type_
+                    if is_default then prepared_default_word_type type_
                     else producer_word_type type_
                   with
                   | Some type_ ->
@@ -4315,11 +4331,18 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     Option.bind function_addresses (fun addresses ->
         Runtime.original_function_address addresses description)
   in
-  let is_default id =
-    Option.fold ~none:false
-      ~some:(fun context ->
-        Runtime.is_prepared_default context ~owner:runtime_owner id)
-      runtime_calls
+  let defaults =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_prepared_defaults context ~owner:runtime_owner)
+    |> Option.value ~default:[]
+    |> List.fold_left
+         (fun map item ->
+           Instruction_map.add item.Sequence.instruction_id item map)
+         Instruction_map.empty
+  in
+  let is_default description =
+    Option.fold ~none:false ~some:(( == ) description)
+      (Instruction_map.find_opt description.Sequence.instruction_id defaults)
   in
   let* () =
     match literals with
@@ -4369,7 +4392,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               capture_discard = true;
             }
         in
-        let prepare_call (description : Sequence.description) =
+        let prepare_call ~original_default (description : Sequence.description)
+            =
           let no_operands =
             description.operands = [] && description.flags = 0L
           in
@@ -5203,9 +5227,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                    "direct call cleanup and call end must follow the call")
           | _ ->
               prepare_instruction ?frame ?globals ?literals ?initialization
-                ~allow_public:true
-                ~is_default:(is_default description.instruction_id)
-                block_index types block_id description
+                ~allow_public:true ~is_default:original_default block_index
+                types block_id description
         in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
@@ -5287,7 +5310,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                               executable body")
                   | None ->
                       if Option.is_some callees then
-                        prepare_call checked_description
+                        prepare_call ~original_default:(is_default description)
+                          checked_description
                       else
                         prepare_instruction ?frame ?globals ?literals
                           ?initialization block_index types block_id description

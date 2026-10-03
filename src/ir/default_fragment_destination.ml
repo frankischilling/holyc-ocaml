@@ -40,17 +40,20 @@ let create_with_globals globals typed =
     | _ -> Error "default destination requires its original default root"
   in
   let receipt = Fragment.receipt fragment_ in
-  let* () =
-    if Option.is_some receipt.default_function_pointer then
-      Error
-        "HCRUN0001: function-pointer defaults require callable value storage"
-    else Ok ()
+  let* type_ =
+    match receipt.default_function_pointer with
+    | Some pointer when List.length pointer.indirection_layers = 1 ->
+        (* LexExpression2Bin returns a word; PrsFunCall later materializes that
+           saved word with the original member's RT_PTR storage class. *)
+        Sema.Type.make_primitive ~form:Internal_storage ~primitive:I64
+          ~pointer_depth:0
+    | Some _ ->
+        Error "HCRUN0001: callback defaults require one original pointer star"
+    | None ->
+        Sema.Source_type_reference.builtin receipt.default_type_specifier
+          receipt.default_pointer_layers
+        |> Result.map Sema.Type_reference.resolved_type
   in
-  let* reference =
-    Sema.Source_type_reference.builtin receipt.default_type_specifier
-      receipt.default_pointer_layers
-  in
-  let type_ = Sema.Type_reference.resolved_type reference in
   let value = Typed.top_level_root_value root_ in
   let* () =
     if

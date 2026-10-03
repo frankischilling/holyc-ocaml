@@ -188,6 +188,12 @@ val is_implicit_discard :
 val is_prepared_default :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> bool
 
+val original_prepared_defaults :
+  t -> owner:owner -> Instruction_sequence.description list option
+(** Return the physical original producers after checking the complete sealed
+    graph. An equal reconstructed instruction grants no saved-default type
+    authority. *)
+
 val provider : call -> provider option
 val symbol : call -> Sema.Symbol.t
 val return_type : call -> Sema.Type.t

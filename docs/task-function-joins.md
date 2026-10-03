@@ -52,3 +52,12 @@ arguments. Reached target mismatches preserve earlier argument effects.
 Live task address linking, callback globals/statics/arrays, defaults and native
 invocation remain under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). The broader callback and mixed-value ABI requirements remain in
 [issue #688](https://github.com/frankischilling/holyc-ocaml/issues/688).
+
+Named-function callback parameters can now reuse their original saved integer
+default. Declaration-time effects occur once; omitted arguments materialize the
+saved word using the callback parameter's physical pointer class. That word
+does not become executable code. Function addresses encountered after a default
+activates the JIT task retain their original outer occurrence, declaration and
+registered code owner, including an earlier body after same-name replacement.
+Anonymous signature defaults and defaults containing owned executable values
+still need their own preparation and value receipts.
