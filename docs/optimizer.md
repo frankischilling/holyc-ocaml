@@ -56,7 +56,7 @@ The input wrapper proves that `Ir.Instruction_sequence`, `Ir.Block_graph`, and `
 
 - The consumer has one operand, one result, no payload, zero flags, and the exact target type shown below.
 
-`Ir.Block_graph.create` checks each block's value sequence independently. A cross-block value operand therefore reports `HCIR0009` before an `Ir.X87_stack.t` can be constructed and never reaches this pass.
+`Ir.Block_graph.create` checks local sequencing and requires each cross-block value's unique defining block to dominate the use. Such values can reach this pass. Its graph-wide use count preserves an immediate shared with another block. Cross-block constant propagation remains outside the pass.
 
 ## Eligibility and type matrix
 
