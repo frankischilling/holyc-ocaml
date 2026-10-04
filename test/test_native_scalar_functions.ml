@@ -1035,8 +1035,6 @@ let indirect_callback_argument_authority () =
           |> reject_gate
                "nested callback ownership cannot become an object reference")
         [
-          "I64 Ignore(I64 (*cb)(I64 n)=12){return 42;}I64 Run(){I64 (*p)(I64 \
-           (*cb)(I64 n)=17);p=&Ignore;return p();}Run();";
           "I64 Apply(I64 (*cb)(I64 n)){return cb(40);}I64 Run(){I64 n=42;I64 \
            (*p)(I64 (*cb)(I64 n));p=&Apply;return p(&n);}Run();";
           "I64 Apply(I64 (**cb)(I64 n)){return 42;}I64 Run(){I64 (*p)(I64 \
@@ -1047,8 +1045,56 @@ let indirect_callback_argument_authority () =
         ])
     modes
 
+let callback_word_default_source_limits () =
+  let source =
+    "I64 Walk(noreg I64 (*cb)(I64 n)=17,I64 depth=2){if(depth)return \
+     Walk(,depth-1);if(cb==17)return 42;return 0;}Walk();"
+  in
+  List.iter
+    (fun mode ->
+      let compiled = image ~mode source in
+      let code = Program.code_bytes compiled
+      and stack = Program.frame_bytes compiled
+      and ir = Program.ir_instructions compiled
+      and blocks = Program.block_count compiled in
+      ignore
+        (image ~mode ~max_code_bytes:code ~max_stack_bytes:stack
+           ~max_ir_instructions:ir ~max_blocks:blocks ~max_initializer_steps:6
+           ~max_default_bytes:16 source);
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "saved callback word code one below";
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004"
+           "saved callback word private staging one below";
+      compile_source ~mode ~max_ir_instructions:(ir - 1) source
+      |> reject_compile ~code:"HCBACK0001"
+           "saved callback word original IR one below";
+      compile_source ~mode ~max_blocks:(blocks - 1) source
+      |> reject_compile ~code:"HCBACK0001"
+           "saved callback word original blocks one below";
+      List.iter
+        (fun contents ->
+          compile_source ~mode contents
+          |> reject_gate
+               "callback word defaults retain source declarator and closed \
+                expression authority")
+        [
+          "I64 F(I64 *p=17){return 42;}F();";
+          "I64 F(I64 (**p)(I64 n)=17){return 42;}F();";
+          "I64 F(reg RAX I64 (*p)(I64 n)=17){return 42;}F();";
+          "I64 A(I64 n){return n;}I64 F(I64 (*p)(I64 n)=&A){return 42;}F();";
+          "I64 A(){return 17;}I64 F(I64 (*p)(I64 n)=A()){return 42;}F();";
+          "I64 F(I64 (*p)(I64 n)=\"A\"){return 42;}F();";
+          "I64 F(I64 (*p)(I64 n)=lastclass){return 42;}F();";
+          "I64 F(I64 (*p)(I64 n)=1.5){return 42;}F();";
+          "42;I64 F(I64 (*p)(I64 n)=17){return 42;}F();";
+        ])
+    modes
+
 let tests =
   [
+    Alcotest.test_case "callback word defaults retain source and exact budgets"
+      `Quick callback_word_default_source_limits;
     Alcotest.test_case "indirect callback arguments retain original authority"
       `Quick indirect_callback_argument_authority;
     Alcotest.test_case

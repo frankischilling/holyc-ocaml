@@ -112,8 +112,9 @@ its earlier load. Valid calls reserve depth, semantic frame and physical stack
 quotas. Completion and faults unwind through the private adapter and restore
 those quotas.
 
-Owned code supports equality with owned code or null. Two numeric callback values
-use word equality. Comparing owned code with a nonzero numeric callback reports
+Owned code supports equality with owned code or null. Numeric callback values
+also compare with scalar integer operands using full-word equality. Comparing
+owned code with a nonzero numeric operand reports
 `HCIRVM0024` at the reached comparison. Discarded owned code never exposes a host
 address as a numeric result. Concrete address arithmetic, numeric address output
 and general code truth tests remain outside this native domain.

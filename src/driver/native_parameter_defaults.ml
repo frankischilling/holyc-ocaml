@@ -72,6 +72,39 @@ let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
 
+let supported_parameter parameter =
+  let stack_register =
+    match Headers.parameter_register_selection parameter with
+    | Sema.Register_request.Unspecified | Sema.Register_request.Disabled -> true
+    | Sema.Register_request.Allocatable | Sema.Register_request.Explicit _ ->
+        false
+  in
+  stack_register
+  &&
+  match Headers.parameter_declarator_kind parameter with
+  | Headers.Object -> scalar_word (parameter_type parameter)
+  | Headers.Function_pointer pointer ->
+      List.length (Headers.function_pointer_indirection_origins pointer) = 1
+
+let execution_type_matches fragment prepared_type destination =
+  let _, _, pointer = Sema.Default_fragment.parameter_parts fragment in
+  match pointer with
+  | None ->
+      Type.equal (Default_fragment_destination.type_ destination) prepared_type
+  | Some pointer when List.length pointer.Frontend.Ast.indirection_layers = 1 ->
+      let storage =
+        Type.make_primitive ~form:Internal_storage ~primitive:I64
+          ~pointer_depth:1
+        |> Result.get_ok
+      and word =
+        Type.make_primitive ~form:Internal_storage ~primitive:I64
+          ~pointer_depth:0
+        |> Result.get_ok
+      in
+      Type.equal prepared_type storage
+      && Type.equal (Default_fragment_destination.type_ destination) word
+  | Some _ -> false
+
 let same_requirement left_header left_parameter right_header right_parameter =
   left_header == right_header && left_parameter == right_parameter
 
@@ -90,17 +123,10 @@ let add_requirements globals prepared requirements header =
       | Some (Headers.Expression_default { contains_string_literal = true; _ })
         -> Error "native parameter defaults do not admit string-backed values"
       | Some (Headers.Expression_default _) ->
-          let type_ = parameter_type parameter in
-          if
-            (not (scalar_word type_))
-            || Headers.parameter_register_requests parameter <> []
-            ||
-            match Headers.parameter_declarator_kind parameter with
-            | Headers.Object -> false
-            | Headers.Function_pointer _ -> true
-          then
+          if not (supported_parameter parameter) then
             Error
-              "native parameter defaults require nonzero scalar integer objects"
+              "native parameter defaults require scalar integer objects or \
+               original one-star callback-word parameters"
           else
             let* value =
               match
@@ -136,9 +162,7 @@ let execution_matches prepared execution =
     | Callback _ -> false)
   && Sema.Default_fragment.references fragment = []
   && Default_fragment_destination.fragment destination == fragment
-  && Type.equal
-       (Default_fragment_destination.type_ destination)
-       (Prepared.type_ prepared)
+  && execution_type_matches fragment (Prepared.type_ prepared) destination
   && Program.default_constant_is_consumed execution
   && Int64.equal
        (Program.default_constant_bits execution)
@@ -155,9 +179,9 @@ let callback_execution_matches prepared execution =
     | Named _ -> false)
   && Sema.Default_fragment.references fragment = []
   && Default_fragment_destination.fragment destination == fragment
-  && Type.equal
-       (Default_fragment_destination.type_ destination)
+  && execution_type_matches fragment
        (Prepared_callback.type_ prepared)
+       destination
   && Program.default_constant_is_consumed execution
   && Int64.equal
        (Program.default_constant_bits execution)
@@ -207,14 +231,10 @@ let add_callback_requirements globals prepared requirements pointer =
       | Some (Headers.Expression_default { contains_string_literal = true; _ })
         -> Error "native callback defaults do not admit string-backed values"
       | Some (Headers.Expression_default _) ->
-          if
-            (not (scalar_word (parameter_type parameter)))
-            || Headers.parameter_register_requests parameter <> []
-            ||
-            match Headers.parameter_declarator_kind parameter with
-            | Headers.Object -> false
-            | Function_pointer _ -> true
-          then Error "native callback defaults require scalar integer objects"
+          if not (supported_parameter parameter) then
+            Error
+              "native callback defaults require scalar integer objects or \
+               original one-star callback-word parameters"
           else
             let* value =
               match

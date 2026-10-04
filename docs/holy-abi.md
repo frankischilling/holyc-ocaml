@@ -278,3 +278,9 @@ defaults prepare once and retain their declaration's saved values. Native member
 callbacks, effectful/owned-code defaults, initializers, updates and pointer/owned-code tails
 remain unfinished, along with HolyC ABI exports,
 RET-imm execution and interrupt entry.
+
+[Native callback-word defaults](native-callback-word-defaults.md) separate the
+original callback parameter storage from its return class. Integer preparation
+uses an internal I64 word; materialization retains RT_PTR and zero executable
+ownership. Original headers, receipts, complete charged evidence and selected
+`noreg` state remain checked.

@@ -215,3 +215,7 @@ Automatic, static and global callback cells, fully indexed arrays and fixed
 callback parameters use the address and
 ownership snapshots described in [native callbacks](native-local-callbacks.md).
 Numeric callback words remain non-executable and fault at reached invocation.
+
+[Callback-word defaults](native-callback-word-defaults.md) retain complete
+eight-byte values independently of callback return classes. Effective `noreg`
+parameters and defaults use the checked stack path.

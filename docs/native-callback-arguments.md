@@ -14,6 +14,10 @@ its inner call. The other declarations retain their defaults 12 and 10; copying
 an executable address does not copy a declaration's defaults. All three original
 defaults prepare once, consume nine preparation steps and retain 24 saved bytes.
 
+[Callback-word defaults](native-callback-word-defaults.md) also prepare original
+closed numeric words for omitted callback-valued arguments. Those words retain
+zero executable ownership and do not select bodies.
+
 Each fixed callback argument stages its value and a private executable owner.
 Those owner words follow the complete outgoing argument area, including any
 hidden count and integer tail. They precede the caller's saved callee and result
@@ -54,8 +58,7 @@ enforce the hosted execution contract; this adds no TempleOS execution capture
 or exported HolyC ABI proof.
 
 Ordinary object-reference parameters in indirect native signatures, callback
-indirection beyond one star, omitted callback-valued arguments with saved numeric
-defaults, pointer/owned-code tails, member/initializer/update
+indirection beyond one star, pointer/owned-code tails, member/initializer/update
 consumers, effectful or owned-code defaults, ordinary code-word storage/returns,
 retained replacement/linking and general F64/aggregate execution remain open.
 The full compiler and release remain unfinished under #801, #688 and #682.

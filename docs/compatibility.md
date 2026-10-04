@@ -566,3 +566,9 @@ nested defaults. IR/native signature checks distinguish callbacks from ordinary
 object pointers with the same physical type. Both source modes check values,
 argument effects, quota boundaries and recovery. The wider callback, compiler
 and release backlog remains open.
+
+[Native callback-word defaults](native-callback-word-defaults.md) support
+original one-star callback-valued fixed parameters in named and indirect
+signatures. Saved full-word numeric values remain unowned, preserve reached
+invocation effects and use the original selected declaration. Effective `noreg`
+parameters retain stack storage. Effectful and owned-code defaults remain open.

@@ -39,6 +39,11 @@ let image_errors ~fallback errors =
         error.code error.message)
     errors
 
+let stack_register_qualifiers register_qualifiers =
+  match List.rev register_qualifiers with
+  | [] -> true
+  | (request : Ast.register_qualifier) :: _ -> request.kind = Ast.Noreg
+
 let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
     ~max_blocks ~max_global_bytes ~max_literal_bytes =
   let errors = image_errors ~fallback:span in
@@ -235,13 +240,13 @@ let function_source_error (definition : Ast.function_definition) =
         if
           not
             (scalar_word_type parameter.type_specifier
-            || Option.is_some parameter.function_pointer
-               && void_return_type parameter.type_specifier)
+            || Option.is_some parameter.function_pointer)
         then
           reject
             "native function parameters require nonzero scalar integer types"
         else if
-          List.length parameter.pointer_layers > 1
+          Option.is_none parameter.function_pointer
+          && List.length parameter.pointer_layers > 1
           || Option.fold ~none:false
                ~some:(fun pointer ->
                  List.length pointer.Ast.indirection_layers <> 1)
@@ -249,8 +254,8 @@ let function_source_error (definition : Ast.function_definition) =
         then
           reject
             "native functions admit only one-level scalar pointer parameters"
-        else if parameter.register_qualifiers <> [] then
-          reject "native functions do not admit explicit parameter registers"
+        else if not (stack_register_qualifiers parameter.register_qualifiers)
+        then reject "native functions do not admit explicit parameter registers"
         else if Option.is_none parameter.name then
           reject "native function definitions require named fixed parameters"
         else None)

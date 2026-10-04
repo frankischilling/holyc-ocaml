@@ -1394,3 +1394,12 @@ nested calls, all integer widths, U0, cross-activation static state, per-element
 initialization and bounds, private metadata allocation caps and recursive quota
 failures followed by same-image recovery. Both image ABIs compile locally; the
 Windows and Linux CI jobs execute their host ABI through `@native-tests`.
+
+Native callback-word default tests cover full 64-bit values, narrow/F64/U0 and
+pointer callback return classes, named and indirect selection, unused/explicit
+proof requirements, multiple lanes, sparse omission, owned overrides, copies,
+word tails, effective `noreg`, scalar comparisons, reached faults and exact quota
+recovery. The authority suite rejects missing, duplicate, reconstructed and
+foreign saved/charged evidence and compiles both ABIs. The maintained CLI example
+returns 42 with six preparation steps and sixteen saved bytes. See
+[callback-word defaults](native-callback-word-defaults.md).

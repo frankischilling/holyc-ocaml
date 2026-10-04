@@ -74,6 +74,17 @@ let scalar_word_type = function
   | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
   | _ -> false
 
+let callback_word_parameter function_pointer =
+  match function_pointer with
+  | Some (pointer : Ast.function_pointer_declarator) ->
+      List.length pointer.indirection_layers = 1
+  | _ -> false
+
+let stack_register_qualifiers register_qualifiers =
+  match List.rev register_qualifiers with
+  | [] -> true
+  | (request : Ast.register_qualifier) :: _ -> request.kind = Ast.Noreg
+
 let storage_shape ~type_ ~dimensions =
   Shape.create ~type_ ~dimensions
   |> Result.map_error (function
@@ -173,13 +184,16 @@ let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
       fail "HCRUN0004"
         "native default preparation has another source owner or mode"
     else if
-      (not (scalar_word_type type_specifier))
-      || pointer_layers <> []
-      || Option.is_some function_pointer
-      || register_qualifiers <> []
+      not
+        (stack_register_qualifiers register_qualifiers
+        && (callback_word_parameter function_pointer
+           || scalar_word_type type_specifier
+              && pointer_layers = []
+              && Option.is_none function_pointer))
     then
       fail "HCRUN0001"
-        "native defaults require unqualified nonzero scalar integer parameters"
+        "native defaults require scalar integer objects or original one-star \
+         callback-word parameters without explicit register selection"
     else Ok ()
   in
   let* expression =

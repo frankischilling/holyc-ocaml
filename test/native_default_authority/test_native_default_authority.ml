@@ -410,11 +410,106 @@ let unused_callback_defaults_require_proof () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let callback_word_proof_ownership () =
+  let contents =
+    "I64 Ignore(noreg U0 (*cb)()=0xffffffffffffffff){return cb==-1;}I64 \
+     Unused(F64 (*cb)(F64 n)=17){return 42;}I64 (*G)(U0 \
+     (*cb)()=0xffffffffffffffff)[2];I64 Run(){I64 (*p)(U0 \
+     (*cb)()=0xffffffffffffffff);p=&Ignore;return p();}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let unit_, named, callbacks, completions = source_fixture mode contents in
+      let foreign, foreign_named, foreign_callbacks, foreign_completions =
+        source_fixture mode contents
+      in
+      Alcotest.(check int)
+        "named callback-word defaults including unused body" 2
+        (List.length named);
+      Alcotest.(check int)
+        "global and local anonymous callback-word defaults" 2
+        (List.length callbacks);
+      let seal named callbacks completions =
+        seal ~prepared_callbacks:callbacks unit_ named completions
+      in
+      let proof = seal named callbacks completions |> checked in
+      List.iter
+        (fun status_abi ->
+          Alcotest.(check bool)
+            "original callback word proof admits both ABIs" true
+            (Result.is_ok (compile ~status_abi ~parameter_defaults:proof unit_));
+          reject "callback words cannot compile from saved facts alone"
+            (compile ~status_abi unit_);
+          reject "callback word proof cannot move to an equal bundle"
+            (compile ~status_abi ~parameter_defaults:proof foreign))
+        [ Image.Windows_x64; Image.System_v_x64 ];
+      reject "named callback words cannot borrow foreign saved owners"
+        (seal foreign_named callbacks completions);
+      reject "anonymous callback words cannot borrow foreign saved owners"
+        (seal named foreign_callbacks completions);
+      reject "callback words cannot borrow foreign charged executions"
+        (seal named callbacks foreign_completions);
+      List.iter
+        (fun saved ->
+          Alcotest.(check int)
+            "saved named callback keeps physical pointer shape" 1
+            (Semantic_type.pointer_depth (Saved.type_ saved));
+          let remaining = List.filter (( != ) saved) named in
+          reject "unused named callback word cannot omit saved proof"
+            (seal remaining callbacks completions);
+          let rebuilt =
+            Saved.create ~publication:(Saved.publication saved)
+              ~header:(Saved.header saved) ~receipt:(Saved.receipt saved)
+              ~bits:(Saved.bits saved)
+            |> checked
+          in
+          reject "reconstructed named callback word cannot borrow original work"
+            (seal (rebuilt :: remaining) callbacks completions);
+          reject "duplicated named callback word proof is rejected"
+            (seal (saved :: named) callbacks completions))
+        named;
+      List.iter
+        (fun saved ->
+          Alcotest.(check int64)
+            "anonymous callback word retains all bits" (-1L)
+            (Callback_saved.bits saved);
+          Alcotest.(check int)
+            "saved anonymous callback keeps pointer shape" 1
+            (Semantic_type.pointer_depth (Callback_saved.type_ saved));
+          let remaining = List.filter (( != ) saved) callbacks in
+          reject "unused anonymous callback word cannot omit saved proof"
+            (seal named remaining completions);
+          let rebuilt =
+            Callback_saved.create
+              ~namespace:(Callback_saved.namespace saved)
+              ~header:(Callback_saved.header saved)
+              ~receipt:(Callback_saved.receipt saved)
+              ~bits:(Callback_saved.bits saved)
+            |> checked
+          in
+          reject "reconstructed anonymous callback word cannot borrow work"
+            (seal named (rebuilt :: remaining) completions);
+          reject "duplicated anonymous callback word proof is rejected"
+            (seal named (saved :: callbacks) completions))
+        callbacks;
+      List.iter
+        (fun completion ->
+          let remaining = List.filter (( != ) completion) completions in
+          reject "every callback word requires original charged completion"
+            (seal named callbacks remaining);
+          reject "a callback word completion cannot be consumed twice"
+            (seal named callbacks (completion :: completions)))
+        completions)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "native default authority"
     [
       ( "ownership",
         [
+          Alcotest.test_case
+            "callback word defaults retain original charged owners" `Quick
+            callback_word_proof_ownership;
           Alcotest.test_case
             "unused anonymous declarations cannot bypass preparation proof"
             `Quick unused_callback_defaults_require_proof;

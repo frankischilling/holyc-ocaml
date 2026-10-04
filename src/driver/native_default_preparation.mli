@@ -12,9 +12,12 @@ val create :
   (t, string) result
 (** An isolated preparation budget. It has no source-command executor, retained
     task bindings or executable-memory capability. Saved payloads default to
-    65,536 bytes and charge eight bytes per successful scalar integer default.
-    Saved bits retain the full register value even for narrow parameter types;
-    the callee's parameter storage applies its declared width. *)
+    65,536 bytes and charge eight bytes per successful scalar integer or
+    original one-star callback-word default. Saved bits retain the full register
+    value even for narrow parameter types; the callee's parameter storage
+    applies its declared width. Callback parameters keep all word bits
+    independently of their return class and receive zero executable ownership
+    from numeric/null defaults. *)
 
 val prepare :
   t ->

@@ -28,8 +28,14 @@ checked constant-preparation engine handles the original expression. Closed
 integer arithmetic such as `84/2` prepares the word 42. Source-selected queries
 are usable only when their original evidence and the preparation engine support
 them. References to values or functions, storage effects, string ownership,
-`lastclass`, pointer/function-pointer parameters and non-integer parameter types
+`lastclass`, ordinary object-pointer parameters and non-integer value parameters
 remain unsupported. Prototypes remain outside the native function gate.
+
+[Callback-word defaults](native-callback-word-defaults.md) admit original
+one-star callback-valued parameters. Their defaults retain full integer words
+independently of the callback return class and receive zero executable ownership.
+Selected original headers own omission; an effective `noreg` uses the existing
+stack parameter path. Explicit register allocation remains outside this adapter.
 
 Default expressions use the preparation engine's supported integer arithmetic.
 Source-owned shift cases retain full-word saved bits; this does not establish

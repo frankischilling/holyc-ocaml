@@ -4925,14 +4925,16 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | [ left_id; right_id ], Some result, Some target_type ->
                   let left = operand values description position left_id
                   and right = operand values description position right_id in
-                  if
-                    not
-                      ((Option.is_some (code_source left) || is_zero left)
-                      && (Option.is_some (code_source right) || is_zero right))
-                  then
-                    unsupported description
-                      "native code equality requires another owned code value \
-                       or literal zero";
+                  List.iter
+                    (fun input ->
+                      if
+                        Option.is_none (code_source input)
+                        && not (is_numeric_code input)
+                      then
+                        ignore
+                          (checked_scalar ~allow_public:true description
+                             input.declared_type))
+                    [ left; right ];
                   ignore (checked_word description target_type);
                   let value =
                     define values description position result target_type
@@ -5995,6 +5997,54 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   mark_code value (ref [ callee_index ]);
                   (Load_function_address (value, callee_index), None)
               | _ -> malformed description "invalid native function address")
+          | Opcode.Ic_imm_i64
+            when raw.flags = 0x2000L
+                 &&
+                 match !calls with
+                 | scope :: _ when scope.phase = Collecting ->
+                     List.exists
+                       (fun argument ->
+                         Sequence.Instruction_id.equal
+                           (Runtime.argument_producer argument)
+                           raw.instruction_id
+                         && (Option.is_some
+                               (Runtime.argument_prepared_default argument)
+                            || Option.is_some
+                                 (Runtime.argument_prepared_callback_default
+                                    argument))
+                         &&
+                         match Runtime.argument_role argument with
+                         | Runtime.Fixed index
+                           when index >= 0 && index < scope.fixed_count ->
+                             Option.is_some scope.argument_callbacks.(index)
+                         | _ -> false)
+                       (scope_arguments scope)
+                 | _ -> false -> (
+              (* Only an original saved callback argument is a numeric code
+                 word here. Ordinary pointer immediates remain frame addresses;
+                 the exact default proof and producer are checked below before
+                 any native allocation or emission. *)
+              match
+                ( description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | Some result, Some target_type, Some (Sequence.Integer bits)
+                when description.operands = [] ->
+                  let word_type =
+                    Type.make_primitive ~form:Internal_storage ~primitive:I64
+                      ~pointer_depth:0
+                    |> Result.get_ok
+                  in
+                  let value =
+                    define values description position result target_type
+                      word_type
+                  in
+                  numeric_code_values :=
+                    Value_set.add value.value_id !numeric_code_values;
+                  (Load_immediate (value, bits), None)
+              | _ ->
+                  malformed description "invalid saved callback-word argument")
           | (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
             when Option.fold ~none:false
                    ~some:(fun type_ ->
@@ -7356,7 +7406,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                               "pushed argument source type is inconsistent");
                         if Option.is_some scope.argument_owner_stages.(index)
                         then (
-                          if Option.is_none (code_source value) then
+                          if
+                            Option.is_none (code_source value)
+                            && not (is_numeric_code value)
+                          then
                             ignore
                               (checked_scalar ~allow_public:true raw
                                  value.declared_type);

@@ -354,3 +354,8 @@ Automatic, static and global callback cells, fully indexed arrays and fixed
 callback parameters have a native consumer;
 see [native callbacks](native-local-callbacks.md) for capture, private ownership,
 numeric faults and the remaining storage/default/variadic restrictions.
+
+Original [callback-word defaults](native-callback-word-defaults.md) load saved
+numeric values into callback parameters with zero executable owners. Effective
+`noreg` parameters use the existing stack path; explicit register allocation
+still rejects.

@@ -23,13 +23,13 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 11)
+    (Array.length Sys.argv = 12)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
      <native-scalar-functions.hc> <native-u0-functions.hc> \
      <native-calling-flags.hc> <native-local-callbacks.hc> \
      <native-callback-parameters.hc> <native-callback-storage.hc> \
      <native-callback-defaults.hc> <native-word-tails.hc> \
-     <native-callback-arguments.hc>"
+     <native-callback-arguments.hc> <native-callback-word-defaults.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
@@ -41,6 +41,7 @@ let storage_fixture = Sys.argv.(7)
 let defaults_fixture = Sys.argv.(8)
 let word_tail_fixture = Sys.argv.(9)
 let callback_argument_fixture = Sys.argv.(10)
+let callback_word_default_fixture = Sys.argv.(11)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -548,6 +549,14 @@ let callback_storage_cli_contract () =
     [ "jit"; "aot" ]
 
 let () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_with_preparation ~expected_source_preparation:6
+           ~mode ~source:callback_word_default_fixture ~expected_preparation:6
+           ~expected_default_bytes:16 ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
   List.iter
     (fun mode ->
       ignore
