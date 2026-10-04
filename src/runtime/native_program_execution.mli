@@ -23,6 +23,46 @@ val hard_max_output_bytes : int
 (** Hard captured-output byte bound: 16 MiB. *)
 
 type report
+type retained
+
+val retain :
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_active_stack_bytes:int ->
+  Backend.X86_64_program.t ->
+  (retained, string) result
+(** Retain the original sealed host image and one private data arena. Code moves
+    from writable staging to executable/read-only protection once; data stays
+    read/write and non-executable. Bounds and the host ABI are checked before
+    allocation. No native pointer or replacement image is accepted or exposed.
+*)
+
+val release : retained -> (unit, string) result
+(** Release the original mapping, arena and Windows unwind registration.
+    Successful release is idempotent. A released image cannot execute; an active
+    image rejects release. Once cleanup starts, the owner cannot activate again.
+    Failed OS release keeps remaining resources only for a later release retry.
+    Unreachable handles have a native finalizer. *)
+
+val execute_retained_report :
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_active_stack_bytes:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  max_steps:int ->
+  retained ->
+  report
+(** Execute the same original mapped entry with persistent global/static/literal
+    data and executable owners. Each activation has fresh bounded status and
+    output capture, using the ordinary sealed-image decoder. Reached writes
+    persist on checked faults. Overlapping activations or release reject across
+    OCaml domains. The complete original entry runs again, including scheduled
+    AOT load regions; this API supplies no once-only declaration scheduling.
+    This host lifetime primitive does not schedule or replay parser callbacks,
+    link separate images, or establish native JIT declaration execution. *)
 
 val execute_report :
   ?max_frame_bytes:int ->

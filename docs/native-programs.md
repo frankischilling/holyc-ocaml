@@ -359,3 +359,9 @@ Original [callback-word defaults](native-callback-word-defaults.md) load saved
 numeric values into callback parameters with zero executable owners. Effective
 `noreg` parameters use the existing stack path; explicit register allocation
 still rejects.
+
+[Retained native images](native-retained-images.md) provide an opaque host
+lifetime for an original compiled image and its data across activations. Reached
+writes survive checked faults; each activation keeps fresh bounded status and
+output capture. Native parser-time JIT execution and source-task linking still
+require their original declaration and publication consumers.

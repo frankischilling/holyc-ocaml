@@ -1,5 +1,13 @@
 # Reference source map
 
+Native retained-image lifetime work uses `Compiler/PrsStmt.HC:150-194` as the
+source-owned function-code context and `Kernel/KTask.HC:251-264` for task-owned
+code/data heaps. The hosted API keeps the original sealed image and private
+arena across activations, with OS mappings and unwind registration owned by the
+host bridge. Source-task admission, original JIT parser-time scheduling and
+linking separate images remain open. See
+[retained native images](native-retained-images.md).
+
 Issue #801 follows `Compiler/PrsStmt.HC:67-143` for AOT function-record reuse
 and stored cleanup flags, `PrsStmt.HC:140-207` for separate body emission, and
 `PrsExp.HC:621-654` for the function address selected at each source occurrence.

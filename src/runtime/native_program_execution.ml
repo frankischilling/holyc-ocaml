@@ -34,6 +34,27 @@ external execute_program_output :
   (int64 * int64 * int64 * int64 * int64) * string * int
   = "holyc_native_execute_program_output"
 
+type retained_handle
+
+external retain_program :
+  string * (int * int * string) array * int * int * (int * int * int * string) ->
+  retained_handle = "holyc_native_retain_program"
+
+external release_program : retained_handle -> unit
+  = "holyc_native_release_program"
+
+external execute_retained_program :
+  retained_handle ->
+  int * int * int * int * int * int * int * int * int ->
+  (int64 * int64 * int64 * int64 * int64) * string * int
+  = "holyc_native_execute_retained_program"
+
+type retained = {
+  image_ : Image.t;
+  handle_ : retained_handle;
+  released_ : bool Atomic.t;
+}
+
 let platform = Native_execution.platform
 let platform_name = Native_execution.platform_name
 let hard_max_active_stack_bytes = 65_536
@@ -55,7 +76,8 @@ let output_work report = report.output_work_
 let error_report message =
   { outcome_ = Error message; output_bytes_ = ""; output_work_ = 0 }
 
-let execute_report ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+let execute_report_internal ?retained ?(max_frame_bytes = 1_048_576)
+    ?(max_call_depth = 128)
     ?(max_active_stack_bytes = hard_max_active_stack_bytes)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~max_steps
@@ -167,7 +189,18 @@ let execute_report ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
                   | Image.System_v_x64 -> 2
                 in
                 let status, captured, work =
-                  if Image.has_output image then
+                  if Option.is_some retained then
+                    execute_retained_program (Option.get retained)
+                      ( max_steps,
+                        max_frame_bytes,
+                        max_call_depth,
+                        max_active_stack_bytes,
+                        entry_stack_bytes,
+                        max_global_bytes,
+                        max_literal_bytes,
+                        max_output_bytes,
+                        max_output_work )
+                  else if Image.has_output image then
                     execute_program_output (Image.code image)
                       (Array.of_list unwind_functions)
                       abi_code
@@ -257,6 +290,81 @@ let execute_report ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
           | _ ->
               error_report
                 "native program status ABI does not match this process"
+
+let retain ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+    ?(max_active_stack_bytes = hard_max_active_stack_bytes) image =
+  let abi = Image.status_abi image in
+  let abi_code =
+    match (platform (), abi) with
+    | Windows_x86_64, Image.Windows_x64 -> Some 1
+    | Linux_x86_64, Image.System_v_x64 -> Some 2
+    | _ -> None
+  in
+  if max_global_bytes <= 0 || max_global_bytes > hard_max_global_bytes then
+    Error "retained native max_global_bytes is outside the host bound"
+  else if max_literal_bytes <= 0 || max_literal_bytes > hard_max_literal_bytes
+  then Error "retained native max_literal_bytes is outside the host bound"
+  else if
+    max_active_stack_bytes <= 0
+    || max_active_stack_bytes > hard_max_active_stack_bytes
+  then Error "retained native max_active_stack_bytes is outside the host bound"
+  else if Image.global_bytes image > max_global_bytes then
+    Error "retained native image exceeds max_global_bytes"
+  else if Image.literal_bytes image > max_literal_bytes then
+    Error "retained native image exceeds max_literal_bytes"
+  else if Image.entry_stack_bytes image > max_active_stack_bytes then
+    Error "retained native entry exceeds max_active_stack_bytes"
+  else if
+    Image.function_count image < 0
+    || Image.function_count image > 100_000
+    || List.length (Image.windows_unwind_functions image)
+       <> Image.function_count image + 1
+  then Error "retained native image has inconsistent callable metadata"
+  else
+    match abi_code with
+    | None -> Error "retained native status ABI does not match this host"
+    | Some abi_code -> (
+        try
+          let handle_ =
+            retain_program
+              ( Image.code image,
+                Array.of_list (Image.windows_unwind_functions image),
+                abi_code,
+                Image.entry_stack_bytes image,
+                ( Image.global_bytes image,
+                  Image.literal_bytes image,
+                  Image.arena_metadata_bytes image,
+                  Image.global_image image ) )
+          in
+          Ok { image_ = image; handle_; released_ = Atomic.make false }
+        with Failure message | Invalid_argument message -> Error message)
+
+let release retained =
+  if Atomic.get retained.released_ then Ok ()
+  else
+    try
+      release_program retained.handle_;
+      Atomic.set retained.released_ true;
+      Ok ()
+    with Failure message | Invalid_argument message -> Error message
+
+let execute_retained_report ?max_frame_bytes ?max_call_depth
+    ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
+    ?max_output_bytes ?max_output_work ~max_steps retained =
+  if Atomic.get retained.released_ then
+    error_report "retained native image has been released"
+  else
+    execute_report_internal ~retained:retained.handle_ ?max_frame_bytes
+      ?max_call_depth ?max_active_stack_bytes ?max_global_bytes
+      ?max_literal_bytes ?max_output_bytes ?max_output_work ~max_steps
+      retained.image_
+
+let execute_report ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
+    ?max_global_bytes ?max_literal_bytes ?max_output_bytes ?max_output_work
+    ~max_steps image =
+  execute_report_internal ?max_frame_bytes ?max_call_depth
+    ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
+    ?max_output_bytes ?max_output_work ~max_steps image
 
 let execute ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
     ?max_global_bytes ?max_literal_bytes ?max_output_bytes ?max_output_work

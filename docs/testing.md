@@ -1415,3 +1415,15 @@ one below, and after quota failure. A later cleanup modifier does not replace
 flags stored by AOT record reuse; an incompatible callback preserves reached
 argument output before faulting. Source tests retain preflight rejection of
 repeated bodies, reordered or foreign bundles and substituted frames.
+
+Retained native image tests exercise original code and data across activations,
+including globals, statics, narrow arrays, mutable literals and saved callback
+owners across GC/compaction. Checked arithmetic and step faults preserve reached
+writes. Recursive frame/depth/stack failures recover with retained state and
+fresh status/output quotas. Separate owners, release/expiry, unreachable owner
+collection, original allocation bounds and foreign ABI rejection are covered.
+Concurrent domain entries accept distinct native writes or reject overlap.
+Original AOT load code also runs against retained state and recovers after
+reached load faults. The nine-group suite runs through `@native-tests` on Windows
+and Linux. Native JIT parser-callback scheduling and linking separate images
+remain open.

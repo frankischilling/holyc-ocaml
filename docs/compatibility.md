@@ -574,3 +574,8 @@ invocation effects and use the original selected declaration. Effective `noreg`
 parameters retain stack storage. Effectful and owned-code defaults remain open.
 
 [Global callback initializers](global-callback-initializers.md) support one-star scalar and array destinations in both IR modes, including original code, copies and supported callback-call effects. Streaming declarations preserve physical full-word storage independently of return metadata. Native execution accepts closed numeric leaves in both modes and original AOT load-time regions for checked addresses, copies and calls. Native JIT initializers with references remain open.
+
+[Retained native images](native-retained-images.md) preserve one original sealed
+host image, private arena and executable owners across activations, including
+reached writes on checked faults. Native JIT execution at original parser
+callbacks and persistent source-task publication/linking remain unfinished.

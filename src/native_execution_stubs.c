@@ -7,6 +7,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdatomic.h>
+#include <caml/custom.h>
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/alloc.h>
@@ -672,6 +675,248 @@ static uint64_t native_execute_checked_program_storage_image(
 #endif
 }
 
+
+/* Retained mappings are opaque host resources. Their original sealed OCaml
+   image stays rooted; no address, arena pointer or foreign mapping is exported. */
+struct native_retained_program {
+  value identity;
+  void *mapping;
+  size_t mapping_length;
+  void *arena;
+  size_t arena_length;
+  atomic_int active;
+  int closing;
+#if HOLYC_NATIVE_PLATFORM == 1
+  PRUNTIME_FUNCTION function_table;
+  DWORD function_count;
+  int registered;
+#endif
+  char close_error[240];
+};
+
+static int native_retained_close(struct native_retained_program *program)
+{
+  /* Even a partial release revokes entry: its arena or unwind registration
+     may already be gone. Remaining OS resources are retained only for retry. */
+  program->closing = 1;
+  program->close_error[0] = 0;
+#if HOLYC_NATIVE_PLATFORM == 1
+  if (program->registered) {
+    if (!RtlDeleteFunctionTable(program->function_table)) {
+      snprintf(program->close_error, sizeof(program->close_error),
+               "retained native unwind removal failed; registered mapping retained");
+      return 0;
+    }
+    program->registered = 0;
+  }
+  if (program->arena != NULL) {
+    if (!VirtualFree(program->arena, 0, MEM_RELEASE)) {
+      snprintf(program->close_error, sizeof(program->close_error),
+               "retained native arena release failed (OS error %lu)",
+               (unsigned long)GetLastError());
+      return 0;
+    }
+    program->arena = NULL;
+  }
+  if (program->mapping != NULL) {
+    if (!VirtualFree(program->mapping, 0, MEM_RELEASE)) {
+      snprintf(program->close_error, sizeof(program->close_error),
+               "retained native code release failed (OS error %lu)",
+               (unsigned long)GetLastError());
+      return 0;
+    }
+    program->mapping = NULL;
+  }
+#else
+  if (program->arena != NULL) {
+    if (munmap(program->arena, program->arena_length) != 0) {
+      snprintf(program->close_error, sizeof(program->close_error),
+               "retained native arena release failed (OS error %lu)",
+               (unsigned long)errno);
+      return 0;
+    }
+    program->arena = NULL;
+  }
+  if (program->mapping != NULL) {
+    if (munmap(program->mapping, program->mapping_length) != 0) {
+      snprintf(program->close_error, sizeof(program->close_error),
+               "retained native code release failed (OS error %lu)",
+               (unsigned long)errno);
+      return 0;
+    }
+    program->mapping = NULL;
+  }
+#endif
+  return 1;
+}
+
+static void native_retained_finalize(value handle)
+{
+  struct native_retained_program *program =
+    *((struct native_retained_program **)Data_custom_val(handle));
+  int expected = 0;
+  if (program == NULL) return;
+  if (!atomic_compare_exchange_strong(&program->active, &expected, 1)) return;
+  caml_remove_generational_global_root(&program->identity);
+  if (native_retained_close(program)) free(program);
+  /* A failed OS release retains its allocation and registered unwind table.
+     Finalizers cannot raise or let Windows retain a dangling table reference. */
+  *((struct native_retained_program **)Data_custom_val(handle)) = NULL;
+}
+
+static struct custom_operations native_retained_operations = {
+  "holyc.native.retained-program.v1",
+  native_retained_finalize,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+static struct native_retained_program *native_retained_get(value handle)
+{
+  struct native_retained_program *program;
+  if (!Is_block(handle) || Tag_val(handle) != Custom_tag ||
+      Custom_ops_val(handle) != &native_retained_operations)
+    caml_invalid_argument("retained native image has another host resource owner");
+  program = *((struct native_retained_program **)Data_custom_val(handle));
+  if (program == NULL)
+    caml_invalid_argument("retained native image has been released");
+  return program;
+}
+
+static void native_retained_creation_error(struct native_retained_program *program,
+                                           const char *operation,
+                                           unsigned long error)
+{
+  char message[480];
+  int clean = native_retained_close(program);
+  snprintf(message, sizeof(message),
+           "retained native %s failed (OS error %lu)%s%s",
+           operation, error, clean ? "" : "; ",
+           clean ? "" : program->close_error);
+  caml_failwith(message);
+}
+
+static void native_retained_map(struct native_retained_program *program,
+                                value code, value functions, value arena_image)
+{
+  size_t code_length = (size_t)caml_string_length(code);
+  size_t arena_length = (size_t)caml_string_length(arena_image);
+  uint64_t (*entry)(uint64_t *);
+  if (sizeof(entry) != sizeof(program->mapping))
+    caml_failwith("native function pointers do not match this host's address size");
+  program->arena_length = arena_length;
+#if HOLYC_NATIVE_PLATFORM == 1
+  size_t count = (size_t)Wosize_val(functions);
+  size_t metadata_offset = (code_length + 3u) & ~(size_t)3u;
+  size_t unwind_offset = metadata_offset;
+  size_t table_offset;
+  size_t index;
+  DWORD previous_protection;
+  for (index = 0; index < count; ++index) {
+    size_t length = (size_t)caml_string_length(Field(Field(functions, index), 2));
+    if (length > (size_t)-1 - unwind_offset)
+      caml_failwith("retained native unwind metadata size overflow");
+    unwind_offset += length;
+  }
+  if (unwind_offset > (size_t)-1 - 3u)
+    caml_failwith("retained native unwind table alignment overflow");
+  table_offset = (unwind_offset + 3u) & ~(size_t)3u;
+  if (count > ((size_t)-1 - table_offset) / sizeof(RUNTIME_FUNCTION))
+    caml_failwith("retained native function table size overflow");
+  program->mapping_length = table_offset + count * sizeof(RUNTIME_FUNCTION);
+  program->mapping = VirtualAlloc(NULL, program->mapping_length,
+                                  MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+  if (program->mapping == NULL)
+    native_retained_creation_error(program, "code allocation", GetLastError());
+  memcpy(program->mapping, String_val(code), code_length);
+  program->function_table =
+    (PRUNTIME_FUNCTION)((char *)program->mapping + table_offset);
+  program->function_count = (DWORD)count;
+  unwind_offset = metadata_offset;
+  for (index = 0; index < count; ++index) {
+    value descriptor = Field(functions, index);
+    value unwind = Field(descriptor, 2);
+    size_t length = (size_t)caml_string_length(unwind);
+    memcpy((char *)program->mapping + unwind_offset, String_val(unwind), length);
+    program->function_table[index].BeginAddress = (DWORD)Long_val(Field(descriptor, 0));
+    program->function_table[index].EndAddress = (DWORD)Long_val(Field(descriptor, 1));
+    program->function_table[index].UnwindData = (DWORD)unwind_offset;
+    unwind_offset += length;
+  }
+  if (arena_length != 0) {
+    program->arena = VirtualAlloc(NULL, arena_length, MEM_RESERVE | MEM_COMMIT,
+                                  PAGE_READWRITE);
+    if (program->arena == NULL)
+      native_retained_creation_error(program, "arena allocation", GetLastError());
+    memcpy(program->arena, String_val(arena_image), arena_length);
+  }
+  if (!VirtualProtect(program->mapping, program->mapping_length,
+                       PAGE_EXECUTE_READ, &previous_protection))
+    native_retained_creation_error(program, "RX protection", GetLastError());
+  if (!FlushInstructionCache(GetCurrentProcess(), program->mapping, code_length))
+    native_retained_creation_error(program, "instruction-cache synchronization",
+                                    GetLastError());
+  if (!RtlAddFunctionTable(program->function_table, program->function_count,
+                           (DWORD64)(uintptr_t)program->mapping))
+    native_retained_creation_error(program, "unwind registration", GetLastError());
+  program->registered = 1;
+#else
+  int flags = personality(0xffffffffUL);
+  if (flags == -1)
+    native_os_error("personality query", (unsigned long)errno);
+  if ((flags & READ_IMPLIES_EXEC) != 0)
+    caml_failwith("native execution requires READ_IMPLIES_EXEC to be disabled");
+  program->mapping_length = code_length;
+  program->mapping = mmap(NULL, code_length, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (program->mapping == MAP_FAILED) {
+    program->mapping = NULL;
+    native_retained_creation_error(program, "code allocation", (unsigned long)errno);
+  }
+  memcpy(program->mapping, String_val(code), code_length);
+  if (arena_length != 0) {
+    program->arena = mmap(NULL, arena_length, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (program->arena == MAP_FAILED) {
+      program->arena = NULL;
+      native_retained_creation_error(program, "arena allocation", (unsigned long)errno);
+    }
+    memcpy(program->arena, String_val(arena_image), arena_length);
+  }
+  if (mprotect(program->mapping, code_length, PROT_READ | PROT_EXEC) != 0)
+    native_retained_creation_error(program, "RX protection", (unsigned long)errno);
+  __builtin___clear_cache((char *)program->mapping,
+                          (char *)program->mapping + code_length);
+#endif
+}
+
+static uint64_t native_retained_run(value handle, uint64_t *context)
+{
+  struct native_retained_program *program = native_retained_get(handle);
+  int expected = 0;
+  uint64_t (*entry)(uint64_t *);
+  uint64_t bits;
+  uint64_t arena;
+  if (!atomic_compare_exchange_strong(&program->active, &expected, 1))
+    caml_invalid_argument("retained native image is already active");
+  if (program->closing || program->mapping == NULL) {
+    atomic_store(&program->active, 0);
+    caml_invalid_argument("retained native image has been released");
+  }
+  arena = (uint64_t)(uintptr_t)program->arena;
+  context[9] = arena;
+  memcpy(&entry, &program->mapping, sizeof(entry));
+  bits = entry(context);
+  atomic_store(&program->active, 0);
+  if (context[9] != arena)
+    caml_failwith("retained native status integrity failure: arena pointer was modified");
+  return bits;
+}
+
 static value native_box_word(uint64_t word)
 {
   int64_t signed_word;
@@ -950,11 +1195,12 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   CAMLreturn(Val_unit);
 }
 
-CAMLprim value holyc_native_execute_program_output(value code, value functions,
-                                                  value abi, value limits,
-                                                  value storage)
+static value native_execute_program_output(value code, value functions,
+                                            value abi, value limits,
+                                            value storage, value retained)
 {
   CAMLparam5(code, functions, abi, limits, storage);
+  CAMLxparam1(retained);
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -1074,7 +1320,9 @@ CAMLprim value holyc_native_execute_program_output(value code, value functions,
       output_address, (uint64_t)output_limit, (uint64_t)output_work_limit, 0
     };
 
-    if (arena_length == 0) {
+    if (retained != Val_unit) {
+      (void)native_retained_run(retained, context);
+    } else if (arena_length == 0) {
       (void)native_execute_checked_program_image(
         code, functions, abi_code, (uintnat)entry_stack_bytes, context);
       if (context[9] != 0)
@@ -1130,6 +1378,114 @@ CAMLprim value holyc_native_execute_program_output(value code, value functions,
   Store_field(result, 1, captured);
   Store_field(result, 2, Val_long((intnat)work));
   CAMLreturn(result);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+
+CAMLprim value holyc_native_execute_program_output(value code, value functions,
+                                                  value abi, value limits,
+                                                  value storage)
+{
+  return native_execute_program_output(code, functions, abi, limits, storage,
+                                        Val_unit);
+}
+
+CAMLprim value holyc_native_retain_program(value identity)
+{
+  CAMLparam1(identity);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  CAMLlocal1(handle);
+  value code, functions, storage, arena_image;
+  intnat globals, literals, metadata;
+  size_t code_length, arena_length;
+  unsigned entry_allocation = 0;
+  struct native_retained_program *program;
+  if (!Is_block(identity) || Tag_val(identity) != 0 || Wosize_val(identity) != 5 ||
+      !Is_long(Field(identity, 2)) || !Is_long(Field(identity, 3)))
+    caml_invalid_argument("retained native image identity is malformed");
+  code = Field(identity, 0);
+  functions = Field(identity, 1);
+  storage = Field(identity, 4);
+  if (!Is_block(code) || Tag_val(code) != String_tag ||
+      !Is_block(storage) || Tag_val(storage) != 0 || Wosize_val(storage) != 4 ||
+      !Is_long(Field(storage, 0)) || !Is_long(Field(storage, 1)) ||
+      !Is_long(Field(storage, 2)) ||
+      !Is_block(Field(storage, 3)) || Tag_val(Field(storage, 3)) != String_tag)
+    caml_invalid_argument("retained native image code or storage is malformed");
+  if (Long_val(Field(identity, 2)) != HOLYC_NATIVE_PLATFORM)
+    caml_invalid_argument("native program status ABI does not match this process");
+  code_length = (size_t)caml_string_length(code);
+  arena_image = Field(storage, 3);
+  arena_length = (size_t)caml_string_length(arena_image);
+  if (code_length == 0 || code_length > 16u * 1024u * 1024u)
+    caml_invalid_argument("native image length is outside the host allocation bound");
+  (void)native_validate_program_functions(functions, code_length, &entry_allocation);
+  if (Long_val(Field(identity, 3)) != (intnat)entry_allocation + 16)
+    caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
+  globals = Long_val(Field(storage, 0));
+  literals = Long_val(Field(storage, 1));
+  metadata = Long_val(Field(storage, 2));
+  if (globals < 0 || (uintnat)globals > HOLYC_NATIVE_MAX_GLOBAL_BYTES ||
+      literals < 0 || (uintnat)literals > HOLYC_NATIVE_MAX_LITERAL_BYTES ||
+      metadata < 0 || (uintnat)metadata > HOLYC_NATIVE_MAX_ARENA_BYTES ||
+      arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
+      arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata ||
+      (globals == 0 && literals == 0 && metadata != 0))
+    caml_invalid_argument("retained native arena image is inconsistent with data and metadata");
+  handle = caml_alloc_custom_mem(&native_retained_operations, sizeof(program),
+                                  code_length + arena_length);
+  *((struct native_retained_program **)Data_custom_val(handle)) = NULL;
+  program = calloc(1, sizeof(*program));
+  if (program == NULL) caml_raise_out_of_memory();
+  *((struct native_retained_program **)Data_custom_val(handle)) = program;
+  atomic_init(&program->active, 0);
+  program->identity = identity;
+  caml_register_generational_global_root(&program->identity);
+  /* The allocation above can move the original rooted tuple and its children. */
+  code = Field(identity, 0);
+  functions = Field(identity, 1);
+  arena_image = Field(Field(identity, 4), 3);
+  native_retained_map(program, code, functions, arena_image);
+  CAMLreturn(handle);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_release_program(value handle)
+{
+  CAMLparam1(handle);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_retained_program *program = native_retained_get(handle);
+  int expected = 0;
+  int success;
+  char message[240];
+  if (!atomic_compare_exchange_strong(&program->active, &expected, 1))
+    caml_invalid_argument("retained native image is already active");
+  success = native_retained_close(program);
+  memcpy(message, program->close_error, sizeof(message));
+  atomic_store(&program->active, 0);
+  if (!success) caml_failwith(message);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_execute_retained_program(value handle, value limits)
+{
+  CAMLparam2(handle, limits);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  CAMLlocal1(identity);
+  struct native_retained_program *program = native_retained_get(handle);
+  identity = program->identity;
+  CAMLreturn(native_execute_program_output(
+    Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
+    Field(identity, 4), handle));
 #endif
   CAMLreturn(Val_unit);
 }

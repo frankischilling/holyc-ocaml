@@ -122,9 +122,14 @@ bridge inputs before native entry. These are hosted tests; they do not add a
 TempleOS execution capture.
 
 Automatic array initializers, runtime-dependent extents, pointer or aggregate
-elements, effectful JIT initializer execution and retained task storage remain
+elements, effectful JIT initializer execution and source-task storage/linking remain
 outside this native path. AOT integer and callback load regions are covered by
 [global initializers](global-callback-initializers.md). A native `Print` provider is separate runtime work,
 so the interpreter's broader `integer-persistent-arrays.hc` example is not a
 native acceptance claim. Full ABI behavior, object/BIN emission, actual loader
 acceptance and bootstrap remain open compiler requirements.
+
+[Retained native images](native-retained-images.md) keep one original image's
+arena and executable owners across activations, including reached writes before
+faults. This host lifetime API is a foundation for the remaining source-task
+consumer; the ordinary single-program executor keeps its fresh-image behavior.

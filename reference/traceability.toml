@@ -13262,3 +13262,19 @@ source_identity = "Body source symbols and function IDs stay unique. Shared cano
 verification = "Fresh public IR, isolated checked batch IR and host native execution agree for earlier and later callbacks and direct calls, changed parameter counts, selected anonymous defaults, recursion and original static storage. Maintained CLI tests check exact and one-below runtime bounds with fresh recovery. AOT record reuse retains its original cleanup flags; a disagreeing callback faults after argument output. Repeated bodies, reordered or foreign bundles and substituted frames reject before execution."
 verification_boundary = "This is a bounded private execution comparison and pinned source audit, without a new TempleOS AOT capture or exported ABI proof."
 excluded = ["native JIT reference-bearing initializer execution during its original parser callback", "live native replacement/linking/expiry", "general F64/aggregate execution", "exported HolyC ABI", "object/BIN loader or bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-RETAINED-IMAGE-LIFETIME"
+description = "Opaque retained host images preserve original executable mapping, data arena and native owners across activations."
+sources = ["Compiler/PrsStmt.HC:150-194 source-owned function code context", "Kernel/KTask.HC:251-264 task-owned code/data heap context"]
+implementation = ["src/runtime/native_program_execution.ml", "src/runtime/native_program_execution.mli", "src/native_execution_stubs.c"]
+tests = ["test/native/test_native_retained_execution.ml", "test/native/dune"]
+documentation = ["docs/native-retained-images.md", "docs/native-programs.md", "docs/native-persistent-storage.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Each opaque host owner retains the original sealed OCaml image and its checked unwind metadata. The API accepts no replacement image or exposed host pointer. Separate owners retain separate arenas."
+execution = "The original complete entry executes against persistent global/static/literal state and executable owners, including scheduled AOT load code. Each activation has fresh bounded status and output capture; reached writes persist on checked faults. Atomic host admission rejects overlapping activation or release."
+verification = "Nine maintained groups cover both source modes, native global/static/narrow array/literal writes, callback owners across GC/compaction, reached arithmetic and step faults, recursive frame/depth/stack recovery, AOT load calls and faults, separate arenas, release/expiry, collected owners, original bounds and foreign ABI rejection. Concurrent domains accept distinct native writes or reject overlap."
+verification_boundary = "This host resource-lifetime primitive supplies neither once-only source declaration scheduling nor linkage between separate images. It adds no new TempleOS capture, exported ABI or native source-task parity."
+excluded = ["native execution during original JIT parser callbacks", "persistent source-task admission and cumulative quotas", "linking separate images", "live native replacement/target expiry", "general F64/aggregate execution", "exported HolyC ABI", "object/BIN loader or bootstrap", "full compiler and release"]

@@ -892,3 +892,13 @@
    %{dep:../../examples/quoted-formatting.hc}
    %{dep:../../examples/auxiliary-formatting.hc}
    %{dep:../../examples/list-formatting.hc})))
+
+(executable
+ (name test_native_retained_execution)
+ (modules test_native_retained_execution)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_retained_execution.exe})))
