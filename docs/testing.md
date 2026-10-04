@@ -700,16 +700,23 @@ CI also runs `opam exec -- pwsh -NoProfile -File tools/test-version-metadata.ps1
 On Windows PowerShell, use `opam exec -- powershell -NoProfile -File
 tools/test-version-metadata.ps1` (or the shell's full path). The probe copies
 the production metadata rule, generator and version module into temporary
-projects with a linked executable consumer. Thirteen scenarios cover synthetic
+projects with a linked executable consumer. Thirty scenarios cover synthetic
 loose/packed refs, branch switches, detached HEADs, a linked-worktree gitfile,
-release overrides and the source-archive unknown fallback. Each runs through the explicit metadata
+release overrides, external output and invocation directories, unrelated Git
+locations, nested/workspace projects and the source-archive unknown fallback.
+Each runs through the explicit metadata
 target, executable target, `@all` and `@install`, with caching disabled and enabled
-(104 checks). Consumer assertions invoke the already-built executable directly,
+(240 checks). Consumer assertions invoke the already-built executable directly,
 compare it with the externally expected revision, and verify that its identity
 stays unchanged before rebuilding. Install-target scenarios also check the
-staged public executable. The probe restores process environment variables and
+staged public executable and an installation under an independent prefix.
+External output follows the source HEAD and packed refs while unrelated checkout
+changes have no effect. Workspace cases distinguish an untracked archive, a
+tracked project owned by its parent checkout and a nested project with its own
+Git identity. The probe restores process environment variables and
 verifies the temporary directory before removing it. The fixture refs are test identities,
 not compatibility results or commits in the implementation repository.
+See [build provenance](build-provenance.md) for the source selection rules.
 
 CI uses `.github/actions/setup-ocaml` to prepare both compiler versions and the
 corpus jobs. It restores the compiler first, then an installed dependency switch

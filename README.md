@@ -442,6 +442,10 @@ a commit or branch switch. Source archives can set
 `HOLYC_IMPLEMENTATION_COMMIT` to the exact lowercase 40-character revision;
 without an override or an available checkout the implementation is `unknown`.
 Running an already-built executable preserves its build identity.
+Git lookup uses the original source project even when Dune output is outside
+that checkout. A nested project checkout takes precedence over its workspace;
+an untracked archive cannot acquire an ancestor repository's revision.
+See [build provenance](docs/build-provenance.md).
 
 The repository has a byte-oriented source manager, structured diagnostics, a handwritten streaming lexer, an integrated preprocessing stream, a source-positioned AST, the implemented parser slices, and checked semantic passes for declarations, aggregate identities, closed aggregate layouts, member lookup, selected function and global facts, source-visible expression bindings, scalar expression results in functions and executable module statements, source-ordered global initializer and array-extent names, and ordinary names in top-level function defaults. Human and JSON reports are deterministic. `holyc dump-symbols` exposes the parser's source-order visibility state; it is inspection data, not a completed semantic symbol table. `holyc dump-layout` runs the checked aggregate pipeline and reports completed layouts without emitting partial results after a parse or semantic failure.
 
