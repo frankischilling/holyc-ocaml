@@ -177,6 +177,7 @@ let kind_name = function
   | Program.Pointer_object_mismatch -> "pointer-object-mismatch"
   | Program.Callback_unowned_address -> "callback-unowned-address"
   | Program.Callback_signature_mismatch -> "callback-signature-mismatch"
+  | Program.Code_comparison_invalid_word -> "code-comparison-invalid-word"
   | Program.Pointer_difference_object_mismatch ->
       "pointer-difference-object-mismatch"
 
@@ -730,7 +731,7 @@ let source_gate_is_compile_only () =
           "I64 N=1;I64 F(I64 n=N<<3){return n;} F(1);";
           "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
           "I64 Missing(){42;} 0;";
-          "I64 Apply(I64 (*fp)(I64),I64 n){return fp(n);}\n\
+          "I64 Apply(I64 (**fp)(I64),I64 n){return fp(n);}\n\
            I64 Inc(I64 n){return n+1;} Apply(&Inc,41);";
           "\"output\";";
           "#exe {1/0;}\n42;";

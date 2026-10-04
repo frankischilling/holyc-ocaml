@@ -70,7 +70,7 @@ declaration callbacks prepare bounded scalar defaults and closed scalar global
 initializers in both modes; an iterative source gate admits ordinary scalar
 globals and rejects statics, prototypes/externs,
 explicit register/declaration modifiers, non-integer parameters or locals,
-arrays, broader pointer operations, callbacks beyond the automatic local fixed-scalar gate, implicit output and unsupported
+arrays, broader pointer operations, callbacks beyond automatic local cells and fixed callback parameters, implicit output and unsupported
 statements. Arrays and aggregates reject before their preparation.
 Entry statements cannot declare storage.
 It reports the first source-domain violation while retaining parser diagnostics.
@@ -342,6 +342,6 @@ output and work limits; see [native output](native-output.md).
 [Native Print](native-print.md) formats owned strings and captured integer
 arguments with those same limits, publishing each complete call on success.
 
-Automatic local fixed integer/U0 callbacks now have a native consumer; see
-[native local callbacks](native-local-callbacks.md) for capture, ownership, faults
-and the remaining storage/default/variadic restrictions.
+Automatic local callbacks and fixed callback parameters have a native consumer;
+see [native callbacks](native-local-callbacks.md) for capture, private ownership,
+numeric faults and the remaining storage/default/variadic restrictions.

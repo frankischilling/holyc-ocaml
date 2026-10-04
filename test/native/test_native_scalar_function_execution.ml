@@ -1176,10 +1176,49 @@ let owned_local_callbacks_execute () =
         "I64 Add(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n),(*q)(I64 \
          n);p=&Add;q=p;p=0;return q(40);}Run();",
         42L );
+      ( "fixed callback parameter enters original body",
+        "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n),I64 n){return \
+         p(n);}Apply(&Add,40);",
+        42L );
+      ( "forwarded parameter and local copy preserve ownership",
+        "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n),I64 n){I64 \
+         (*q)(I64 n);q=p;p=123;return q(n);}I64 Forward(I64 (*p)(I64 n),I64 \
+         n){return Apply(p,n);}Forward(&Add,40);",
+        42L );
+      ( "independent callback parameter lanes",
+        "I64 A(I64 n){return n+1;}I64 B(I64 n){return n+2;}I64 Both(I64 \
+         (*p)(I64 n),I64 n,I64 (*q)(I64 n)){return p(q(n));}Both(&A,39,&B);",
+        42L );
+      ( "nested direct calls preserve staged owners",
+        "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n),I64 n){return \
+         p(n);}Apply(&Add,Apply(&Add,38));",
+        42L );
+      ( "numeric callback copies keep word equality",
+        "I64 Run(){I64 (*p)(),(*q)();p=123;q=p;p=0;return (q!=0)*42;}Run();",
+        42L );
+      ( "numeric and owned stores overwrite independent tags",
+        "I64 Add(){return 42;}I64 Run(){I64 \
+         (*p)();p=&Add;p=123;p=0;p=&Add;return p();}Run();",
+        42L );
+      ( "full word parameter view retains owned body",
+        "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n),I64 n){return \
+         p(n);}Apply((&Add)(U64),40);",
+        42L );
+      ( "void callback parameter",
+        "U0 Done(){return;}I64 Apply(U0 (*p)()){p();return 42;}Apply(&Done);",
+        42L );
       ( "callee snapshot precedes argument assignment",
         "I64 Add(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n);p=&Add;return \
          p(p=0);}Run();",
         2L );
+      ( "numeric argument store cannot replace captured owner",
+        "I64 Add(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n);p=&Add;return \
+         p(p=123);}Run();",
+        125L );
+      ( "parameter addresses compare with local original producers",
+        "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n)){return \
+         (p==&Add)*42;}Apply(&Add);",
+        42L );
       ( "branch selects original body",
         "I64 A(I64 n){return n+1;}I64 B(I64 n){return n+2;}I64 Run(I64 \
          choose){I64 (*p)(I64 n);if(choose)p=&A;else p=&B;return \
@@ -1256,7 +1295,24 @@ let owned_local_callbacks_execute () =
         (compare_source ~mode ~label:"mixed callback widths"
            ~expected_type:"I64" ~expected_bits:42L
            "I64 Add(I8 a,U16 b,U32 c){return a+b+c;}I64 Run(){I64 (*p)(I8 \
-            a,U16 b,U32 c);p=&Add;return p(255,65579,4294967296);}Run();"))
+            a,U16 b,U32 c);p=&Add;return p(255,65579,4294967296);}Run();");
+      List.iter
+        (fun flags ->
+          List.iter
+            (fun (type_name, literal, expected_type, expected_bits) ->
+              let source =
+                Printf.sprintf
+                  "%s %s Echo(%s n){return n;}%s Apply(%s (*p)(%s n),%s \
+                   n){return p(n);}Apply(&Echo,%s);"
+                  flags type_name type_name type_name type_name type_name
+                  type_name literal
+              in
+              ignore
+                (compare_source ~mode
+                   ~label:(flags ^ " " ^ type_name ^ " callback parameter")
+                   ~expected_type ~expected_bits source))
+            parameter_rows)
+        [ ""; "argpop"; "haserrcode"; "haserrcode argpop" ])
     modes
 
 let owned_local_callback_faults () =
@@ -1269,6 +1325,41 @@ let owned_local_callback_faults () =
         output ^ "I64 Run(){I64 (*p)(I64 n);p=0;return p(Arg());}Run();",
         "HCIRVM0024",
         "A" );
+      ( "numeric callee faults after argument effects",
+        output ^ "I64 Run(){I64 (*p)(I64 n);p=123;return p(Arg());}Run();",
+        "HCIRVM0024",
+        "A" );
+      ( "numeric copied callee retains no executable authority",
+        output
+        ^ "I64 Run(){I64 (*p)(I64 n),(*q)(I64 n);p=123;q=p;return \
+           q(Arg());}Run();",
+        "HCIRVM0024",
+        "A" );
+      ( "numeric parameter faults after argument effects",
+        output ^ "I64 Run(I64 (*p)(I64 n)){return p(Arg());}Run(123);",
+        "HCIRVM0024",
+        "A" );
+      ( "null parameter faults after argument effects",
+        output ^ "I64 Run(I64 (*p)(I64 n)){return p(Arg());}Run(0);",
+        "HCIRVM0024",
+        "A" );
+      ( "owned parameter signature mismatch retains output",
+        output
+        ^ "U64 Bad(I64 n){return n;}I64 Run(I64 (*p)(I64 n)){return \
+           p(Arg());}Run(&Bad);",
+        "HCIRVM0014",
+        "A" );
+      ( "numeric overwrite clears executable ownership",
+        output
+        ^ "I64 Add(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 \
+           n);p=&Add;p=123;return p(Arg());}Run();",
+        "HCIRVM0024",
+        "A" );
+      ( "owned code cannot equal a nonzero numeric callback",
+        "I64 A(){return 42;}I64 Run(){I64 (*p)(),(*q)();p=&A;q=123;return \
+         p==q;}Run();",
+        "HCIRVM0024",
+        "" );
       ( "wrong arity faults after argument effects",
         output
         ^ "I64 Bad(I64 a,I64 b){return a+b;}I64 Run(){I64 (*p)(I64 \
@@ -1390,6 +1481,51 @@ let owned_local_callback_limits_and_recovery () =
         ])
     modes
 
+let callback_parameter_limits_and_recovery () =
+  let contents =
+    "I64 Add(I64 n){return n+2;}I64 Walk(I64 (*p)(I64 n),I64 n){if(n)return \
+     Walk(p,n-1);return p(40);}Walk(&Add,2);"
+  in
+  List.iter
+    (fun mode ->
+      let _, native, _ =
+        compare_source ~mode ~label:"recursive callback parameter"
+          ~expected_type:"I64" ~expected_bits:42L contents
+      in
+      let image = native.image and steps = native.execution.executed_steps in
+      let costs = named_physical_costs image in
+      let physical =
+        Program.entry_stack_bytes image + List.hd costs + (3 * List.nth costs 1)
+      in
+      let execute frame depth stack budget =
+        Runtime.execute ~max_frame_bytes:frame ~max_call_depth:depth
+          ~max_active_stack_bytes:stack ~max_steps:budget image
+        |> require_ok Fun.id
+      in
+      (match execute 56 4 physical steps with
+      | Program.Completed _ -> ()
+      | _ -> Alcotest.fail "callback parameter exact activation quotas");
+      List.iter
+        (fun (frame, depth, stack, budget, kind) ->
+          (match execute frame depth stack budget with
+          | Program.Fault fault ->
+              Alcotest.(check bool)
+                "parameter quota fault" true (fault.kind = kind)
+          | _ ->
+              Alcotest.fail "callback parameter one-below quota did not fault");
+          match execute 56 4 physical steps with
+          | Program.Completed execution ->
+              check_native_word "parameter image recovers" "I64" 42L
+                execution.final_value
+          | _ -> Alcotest.fail "callback parameter image did not recover")
+        [
+          (55, 4, physical, steps, Program.Frame_limit_exceeded);
+          (56, 3, physical, steps, Program.Call_depth_exceeded);
+          (56, 4, physical - 1, steps, Program.Native_stack_limit_exceeded);
+          (56, 4, physical, steps - 1, Program.Step_limit_exceeded);
+        ])
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -1400,6 +1536,8 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case "callback parameter quotas unwind and recover"
+                `Quick callback_parameter_limits_and_recovery;
               Alcotest.test_case "owned local callbacks execute original bodies"
                 `Quick owned_local_callbacks_execute;
               Alcotest.test_case "owned local callback faults preserve effects"

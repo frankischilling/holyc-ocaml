@@ -186,6 +186,7 @@ type value = {
   declared_type : Type.t;
   computation_type : Type.t;
   mutable last_use : int;
+  mutable code_owner_offset : int option;
 }
 
 type frame_access = {
@@ -243,6 +244,7 @@ type direct_call = {
   callee_index : int;
   activation_bytes : int;
   argument_stage_slots : int array;
+  argument_owner_stages : int option array;
   result_stage_slot : int option;
 }
 
@@ -267,6 +269,7 @@ type operation =
   | Apply_division of
       arithmetic_operation * word_type * fault_site * value * value * value
   | Apply_comparison of Encoder.condition * value * value * value
+  | Apply_code_comparison of Encoder.condition * value * value * value
   | Apply_reference_comparison of Encoder.condition * value * value * value
   | Apply_reference_ordering of Encoder.condition * value * value * value
   | Apply_reference_difference of value * value * value
@@ -300,7 +303,9 @@ type operation =
       * word_type
       * fault_site option
   | Load_frame_value of frame_access * value
+  | Load_code_frame of frame_access * int * value
   | Store_frame_value of frame_access * value * value
+  | Store_code_frame of frame_access * int * value * value
   | Update_frame_value of
       frame_access
       * frame_update
@@ -348,7 +353,7 @@ type prepared_instruction = {
   operation : operation;
   span : Common.Span.t option;
   site : int option;
-  push_stage : (value * int) option;
+  push_stage : (value * int * int option) option;
 }
 
 type kind =
@@ -452,6 +457,7 @@ let define values description position (result : Sequence.value_definition)
       declared_type;
       computation_type;
       last_use = position;
+      code_owner_offset = None;
     }
   in
   values := Value_map.add result.value_id value !values;
@@ -1667,8 +1673,17 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
   List.iteri
     (fun position (instruction : prepared_instruction) ->
       release_before position;
-      active_push := Option.map fst instruction.push_stage;
+      active_push :=
+        Option.map (fun (value, _, _) -> value) instruction.push_stage;
       let emit = emit instruction.span in
+      let load_owner target value =
+        match value.code_owner_offset with
+        | None -> emit (Encoder.Mov_imm64 (target, 0L))
+        | Some offset ->
+            emit
+              (Encoder.Load_frame
+                 (target, encoder_frame_slot instruction.span offset))
+      in
       (match mode with
       | Expression_control _ -> ()
       | Program_control _ | Callable_control _ ->
@@ -1852,6 +1867,55 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           emit (Encoder.Setcc (condition, target));
           emit (Encoder.Movzx8 (target, target));
           assign position destination result
+      | Apply_code_comparison (condition, left, right, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span left rdx;
+          copy_value_to instruction.span right r8;
+          load_owner Encoder.Rax left;
+          load_owner Encoder.Rcx right;
+          let plain_left = fresh_label supply
+          and both_plain = fresh_label supply
+          and both_owned = fresh_label supply
+          and different = fresh_label supply
+          and complete = fresh_label supply
+          and invalid = fresh_label supply in
+          fault_blocks :=
+            {
+              label = invalid;
+              kind_value = 21;
+              site_value = Option.get instruction.site;
+            }
+            :: !fault_blocks;
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal plain_left;
+          emit (Encoder.Test Encoder.Rcx);
+          emit_branch Not_equal both_owned;
+          emit (Encoder.Test Encoder.R8);
+          emit_branch Not_equal invalid;
+          emit_branch Unconditional different;
+          mark plain_left;
+          emit (Encoder.Test Encoder.Rcx);
+          emit_branch Equal both_plain;
+          emit (Encoder.Test Encoder.Rdx);
+          emit_branch Not_equal invalid;
+          emit_branch Unconditional different;
+          mark both_owned;
+          emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+          emit (Encoder.Setcc (condition, Encoder.Rax));
+          emit (Encoder.Movzx8 (Encoder.Rax, Encoder.Rax));
+          emit_branch Unconditional complete;
+          mark both_plain;
+          emit (Encoder.Cmp (Encoder.Rdx, Encoder.R8));
+          emit (Encoder.Setcc (condition, Encoder.Rax));
+          emit (Encoder.Movzx8 (Encoder.Rax, Encoder.Rax));
+          emit_branch Unconditional complete;
+          mark different;
+          emit
+            (Encoder.Mov_imm64
+               (Encoder.Rax, if condition = Encoder.E then 0L else 1L));
+          mark complete;
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position rax result
       | Apply_reference_comparison (condition, left, right, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span left rdx;
@@ -2160,7 +2224,8 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           copy_value_to instruction.span input rax;
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rax result
-      | Load_frame_value (access, result) ->
+      | Load_frame_value (access, result) | Load_code_frame (access, _, result)
+        ->
           let destination =
             acquire_destination instruction.span position ~protected:[]
               ~excluded:[]
@@ -2181,7 +2246,8 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
             access.initialized_flag_offset;
           emit (load_frame_scalar instruction.span target access);
           assign position destination result
-      | Store_frame_value (access, input, result) ->
+      | Store_frame_value (access, input, result)
+      | Store_code_frame (access, _, input, result) ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
           let destination =
@@ -2747,6 +2813,15 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
             (Encoder.Store_stack
                ( staged_stack_slot instruction.span stage,
                  registers.(List.hd inputs) ));
+          let scratch =
+            acquire_empty instruction.span ~protected:inputs ~excluded:[]
+          in
+          load_owner registers.(scratch) captured;
+          emit
+            (Encoder.Store_stack
+               ( staged_stack_slot instruction.span (stage + 1),
+                 registers.(scratch) ));
+          owners.(scratch) <- None;
           release_through position
       | Direct_call _ | Indirect_call _ ->
           spill_all_registers instruction.span;
@@ -2768,6 +2843,18 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
                   (Encoder.Store_stack
                      (fixed_stack_slot instruction.span fixed_index, Encoder.Rax)))
               call.argument_stage_slots;
+            let owner_index = ref (Array.length call.argument_stage_slots) in
+            Array.iter
+              (Option.iter (fun stage ->
+                   emit
+                     (Encoder.Load_stack
+                        (Encoder.Rax, staged_stack_slot instruction.span stage));
+                   emit
+                     (Encoder.Store_stack
+                        ( fixed_stack_slot instruction.span !owner_index,
+                          Encoder.Rax ));
+                   incr owner_index))
+              call.argument_owner_stages;
             let depth_fault = fresh_label supply in
             let frame_fault = fresh_label supply in
             let stack_fault = fresh_label supply in
@@ -2867,10 +2954,21 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
                    ));
               List.iter
                 (fun (index, label) ->
+                  let next = fresh_label supply in
+                  emit
+                    (Encoder.Load_stack
+                       ( Encoder.Rcx,
+                         staged_stack_slot instruction.span
+                           (indirect.captured_stage + 1) ));
+                  emit
+                    (Encoder.Mov_imm64 (Encoder.Rdx, Int64.of_int (index + 1)));
+                  emit (Encoder.Cmp (Encoder.Rcx, Encoder.Rdx));
+                  emit_branch Not_equal next;
                   planned :=
                     Planned_function_address (Encoder.Rcx, index) :: !planned;
                   emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
-                  emit_branch Equal label)
+                  emit_branch Equal label;
+                  mark next)
                 targets;
               emit_branch Unconditional invalid;
               List.iter
@@ -3024,13 +3122,58 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           | Expression_control _ ->
               reject ?span:instruction.span "HCBACK0003"
                 "native expression contains stream end"));
+      (* Ownership homes are private snapshots of reached producers. They never
+         alias source-visible cells and survive nested calls and register spills. *)
+      let publish_owner result load =
+        let scratch =
+          acquire_empty instruction.span ~protected:[] ~excluded:[]
+        in
+        load registers.(scratch);
+        emit
+          (Encoder.Store_frame
+             ( encoder_frame_slot instruction.span
+                 (Option.get result.code_owner_offset),
+               registers.(scratch) ));
+        owners.(scratch) <- None
+      in
+      (match instruction.operation with
+      | Load_function_address (result, index) ->
+          publish_owner result (fun target ->
+              emit (Encoder.Mov_imm64 (target, Int64.of_int (index + 1))))
+      | Load_code_frame (_, offset, result) ->
+          publish_owner result (fun target ->
+              emit
+                (Encoder.Load_frame
+                   (target, encoder_frame_slot instruction.span offset)))
+      | Store_code_frame (_, offset, input, result) ->
+          publish_owner result (fun target ->
+              load_owner target input;
+              emit
+                (Encoder.Store_frame
+                   (encoder_frame_slot instruction.span offset, target)))
+      | Apply_word_view (input, result)
+        when Option.is_some result.code_owner_offset ->
+          publish_owner result (fun target -> load_owner target input)
+      | _ -> ());
       Option.iter
-        (fun (value, stage) ->
+        (fun (value, stage, owner_stage) ->
           let inputs, _ = ensure_inputs instruction.span [ value ] in
           let source = List.hd inputs in
           emit
             (Encoder.Store_stack
-               (staged_stack_slot instruction.span stage, registers.(source))))
+               (staged_stack_slot instruction.span stage, registers.(source)));
+          Option.iter
+            (fun stage ->
+              let scratch =
+                acquire_empty instruction.span ~protected:inputs ~excluded:[]
+              in
+              load_owner registers.(scratch) value;
+              emit
+                (Encoder.Store_stack
+                   ( staged_stack_slot instruction.span stage,
+                     registers.(scratch) ));
+              owners.(scratch) <- None)
+            owner_stage)
         instruction.push_stage;
       (* Publish each reached shared producer before the next branch. Its
          permanent home belongs to this activation and survives calls. *)
@@ -3150,6 +3293,7 @@ type program_site = {
   value_type : word_type option;
   call_site : bool;
   callback_call_site : bool;
+  code_comparison_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -3447,6 +3591,7 @@ let preflight_program graph =
                 value_type;
                 call_site = false;
                 callback_call_site = false;
+                code_comparison_site = false;
                 uninitialized_read_site = false;
                 index_scale_site = false;
                 index_addition_site = false;
@@ -3539,6 +3684,8 @@ type callable_slot = {
   slot_extent_bytes : int;
   access : frame_access;
   callback : Headers.function_pointer option;
+  slot_owner_offset : int option;
+  owned_targets : int list ref option;
 }
 
 type callable_return_kind =
@@ -3549,6 +3696,7 @@ type callable_function_info = {
   definition : Ir.Integer_interpreter.function_definition;
   owner : program_owner;
   parameter_types : Type.t array;
+  parameter_callbacks : Headers.function_pointer option array;
   return_kind : callable_return_kind;
   rbp_bytes : int;
   activation_bytes : int;
@@ -3610,6 +3758,7 @@ type callable_call_scope = {
   stage_base : int;
   result_stage : int option;
   argument_stages : int array;
+  argument_owner_stages : int option array;
   argument_types : Type.t array;
   scratch_stage : int;
   pushed : bool array;
@@ -3787,6 +3936,15 @@ let prepare_callable_function ~max_stack_bytes
     slots := Int_map.add offset slot !slots;
     slot_ranges := Int_map.add offset bytes !slot_ranges
   in
+  let metadata_count = ref 0 in
+  let init_flag_offsets_rev = ref [] in
+  let reserve_metadata () =
+    if !metadata_count >= (max_stack_bytes - local_frame_bytes) / 8 then
+      reject ?span "HCBACK0004"
+        "native frame ownership and initialization state exceed max_stack_bytes";
+    incr metadata_count;
+    -(local_frame_bytes + (8 * !metadata_count))
+  in
   let parameters = Function.parameters body in
   List.iteri
     (fun index member ->
@@ -3795,10 +3953,7 @@ let prepare_callable_function ~max_stack_bytes
           ?span:(Function.member_span member)
           "HCBACK0003"
           "native source function parameter positions are inconsistent";
-      let type_ = Function.member_type member in
-      let scalar =
-        source_slot_scalar ?span:(Function.member_span member) "parameter" type_
-      in
+      let declared_type = Function.member_type member in
       let location =
         match Frame.find_location frame (Function.member_symbol member) with
         | Some location -> location
@@ -3807,6 +3962,11 @@ let prepare_callable_function ~max_stack_bytes
               ?span:(Function.member_span member)
               "HCBACK0003"
               "native source parameter has no checked frame location"
+      in
+      let callback = Frame.location_callback_pointer location in
+      let type_ = Frame.location_storage_type location |> Result.get_ok in
+      let scalar =
+        source_slot_scalar ?span:(Function.member_span member) "parameter" type_
       in
       let register_ok =
         match Frame.location_register_selection location with
@@ -3818,10 +3978,14 @@ let prepare_callable_function ~max_stack_bytes
       if
         Frame.location_kind location <> Frame.Named_parameter
         || (not register_ok)
-        || Frame.location_declarator_shape location <> Frame.Object
+        || (Frame.location_declarator_shape location
+           <>
+           if Option.is_some callback then Frame.Function_pointer
+           else Frame.Object)
         || Frame.location_value_shape location <> Frame.Scalar
         || Frame.location_dimensions location <> []
-        || (not (Type.equal (Frame.location_checked_type location) type_))
+        || (not
+              (Type.equal (Frame.location_checked_type location) declared_type))
         || Frame.location_element_size location <> Int64.of_int scalar.byte_size
         || Frame.location_allocated_size location <> 8L
         || Frame.location_alignment location <> 8
@@ -3856,7 +4020,9 @@ let prepare_callable_function ~max_stack_bytes
           slot_dimensions = [];
           slot_element_count = 1;
           slot_extent_bytes = scalar.byte_size;
-          callback = None;
+          callback;
+          slot_owner_offset = Option.map (fun _ -> reserve_metadata ()) callback;
+          owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
               frame_offset = actual;
@@ -3867,8 +4033,6 @@ let prepare_callable_function ~max_stack_bytes
         })
     parameters;
   let locals = Function.locals body in
-  let init_flag_offsets_rev = ref [] in
-  let flag_count = ref 0 in
   List.iter
     (fun member ->
       let location =
@@ -3921,7 +4085,8 @@ let prepare_callable_function ~max_stack_bytes
       (* Charge before constructing the per-element initialization metadata. *)
       if
         object_bytes > local_frame_bytes
-        || elements > ((max_stack_bytes - local_frame_bytes) / 8) - !flag_count
+        || elements
+           > ((max_stack_bytes - local_frame_bytes) / 8) - !metadata_count
       then
         reject ?span "HCBACK0004"
           "native frame and per-element initialization state exceed \
@@ -3985,13 +4150,14 @@ let prepare_callable_function ~max_stack_bytes
         reject
           ?span:(Function.member_span member)
           "HCBACK0003" "native automatic local has an invalid RBP displacement";
-      let flag_offset = -(local_frame_bytes + (8 * (!flag_count + 1))) in
-      for index = 1 to elements do
-        init_flag_offsets_rev :=
-          -(local_frame_bytes + (8 * (!flag_count + index)))
-          :: !init_flag_offsets_rev
+      let flag_offset = reserve_metadata () in
+      init_flag_offsets_rev := flag_offset :: !init_flag_offsets_rev;
+      for _ = 2 to elements do
+        init_flag_offsets_rev := reserve_metadata () :: !init_flag_offsets_rev
       done;
-      flag_count := !flag_count + elements;
+      let slot_owner_offset =
+        Option.map (fun _ -> reserve_metadata ()) callback
+      in
       add_slot actual object_bytes
         {
           slot_type = type_;
@@ -4000,6 +4166,8 @@ let prepare_callable_function ~max_stack_bytes
           slot_element_count = elements;
           slot_extent_bytes = object_bytes;
           callback;
+          slot_owner_offset;
+          owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
               frame_offset = actual;
@@ -4009,7 +4177,7 @@ let prepare_callable_function ~max_stack_bytes
             };
         })
     locals;
-  let rbp_bytes = local_frame_bytes + (8 * !flag_count) in
+  let rbp_bytes = local_frame_bytes + (8 * !metadata_count) in
   if rbp_bytes > max_stack_bytes then
     reject ?span "HCBACK0004"
       (Printf.sprintf
@@ -4024,7 +4192,18 @@ let prepare_callable_function ~max_stack_bytes
         { function_id; function_name = Symbol.name (Function.symbol body) };
     parameter_types =
       Array.of_list
-        (List.map (fun member -> Function.member_type member) parameters);
+        (List.map
+           (fun member ->
+             Frame.find_location frame (Function.member_symbol member)
+             |> Option.get |> Frame.location_storage_type |> Result.get_ok)
+           parameters);
+    parameter_callbacks =
+      Array.of_list
+        (List.map
+           (fun member ->
+             Frame.find_location frame (Function.member_symbol member)
+             |> Option.get |> Frame.location_callback_pointer)
+           parameters);
     return_kind;
     rbp_bytes;
     activation_bytes = local_frame_bytes + (8 * List.length parameters);
@@ -4133,8 +4312,9 @@ let validate_callable_returns graph return_kind =
       done
 
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
-    ~global_storage ~literal_storage ~runtime_owner ~owner ~frame_slots
-    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~code_edges ~global_storage ~literal_storage ~runtime_owner ~owner
+    ~(frame_slots : callable_slot Int_map.t) ~expected_return ~is_entry
+    ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -4152,22 +4332,30 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   let values = ref Value_map.empty in
   let frame_values = ref Value_map.empty in
   let void_values = ref Value_set.empty in
-  (* These sets describe the sealed producers that can reach each automatic
-     callback cell. Numeric producers never join them. Cell addresses cannot
-     escape, so every write is checked here before any machine code is emitted. *)
+  (* Static target sets bound dispatch; private dynamic owner words distinguish
+     original code from numeric bits through callback cells and parameters. *)
   let code_values = ref Value_map.empty in
   let zero_values = ref Value_set.empty in
+  let numeric_code_values = ref Value_set.empty in
   let code_cells =
     Int_map.filter_map
-      (fun _ slot -> Option.map (fun _ -> ref []) slot.callback)
+      (fun _ (slot : callable_slot) -> slot.owned_targets)
       frame_slots
   in
-  let code_edges = ref [] in
   let code_source value = Value_map.find_opt value.value_id !code_values in
   let mark_code value targets =
+    if Option.is_none value.code_owner_offset then (
+      if max_stack_bytes - rbp_bytes - !reference_bytes < 8 then
+        reject "HCBACK0004"
+          "native code ownership snapshots exceed max_stack_bytes";
+      reference_bytes := !reference_bytes + 8;
+      value.code_owner_offset <- Some (-(rbp_bytes + !reference_bytes)));
     code_values := Value_map.add value.value_id targets !code_values
   in
   let is_zero value = Value_set.mem value.value_id !zero_values in
+  let is_numeric_code value =
+    Value_set.mem value.value_id !numeric_code_values
+  in
   let callbacks =
     match
       Runtime.original_callback_calls runtime_calls ~owner:runtime_owner
@@ -4199,6 +4387,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
         declared_type = target_type;
         computation_type = target_type;
         last_use = position;
+        code_owner_offset = None;
       }
     in
     define_frame frame_values values void_values description result
@@ -4361,7 +4550,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     define values description position result target_type
                       (Computation.forward target_type)
                   in
-                  ( Apply_comparison
+                  ( Apply_code_comparison
                       ( (if description.opcode = Opcode.Ic_equ_equ then Encoder.E
                          else Encoder.NE),
                         left,
@@ -4391,6 +4580,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       (Computation.declared target_type)
                   in
                   mark_code value (Option.get (code_source input));
+                  if is_numeric_code input then
+                    numeric_code_values :=
+                      Value_set.add value.value_id !numeric_code_values;
                   (Apply_word_view (input, value), None)
               | _ ->
                   unsupported description
@@ -4457,11 +4649,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               let captured_stage = stage_base + count in
               let result_stage =
                 match return_kind with
-                | Callable_word_return _ -> Some (captured_stage + 1)
+                | Callable_word_return _ -> Some (captured_stage + 2)
                 | Callable_void_return -> None
               in
               stage_cursor :=
-                captured_stage + 1
+                captured_stage + 2
                 + Option.fold ~none:0 ~some:(fun _ -> 1) result_stage;
               if !stage_cursor > max_stack_bytes / 8 then
                 reject ?span:description.span "HCBACK0004"
@@ -4480,6 +4672,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   stage_base;
                   result_stage;
                   argument_stages = Array.init count (fun i -> stage_base + i);
+                  argument_owner_stages = Array.make count None;
                   argument_types = parameter_types;
                   scratch_stage = !stage_cursor;
                   pushed = Array.make count false;
@@ -4529,6 +4722,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         callee_index;
                         activation_bytes = callee.activation_bytes;
                         argument_stage_slots;
+                        argument_owner_stages =
+                          Array.copy scope.argument_owner_stages;
                         result_stage_slot = scope.result_stage;
                       } )
                   in
@@ -4865,6 +5060,12 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       callee.activation_bytes )
               in
               let parameter_count = Array.length parameter_types in
+              let parameter_callbacks =
+                match target with
+                | Source_function index -> functions.(index).parameter_callbacks
+                | Put_chars_provider | Print_provider ->
+                    Array.make parameter_count None
+              in
               let arguments = Runtime.arguments call in
               if List.length arguments <> parameter_count then
                 malformed description
@@ -4898,14 +5099,23 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 malformed description
                   "direct call does not cover every fixed parameter";
               let stage_base = !stage_cursor in
+              let argument_end = ref (stage_base + parameter_count) in
+              let argument_owner_stages =
+                Array.map
+                  (Option.map (fun _ ->
+                       let stage = !argument_end in
+                       incr argument_end;
+                       stage))
+                  parameter_callbacks
+              in
+              let owner_count = !argument_end - stage_base - parameter_count in
               let result_stage =
                 match return_kind with
-                | Callable_word_return _ -> Some (stage_base + parameter_count)
+                | Callable_word_return _ -> Some !argument_end
                 | Callable_void_return -> None
               in
               let scratch_stage =
-                stage_base + parameter_count
-                + if Option.is_some result_stage then 1 else 0
+                !argument_end + if Option.is_some result_stage then 1 else 0
               in
               let scratch_count =
                 if target = Print_provider then
@@ -4919,7 +5129,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               stage_cursor := scratch_stage + scratch_count;
               stage_high_water := max !stage_high_water !stage_cursor;
               if target <> Print_provider then
-                home_slots := max !home_slots parameter_count;
+                home_slots := max !home_slots (parameter_count + owner_count);
               let scope =
                 {
                   call = Some call;
@@ -4933,6 +5143,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   result_stage;
                   argument_stages =
                     Array.init parameter_count (fun index -> stage_base + index);
+                  argument_owner_stages;
                   argument_types = parameter_types;
                   scratch_stage;
                   pushed = Array.make parameter_count false;
@@ -5108,6 +5319,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             activation_bytes = scope.activation_bytes;
                             argument_stage_slots =
                               Array.copy scope.argument_stages;
+                            argument_owner_stages =
+                              Array.copy scope.argument_owner_stages;
                             result_stage_slot = scope.result_stage;
                           }
                     | Put_chars_provider -> Put_chars scope.argument_stages.(0)
@@ -5749,7 +5962,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       in
                       mark_code value
                         (Int_map.find slot.access.frame_offset code_cells);
-                      (Load_frame_value (slot.access, value), None)
+                      ( Load_code_frame
+                          (slot.access, Option.get slot.slot_owner_offset, value),
+                        None )
                   | Frame_address slot
                     when slot.slot_dimensions = []
                          && Type.equal target_type slot.slot_type ->
@@ -5847,11 +6062,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       let source =
                         match code_source input with
                         | Some targets -> targets
-                        | None when is_zero input -> ref []
                         | None ->
-                            unsupported description
-                              "native callback cells accept owned function \
-                               addresses, callback copies or literal zero"
+                            ignore
+                              (checked_scalar ~allow_public:true description
+                                 input.declared_type);
+                            ref []
                       in
                       let cell =
                         Int_map.find slot.access.frame_offset code_cells
@@ -5862,9 +6077,20 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                           (Computation.forward target_type)
                       in
                       mark_code value source;
+                      if
+                        Option.is_none (code_source input)
+                        || is_numeric_code input
+                      then
+                        numeric_code_values :=
+                          Value_set.add value.value_id !numeric_code_values;
                       if is_zero input then
                         zero_values := Value_set.add value.value_id !zero_values;
-                      (Store_frame_value (slot.access, input, value), None)
+                      ( Store_code_frame
+                          ( slot.access,
+                            Option.get slot.slot_owner_offset,
+                            input,
+                            value ),
+                        None )
                   | Frame_address slot
                     when slot.slot_dimensions = []
                          && Type.equal target_type slot.slot_type ->
@@ -6463,10 +6689,6 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | None ->
                   malformed raw "ICF_PUSH_RES requires a scalar word result"
             in
-            if Option.is_some (code_source value) && not (is_zero value) then
-              unsupported raw
-                "native code-valued arguments require callback parameter \
-                 ownership support";
             match !calls with
             | scope :: _ when scope.phase = Collecting -> (
                 let argument =
@@ -6549,10 +6771,36 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         | _ ->
                             malformed raw
                               "pushed argument source type is inconsistent");
-                        if
-                          not
-                            (is_zero value && Option.is_some (code_source value))
+                        if Option.is_some scope.argument_owner_stages.(index)
+                        then (
+                          if Option.is_none (code_source value) then
+                            ignore
+                              (checked_scalar ~allow_public:true raw
+                                 value.declared_type);
+                          let callee_index =
+                            match scope.target with
+                            | Source_function index -> index
+                            | Put_chars_provider | Print_provider ->
+                                assert false
+                          in
+                          let slot =
+                            Int_map.find
+                              (16 + (8 * index))
+                              functions.(callee_index).frame_slots
+                          in
+                          Option.iter
+                            (fun source ->
+                              code_edges :=
+                                (Option.get slot.owned_targets, source)
+                                :: !code_edges)
+                            (code_source value))
+                        else if
+                          Option.is_some (code_source value)
+                          && not (is_numeric_code value)
                         then
+                          unsupported raw
+                            "native code values require a callback parameter"
+                        else if not (is_numeric_code value) then
                           checked_copy raw
                             (Runtime.argument_target_type argument)
                             value.declared_type;
@@ -6573,7 +6821,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         | Runtime.Fixed _ | Runtime.Variadic _ -> ());
                         scope.pushed.(index) <- true;
                         value.last_use <- max value.last_use position;
-                        Some (value, scope.argument_stages.(index))
+                        Some
+                          ( value,
+                            scope.argument_stages.(index),
+                            scope.argument_owner_stages.(index) )
                     | Some _ | None ->
                         malformed raw "pushed argument role is inconsistent")
                 | _ ->
@@ -6617,10 +6868,15 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               (match operation with
               | Indirect_call _ -> true
               | _ -> false);
+            code_comparison_site =
+              (match operation with
+              | Apply_code_comparison _ -> true
+              | _ -> false);
             uninitialized_read_site =
               (match operation with
-              | Load_frame_value ({ initialized_flag_offset = Some _; _ }, _) ->
-                  true
+              | Load_frame_value ({ initialized_flag_offset = Some _; _ }, _)
+              | Load_code_frame ({ initialized_flag_offset = Some _; _ }, _, _)
+                -> true
               | Update_frame_value
                   ({ initialized_flag_offset = Some _; _ }, _, _, _, _, _, _) ->
                   true
@@ -6759,17 +7015,6 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   let callable_blocks =
     visit [] (Graph.definition_order graph) |> source_order_blocks blocks
   in
-  let changed = ref true in
-  while !changed do
-    changed := false;
-    List.iter
-      (fun (cell, source) ->
-        let merged = List.sort_uniq Int.compare (!cell @ !source) in
-        if merged <> !cell then (
-          cell := merged;
-          changed := true))
-      !code_edges
-  done;
   let external_ids = external_values graph in
   let add value map = Value_map.add value.value_id value map in
   let add_reference reference map =
@@ -7303,8 +7548,9 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
         |> Array.of_list
       in
       let next_site = ref 0 in
+      let code_edges = ref [] in
       let entry_prepared =
-        preflight_callable_graph ~runtime_calls ~parameter_defaults
+        preflight_callable_graph ~runtime_calls ~parameter_defaults ~code_edges
           ~functions:function_infos ~global_storage ~literal_storage
           ~runtime_owner:Runtime.Entry ~owner:Entry_owner
           ~frame_slots:Int_map.empty ~expected_return:None ~is_entry:true
@@ -7315,9 +7561,9 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
           (fun info ->
             let body = info.definition.body in
             preflight_callable_graph ~runtime_calls ~parameter_defaults
-              ~functions:function_infos ~global_storage ~literal_storage
-              ~runtime_owner:(Runtime.Function body) ~owner:info.owner
-              ~frame_slots:info.frame_slots
+              ~code_edges ~functions:function_infos ~global_storage
+              ~literal_storage ~runtime_owner:(Runtime.Function body)
+              ~owner:info.owner ~frame_slots:info.frame_slots
               ~expected_return:(Some (Function.return_type body))
               ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes
               ~next_site
@@ -7325,6 +7571,20 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
           function_infos
       in
       validate_callable_parameter_defaults ~parameter_defaults function_infos;
+      (* Resolve copies and fixed-parameter transfers across the entire original
+         bundle before dispatch budgeting or machine allocation. Cycles retain
+         only bodies supplied by original function-address producers. *)
+      let changed = ref true in
+      while !changed do
+        changed := false;
+        List.iter
+          (fun (cell, source) ->
+            let merged = List.sort_uniq Int.compare (!cell @ !source) in
+            if merged <> !cell then (
+              cell := merged;
+              changed := true))
+          !code_edges
+      done;
       let preflight_ir_count =
         entry_prepared.callable_ir_count
         + Array.fold_left
@@ -7359,7 +7619,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
         Array.init (Array.length function_infos) (fun _ -> fresh_label supply)
       in
       let allocate_graph ~graph ~prepared ~rbp_bytes ~init_flag_offsets
-          ~is_entry ~start_label =
+          ~parameter_owner_offsets ~is_entry ~start_label =
         let rbp_bytes = rbp_bytes + prepared.callable_reference_bytes in
         let fixed_stack_slots =
           prepared.callable_home_slots + prepared.callable_stage_slots
@@ -7469,6 +7729,17 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                        (encoder_frame_slot None flag_offset, Encoder.Rax));
                 ])
               init_flag_offsets
+          @ List.concat_map
+              (fun (incoming_offset, owner_offset) ->
+                [
+                  Planned_instruction
+                    (Encoder.Load_frame
+                       (Encoder.Rax, encoder_frame_slot None incoming_offset));
+                  Planned_instruction
+                    (Encoder.Store_frame
+                       (encoder_frame_slot None owner_offset, Encoder.Rax));
+                ])
+              parameter_owner_offsets
         in
         let entry_id = Graph.entry graph |> Graph.block_id in
         let graph_entry_label =
@@ -7521,15 +7792,36 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
       in
       let entry_allocated =
         allocate_graph ~graph:entry_graph ~prepared:entry_prepared ~rbp_bytes:0
-          ~init_flag_offsets:[] ~is_entry:true ~start_label:None
+          ~init_flag_offsets:[] ~parameter_owner_offsets:[] ~is_entry:true
+          ~start_label:None
       in
       let functions_allocated =
         Array.mapi
           (fun index info ->
+            let incoming_index = ref (Array.length info.parameter_types) in
+            let parameter_owner_offsets =
+              Array.to_list
+                (Array.mapi
+                   (fun parameter_index callback ->
+                     Option.map
+                       (fun _ ->
+                         let incoming_offset = 16 + (8 * !incoming_index) in
+                         incr incoming_index;
+                         let slot =
+                           Int_map.find
+                             (16 + (8 * parameter_index))
+                             info.frame_slots
+                         in
+                         (incoming_offset, Option.get slot.slot_owner_offset))
+                       callback)
+                   info.parameter_callbacks)
+              |> List.filter_map Fun.id
+            in
             allocate_graph
               ~graph:(Ir.X87_stack.graph (Function.x87 info.definition.body))
               ~prepared:function_prepared.(index) ~rbp_bytes:info.rbp_bytes
               ~init_flag_offsets:info.init_flag_offsets ~is_entry:false
+              ~parameter_owner_offsets
               ~start_label:(Some function_labels.(index)))
           function_infos
       in

@@ -30,6 +30,7 @@ type fault_kind =
   | Pointer_difference_object_mismatch
   | Callback_unowned_address
   | Callback_signature_mismatch
+  | Code_comparison_invalid_word
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide

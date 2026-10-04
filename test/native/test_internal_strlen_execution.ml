@@ -201,6 +201,7 @@ let status_kind = function
   | Program.Pointer_difference_object_mismatch -> 18L
   | Program.Callback_unowned_address -> 19L
   | Program.Callback_signature_mismatch -> 20L
+  | Program.Code_comparison_invalid_word -> 21L
 
 let fault_from_outcome = function
   | Program.Fault fault -> fault

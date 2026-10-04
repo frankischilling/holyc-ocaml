@@ -32,6 +32,7 @@ type fault_kind =
   | Pointer_difference_object_mismatch
   | Callback_unowned_address
   | Callback_signature_mismatch
+  | Code_comparison_invalid_word
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -370,6 +371,15 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       (if kind = 19L then Callback_unowned_address
                        else Callback_signature_mismatch)
                       None
+                else if kind = 21L then
+                  if not candidate.code_comparison_site then
+                    Error
+                      "native code-comparison fault names a non-comparison site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native code-comparison fault did not consume its \
+                       instruction"
+                  else make_fault Code_comparison_invalid_word None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =

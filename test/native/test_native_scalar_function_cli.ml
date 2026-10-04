@@ -23,16 +23,18 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 6)
+    (Array.length Sys.argv = 7)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
      <native-scalar-functions.hc> <native-u0-functions.hc> \
-     <native-calling-flags.hc> <native-local-callbacks.hc>"
+     <native-calling-flags.hc> <native-local-callbacks.hc> \
+     <native-callback-parameters.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
 let u0_fixture = Sys.argv.(3)
 let flags_fixture = Sys.argv.(4)
 let callbacks_fixture = Sys.argv.(5)
+let parameters_fixture = Sys.argv.(6)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -452,12 +454,42 @@ let owned_local_callbacks_cli_contract () =
                 "faulting callback exposes no final word"))
         [
           ("", "0", "HCIRVM0024");
+          ("", "123", "HCIRVM0024");
           ("I64 Bad(I64 a,I64 b){return a+b;}", "&Bad", "HCIRVM0014");
           ("noargpop I64 Bad(I64 n){return n;}", "&Bad", "HCIRVM0014");
         ])
     [ "jit"; "aot" ]
 
+let callback_parameters_cli_contract () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode ~source:parameters_fixture
+           ~expected_preparation:0 ~expected_default_bytes:0
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a"));
+      with_file ".hc"
+        "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}I64 \
+         Apply(I64 (*p)(I64 n)){return p(Arg());}Apply(123);" (fun source ->
+          let ir = ir_json ~status:1 ~mode source
+          and native = host_json ~status:1 ~mode source in
+          require
+            (first_code ir = "HCIRVM0024" && first_code native = "HCIRVM0024")
+            "numeric callback parameter has no executable authority";
+          require
+            (executed_steps ir = executed_steps native)
+            "callback parameter CLI reached meter";
+          require
+            (member "output_hex" ir = `String "41"
+            && member "output_hex" native = `String "41")
+            "callback parameter CLI reached argument output";
+          require
+            (member "final_value" native = `Null)
+            "callback parameter fault exposes no final word"))
+    [ "jit"; "aot" ]
+
 let () =
+  callback_parameters_cli_contract ();
   owned_local_callbacks_cli_contract ();
   scalar_fixture_modes ();
   u0_fixture_modes ();

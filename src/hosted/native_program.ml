@@ -228,12 +228,20 @@ let function_source_error (definition : Ast.function_definition) =
         let reject message =
           Some (source_error parameter.location.span message)
         in
-        if not (scalar_word_type parameter.type_specifier) then
+        if
+          not
+            (scalar_word_type parameter.type_specifier
+            || Option.is_some parameter.function_pointer
+               && void_return_type parameter.type_specifier)
+        then
           reject
             "native function parameters require nonzero scalar integer types"
         else if
           List.length parameter.pointer_layers > 1
-          || Option.is_some parameter.function_pointer
+          || Option.fold ~none:false
+               ~some:(fun pointer ->
+                 List.length pointer.Ast.indirection_layers <> 1)
+               parameter.function_pointer
         then
           reject
             "native functions admit only one-level scalar pointer parameters"
@@ -908,6 +916,10 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ( "HCIRVM0014",
           "the reached callback definition disagrees with its original \
            signature or cleanup policy" )
+    | Image.Code_comparison_invalid_word ->
+        ( "HCIRVM0024",
+          "opaque function addresses can compare only with owned code or null"
+        )
     | Image.Pointer_difference_object_mismatch ->
         ("HCIRVM0018", "pointer difference requires the same live object extent")
   in

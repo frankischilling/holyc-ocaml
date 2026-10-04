@@ -202,5 +202,6 @@ runtime output and general declaration/`#exe` execution remain outside this gate
 Optimizer parity, complete HolyC ABI, assembly/object/BIN output, actual loader
 acceptance, whole-tree compilation and bootstrap remain required project work.
 
-Automatic local fixed integer/U0 callbacks use the owned address and captured
-callee consumer described in [native local callbacks](native-local-callbacks.md).
+Automatic local callbacks and fixed callback parameters use the address and
+ownership snapshots described in [native callbacks](native-local-callbacks.md).
+Numeric callback words remain non-executable and fault at reached invocation.

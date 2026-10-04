@@ -779,7 +779,6 @@ let local_callback_source_and_authority () =
           compile_source ~mode source
           |> reject_gate "native callback ownership boundary")
         [
-          "I64 Run(){I64 (*p)();p=123;return p();}Run();";
           "I64 A(){return 1;}I64 Run(){I64 (*p)();I64 n;p=&A;n=p;return \
            n;}Run();";
           "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p+1;}Run();";
@@ -803,8 +802,69 @@ let local_callback_source_and_authority () =
       |> reject_compile ~code:"HCBACK0004" "callback private frame one below")
     modes
 
+let callback_parameter_source_and_authority () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n),I64 \
+     n){if(p==0)return 0;return p(n);}I64 Forward(I64 (*p)(I64 n),I64 \
+     n){return Apply(p,n);}Forward(&Add,40);"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source in
+      let other = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let compile runtime_calls =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4080
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~runtime_calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry:(integer_program_entry unit)
+              ~functions:(integer_program_functions unit)
+              ()
+          in
+          let compiled =
+            compile (integer_program_runtime_calls unit)
+            |> require_ok program_errors
+          in
+          compile (integer_program_runtime_calls other)
+          |> reject_backend
+               "callback parameters cannot borrow a foreign runtime context";
+          let comparison_sites = ref 0 in
+          for site = 1 to Program.ir_instructions compiled do
+            match
+              Program.decode_runtime_status compiled ~max_steps:100 ~kind:21L
+                ~site:(Int64.of_int site) ~executed_steps:1L ~value_site:0L
+                ~bits:0L
+            with
+            | Ok
+                (Program.Fault
+                   { kind = Program.Code_comparison_invalid_word; _ }) ->
+                incr comparison_sites
+            | Ok _ ->
+                Alcotest.fail "code comparison status decoded as another fault"
+            | Error _ -> ()
+          done;
+          Alcotest.(check int)
+            "comparison faults require the original comparison site" 1
+            !comparison_sites)
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let compiled = image ~mode source in
+      let code = String.length (Program.code compiled)
+      and stack = Program.frame_bytes compiled in
+      ignore (image ~mode ~max_code_bytes:code ~max_stack_bytes:stack source);
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "parameter code one below";
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004" "parameter owner frame one below";
+      ignore (image ~mode "I64 Run(){I64 (*p)();p=123;return p();}Run();"))
+    modes
+
 let tests =
   [
+    Alcotest.test_case
+      "callback parameters retain source, fault and budget authority" `Quick
+      callback_parameter_source_and_authority;
     Alcotest.test_case "owned local callback source, graph and budget authority"
       `Quick local_callback_source_and_authority;
     Alcotest.test_case
