@@ -47,6 +47,9 @@ automatic scalar integer declarations, local assignment and updates, and
 value-return statements. U0 procedures also admit bare returns and fallthrough.
 [Native word tails](native-word-tails.md) add original hidden counts and
 per-activation `argc`/`argv` storage to direct and matching callback calls.
+[Native callback arguments](native-callback-arguments.md) carry retained code
+through fixed callback parameters of indirect signatures, including variadic
+parents and recursive forwarding.
 Function-local language labels and direct gotos use the same checked block
 lowering as the interpreter; [goto execution](integer-goto.md) records their
 source identity, empty-block fallthrough and initialization behavior. Ordinary

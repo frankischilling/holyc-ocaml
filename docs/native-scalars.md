@@ -72,6 +72,10 @@ Hidden initialization flags, spills and call staging remain outside those ranges
 locations and actual per-activation bounds. The hidden count and each tail word
 also occupy eight-byte slots; changing `argc` does not change their allocation.
 
+[Native callback arguments](native-callback-arguments.md) add private owner
+lanes for indirect fixed callback parameters. Their source slots stay eight
+bytes; owner staging and capture slots charge private physical storage.
+
 The encoder uses signed or unsigned extending byte/word loads, MOVSXD for signed
 dword loads, and a dword MOV for unsigned loads. Stores select the exact byte,
 word, dword or qword form. Narrow writes cannot overwrite an adjacent local.

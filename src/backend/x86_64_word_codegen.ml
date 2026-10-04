@@ -3853,6 +3853,7 @@ type callable_call_scope = {
   argument_stages : int array;
   argument_owner_stages : int option array;
   argument_types : Type.t array;
+  argument_callbacks : Headers.function_pointer option array;
   fixed_count : int;
   variadic_count : int64 option;
   scratch_stage : int;
@@ -3932,6 +3933,77 @@ let callable_argument_types description ~max_stack_bytes ~fixed ~variadic_count
   if not (Array.for_all Fun.id seen) then
     malformed description "native call is missing a physical argument slot";
   types
+
+let callable_callback_arguments description (callback : Runtime.callback_call)
+    argument_types =
+  let parameters =
+    callback.callback_pointer |> Headers.function_pointer_signature
+    |> Headers.signature_parameters |> Array.of_list
+  in
+  if Array.length parameters <> List.length callback.callback_fixed_types then
+    malformed description
+      "native callback fixed parameters disagree with their original header";
+  Array.mapi
+    (fun index type_ ->
+      let pointer =
+        if index >= Array.length parameters then None
+        else
+          let parameter = parameters.(index) in
+          if Headers.parameter_index parameter <> index then
+            malformed description
+              "native callback parameter positions are inconsistent";
+          match Headers.parameter_declarator_kind parameter with
+          | Headers.Object -> None
+          | Headers.Function_pointer pointer ->
+              let register_ok =
+                match Headers.parameter_register_selection parameter with
+                | Sema.Register_request.Unspecified
+                | Sema.Register_request.Disabled -> true
+                | Sema.Register_request.Allocatable
+                | Sema.Register_request.Explicit _ -> false
+              in
+              if
+                (not register_ok)
+                || List.length
+                     (Headers.function_pointer_indirection_origins pointer)
+                   <> 1
+              then
+                unsupported description
+                  "native callback parameters require an original one-level \
+                   callback declarator without explicit register selection";
+              (match Headers.function_pointer_storage_type pointer with
+              | Ok storage_type when Type.equal storage_type type_ -> ()
+              | _ ->
+                  malformed description
+                    "native callback argument storage differs from its \
+                     original nested declarator");
+              Some pointer
+      in
+      if Option.is_none pointer then
+        ignore (checked_scalar ~allow_public:true description type_);
+      pointer)
+    argument_types
+
+let callable_callback_matches (callback : Runtime.callback_call) ~argument_types
+    ~argument_callbacks ~fixed_count (callee : callable_function_info) =
+  let body = callee.definition.body in
+  let flags = Function.stored_flags body in
+  let module F = Generated.Function_flags.Stored in
+  let callee_pop =
+    (F.is_set ~mask:flags F.Ret1 || F.is_set ~mask:flags F.Argument_pop)
+    && not (F.is_set ~mask:flags F.No_argument_pop)
+  in
+  Type.equal (Function.return_type body) callback.callback_return_type
+  && callee_pop = callback.callback_callee_pop
+  && Option.is_some callee.variadic
+     = Option.is_some callback.callback_variadic_count
+  && Array.length callee.parameter_types = fixed_count
+  && Array.for_all2 Type.equal callee.parameter_types
+       (Array.sub argument_types 0 fixed_count)
+  && Array.for_all2
+       (fun actual expected -> Option.is_some actual = Option.is_some expected)
+       callee.parameter_callbacks
+       (Array.sub argument_callbacks 0 fixed_count)
 
 type prepared_callable_body = {
   callable_blocks : prepared_program_block list;
@@ -4576,9 +4648,10 @@ let validate_callable_returns graph return_kind =
       done
 
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
-    ~code_edges ~arena_code_cells ~global_storage ~literal_storage
-    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t) ~variadic
-    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~code_edges ~indirect_code_edges ~arena_code_cells ~global_storage
+    ~literal_storage ~runtime_owner ~owner
+    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
+    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -4950,17 +5023,26 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   ~variadic_count:callback.callback_variadic_count
                   callback.callback_arguments
               in
-              Array.iter
-                (fun type_ ->
-                  ignore (checked_scalar ~allow_public:true description type_))
-                parameter_types;
+              let argument_callbacks =
+                callable_callback_arguments description callback parameter_types
+              in
               let count = Array.length parameter_types in
               let return_kind =
                 source_return_kind ?span:description.span
                   callback.callback_return_type
               in
               let stage_base = !stage_cursor in
-              let captured_stage = stage_base + count in
+              let argument_end = ref (stage_base + count) in
+              let argument_owner_stages =
+                Array.map
+                  (Option.map (fun _ ->
+                       let stage = !argument_end in
+                       incr argument_end;
+                       stage))
+                  argument_callbacks
+              in
+              let owner_count = !argument_end - stage_base - count in
+              let captured_stage = !argument_end in
               let result_stage =
                 match return_kind with
                 | Callable_word_return _ -> Some (captured_stage + 2)
@@ -4973,7 +5055,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 reject ?span:description.span "HCBACK0004"
                   "native callback staging exceeds the private frame limit";
               stage_high_water := max !stage_high_water !stage_cursor;
-              home_slots := max !home_slots count;
+              home_slots := max !home_slots (count + owner_count);
               calls :=
                 {
                   call = None;
@@ -4986,8 +5068,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   stage_base;
                   result_stage;
                   argument_stages = Array.init count (fun i -> stage_base + i);
-                  argument_owner_stages = Array.make count None;
+                  argument_owner_stages;
                   argument_types = parameter_types;
+                  argument_callbacks;
                   fixed_count = List.length callback.callback_fixed_types;
                   variadic_count = callback.callback_variadic_count;
                   scratch_stage = !stage_cursor;
@@ -5015,24 +5098,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   let argument_stage_slots = Array.copy scope.argument_stages in
                   let target_call callee_index =
                     let callee = functions.(callee_index) in
-                    let body = callee.definition.body in
-                    let flags = Function.stored_flags body in
-                    let module F = Generated.Function_flags.Stored in
-                    let callee_pop =
-                      (F.is_set ~mask:flags F.Ret1
-                      || F.is_set ~mask:flags F.Argument_pop)
-                      && not (F.is_set ~mask:flags F.No_argument_pop)
-                    in
                     let matches =
-                      Type.equal
-                        (Function.return_type body)
-                        callback.callback_return_type
-                      && callee_pop = callback.callback_callee_pop
-                      && Option.is_some callee.variadic
-                         = Option.is_some callback.callback_variadic_count
-                      && Array.length callee.parameter_types = scope.fixed_count
-                      && Array.for_all2 Type.equal callee.parameter_types
-                           (Array.sub scope.argument_types 0 scope.fixed_count)
+                      callable_callback_matches callback
+                        ~argument_types:scope.argument_types
+                        ~argument_callbacks:scope.argument_callbacks
+                        ~fixed_count:scope.fixed_count callee
                     in
                     ( matches,
                       {
@@ -5492,6 +5562,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     Array.init parameter_count (fun index -> stage_base + index);
                   argument_owner_stages;
                   argument_types = parameter_types;
+                  argument_callbacks = parameter_callbacks;
                   fixed_count;
                   variadic_count;
                   scratch_stage;
@@ -7289,22 +7360,43 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             ignore
                               (checked_scalar ~allow_public:true raw
                                  value.declared_type);
-                          let callee_index =
-                            match scope.target with
-                            | Source_function index -> index
-                            | Put_chars_provider | Print_provider ->
-                                assert false
-                          in
-                          let slot =
-                            Int_map.find
-                              (16 + (8 * index))
-                              functions.(callee_index).frame_slots
-                          in
                           Option.iter
                             (fun source ->
-                              code_edges :=
-                                (Option.get slot.owned_targets, source)
-                                :: !code_edges)
+                              let destination callee =
+                                Int_map.find
+                                  (16 + (8 * index))
+                                  callee.frame_slots
+                                |> fun slot -> Option.get slot.owned_targets
+                              in
+                              match scope.callback_call with
+                              | Some callback ->
+                                  Array.iteri
+                                    (fun callee_index callee ->
+                                      if
+                                        callable_callback_matches callback
+                                          ~argument_types:scope.argument_types
+                                          ~argument_callbacks:
+                                            scope.argument_callbacks
+                                          ~fixed_count:scope.fixed_count callee
+                                      then
+                                        indirect_code_edges :=
+                                          ( Option.get scope.owned_targets,
+                                            callee_index,
+                                            destination callee,
+                                            source )
+                                          :: !indirect_code_edges)
+                                    functions
+                              | None ->
+                                  let callee_index =
+                                    match scope.target with
+                                    | Source_function index -> index
+                                    | Put_chars_provider | Print_provider ->
+                                        assert false
+                                  in
+                                  code_edges :=
+                                    ( destination functions.(callee_index),
+                                      source )
+                                    :: !code_edges)
                             (code_source value))
                         else if
                           Option.is_some (code_source value)
@@ -8104,21 +8196,23 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
       in
       let next_site = ref 0 in
       let code_edges = ref [] in
+      let indirect_code_edges = ref [] in
       let arena_code_cells = ref Int_map.empty in
       let entry_prepared =
         preflight_callable_graph ~runtime_calls ~parameter_defaults ~code_edges
-          ~arena_code_cells ~functions:function_infos ~global_storage
-          ~literal_storage ~runtime_owner:Runtime.Entry ~owner:Entry_owner
-          ~frame_slots:Int_map.empty ~variadic:None ~expected_return:None
-          ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
+          ~indirect_code_edges ~arena_code_cells ~functions:function_infos
+          ~global_storage ~literal_storage ~runtime_owner:Runtime.Entry
+          ~owner:Entry_owner ~frame_slots:Int_map.empty ~variadic:None
+          ~expected_return:None ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes
+          ~next_site entry_graph
       in
       let function_prepared =
         Array.map
           (fun info ->
             let body = info.definition.body in
             preflight_callable_graph ~runtime_calls ~parameter_defaults
-              ~code_edges ~arena_code_cells ~functions:function_infos
-              ~global_storage ~literal_storage
+              ~code_edges ~indirect_code_edges ~arena_code_cells
+              ~functions:function_infos ~global_storage ~literal_storage
               ~runtime_owner:(Runtime.Function body) ~owner:info.owner
               ~frame_slots:info.frame_slots ~variadic:info.variadic
               ~expected_return:(Some (Function.return_type body))
@@ -8136,8 +8230,9 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
           "native callback declarations require original default preparation \
            authority";
       (* Resolve copies and fixed-parameter transfers across the entire original
-         bundle before dispatch budgeting or machine allocation. Cycles retain
-         only bodies supplied by original function-address producers. *)
+         bundle before dispatch budgeting or machine allocation. An indirect
+         transfer reaches a parameter cell only when its captured callee can own
+         that original body. Cycles retain only original address producers. *)
       let changed = ref true in
       while !changed do
         changed := false;
@@ -8147,7 +8242,15 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
             if merged <> !cell then (
               cell := merged;
               changed := true))
-          !code_edges
+          !code_edges;
+        List.iter
+          (fun (targets, callee_index, cell, source) ->
+            if List.mem callee_index !targets then
+              let merged = List.sort_uniq Int.compare (!cell @ !source) in
+              if merged <> !cell then (
+                cell := merged;
+                changed := true))
+          !indirect_code_edges
       done;
       let preflight_ir_count =
         entry_prepared.callable_ir_count

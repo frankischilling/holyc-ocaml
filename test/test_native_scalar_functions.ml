@@ -954,8 +954,103 @@ let callback_storage_source_and_authority () =
         ])
     modes
 
+let indirect_callback_argument_authority () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*cb)(I64 n)){return cb(40);}I64 \
+     Unused(I64 (*cb)(I64 n)){return cb(40);}I64 Forward(I64 (*cb)(I64 n)){I64 \
+     (*p)(I64 (*x)(I64 n));p=&Apply;return p(cb);}I64 Run(){I64 (*p)(I64 \
+     (*x)(I64 n));p=&Forward;return p(&Add);}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source
+      and foreign = integer_unit ~mode source in
+      let functions = integer_program_functions unit in
+      List.iter
+        (fun abi ->
+          let compile ~runtime_calls ~entry ~functions =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4080
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~runtime_calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry ~functions ()
+          in
+          let runtime_calls = integer_program_runtime_calls unit
+          and entry = integer_program_entry unit in
+          let compiled =
+            compile ~runtime_calls ~entry ~functions
+            |> require_ok program_errors
+          in
+          Alcotest.(check int)
+            "original nested callback bodies" 5
+            (Program.function_count compiled);
+          (if abi = Program.Windows_x64 then
+             let ranges = Program.windows_unwind_functions compiled in
+             let size index =
+               let start, stop, _ = List.nth ranges index in
+               stop - start
+             in
+             Alcotest.(check bool)
+               "an unselected same-signature body receives no callback target"
+               true
+               (size 3 < size 2));
+          compile
+            ~runtime_calls:(integer_program_runtime_calls foreign)
+            ~entry ~functions
+          |> reject_backend "nested argument edges reject a foreign receipt";
+          compile ~runtime_calls
+            ~entry:(Obj.obj (Obj.dup (Obj.repr entry)))
+            ~functions
+          |> reject_backend "nested argument edges reject a copied entry";
+          let apply = List.nth functions 1 in
+          let copied =
+            { apply with frame = Obj.obj (Obj.dup (Obj.repr apply.frame)) }
+          in
+          compile ~runtime_calls ~entry
+            ~functions:
+              (List.hd functions :: copied :: List.tl (List.tl functions))
+          |> reject_backend
+               "nested argument edges reject copied parameter ownership")
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let compiled = image ~mode source in
+      let stack = Program.frame_bytes compiled
+      and code = Program.code_bytes compiled
+      and ir = Program.ir_instructions compiled
+      and blocks = Program.block_count compiled in
+      ignore
+        (image ~mode ~max_stack_bytes:stack ~max_code_bytes:code
+           ~max_ir_instructions:ir ~max_blocks:blocks source);
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004"
+           "nested private owner staging one below";
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "nested dispatch code one below";
+      compile_source ~mode ~max_ir_instructions:(ir - 1) source
+      |> reject_compile "nested original instruction budget one below";
+      compile_source ~mode ~max_blocks:(blocks - 1) source
+      |> reject_compile "nested original block budget one below";
+      List.iter
+        (fun rejected ->
+          compile_source ~mode rejected
+          |> reject_gate
+               "nested callback ownership cannot become an object reference")
+        [
+          "I64 Ignore(I64 (*cb)(I64 n)=12){return 42;}I64 Run(){I64 (*p)(I64 \
+           (*cb)(I64 n)=17);p=&Ignore;return p();}Run();";
+          "I64 Apply(I64 (*cb)(I64 n)){return cb(40);}I64 Run(){I64 n=42;I64 \
+           (*p)(I64 (*cb)(I64 n));p=&Apply;return p(&n);}Run();";
+          "I64 Apply(I64 (**cb)(I64 n)){return 42;}I64 Run(){I64 (*p)(I64 \
+           (**cb)(I64 n));p=&Apply;return p(0);}Run();";
+          "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*cb)(I64 n),...){return \
+           42;}I64 Run(){I64 (*p)(I64 (*cb)(I64 n),...);p=&Apply;return \
+           p(&Add,&Add);}Run();";
+        ])
+    modes
+
 let tests =
   [
+    Alcotest.test_case "indirect callback arguments retain original authority"
+      `Quick indirect_callback_argument_authority;
     Alcotest.test_case
       "callback storage preserves original roots and bounded metadata" `Quick
       callback_storage_source_and_authority;

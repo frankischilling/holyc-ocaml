@@ -144,10 +144,16 @@ reached output. Recursive exact and one-below frame, depth, physical-stack and
 step limits recover on the same image. CI executes these through `@native-tests`
 on Windows and Linux.
 
+[Native callback arguments](native-callback-arguments.md) extend indirect fixed
+signatures with original callback parameter declarators. Private owner lanes
+survive forwarding, recursive calls and variadic parents; the destination
+parameter retains its own nested header and saved defaults. Dispatch separates
+callback and object-reference parameter kinds even when physical types match.
+
 ## Remaining callback work
 
 Native member storage, callback initializers and updates, effectful/owned-code
-callback defaults, callback-valued parameters of an indirect callback signature,
+callback defaults,
 pointer/owned-code variadic tails, retained publication after same-name
 replacement, unresolved extern slots and live task linking remain unfinished in
 [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). Ordinary

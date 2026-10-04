@@ -6137,8 +6137,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
           declaration |> Sema.Function_resolution.resolved_declaration_header
         in
         let signature = H.function_signature header in
+        let parameters = H.signature_parameters signature in
+        let expected_parameters =
+          callback.Runtime.callback_pointer |> H.function_pointer_signature
+          |> H.signature_parameters
+        in
         let actual =
-          H.signature_parameters signature
+          parameters
           |> List.map (fun parameter ->
               match H.parameter_declarator_kind parameter with
               | H.Function_pointer pointer ->
@@ -6154,6 +6159,18 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
            = callback.callback_callee_pop
         && List.length actual = List.length callback.callback_fixed_types
         && List.for_all2 Type.equal actual callback.callback_fixed_types
+        && List.length parameters = List.length expected_parameters
+        && List.for_all2
+             (fun actual expected ->
+               match
+                 ( H.parameter_declarator_kind actual,
+                   H.parameter_declarator_kind expected )
+               with
+               | H.Object, H.Object | H.Function_pointer _, H.Function_pointer _
+                 -> true
+               | H.Object, H.Function_pointer _ | H.Function_pointer _, H.Object
+                 -> false)
+             parameters expected_parameters
   in
   let resolve_address block instruction location pointer_pointee =
     let root pointer_storage pointer_base pointer_count =

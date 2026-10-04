@@ -1360,6 +1360,17 @@ flags, reverse effects, reached faults and recursive quota recovery. Compile
 tests check both ABIs and foreign-frame rejection. The maintained word-tail CLI
 fixture returns 42 with sixteen saved bytes and six native preparation steps.
 
+Native indirect callback-argument tests cover original nested signatures,
+forwarding closure, multiple owner lanes, all integer widths, U0, arrays and
+static/global cells, variadic parents, destination defaults and capture mutation
+in both source modes. Fault comparisons check outer and inner effects and exact
+checked-batch work, including a physically equal object-pointer signature.
+Compilation checks both ABIs, unselected same-signature bodies, copied/foreign
+receipts and frames, and exact/one-below code, frame, instruction and block
+budgets. Recursive runtime limits recover on the same image. The maintained
+callback-argument CLI example returns 42 with nine preparation steps and 24
+saved bytes. See [native callback arguments](native-callback-arguments.md).
+
 Ordinary calling-flag tests check both `argpop noargpop` orders, standalone
 `haserrcode`, original cleanup opcodes and slot counts, and foreign call-context
 rejection. Parser tests retain local modifier tokens and source-order storage.

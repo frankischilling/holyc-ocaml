@@ -558,3 +558,11 @@ matching callbacks with the original hidden count, mutable `argc`/`argv`, typed
 aliases and actual bounds. Fixed callback owners survive the variable argument
 area. Both source modes retain original cleanup, reverse effects, exact quotas
 and same-image recovery. General mixed-value variadics remain open.
+
+[Native callback arguments](native-callback-arguments.md) pass original retained
+code through fixed callback parameters of indirect signatures. Private owner
+lanes preserve forwarding and variadic parents; destination declarations retain
+nested defaults. IR/native signature checks distinguish callbacks from ordinary
+object pointers with the same physical type. Both source modes check values,
+argument effects, quota boundaries and recovery. The wider callback, compiler
+and release backlog remains open.

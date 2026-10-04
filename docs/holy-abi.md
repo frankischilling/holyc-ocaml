@@ -110,6 +110,12 @@ It preserves fixed callback owners after each activation's actual tail and uses
 captured bounds independently of mutable `argc`. Original cleanup receipts
 remain separate from its private plain-RET adapter.
 
+[Native callback arguments](native-callback-arguments.md) retain original
+nested parameter declarators in indirect signatures. IR and native dispatch
+distinguish callback and object-reference kinds alongside physical types.
+Private owner lanes follow the actual argument area, and original destination
+headers retain authority over inner-call defaults.
+
 Named functions now prepare integer-word defaults for one-star callback
 parameters through the original declaration-time evaluator. The saved value is
 materialized as `IC_IMM_I64` with the parameter's physical internal `RT_PTR`

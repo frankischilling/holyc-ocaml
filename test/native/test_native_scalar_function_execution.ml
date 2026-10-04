@@ -2343,6 +2343,314 @@ let word_tail_quotas_and_recovery () =
         (Native_program.default_bytes report))
     modes
 
+let indirect_callback_arguments_execute () =
+  let add = "I64 Add(I64 n){return n+2;}" in
+  let apply = "I64 Apply(I64 (*cb)(I64 n)){return cb(40);}" in
+  let parent = "I64 (*p)(I64 (*cb)(I64 n));" in
+  let cases =
+    [
+      ( "original nested parameter",
+        add ^ apply ^ "I64 Run(){" ^ parent ^ "p=&Apply;return p(&Add);}Run();"
+      );
+      ( "two protected owner lanes",
+        add
+        ^ "I64 One(I64 n){return n+1;}I64 Apply(I64 (*a)(I64 n),I64 (*b)(I64 \
+           n),I64 n){return a(n)+b(n+1);}I64 Run(){I64 (*p)(I64 (*a)(I64 \
+           n),I64 (*b)(I64 n),I64 n);p=&Apply;return p(&One,&Add,19);}Run();" );
+      ( "indirect forwarding fixed point",
+        add ^ apply ^ "I64 Forward(I64 (*cb)(I64 n)){" ^ parent
+        ^ "p=&Apply;return p(cb);}I64 Run(){" ^ parent
+        ^ "p=&Forward;return p(&Add);}Run();" );
+      ( "destination nested header owns default",
+        add
+        ^ "I64 Apply(I64 (*cb)(I64 n=40)){return cb();}I64 Run(){I64 (*p)(I64 \
+           (*cb)(I64 n=12));I64 (*q)(I64 n=10);p=&Apply;q=&Add;return \
+           p(q);}Run();" );
+      ( "variadic parent retains callback owner",
+        add
+        ^ "I64 Apply(I64 (*cb)(I64 n),...){argc=99;return cb(argv[1]);}I64 \
+           Run(){I64 (*p)(I64 (*cb)(I64 n),...);p=&Apply;return \
+           p(&Add,17,40);}Run();" );
+      ( "variadic nested callback",
+        "I64 Sum(I64 n,...){return n+argv[0];}I64 Apply(I64 (*cb)(I64 \
+         n,...)){return cb(20,22);}I64 Run(){I64 (*p)(I64 (*cb)(I64 \
+         n,...));p=&Apply;return p(&Sum);}Run();" );
+      ( "numeric owner can remain unused",
+        "I64 Ignore(I64 (*cb)(I64 n)){return 42;}I64 Run(){" ^ parent
+        ^ "p=&Ignore;return p(17);}Run();" );
+      ( "null owner can remain unused",
+        "I64 Ignore(I64 (*cb)(I64 n)){return 42;}I64 Run(){" ^ parent
+        ^ "p=&Ignore;return p(0);}Run();" );
+      ( "reverse assignment copies exact owners",
+        "I64 A(I64 n){return n+1;}I64 B(I64 n){return n+2;}I64 Apply(I64 \
+         (*a)(I64 n),I64 (*b)(I64 n)){return a(19)+b(19);}I64 Run(){I64 \
+         (*p)(I64 (*a)(I64 n),I64 (*b)(I64 n));I64 (*q)(I64 \
+         n);p=&Apply;q=&A;return p(q,q=&B);}Run();" );
+    ]
+  in
+  let storage =
+    [
+      "I64 Run(){I64 (*p)(I64 (*cb)(I64 n))[2];I64 (*q)(I64 \
+       n)[2];p[1]=&Apply;q[1]=&Add;return p[1](q[1]);}Run();";
+      "I64 (*P)(I64 (*cb)(I64 n))[2];I64 (*Q)(I64 n)[2];I64 \
+       Run(){P[1]=&Apply;Q[1]=&Add;return P[1](Q[1]);}Run();";
+      "I64 Run(I64 seed){static I64 (*p)(I64 (*cb)(I64 n))[2];static I64 \
+       (*q)(I64 n)[2];if(seed){p[1]=&Apply;q[1]=&Add;}return \
+       p[1](q[1]);}Run(1);Run(0);";
+      "I64 Run(I64 (*p)(I64 (*cb)(I64 n)),I64 (*q)(I64 n)){return \
+       p(q);}Run(&Apply,&Add);";
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source) ->
+          ignore
+            (compare_source ~mode ~label ~expected_type:"I64" ~expected_bits:42L
+               source))
+        cases;
+      List.iteri
+        (fun index source ->
+          ignore
+            (compare_source ~mode
+               ~label:("nested callback storage " ^ string_of_int index)
+               ~expected_type:"I64" ~expected_bits:42L
+               (add ^ apply ^ source)))
+        storage;
+      List.iter
+        (fun (type_name, literal, _, expected_bits) ->
+          List.iter
+            (fun flags ->
+              let source =
+                Printf.sprintf
+                  "%s Echo(%s n){return n;}%s I64 Apply(%s (*cb)(%s n),%s \
+                   n){return cb(n);}%s I64 (*P)(%s (*cb)(%s n),%s n);I64 \
+                   Run(){P=&Apply;return P(&Echo,%s);}Run();"
+                  type_name type_name flags type_name type_name type_name flags
+                  type_name type_name type_name literal
+              in
+              (* Apply returns I64, so U64's full bits cross unchanged through
+                 the outer signed word. Narrow parameters normalize on entry. *)
+              ignore
+                (compare_source ~mode
+                   ~label:(flags ^ type_name ^ " nested width")
+                   ~expected_type:"I64" ~expected_bits source))
+            [ ""; "argpop"; "noargpop"; "haserrcode"; "argpop noargpop" ])
+        parameter_rows;
+      List.iter
+        (fun (type_name, literal, expected_type, expected_bits) ->
+          let source =
+            Printf.sprintf
+              "%s Echo(){return %s;}%s Apply(%s (*cb)()){return cb();}%s \
+               Run(){%s (*p)(%s (*cb)());p=&Apply;return p(&Echo);}Run();"
+              type_name literal type_name type_name type_name type_name
+              type_name
+          in
+          ignore
+            (compare_source ~mode
+               ~label:(type_name ^ " nested return")
+               ~expected_type ~expected_bits source))
+        return_rows;
+      let source =
+        "extern U0 PutChars(U64 ch);U0 Emit(){PutChars('A');}U0 Apply(U0 \
+         (*cb)()){cb();}U0 Run(){U0 (*p)(U0 \
+         (*cb)());p=&Apply;p(&Emit);}Run();42;"
+      in
+      let report, _, _ =
+        compare_source ~mode ~label:"nested U0 bodies" ~expected_type:"I64"
+          ~expected_bits:42L source
+      in
+      Alcotest.(check string)
+        "nested U0 output" "A"
+        (Native_program.output_bytes report);
+      let source =
+        "extern U0 PutChars(U64 ch);I64 (*P)(I64 (*cb)(I64 n),I64 n);I64 \
+         Add(I64 n){return n+2;}I64 Bad(I64 (*cb)(I64 n),I64 n){return 0;}I64 \
+         Apply(I64 (*cb)(I64 n),I64 n){return cb(n);}I64 \
+         Arg(){PutChars('B');P=&Bad;return 40;}I64 Run(){P=&Apply;return \
+         P(&Add,Arg());}Run();"
+      in
+      let report, _, _ =
+        compare_source ~mode ~label:"captured parent precedes argument mutation"
+          ~expected_type:"I64" ~expected_bits:42L source
+      in
+      Alcotest.(check string)
+        "parent capture output" "B"
+        (Native_program.output_bytes report))
+    modes
+
+let indirect_callback_argument_faults () =
+  let prefix =
+    "extern U0 PutChars(U64 ch);I64 Arg(U64 ch){PutChars(ch);return 40;}"
+  in
+  let add = "I64 Add(I64 n){return n+2;}" in
+  let parent = "I64 (*p)(I64 (*cb)(I64 n),I64 n);" in
+  let apply = "I64 Apply(I64 (*cb)(I64 n),I64 n){return cb(Arg('A'));}" in
+  let cases =
+    [
+      ( "numeric nested owner",
+        apply ^ "I64 Run(){" ^ parent ^ "p=&Apply;return p(17,Arg('B'));}Run();",
+        "HCIRVM0024",
+        "BA" );
+      ( "null nested owner",
+        apply ^ "I64 Run(){" ^ parent ^ "p=&Apply;return p(0,Arg('B'));}Run();",
+        "HCIRVM0024",
+        "BA" );
+      ( "nested signature after inner effects",
+        "U64 Bad(I64 n){return n;}" ^ apply ^ "I64 Run(){" ^ parent
+        ^ "p=&Apply;return p(&Bad,Arg('B'));}Run();",
+        "HCIRVM0014",
+        "BA" );
+      ( "numeric parent after outer effects",
+        add ^ "I64 Run(){" ^ parent ^ "p=17;return p(&Add,Arg('B'));}Run();",
+        "HCIRVM0024",
+        "B" );
+      ( "null parent after outer effects",
+        add ^ "I64 Run(){" ^ parent ^ "p=0;return p(&Add,Arg('B'));}Run();",
+        "HCIRVM0024",
+        "B" );
+      ( "uninitialized parent before effects",
+        add ^ "I64 Run(){" ^ parent ^ "return p(&Add,Arg('B'));}Run();",
+        "HCIRVM0012",
+        "" );
+      ( "parent bounds before effects",
+        add ^ apply
+        ^ "I64 Run(){I64 (*p)(I64 (*cb)(I64 n),I64 n)[2];p[1]=&Apply;return \
+           p[2](&Add,Arg('B'));}Run();",
+        "HCIRVM0019",
+        "" );
+      ( "argument cell faults after rightmost effects",
+        apply ^ "I64 Run(){" ^ parent
+        ^ "I64 (*q)(I64 n);p=&Apply;return p(q,Arg('B'));}Run();",
+        "HCIRVM0012",
+        "B" );
+      ( "object and callback physical slots cannot share authority",
+        add ^ "I64 Object(I64i *cb,I64 n){PutChars('X');return 42;}I64 Run(){"
+        ^ parent ^ "p=&Object;return p(&Add,Arg('B'));}Run();",
+        "HCIRVM0014",
+        "B" );
+      ( "nested target wrong cleanup",
+        "noargpop I64 Bad(I64 n){return n;}" ^ apply ^ "I64 Run(){" ^ parent
+        ^ "p=&Apply;return p(&Bad,Arg('B'));}Run();",
+        "HCIRVM0014",
+        "BA" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, body, code, output) ->
+          let source = prefix ^ body in
+          let session, config, input = source_inputs ~mode source in
+          let public =
+            run_integer_program_report session ~config ~source:input
+              ~max_steps:10000
+          in
+          let errors =
+            match integer_program_report_outcome public with
+            | Error errors -> errors
+            | Ok _ -> Alcotest.fail label
+          in
+          Alcotest.(check string)
+            (label ^ " public fault") code (List.hd errors).code;
+          Alcotest.(check string)
+            (label ^ " public output") output
+            (integer_program_report_output_bytes public);
+          let _, batch = batch_failure ~mode ~max_steps:10000 source in
+          let report, fault, errors =
+            native_fault ~mode ~max_steps:10000 source
+          in
+          let fault = Option.get fault in
+          Alcotest.(check string)
+            (label ^ " native fault") code (List.hd errors).code;
+          Alcotest.(check string) (label ^ " batch fault") code batch.code;
+          Alcotest.(check int)
+            (label ^ " original reached work")
+            batch.executed_steps fault.executed_steps;
+          Alcotest.(check string)
+            (label ^ " native output") output
+            (Native_program.output_bytes report))
+        cases)
+    modes
+
+let indirect_callback_argument_quotas () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Walk(I64 (*cb)(I64 n),I64 \
+     depth){if(depth){I64 (*q)(I64 (*x)(I64 n),I64 d);q=&Walk;return \
+     q(cb,depth-1);}return cb(40);}I64 Run(){I64 (*p)(I64 (*x)(I64 n),I64 \
+     d);p=&Walk;return p(&Add,2);}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let _, native, _ =
+        compare_source ~mode ~label:"indirect recursive argument ownership"
+          ~expected_type:"I64" ~expected_bits:42L source
+      in
+      let image = native.image and steps = native.execution.executed_steps in
+      let costs = named_physical_costs image in
+      let physical =
+        Program.entry_stack_bytes image
+        + List.hd costs
+        + (3 * List.nth costs 1)
+        + List.nth costs 2
+      in
+      let execute frame depth stack budget =
+        Runtime.execute ~max_frame_bytes:frame ~max_call_depth:depth
+          ~max_active_stack_bytes:stack ~max_steps:budget image
+        |> require_ok Fun.id
+      in
+      let recover () =
+        match execute 88 5 physical steps with
+        | Program.Completed result ->
+            check_native_word "nested callback image recovers" "I64" 42L
+              result.final_value
+        | _ -> Alcotest.fail "exact indirect callback argument limits"
+      in
+      recover ();
+      List.iter
+        (fun (frame, depth, stack, budget, kind) ->
+          (match execute frame depth stack budget with
+          | Program.Fault fault ->
+              Alcotest.(check bool)
+                "nested callback quota kind" true (fault.kind = kind)
+          | _ -> Alcotest.fail "one-below nested callback quota completed");
+          recover ())
+        [
+          (87, 5, physical, steps, Program.Frame_limit_exceeded);
+          (88, 4, physical, steps, Program.Call_depth_exceeded);
+          (88, 5, physical - 1, steps, Program.Native_stack_limit_exceeded);
+          (88, 5, physical, steps - 1, Program.Step_limit_exceeded);
+        ];
+      let defaults =
+        "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*cb)(I64 n=40)){return \
+         cb();}I64 Run(){I64 (*p)(I64 (*cb)(I64 n=12));I64 (*q)(I64 \
+         n=10);p=&Apply;q=&Add;return p(q);}Run();"
+      in
+      let report, result =
+        native_success_report ~mode ~max_steps:10000 ~max_initializer_steps:9
+          ~max_default_bytes:24 defaults
+      in
+      check_native_word "nested header defaults" "I64" 42L
+        result.execution.final_value;
+      Alcotest.(check int)
+        "all nested defaults prepare" 9
+        (Native_program.preparation_steps report);
+      Alcotest.(check int)
+        "each original header retains its payload" 24
+        (Native_program.default_bytes report);
+      List.iter
+        (fun (work, bytes, code) ->
+          let _, fault, errors =
+            native_fault ~mode ~max_steps:10000 ~max_initializer_steps:work
+              ~max_default_bytes:bytes defaults
+          in
+          Alcotest.(check bool)
+            "nested default quota prevents entry" true (Option.is_none fault);
+          Alcotest.(check string)
+            "nested default quota code" code (List.hd errors).code)
+        [ (8, 24, "HCIRVM0007"); (9, 23, "HCIRVM0011") ])
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -2353,6 +2661,12 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case "indirect arguments retain callback ownership"
+                `Quick indirect_callback_arguments_execute;
+              Alcotest.test_case "indirect callback arguments preserve faults"
+                `Quick indirect_callback_argument_faults;
+              Alcotest.test_case "indirect callback argument quotas recover"
+                `Quick indirect_callback_argument_quotas;
               Alcotest.test_case "word tails retain values and bounded storage"
                 `Quick word_tail_values_and_storage;
               Alcotest.test_case "word-tail faults preserve argument effects"
