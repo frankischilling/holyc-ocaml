@@ -3012,6 +3012,260 @@ let global_callback_word_preparation_limits () =
         [ (8, 8, "HCIRVM0007"); (9, 7, "HCIRVM0011") ])
     modes
 
+let aot_load_callback_words () =
+  List.iter
+    (fun (type_name, value) ->
+      let source =
+        Printf.sprintf
+          "I64 Seed(){return %s;}%s N=Seed();I64 Check(){return N;}Check();"
+          value type_name
+      in
+      ignore
+        (compare_source ~mode:Preprocessor.Aot
+           ~label:("AOT load normalizes " ^ type_name ^ " global storage")
+           ~expected_type:"I64" ~expected_bits:42L source))
+    [
+      ("I8", "298");
+      ("U8", "298");
+      ("I16", "65578");
+      ("U16", "65578");
+      ("I32", "4294967338");
+      ("U32", "4294967338");
+      ("I64", "42");
+      ("U64", "42");
+    ];
+  List.iter
+    (fun (return_type, expected_type) ->
+      List.iter
+        (fun flags ->
+          let source =
+            Printf.sprintf
+              "%s %s Add(I64 n){return n+2;}%s %s (*P)(I64 n)=&Add;%s %s \
+               (*Q)(I64 n)=P;P=0;Q(40);"
+              flags return_type flags return_type flags return_type
+          in
+          ignore
+            (compare_source ~mode:Preprocessor.Aot
+               ~label:(flags ^ " AOT owned " ^ return_type)
+               ~expected_type ~expected_bits:42L source))
+        [ ""; "noargpop"; "argpop noargpop haserrcode" ])
+    [
+      ("I8", "I64");
+      ("U8", "U64");
+      ("I16", "I64");
+      ("U16", "U64");
+      ("I32", "I64");
+      ("U32", "U64");
+      ("I64", "I64");
+      ("U64", "U64");
+    ];
+  List.iter
+    (fun return_type ->
+      let source =
+        Printf.sprintf
+          "I64 Add(I64 n){return n+2;}%s (*P)(I64 n)=&Add;%s (*Q)(I64 n)=P;I64 \
+           Check(){if(P==Q)return 42;return 0;}Check();"
+          return_type return_type
+      in
+      let _, native, _ =
+        compare_source ~mode:Preprocessor.Aot
+          ~label:("AOT owned word with " ^ return_type ^ " return metadata")
+          ~expected_type:"I64" ~expected_bits:42L source
+      in
+      Alcotest.(check int)
+        "callback metadata retains two full storage words" 16
+        (Program.global_bytes native.image))
+    [ "I8"; "U8"; "F64"; "U0"; "I64 *"; "I64 ****" ]
+
+let aot_load_calls_and_effects () =
+  List.iter
+    (fun (label, initializer_steps, output, source) ->
+      let report, native, vm =
+        compare_source ~mode:Preprocessor.Aot ~label ~initializer_steps
+          ~expected_type:"I64" ~expected_bits:42L source
+      in
+      Alcotest.(check string)
+        (label ^ " reached native output")
+        output
+        (Native_program.output_bytes report);
+      Alcotest.(check int)
+        (label ^ " fresh public IR runtime work")
+        (VM.executed_steps vm) native.execution.executed_steps)
+    [
+      ( "load callback array defaults and copied owners",
+        0,
+        "",
+        "I64 Add(I64 n){return n+2;}I64 (*P)(I64 \
+         n=40)[2]={&Add,P[0]};P[0]=0;P[1]();" );
+      ( "load mixed closed and owned callback leaves",
+        3,
+        "",
+        "I64 Add(I64 n){return n+2;}I64 (*P)(I64 \
+         n)[3]={17,&Add,P[1]};P[1]=0;P[2](40);" );
+      ( "load multidimensional copied callback leaves",
+        0,
+        "",
+        "I64 Add(I64 n){return n+2;}I64 (*P)(I64 \
+         n=40)[2][2]={{&Add,P[0][0]},{P[0][1],P[1][0]}};P[0][0]=0;P[1][1]();" );
+      ( "load ordinary scalar self read sees AOT zero storage",
+        0,
+        "",
+        "I64 N=N+1;I64 Check(){return N+41;}Check();" );
+      ( "load callback word tails retain argc and argv",
+        0,
+        "",
+        "I64 Sum(I64 n,...){return n+argc+argv[0]+argv[1];}I64 (*P)(I64 \
+         n,...)=&Sum;I64 N=P(37,1,2);N;" );
+      ( "load callback parameters preserve owned arguments",
+        0,
+        "",
+        "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*cb)(I64 n),I64 n){return \
+         cb(n);}I64 (*P)(I64 n)=&Add;I64 (*Q)(I64 (*cb)(I64 n),I64 \
+         n)=&Apply;I64 N=Q(P,40);N;" );
+      ( "load indirect arguments execute in reverse order",
+        0,
+        "24",
+        "extern U0 Print(U8 *fmt,...);I64 Sum(I64 a,I64 b){return a*10+b;}I64 \
+         Arg(I64 n){Print(\"%d\",n);return n;}I64 (*P)(I64 a,I64 b)=&Sum;I64 \
+         N=P(Arg(4),Arg(2));N;" );
+      ( "load direct call effects and ordinary global storage",
+        0,
+        "A",
+        "extern U0 Print(U8 *fmt,...);I64 Seed(I64 n){Print(\"A\");return \
+         n;}I64 N=Seed(40);N+2;" );
+      ( "load indirect call effects and numeric callback storage",
+        0,
+        "A",
+        "extern U0 Print(U8 *fmt,...);I64 Seed(I64 n){Print(\"A\");return \
+         n+2;}I64 (*Q)(I64 n)=&Seed;I64 (*P)()=Q(15);I64 \
+         Check(){if(P==17)return 42;return 0;}Check();" );
+      ( "load saved callee survives argument replacing its global",
+        0,
+        "SA",
+        "extern U0 Print(U8 *fmt,...);I64 A(I64 n){Print(\"A\");return \
+         n+2;}I64 B(I64 n){Print(\"B\");return n+3;}I64 (*P)(I64 n)=&A;I64 \
+         Side(){P=&B;Print(\"S\");return 40;}I64 Q=P(Side());Q;" );
+      ( "load U0 callback executes through original owner",
+        3,
+        "",
+        "I64 N=40;U0 Add(){N+=2;}U0 (*P)()=&Add;I64 Seed(){P();return N;}I64 \
+         Q=Seed();Q;" );
+      ( "load skipped callback fault has no argument effects",
+        3,
+        "",
+        "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"bad\");return 40;}I64 \
+         (*P)(I64 n)=17;I64 Seed(){if(0)P(Side());return 42;}I64 N=Seed();N;" );
+    ]
+
+let aot_load_faults_and_recovery () =
+  List.iter
+    (fun (output, source) ->
+      let _, batch =
+        batch_failure ~mode:Preprocessor.Aot ~max_steps:10000 source
+      in
+      let report, fault, diagnostics =
+        native_fault ~mode:Preprocessor.Aot ~max_steps:10000 source
+      in
+      let fault = Option.get fault in
+      Alcotest.(check string)
+        "load-time native fault matches independent checked IR" batch.code
+        (List.hd diagnostics).code;
+      Alcotest.(check int)
+        "load-time fault consumes the same runtime work" batch.executed_steps
+        fault.executed_steps;
+      Alcotest.(check string)
+        "load-time fault preserves reached output" output
+        (Native_program.output_bytes report);
+      let session, config, source =
+        source_inputs ~mode:Preprocessor.Aot source
+      in
+      let public =
+        run_integer_program_report session ~config ~source ~max_steps:10000
+      in
+      Alcotest.(check string)
+        "fresh public IR preserves reached output" output
+        (integer_program_report_output_bytes public);
+      let errors =
+        match integer_program_report_outcome public with
+        | Error errors -> errors
+        | Ok _ -> Alcotest.fail "load-time source fault completed in public IR"
+      in
+      Alcotest.(check string)
+        "fresh public IR preserves reached fault" batch.code
+        (List.hd errors).code;
+      ignore
+        (compare_source ~mode:Preprocessor.Aot ~label:"load fault recovery"
+           ~expected_type:"I64" ~expected_bits:42L
+           "I64 Add(I64 n){return n+2;}I64 (*P)(I64 n)=&Add;I64 N=P(40);N;"))
+    [
+      ( "A",
+        "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"A\");return 40;}I64 \
+         (*P)(I64 n)=0;I64 N=P(Side());N;" );
+      ( "A",
+        "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"A\");return 40;}I64 \
+         (*P)(I64 n)=17;I64 N=P(Side());N;" );
+      ( "A",
+        "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"A\");return 40;}I64 \
+         Add(I64 n){return n+2;}I64 (*P)(I64 n,I64 m)=&Add;I64 \
+         N=P(Side(),1);N;" );
+      ( "A",
+        "extern U0 Print(U8 *fmt,...);I64 Div(I64 n){Print(\"A\");return \
+         42/n;}I64 (*P)(I64 n)=&Div;I64 N=P(0);N;" );
+      ( "",
+        "I64 Add(I64 n){return n+2;}I64 (*P)(I64 n)[2]={&Add,P[-1]};P[0](40);"
+      );
+    ]
+
+let aot_load_runtime_limits () =
+  let source =
+    "I64 R(I64 n){I64 x=10;if(n)return x+R(n-1);return 12;}I64 (*P)(I64 \
+     n)=&R;I64 N=P(3);N;"
+  in
+  let mode = Preprocessor.Aot in
+  let _, batch = batch_success ~mode ~max_steps:10000 source in
+  let steps = VM.executed_steps batch in
+  let image = native_image ~mode source in
+  let physical =
+    Program.entry_stack_bytes image + (4 * List.hd (named_physical_costs image))
+  in
+  let exact () =
+    let report, native =
+      native_success_report ~mode ~max_steps:steps ~max_frame_bytes:64
+        ~max_call_depth:4 ~max_active_stack_bytes:physical source
+    in
+    check_native_word "exact load-time recursion" "I64" 42L
+      native.execution.final_value;
+    Alcotest.(check int)
+      "load-time execution is charged to runtime" steps
+      native.execution.executed_steps;
+    Alcotest.(check int)
+      "scheduled leaves consume no closed preparation work" 0
+      (Native_program.preparation_steps report)
+  in
+  exact ();
+  List.iter
+    (fun (frame, depth, stack, work, code) ->
+      let _, fault, diagnostics =
+        native_fault ~mode ~max_steps:work ~max_frame_bytes:frame
+          ~max_call_depth:depth ~max_active_stack_bytes:stack source
+      in
+      ignore (Option.get fault);
+      Alcotest.(check string)
+        "one below load-time runtime quota" code (List.hd diagnostics).code;
+      exact ())
+    [
+      (63, 4, physical, steps, "HCIRVM0011");
+      (64, 3, physical, steps, "HCIRVM0015");
+      (64, 4, physical - 1, steps, "HCNATIVE0006");
+      (64, 4, physical, steps - 1, "HCIRVM0007");
+    ];
+  for _ = 1 to 3 do
+    match Runtime.execute ~max_steps:steps image |> require_ok Fun.id with
+    | Program.Completed result ->
+        check_native_word "fresh load-time image" "I64" 42L result.final_value
+    | Program.Fault _ -> Alcotest.fail "fresh load-time image faulted"
+  done
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -3022,6 +3276,14 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case "AOT load callbacks retain owned words" `Quick
+                aot_load_callback_words;
+              Alcotest.test_case "AOT load calls preserve storage and effects"
+                `Quick aot_load_calls_and_effects;
+              Alcotest.test_case "AOT load faults preserve work and recover"
+                `Quick aot_load_faults_and_recovery;
+              Alcotest.test_case "AOT load runtime quotas recover" `Quick
+                aot_load_runtime_limits;
               Alcotest.test_case
                 "global callback initializers preserve full words" `Quick
                 global_callback_words_execute;

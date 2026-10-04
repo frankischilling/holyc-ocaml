@@ -337,6 +337,7 @@ let is_isolated_default globals =
   is_default_fragment globals && Option.is_none globals.task_view
 
 let byte_size globals = globals.byte_size_
+let compilation_mode globals = globals.mode
 let slot_index slot = slot.index
 let slot_symbol slot = slot.symbol
 let slot_type slot = slot.type_

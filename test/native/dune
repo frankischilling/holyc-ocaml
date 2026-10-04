@@ -587,6 +587,20 @@
   (run %{exe:test_native_scalar_function_execution.exe})))
 
 (executable
+ (name test_native_load_initializer_cli)
+ (modules test_native_load_initializer_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-aot-callback-initializers.hc)
+ (action
+  (run
+   %{exe:test_native_load_initializer_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-aot-callback-initializers.hc})))
+
+(executable
  (name test_internal_strlen_execution)
  (modules test_internal_strlen_execution)
  (libraries holyc_lib native_scalar_support alcotest))

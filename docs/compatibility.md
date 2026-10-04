@@ -573,4 +573,4 @@ signatures. Saved full-word numeric values remain unowned, preserve reached
 invocation effects and use the original selected declaration. Effective `noreg`
 parameters retain stack storage. Effectful and owned-code defaults remain open.
 
-[Global callback initializers](global-callback-initializers.md) support one-star scalar and array destinations in both IR modes, including original code, copies and supported callback-call effects. Streaming declarations preserve physical full-word storage independently of return metadata. Native execution accepts closed numeric leaves with original charged completions; owned-code/effectful native initialization remains open.
+[Global callback initializers](global-callback-initializers.md) support one-star scalar and array destinations in both IR modes, including original code, copies and supported callback-call effects. Streaming declarations preserve physical full-word storage independently of return metadata. Native execution accepts closed numeric leaves in both modes and original AOT load-time regions for checked addresses, copies and calls. Native JIT initializers with references remain open.

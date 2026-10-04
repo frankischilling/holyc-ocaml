@@ -46,12 +46,15 @@ val prepare_initializer :
 (** Prepare one original global initializer leaf under the same declaration-work
     budget as defaults. The exact live layout decides scalar stores versus
     source-owned byte copies. Copy work is charged to [max_initializer_steps].
-*)
+    AOT scalar leaves with original references retain their source and checked
+    destination for load-time lowering, without evaluating or charging a
+    prepared value. Their eventual calls and effects use the runtime meter. *)
 
 val initializers : t -> Integer_initializers.native_preparation list
 
 type initializer_completion
-(** Successful original preparation charged to the source invocation budget. *)
+(** Original closed preparation charged to the source invocation budget, or an
+    original AOT load leaf whose execution remains scheduled in its bundle. *)
 
 val initializer_completions : t -> initializer_completion list
 

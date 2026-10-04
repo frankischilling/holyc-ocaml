@@ -1,5 +1,7 @@
 type t
 
+val compilation_mode : t -> Sema.Global_resolution.compilation_mode
+
 val native_initializer_context :
   Sema.Initializer_fragment.t -> (t, string) result
 (** Empty storage for original closed native initializer preparation. *)

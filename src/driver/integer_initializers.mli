@@ -57,7 +57,22 @@ val prepare_native :
 
 val native_leaf : native_preparation -> Sema.Initializer_source.leaf
 val native_steps : native_preparation -> int
+val native_is_load : native_preparation -> bool
 val native_evidence : t -> native_preparation list
+
+val prepare_native_load :
+  declaration:Sema.Compiler_record.declared_global ->
+  leaf:Sema.Initializer_source.leaf ->
+  cell_offset:int ->
+  byte_offset:int ->
+  operation:Ir.Integer_initializer_layout.operation ->
+  (native_preparation, Common.Diagnostic.t list) result
+(** Retain an original current AOT scalar leaf for its checked load-time region.
+    This grants no prepared value, executable address or runtime admission. *)
+
+val native_load_roots :
+  t -> Sema.Function_call_expression_result.top_level_root_result list
+(** Exact scheduled roots joined to their original load-time source receipts. *)
 
 val native_complete : span:Common.Span.t -> t -> bool
 (** Every scalar initial value has its original successful native preparation.

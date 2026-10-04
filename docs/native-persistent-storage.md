@@ -122,8 +122,9 @@ bridge inputs before native entry. These are hosted tests; they do not add a
 TempleOS execution capture.
 
 Automatic array initializers, runtime-dependent extents, pointer or aggregate
-elements, effectful initializer scheduling and retained task storage remain
-outside this native path. A native `Print` provider is separate runtime work,
+elements, effectful JIT initializer execution and retained task storage remain
+outside this native path. AOT integer and callback load regions are covered by
+[global initializers](global-callback-initializers.md). A native `Print` provider is separate runtime work,
 so the interpreter's broader `integer-persistent-arrays.hc` example is not a
 native acceptance claim. Full ABI behavior, object/BIN emission, actual loader
 acceptance and bootstrap remain open compiler requirements.

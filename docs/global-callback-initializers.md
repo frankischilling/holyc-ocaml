@@ -11,6 +11,7 @@ holyc run --target=ir --mode=jit examples/global-callback-initializers.hc
 holyc run --target=ir --mode=aot examples/global-callback-initializers.hc
 holyc run --target=host-jit --mode=jit examples/native-callback-initializers.hc
 holyc run --target=host-jit --mode=aot examples/native-callback-initializers.hc
+holyc run --target=host-jit --mode=aot examples/native-aot-callback-initializers.hc
 ```
 
 The IR example returns 42 and writes `A` once while initializing `Word`.
@@ -43,13 +44,34 @@ opaque executable identity; integer initializers retain their complete numeric
 bits and acquire no executable authority. Numeric invocation reports
 `HCIRVM0024` after argument effects.
 
-Native execution currently accepts closed numeric global callback initializers.
+Native execution accepts closed numeric global callback initializers in both modes.
 Each successful scalar leaf consumes its original parser preparation and charged
 completion before the complete callable bundle is sealed. Full-word preparation
 is independent of the callback's return type. The native example returns 42,
 uses sixteen global bytes, and shares nine preparation steps with its saved
 callback parameter default. That default occupies eight saved bytes. Its F64
 callback metadata does not require a floating-point invocation.
+
+Native AOT execution also consumes the original checked load-time regions for
+function addresses, callback copies and supported direct or indirect calls.
+Each source receipt retains its original declaration, leaf and checked storage
+destination. It supplies no prepared value or executable address. Completion
+joins those receipts, in order, to the exact load regions and callable bundle.
+The image starts with AOT zero storage and any closed prepared leaves; generated
+code then executes the scheduled stores before ordinary entry statements.
+Private callback owners preserve the selected original executable across copies.
+Calls, argument effects and reached faults consume runtime work.
+
+The AOT example returns 42, prints `A`, uses 24 global bytes and executes 86
+runtime steps. Only its anonymous saved default consumes preparation work:
+three steps and eight saved bytes. The example covers an earlier-element copy,
+an indirect call using that default, and a direct initializer call storing a
+numeric callback word. Every execution starts with fresh storage.
+
+Global initializer start, leaf and delimiter receipts require their exact
+private parser identity and the current context at the top of the source stack.
+Clones, suspended parent callbacks and expired receipts cannot prepare a leaf.
+Missing, repeated, reordered or foreign load receipts cannot authorize an image.
 
 Tests compare fresh public IR, separately executed checked batch IR and native
 values and runtime work in both modes. They cover full bits, arrays, calling
@@ -66,7 +88,14 @@ and return metadata, at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 `Demo/Graphics/Grid.HC:13` preserves the direct automatic callback initializer
 syntax boundary. No new TempleOS capture or exported ABI proof is claimed.
 
-Native owned-code and effectful initializers, member storage, callback updates,
+Native JIT initializers with references still require execution during their
+original parser callback. They currently report `HCRUN0006`. Static initializers
+and saved defaults retain their closed-expression boundary. The native AOT
+consumer does not establish retained native replacement or task linking. AOT
+public IR currently rejects multiple same-name definitions during duplicate
+identity preflight; that comparison remains unresolved.
+
+Member storage, callback updates,
 multistar consumers, live native replacement/linking, general F64/aggregate
 execution and the full compiler remain unfinished. Direct automatic and static
 callback initializers continue to report `HCPARSE0137`.

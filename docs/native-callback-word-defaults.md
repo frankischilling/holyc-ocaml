@@ -62,5 +62,5 @@ the hosted runtime contract. This adds no TempleOS capture or exported ABI proof
 
 Effectful, owned-code, string, `lastclass`, floating-value and ordinary
 object-pointer defaults remain unfinished, as do multistar consumers, member
-storage, owned-code/effectful callback initializers and callback updates, ordinary owned-code storage/returns,
+storage, JIT owned-code/effectful callback initializers and callback updates, ordinary owned-code storage/returns,
 replacement/linking, general floating/aggregate execution and the full compiler.

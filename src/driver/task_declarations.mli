@@ -136,6 +136,16 @@ val native_initializer_fragment :
 (** Authorize only the current original closed scalar leaf of an isolated source
     ledger, without admitting its declaration to a runtime task. *)
 
+val native_load_initializer_source :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_initializer_leaf ->
+  ( Sema.Compiler_record.declared_global * Sema.Initializer_source.leaf,
+    Common.Diagnostic.t list )
+  result
+(** Retain the exact observed AOT leaf and declaration for load-time
+    compilation. This admits no runtime storage and evaluates no expression. *)
+
 val initializer_declaration :
   t ->
   Frontend.Parser.global_initializer_start ->

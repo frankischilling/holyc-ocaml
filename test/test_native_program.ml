@@ -703,7 +703,14 @@ let source_gate_is_compile_only () =
             (Program.block_count checked.value > 0);
           Alcotest.(check bool)
             "compile-only source has no warnings" true (checked.diagnostics = []))
-        accepted;
+        (accepted
+        @
+        if mode = Preprocessor.Aot then
+          [
+            "I64 F(){return 42;} I64 G=F(); G;";
+            "I64 F(I64 n){return 42/n;} I64 G=F(0); 42;";
+          ]
+        else []);
       List.iter
         (fun source ->
           match source_program_compile ~mode source with
@@ -718,25 +725,27 @@ let source_gate_is_compile_only () =
                      String.starts_with ~prefix:"HCIRVM" error.code
                      || String.starts_with ~prefix:"HCNATIVE" error.code)
                    diagnostics))
-        [
-          "I64 *x[1]; 42;";
-          "I64 Bad(){F64 x=1.0;return 0;} 42;";
-          "F64 Bad(){return 1.0;} 42;";
-          "I64 F(){return 42;} I64 G=F(); G;";
-          "I64 F(I64 p){static I64 n=p<<2;return ++n;} F(1);";
-          "I64 Bad(){static I64 n={1/0};return 0;}42;";
-          "I64 Bad(){static I64 *n;return 0;}42;";
-          "I64 Bad(){static I64 reg n;return 0;}42;";
-          "I64 F(I64 **p){return **p;} 42;";
-          "extern I64 F(I64 n); 42;";
-          "I64 N=1;I64 F(I64 n=N<<3){return n;} F(1);";
-          "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
-          "I64 Missing(){42;} 0;";
-          "I64 Apply(I64 (**fp)(I64),I64 n){return fp(n);}\n\
-           I64 Inc(I64 n){return n+1;} Apply(&Inc,41);";
-          "\"output\";";
-          "#exe {1/0;}\n42;";
-        ];
+        ([
+           "I64 *x[1]; 42;";
+           "I64 Bad(){F64 x=1.0;return 0;} 42;";
+           "F64 Bad(){return 1.0;} 42;";
+           "I64 F(I64 p){static I64 n=p<<2;return ++n;} F(1);";
+           "I64 Bad(){static I64 n={1/0};return 0;}42;";
+           "I64 Bad(){static I64 *n;return 0;}42;";
+           "I64 Bad(){static I64 reg n;return 0;}42;";
+           "I64 F(I64 **p){return **p;} 42;";
+           "extern I64 F(I64 n); 42;";
+           "I64 N=1;I64 F(I64 n=N<<3){return n;} F(1);";
+           "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
+           "I64 Missing(){42;} 0;";
+           "I64 Apply(I64 (**fp)(I64),I64 n){return fp(n);}\n\
+            I64 Inc(I64 n){return n+1;} Apply(&Inc,41);";
+           "\"output\";";
+           "#exe {1/0;}\n42;";
+         ]
+        @
+        if mode = Preprocessor.Jit then [ "I64 F(){return 42;} I64 G=F(); G;" ]
+        else []);
       List.iter
         (fun call ->
           match

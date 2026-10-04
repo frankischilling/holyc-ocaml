@@ -606,10 +606,8 @@ let program_storage_errors compiled span =
   let errors = ref [] in
   let add message = errors := source_error span message :: !errors in
   let initialization = Integer_unit.initialization compiled in
-  if
-    Ir.Global_initialization.regions initialization <> []
-    || Ir.Global_initialization.static_regions initialization <> []
-  then add "native programs require an entry with no runtime initialization";
+  if Ir.Global_initialization.static_regions initialization <> [] then
+    add "native programs require an entry with no runtime initialization";
   List.rev !errors
 
 let entry_contains_opcode entry opcode =

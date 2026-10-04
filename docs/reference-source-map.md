@@ -1673,3 +1673,19 @@ call words with the existing fixture's two native JIT repeats. The global
 projection substitutes an explicit store for its native initializer. Hosted
 AOT replay, resource limits and graph rejection remain separate from native
 AOT or callback emission. See [global callbacks](global-callbacks.md).
+
+`Compiler/PrsVar.HC:50-115` separates nonconstant AOT initialization from
+closed preparation. It zeroes the destination and emits a load-time assignment;
+`PrsVarInit2` at lines 132-205 traverses each array destination. The native
+consumer now retains original AOT leaf and destination receipts and joins them
+to the exact existing load regions and callable bundle. Generated code executes
+checked addresses, copies and supported direct or indirect calls against that
+storage. Calls, output and faults use runtime work; closed leaves and saved
+defaults retain preparation work. Private parser start, leaf and delimiter
+identity also requires the top active source context. Cloned or suspended
+receipts cannot authorize preparation. The maintained AOT example returns 42,
+prints A and uses 86 runtime steps, three preparation steps and 24 global bytes.
+Both ABI images compile; native execution uses the host ABI. Native JIT
+reference-bearing initialization still needs execution at the original parser
+callback. This source audit and hosted test add no TempleOS AOT capture or
+exported ABI/loader proof. See [global callback initializers](global-callback-initializers.md).

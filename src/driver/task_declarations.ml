@@ -3540,7 +3540,7 @@ let initializer_leaf_for ledger (receipt : Parser.completed_initializer_leaf) =
           Sema.Initializer_source.parser_leaf pending receipt |> checked span
       | _ -> fail span "initializer leaf belongs to another source declaration")
 
-let native_initializer_fragment ledger ~runtime receipt =
+let native_initializer_source ledger ~runtime ~closed receipt =
   let ( let* ) = Result.bind in
   let* leaf = initializer_leaf_for ledger receipt in
   protect (fun () ->
@@ -3560,7 +3560,7 @@ let native_initializer_fragment ledger ~runtime receipt =
       | _ -> ());
       if List.exists (( == ) leaf) ledger.native_initializer_attempts then
         fail span "native initializer was already attempted";
-      if Sema.Initializer_source.leaf_identifier_nodes leaf <> [] then
+      if closed && Sema.Initializer_source.leaf_identifier_nodes leaf <> [] then
         fail ~code:"HCRUN0006" span
           "native initializers require closed expressions without value or \
            function references";
@@ -3598,6 +3598,31 @@ let native_initializer_fragment ledger ~runtime receipt =
             boundary.storage_declaration <- Some declaration;
             declaration
       in
+      ledger.native_initializer_attempts <-
+        leaf :: ledger.native_initializer_attempts;
+      ledger.source_defaults_runtime <- Some runtime;
+      (declaration, leaf))
+
+let native_load_initializer_source ledger ~runtime receipt =
+  let context =
+    receipt.Parser.leaf_initializer.initializer_owner.global_header
+      .declaration_command
+      .command_context
+  in
+  if Parser.context_mode context <> Frontend.Preprocessor.Aot then
+    protect (fun () ->
+        fail ~code:"HCRUN0006" receipt.leaf_initializer.initializer_equals.span
+          "native load initializer requires its original AOT callback")
+  else native_initializer_source ledger ~runtime ~closed:false receipt
+
+let native_initializer_fragment ledger ~runtime receipt =
+  let ( let* ) = Result.bind in
+  let* declaration, leaf =
+    native_initializer_source ledger ~runtime ~closed:true receipt
+  in
+  protect (fun () ->
+      let publication = receipt.Parser.leaf_initializer.initializer_owner in
+      let span = receipt.leaf_initializer.initializer_equals.span in
       let module Outer = Sema.Outer_environment in
       let compilation_mode, tables =
         match
@@ -3638,9 +3663,6 @@ let native_initializer_fragment ledger ~runtime receipt =
         Sema.Initializer_fragment.authorize ~namespace:ledger.namespace fragment
         |> checked span
       in
-      ledger.native_initializer_attempts <-
-        leaf :: ledger.native_initializer_attempts;
-      ledger.source_defaults_runtime <- Some runtime;
       authority)
 
 let native_static_initializer_fragment ledger ~runtime

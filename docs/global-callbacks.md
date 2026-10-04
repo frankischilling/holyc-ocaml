@@ -71,7 +71,7 @@ The global projection retains its observed callback initializer;
 the array projection retains the observed declaration, store and call. Shell
 screen clearing and result formatting are outside these value projections.
 The reference was observed in native JIT only; replay in the hosted AOT mode
-does not establish native AOT behavior. [Global callback initializers](global-callback-initializers.md) now retain original code, numeric words and supported effects in IR; native execution accepts closed numeric initializers. Native owned-code/effectful initializers, member storage, updates, owned-code defaults,
+does not establish TempleOS AOT behavior. [Global callback initializers](global-callback-initializers.md) retain original code, numeric words and supported effects in IR; hosted native execution accepts closed numeric initializers in both modes and original AOT load regions for checked addresses, copies and calls. Native JIT initializers with references, member storage, updates, owned-code defaults,
 multistar and dereferenced calls, live task linking/expiry and broader native
 callback execution remain under issue #801. General F64, aggregate and mixed-value
 execution remains under issue #688. No new TempleOS capture is claimed here.

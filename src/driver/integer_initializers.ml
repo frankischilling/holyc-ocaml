@@ -54,9 +54,14 @@ type native_destination = {
   operation : Layout.operation;
 }
 
+type native_source =
+  | Native_closed of Sema.Initializer_fragment.t
+  | Native_load of
+      Sema.Compiler_record.declared_global * Sema.Initializer_source.leaf
+
 type native_preparation = {
-  native_fragment : Sema.Initializer_fragment.t;
-  native_payload : Arrays.payload;
+  native_source : native_source;
+  native_payload : Arrays.payload option;
   native_destination : native_destination;
   native_steps : int;
 }
@@ -989,7 +994,21 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
     in
     collect 0 [] [] work
 
-let native_leaf value = Sema.Initializer_fragment.leaf value.native_fragment
+let native_leaf value =
+  match value.native_source with
+  | Native_closed fragment -> Sema.Initializer_fragment.leaf fragment
+  | Native_load (_, leaf) -> leaf
+
+let native_declaration value =
+  match value.native_source with
+  | Native_closed fragment -> Sema.Initializer_fragment.declaration fragment
+  | Native_load (declaration, _) -> declaration
+
+let native_is_load value =
+  match value.native_source with
+  | Native_load _ -> true
+  | Native_closed _ -> false
+
 let native_steps value = value.native_steps
 let native_evidence value = value.native_evidence_
 
@@ -997,6 +1016,38 @@ let same_destination destination entry =
   destination.cell_offset = Layout.cell_offset entry
   && destination.byte_offset = Layout.byte_offset entry
   && destination.operation = Layout.operation entry
+
+let prepare_native_load ~declaration ~leaf ~cell_offset ~byte_offset ~operation
+    =
+  let module P = Frontend.Parser in
+  let source = Sema.Compiler_record.declared_global_source declaration in
+  let invalid message =
+    Error
+      [
+        Common.Diagnostic.make ~code:"HCRUN0006"
+          ~severity:Common.Diagnostic.Error ~message
+          ~primary:source.global_name.location.span ();
+      ]
+  in
+  match Sema.Initializer_source.leaf_parser_receipt leaf with
+  | Some receipt
+    when P.initializer_leaf_is_current receipt
+         && receipt.leaf_initializer.initializer_owner == source
+         && P.context_mode
+              source.global_header.declaration_command.command_context
+            = Frontend.Preprocessor.Aot
+         && operation = Layout.Scalar_store
+         && cell_offset >= 0 && byte_offset >= 0
+         && Sema.Initializer_source.leaf_identifier_nodes leaf <> [] ->
+      Ok
+        {
+          native_source = Native_load (declaration, leaf);
+          native_payload = None;
+          native_destination = { cell_offset; byte_offset; operation };
+          native_steps = 0;
+        }
+  | _ ->
+      invalid "native load initializer requires its current original AOT leaf"
 
 let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
     ~on_progress ~max_steps =
@@ -1092,8 +1143,8 @@ let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
       [] ) ->
       Ok
         {
-          native_fragment = fragment;
-          native_payload = Arrays.Word native_bits;
+          native_source = Native_closed fragment;
+          native_payload = Some (Arrays.Word native_bits);
           native_destination = destination;
           native_steps;
         }
@@ -1101,8 +1152,8 @@ let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
     when original == fragment && source_root == root && saved = destination ->
       Ok
         {
-          native_fragment = fragment;
-          native_payload = Arrays.Bytes bytes;
+          native_source = Native_closed fragment;
+          native_payload = Some (Arrays.Bytes bytes);
           native_destination = destination;
           native_steps;
         }
@@ -1373,9 +1424,7 @@ let native_values ~span globals evidence =
     | [], [] ->
         Ok (List.rev roots, List.rev scalar_values, List.rev array_values)
     | (slot, root) :: rest, proof :: tail -> (
-        let declaration =
-          Sema.Initializer_fragment.declaration proof.native_fragment
-        in
+        let declaration = native_declaration proof in
         if
           Globals.slot_symbol slot
           != Sema.Compiler_record.declared_global_symbol declaration
@@ -1395,6 +1444,28 @@ let native_values ~span globals evidence =
           invalid
             "native initializer evidence is foreign, substituted or out of \
              order"
+        else if native_is_load proof then
+          let destination_matches =
+            match Globals.slot_array_initializers slot with
+            | Some arrays ->
+                Option.fold ~none:false
+                  ~some:(fun entry ->
+                    same_destination proof.native_destination
+                      (Arrays.destination entry))
+                  (Arrays.find arrays root)
+            | None ->
+                proof.native_destination.cell_offset = 0
+                && proof.native_destination.byte_offset = 0
+          in
+          if
+            Globals.compilation_mode globals = Sema.Global_resolution.Aot
+            && proof.native_payload = None
+            && proof.native_steps = 0
+            && proof.native_destination.operation = Layout.Scalar_store
+            && destination_matches
+          then collect roots scalar_values array_values rest tail
+          else
+            invalid "native load initializer has another phase or destination"
         else
           match Globals.slot_array_initializers slot with
           | Some arrays -> (
@@ -1403,7 +1474,7 @@ let native_values ~span globals evidence =
                 when same_destination proof.native_destination
                        (Arrays.destination entry) ->
                   collect (root :: roots) scalar_values
-                    ((root, proof.native_payload, proof.native_steps)
+                    ((root, Option.get proof.native_payload, proof.native_steps)
                     :: array_values)
                     rest tail
               | None | Some _ ->
@@ -1414,7 +1485,7 @@ let native_values ~span globals evidence =
               match
                 (proof.native_payload, proof.native_destination.operation)
               with
-              | Arrays.Word bits, Layout.Scalar_store
+              | Some (Arrays.Word bits), Layout.Scalar_store
                 when proof.native_destination.cell_offset = 0
                      && proof.native_destination.byte_offset = 0 ->
                   collect (root :: roots)
@@ -1468,6 +1539,27 @@ let native_complete ~span prepared =
           array_values
       in
       scalars && arrays
+
+let native_load_roots prepared =
+  List.filter_map
+    (fun item ->
+      let root = item.root_ in
+      let leaf =
+        Typed.top_level_root_source root
+        |> Sema.Top_level_expression_tree.root_initializer_leaf
+      in
+      if
+        item.classification_ = Scheduled
+        && List.exists
+             (fun proof ->
+               native_is_load proof
+               && Option.fold ~none:false
+                    ~some:(( == ) (native_leaf proof))
+                    leaf)
+             prepared.native_evidence_
+      then Some root
+      else None)
+    prepared.items_
 
 let prepare ?native_preparations ?native_static_preparations ?function_calls
     ?top_callback_calls ?allow_zero_budget ?retained_function_source

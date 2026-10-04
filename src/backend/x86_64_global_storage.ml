@@ -79,8 +79,9 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
     else if Globals.has_initializers globals && Option.is_none initializers then
       unsupported "native globals do not admit declaration initializers"
     else if
-      Initialization.regions initialization <> []
-      || Initialization.static_regions initialization <> []
+      Initialization.static_regions initialization <> []
+      || Initialization.regions initialization <> []
+         && Option.is_none initializers
       || (Initialization.publications initialization <> []
          || Option.is_some (Initialization.publication_evidence initialization)
          )
@@ -218,7 +219,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
   in
   let image = Bytes.make arena_bytes '\000' in
   let prepared_array_image ?span global static =
-    let collect entries root_materialized =
+    let collect entries root_materialized is_load =
       List.fold_left
         (fun checked entry ->
           let* reversed = checked in
@@ -231,6 +232,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           | Some _ ->
               invalid ?span
                 "native array image does not retain its exact materialized root"
+          | None when is_load root -> Ok reversed
           | None -> invalid ?span "native array has no prepared source image")
         (Ok []) entries
       |> Result.map List.rev
@@ -241,13 +243,18 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         | None -> Ok []
         | Some arrays ->
             collect (Arrays.entries arrays)
-              (Globals.slot_root_materialized slot))
+              (Globals.slot_root_materialized slot) (fun root ->
+                Option.fold ~none:false
+                  ~some:(fun proof ->
+                    Driver.Native_global_initializers.is_load_root proof slot
+                      root)
+                  initializers))
     | None, Some slot -> (
         match Globals.static_array_initializers slot with
         | None -> Ok []
         | Some arrays ->
             collect (Arrays.entries arrays)
-              (Globals.static_root_materialized slot))
+              (Globals.static_root_materialized slot) (fun _ -> false))
     | _ -> invalid ?span "native storage has an invalid initializer owner"
   in
   let rec collect ordinal cell_index byte_offset array_flag_cursor owner_cursor
@@ -455,15 +462,25 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let* base_initialized =
           if (not is_array) && has_initializer && Option.is_some initializers
           then
-            match Globals.storage_initial_bits source_slot with
-            | Some bits
-              when scalar_materialized
-                   && (Globals.storage_opcode source_slot = Opcode.Ic_imm_i64
-                      || Globals.storage_opcode source_slot = Opcode.Ic_abs_addr
-                      ) ->
-                write_word image ~offset:byte_offset ~width bits;
-                Ok true
-            | _ -> invalid ?span "native global has no prepared scalar image"
+            if
+              Option.fold ~none:false
+                ~some:(fun slot ->
+                  Driver.Native_global_initializers.is_load_slot
+                    (Option.get initializers) slot)
+                global
+            then (
+              write_word image ~offset:byte_offset ~width 0L;
+              Ok true)
+            else
+              match Globals.storage_initial_bits source_slot with
+              | Some bits
+                when scalar_materialized
+                     && (Globals.storage_opcode source_slot = Opcode.Ic_imm_i64
+                        || Globals.storage_opcode source_slot
+                           = Opcode.Ic_abs_addr) ->
+                  write_word image ~offset:byte_offset ~width bits;
+                  Ok true
+              | _ -> invalid ?span "native global has no prepared scalar image"
           else
             match
               ( Globals.storage_opcode source_slot,

@@ -88,6 +88,13 @@ let context_parent context = context.context_parent
 let context_is_current context ~observed_events =
   context.context_active && observed_events = context.context_event_count
 
+let context_has_focus context =
+  context.context_active
+  &&
+  match (context.context_position, !(context.context_stack)) with
+  | Some position, active :: _ -> position == active
+  | _ -> false
+
 let sequence_accepted sequence =
   match sequence.sequence_context.context_accepted_ast with
   | Some ast -> ast == sequence.sequence_ast
@@ -306,22 +313,25 @@ type initializer_phase =
   | Completing_leaf of int
   | Completing_delimiter of int
 
-type initializer_activity = {
-  mutable initializer_phase : initializer_phase option;
-}
-
-type global_initializer_start = {
-  initializer_owner : global_publication;
-  initializer_equals : Ast.location;
-  initializer_activity : initializer_activity;
-}
-
 type initializer_delimiter =
   | Initializer_open of Ast.location
   | Initializer_close of Ast.location
   | Initializer_comma of Ast.location
 
-type completed_initializer_leaf = {
+type initializer_activity = {
+  mutable initializer_phase : initializer_phase option;
+  mutable initializer_current_start : global_initializer_start option;
+  mutable initializer_current_leaf : completed_initializer_leaf option;
+  mutable initializer_current_delimiter : completed_initializer_delimiter option;
+}
+
+and global_initializer_start = {
+  initializer_owner : global_publication;
+  initializer_equals : Ast.location;
+  initializer_activity : initializer_activity;
+}
+
+and completed_initializer_leaf = {
   leaf_initializer : global_initializer_start;
   leaf_index : int;
   leaf_predecessor : completed_initializer_leaf option;
@@ -341,23 +351,30 @@ and completed_initializer_delimiter = {
 
 let initializer_start_is_current start =
   start.initializer_activity.initializer_phase = Some Starting_initializer
-  && start.initializer_owner.global_header.declaration_command.command_context
-       .context_active
+  && Option.fold ~none:false ~some:(( == ) start)
+       start.initializer_activity.initializer_current_start
+  && context_has_focus
+       start.initializer_owner.global_header.declaration_command.command_context
 
 let initializer_leaf_is_current leaf =
   leaf.leaf_initializer.initializer_activity.initializer_phase
   = Some (Completing_leaf leaf.leaf_index)
-  && leaf.leaf_initializer.initializer_owner.global_header.declaration_command
-       .command_context
-       .context_active
+  && Option.fold ~none:false ~some:(( == ) leaf)
+       leaf.leaf_initializer.initializer_activity.initializer_current_leaf
+  && context_has_focus
+       leaf.leaf_initializer.initializer_owner.global_header.declaration_command
+         .command_context
 
 let initializer_delimiter_is_current delimiter =
   delimiter.delimiter_initializer.initializer_activity.initializer_phase
   = Some (Completing_delimiter delimiter.delimiter_index)
-  && delimiter.delimiter_initializer.initializer_owner.global_header
-       .declaration_command
-       .command_context
-       .context_active
+  && Option.fold ~none:false ~some:(( == ) delimiter)
+       delimiter.delimiter_initializer.initializer_activity
+         .initializer_current_delimiter
+  && context_has_focus
+       delimiter.delimiter_initializer.initializer_owner.global_header
+         .declaration_command
+         .command_context
 
 type function_activity = { mutable function_active : bool }
 
@@ -472,11 +489,7 @@ let static_initializer_allocation_context_is_current allocation =
     allocation.allocation_function.function_header.declaration_command
       .command_context
   in
-  context.context_active
-  &&
-  match (context.context_position, !(context.context_stack)) with
-  | Some position, active :: _ -> position == active
-  | _ -> false
+  context_has_focus context
 
 let static_initializer_context_is_current
     (receipt : static_initializer_preparation) =
@@ -4354,9 +4367,22 @@ type live_static_initializer = {
 }
 
 let publish_initializer_phase cursor at start phase event =
-  start.initializer_activity.initializer_phase <- Some phase;
+  let activity = start.initializer_activity in
+  activity.initializer_phase <- Some phase;
+  (match event with
+  | Global_initializer_started receipt ->
+      activity.initializer_current_start <- Some receipt
+  | Global_initializer_leaf_completed receipt ->
+      activity.initializer_current_leaf <- Some receipt
+  | Global_initializer_delimiter_completed receipt ->
+      activity.initializer_current_delimiter <- Some receipt
+  | _ -> invalid_arg "invalid global initializer phase event");
   Fun.protect
-    ~finally:(fun () -> start.initializer_activity.initializer_phase <- None)
+    ~finally:(fun () ->
+      activity.initializer_phase <- None;
+      activity.initializer_current_start <- None;
+      activity.initializer_current_leaf <- None;
+      activity.initializer_current_delimiter <- None)
     (fun () -> publish_declaration cursor at event)
 
 let publish_initializer_delimiter cursor at live delimiter_value =
@@ -4737,7 +4763,13 @@ let parse_global_initializer ?publication cursor ~array_dimensions =
             {
               initializer_owner;
               initializer_equals = equals;
-              initializer_activity = { initializer_phase = None };
+              initializer_activity =
+                {
+                  initializer_phase = None;
+                  initializer_current_start = None;
+                  initializer_current_leaf = None;
+                  initializer_current_delimiter = None;
+                };
             }
           in
           publish_initializer_phase cursor equals_item start

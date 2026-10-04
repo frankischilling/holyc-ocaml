@@ -153,7 +153,7 @@ callback and object-reference parameter kinds even when physical types match.
 
 ## Remaining callback work
 
-Native member storage, owned-code/effectful callback initializers and updates, effectful/owned-code
+Native member storage, JIT owned-code/effectful callback initializers and updates, effectful/owned-code
 callback defaults,
 pointer/owned-code variadic tails, retained publication after same-name
 replacement, unresolved extern slots and live task linking remain unfinished in

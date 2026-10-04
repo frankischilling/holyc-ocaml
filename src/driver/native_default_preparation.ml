@@ -96,8 +96,7 @@ let storage_shape ~type_ ~dimensions =
         "HCIRL0005: native persistent storage size exceeds the host integer \
          range")
 
-let prepare_global_destination value fragment receipt =
-  let declaration = Sema.Initializer_fragment.declaration fragment in
+let prepare_global_destination value declaration receipt =
   let* type_ =
     match
       (Sema.Compiler_record.declared_global_source declaration)
@@ -322,40 +321,68 @@ let prepare_initializer value ~session ~ledger receipt =
             attempted")
     else Ok ()
   in
-  let* authority =
-    Task_declarations.native_initializer_fragment ledger ~runtime:value.state
-      receipt
+  let has_references =
+    match receipt.leaf_value with
+    | Ast.Scalar_initializer expression ->
+        Sema.Initializer_source.expression_identifier_nodes expression <> []
+    | _ -> false
   in
-  let fragment = Sema.Initializer_fragment.authorized_fragment authority in
-  value.ledger <- Some ledger;
-  value.initializer_attempts <- receipt :: value.initializer_attempts;
-  let* cell_offset, byte_offset, operation =
-    prepare_global_destination value fragment receipt |> diagnose
-  in
-  let create_context =
-    match value.compilation_mode with
-    | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
-    | Frontend.Preprocessor.Aot ->
-        Initializer_fragment_typing.create_aot_context
-  in
-  let* context =
-    create_context ~table:value.table
-      ~parent:(Task_declarations.initializer_scope ledger)
-    |> diagnose
-  in
-  let* typed =
-    Initializer_fragment_typing.prepare context fragment |> diagnose
-  in
-  let before = work value in
-  let* prepared =
-    Integer_initializers.prepare_native ~authority ~typed ~cell_offset
-      ~byte_offset ~operation
-      ~on_progress:(fun steps ->
-        VM.record_task_preparation value.state ~before ~steps)
-      ~max_steps:(VM.task_initializer_limit value.state - before)
-  in
-  value.initializers_rev <- { preparation = prepared } :: value.initializers_rev;
-  Ok ()
+  if value.compilation_mode = Frontend.Preprocessor.Aot && has_references then (
+    let* declaration, leaf =
+      Task_declarations.native_load_initializer_source ledger
+        ~runtime:value.state receipt
+    in
+    value.ledger <- Some ledger;
+    value.initializer_attempts <- receipt :: value.initializer_attempts;
+    let* cell_offset, byte_offset, operation =
+      prepare_global_destination value declaration receipt |> diagnose
+    in
+    let* prepared =
+      Integer_initializers.prepare_native_load ~declaration ~leaf ~cell_offset
+        ~byte_offset ~operation
+    in
+    value.initializers_rev <-
+      { preparation = prepared } :: value.initializers_rev;
+    Ok ())
+  else
+    let* authority =
+      Task_declarations.native_initializer_fragment ledger ~runtime:value.state
+        receipt
+    in
+    let fragment = Sema.Initializer_fragment.authorized_fragment authority in
+    value.ledger <- Some ledger;
+    value.initializer_attempts <- receipt :: value.initializer_attempts;
+    let* cell_offset, byte_offset, operation =
+      prepare_global_destination value
+        (Sema.Initializer_fragment.declaration fragment)
+        receipt
+      |> diagnose
+    in
+    let create_context =
+      match value.compilation_mode with
+      | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
+      | Frontend.Preprocessor.Aot ->
+          Initializer_fragment_typing.create_aot_context
+    in
+    let* context =
+      create_context ~table:value.table
+        ~parent:(Task_declarations.initializer_scope ledger)
+      |> diagnose
+    in
+    let* typed =
+      Initializer_fragment_typing.prepare context fragment |> diagnose
+    in
+    let before = work value in
+    let* prepared =
+      Integer_initializers.prepare_native ~authority ~typed ~cell_offset
+        ~byte_offset ~operation
+        ~on_progress:(fun steps ->
+          VM.record_task_preparation value.state ~before ~steps)
+        ~max_steps:(VM.task_initializer_limit value.state - before)
+    in
+    value.initializers_rev <-
+      { preparation = prepared } :: value.initializers_rev;
+    Ok ()
 
 let static_completions value = List.rev value.statics_rev
 let static_preparation completion = completion.static_preparation

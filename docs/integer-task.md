@@ -131,7 +131,7 @@ One-star [global callback cells and arrays](global-callbacks.md) share this
 storage contract. Retained completion keeps the original allocation and outer
 reference; the checked header supplies its saved defaults and original calling
 flags to later functions. Top-level assignments can install or copy addresses.
-Top-level calls and [global callback initializers](global-callback-initializers.md) retain original callbacks, full-word storage and supported effects through the source journal. Member callbacks, updates, native owned-code/effectful initializers and broader native execution remain
+Top-level calls and [global callback initializers](global-callback-initializers.md) retain original callbacks, full-word storage and supported effects through the source journal. Hosted native AOT consumes checked load-time initializer regions in an isolated bundle. Member callbacks, updates, native JIT initializers with references and broader retained native execution remain
 unfinished under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801).
 
 Each deferred operation requires its exact active journal event. Failure or
