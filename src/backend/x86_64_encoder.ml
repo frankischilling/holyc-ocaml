@@ -21,6 +21,7 @@ type instruction =
   | Load_stack of register * stack_slot
   | Store_stack of stack_slot * register
   | Address_stack of register * stack_slot
+  | Address_code_relative of register * int64
   | Alloc_stack of stack_frame
   | Free_stack of stack_frame
   | Push_rbp
@@ -46,6 +47,7 @@ type instruction =
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
   | Call of int64
+  | Call_stack of stack_slot
   | Pop_rbp
   | Unary of unary * register
   | Binary of binary * register * register
@@ -174,6 +176,7 @@ let movzx_load16 = source_form "MOVZX" 895
 let push_register = source_form "PUSH" 227
 let pop_register = source_form "POP" 243
 let call_relative = source_form "CALL" 571
+let call_indirect = source_form "CALL" 573
 let add_immediate = source_form "ADD" 322
 let subtract_immediate = source_form "SUB" 437
 let negate = source_form "NEG" 680
@@ -272,7 +275,7 @@ let form = function
   | Mov _ -> mov_register
   | Load_stack _ -> mov_load
   | Store_stack _ -> mov_store
-  | Address_stack _ -> load_address
+  | Address_stack _ | Address_code_relative _ -> load_address
   | Alloc_stack _ -> subtract_immediate
   | Free_stack _ -> add_immediate
   | Push_rbp -> push_register
@@ -296,6 +299,7 @@ let form = function
   | Alloc_call_frame _ -> subtract_immediate
   | Free_call_frame _ -> add_immediate
   | Call _ -> call_relative
+  | Call_stack _ -> call_indirect
   | Pop_rbp -> pop_register
   | Unary (Neg, _) -> negate
   | Unary (Not, _) -> complement
@@ -377,6 +381,7 @@ let validate = function
   | Jump_less displacement
   | Jump_overflow displacement
   | Call displacement
+  | Address_code_relative (_, displacement)
     when not (signed_rel32 displacement) ->
       invalid_arg "relative branch displacement must fit signed 32 bits"
   | Store_status_kind kind when kind < 1 || kind > 2 ->
@@ -405,6 +410,7 @@ let size instruction =
   match instruction with
   | Mov_imm64 _ -> opcode_bytes + 1 + 8
   | Load_stack _ | Store_stack _ | Address_stack _ -> 8
+  | Address_code_relative _ | Call_stack _ -> 7
   | Alloc_stack _ | Free_stack _ -> 7
   | Push_rbp | Pop_rbp -> 1
   | Mov_rbp_rsp -> 3
@@ -503,6 +509,12 @@ let write buffer position instruction =
       done
   | Mov (destination, source) ->
       modrm ~reg:(register_number source) ~rm:(register_number destination)
+  | Address_code_relative (destination, displacement) ->
+      let destination = register_number destination in
+      byte (0x48 lor ((destination land 8) lsr 1));
+      opcodes ();
+      byte (0x05 lor ((destination land 7) lsl 3));
+      imm32_int64 displacement
   | Load_stack (destination, slot) | Address_stack (destination, slot) ->
       let destination = register_number destination in
       (* Fixed disp32 SIB form: RSP cannot be the ModR/M base without a SIB.
@@ -651,6 +663,12 @@ let write buffer position instruction =
   | Call displacement ->
       opcodes ();
       imm32_int64 displacement
+  | Call_stack slot ->
+      (* CALL RM64 is implicitly a qword; no REX.W prefix is needed. *)
+      opcodes ();
+      byte (0x84 lor (selected.slash_value lsl 3));
+      byte 0x24;
+      imm32 slot.offset
   | Pop_rbp ->
       List.iter (fun opcode -> byte (opcode lor 5)) selected.opcode_bytes
   | Unary (_, destination) ->

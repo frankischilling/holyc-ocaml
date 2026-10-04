@@ -36,6 +36,10 @@ type instruction =
       (** Materialize an address in the bounded fixed RSP-relative private
           frame. This uses the same checked slot and disp32 SIB shape as stack
           loads. *)
+  | Address_code_relative of register * int64
+      (** Materialize RIP plus a signed disp32 from the instruction end. Image
+          layout must resolve the displacement from an owned code label. The
+          encoder validates shape and range, not executable target authority. *)
   | Alloc_stack of stack_frame
   | Free_stack of stack_frame
   | Push_rbp
@@ -88,6 +92,11 @@ type instruction =
           constant throughout the function body. *)
   | Call of int64
       (** Direct CALL with a signed rel32 displacement from the instruction end.
+      *)
+  | Call_stack of stack_slot
+      (** Indirect CALL through a checked fixed RSP-relative slot. The target
+          uses the pinned CALL RM64 form without REX.W. This shape alone grants
+          no executable authority; the caller must validate its captured owner.
       *)
   | Pop_rbp  (** Restore the caller's RBP immediately before returning. *)
   | Unary of unary * register

@@ -29,6 +29,7 @@ type program_site = {
   arithmetic : (arithmetic_operation * bool) option;
   value_type : word_type option;
   call_site : bool;
+  callback_call_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;

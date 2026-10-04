@@ -246,6 +246,12 @@ type direct_call = {
   result_stage_slot : int option;
 }
 
+type indirect_call = {
+  captured_stage : int;
+  owned_targets : int list ref;
+  target_call : int -> bool * direct_call;
+}
+
 type frame_update =
   | Update_binary of Encoder.binary
   | Update_shift of Encoder.shift
@@ -253,6 +259,7 @@ type frame_update =
 
 type operation =
   | Load_immediate of value * int64
+  | Load_function_address of value * int
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
   | Apply_shift of Encoder.shift * value * value * value
@@ -313,7 +320,9 @@ type operation =
       * word_type
       * fault_site option
   | Call_start
+  | Call_capture of value * int
   | Direct_call of direct_call
+  | Indirect_call of indirect_call
   | Put_chars of int
   | Print_output of Print_codegen.t
   | Internal_strlen of value * int
@@ -769,6 +778,7 @@ type planned_item =
   | Planned_instruction of Encoder.instruction
   | Planned_branch of branch_kind * int
   | Planned_call of int
+  | Planned_function_address of Encoder.register * int
   | Planned_callee_stack of Encoder.register * int
   | Planned_label of int
 
@@ -788,6 +798,8 @@ let planned_size = function
   | Planned_instruction instruction -> Encoder.size instruction
   | Planned_branch (kind, _) -> Encoder.size (branch_instruction kind 0L)
   | Planned_call _ -> Encoder.size (Encoder.Call 0L)
+  | Planned_function_address (register, _) ->
+      Encoder.size (Encoder.Address_code_relative (register, 0L))
   | Planned_callee_stack (register, _) ->
       Encoder.size (Encoder.Mov_imm64 (register, 0L))
   | Planned_label _ -> 0
@@ -863,7 +875,27 @@ let resolve_plan ?(callee_labels = [||]) ?(callee_stack_bytes = [||]) plan =
           in
           reversed := instruction :: !reversed;
           incr machine_count;
-          offset := !offset + Encoder.size instruction)
+          offset := !offset + Encoder.size instruction
+      | Planned_function_address (register, callee_index) ->
+          if callee_index < 0 || callee_index >= Array.length callee_labels then
+            reject "HCBACK0003" "native code address names an unknown function";
+          let target =
+            match Hashtbl.find_opt labels callee_labels.(callee_index) with
+            | Some offset -> offset
+            | None ->
+                reject "HCBACK0003"
+                  "native code address has no owned function label"
+          in
+          let size =
+            Encoder.size (Encoder.Address_code_relative (register, 0L))
+          in
+          let displacement = Int64.of_int (target - (!offset + size)) in
+          if displacement < -0x80000000L || displacement > 0x7fffffffL then
+            reject "HCBACK0005" "native code address exceeds RIP disp32 range";
+          reversed :=
+            Encoder.Address_code_relative (register, displacement) :: !reversed;
+          incr machine_count;
+          offset := !offset + size)
     plan;
   (List.rev !reversed, code_size, !machine_count)
 
@@ -1661,6 +1693,15 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
               ~excluded:[]
           in
           emit (Encoder.Mov_imm64 (registers.(destination), bits));
+          assign position destination result
+      | Load_function_address (result, callee_index) ->
+          let destination =
+            acquire_destination instruction.span position ~protected:[]
+              ~excluded:[]
+          in
+          planned :=
+            Planned_function_address (registers.(destination), callee_index)
+            :: !planned;
           assign position destination result
       | Apply_unary (unary, input, result) ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
@@ -2700,92 +2741,149 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           mark complete;
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           release_through position
-      | Direct_call call ->
-          let site = Option.get instruction.site in
-          let epilogue =
-            match mode with
-            | Callable_control { epilogue_label; _ } -> epilogue_label
-            | Expression_control _ | Program_control _ ->
-                reject ?span:instruction.span "HCBACK0003"
-                  "direct native call is outside callable allocation"
-          in
+      | Call_capture (captured, stage) ->
+          let inputs, _ = ensure_inputs instruction.span [ captured ] in
+          emit
+            (Encoder.Store_stack
+               ( staged_stack_slot instruction.span stage,
+                 registers.(List.hd inputs) ));
+          release_through position
+      | Direct_call _ | Indirect_call _ ->
           spill_all_registers instruction.span;
-          Array.iteri
-            (fun fixed_index stage ->
+          let emit_target ?captured_stage call =
+            let site = Option.get instruction.site in
+            let epilogue =
+              match mode with
+              | Callable_control { epilogue_label; _ } -> epilogue_label
+              | Expression_control _ | Program_control _ ->
+                  reject ?span:instruction.span "HCBACK0003"
+                    "direct native call is outside callable allocation"
+            in
+            Array.iteri
+              (fun fixed_index stage ->
+                emit
+                  (Encoder.Load_stack
+                     (Encoder.Rax, staged_stack_slot instruction.span stage));
+                emit
+                  (Encoder.Store_stack
+                     (fixed_stack_slot instruction.span fixed_index, Encoder.Rax)))
+              call.argument_stage_slots;
+            let depth_fault = fresh_label supply in
+            let frame_fault = fresh_label supply in
+            let stack_fault = fresh_label supply in
+            fault_blocks :=
+              { label = depth_fault; kind_value = 4; site_value = site }
+              :: { label = frame_fault; kind_value = 5; site_value = site }
+              :: { label = stack_fault; kind_value = 6; site_value = site }
+              :: !fault_blocks;
+            (* Guard all three activation quotas before mutating any of them. *)
+            emit (Encoder.Load_context (Encoder.Rax, 56));
+            emit (Encoder.Test Encoder.Rax);
+            emit_branch Equal depth_fault;
+            emit (Encoder.Load_context (Encoder.Rax, 48));
+            emit
+              (Encoder.Mov_imm64
+                 (Encoder.Rcx, Int64.of_int call.activation_bytes));
+            emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+            emit (Encoder.Setcc (Encoder.B, Encoder.Rdx));
+            emit (Encoder.Movzx8 (Encoder.Rdx, Encoder.Rdx));
+            emit (Encoder.Test Encoder.Rdx);
+            emit_branch Not_equal frame_fault;
+            emit (Encoder.Load_context (Encoder.Rax, 64));
+            planned :=
+              Planned_callee_stack (Encoder.Rcx, call.callee_index) :: !planned;
+            emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+            emit (Encoder.Setcc (Encoder.B, Encoder.Rdx));
+            emit (Encoder.Movzx8 (Encoder.Rdx, Encoder.Rdx));
+            emit (Encoder.Test Encoder.Rdx);
+            emit_branch Not_equal stack_fault;
+            (* Reserve the callee's semantic depth/frame and physical stack. *)
+            emit (Encoder.Load_context (Encoder.Rax, 56));
+            emit (Encoder.Dec Encoder.Rax);
+            emit (Encoder.Store_context (56, Encoder.Rax));
+            emit (Encoder.Load_context (Encoder.Rax, 48));
+            emit
+              (Encoder.Mov_imm64
+                 (Encoder.Rcx, Int64.of_int call.activation_bytes));
+            emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
+            emit (Encoder.Store_context (48, Encoder.Rax));
+            emit (Encoder.Load_context (Encoder.Rax, 64));
+            planned :=
+              Planned_callee_stack (Encoder.Rcx, call.callee_index) :: !planned;
+            emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
+            emit (Encoder.Store_context (64, Encoder.Rax));
+            (match captured_stage with
+            | None -> planned := Planned_call call.callee_index :: !planned
+            | Some stage ->
+                emit
+                  (Encoder.Call_stack (staged_stack_slot instruction.span stage)));
+            (* Save RAX before quota restoration/status inspection clobbers it. *)
+            Option.iter
+              (fun stage ->
+                emit
+                  (Encoder.Store_stack
+                     (staged_stack_slot instruction.span stage, Encoder.Rax)))
+              call.result_stage_slot;
+            emit (Encoder.Load_context (Encoder.Rax, 56));
+            emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L));
+            emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
+            emit (Encoder.Store_context (56, Encoder.Rax));
+            emit (Encoder.Load_context (Encoder.Rax, 48));
+            emit
+              (Encoder.Mov_imm64
+                 (Encoder.Rcx, Int64.of_int call.activation_bytes));
+            emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
+            emit (Encoder.Store_context (48, Encoder.Rax));
+            emit (Encoder.Load_context (Encoder.Rax, 64));
+            planned :=
+              Planned_callee_stack (Encoder.Rcx, call.callee_index) :: !planned;
+            emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
+            emit (Encoder.Store_context (64, Encoder.Rax));
+            emit (Encoder.Load_context (Encoder.Rax, 0));
+            emit (Encoder.Test Encoder.Rax);
+            emit_branch Not_equal epilogue;
+            ()
+          in
+          (match instruction.operation with
+          | Direct_call call -> emit_target call
+          | Indirect_call indirect ->
+              let site = Option.get instruction.site in
+              let invalid = fresh_label supply
+              and mismatch = fresh_label supply
+              and complete = fresh_label supply in
+              fault_blocks :=
+                { label = invalid; kind_value = 19; site_value = site }
+                :: { label = mismatch; kind_value = 20; site_value = site }
+                :: !fault_blocks;
+              let targets =
+                List.map
+                  (fun index -> (index, fresh_label supply))
+                  !(indirect.owned_targets)
+              in
               emit
                 (Encoder.Load_stack
-                   (Encoder.Rax, staged_stack_slot instruction.span stage));
-              emit
-                (Encoder.Store_stack
-                   (fixed_stack_slot instruction.span fixed_index, Encoder.Rax)))
-            call.argument_stage_slots;
-          let depth_fault = fresh_label supply in
-          let frame_fault = fresh_label supply in
-          let stack_fault = fresh_label supply in
-          fault_blocks :=
-            { label = depth_fault; kind_value = 4; site_value = site }
-            :: { label = frame_fault; kind_value = 5; site_value = site }
-            :: { label = stack_fault; kind_value = 6; site_value = site }
-            :: !fault_blocks;
-          (* Guard all three activation quotas before mutating any of them. *)
-          emit (Encoder.Load_context (Encoder.Rax, 56));
-          emit (Encoder.Test Encoder.Rax);
-          emit_branch Equal depth_fault;
-          emit (Encoder.Load_context (Encoder.Rax, 48));
-          emit
-            (Encoder.Mov_imm64 (Encoder.Rcx, Int64.of_int call.activation_bytes));
-          emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
-          emit (Encoder.Setcc (Encoder.B, Encoder.Rdx));
-          emit (Encoder.Movzx8 (Encoder.Rdx, Encoder.Rdx));
-          emit (Encoder.Test Encoder.Rdx);
-          emit_branch Not_equal frame_fault;
-          emit (Encoder.Load_context (Encoder.Rax, 64));
-          planned :=
-            Planned_callee_stack (Encoder.Rcx, call.callee_index) :: !planned;
-          emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
-          emit (Encoder.Setcc (Encoder.B, Encoder.Rdx));
-          emit (Encoder.Movzx8 (Encoder.Rdx, Encoder.Rdx));
-          emit (Encoder.Test Encoder.Rdx);
-          emit_branch Not_equal stack_fault;
-          (* Reserve the callee's semantic depth/frame and physical stack. *)
-          emit (Encoder.Load_context (Encoder.Rax, 56));
-          emit (Encoder.Dec Encoder.Rax);
-          emit (Encoder.Store_context (56, Encoder.Rax));
-          emit (Encoder.Load_context (Encoder.Rax, 48));
-          emit
-            (Encoder.Mov_imm64 (Encoder.Rcx, Int64.of_int call.activation_bytes));
-          emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
-          emit (Encoder.Store_context (48, Encoder.Rax));
-          emit (Encoder.Load_context (Encoder.Rax, 64));
-          planned :=
-            Planned_callee_stack (Encoder.Rcx, call.callee_index) :: !planned;
-          emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
-          emit (Encoder.Store_context (64, Encoder.Rax));
-          planned := Planned_call call.callee_index :: !planned;
-          (* Save RAX before quota restoration/status inspection clobbers it. *)
-          Option.iter
-            (fun stage ->
-              emit
-                (Encoder.Store_stack
-                   (staged_stack_slot instruction.span stage, Encoder.Rax)))
-            call.result_stage_slot;
-          emit (Encoder.Load_context (Encoder.Rax, 56));
-          emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L));
-          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
-          emit (Encoder.Store_context (56, Encoder.Rax));
-          emit (Encoder.Load_context (Encoder.Rax, 48));
-          emit
-            (Encoder.Mov_imm64 (Encoder.Rcx, Int64.of_int call.activation_bytes));
-          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
-          emit (Encoder.Store_context (48, Encoder.Rax));
-          emit (Encoder.Load_context (Encoder.Rax, 64));
-          planned :=
-            Planned_callee_stack (Encoder.Rcx, call.callee_index) :: !planned;
-          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
-          emit (Encoder.Store_context (64, Encoder.Rax));
-          emit (Encoder.Load_context (Encoder.Rax, 0));
-          emit (Encoder.Test Encoder.Rax);
-          emit_branch Not_equal epilogue;
+                   ( Encoder.Rax,
+                     staged_stack_slot instruction.span indirect.captured_stage
+                   ));
+              List.iter
+                (fun (index, label) ->
+                  planned :=
+                    Planned_function_address (Encoder.Rcx, index) :: !planned;
+                  emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+                  emit_branch Equal label)
+                targets;
+              emit_branch Unconditional invalid;
+              List.iter
+                (fun (index, label) ->
+                  mark label;
+                  let matches, call = indirect.target_call index in
+                  if matches then (
+                    emit_target ~captured_stage:indirect.captured_stage call;
+                    emit_branch Unconditional complete)
+                  else emit_branch Unconditional mismatch)
+                targets;
+              mark complete
+          | _ -> assert false);
           release_through position
       | Call_end (stage, result) ->
           let destination =
@@ -3051,6 +3149,7 @@ type program_site = {
   arithmetic : (arithmetic_operation * bool) option;
   value_type : word_type option;
   call_site : bool;
+  callback_call_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -3347,6 +3446,7 @@ let preflight_program graph =
                 arithmetic;
                 value_type;
                 call_site = false;
+                callback_call_site = false;
                 uninitialized_read_site = false;
                 index_scale_site = false;
                 index_addition_site = false;
@@ -3438,6 +3538,7 @@ type callable_slot = {
   slot_element_count : int;
   slot_extent_bytes : int;
   access : frame_access;
+  callback : Headers.function_pointer option;
 }
 
 type callable_return_kind =
@@ -3487,7 +3588,11 @@ type frame_term =
   | Index_offset of index_offset_term
   | Indexed_address of indexed_address_term
 
-type callable_call_phase = Collecting | Needs_cleanup | Needs_end
+type callable_call_phase =
+  | Collecting
+  | Needs_cleanup
+  | Needs_saved_cleanup
+  | Needs_end
 
 type callable_target =
   | Source_function of int
@@ -3495,7 +3600,10 @@ type callable_target =
   | Print_provider
 
 type callable_call_scope = {
-  call : Runtime.call;
+  call : Runtime.call option;
+  callback_call : Runtime.callback_call option;
+  captured_stage : int option;
+  owned_targets : int list ref option;
   target : callable_target;
   return_kind : callable_return_kind;
   activation_bytes : int;
@@ -3507,6 +3615,12 @@ type callable_call_scope = {
   pushed : bool array;
   mutable phase : callable_call_phase;
 }
+
+let scope_arguments scope =
+  match (scope.call, scope.callback_call) with
+  | Some call, None -> Runtime.arguments call
+  | None, Some callback -> callback.callback_arguments
+  | _ -> reject "HCBACK0003" "native call has no unique original receipt"
 
 type callable_intrinsic_scope = {
   intrinsic : Runtime.intrinsic;
@@ -3742,6 +3856,7 @@ let prepare_callable_function ~max_stack_bytes
           slot_dimensions = [];
           slot_element_count = 1;
           slot_extent_bytes = scalar.byte_size;
+          callback = None;
           access =
             {
               frame_offset = actual;
@@ -3756,12 +3871,6 @@ let prepare_callable_function ~max_stack_bytes
   let flag_count = ref 0 in
   List.iter
     (fun member ->
-      let type_ = Function.member_type member in
-      let scalar =
-        source_slot_scalar
-          ?span:(Function.member_span member)
-          "automatic local" type_
-      in
       let location =
         match Frame.find_location frame (Function.member_symbol member) with
         | Some location -> location
@@ -3770,6 +3879,18 @@ let prepare_callable_function ~max_stack_bytes
               ?span:(Function.member_span member)
               "HCBACK0003"
               "native automatic local has no checked frame location"
+      in
+      let callback = Frame.location_callback_pointer location in
+      let type_ =
+        match callback with
+        | None -> Function.member_type member
+        | Some pointer ->
+            Headers.function_pointer_storage_type pointer |> Result.get_ok
+      in
+      let scalar =
+        source_slot_scalar
+          ?span:(Function.member_span member)
+          "automatic local" type_
       in
       let dimensions = Frame.location_dimensions location in
       let counts = List.map Frame.dimension_value dimensions in
@@ -3821,10 +3942,18 @@ let prepare_callable_function ~max_stack_bytes
       if
         Frame.location_kind location <> Frame.Automatic_local
         || (not register_ok)
-        || Frame.location_declarator_shape location <> Frame.Object
+        || (Frame.location_declarator_shape location
+           <>
+           if Option.is_some callback then Frame.Function_pointer
+           else Frame.Object)
+        || (Option.is_some callback && counts <> [])
         || (Frame.location_value_shape location
            <> if counts = [] then Frame.Scalar else Frame.Array)
-        || (not (Type.equal (Frame.location_checked_type location) type_))
+        || (not
+              (Type.equal
+                 (Frame.location_checked_type location)
+                 (if Option.is_some callback then Function.member_type member
+                  else type_)))
         || Frame.location_element_size location <> Int64.of_int scalar.byte_size
         || Frame.location_allocated_size location <> Int64.of_int object_bytes
         || Frame.location_alignment location <> alignment
@@ -3870,6 +3999,7 @@ let prepare_callable_function ~max_stack_bytes
           slot_dimensions = counts;
           slot_element_count = elements;
           slot_extent_bytes = object_bytes;
+          callback;
           access =
             {
               frame_offset = actual;
@@ -4005,6 +4135,15 @@ let validate_callable_returns graph return_kind =
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     ~global_storage ~literal_storage ~runtime_owner ~owner ~frame_slots
     ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+  let function_addresses =
+    match
+      Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
+    with
+    | Some addresses -> addresses
+    | None ->
+        reject "HCBACK0003"
+          "native function addresses require the original sealed graph"
+  in
   let reference_bytes = ref 0 in
   let blocks = Graph.blocks graph in
   let next_blocks, positions, instruction_count = source_layout blocks in
@@ -4013,6 +4152,29 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   let values = ref Value_map.empty in
   let frame_values = ref Value_map.empty in
   let void_values = ref Value_set.empty in
+  (* These sets describe the sealed producers that can reach each automatic
+     callback cell. Numeric producers never join them. Cell addresses cannot
+     escape, so every write is checked here before any machine code is emitted. *)
+  let code_values = ref Value_map.empty in
+  let zero_values = ref Value_set.empty in
+  let code_cells =
+    Int_map.filter_map
+      (fun _ slot -> Option.map (fun _ -> ref []) slot.callback)
+      frame_slots
+  in
+  let code_edges = ref [] in
+  let code_source value = Value_map.find_opt value.value_id !code_values in
+  let mark_code value targets =
+    code_values := Value_map.add value.value_id targets !code_values
+  in
+  let is_zero value = Value_set.mem value.value_id !zero_values in
+  let callbacks =
+    match
+      Runtime.original_callback_calls runtime_calls ~owner:runtime_owner
+    with
+    | Some callbacks -> callbacks
+    | None -> reject "HCBACK0003" "native callbacks require the original graph"
+  in
   let instruction_ids = ref Instruction_set.empty in
   let sites_rev = ref [] in
   let home_slots = ref 0 in
@@ -4154,8 +4316,298 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 (Printf.sprintf "value %%%d is defined more than once"
                    (Sequence.Value_id.to_int result.Sequence.value_id)))
           description.result;
+        if
+          List.exists
+            (fun id -> Value_map.mem id !code_values)
+            description.operands
+          && not
+               (List.mem description.opcode
+                  [
+                    Opcode.Ic_assign;
+                    Ic_equ_equ;
+                    Ic_not_equ;
+                    Ic_holyc_typecast;
+                    Ic_end_exp;
+                    Ic_set_rax;
+                  ])
+        then
+          unsupported description
+            "native owned code values require callback storage, equality or a \
+             full-word view";
         let operation, value_type =
           match description.opcode with
+          | (Opcode.Ic_equ_equ | Opcode.Ic_not_equ)
+            when List.exists
+                   (fun id -> Value_map.mem id !code_values)
+                   description.operands -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type )
+              with
+              | [ left_id; right_id ], Some result, Some target_type ->
+                  let left = operand values description position left_id
+                  and right = operand values description position right_id in
+                  if
+                    not
+                      ((Option.is_some (code_source left) || is_zero left)
+                      && (Option.is_some (code_source right) || is_zero right))
+                  then
+                    unsupported description
+                      "native code equality requires another owned code value \
+                       or literal zero";
+                  ignore (checked_word description target_type);
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  ( Apply_comparison
+                      ( (if description.opcode = Opcode.Ic_equ_equ then Encoder.E
+                         else Encoder.NE),
+                        left,
+                        right,
+                        value ),
+                    None )
+              | _ -> malformed description "invalid owned code comparison")
+          | Opcode.Ic_holyc_typecast
+            when List.exists
+                   (fun id -> Value_map.mem id !code_values)
+                   description.operands -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [ input_id ],
+                  Some result,
+                  Some target_type,
+                  Some (Sequence.Integer (0L | 1L)) ) ->
+                  ignore
+                    (checked_word ~allow_public:true description target_type);
+                  let input = operand values description position input_id in
+                  let value =
+                    define values description position result target_type
+                      (Computation.declared target_type)
+                  in
+                  mark_code value (Option.get (code_source input));
+                  (Apply_word_view (input, value), None)
+              | _ ->
+                  unsupported description
+                    "native owned code values require a full-word integer view")
+          | Opcode.Ic_set_rax
+            when Option.is_some
+                   (Runtime.find_callback_capture runtime_calls
+                      ~owner:runtime_owner description.instruction_id) ->
+              (Frame_tick, None)
+          | Opcode.Ic_nop2
+            when List.exists
+                   (fun callback ->
+                     Sequence.Instruction_id.to_int
+                       callback.Runtime.callback_first
+                     = Sequence.Instruction_id.to_int description.instruction_id
+                       + 1)
+                   callbacks -> (Frame_tick, None)
+          | Opcode.Ic_call_start
+            when Option.is_some
+                   (Runtime.find_callback_start runtime_calls
+                      ~owner:runtime_owner description.instruction_id) ->
+              let callback =
+                Option.get
+                  (Runtime.find_callback_start runtime_calls
+                     ~owner:runtime_owner description.instruction_id)
+              in
+              if
+                List.exists
+                  (fun argument ->
+                    Option.is_some (Runtime.argument_prepared_default argument)
+                    || Option.is_some
+                         (Runtime.argument_prepared_callback_default argument))
+                  callback.callback_arguments
+              then
+                unsupported description
+                  "native callback declaration defaults are not yet admitted";
+              if Option.is_some callback.callback_variadic_count then
+                unsupported description
+                  "native local callbacks require fixed arguments";
+              let captured =
+                operand values description position
+                  callback.callback_capture_value
+              in
+              let targets =
+                match code_source captured with
+                | Some targets -> targets
+                | None ->
+                    malformed description
+                      "callback callee has no owned local cell"
+              in
+              let parameter_types =
+                Array.of_list callback.callback_fixed_types
+              in
+              Array.iter
+                (fun type_ ->
+                  ignore (checked_scalar ~allow_public:true description type_))
+                parameter_types;
+              let count = Array.length parameter_types in
+              let return_kind =
+                source_return_kind ?span:description.span
+                  callback.callback_return_type
+              in
+              let stage_base = !stage_cursor in
+              let captured_stage = stage_base + count in
+              let result_stage =
+                match return_kind with
+                | Callable_word_return _ -> Some (captured_stage + 1)
+                | Callable_void_return -> None
+              in
+              stage_cursor :=
+                captured_stage + 1
+                + Option.fold ~none:0 ~some:(fun _ -> 1) result_stage;
+              if !stage_cursor > max_stack_bytes / 8 then
+                reject ?span:description.span "HCBACK0004"
+                  "native callback staging exceeds the private frame limit";
+              stage_high_water := max !stage_high_water !stage_cursor;
+              home_slots := max !home_slots count;
+              calls :=
+                {
+                  call = None;
+                  callback_call = Some callback;
+                  captured_stage = Some captured_stage;
+                  owned_targets = Some targets;
+                  target = Source_function (-1);
+                  return_kind;
+                  activation_bytes = 0;
+                  stage_base;
+                  result_stage;
+                  argument_stages = Array.init count (fun i -> stage_base + i);
+                  argument_types = parameter_types;
+                  scratch_stage = !stage_cursor;
+                  pushed = Array.make count false;
+                  phase = Collecting;
+                }
+                :: !calls;
+              (Call_capture (captured, captured_stage), None)
+          | Opcode.Ic_push_regs -> (
+              match !calls with
+              | { callback_call = Some callback; phase = Collecting; _ } :: _
+                when Sequence.Instruction_id.equal description.instruction_id
+                       callback.callback_save -> (Frame_tick, None)
+              | _ ->
+                  malformed description
+                    "native callback save has no original scope")
+          | Opcode.Ic_call_indirect -> (
+              match !calls with
+              | ({ callback_call = Some callback; phase = Collecting; _ } as
+                 scope)
+                :: _
+                when Sequence.Instruction_id.equal description.instruction_id
+                       callback.callback_instruction
+                     && Array.for_all Fun.id scope.pushed ->
+                  let argument_stage_slots = Array.copy scope.argument_stages in
+                  let target_call callee_index =
+                    let callee = functions.(callee_index) in
+                    let body = callee.definition.body in
+                    let flags = Function.stored_flags body in
+                    let module F = Generated.Function_flags.Stored in
+                    let callee_pop =
+                      (F.is_set ~mask:flags F.Ret1
+                      || F.is_set ~mask:flags F.Argument_pop)
+                      && not (F.is_set ~mask:flags F.No_argument_pop)
+                    in
+                    let matches =
+                      Type.equal
+                        (Function.return_type body)
+                        callback.callback_return_type
+                      && callee_pop = callback.callback_callee_pop
+                      && Array.length callee.parameter_types
+                         = Array.length scope.argument_types
+                      && Array.for_all2 Type.equal callee.parameter_types
+                           scope.argument_types
+                    in
+                    ( matches,
+                      {
+                        callee_index;
+                        activation_bytes = callee.activation_bytes;
+                        argument_stage_slots;
+                        result_stage_slot = scope.result_stage;
+                      } )
+                  in
+                  scope.phase <- Needs_cleanup;
+                  ( Indirect_call
+                      {
+                        captured_stage = Option.get scope.captured_stage;
+                        owned_targets = Option.get scope.owned_targets;
+                        target_call;
+                      },
+                    None )
+              | _ ->
+                  malformed description
+                    "native indirect call has no complete original scope")
+          | (Opcode.Ic_add_rsp | Opcode.Ic_add_rsp1)
+            when match !calls with
+                 | { callback_call = Some _; _ } :: _ -> true
+                 | _ -> false -> (
+              match !calls with
+              | ({ callback_call = Some callback; phase = Needs_cleanup; _ } as
+                 scope)
+                :: _
+                when Sequence.Instruction_id.equal description.instruction_id
+                       callback.callback_cleanup ->
+                  scope.phase <-
+                    (if Option.is_some callback.callback_saved_cleanup then
+                       Needs_saved_cleanup
+                     else Needs_end);
+                  (Call_cleanup, None)
+              | ({
+                   callback_call = Some callback;
+                   phase = Needs_saved_cleanup;
+                   _;
+                 } as scope)
+                :: _
+                when Option.fold ~none:false
+                       ~some:
+                         (Sequence.Instruction_id.equal
+                            description.instruction_id)
+                       callback.callback_saved_cleanup ->
+                  scope.phase <- Needs_end;
+                  (Call_cleanup, None)
+              | _ ->
+                  malformed description
+                    "native callback cleanup has no original scope")
+          | Opcode.Ic_call_end
+            when match !calls with
+                 | { callback_call = Some callback; _ } :: _ ->
+                     Sequence.Instruction_id.equal description.instruction_id
+                       callback.callback_last
+                 | _ -> false -> (
+              match !calls with
+              | {
+                  callback_call = Some callback;
+                  phase = Needs_end;
+                  result_stage;
+                  stage_base;
+                  _;
+                }
+                :: rest
+                when Sequence.Instruction_id.equal description.instruction_id
+                       callback.callback_last -> (
+                  calls := rest;
+                  stage_cursor := stage_base;
+                  let result = Option.get description.result in
+                  let target_type = callback.callback_return_type in
+                  match result_stage with
+                  | Some stage ->
+                      let value =
+                        define values description position result target_type
+                          (Computation.declared target_type)
+                      in
+                      (Call_end (stage, value), None)
+                  | None ->
+                      void_values := Value_set.add result.value_id !void_values;
+                      (Call_end_void, None))
+              | _ ->
+                  malformed description
+                    "native callback end has no original scope")
           | Opcode.Ic_call_start
             when Option.is_some
                    (Runtime.find_intrinsic_start runtime_calls
@@ -4470,7 +4922,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 home_slots := max !home_slots parameter_count;
               let scope =
                 {
-                  call;
+                  call = Some call;
+                  callback_call = None;
+                  captured_stage = None;
+                  owned_targets = None;
                   target;
                   return_kind;
                   activation_bytes;
@@ -4621,24 +5076,26 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | scope :: _ when scope.phase = Collecting ->
                   if
                     description.flags <> 0L || description.operands <> []
-                    || description.opcode <> Runtime.call_opcode scope.call
+                    || description.opcode
+                       <> Runtime.call_opcode (Option.get scope.call)
                     || Option.is_some description.result
                     || (not
                           (Sequence.Instruction_id.equal
                              description.instruction_id
-                             (Runtime.call_instruction scope.call)))
+                             (Runtime.call_instruction (Option.get scope.call))))
                     || not (Array.for_all Fun.id scope.pushed)
                   then
                     malformed description "invalid fixed direct IC_CALL shape";
                   (match description.payload with
                   | Some (Sequence.Symbol symbol)
-                    when symbol == Runtime.symbol scope.call -> ()
+                    when symbol == Runtime.symbol (Option.get scope.call) -> ()
                   | _ ->
                       malformed description
                         "IC_CALL target symbol is inconsistent");
                   (match description.target_type with
                   | Some type_
-                    when Type.equal type_ (Runtime.return_type scope.call) -> ()
+                    when Type.equal type_
+                           (Runtime.return_type (Option.get scope.call)) -> ()
                   | _ ->
                       malformed description
                         "IC_CALL target type is inconsistent");
@@ -4692,21 +5149,24 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   if
                     description.flags <> 0L || description.operands <> []
                     || Option.is_some description.result
-                    || description.opcode <> Runtime.cleanup_opcode scope.call
+                    || description.opcode
+                       <> Runtime.cleanup_opcode (Option.get scope.call)
                     || not
                          (Sequence.Instruction_id.equal
                             description.instruction_id
-                            (Runtime.cleanup_instruction scope.call))
+                            (Runtime.cleanup_instruction (Option.get scope.call)))
                   then malformed description "invalid direct-call cleanup shape";
                   (match description.payload with
                   | Some (Sequence.Integer bytes)
-                    when bytes = Runtime.cleanup_bytes scope.call -> ()
+                    when bytes = Runtime.cleanup_bytes (Option.get scope.call)
+                    -> ()
                   | _ ->
                       malformed description
                         "direct-call cleanup byte count is inconsistent");
                   (match description.target_type with
                   | Some type_
-                    when Type.equal type_ (Runtime.return_type scope.call) -> ()
+                    when Type.equal type_
+                           (Runtime.return_type (Option.get scope.call)) -> ()
                   | _ ->
                       malformed description
                         "direct-call cleanup target type is inconsistent");
@@ -4773,11 +5233,12 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     description.flags <> 0L || description.operands <> []
                     || not
                          (Sequence.Instruction_id.equal
-                            description.instruction_id (Runtime.last scope.call))
+                            description.instruction_id
+                            (Runtime.last (Option.get scope.call)))
                   then malformed description "invalid IC_CALL_END shape";
                   (match description.payload with
                   | Some (Sequence.Symbol symbol)
-                    when symbol == Runtime.symbol scope.call -> ()
+                    when symbol == Runtime.symbol (Option.get scope.call) -> ()
                   | _ ->
                       malformed description
                         "IC_CALL_END target symbol is inconsistent");
@@ -4785,9 +5246,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     match (description.result, description.target_type) with
                     | Some result, Some target_type
                       when Sequence.Value_id.equal result.value_id
-                             (Runtime.result_value scope.call)
+                             (Runtime.result_value (Option.get scope.call))
                            && Type.equal target_type
-                                (Runtime.return_type scope.call) ->
+                                (Runtime.return_type (Option.get scope.call)) ->
                         (result, target_type)
                     | _ ->
                         malformed description
@@ -4866,6 +5327,41 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     result (Frame_base target_type);
                   (Frame_tick, None)
               | _ -> malformed description "IC_RBP requires one pointer result")
+          | (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
+            when Option.is_some
+                   (Runtime.original_function_address function_addresses raw)
+            -> (
+              let receipt =
+                Option.get
+                  (Runtime.original_function_address function_addresses raw)
+              in
+              let body =
+                match Runtime.function_address_body receipt with
+                | Some body -> body
+                | None ->
+                    unsupported description
+                      "native function address has no original local body"
+              in
+              let callee_index =
+                match
+                  Array.find_index
+                    (fun function_ -> function_.definition.body == body)
+                    functions
+                with
+                | Some index -> index
+                | None ->
+                    malformed description
+                      "native function address body is outside the sealed image"
+              in
+              match (description.result, description.target_type) with
+              | Some result, Some target_type ->
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  mark_code value (ref [ callee_index ]);
+                  (Load_function_address (value, callee_index), None)
+              | _ -> malformed description "invalid native function address")
           | (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
             when Option.fold ~none:false
                    ~some:(fun type_ -> Type.pointer_depth type_ = 1)
@@ -5178,6 +5674,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       None )
                   in
                   match address with
+                  | Frame_address slot when Option.is_some slot.callback ->
+                      unsupported description
+                        "native callback cell addresses cannot escape"
                   | Frame_address slot when Type.equal pointee slot.slot_type ->
                       materialize
                         (Frame_reference (frame_reference_origin slot))
@@ -5230,6 +5729,27 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     address_operand frame_values values description position
                       address_id
                   with
+                  | Frame_address slot when Option.is_some slot.callback ->
+                      let owns_load =
+                        match
+                          Runtime.find_callback_load runtime_calls
+                            ~owner:runtime_owner raw
+                        with
+                        | Some callback ->
+                            Option.get slot.callback
+                            == callback.callback_pointer
+                        | None -> Type.equal target_type slot.slot_type
+                      in
+                      if not owns_load then
+                        malformed description
+                          "callback load differs from its original local header";
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      mark_code value
+                        (Int_map.find slot.access.frame_offset code_cells);
+                      (Load_frame_value (slot.access, value), None)
                   | Frame_address slot
                     when slot.slot_dimensions = []
                          && Type.equal target_type slot.slot_type ->
@@ -5317,6 +5837,34 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     address_operand frame_values values description position
                       address_id
                   with
+                  | Frame_address slot when Option.is_some slot.callback ->
+                      if not (Type.equal target_type slot.slot_type) then
+                        malformed description
+                          "callback store changes its original storage type";
+                      let input =
+                        operand values description position input_id
+                      in
+                      let source =
+                        match code_source input with
+                        | Some targets -> targets
+                        | None when is_zero input -> ref []
+                        | None ->
+                            unsupported description
+                              "native callback cells accept owned function \
+                               addresses, callback copies or literal zero"
+                      in
+                      let cell =
+                        Int_map.find slot.access.frame_offset code_cells
+                      in
+                      code_edges := (cell, source) :: !code_edges;
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      mark_code value source;
+                      if is_zero input then
+                        zero_values := Value_set.add value.value_id !zero_values;
+                      (Store_frame_value (slot.access, input, value), None)
                   | Frame_address slot
                     when slot.slot_dimensions = []
                          && Type.equal target_type slot.slot_type ->
@@ -5767,7 +6315,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       let input =
                         operand values description position operand_id
                       in
-                      if Type.pointer_depth input.declared_type <> 0 then (
+                      if Option.is_some (code_source input) then
+                        (Discard_void, None)
+                      else if Type.pointer_depth input.declared_type <> 0 then (
                         ignore
                           (checked_reference description input.declared_type);
                         (Discard_void, None))
@@ -5883,6 +6433,22 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               unsupported description
                 "opcode is outside the native callable source subset"
         in
+        (match operation with
+        | Load_immediate (value, 0L) ->
+            zero_values := Value_set.add value.value_id !zero_values
+        | Store_frame_value (access, input, _)
+          when Option.is_some (code_source input) ->
+            if not (Int_map.mem access.frame_offset code_cells) then
+              unsupported description
+                "native owned code values cannot escape into ordinary integer \
+                 cells"
+        | Store_arena_value (_, input, _)
+        | Store_reference_value (_, input, _)
+        | Store_indexed_object_value (_, input, _)
+          when Option.is_some (code_source input) ->
+            unsupported description
+              "native owned code values cannot escape local callback storage"
+        | _ -> ());
         let push_stage =
           if not pushes then None
           else
@@ -5897,10 +6463,14 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | None ->
                   malformed raw "ICF_PUSH_RES requires a scalar word result"
             in
+            if Option.is_some (code_source value) && not (is_zero value) then
+              unsupported raw
+                "native code-valued arguments require callback parameter \
+                 ownership support";
             match !calls with
             | scope :: _ when scope.phase = Collecting -> (
                 let argument =
-                  Runtime.arguments scope.call
+                  scope_arguments scope
                   |> List.find_opt (fun argument ->
                       Sequence.Instruction_id.equal
                         (Runtime.argument_producer argument)
@@ -5919,6 +6489,14 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       when index >= 0
                            && index < Array.length scope.pushed
                            && not scope.pushed.(index) ->
+                        if
+                          Option.is_some scope.callback_call
+                          && Option.is_some
+                               (Runtime.argument_prepared_default argument)
+                        then
+                          unsupported raw
+                            "native callback declaration defaults are not yet \
+                             admitted";
                         (match Runtime.argument_prepared_default argument with
                         | None -> ()
                         | Some prepared -> (
@@ -5928,7 +6506,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                                   "native callable programs do not admit \
                                    prepared parameter defaults"
                             | Some proof ->
-                                let header = Runtime.header scope.call in
+                                let header =
+                                  Runtime.header (Option.get scope.call)
+                                in
                                 let parameter =
                                   header |> Headers.function_signature
                                   |> Headers.signature_parameters
@@ -5969,9 +6549,13 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         | _ ->
                             malformed raw
                               "pushed argument source type is inconsistent");
-                        checked_copy raw
-                          (Runtime.argument_target_type argument)
-                          value.declared_type;
+                        if
+                          not
+                            (is_zero value && Option.is_some (code_source value))
+                        then
+                          checked_copy raw
+                            (Runtime.argument_target_type argument)
+                            value.declared_type;
                         (match Runtime.argument_role argument with
                         | Runtime.Variadic_count ->
                             if
@@ -5980,7 +6564,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                               || raw.payload
                                  <> Option.map
                                       (fun count -> Sequence.Integer count)
-                                      (Runtime.variadic_count scope.call)
+                                      (Runtime.variadic_count
+                                         (Option.get scope.call))
                             then
                               malformed raw
                                 "native Print count producer lost its original \
@@ -6025,7 +6610,12 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
             value_type;
             call_site =
               (match operation with
-              | Direct_call _ | Put_chars _ | Print_output _ -> true
+              | Direct_call _ | Indirect_call _ | Put_chars _ | Print_output _
+                -> true
+              | _ -> false);
+            callback_call_site =
+              (match operation with
+              | Indirect_call _ -> true
               | _ -> false);
             uninitialized_read_site =
               (match operation with
@@ -6169,6 +6759,17 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   let callable_blocks =
     visit [] (Graph.definition_order graph) |> source_order_blocks blocks
   in
+  let changed = ref true in
+  while !changed do
+    changed := false;
+    List.iter
+      (fun (cell, source) ->
+        let merged = List.sort_uniq Int.compare (!cell @ !source) in
+        if merged <> !cell then (
+          cell := merged;
+          changed := true))
+      !code_edges
+  done;
   let external_ids = external_values graph in
   let add value map = Value_map.add value.value_id value map in
   let add_reference reference map =
@@ -6292,6 +6893,15 @@ let validate_switch_code_floor ~max_code_bytes ~label block_groups =
             (fun instruction ->
               match instruction.operation with
               | Switch_to (_, _, targets) -> charge targets
+              | Indirect_call call ->
+                  let count = List.length !(call.owned_targets) in
+                  let available = max_code_bytes - !used in
+                  if available < 5 || count > (available - 5) / 16 then
+                    reject "HCBACK0005"
+                      (label
+                     ^ " callback dispatch exceeds max_code_bytes before \
+                        allocation");
+                  used := !used + 5 + (16 * count)
               | _ -> ())
             block.program_instructions)
         blocks)

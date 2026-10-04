@@ -201,3 +201,6 @@ interrupt function entry and public/static function definitions,
 runtime output and general declaration/`#exe` execution remain outside this gate.
 Optimizer parity, complete HolyC ABI, assembly/object/BIN output, actual loader
 acceptance, whole-tree compilation and bootstrap remain required project work.
+
+Automatic local fixed integer/U0 callbacks use the owned address and captured
+callee consumer described in [native local callbacks](native-local-callbacks.md).

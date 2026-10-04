@@ -620,14 +620,16 @@
  (deps
   ../../examples/native-scalar-functions.hc
   ../../examples/native-u0-functions.hc
-  ../../examples/native-calling-flags.hc)
+  ../../examples/native-calling-flags.hc
+  ../../examples/native-local-callbacks.hc)
  (action
   (run
    %{exe:test_native_scalar_function_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-scalar-functions.hc}
    %{dep:../../examples/native-u0-functions.hc}
-   %{dep:../../examples/native-calling-flags.hc})))
+   %{dep:../../examples/native-calling-flags.hc}
+   %{dep:../../examples/native-local-callbacks.hc})))
 
 (executable
  (name test_native_goto_execution)

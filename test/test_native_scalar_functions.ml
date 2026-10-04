@@ -678,8 +678,135 @@ let ordinary_calling_flags_keep_original_cleanup () =
         [ "interrupt"; "interrupt haserrcode"; "public"; "static" ])
     modes
 
+let local_callback_source_and_authority () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n);p=&Add;return \
+     p(40);}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source in
+      let other = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let compile ?(calls = integer_program_runtime_calls unit) () =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4088
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~runtime_calls:calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry:(integer_program_entry unit)
+              ~functions:(integer_program_functions unit)
+              ()
+          in
+          let baseline = compile () |> require_ok program_errors in
+          Alcotest.(check bool)
+            "native image contains a captured indirect call" true
+            (let bytes = Program.code baseline in
+             let rec find i =
+               i + 3 <= String.length bytes
+               && (String.sub bytes i 3 = "\xff\x94\x24" || find (i + 1))
+             in
+             find 0);
+          compile ~calls:(integer_program_runtime_calls other) ()
+          |> reject_backend "callback cannot borrow a foreign source graph";
+          List.iter
+            (fun kind ->
+              Alcotest.(check bool)
+                "callback fault cannot name an ordinary entry call" true
+                (Result.is_error
+                   (Program.decode_runtime_status baseline ~max_steps:100 ~kind
+                      ~site:1L ~executed_steps:1L ~value_site:0L ~bits:0L));
+              let callback_sites = ref 0 in
+              for site = 1 to Program.ir_instructions baseline do
+                match
+                  Program.decode_runtime_status baseline ~max_steps:100 ~kind
+                    ~site:(Int64.of_int site) ~executed_steps:1L ~value_site:0L
+                    ~bits:0L
+                with
+                | Ok (Program.Fault _) -> incr callback_sites
+                | _ -> ()
+              done;
+              Alcotest.(check int)
+                "only the original indirect invocation accepts callback fault \
+                 status"
+                1 !callback_sites)
+            [ 19L; 20L ])
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      List.iter
+        (fun select ->
+          let fresh = integer_unit ~mode source in
+          let cell =
+            integer_program_functions fresh
+            |> List.find_map (fun definition ->
+                let graph =
+                  Ir_function_body.x87 definition.VM.body |> Ir_x87_stack.graph
+                in
+                Graph.blocks graph
+                |> List.find_map (fun block ->
+                    let rec find = function
+                      | [] -> None
+                      | instruction :: rest as cell ->
+                          if select (Sequence.description instruction) then
+                            Some cell
+                          else find rest
+                    in
+                    find (Graph.instructions block |> Sequence.instructions)))
+            |> Option.get
+          in
+          let original = Sequence.description (List.hd cell) in
+          Obj.set_field (Obj.repr cell) 0
+            (Obj.repr { original with flags = original.flags });
+          compile_callable fresh
+          |> reject_backend
+               "physically copied callback producer has no source authority")
+        [
+          (fun d ->
+            match d.Sequence.payload with
+            | Some (Sequence.Symbol _) ->
+                d.opcode = Opcode.Ic_imm_i64 || d.opcode = Opcode.Ic_abs_addr
+            | _ -> false);
+          (fun d ->
+            d.Sequence.opcode = Opcode.Ic_deref
+            && Option.fold ~none:false
+                 ~some:(fun t ->
+                   Type.base t
+                   = Type.Primitive (Type.Internal_storage, Primitive_type.I64))
+                 d.target_type);
+          (fun d -> d.Sequence.opcode = Opcode.Ic_call_indirect);
+        ];
+      List.iter
+        (fun source ->
+          compile_source ~mode source
+          |> reject_gate "native callback ownership boundary")
+        [
+          "I64 Run(){I64 (*p)();p=123;return p();}Run();";
+          "I64 A(){return 1;}I64 Run(){I64 (*p)();I64 n;p=&A;n=p;return \
+           n;}Run();";
+          "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p+1;}Run();";
+          "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p(I32);}Run();";
+          "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;I64 \
+           *q=(&p)(I64*);return 42;}Run();";
+          "I64 A(I64 n){return n;}I64 Run(){I64 (*p)(I64 n=42);p=&A;return \
+           p();}Run();";
+        ];
+      let baseline = image ~mode source in
+      let ir = Program.ir_instructions baseline
+      and code = String.length (Program.code baseline)
+      and stack = Program.frame_bytes baseline
+      and blocks = Program.block_count baseline in
+      ignore
+        (image ~mode ~max_ir_instructions:ir ~max_code_bytes:code
+           ~max_stack_bytes:stack ~max_blocks:blocks source);
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "callback code one below";
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004" "callback private frame one below")
+    modes
+
 let tests =
   [
+    Alcotest.test_case "owned local callback source, graph and budget authority"
+      `Quick local_callback_source_and_authority;
     Alcotest.test_case
       "ordinary calling flags retain original cleanup authority" `Quick
       ordinary_calling_flags_keep_original_cleanup;

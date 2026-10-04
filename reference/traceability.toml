@@ -13143,3 +13143,20 @@ execution = "ARGPOP and NOARGPOP may coexist; NOARGPOP suppresses callee cleanup
 verification = "Both image ABIs compile in ordinary tests. The native scalar API/CLI execute the host ABI in both preprocessing modes and compare independent values, fresh public IR and checked-batch meters. Recursion checks exact/one-below frame, depth, physical stack and runtime work, followed by recovery on the same image. Global and local callback IR tests preserve selected cleanup and reached mismatch effects."
 verification_boundary = "This is pinned source audit and hosted execution. No new TempleOS oracle capture, native callback emission, RET-imm export or IRETQ execution is claimed."
 excluded = ["interrupt function execution", "hosted native callback calls", "general HolyC ABI exports", "native variadic calls", "mixed F64 or aggregate calls"]
+
+[[feature]]
+id = "HC-NATIVE-AUTOMATIC-CALLBACKS"
+description = "Original automatic local callback cells invoke owned integer/U0 machine bodies through a captured native callee slot."
+sources = ["Compiler/PrsExp.HC:541-586 saved callee, reverse arguments and anonymous-header cleanup", "Compiler/OptPass789A.HC:723-732 CALL through an RSP displacement", "Compiler/OpCodes.DD:573 RM64 CALL", "Compiler/OpCodes.DD:833 R64 LEA"]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_native_expression.ml", "test/test_native_scalar_functions.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-local-callbacks.hc"]
+documentation = ["docs/native-local-callbacks.md", "docs/native-programs.md", "docs/native-scalars.md", "docs/holy-abi.md", "docs/testing.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Only physical original function-address receipts select the original local body. Automatic callback cells accept those values, checked callback copies or literal zero. Cell addresses and code values cannot escape to object references, ordinary word cells or parameters/returns. Transitive cell-copy target sets are closed before emission; matching numeric words cannot provide authority."
+execution = "RIP-relative LEA produces the owned body address. The callee is saved before reverse arguments; a saved-slot indirect CALL follows original signature/cleanup checks and activation quota guards. Null and signature faults preserve earlier argument output. Valid integer/U0 calls retain width rules, shared metering, quota unwind and same-image recovery."
+verification = "Both image ABIs compile with source/encoder/budget/ownership controls. Host-native API and CLI tests compare independent values, fresh public IR and exact checked-batch meters in both source modes; Windows and Linux CI execute their own host ABI."
+verification_boundary = "Pinned source audit and hosted native execution add no independent TempleOS capture, exported HolyC ABI, RET-imm or IRETQ proof."
+excluded = ["native static/global/array/member callback storage", "callback parameters", "callback initializers and updates", "callback declaration defaults", "word-tail variadics", "retained same-name native publication", "raw numeric callback stores", "concrete numeric address operations", "live task linking/expiry", "general F64/mixed/aggregate calls"]

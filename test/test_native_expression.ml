@@ -1512,6 +1512,47 @@ let encoder_predicate_bytes () =
         "predicate batch exhaustion has a diagnostic" true (message <> "")
   | Ok _ -> Alcotest.fail "predicate batch accepted an insufficient byte quota"
 
+let encoder_owned_code_bytes () =
+  let open Encoder in
+  let slot offset = stack_slot ~offset |> require_ok Fun.id in
+  let cases =
+    [
+      (Address_code_relative (Rax, 0L), "488d0500000000");
+      (Address_code_relative (Rcx, 1L), "488d0d01000000");
+      (Address_code_relative (Rdx, -1L), "488d15ffffffff");
+      (Address_code_relative (R8, 0x7fffffffL), "4c8d05ffffff7f");
+      (Address_code_relative (R9, -0x80000000L), "4c8d0d00000080");
+      (Address_code_relative (R10, 42L), "4c8d152a000000");
+      (Address_code_relative (R11, -42L), "4c8d1dd6ffffff");
+      (Call_stack (slot 0), "ff942400000000");
+      (Call_stack (slot 8), "ff942408000000");
+      (Call_stack (slot 4080), "ff9424f00f0000");
+    ]
+  in
+  List.iter
+    (fun (instruction, bytes) ->
+      Alcotest.(check string)
+        "owned code instruction bytes" bytes
+        (hex (encode instruction));
+      Alcotest.(check int) "owned code instruction size" 7 (size instruction))
+    cases;
+  let instructions = List.map fst cases in
+  let expected = String.concat "" (List.map snd cases) in
+  Alcotest.(check string)
+    "exact owned code byte quota" expected
+    (encode_all ~max_code_bytes:70 instructions |> require_ok Fun.id |> hex);
+  Alcotest.(check bool)
+    "owned code one byte below quota" true
+    (Result.is_error (encode_all ~max_code_bytes:69 instructions));
+  List.iter
+    (fun displacement ->
+      Alcotest.(check bool)
+        "RIP address rejects out-of-range displacement" true
+        (Result.is_error
+           (encode_all ~max_code_bytes:7
+              [ Address_code_relative (Rax, displacement) ])))
+    [ -0x80000001L; 0x80000000L ]
+
 let encoder_stack_bytes () =
   let slot0 = Encoder.stack_slot ~offset:0 |> require_ok Fun.id in
   let slot8 = Encoder.stack_slot ~offset:8 |> require_ok Fun.id in
@@ -4531,6 +4572,9 @@ let logical_source_boundaries () =
 
 let tests =
   [
+    Alcotest.test_case
+      "owned code RIP addresses and captured indirect call bytes" `Quick
+      encoder_owned_code_bytes;
     Alcotest.test_case "reference materialization and indirect byte goldens"
       `Quick encoder_reference_bytes;
     Alcotest.test_case "extended REX and ModRM orientations have exact bytes"

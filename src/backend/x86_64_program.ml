@@ -30,6 +30,8 @@ type fault_kind =
   | Output_invalid_byte
   | Pointer_object_mismatch
   | Pointer_difference_object_mismatch
+  | Callback_unowned_address
+  | Callback_signature_mismatch
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -356,6 +358,18 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       "native program pointer-difference fault did not consume \
                        its instruction"
                   else make_fault Pointer_difference_object_mismatch None
+                else if kind = 19L || kind = 20L then
+                  if not candidate.callback_call_site then
+                    Error "native callback fault names a non-callback site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native callback fault did not consume its call \
+                       instruction"
+                  else
+                    make_fault
+                      (if kind = 19L then Callback_unowned_address
+                       else Callback_signature_mismatch)
+                      None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =

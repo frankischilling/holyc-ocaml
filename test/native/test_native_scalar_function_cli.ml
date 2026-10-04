@@ -23,15 +23,16 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 5)
+    (Array.length Sys.argv = 6)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
      <native-scalar-functions.hc> <native-u0-functions.hc> \
-     <native-calling-flags.hc>"
+     <native-calling-flags.hc> <native-local-callbacks.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
 let u0_fixture = Sys.argv.(3)
 let flags_fixture = Sys.argv.(4)
+let callbacks_fixture = Sys.argv.(5)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -418,7 +419,46 @@ let ordinary_calling_flags_cli_contract () =
       "haserrcode argpop noargpop";
     ]
 
+let owned_local_callbacks_cli_contract () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode ~source:callbacks_fixture
+           ~expected_preparation:0 ~expected_default_bytes:0
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a"));
+      List.iter
+        (fun (body, assignment, expected) ->
+          let contents =
+            "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}"
+            ^ body ^ "I64 Run(){I64 (*p)(I64 n);p=" ^ assignment
+            ^ ";return p(Arg());}Run();"
+          in
+          with_file ".hc" contents (fun source ->
+              let ir = ir_json ~status:1 ~mode source
+              and native = host_json ~status:1 ~mode source in
+              require
+                (first_code ir = expected && first_code native = expected)
+                "local callback CLI fault code";
+              require
+                (executed_steps ir = executed_steps native)
+                "local callback CLI reached meter";
+              require
+                (member "output_hex" ir = `String "41"
+                && member "output_hex" native = `String "41")
+                "local callback CLI reached argument output";
+              require
+                (member "final_value" native = `Null)
+                "faulting callback exposes no final word"))
+        [
+          ("", "0", "HCIRVM0024");
+          ("I64 Bad(I64 a,I64 b){return a+b;}", "&Bad", "HCIRVM0014");
+          ("noargpop I64 Bad(I64 n){return n;}", "&Bad", "HCIRVM0014");
+        ])
+    [ "jit"; "aot" ]
+
 let () =
+  owned_local_callbacks_cli_contract ();
   scalar_fixture_modes ();
   u0_fixture_modes ();
   narrow_default_cli_contract ();

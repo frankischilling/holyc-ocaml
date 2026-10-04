@@ -28,6 +28,8 @@ type fault_kind =
   | Output_invalid_byte
   | Pointer_object_mismatch
   | Pointer_difference_object_mismatch
+  | Callback_unowned_address
+  | Callback_signature_mismatch
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -105,10 +107,16 @@ val compile_callable :
     and persistent pointer storage remain rejected. Every named definition is
     preflighted, including definitions unreachable from the entry. Calls are
     emitted only from exact sealed runtime-call metadata and preserve the shared
-    native status context. Checked Print and PutChars providers use bounded byte
-    capture; [has_output] identifies images needing that context. Print emits
-    ordinary bytes and [%%], [%d], [%s] and [%c] through a dynamic formatter,
-    publishing its complete draft on success. PutChars publishes packed bytes
+    native status context. Automatic one-star local callback cells accept
+    original owned function addresses, checked callback copies and literal zero.
+    A saved callee slot is checked against its original body/signature/cleanup
+    before an indirect native call. Callback cells and code values cannot escape
+    into object references or ordinary word cells/parameters/returns. Broader
+    callback storage, defaults, variadics and retained publication remain
+    unsupported. Checked Print and PutChars providers use bounded byte capture;
+    [has_output] identifies images needing that context. Print emits ordinary
+    bytes and [%%], [%d], [%s] and [%c] through a dynamic formatter, publishing
+    its complete draft on success. PutChars publishes packed bytes
     incrementally. Other providers and retained extern/body publication remain
     unsupported. The exact initialization context must be supplied even when
     empty. Integer global/static arrays and owned mutable strings use a private
@@ -170,11 +178,11 @@ val decode_runtime_status :
     requires zero bits. Clean completion is kind/site zero with at least one
     executed IR instruction. Step-limit faults require an executed count exactly
     equal to [max_steps]; arithmetic, call-quota, uninitialized-read,
-    index-scale, index-addition, address-bounds and output faults must name a
-    matching checked dense site and consume their faulting instruction. Output
-    calls cannot report a physical callee-stack fault because they are inlined.
-    The native bridge validates the three restored callable quota words before
-    invoking this decoder. *)
+    index-scale, index-addition, address-bounds, callback and output faults must
+    name a matching checked dense site and consume their faulting instruction.
+    Output calls cannot report a physical callee-stack fault because they are
+    inlined. The native bridge validates the three restored callable quota words
+    before invoking this decoder. *)
 
 val validate_global_limit : max_global_bytes:int -> (unit, error list) result
 val validate_literal_limit : max_literal_bytes:int -> (unit, error list) result

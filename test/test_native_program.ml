@@ -175,6 +175,8 @@ let kind_name = function
   | Program.Output_invalid_pointer -> "output-pointer"
   | Program.Output_invalid_byte -> "output-byte"
   | Program.Pointer_object_mismatch -> "pointer-object-mismatch"
+  | Program.Callback_unowned_address -> "callback-unowned-address"
+  | Program.Callback_signature_mismatch -> "callback-signature-mismatch"
   | Program.Pointer_difference_object_mismatch ->
       "pointer-difference-object-mismatch"
 

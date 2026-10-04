@@ -1351,3 +1351,13 @@ one below and recover on the same image. The scalar CLI also runs
 `examples/native-calling-flags.hc` and checks values and work against fresh public
 and checked-batch interpreter executions. Windows and Linux run these through
 `@native-tests`; compiling both image ABIs locally does not execute a foreign ABI.
+
+Native automatic local callbacks are checked in the native scalar suites and
+`examples/native-local-callbacks.hc`. Encoder tests cover all allocator registers
+for signed RIP-relative LEA and saved-slot CALL forms. Source tests reject copied
+producers, foreign contexts, code escapes and callback faults naming direct-call
+sites. Native API/CLI cases compare independent values and fresh public IR in
+JIT/AOT, exact checked-batch meters, reached output on null/signature faults,
+callee snapshots, nested calls, all integer widths, U0 and recursive quota
+failures followed by same-image recovery. Both image ABIs compile locally; the
+Windows and Linux CI jobs execute their host ABI through `@native-tests`.

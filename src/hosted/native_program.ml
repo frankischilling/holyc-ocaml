@@ -249,8 +249,14 @@ let local_source_error (declaration : Ast.local_declaration) =
     Some (source_error declaration.local_declaration_location.span message)
   in
   let is_static = declaration.local_storage = Ast.Static_local in
-  if not (scalar_word_type declaration.local_type_specifier) then
-    reject "native locals require nonzero scalar integer types"
+  if
+    not
+      (scalar_word_type declaration.local_type_specifier
+      || void_return_type declaration.local_type_specifier
+         && List.for_all
+              (fun local -> Option.is_some local.Ast.local_function_pointer)
+              declaration.local_declarators)
+  then reject "native locals require nonzero scalar integer types"
   else
     List.find_map
       (fun (local : Ast.local_declarator) ->
@@ -260,7 +266,7 @@ let local_source_error (declaration : Ast.local_declaration) =
         if
           (if is_static then local.local_pointer_layers <> []
            else List.length local.local_pointer_layers > 1)
-          || Option.is_some local.local_function_pointer
+          || (is_static && Option.is_some local.local_function_pointer)
         then
           reject "native locals admit only automatic one-level scalar pointers"
         else if
@@ -896,6 +902,12 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0008", "native Print byte cell has an invalid runtime value")
     | Image.Pointer_object_mismatch ->
         ("HCIRVM0018", "pointer ordering requires the same live object extent")
+    | Image.Callback_unowned_address ->
+        ("HCIRVM0024", "the reached callback has no owned executable address")
+    | Image.Callback_signature_mismatch ->
+        ( "HCIRVM0014",
+          "the reached callback definition disagrees with its original \
+           signature or cleanup policy" )
     | Image.Pointer_difference_object_mismatch ->
         ("HCIRVM0018", "pointer difference requires the same live object extent")
   in

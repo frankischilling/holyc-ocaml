@@ -70,7 +70,7 @@ declaration callbacks prepare bounded scalar defaults and closed scalar global
 initializers in both modes; an iterative source gate admits ordinary scalar
 globals and rejects statics, prototypes/externs,
 explicit register/declaration modifiers, non-integer parameters or locals,
-arrays, broader pointer operations, indirect calls, implicit output and unsupported
+arrays, broader pointer operations, callbacks beyond the automatic local fixed-scalar gate, implicit output and unsupported
 statements. Arrays and aggregates reject before their preparation.
 Entry statements cannot declare storage.
 It reports the first source-domain violation while retaining parser diagnostics.
@@ -324,7 +324,7 @@ TempleOS language rules.
 
 This gate does not complete general native source execution. Effectful defaults,
 interleaved source execution, owned string/`lastclass` defaults,
-broader persistent/pointer storage, automatic initialized arrays, indirect calls, variadics,
+broader persistent/pointer storage, automatic initialized arrays, broader callbacks, variadics,
 explicit register requests, interrupt entry and public/static function definitions,
 the complete HolyC ABI, floating operations,
 Print and broader runtime providers, and native `#exe` remain required. Optimizer parity, the integrated
@@ -341,3 +341,7 @@ The checked PutChars provider captures native packed bytes with independent
 output and work limits; see [native output](native-output.md).
 [Native Print](native-print.md) formats owned strings and captured integer
 arguments with those same limits, publishing each complete call on success.
+
+Automatic local fixed integer/U0 callbacks now have a native consumer; see
+[native local callbacks](native-local-callbacks.md) for capture, ownership, faults
+and the remaining storage/default/variadic restrictions.
