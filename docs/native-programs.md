@@ -164,6 +164,10 @@ Word-returning callees preserve the full register result through RAX; U0 calls
 have a separate nonnumeric completion and no result staging. Cleanup IR remains checked and metered,
 but the private fixed-RSP convention needs no machine argument-pop instruction.
 Every function uses plain `RET`; this is not the full TempleOS call ABI.
+Ordinary `argpop`, `noargpop` and `haserrcode` declarations use this adapter after
+checking the original cleanup receipt. `noargpop` takes precedence over `argpop`
+and `RET1`; `haserrcode` changes an epilogue only with interrupt entry. See
+[ordinary calling modifiers](native-scalars.md#ordinary-calling-modifiers).
 
 Each automatic local has a fresh hidden initialization flag. Stores mark it;
 loads and read-modify-write operations test it before reading storage. An

@@ -236,11 +236,21 @@ let flag_and_option_masks_are_checked () =
   in
   invalid |> has_code "HCIR0029";
   Alcotest.(check int)
-    "both incompatible flag rules" 2
+    "source flags do not invent incompatible combinations" 0
     (List.length
        (List.filter
           (fun (error : Function.error) -> error.code = "HCIR0030")
           invalid));
+  List.iter
+    (fun flags ->
+      ignore (description ~stored_flags:(combine flags) () |> create))
+    [
+      [
+        Flag.Stored.to_mask Flag.Stored.Argument_pop;
+        Flag.Stored.to_mask Flag.Stored.No_argument_pop;
+      ];
+      [ Flag.Stored.to_mask Flag.Stored.Has_error_code ];
+    ];
   let interrupt_flags =
     combine
       [

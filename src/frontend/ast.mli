@@ -1358,6 +1358,11 @@ val make_local_declarator :
   location:location ->
   local_declarator
 
+val declaration_modifier_staging_flags : declaration_modifier list -> int64
+(** Fold the pinned PrsStmt transitions in source order. In a local declaration,
+    only the final STATIC bit selects storage; PrsVarLst passes zero staged
+    flags to its anonymous callback header. *)
+
 val make_local_declaration :
   storage:local_storage ->
   modifiers:declaration_modifier list ->

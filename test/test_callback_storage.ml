@@ -2506,8 +2506,44 @@ let top_level_callback_graph_ownership () =
         ])
     modes
 
+let ordinary_callback_flags_preserve_selected_cleanup () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun flags ->
+          let text =
+            Printf.sprintf
+              "%s I64 Add(I64 n){return n+2;}%s I64 (*p)(I64 n);p=&Add;p(40);"
+              flags flags
+          in
+          ignore
+            (Test_integer_globals.run ~mode text
+            |> Test_integer_functions.expect 42L);
+          ignore
+            (Test_integer_globals.run ~mode
+               (Printf.sprintf
+                  "I64 Add(I64 n){return n+2;}I64 Caller(){%s I64 (*p)(I64 \
+                   n);p=&Add;return p(40);}Caller();"
+                  flags)
+            |> Test_integer_functions.expect 42L))
+        [
+          "argpop noargpop";
+          "noargpop argpop";
+          "haserrcode";
+          "haserrcode argpop noargpop";
+        ];
+      ignore
+        (Test_integer_output.run ~mode
+           "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"arg\");return \
+            40;}argpop noargpop I64 Add(I64 n){return n+2;}I64 (*p)(I64 \
+            n);p=&Add;Print(\"before\");p(Side());"
+        |> Test_integer_output.fault ~output:"beforearg" "HCIRVM0014"))
+    modes
+
 let tests =
   [
+    Alcotest.test_case "ordinary callback flags retain selected cleanup" `Quick
+      ordinary_callback_flags_preserve_selected_cleanup;
     Alcotest.test_case
       "top-level callbacks execute original scalar and indexed calls" `Quick
       top_level_callback_execution;

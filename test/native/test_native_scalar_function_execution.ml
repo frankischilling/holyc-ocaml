@@ -1044,6 +1044,131 @@ let automatic_array_preparation_and_layout () =
       done)
     modes
 
+let ordinary_calling_flags_execute () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun flags ->
+          List.iter
+            (fun (type_name, literal, expected_type, expected_bits) ->
+              ignore
+                (compare_source ~mode
+                   ~label:(flags ^ " " ^ type_name)
+                   ~expected_type ~expected_bits
+                   (Printf.sprintf "%s %s Echo(%s n){return n;}Echo(%s);" flags
+                      type_name type_name literal)))
+            parameter_rows;
+          ignore
+            (compare_source ~mode
+               ~label:(flags ^ " zero arguments")
+               ~expected_type:"I64" ~expected_bits:42L
+               (flags ^ " I64 Answer(){return 42;}Answer();"));
+          ignore
+            (compare_source ~mode
+               ~label:(flags ^ " saved narrow default")
+               ~expected_type:"U64" ~expected_bits:42L
+               (flags ^ " U8 Answer(U8 n=554){return n;}Answer();"));
+          let _, completed =
+            native_success_report ~mode ~max_steps:1000
+              (flags ^ " U0 Done(){return;}42;Done();")
+          in
+          Alcotest.(check bool)
+            (flags ^ " U0 completion clears the final word")
+            true
+            (Option.is_none completed.execution.final_value))
+        [
+          "argpop";
+          "noargpop";
+          "argpop noargpop";
+          "noargpop argpop";
+          "haserrcode";
+          "haserrcode argpop";
+          "haserrcode noargpop";
+          "haserrcode argpop noargpop";
+        ];
+      List.iter
+        (fun flags ->
+          ignore
+            (compare_source ~mode ~label:(flags ^ " local storage")
+               ~expected_type:"I64" ~expected_bits:42L
+               ("I64 F(){" ^ flags ^ " I64 n;n=40;return n+2;}F();")))
+        [
+          "argpop noargpop";
+          "interrupt haserrcode public";
+          "static argpop";
+          "argpop static";
+        ];
+      ignore
+        (compare_source ~mode
+           ~label:"mixed cleanup and reverse argument effects"
+           ~expected_type:"I64" ~expected_bits:42L
+           "argpop I64 Twice(I64 n){return n*2;}\n\
+            noargpop I64 Order(I64 a,I64 b){return a*10+b;}\n\
+            haserrcode argpop noargpop I64 Outer(){I64 n=0;return \
+            Twice(Order(++n,++n));}Outer();"))
+    modes
+
+let ordinary_calling_flags_unwind_and_recover () =
+  let contents =
+    "haserrcode argpop noargpop I64 Walk(I64 n){if(n)return Walk(n-1);return \
+     42;}Walk(3);"
+  in
+  List.iter
+    (fun mode ->
+      let _, native, _ =
+        compare_source ~mode ~label:"ordinary flags recursion"
+          ~expected_type:"I64" ~expected_bits:42L contents
+      in
+      let steps = native.execution.executed_steps in
+      let image = native.image in
+      let physical =
+        match named_physical_costs image with
+        | [ cost ] -> Program.entry_stack_bytes image + (4 * cost)
+        | _ -> Alcotest.fail "ordinary recursive image has unexpected functions"
+      in
+      let _, exact =
+        native_success_report ~max_frame_bytes:32 ~max_call_depth:4
+          ~max_active_stack_bytes:physical ~mode ~max_steps:steps contents
+      in
+      check_native_word "ordinary flags exact resource limits" "I64" 42L
+        exact.execution.final_value;
+      List.iter
+        (fun (frame, depth, stack, budget, expected_kind) ->
+          let fault =
+            match
+              Runtime.execute ~max_frame_bytes:frame ~max_call_depth:depth
+                ~max_active_stack_bytes:stack ~max_steps:budget image
+              |> require_ok Fun.id
+            with
+            | Program.Fault fault -> fault
+            | Program.Completed _ ->
+                Alcotest.fail "flagged image exceeded a resource limit"
+          in
+          Alcotest.(check bool)
+            "ordinary flagged recursion faults at its selected bound" true
+            (fault.kind = expected_kind);
+          if expected_kind <> Program.Step_limit_exceeded then
+            Alcotest.(check (option string))
+              "ordinary flagged recursion retains its fault owner" (Some "Walk")
+              fault.function_name;
+          match
+            Runtime.execute ~max_steps:steps ~max_frame_bytes:32
+              ~max_call_depth:4 ~max_active_stack_bytes:physical image
+            |> require_ok Fun.id
+          with
+          | Program.Completed execution ->
+              check_native_word "original image recovers after flagged fault"
+                "I64" 42L execution.final_value
+          | Program.Fault _ ->
+              Alcotest.fail "original flagged image did not recover")
+        [
+          (31, 4, physical, steps, Program.Frame_limit_exceeded);
+          (32, 3, physical, steps, Program.Call_depth_exceeded);
+          (32, 4, physical - 1, steps, Program.Native_stack_limit_exceeded);
+          (32, 4, physical, steps - 1, Program.Step_limit_exceeded);
+        ])
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -1054,6 +1179,10 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case "ordinary flags preserve values and cleanup"
+                `Quick ordinary_calling_flags_execute;
+              Alcotest.test_case "ordinary flags unwind quotas and recover"
+                `Quick ordinary_calling_flags_unwind_and_recover;
               Alcotest.test_case "automatic array preparation and frame bounds"
                 `Quick automatic_array_preparation_and_layout;
               Alcotest.test_case

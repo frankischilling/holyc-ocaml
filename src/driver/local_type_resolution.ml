@@ -352,25 +352,36 @@ type local_ast = {
 }
 
 let storage_facts (declaration : Frontend.Ast.local_declaration) =
-  match declaration.local_storage with
-  | Frontend.Ast.Automatic_local ->
-      if declaration.local_modifiers <> [] then
-        Error "semantic automatic local has unexpected declaration modifiers"
-      else Ok (Sema.Local_type_resolution.Automatic, [])
-  | Frontend.Ast.Static_local ->
-      let rec validate origins_rev = function
-        | [] ->
-            if origins_rev = [] then
-              Error "semantic static local has no static source token"
-            else Ok (Sema.Local_type_resolution.Static, List.rev origins_rev)
-        | (modifier : Frontend.Ast.declaration_modifier) :: rest ->
-            if modifier.kind <> Frontend.Ast.Static then
-              Error "semantic static local has a nonstatic modifier"
-            else if not (String.equal modifier.spelling "static") then
-              Error "semantic static local has an invalid modifier spelling"
-            else validate (origin modifier.location :: origins_rev) rest
-      in
-      validate [] declaration.local_modifiers
+  let spelling (kind : Frontend.Ast.declaration_modifier_kind) =
+    match kind with
+    | Static -> "static"
+    | Interrupt -> "interrupt"
+    | Has_error_code -> "haserrcode"
+    | Argument_pop -> "argpop"
+    | No_argument_pop -> "noargpop"
+    | Public -> "public"
+  in
+  if
+    List.exists
+      (fun (m : Frontend.Ast.declaration_modifier) ->
+        m.spelling <> spelling m.kind)
+      declaration.local_modifiers
+  then Error "semantic local has an invalid modifier spelling"
+  else
+    let mask =
+      Frontend.Ast.declaration_modifier_staging_flags
+        declaration.local_modifiers
+    in
+    let is_static = Sema.Function_flag.Staging.is_set ~mask Static in
+    if is_static <> (declaration.local_storage = Frontend.Ast.Static_local) then
+      Error "semantic local storage disagrees with its staged modifiers"
+    else if not is_static then Ok (Sema.Local_type_resolution.Automatic, [])
+    else
+      Ok
+        ( Sema.Local_type_resolution.Static,
+          declaration.local_modifiers
+          |> List.filter_map (fun (m : Frontend.Ast.declaration_modifier) ->
+              if m.kind = Static then Some (origin m.location) else None) )
 
 let local_declaration_facts declaration_index
     (declaration : Frontend.Ast.local_declaration) =

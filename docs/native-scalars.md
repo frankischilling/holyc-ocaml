@@ -14,6 +14,36 @@ The scalar fixture returns I64 42. The U0 fixture reaches a procedure call after
 a prior 42-valued expression and therefore finishes successfully without a final
 numeric value. The ordinary `run` target remains the checked interpreter.
 
+## Ordinary calling modifiers
+
+Fixed integer and U0 functions admit `argpop`, `noargpop` and `haserrcode`.
+`noargpop` suppresses callee cleanup even when `argpop` is also present, in either
+token order. `haserrcode` alone has no ordinary epilogue effect. Interrupt bodies
+still require a separate execution consumer and remain rejected.
+
+The original call context retains the selected header's `IC_ADD_RSP1` or
+`IC_ADD_RSP` cleanup and its eight-byte argument slots. Native preflight checks
+that receipt before adapting the call to the private fixed-RSP convention. The
+adapter uses plain `RET`; it does not emit TempleOS `RET imm16` or `IRETQ`.
+
+Local declarations retain modifier tokens in source order. The final staged
+`STATIC` bit selects their storage: `static argpop` becomes automatic, while
+`argpop static` stays static. The pinned local parser passes zero staged flags to
+anonymous callback headers, so local modifiers do not give a callback a new
+cleanup policy. Global callback headers retain their staged calling flags.
+Visible type names take precedence over modifier keywords during local parsing.
+
+[`native-calling-flags.hc`](../examples/native-calling-flags.hc) returns I64 42
+in both targets and preprocessing modes. It combines different function cleanup
+policies, a U0 call, a saved U8 default and a static local. Tests also cover all
+eight integer widths, zero arguments, recursive quota failures and recovery of
+the same native image after a fault.
+
+These rules follow `Compiler/PrsStmt.HC:1067-1082,1158-1163`,
+`Compiler/PrsVar.HC:521-522`, `Compiler/PrsExp.HC:572-573` and
+`Compiler/OptPass789A.HC:405-417` at the pinned reference commit. They are source
+audits and hosted checks; no new TempleOS execution capture is claimed.
+
 ## Declared storage and register values
 
 Named fixed parameters, automatic locals and scalar returns admit I8, U8, I16,
@@ -166,7 +196,8 @@ Automatic integer arrays are covered by [native arrays](native-arrays.md).
 Global/static arrays, closed initializers and strings are covered by
 [persistent storage](native-persistent-storage.md).
 Broader pointer storage, automatic initialized arrays, aggregate values, I0/F64 storage,
-variadic/indirect/external calls, prototypes, explicit register/function flags,
+variadic/indirect/external calls, prototypes, explicit register requests,
+interrupt function entry and public/static function definitions,
 runtime output and general declaration/`#exe` execution remain outside this gate.
 Optimizer parity, complete HolyC ABI, assembly/object/BIN output, actual loader
 acceptance, whole-tree compilation and bootstrap remain required project work.

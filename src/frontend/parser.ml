@@ -2504,9 +2504,10 @@ let declaration_modifier_kind token =
   | Token_kind.Keyword Keyword.Noargpop -> Some Ast.No_argument_pop
   | _ -> None
 
-let rec parse_modifiers cursor (modifiers_rev : parsed_modifier list) =
+let rec parse_modifiers ?(stop = fun _ -> false) cursor
+    (modifiers_rev : parsed_modifier list) =
   let item = peek cursor in
-  match declaration_modifier_kind item.token with
+  match if stop item then None else declaration_modifier_kind item.token with
   | None -> List.rev modifiers_rev
   | Some kind ->
       let item = take cursor in
@@ -2514,7 +2515,7 @@ let rec parse_modifiers cursor (modifiers_rev : parsed_modifier list) =
         Ast.make_declaration_modifier ~kind ~spelling:item.token.raw
           ~location:(token_location item.token)
       in
-      parse_modifiers cursor ({ node; item } :: modifiers_rev)
+      parse_modifiers ~stop cursor ({ node; item } :: modifiers_rev)
 
 let parse_declarator_prefix cursor base_spelling ~parse_function_pointer =
   match parse_pointer_layers cursor 0 [] [] with
@@ -7514,19 +7515,6 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
           in
           Some { node = Ast.Expression_statement statement; tokens })
 
-let rec take_static_local_modifiers cursor nodes_rev tokens_rev =
-  let item = peek cursor in
-  match item.token.kind with
-  | Token_kind.Keyword Keyword.Static ->
-      let item = take cursor in
-      let node =
-        Ast.make_declaration_modifier ~kind:Ast.Static ~spelling:item.token.raw
-          ~location:(token_location item.token)
-      in
-      take_static_local_modifiers cursor (node :: nodes_rev)
-        (item.token :: tokens_rev)
-  | _ -> (List.rev nodes_rev, List.rev tokens_rev)
-
 let parse_local_declarator cursor ~boundary ~storage ~base_spelling
     ~type_specifier ~register_qualifiers ~qualifier_tokens :
     parsed_local_declarator option =
@@ -7765,13 +7753,18 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                       Some ({ node; tokens } : parsed_local_declarator)))
 
 let parse_local_declaration cursor ~boundary : parsed_statement option =
-  let first_item = peek cursor in
   let storage, modifiers, modifier_tokens =
-    match first_item.token.kind with
-    | Token_kind.Keyword Keyword.Static ->
-        let modifiers, tokens = take_static_local_modifiers cursor [] [] in
-        (Ast.Static_local, modifiers, tokens)
-    | _ -> (Ast.Automatic_local, [], [])
+    let parsed = parse_modifiers ~stop:(item_is_named_type cursor) cursor [] in
+    let modifiers = List.map (fun (m : parsed_modifier) -> m.node) parsed in
+    let mask = Ast.declaration_modifier_staging_flags modifiers in
+    let storage =
+      if Generated.Function_flags.Staging.is_set ~mask Static then
+        Ast.Static_local
+      else Ast.Automatic_local
+    in
+    ( storage,
+      modifiers,
+      List.map (fun (m : parsed_modifier) -> m.item.token) parsed )
   in
   let type_item = peek cursor in
   (match (cursor.local_function, cursor.current_command) with
@@ -8624,8 +8617,10 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.No_warn ->
       parse_no_warn_statement cursor ~boundary
-  | Token_kind.Keyword Keyword.Static when Option.is_some cursor.local_context
-    -> parse_local_declaration cursor ~boundary
+  | Token_kind.Keyword _
+    when Option.is_some cursor.local_context
+         && Option.is_some (declaration_modifier_kind item.token) ->
+      parse_local_declaration cursor ~boundary
   | Token_kind.Keyword (Keyword.Reg | Keyword.Noreg)
     when Option.is_some cursor.local_context ->
       local_declaration_failure cursor ~boundary item ~code:"HCPARSE0099"

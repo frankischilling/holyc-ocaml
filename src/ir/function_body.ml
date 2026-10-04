@@ -94,6 +94,12 @@ let known_stored_flag_mask =
     (fun mask flag -> Int64.logor mask (Stored.to_mask flag))
     0L Stored.all
 
+let ordinary_calling_flag_mask =
+  List.fold_left
+    (fun mask flag -> Int64.logor mask (Stored.to_mask flag))
+    0L
+    [ Stored.Ret1; Argument_pop; No_argument_pop; Has_error_code ]
+
 let known_compiler_option_mask = Option_.known_mask
 let function_number description = Function_id.to_int description.function_id
 let symbol_number symbol = Symbol.Id.to_int (Symbol.id symbol)
@@ -155,20 +161,6 @@ let function_errors description =
          "function ^f%d uses unsupported compiler option bits 0x%Lx"
          (function_number description)
          unknown_options)
-  else ();
-  let has flag = Stored.is_set ~mask:description.stored_flags flag in
-  if has Stored.Argument_pop && has Stored.No_argument_pop then
-    add ~symbol_id "HCIR0030"
-      (Printf.sprintf
-         "function ^f%d requests both argument-pop and no-argument-pop cleanup"
-         (function_number description))
-  else ();
-  if has Stored.Has_error_code && not (has Stored.Interrupt) then
-    add ~symbol_id "HCIR0030"
-      (Printf.sprintf
-         "function ^f%d requests an interrupt error code without interrupt \
-          entry"
-         (function_number description))
   else ();
   List.rev !errors
 

@@ -187,6 +187,10 @@ Narrow defaults keep the existing original preparation proof and eight-byte save
 payload. Exact U0 completion remains separate from words and clears a reached
 top-level final-value latch. This extends the bounded native storage/call path;
 it does not claim general memory, optimizer, ABI or loader compatibility.
+Ordinary `argpop`, `noargpop` and `haserrcode` combinations now use that adapter
+with original cleanup receipts. Local modifier order selects storage without
+changing anonymous callback calling flags. Interrupt entry and hosted native
+callback execution remain open; see [calling modifiers](native-scalars.md#ordinary-calling-modifiers).
 
 Issue #654 adds guarded native integer division and remainder to the checked
 I64/U64 expression subset. Promoted operand classes select signed `IDIV` or

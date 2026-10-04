@@ -210,8 +210,14 @@ let function_source_error (definition : Ast.function_definition) =
   then reject "native functions require a scalar integer or U0 return type"
   else if definition.return_pointer_layers <> [] then
     reject "native functions do not admit pointer returns"
-  else if definition.modifiers <> [] then
-    reject "native functions do not admit explicit declaration modifiers"
+  else if
+    List.exists
+      (fun (modifier : Ast.declaration_modifier) ->
+        match modifier.kind with
+        | Ast.Argument_pop | Ast.No_argument_pop | Ast.Has_error_code -> false
+        | _ -> true)
+      definition.modifiers
+  then reject "native functions require ordinary calling modifiers"
   else if Option.is_some definition.variadic then
     reject "native functions require fixed parameters without a variadic tail"
   else if Option.is_none definition.body then
@@ -243,16 +249,7 @@ let local_source_error (declaration : Ast.local_declaration) =
     Some (source_error declaration.local_declaration_location.span message)
   in
   let is_static = declaration.local_storage = Ast.Static_local in
-  if
-    if is_static then
-      declaration.local_modifiers = []
-      || List.exists
-           (fun (modifier : Ast.declaration_modifier) ->
-             modifier.kind <> Ast.Static || modifier.spelling <> "static")
-           declaration.local_modifiers
-    else declaration.local_modifiers <> []
-  then reject "native locals do not admit declaration modifiers"
-  else if not (scalar_word_type declaration.local_type_specifier) then
+  if not (scalar_word_type declaration.local_type_specifier) then
     reject "native locals require nonzero scalar integer types"
   else
     List.find_map

@@ -1445,6 +1445,21 @@ let make_local_declarator ~register_qualifiers ~pointer_layers ~name
     local_declarator_location = location;
   }
 
+let declaration_modifier_staging_flags modifiers =
+  List.fold_left
+    (fun mask (modifier : declaration_modifier) ->
+      let flag : Generated.Function_flags.Modifier.t =
+        match modifier.kind with
+        | Static -> Static
+        | Interrupt -> Interrupt
+        | Has_error_code -> Has_error_code
+        | Argument_pop -> Argument_pop
+        | No_argument_pop -> No_argument_pop
+        | Public -> Public
+      in
+      Generated.Function_flags.apply_modifier ~mask flag)
+    0L modifiers
+
 let make_local_declaration ~storage ~modifiers ~type_specifier ~declarators
     ~location =
   {

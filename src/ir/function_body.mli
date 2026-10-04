@@ -9,6 +9,12 @@ type error = {
   span : Common.Span.t option;
 }
 
+val ordinary_calling_flag_mask : int64
+(** Source flags admitted by ordinary integer/U0 execution: RET1, ARGPOP,
+    NOARGPOP and HASERRCODE. NOARGPOP suppresses cleanup even when ARGPOP is
+    set. HASERRCODE changes the epilogue only with INTERRUPT; interrupt entry is
+    outside this mask and requires its own execution consumer. *)
+
 module Function_id : sig
   type t
 

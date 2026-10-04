@@ -1341,3 +1341,13 @@ copied load/whole-graph records, return/signature separation, defaults, tails,
 U0 output, callee snapshots, argument order, recursion and exact resource limits.
 These checks do not establish native callback emission or native AOT behavior.
 See [global callbacks](global-callbacks.md) for the remaining scope.
+
+Ordinary calling-flag tests check both `argpop noargpop` orders, standalone
+`haserrcode`, original cleanup opcodes and slot counts, and foreign call-context
+rejection. Parser tests retain local modifier tokens and source-order storage.
+The native scalar API executes all widths, defaults, U0 and mixed policies in
+both modes. Exact recursive frame, depth, physical-stack and step limits fail
+one below and recover on the same image. The scalar CLI also runs
+`examples/native-calling-flags.hc` and checks values and work against fresh public
+and checked-batch interpreter executions. Windows and Linux run these through
+`@native-tests`; compiling both image ABIs locally does not execute a foreign ABI.

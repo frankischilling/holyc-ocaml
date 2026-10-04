@@ -3633,14 +3633,12 @@ let prepare_callable_function ~max_stack_bytes
   if Option.is_none (Function.definition_declaration body) then
     reject ?span "HCBACK0003"
       "native source functions require their original checked definition owner";
-  let allowed_flags =
-    Sema.Function_flag.Stored.to_mask Sema.Function_flag.Stored.Ret1
-  in
+  let allowed_flags = Function.ordinary_calling_flag_mask in
   if
     Int64.logand (Function.stored_flags body) (Int64.lognot allowed_flags) <> 0L
   then
     reject ?span "HCBACK0002"
-      "native source functions do not admit explicit calling-convention flags";
+      "native source functions require ordinary calling flags";
   let return_kind = source_return_kind ?span (Function.return_type body) in
   let local_frame_bytes =
     int_of_frame_size ?span (Frame.function_frame_size frame)

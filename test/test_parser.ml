@@ -11838,6 +11838,82 @@ let deterministic_function_definition_dumps () =
     "JSON uses null for an absent body" true
     (List.nth items 1 |> member "body" = `Null)
 
+let local_modifier_order_selects_storage () =
+  List.iter
+    (fun compilation_mode ->
+      List.iter
+        (fun (flags, storage) ->
+          let _, _, output =
+            parse_string ~compilation_mode
+              ("I64 F(){" ^ flags ^ " I64 n=40;return n+2;}")
+          in
+          let definition = List.hd (function_definitions (expect_ast output)) in
+          let local =
+            (match definition.body with
+              | Some (Ast.Block_statement block) -> block.block_statements
+              | _ -> Alcotest.fail "modifier fixture has no block body")
+            |> List.hd
+            |> ( function
+            | Ast.Sequence_statement sequence ->
+                (List.hd sequence.sequence_elements).sequence_statement
+            | statement -> statement )
+            |> expect_local_declaration
+          in
+          Alcotest.(check bool)
+            (flags ^ " final staged storage")
+            true
+            (local.local_storage = storage);
+          Alcotest.(check (list string))
+            (flags ^ " original modifier tokens")
+            (String.split_on_char ' ' flags)
+            (List.map
+               (fun (m : Ast.declaration_modifier) -> m.spelling)
+               local.local_modifiers))
+        [
+          ("argpop noargpop", Ast.Automatic_local);
+          ("noargpop argpop", Ast.Automatic_local);
+          ("haserrcode", Ast.Automatic_local);
+          ("interrupt public", Ast.Automatic_local);
+          ("static argpop", Ast.Automatic_local);
+          ("static haserrcode", Ast.Automatic_local);
+          ("argpop static", Ast.Static_local);
+          ("haserrcode static", Ast.Static_local);
+          ("static static", Ast.Static_local);
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun spelling ->
+      let _, _, output =
+        parse_string
+          (Printf.sprintf "class %s {I64 n;};U0 F(){%s item;}" spelling spelling)
+      in
+      let definition =
+        (expect_ast output).items
+        |> List.find_map (function
+          | Ast.Function_definition f -> Some f
+          | _ -> None)
+        |> Option.get
+      in
+      let statement =
+        match definition.body with
+        | Some (Ast.Block_statement block) -> List.hd block.block_statements
+        | _ -> Alcotest.fail "type-shadow fixture has no block body"
+      in
+      let local =
+        (match statement with
+          | Ast.Sequence_statement sequence ->
+              (List.hd sequence.sequence_elements).sequence_statement
+          | statement -> statement)
+        |> expect_local_declaration
+      in
+      Alcotest.(check string)
+        "visible type lookup precedes modifier parsing" spelling
+        (Ast.type_specifier_spelling local.local_type_specifier);
+      Alcotest.(check int)
+        "keyword type does not synthesize a modifier" 0
+        (List.length local.local_modifiers))
+    [ "argpop"; "noargpop"; "haserrcode"; "public"; "interrupt"; "static" ]
+
 let local_declaration_source_behavior () =
   let variable_parser = pinned "Compiler/PrsVar.HC" in
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
@@ -21285,6 +21361,8 @@ let tests =
       deterministic_function_definition_dumps;
     Alcotest.test_case "pinned local declaration behavior" `Quick
       local_declaration_source_behavior;
+    Alcotest.test_case "local modifiers select storage in source order" `Quick
+      local_modifier_order_selects_storage;
     Alcotest.test_case "pinned function-pointer local behavior" `Quick
       function_pointer_local_source_behavior;
     Alcotest.test_case "pinned static local initializer behavior" `Quick

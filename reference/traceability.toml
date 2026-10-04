@@ -10259,7 +10259,7 @@ retained_identity = ["stable function ID", "function symbol", "declaration scope
 retained_signature = ["return type", "source-ordered parameters", "source-ordered locals", "member positions", "member symbols", "member types", "source spans"]
 retained_compiler_state = ["stored function flags", "compiler-option snapshot"]
 validation = ["function, parameter, and local symbol kinds", "member scope ownership", "nonnegative identities and positions", "duplicate positions within an inventory", "duplicate symbols across inventories", "known stored function flags", "known compiler options", "argument cleanup and interrupt flag combinations", "source span shape", "x87 stack discipline"]
-diagnostics = ["HCIR0026 negative function ID", "HCIR0027 invalid function symbol or scope", "HCIR0028 invalid source span", "HCIR0029 unknown flag or option bits", "HCIR0030 incompatible function flags", "HCIR0031 negative member position", "HCIR0032 invalid member symbol or scope", "HCIR0033 duplicate member position or symbol", "HCIR0021 through HCIR0025 propagated x87 failures"]
+diagnostics = ["HCIR0026 negative function ID", "HCIR0027 invalid function symbol or scope", "HCIR0028 invalid source span", "HCIR0029 unknown flag or option bits", "HCIR0031 negative member position", "HCIR0032 invalid member symbol or scope", "HCIR0033 duplicate member position or symbol", "HCIR0021 through HCIR0025 propagated x87 failures"]
 deterministic_dump = "holyc-ir-function-v1"
 focused_tests = 8
 mutation = "none"
@@ -13121,3 +13121,25 @@ execution = "Standalone calls and calls nested in supported arguments, output, c
 limits = "The maintained top-level example returns 42 with 56 global bytes, eight active frame bytes and one call level. Tests check exact/one-below steps, storage and frame limits, plus recursion at the call-depth boundary."
 verification_boundary = "CLI word projections compare GLOBAL and ARRAY with both existing native JIT observations. GLOBAL substitutes an explicit store for the unsupported native initializer; ARRAY retains the observed declaration, store and call. Shell screen clearing and formatting are excluded from value projections. Hosted AOT replay does not establish native AOT behavior. No new native capture or hosted native callback emission is claimed."
 excluded = ["member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+
+[[feature]]
+id = "HC-ORDINARY-CALLING-FLAGS"
+description = "Source-valid ordinary calling flags retain selected cleanup through IR execution and the hosted native fixed-function adapter."
+sources = [
+  "Compiler/PrsStmt.HC:1067-1082 staged modifier transitions",
+  "Compiler/PrsStmt.HC:1158-1163 final local storage selection",
+  "Compiler/PrsVar.HC:521-522 local anonymous headers receive zero staged flags",
+  "Compiler/PrsExp.HC:572-573 NOARGPOP takes precedence over RET1 and ARGPOP",
+  "Compiler/OptPass789A.HC:405-417 ordinary RET cleanup and interrupt-only HASERRCODE epilogue"
+]
+implementation = ["src/frontend/ast.ml", "src/frontend/parser.ml", "src/driver/local_type_resolution.ml", "src/ir/function_body.ml", "src/ir/integer_interpreter.ml", "src/hosted/native_program.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_parser.ml", "test/test_ir_function_body.ml", "test/test_callback_storage.ml", "test/test_native_scalar_functions.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-calling-flags.hc"]
+documentation = ["docs/holy-abi.md", "docs/native-programs.md", "docs/native-scalars.md", "docs/compatibility.md", "docs/testing.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+execution = "ARGPOP and NOARGPOP may coexist; NOARGPOP suppresses callee cleanup in either token order. HASERRCODE alone has no ordinary epilogue effect. Selected original cleanup opcodes and eight-byte slot payloads remain checked and metered. Native fixed functions adapt to the existing private fixed-RSP plain-RET convention. Local modifier transitions select storage in source order but do not change anonymous callback header flags."
+verification = "Both image ABIs compile in ordinary tests. The native scalar API/CLI execute the host ABI in both preprocessing modes and compare independent values, fresh public IR and checked-batch meters. Recursion checks exact/one-below frame, depth, physical stack and runtime work, followed by recovery on the same image. Global and local callback IR tests preserve selected cleanup and reached mismatch effects."
+verification_boundary = "This is pinned source audit and hosted execution. No new TempleOS oracle capture, native callback emission, RET-imm export or IRETQ execution is claimed."
+excluded = ["interrupt function execution", "hosted native callback calls", "general HolyC ABI exports", "native variadic calls", "mixed F64 or aggregate calls"]

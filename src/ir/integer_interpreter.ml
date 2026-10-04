@@ -2905,13 +2905,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     else argument_count
   in
   let frame_size = Frame.function_frame_size frame in
-  let allowed_flags =
-    Int64.logor
-      (Sema.Function_flag.Stored.to_mask Ret1)
-      (Int64.logor
-         (Sema.Function_flag.Stored.to_mask Argument_pop)
-         (Sema.Function_flag.Stored.to_mask No_argument_pop))
-  in
+  let allowed_flags = Function.ordinary_calling_flag_mask in
   let allowed_flags =
     if variadic && synthetic_match then
       Int64.logor allowed_flags (Sema.Function_flag.Stored.to_mask Variadic)

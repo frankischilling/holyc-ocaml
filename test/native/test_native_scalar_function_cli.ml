@@ -23,13 +23,15 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 5)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
-     <native-scalar-functions.hc> <native-u0-functions.hc>"
+     <native-scalar-functions.hc> <native-u0-functions.hc> \
+     <native-calling-flags.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
 let u0_fixture = Sys.argv.(3)
+let flags_fixture = Sys.argv.(4)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -386,8 +388,39 @@ let u0_final_latch_cli_contract () =
             [ "jit"; "aot" ]))
     [ ("U0 V(){}\n42;V();", false); ("U0 V(){}\nV();42;", true) ]
 
+let ordinary_calling_flags_cli_contract () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode ~source:flags_fixture
+           ~expected_preparation:3 ~expected_default_bytes:8
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun flags ->
+      with_file ".hc" (flags ^ " U8 Answer(U8 n=554){return n;}Answer();")
+        (fun source ->
+          List.iter
+            (fun mode ->
+              ignore
+                (check_native_meter_against_ir ~mode ~source
+                   ~expected_preparation:3 ~expected_default_bytes:8
+                   ~check_final:(fun report ->
+                     check_word report "u64" "42" "0x000000000000002a")))
+            [ "jit"; "aot" ]))
+    [
+      "argpop";
+      "noargpop";
+      "argpop noargpop";
+      "noargpop argpop";
+      "haserrcode";
+      "haserrcode argpop noargpop";
+    ]
+
 let () =
   scalar_fixture_modes ();
   u0_fixture_modes ();
   narrow_default_cli_contract ();
-  u0_final_latch_cli_contract ()
+  u0_final_latch_cli_contract ();
+  ordinary_calling_flags_cli_contract ()

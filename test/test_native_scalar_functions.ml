@@ -599,8 +599,90 @@ let automatic_array_layout () =
         ])
     modes
 
+let ordinary_calling_flags_keep_original_cleanup () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (flags, callee_pop) ->
+          let contents =
+            flags ^ " I64 Add(I64 n,I64 m){return n+m;}Add(40,2);"
+          in
+          let unit = integer_unit ~mode contents in
+          let context = integer_program_runtime_calls unit in
+          let start =
+            integer_program_entry unit |> Ir_x87_stack.graph |> Graph.blocks
+            |> List.concat_map (fun b ->
+                Graph.instructions b |> Sequence.instructions)
+            |> List.map Sequence.description
+            |> List.find (fun (d : Sequence.description) ->
+                d.opcode = Opcode.Ic_call_start)
+          in
+          let call =
+            Runtime_calls.find_start context ~owner:Runtime_calls.Entry
+              start.instruction_id
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            (flags ^ " original cleanup policy")
+            true
+            (Runtime_calls.cleanup_opcode call
+            = if callee_pop then Opcode.Ic_add_rsp1 else Opcode.Ic_add_rsp);
+          Alcotest.(check int64)
+            (flags ^ " two eight-byte argument slots")
+            16L
+            (Runtime_calls.cleanup_bytes call);
+          List.iter
+            (fun status_abi ->
+              List.iter
+                (fun (type_name, high) ->
+                  let session, config, source =
+                    source_inputs ~mode ~path:"ordinary-calling-flags.hc"
+                      (Printf.sprintf "%s %s Echo(%s n){return n;}Echo(%s);"
+                         flags type_name type_name high)
+                  in
+                  ignore
+                    (Native_program.compile ~status_abi session ~config ~source
+                    |> require_ok diagnostics_text))
+                scalar_rows;
+              let session, config, source =
+                source_inputs ~mode ~path:"ordinary-void-flags.hc"
+                  (flags ^ " U0 Done(){return;}Done();42;")
+              in
+              ignore
+                (Native_program.compile ~status_abi session ~config ~source
+                |> require_ok diagnostics_text))
+            [ Program.Windows_x64; Program.System_v_x64 ];
+          let other = integer_unit ~mode contents in
+          Program.compile_callable ~max_ir_instructions:4096
+            ~max_code_bytes:65536
+            ~runtime_calls:(integer_program_runtime_calls other)
+            ~initialization:(integer_program_initialization unit)
+            ~entry:(integer_program_entry unit)
+            ~functions:(integer_program_functions unit)
+            ()
+          |> reject_backend "ordinary flags cannot join foreign call authority")
+        [
+          ("argpop", true);
+          ("noargpop", false);
+          ("argpop noargpop", false);
+          ("noargpop argpop", false);
+          ("haserrcode", true);
+          ("haserrcode argpop", true);
+          ("haserrcode noargpop", false);
+          ("haserrcode argpop noargpop", false);
+        ];
+      List.iter
+        (fun flags ->
+          compile_source ~mode (flags ^ " I64 Add(I64 n){return n+2;}Add(40);")
+          |> reject_gate "nonordinary entry modifier remains unsupported")
+        [ "interrupt"; "interrupt haserrcode"; "public"; "static" ])
+    modes
+
 let tests =
   [
+    Alcotest.test_case
+      "ordinary calling flags retain original cleanup authority" `Quick
+      ordinary_calling_flags_keep_original_cleanup;
     Alcotest.test_case "original automatic array dimensions and bounded layout"
       `Quick automatic_array_layout;
     Alcotest.test_case
