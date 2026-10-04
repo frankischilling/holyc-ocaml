@@ -2204,6 +2204,23 @@ let completed_callback_header ledger source =
           if header.Parser.callback_pointer == source then Some header else None))
     ledger.callback_states
 
+let declared_callback_for ledger span =
+  Option.map (fun source ->
+      let header =
+        match completed_callback_header ledger source with
+        | Some header -> header
+        | None ->
+            fail span "declared callback lacks its original observed header"
+      in
+      let pointer =
+        Function_type_resolution.resolve_completed_callback ~table:ledger.table
+          ~namespace:ledger.namespace
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          header
+        |> checked span
+      in
+      (header, pointer))
+
 let observe ?offset_runtime ledger event =
   protect (fun () ->
       match event with
@@ -3016,23 +3033,7 @@ let admit_global ledger ~runtime (publication : Parser.global_publication) =
         | None ->
             let assigned = Names.find ledger.names publication.global_name in
             let callback =
-              Option.map
-                (fun source ->
-                  let header =
-                    match completed_callback_header ledger source with
-                    | Some header -> header
-                    | None ->
-                        fail span
-                          "declared callback lacks its original observed header"
-                  in
-                  let pointer =
-                    Function_type_resolution.resolve_completed_callback
-                      ~table:ledger.table ~namespace:ledger.namespace
-                      ~selected_aggregate:(selected_aggregate_for ledger)
-                      header
-                    |> checked span
-                  in
-                  (header, pointer))
+              declared_callback_for ledger span
                 publication.global_function_pointer
             in
             let declaration =
@@ -3581,9 +3582,14 @@ let native_initializer_fragment ledger ~runtime receipt =
                 "native array initializer requires every original dimension to \
                  have a checked fixed bound";
             let assigned = find ledger publication.global_name in
+            let callback =
+              declared_callback_for ledger span
+                publication.global_function_pointer
+            in
             let declaration =
-              Sema.Compiler_record.declare_global ~dimensions
-                ~table:ledger.table ~namespace:ledger.namespace
+              Sema.Compiler_record.declare_global ?callback
+                ~selected_aggregate:(selected_aggregate_for ledger)
+                ~dimensions ~table:ledger.table ~namespace:ledger.namespace
                 ~predecessor:boundary.storage_predecessor
                 ~previous_global:boundary.storage_previous_global
                 assigned.publication
