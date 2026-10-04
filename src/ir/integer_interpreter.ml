@@ -5371,6 +5371,44 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               with
               | Some callback -> (
                   match (frame, description.operands) with
+                  | None, [ address ] -> (
+                      let owns slot =
+                        Option.is_none (Integer_globals.storage_frame slot)
+                        && Option.fold ~none:false
+                             ~some:(( == ) callback.callback_pointer)
+                             (Integer_globals.storage_callback_pointer slot)
+                        && Option.fold ~none:false
+                             ~some:(fun globals ->
+                               Option.fold ~none:false
+                                 ~some:(Integer_globals.same_storage slot)
+                                 (Integer_globals.global_callback_storage
+                                    globals callback.callback_pointer))
+                             globals
+                      in
+                      match Value_map.find_opt address types with
+                      | Some (Global_address slot)
+                        when owns slot
+                             && Integer_globals.storage_dimensions slot = [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Global_slot slot,
+                                 callback.callback_capture_value ))
+                      | Some
+                          (Callback_array_address
+                             (Global_slot slot, header, pointer_type, []))
+                        when header == callback.callback_pointer
+                             && owns slot
+                             && Integer_globals.storage_dimensions slot <> [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Indexed_slot
+                                   { pointer_value = address; pointer_type },
+                                 callback.callback_capture_value ))
+                      | _ ->
+                          Error
+                            (call_error description
+                               "entry callback load has no original global \
+                                storage"))
                   | Some frame, [ address ] -> (
                       match Value_map.find_opt address types with
                       | Some (Frame_address index)

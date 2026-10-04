@@ -1333,4 +1333,11 @@ callee capture, reverse arguments, word variadics, original global calling flags
 retained JIT bodies, source ownership, fault effects and resource limits.
 `test_global_callback_cli.ml` runs the maintained global example in both IR modes
 with exact and one-below quotas, JSON counters, reached output and retained
-replacement. See [global callbacks](global-callbacks.md) for the remaining scope.
+replacement. It also runs the top-level example, nested calls and reached entry
+faults, and compares global/array value projections with both existing native
+JIT observations. The global projection replaces an unsupported initializer
+with an explicit store. Entry tests check missing and foreign source contexts,
+copied load/whole-graph records, return/signature separation, defaults, tails,
+U0 output, callee snapshots, argument order, recursion and exact resource limits.
+These checks do not establish native callback emission or native AOT behavior.
+See [global callbacks](global-callbacks.md) for the remaining scope.

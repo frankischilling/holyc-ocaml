@@ -613,5 +613,14 @@ function. Global alias candidates retain the selection made at the name token,
 before directives in dimensions. These frontend controls do not demonstrate
 stateful #exe execution.
 
+Executable top-level callback calls use original scalar or fully indexed global
+storage, including retained JIT bindings with an exact checked header and storage
+reference. Their source records must belong to the current typed statement
+batch; the runtime context checks the executable subtree and seals its whole
+graph. Supported defaults, nested calls, word tails and integer/U0 results use
+the shared call composer. Stored owners preserve earlier JIT bodies after
+same-name replacement. Initializers, member invocation, live task expiry and
+native callback emission remain separate work. See [global callbacks](global-callbacks.md).
+
 The reference remains `c26482bb6ad3f80106d28504ec5db3c6a360732c`. The hosted task
 tests do not constitute a new native TempleOS capture.

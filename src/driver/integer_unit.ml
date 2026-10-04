@@ -1116,6 +1116,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           in
           let* lowered_entry =
             Lower.lower_complete ~globals:globals_ ~records ~top_calls
+              ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
               ~function_calls:(List.rev !all_function_calls)
               ~span:ast.span statements
           in

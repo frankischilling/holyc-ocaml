@@ -513,6 +513,12 @@ val result_callback_pointer :
     grouping and indexing. Call results and arithmetic values do not inherit the
     callee signature. *)
 
+val result_callback_call_pointer :
+  expression_result -> Function_type_resolution.function_pointer option
+(** The original signature selected for an indirect call, separate from its
+    returned value and from callback-cell storage metadata. Runtime source
+    ownership and executable-target validation still govern invocation. *)
+
 val result_storage_type : expression_result -> Type.t option
 (** Callback cells use the internal [RT_PTR] class and the callback declarator's
     indirection count. [result_type] separately retains the callback return

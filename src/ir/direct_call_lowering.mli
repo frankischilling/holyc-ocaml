@@ -23,6 +23,18 @@ val lower :
     origin receives a charged view of the original source class and producer
     span before pushing; original source ownership remains checked. *)
 
+val lower_callback :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:Expression_lowering.call_lowerer ->
+  ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  call:Callback_source.t ->
+  Sema.Function_call_expression_result.expression_result ->
+  (lowering_result, Instruction_sequence.error list) result
+
 val lower_indirect :
   frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->

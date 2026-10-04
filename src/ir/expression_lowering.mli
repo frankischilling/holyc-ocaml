@@ -157,7 +157,7 @@ val lower_global_initializer :
 
 val sequence : t -> Instruction_sequence.t
 
-val lower_indirect_callee :
+val lower_callback_callee :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
@@ -165,7 +165,7 @@ val lower_indirect_callee :
   ?optimize_division:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
-  Sema.Function_call_expression_result.indirect_call ->
+  Callback_source.t ->
   (lowering_result, Instruction_sequence.error list) result
 (** Lower the original checked callback cell, retag its loaded address to the
     internal RT_PTR word, and emit [IC_SET_RAX] plus [IC_NOP2] before argument
@@ -211,6 +211,17 @@ val lower_fragment_initializer :
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Initializer_fragment_destination.t ->
+  (lowering_result, Instruction_sequence.error list) result
+
+val lower_indirect_callee :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Function_call_expression_result.indirect_call ->
   (lowering_result, Instruction_sequence.error list) result
 
 val result_value : t -> Instruction_sequence.Value_id.t

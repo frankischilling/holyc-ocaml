@@ -119,6 +119,7 @@ module Ir_prepared_callback_default = Ir.Prepared_callback_default
     and call materialization remain tied to their original owning receipts. *)
 
 module Ir_runtime_call_context = Ir.Runtime_call_context
+module Ir_callback_source = Ir.Callback_source
 module Native_parameter_defaults = Driver.Native_parameter_defaults
 module Native_global_initializers = Driver.Native_global_initializers
 module Ir_integer_program_lowering = Ir.Integer_program_lowering

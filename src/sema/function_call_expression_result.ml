@@ -64,6 +64,7 @@ type expression_result = {
   function_declaration : Function_resolution.resolved_declaration option;
   function_address_path :
     Function_call_resolution.direct_function_address_path option;
+  callback_call_pointer : Function_type_resolution.function_pointer option;
 }
 
 type declared_default_kind = Expression_default_kind | Lastclass_default_kind
@@ -802,6 +803,15 @@ let aggregate_offset_segment_cumulative_offset segment =
   segment.offset_cumulative
 
 let result_call_resolution (result : expression_result) = result.call_resolution
+
+let result_callback_call_pointer (result : expression_result) =
+  match result.call_resolution with
+  | Some (Function_call_resolution.Indirect_call call) ->
+      Some
+        (Function_call_resolution.callable_pointer
+           (Function_call_resolution.indirect_callable call))
+  | _ -> result.callback_call_pointer
+
 let result_function_declaration result = result.function_declaration
 let result_function_address_path result = result.function_address_path
 
@@ -935,7 +945,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
     ?(array_rank = 0) ?(array_address = false) ?execution_class ?member_lookup
     ?callback_pointer ?aggregate_offset_path ?outer_occurrence
     ?top_level_outer_occurrence ?outer_binding ?call_resolution
-    ?function_declaration ?function_address_path
+    ?function_declaration ?function_address_path ?callback_call_pointer
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
     ~source_type ~category ~result_class =
   record state
@@ -962,6 +972,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
       call_resolution;
       function_declaration;
       function_address_path;
+      callback_call_pointer;
     }
 
 let known_type table type_ =
@@ -3356,7 +3367,10 @@ and type_top_level_global_callback_call table members policies
                       }
                     in
                     Ok
-                      (make_result ~intrinsic_conversion state ~id ~source
+                      (make_result
+                         ~callback_call_pointer:
+                           (Function_call_resolution.callable_pointer callable)
+                         ~intrinsic_conversion state ~id ~source
                          ~source_type:(Some source_type) ~category
                          ~result_class:
                            (forwarded_class policies ~before_item_index
@@ -3544,7 +3558,10 @@ and type_top_level_outer_callback_result table policies =
         forwarded_class policies ~before_item_index source_type
       in
       Ok
-        (make_result ~intrinsic_conversion state ~id ~source
+        (make_result
+           ~callback_call_pointer:
+             (Function_call_resolution.callable_pointer callable)
+           ~intrinsic_conversion state ~id ~source
            ~source_type:(Some source_type) ~category
            ~top_level_outer_occurrence:occurrence ~outer_binding:binding
            ~result_class)
@@ -3660,9 +3677,12 @@ and type_top_level_indexed_global_callback_call table members policies
                                   }
                                 in
                                 Ok
-                                  (make_result ~intrinsic_conversion state ~id
-                                     ~source ~source_type:(Some source_type)
-                                     ~category
+                                  (make_result
+                                     ~callback_call_pointer:
+                                       (Function_call_resolution
+                                        .callable_pointer callable)
+                                     ~intrinsic_conversion state ~id ~source
+                                     ~source_type:(Some source_type) ~category
                                      ~result_class:
                                        (forwarded_class policies
                                           ~before_item_index source_type)))))))
@@ -3783,7 +3803,11 @@ and type_top_level_member_callback_call table members policies
                             }
                           in
                           Ok
-                            (make_result ~intrinsic_conversion state ~id ~source
+                            (make_result
+                               ~callback_call_pointer:
+                                 (Function_call_resolution.callable_pointer
+                                    callable)
+                               ~intrinsic_conversion state ~id ~source
                                ~source_type:(Some source_type) ~category
                                ~result_class:
                                  (forwarded_class policies ~before_item_index

@@ -2964,12 +2964,8 @@ let checked_call_fragment allocator result conversion sequence =
             when last.opcode = Opcode.Ic_call_end
                  && Type.equal actual expected && last.span = span
                  && last.flags = 0L
-                 && (match Semantic_result.result_call_resolution result with
-                   | Some (Semantic_source.Indirect_call call) ->
-                       Semantic_source.callable_pointer
-                         (Semantic_source.indirect_callable call)
-                       == pointer
-                   | _ -> false)
+                 && Option.fold ~none:false ~some:(( == ) pointer)
+                      (Semantic_result.result_callback_call_pointer result)
                  && List.exists
                       (fun (item : Sequence.description) ->
                         item.opcode = Opcode.Ic_call_start
@@ -4379,17 +4375,9 @@ let lower_typed_result ?frame ?globals ?lower_call ?(optimize_shifts = false)
 
 let sequence lowered = lowered.sequence_
 
-let lower_indirect_callee ?frame ?globals ?lower_call ?optimize_shifts
+let lower_callback_callee ?frame ?globals ?lower_call ?optimize_shifts
     ?optimize_division ~instruction_id ~value_id call =
-  let resolution =
-    call |> Semantic_result.indirect_source
-    |> Sema.Function_call_conversion_policy.indirect_source
-  in
-  let source = Semantic_source.indirect_source resolution in
-  match
-    ( Semantic_result.indirect_callee_result call,
-      Semantic_source.call_callee_value source )
-  with
+  match (Callback_source.callee call, Callback_source.callee_source call) with
   | None, _ | _, None -> Ok Unsupported_expression
   | Some callee, Some original -> (
       let span = result_span callee in
@@ -4407,7 +4395,7 @@ let lower_indirect_callee ?frame ?globals ?lower_call ?optimize_shifts
              ~some:
                (( == )
                   (Semantic_source.callable_pointer
-                     (Semantic_source.indirect_callable resolution)))
+                     (Callback_source.callable call)))
              (Semantic_result.result_callback_pointer callee))
       then
         Error
@@ -4786,6 +4774,11 @@ let lower_static_initializer ~globals ?root ?lower_call ?optimize_shifts
         ~target_type:(Semantic_result.initializer_target_type root)
         ~span ~instruction_id ~value_id
         (Semantic_result.initializer_value root)
+
+let lower_indirect_callee ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id call =
+  lower_callback_callee ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id (Callback_source.Function call)
 
 let result_value lowered = lowered.result_value_
 let result_type lowered = lowered.result_type_

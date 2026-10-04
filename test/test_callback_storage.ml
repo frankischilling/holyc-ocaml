@@ -344,7 +344,34 @@ let top_level_scalar_callback_retains_original_callee () =
       Alcotest.(check bool)
         "exact top-level callback signature" true
         (pointer
-        == S.callable_pointer (R.top_level_global_callback_callable call)))
+        == S.callable_pointer (R.top_level_global_callback_callable call));
+      let result =
+        R.top_level_all_results results
+        |> List.find (fun result ->
+            R.Id.equal (R.result_id result)
+              (R.top_level_global_callback_result_id call))
+      in
+      Alcotest.(check bool)
+        "invocation signature retains the original header" true
+        (Option.get (R.result_callback_call_pointer result) == pointer);
+      Alcotest.(check bool)
+        "call result does not acquire callback storage metadata" true
+        (Option.is_none (R.result_callback_pointer result));
+      Alcotest.(check string)
+        "call keeps its declared return domain" "F64"
+        (Test_function_call_expression_result.type_name result);
+      let module C = Ir_callback_source in
+      Alcotest.(check bool)
+        "original top-level call belongs to its exact batch" true
+        (C.top_level_member (C.Global call) results);
+      let copy = Obj.obj (Obj.dup (Obj.repr call)) in
+      Alcotest.(check bool)
+        "copied call metadata grants no batch membership" false
+        (C.top_level_member (C.Global copy) results);
+      let _, _, _, foreign = Test_top_level_expression_result.analyze source in
+      Alcotest.(check bool)
+        "equal foreign batch grants no call membership" false
+        (C.top_level_member (C.Global call) foreign))
     modes
 
 let callback_loads_use_physical_words () =
@@ -2243,8 +2270,253 @@ let global_callback_graph_ownership () =
       reject (execute ~runtime_calls:context ()))
     modes
 
+let top_level_callback_execution () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected) ->
+          ignore
+            (Test_integer_globals.run ~mode source
+            |> Test_integer_functions.expect expected))
+        [
+          ("I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;p(40);", 42L);
+          ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 \
+             n)[2][3];p[1][2]=&Add;p[1][2](40);",
+            42L );
+          ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n),(*q)(I64 \
+             n);p=&Add;q=p;p=0;q(40);",
+            42L );
+          ("I64 Add(I64 n=17){return n;}I64 (*p)(I64 n=42);p=&Add;p();", 42L);
+          ( "I64 Add(I64 n=17){return n;}I64 (*p)(I64 n=42)[2];p[1]=&Add;p[1]();",
+            42L );
+          ("I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;p(p=0);", 2L);
+          ( "I64 Take(I64 a,I64 b){return a*10+b;}I64 (*p)(I64 a,I64 b);I64 \
+             n;n=0;p=&Take;p(++n,++n);",
+            21L );
+          ( "I64 Sum(I64 n,...){return n+argc+argv[0]+argv[1];}I64 (*p)(I64 \
+             n,...);p=&Sum;p(37,1,2);",
+            42L );
+          ( "I64 Sum(I64 n,...){return n+argc;}I64 (*p)(I64 n,...);p=&Sum;p(42);",
+            42L );
+          ( "I64 Add(I64 n){return n+2;}I64 Take(I64 n){return n;}I64 (*p)(I64 \
+             n);p=&Add;Take(p(40));",
+            42L );
+          ("I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;p(p(38));", 42L);
+          ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 \
+             n);p=&Add;switch(p(40)){case 42:42;break;default:1;}",
+            42L );
+          ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 \
+             n);p=&Add;if(p(40)==42)42;else 1;",
+            42L );
+          ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);I64 \
+             n;n=0;p=&Add;while(n<4)n=p(n);n+38;",
+            42L );
+          ( "I64 (*p)(I64 n);I64 Walk(I64 n){if(n)return p(n-1)+1;return \
+             0;}p=&Walk;p(8);",
+            8L );
+          ( "noargpop I64 Add(I64 n){return n+2;}noargpop I64 (*p)(I64 \
+             n);p=&Add;p(40);",
+            42L );
+          ("argpop I64 Add(){return 42;}argpop I64 (*p)();p=&Add;p();", 42L);
+          ("I64 (*p)(I64 n);p=0;if(0)p(40);42;", 42L);
+        ];
+      ignore
+        (Test_integer_output.run ~mode
+           "extern U0 Print(U8 *fmt,...);U0 Write(I64 n){Print(\"%d\",n);}U0 \
+            (*p)(I64 n)[2];p[1]=&Write;p[1](42);42;"
+        |> Test_integer_output.expect ~value:(Some 42L) "42");
+      ignore
+        (Test_integer_output.run ~mode
+           "extern U0 Print(U8 *fmt,...);U0 Write(I64 n){Print(\"%d\",n);}U0 \
+            (*p)(I64 n);p=&Write;p(42);"
+        |> Test_integer_output.expect ~value:None "42");
+      ignore
+        (Test_integer_output.run ~mode
+           "extern U0 Print(U8 *fmt,...);I64 Add(I64 n){return n+2;}I64 \
+            (*p)(I64 n);p=&Add;Print(\"%d\",p(40));42;"
+        |> Test_integer_output.expect ~value:(Some 42L) "42");
+      ignore
+        (Test_integer_output.run ~mode
+           "extern U0 Print(U8 *fmt,...);I64 Add(I64 n){return n+2;}I64 \
+            (*p)(I64 n);p=&Add;\"%d\",p(40);42;"
+        |> Test_integer_output.expect ~value:(Some 42L) "42"))
+    modes;
+  ignore
+    (Test_integer_globals.run ~mode:Preprocessor.Jit
+       "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n=40);p=&Add;p();I64 Add(I64 \
+        n){return n+100;}p();"
+    |> Test_integer_functions.expect 42L)
+
+let top_level_callback_reached_faults () =
+  let prefix =
+    "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"arg\");return 40;}"
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, code, output) ->
+          ignore
+            (Test_integer_output.run ~mode (prefix ^ source)
+            |> Test_integer_output.fault ~output code))
+        [
+          ( "I64 (*p)(I64 n);p=0;Print(\"before\");p(Side());",
+            "HCIRVM0024",
+            "beforearg" );
+          ( "I64 (*p)(I64 n);p=123;Print(\"before\");p(Side());",
+            "HCIRVM0024",
+            "beforearg" );
+          ( "I64 (*p)(I64 n);Print(\"before\");p(Side());",
+            (if mode = Preprocessor.Jit then "HCIRVM0012" else "HCIRVM0024"),
+            if mode = Preprocessor.Jit then "before" else "beforearg" );
+          ( "I64 (*p)(I64 n)[2];Print(\"before\");p[2](Side());",
+            "HCIRVM0019",
+            "before" );
+          ( "I64 (*p)(I64 n)[2];Print(\"before\");p[-1](Side());",
+            "HCIRVM0019",
+            "before" );
+          ( "I64 (*p)(I64 n)[2];Print(\"before\");p[0x7FFFFFFFFFFFFFFF](Side());",
+            "HCIRVM0020",
+            "before" );
+          ( "I64 Add(I64 n){return n+2;}noargpop I64 (*p)(I64 \
+             n);p=&Add;Print(\"before\");p(Side());",
+            "HCIRVM0014",
+            "beforearg" );
+          ( "I64 Bad(I64 a,I64 b){return a+b;}I64 (*p)(I64 \
+             n);p=&Bad;Print(\"before\");p(Side());",
+            "HCIRVM0014",
+            "beforearg" );
+        ])
+    modes
+
+let top_level_callback_exact_budgets () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n)[2][3];p[1][2]=&Add;p[1][2](40);"
+  in
+  List.iter
+    (fun mode ->
+      let steps =
+        Test_integer_globals.run ~mode source
+        |> Test_integer_functions.expect 42L
+        |> Ir_integer_interpreter.executed_steps
+      in
+      ignore
+        (Test_integer_globals.run ~mode ~max_steps:steps ~max_global_bytes:48
+           ~max_frame_bytes:8 ~max_call_depth:1 source
+        |> Test_integer_functions.expect 42L);
+      List.iter
+        (fun (code, result) ->
+          Alcotest.(check string)
+            "one below entry callback budget" code
+            (Test_integer_functions.first_error result).code)
+        [
+          ( "HCIRVM0007",
+            Test_integer_globals.run ~mode ~max_steps:(steps - 1) source );
+          ( "HCIRVM0016",
+            Test_integer_globals.run ~mode ~max_global_bytes:47 source );
+          ( "HCIRVM0011",
+            Test_integer_globals.run ~mode ~max_frame_bytes:7 source );
+          ( "HCIRVM0015",
+            Test_integer_globals.run ~mode ~max_call_depth:1
+              "I64 (*p)(I64 n);I64 Walk(I64 n){if(n)return p(n-1);return \
+               42;}p=&Walk;p(1);" );
+        ])
+    modes
+
+let top_level_callback_graph_ownership () =
+  let module VM = Ir_integer_interpreter in
+  let module C = Ir_runtime_call_context in
+  let module Seq = Ir_instruction_sequence in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let compiled = Test_integer_globals.compile ~mode source in
+          let context = integer_program_runtime_calls compiled in
+          let callback =
+            C.original_callback_calls context ~owner:C.Entry
+            |> Option.get |> List.hd
+          in
+          Alcotest.(check bool)
+            "entry load has its original receipt" true
+            (Option.fold ~none:false ~some:(( == ) callback)
+               (C.find_callback_load context ~owner:C.Entry
+                  callback.callback_load));
+          Alcotest.(check bool)
+            "copied entry load has no receipt" true
+            (Option.is_none
+               (C.find_callback_load context ~owner:C.Entry
+                  {
+                    callback.callback_load with
+                    Seq.operands =
+                      List.map Fun.id callback.callback_load.operands;
+                  }));
+          let execute ?runtime_calls () =
+            VM.execute_program
+              ~globals:(integer_program_globals compiled)
+              ~initialization:(integer_program_initialization compiled)
+              ~functions:(integer_program_functions compiled)
+              ?runtime_calls ~max_steps:10000 ~max_frame_bytes:1024
+              ~max_call_depth:16
+              (integer_program_entry compiled)
+          in
+          let reject = function
+            | Ok _ -> Alcotest.fail "foreign entry callback graph was accepted"
+            | Error errors ->
+                Alcotest.(check bool)
+                  "rejected before effects" true
+                  (List.for_all
+                     (fun (error : VM.error) ->
+                       error.stage = VM.Preflight && error.executed_steps = 0)
+                     errors)
+          in
+          reject (execute ());
+          let foreign = Test_integer_globals.compile ~mode source in
+          reject
+            (execute ~runtime_calls:(integer_program_runtime_calls foreign) ());
+          let graph = integer_program_entry compiled |> Ir_x87_stack.graph in
+          let rec find = function
+            | [] -> None
+            | instruction :: rest as cell ->
+                if
+                  (Seq.description instruction).opcode
+                  = Ir_opcode.Ic_call_indirect
+                then Some cell
+                else find rest
+          in
+          let cell =
+            Ir_block_graph.blocks graph
+            |> List.find_map (fun block ->
+                Ir_block_graph.instructions block |> Seq.instructions |> find)
+            |> Option.get
+          in
+          let original = Seq.description (List.hd cell) in
+          Obj.set_field (Obj.repr cell) 0
+            (Obj.repr
+               {
+                 original with
+                 Seq.operands = List.map Fun.id original.operands;
+               });
+          Alcotest.(check bool)
+            "copied entry graph loses its complete receipt" true
+            (Option.is_none (C.original_callback_calls context ~owner:C.Entry));
+          reject (execute ~runtime_calls:context ()))
+        [
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;p(40);";
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n)[2];p[1]=&Add;p[1](40);";
+        ])
+    modes
+
 let tests =
   [
+    Alcotest.test_case
+      "top-level callbacks execute original scalar and indexed calls" `Quick
+      top_level_callback_execution;
+    Alcotest.test_case "top-level callback faults preserve reached effects"
+      `Quick top_level_callback_reached_faults;
+    Alcotest.test_case "top-level callbacks charge exact execution and storage"
+      `Quick top_level_callback_exact_budgets;
+    Alcotest.test_case "top-level callbacks require their original entry graphs"
+      `Quick top_level_callback_graph_ownership;
     Alcotest.test_case
       "global callbacks retain storage, flags and original code" `Quick
       global_callback_storage_execution;

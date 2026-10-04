@@ -10,7 +10,7 @@ module Instructions = Map.Make (Seq.Instruction_id)
 module Values = Map.Make (Seq.Value_id)
 
 type source =
-  | Callback_call of Typed.indirect_call
+  | Callback_call of Callback_source.t
   | Function_call of Sema.Function_call_target_classification.t
   | Top_level_call of Sema.Top_level_function_call_target_classification.t
   | Function_output of Sema.Implicit_output_argument_binding.bound_output
@@ -80,7 +80,7 @@ type call = {
 }
 
 type callback_call = {
-  callback_source : Typed.indirect_call;
+  callback_source : Callback_source.t;
   callback_pointer : Headers.function_pointer;
   callback_return_type : Type.t;
   callback_first : Seq.Instruction_id.t;
@@ -1441,20 +1441,16 @@ let callback_shape ~globals ~validate_source owner graph description =
     | Callback_call call -> call
     | _ -> assert false
   in
-  let resolution =
-    call |> Typed.indirect_source
-    |> Sema.Function_call_conversion_policy.indirect_source
-  in
-  let callable = Resolution.indirect_callable resolution in
+  let callable = Callback_source.callable call in
   let pointer = Resolution.callable_pointer callable in
-  let origin = Resolution.call_origin (Resolution.indirect_source resolution) in
+  let origin = Callback_source.origin call in
   let span = origin_span origin in
   validate_source owner description span;
   require ?span
     (Option.is_none description.discard)
     "callback cannot acquire implicit output authority";
   let callee =
-    match Typed.indirect_callee_result call with
+    match Callback_source.callee call with
     | Some value -> value
     | None -> fail ?span "callback lost its checked callee"
   in
@@ -1525,15 +1521,10 @@ let callback_shape ~globals ~validate_source owner graph description =
     "callback snapshot does not retain its original loaded address";
   let fixed =
     List.map
-      (fun result ->
-        let parameter =
-          result |> Typed.fixed_source
-          |> Sema.Function_call_conversion_policy.fixed_source
-          |> Resolution.fixed_parameter
-        in
-        match Typed.fixed_path result with
-        | Typed.Provided_result value -> (parameter, Provided value)
-        | Typed.Declared_default_result _ -> (
+      (fun (parameter, value) ->
+        match value with
+        | Some value -> (parameter, Provided value)
+        | None -> (
             match
               Integer_globals.prepared_callback_default globals ~pointer
                 ~parameter
@@ -1543,7 +1534,7 @@ let callback_shape ~globals ~validate_source owner graph description =
                 fail ?span
                   "callback default has no original anonymous signature \
                    preparation"))
-      (Typed.indirect_fixed_results call)
+      (Callback_source.fixed_arguments call)
   in
   let signature = Headers.function_pointer_signature pointer in
   require ?span
@@ -1553,7 +1544,7 @@ let callback_shape ~globals ~validate_source owner graph description =
          fixed
          (Headers.signature_parameters signature))
     "callback fixed arguments disagree with the original signature";
-  let variadic = Typed.indirect_variadic_results call in
+  let variadic = Callback_source.variadic_arguments call in
   let has_tail = Option.is_some (Headers.signature_variadic_origin signature) in
   let count_type = if has_tail then Some pointer_word else None in
   let count =
@@ -2517,6 +2508,44 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
         region;
       region
     in
+    let top_level_callback_subtree_contains selected root =
+      let callbacks = Callback_source.top_level_calls top_level in
+      let rec visit = function
+        | [] -> false
+        | value :: rest ->
+            if Callback_source.matches_result selected value then true
+            else
+              let direct_arguments =
+                List.find_opt
+                  (fun call ->
+                    Typed.Id.equal
+                      (Typed.top_level_direct_result_id call)
+                      (Typed.result_id value)
+                    && Sema.Top_level_expression_tree.call_result_expression
+                         (Typed.top_level_direct_source call)
+                       == Typed.result_source value)
+                  top_calls
+                |> Option.fold ~none:[] ~some:(fun call ->
+                    List.filter_map
+                      (fun fixed -> provided (Typed.top_level_fixed_path fixed))
+                      (Typed.top_level_direct_fixed_results call)
+                    @ Typed.top_level_direct_variadic_results call)
+              in
+              let callback_arguments =
+                List.find_opt
+                  (fun call -> Callback_source.matches_result call value)
+                  callbacks
+                |> Option.fold ~none:[] ~some:(fun call ->
+                    Option.to_list (Callback_source.callee call)
+                    @ List.filter_map snd (Callback_source.fixed_arguments call)
+                    @ Callback_source.variadic_arguments call)
+              in
+              visit
+                (expression_children value @ direct_arguments
+               @ callback_arguments @ rest)
+      in
+      visit [ root ]
+    in
     let source_function ?span symbol =
       match
         Typed.functions function_sources
@@ -2527,12 +2556,7 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
           fail ?span "runtime function owner has no exact typed source function"
     in
     let function_member source = function
-      | Callback_call actual ->
-          List.exists
-            (function
-              | Typed.Indirect_call_result expected -> expected == actual
-              | _ -> false)
-            (Typed.function_calls source)
+      | Callback_call actual -> Callback_source.function_member actual source
       | Function_call target ->
           List.exists
             (function
@@ -2559,8 +2583,26 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                (source_function ?span (Function_body.symbol body))
                source)
             "runtime call source is not owned by this exact typed function body"
-      | Entry, Callback_call _ ->
-          fail ?span "local callback requires its original function owner"
+      | Entry, Callback_call call ->
+          require ?span
+            (Callback_source.top_level_member call top_level)
+            "entry callback source is not owned by this exact top-level batch";
+          require ?span
+            (List.exists
+               (fun root ->
+                 match
+                   Typed.top_level_root_source root
+                   |> Sema.Top_level_expression_tree.root_role
+                 with
+                 | Sema.Top_level_expression_tree.Global_initializer _ -> false
+                 | _ ->
+                     top_level_callback_subtree_contains call
+                       (Typed.top_level_root_value root))
+               top_roots)
+            "entry callback is absent from its original executable source root";
+          require ?span
+            (Option.is_none (entry_region ?span description))
+            "entry callback cannot acquire initializer authority"
       | Entry, Function_output _ ->
           fail ?span "function output statement cannot authorize a module entry"
       | Entry, (Function_call target as source) ->

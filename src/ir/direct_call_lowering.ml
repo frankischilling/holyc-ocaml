@@ -991,35 +991,38 @@ let lower_top_level_implicit_output ?frame ?globals ?lower_call ?optimize_shifts
              (Bound.bound_variadic_roots output))
         ()
 
-let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
+let lower_callback ?frame ?globals ?lower_call ?optimize_shifts
     ?optimize_division ~instruction_id ~value_id ~call result =
   let ( let* ) = Stdlib.Result.bind in
-  let resolution = call |> Result.indirect_source |> Policy.indirect_source in
-  let callable = Resolution.indirect_callable resolution in
+  let callable = Callback_source.callable call in
   let pointer = Resolution.callable_pointer callable in
   let signature = Resolution.callable_signature callable in
   let original_frame_cell =
-    Sema.Function_frame_layout.function_locations frame
-    |> List.exists (fun location ->
-        (Sema.Function_frame_layout.location_dimensions location = []
-        || Sema.Function_frame_layout.location_kind location <> Named_parameter
-           && Sema.Function_frame_layout.location_source_dimensions_checked
-                location)
-        && (match Sema.Function_frame_layout.location_kind location with
-          | Named_parameter | Automatic_local -> true
-          | Static_local ->
-              Option.fold ~none:false
-                ~some:(fun globals ->
+    Option.fold ~none:false
+      ~some:(fun frame ->
+        Sema.Function_frame_layout.function_locations frame
+        |> List.exists (fun location ->
+            (Sema.Function_frame_layout.location_dimensions location = []
+            || Sema.Function_frame_layout.location_kind location
+               <> Named_parameter
+               && Sema.Function_frame_layout.location_source_dimensions_checked
+                    location)
+            && (match Sema.Function_frame_layout.location_kind location with
+              | Named_parameter | Automatic_local -> true
+              | Static_local ->
                   Option.fold ~none:false
-                    ~some:(fun slot ->
-                      Integer_globals.static_frame slot == frame
-                      && Integer_globals.static_location slot == location)
-                    (Integer_globals.find_static globals
-                       (Sema.Function_frame_layout.location_symbol location)))
-                globals
-          | Variadic_argc | Variadic_argv -> false)
-        && Option.fold ~none:false ~some:(( == ) pointer)
-             (Sema.Function_frame_layout.location_callback_pointer location))
+                    ~some:(fun globals ->
+                      Option.fold ~none:false
+                        ~some:(fun slot ->
+                          Integer_globals.static_frame slot == frame
+                          && Integer_globals.static_location slot == location)
+                        (Integer_globals.find_static globals
+                           (Sema.Function_frame_layout.location_symbol location)))
+                    globals
+              | Variadic_argc | Variadic_argv -> false)
+            && Option.fold ~none:false ~some:(( == ) pointer)
+                 (Sema.Function_frame_layout.location_callback_pointer location)))
+      frame
   in
   let original_global_cell =
     Option.fold ~none:false
@@ -1027,29 +1030,20 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
         Option.is_some (Integer_globals.global_callback_storage globals pointer))
       globals
   in
-  let fixed = Result.indirect_fixed_results call in
+  let fixed = Callback_source.fixed_arguments call in
   let provided =
     List.filter_map
-      (fun fixed ->
-        match Result.fixed_path fixed with
-        | Result.Provided_result value -> Some (Provided value)
-        | Result.Declared_default_result _ ->
-            let parameter =
-              fixed |> Result.fixed_source
-              |> Sema.Function_call_conversion_policy.fixed_source
-              |> Resolution.fixed_parameter
-            in
+      (fun (parameter, value) ->
+        match value with
+        | Some value -> Some (Provided value)
+        | None ->
             Option.bind globals (fun globals ->
                 Integer_globals.prepared_callback_default globals ~pointer
                   ~parameter)
             |> Option.map (fun prepared -> Prepared_callback_default prepared))
       fixed
   in
-  let matches =
-    match Result.result_call_resolution result with
-    | Some (Resolution.Indirect_call original) -> original == resolution
-    | _ -> false
-  in
+  let matches = Callback_source.matches_result call result in
   if
     (not matches)
     || (not (original_frame_cell || original_global_cell))
@@ -1067,7 +1061,7 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
           [ metadata_error ~span "callback call has no checked return type" ]
     | Some result_type -> (
         let* callee =
-          Expression.lower_indirect_callee ~frame ?globals ?lower_call
+          Expression.lower_callback_callee ?frame ?globals ?lower_call
             ?optimize_shifts ?optimize_division ~instruction_id ~value_id call
         in
         match callee with
@@ -1091,9 +1085,9 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
                   |> Stdlib.Result.get_ok)
               else None
             in
-            let tail = Result.indirect_variadic_results call in
+            let tail = Callback_source.variadic_arguments call in
             let* tails =
-              lower_arguments ~frame ?globals ?lower_call ?optimize_shifts
+              lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
                 ?optimize_division ~span ~instruction_id:args_id
                 ~value_id:(Expression.next_value_id callee)
                 (List.map (fun value -> Provided value) tail)
@@ -1109,7 +1103,7 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
                   |> Stdlib.Result.map_error (fun error -> [ error ])
                 in
                 let* fixed =
-                  lower_arguments ~frame ?globals ?lower_call ?optimize_shifts
+                  lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
                     ?optimize_division ~span ~instruction_id:fixed_id
                     ~value_id:fixed_value provided
                 in
@@ -1199,6 +1193,11 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
                                  discard = None;
                                };
                          }))))
+
+let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id ~call result =
+  lower_callback ~frame ?globals ?lower_call ?optimize_shifts ?optimize_division
+    ~instruction_id ~value_id ~call:(Callback_source.Function call) result
 
 let sequence lowered = lowered.sequence_
 let result_value lowered = lowered.result_value_

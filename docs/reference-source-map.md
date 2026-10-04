@@ -1652,3 +1652,24 @@ fields twice and three function listings through their first return. Source
 shift planning preserves the checked public form until the operation's own
 class rule applies. The maintained example returns 42 in both source modes and
 execution targets.
+
+## Top-level callback execution
+
+`Compiler/PrsExp.HC:383-588` applies `PrsFunCall` to indirect calls before it
+pushes the argument compilation streams. Lines 420-425 load and capture the
+callee as internal `RT_PTR`; the remaining loop retains saved defaults, reverse
+arguments, hidden argc and the anonymous header's cleanup. The scalar and
+indexed global paths use the header selected by `PrsType` and `PrsGlblVarLst`
+(`PrsVar.HC:285-369`, `PrsStmt.HC:403-407`). `OptPass789A.HC:723-732` emits
+`CALL disp[RSP]` for the retained indirect-call argument-byte displacement.
+
+The IR source runner now consumes original typed top-level callback records
+through `Ir.Callback_source` and the shared call composer. The runtime context
+checks exact batch membership and the executable expression subtree, then seals
+the callee load, arguments, cleanup and complete graph. Invocation-signature
+metadata is distinct from storage and result types and provides no execution
+authority on its own. `test_global_callback_cli.ml` compares global and indexed
+call words with the existing fixture's two native JIT repeats. The global
+projection substitutes an explicit store for its native initializer. Hosted
+AOT replay, resource limits and graph rejection remain separate from native
+AOT or callback emission. See [global callbacks](global-callbacks.md).

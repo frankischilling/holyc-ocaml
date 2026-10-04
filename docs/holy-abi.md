@@ -80,6 +80,15 @@ mismatched values can be overwritten before a call. Missing source context or
 changed graph records fail before execution. [Issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801)
 tracks the remaining consumers.
 
+Executable top-level scalar and fully indexed global calls now use the same
+callee capture, argument and cleanup composer. Their typed call records must
+belong to the original top-level batch and executable expression subtree.
+The call result retains its selected invocation signature separately from
+callback storage metadata and its return domain. Entry loads require an exact
+registered global cell; function-frame and initializer authority cannot be
+substituted. Nested calls, integer/U0 results and earlier JIT bodies retain the
+same checked receipts. See [global callbacks](global-callbacks.md).
+
 The IR runner now resolves checked JIT immediate and AOT absolute `&Function`
 producers to their original registered publication and prepared integer/U0 body.
 It carries an opaque value with that executable owner through ordinary word
@@ -147,7 +156,7 @@ across calls and JIT replacement. Automatic arrays are fresh on every activation
 The hosted arena checks the declared object's extent and offset overflow.
 
 These values do not supply concrete numeric addresses. Address arithmetic,
-numeric address output, callback members, top-level indirect calls, callback initializers and updates,
+numeric address output, callback members, callback initializers and updates,
 owned-code defaults, dereferenced or multistar callback forms, live task
 address linking and hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the

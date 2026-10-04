@@ -50,6 +50,7 @@ val lower_complete :
   ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
   ?callback_calls:Sema.Function_call_expression_result.indirect_call list ->
+  ?top_callback_calls:Callback_source.t list ->
   span:Common.Span.t ->
   statement list ->
   (t, Common.Diagnostic.t list) result

@@ -90,7 +90,8 @@ let span_of_result fallback result =
   | _ -> fallback
 
 let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
-    ?(function_calls = []) ?(callback_calls = []) ~span statements =
+    ?(function_calls = []) ?(callback_calls = []) ?(top_callback_calls = [])
+    ~span statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
@@ -359,6 +360,18 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                           ~optimize_shifts:true ~optimize_division:true ?globals
                           ~lower_call:(direct_call_in (Some frame))
                           ~instruction_id ~value_id ~call value
+                    | None -> Ok Direct_call_lowering.Unsupported_call)
+                | None, _ -> (
+                    match
+                      List.find_opt
+                        (fun call -> Callback_source.matches_result call value)
+                        top_callback_calls
+                    with
+                    | Some call ->
+                        Direct_call_lowering.lower_callback
+                          ~optimize_shifts:true ~optimize_division:true ?globals
+                          ~lower_call:(direct_call_in None) ~instruction_id
+                          ~value_id ~call value
                     | None -> Ok Direct_call_lowering.Unsupported_call)
                 | _ -> Ok Direct_call_lowering.Unsupported_call))
       in

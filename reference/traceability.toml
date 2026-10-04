@@ -13097,4 +13097,27 @@ execution = "Scalar cells and fully indexed arrays store, copy, clear, compare a
 faults = "JIT unknown values fail during callee load before arguments. AOT initial zero and explicitly stored null fail at reached invocation after arguments, as do signature and cleanup mismatches. Array bounds and offset overflow fail before callee loading and argument effects. Earlier output survives reached faults."
 limits = "Each element occupies eight global bytes independently of return class. The CLI example charges 56 global bytes, eight simultaneous frame bytes and two call levels; exact and one-below quotas and instruction counts are checked in both modes."
 verification_boundary = "Source-grounded IR and CLI tests do not establish a new independent TempleOS native comparison or hosted native callback emission."
-excluded = ["top-level indirect invocation", "member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+excluded = ["member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-TOP-LEVEL-CALLBACK-INVOCATION"
+description = "Original scalar and fully indexed global callbacks execute from top-level statement expressions through the shared integer/U0 IR call composer."
+sources = [
+  "Compiler/PrsExp.HC:383-588 original indirect callee capture, reverse arguments, defaults, hidden argc and cleanup",
+  "Compiler/PrsVar.HC:285-369 anonymous header and physical RT_PTR storage",
+  "Compiler/PrsStmt.HC:403-407 original global callback header",
+  "Compiler/PrsExp.HC:1055-1101 complete index chain and original dimensions",
+  "Compiler/OptPass789A.HC:723-732 CALL disp[RSP] with retained argument-byte displacement"
+]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/callback_source.ml", "src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_callback_storage.ml", "test/test_global_callback_cli.ml", "examples/top-level-callbacks.hc", "test/oracle/callback-storage-and-calls.json"]
+documentation = ["docs/global-callbacks.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The original typed global/indexed-global/outer call must belong to its exact top-level batch and executable statement subtree. Function sources and initializer regions cannot authorize entry calls. Invocation signature metadata is separate from callback storage and return type. The original registered global allocation, anonymous header and fully consumed dimensions authorize entry loads. Copied metadata, loads, foreign contexts and changed whole graphs provide no execution authority."
+execution = "Standalone calls and calls nested in supported arguments, output, conditions and loops preserve original integer/U0 bodies, saved defaults, callee snapshots, reverse arguments, hidden word tails and cleanup. Earlier JIT owners survive same-name replacement. Null/numeric or signature/cleanup faults follow argument effects; bounds, offset overflow and unknown JIT storage fail before them."
+limits = "The maintained top-level example returns 42 with 56 global bytes, eight active frame bytes and one call level. Tests check exact/one-below steps, storage and frame limits, plus recursion at the call-depth boundary."
+verification_boundary = "CLI word projections compare GLOBAL and ARRAY with both existing native JIT observations. GLOBAL substitutes an explicit store for the unsupported native initializer; ARRAY retains the observed declaration, store and call. Shell screen clearing and formatting are excluded from value projections. Hosted AOT replay does not establish native AOT behavior. No new native capture or hosted native callback emission is claimed."
+excluded = ["member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]

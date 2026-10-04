@@ -161,12 +161,17 @@
  (name test_global_callback_cli)
  (modules test_global_callback_cli)
  (libraries unix yojson)
- (deps ../examples/global-callbacks.hc)
+ (deps
+  ../examples/global-callbacks.hc
+  ../examples/top-level-callbacks.hc
+  oracle/callback-storage-and-calls.json)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
-   %{dep:../examples/global-callbacks.hc})))
+   %{dep:../examples/global-callbacks.hc}
+   %{dep:../examples/top-level-callbacks.hc}
+   %{dep:oracle/callback-storage-and-calls.json})))
 
 (test
  (name test_pointer_bit_cli)
