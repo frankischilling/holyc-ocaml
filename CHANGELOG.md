@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Connected explicit indexed callback dereferences to their original storage
+  and callee. Calls, reads, stores and numeric updates evaluate each index once;
+  calls capture the selected value before reverse argument effects. The
+  canceled star adds no runtime work. Grouping under the star, member storage
+  and remaining indirections retain their existing boundaries.
+  Arithmetic following numeric updates preserves pointer scaling and the
+  resulting signed or unsigned word class.
+
 - Added numeric callback prefix, postfix and compound updates to IR and native
   execution. One-star cells and fully indexed arrays preserve return metadata,
   eight-byte scaling, signed compound computation and right-operand effects.

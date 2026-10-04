@@ -531,10 +531,24 @@ val result_is_callback_storage : expression_result -> bool
 
 val result_canceled_callback_operand :
   expression_result -> expression_result option
-(** The original scalar callback identifier whose immediately preceding star was
-    removed by [PrsPopDeref]. The result retains that identifier's signature and
-    storage. A grouped operand or another remaining star is not canceled. This
-    view supplies no runtime address or executable authority. *)
+(** The original scalar or fully indexed callback operand whose pending star was
+    removed by [PrsPopDeref]. The result retains its signature, storage and
+    exact index expressions. Grouping under the star or within the bracket base,
+    and another remaining star, prevent cancellation. This view supplies no
+    runtime address or executable authority. *)
+
+val result_callback_update_operand :
+  expression_result -> expression_result option
+(** The exact callback cell selected by an original prefix, postfix or compound
+    update. Grouping retains the same operand. This does not expose code bits.
+*)
+
+val result_is_numeric_callback : expression_result -> bool
+(** An original callback update result, optionally followed by grouped integer
+    addition or subtraction. Its source pointer class supplies the parser's
+    scaling; [result_computation_type] supplies the resulting numeric word
+    class. Bare callback reads and arbitrary pointer expressions do not qualify.
+*)
 
 val result_computation_type : expression_result -> Type.t option
 (** Effective native integer producer class, derived from retained expression

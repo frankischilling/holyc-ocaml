@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+Explicit indexed callback forms such as `(*callbacks[index])(40)` run through
+IR and native execution, as do reads, stores and numeric updates through the
+same selected cell. The [indexed example](examples/indexed-callback-dereference.hc)
+prints `I` once and returns 42. See [callback storage](docs/native-local-callbacks.md).
+
 [Numeric callback updates](docs/callback-updates.md) run through IR and native
 execution in both source modes. Callback cells keep their separate return
 headers while increments and scaled compound assignments update numeric words.

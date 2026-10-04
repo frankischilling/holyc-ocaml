@@ -1,5 +1,18 @@
 # Testing holyc-ocaml
 
+The callback dereference suites cover explicit stars on fully indexed callback
+arrays in function bodies and top-level expressions. Public IR and native runs
+check calls, reads, stores and numeric updates, one evaluation of each index,
+callee capture before reverse arguments, selected defaults, reached faults and
+the same work as the ordinary indexed form. Typed checks retain the original
+operand, signature and index objects. Grouped bracket bases, remaining stars
+and ordinary pointer dereferences are separate controls. The CLI runs
+`examples/indexed-callback-dereference.hc` in both source modes and targets.
+Numeric consumers check high-bit signed and unsigned comparisons and shifts,
+promotion retained across mixed-signedness chains, and prefix, postfix and
+compound update results. Each case also checks the selected cell and index
+effect, so a correct final word alone cannot hide a repeated index or store.
+
 `test/test_callback_updates.ml` and
 `test/native/test_native_callback_updates.ml` check numeric callback updates in
 both source modes. Cases cover eight-byte scaling, signed compound operations,

@@ -295,67 +295,19 @@ let lowering_error ?span code message =
   { Sequence.code; message; instruction_id = None; span }
 
 let metadata_error ?span message = lowering_error ?span "HCIRL0004" message
-
-let rec callback_update_operand result =
-  let checked operand source =
-    if
-      Semantic_result.result_source operand == source
-      && Semantic_result.result_is_callback_storage operand
-      && Semantic_result.result_category result = Semantic_result.Object_value
-      && Option.fold ~none:false
-           ~some:(fun storage ->
-             Option.fold ~none:false ~some:(Type.equal storage)
-               (Semantic_result.result_type result))
-           (Semantic_result.result_storage_type operand)
-    then Some operand
-    else None
-  in
-  match
-    Semantic_source.argument_expression_kind
-      (Semantic_result.result_source result)
-  with
-  | Semantic_source.Parenthesized_expression source ->
-      Option.bind (Semantic_result.result_operand result) (fun operand ->
-          if Semantic_result.result_source operand == source then
-            callback_update_operand operand
-          else None)
-  | Semantic_source.Prefix_expression prefix
-    when List.mem
-           (Semantic_source.prefix_operator prefix)
-           [ Semantic_source.Pre_increment; Semantic_source.Pre_decrement ] ->
-      Option.bind (Semantic_result.result_operand result) (fun operand ->
-          checked operand (Semantic_source.prefix_operand prefix))
-  | Semantic_source.Postfix_expression postfix ->
-      Option.bind (Semantic_result.result_operand result) (fun operand ->
-          checked operand (Semantic_source.postfix_operand postfix))
-  | Semantic_source.Binary_expression binary
-    when List.mem
-           (Semantic_source.binary_operator binary)
-           [
-             Opcode.Ic_add_equ;
-             Ic_sub_equ;
-             Ic_mul_equ;
-             Ic_div_equ;
-             Ic_mod_equ;
-             Ic_and_equ;
-             Ic_or_equ;
-             Ic_xor_equ;
-             Ic_shl_equ;
-             Ic_shr_equ;
-           ] ->
-      Option.bind (Semantic_result.result_binary_operands result)
-        (fun (left, right) ->
-          if
-            Semantic_result.result_source right
-            == Semantic_source.binary_right binary
-          then checked left (Semantic_source.binary_left binary)
-          else None)
-  | _ -> None
+let callback_update_operand = Semantic_result.result_callback_update_operand
+let numeric_callback_result = Semantic_result.result_is_numeric_callback
 
 let checked_integer_type result =
-  if
-    (Semantic_result.result_is_callback_storage result
-    || Option.is_some (callback_update_operand result))
+  if numeric_callback_result result then
+    match Semantic_result.result_computation_type result with
+    | Some type_ -> Ok (Checked_type type_)
+    | None ->
+        Error
+          (metadata_error ?span:(result_span result)
+             "numeric callback result lost its original computation class")
+  else if
+    Semantic_result.result_is_callback_storage result
     && Semantic_result.result_class result = Semantic_result.Integer_result
   then
     Ok
@@ -440,8 +392,7 @@ let array_storage_address result =
      && Option.is_some (Semantic_result.result_callback_pointer result)
 
 let checked_frame_value result =
-  if Option.is_some (callback_update_operand result) then
-    checked_frame_integer result
+  if numeric_callback_result result then checked_frame_integer result
   else
     match Semantic_result.result_storage_type result with
     | Some type_ when array_storage_address result -> (
@@ -3639,6 +3590,13 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
   let result_type result =
     if Semantic_result.result_is_callback_storage result then
       Semantic_result.result_storage_type result
+    else if
+      numeric_callback_result result
+      && Option.is_none (callback_update_operand result)
+    then
+      (* The update instruction itself retains the physical destination type.
+         Only its subsequent arithmetic uses the projected numeric class. *)
+      Semantic_result.result_computation_type result
     else
       match Int_map.find_opt (result_key result) optimized_types with
       | Some type_ -> Some type_
@@ -4218,6 +4176,8 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                   if
                     (opcode = Opcode.Ic_add_equ || opcode = Opcode.Ic_sub_equ)
                     && Semantic_result.result_is_callback_storage left
+                    || (opcode = Opcode.Ic_add || opcode = Opcode.Ic_sub)
+                       && numeric_callback_result result
                   then
                     (* PrsAddOp scales the original RHS by the RT_PTR pointee
                        size before the update reads its destination. *)

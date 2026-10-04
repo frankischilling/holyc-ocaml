@@ -3,8 +3,9 @@
 One-star callback cells containing numeric words support prefix and postfix
 `++`/`--` and the ten compound assignment operators through the IR and native
 runners. This covers automatic and static cells, named callback parameters,
-globals, and fully indexed callback arrays in JIT and AOT source modes. A
-canceled scalar `*callback` selects the same cell.
+globals, and fully indexed callback arrays in JIT and AOT source modes.
+`*callback` and `*callbacks[index]` select the same original cells as their
+forms without the canceled star. Grouping under the star remains a boundary.
 
 ```holy-c
 F64 (*callback)(I64 n);
@@ -20,6 +21,12 @@ including division, remainder and right shift with a `U64` right operand.
 Arithmetic wraps where the existing integer runner wraps; division faults keep
 their existing diagnostics. Prefix expressions return the new word, and postfix
 expressions return the old word.
+
+An update result can feed ordinary integer arithmetic. Following `+` and `-`
+retain the parser's eight-byte scaling, including across parentheses and chained
+operations. The optimizer chooses the computation class separately: a `U64`
+operand makes the resulting word unsigned. Later comparisons and right shifts
+use that class. The callback header and original storage type remain intact.
 
 The lowerer retains the original checked storage operand and source expression.
 An index is evaluated once, followed by the compound right operand. The update
@@ -39,6 +46,11 @@ storage. `Kernel/KernelA.HH:1572-1574` identifies RT_PTR with signed RT_I64.
 compound instruction; `Compiler/BackB.HC:304-380` uses the pointee size for
 prefix and postfix updates. `Compiler/OptPass012.HC:824-895` preserves the
 left storage class for the remaining compound operations.
+For arithmetic following an update, `PrsExp.HC:15-48,223-240` preserves the
+source class used for scaling. `OptLib.HC:96-179` then chooses the common raw
+computation class; `OptPass012.HC:485-486,619-620` applies it to addition and
+subtraction. This distinction prevents a `U64` result from becoming signed just
+because the original callback cell uses RT_PTR.
 
 The existing `STORAGE` observation in
 `test/oracle/callback-storage-and-calls.json` records an eight-byte callback

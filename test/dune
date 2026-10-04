@@ -165,6 +165,7 @@
   ../examples/global-callbacks.hc
   ../examples/top-level-callbacks.hc
   ../examples/callback-updates.hc
+  ../examples/indexed-callback-dereference.hc
   oracle/callback-storage-and-calls.json)
  (action
   (run
@@ -173,7 +174,8 @@
    %{dep:../examples/global-callbacks.hc}
    %{dep:../examples/top-level-callbacks.hc}
    %{dep:oracle/callback-storage-and-calls.json}
-   %{dep:../examples/callback-updates.hc})))
+   %{dep:../examples/callback-updates.hc}
+   %{dep:../examples/indexed-callback-dereference.hc})))
 
 (test
  (name test_pointer_bit_cli)

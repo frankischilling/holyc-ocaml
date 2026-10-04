@@ -1205,10 +1205,22 @@ let rec identifier_callee dereference_depth = function
       identifier_callee (dereference_depth + 1) prefix.prefix_operand
   | _ -> None
 
+let rec indexed_callback_selection = function
+  | Frontend.Ast.Identifier_expression _ -> true
+  | Frontend.Ast.Index_expression index ->
+      indexed_callback_selection index.index_base
+  | _ -> false
+
 let rec computed_callee = function
   | Frontend.Ast.Member_expression _ | Frontend.Ast.Index_expression _ -> true
   | Frontend.Ast.Parenthesized_expression grouped ->
       computed_callee grouped.grouped_expression
+  | Frontend.Ast.Prefix_expression prefix
+    when prefix.prefix_operator_kind = Frontend.Ast.Dereference -> (
+      match prefix.prefix_operand with
+      | Frontend.Ast.Index_expression _ ->
+          indexed_callback_selection prefix.prefix_operand
+      | _ -> false)
   | _ -> false
 
 let rec first_identifier = function

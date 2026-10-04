@@ -719,6 +719,16 @@ val argument_expression : argument -> argument_expression option
 val argument_origin : argument -> Symbol.origin
 val argument_expression_kind : argument_expression -> argument_expression_kind
 val argument_expression_origin : argument_expression -> Symbol.origin
+
+val callback_cancellation_operand :
+  argument_expression -> argument_expression option
+(** The original operand of one pending dereference before an identifier or
+    bracket chain rooted directly at that identifier. Parentheses around the
+    whole expression are transparent; grouping under the star or within the
+    bracket base prevents cancellation. This checks source shape only. The
+    consumer must retain the original callback declaration and storage evidence.
+*)
+
 val sizeof_keyword_spelling : sizeof_expression -> string
 val sizeof_keyword_origin : sizeof_expression -> Symbol.origin
 val sizeof_opening_origins : sizeof_expression -> Symbol.origin list

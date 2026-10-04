@@ -27,6 +27,14 @@ invokes the same saved target as `callback(40)`. The
 global callback into a parameter and invokes it with that parameter's saved
 default. Both execution targets return 42 in JIT and AOT modes.
 
+The same rule applies to fully indexed callback cells. `(*callbacks[index])(40)`
+loads the selected element once before evaluating the call arguments. Reads,
+plain assignments and numeric updates through `*callbacks[index]` use that
+element's original checked address. Multidimensional arrays keep each original
+subscript and its order. The
+[indexed example](../examples/indexed-callback-dereference.hc) prints `I` once
+and returns 42 using the array declaration's saved default of 40.
+
 The star immediately before the identifier is canceled when the original parser
 selects the callback header. The checked result keeps that identifier, its
 storage and its signature. Lowering emits the same single cell load and callee
@@ -35,6 +43,13 @@ assignments through `*callback`. Parentheses around the complete `*callback`
 preserve the result. In `*(callback)`, parentheses start a new expression stack;
 in `**callback`, a second star remains. Those forms still require separate
 dereference support.
+
+For indexed forms, the bracket chain must reach the callback identifier without
+crossing a group. `(*callbacks[index])` cancels the star;
+`*(callbacks[index])` and `*(callbacks)[index]` leave a real dereference.
+Grouping around the complete canceled expression remains transparent. Partial
+arrays, member callbacks and additional callback indirections retain their
+existing execution boundaries.
 
 Callback storage also admits `F64` return metadata and pointer-return headers.
 For example, `F64 **(*p)(I64 n)` has one callback indirection and an eight-byte
@@ -168,6 +183,12 @@ These are source audits; this work adds no TempleOS oracle capture.
 lines 264-277 and 728-747 establish the nested expression stack for grouping.
 `Kernel/QSort.HC:16,18` calls a comparator through `(*fp_compare)`, and
 `Kernel/KTask.HC:295,497` uses the same syntax for global callbacks.
+For arrays, `PrsExp.HC:1071-1100` evaluates each subscript once and restores
+`CCF_FUN_EXP` before `PrsFunCall` at lines 1016-1020. The original callback
+selection has already removed the pending star. Grouped `PrsExpression` calls
+push their own terminators at lines 264-280, so cancellation cannot cross them.
+The indexed rule is derived from these compiler paths; this change adds no
+TempleOS oracle capture.
 `test_callback_dereference.ml` checks the retained typed operand and original
 load; `test_native_callback_dereference.ml` compares public IR with native
 execution, including defaults, U0 calls, callee mutation, fault output and
@@ -194,7 +215,7 @@ callback and object-reference parameter kinds even when physical types match.
 ## Remaining callback work
 
 [Numeric callback updates](callback-updates.md) support one-star scalar and
-fully indexed array cells, including canceled scalar dereferences. Numeric
+fully indexed array cells, including their canceled dereferences. Numeric
 results can supply integer consumers while retaining the checked storage type
 on the original update instruction.
 

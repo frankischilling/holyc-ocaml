@@ -195,9 +195,14 @@ remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS
 loader acceptance, whole-tree compilation and bootstrap retain their own gates.
 
 Issue #801 connects original callback storage and checked integer/U0 invocation
-through the IR runner. [Global callbacks](docs/global-callbacks.md) now include
-scalar cells and fully indexed arrays, saved declaration defaults and original
-global calling flags. Native invocation, member storage, initializers, updates,
-top-level indirect calls and broader return domains remain open.
+through IR and hosted native execution. Automatic, static and global cells,
+fully indexed arrays and callback parameters retain their selected headers,
+saved defaults and original calling flags. Explicit canceled dereferences reuse
+the same cells for calls, reads, assignments and numeric updates. Arithmetic
+after an update preserves eight-byte scaling and its I64 or U64 computation
+class. Supported global initializer regions and top-level calls also execute.
+Native source-session scheduling and shared task storage remain under #704;
+callback members, effectful defaults, owned-address arithmetic, remaining
+indirections and broader executable return domains keep #801 open.
 
 This file does not mark planned work as implemented. Current support is listed in the README and generated compatibility reports.

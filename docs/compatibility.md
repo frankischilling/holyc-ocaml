@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Explicit stars on fully indexed callback cells execute through both runners in
+JIT and AOT modes. Calls, reads, stores and numeric updates reuse the original
+array selection. Grouping under the star, callback members and remaining
+indirections are separate unfinished cases. See
+[callback storage](native-local-callbacks.md).
+
 [Numeric callback updates](callback-updates.md) execute through IR and native
 code in JIT and AOT modes. One-star scalar and fully indexed array cells support
 prefix/postfix updates and all ten compound operators with separate return

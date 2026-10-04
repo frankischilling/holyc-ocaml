@@ -1,5 +1,26 @@
 # Reference source map
 
+Explicit indexed callback dereferences follow the pending-operator stack in
+`Compiler/PrsExp.HC:609-676`, callback selection at lines 761-770 and 867-904,
+and `PrsLib.HC:21-29`. The callback selection removes one pending star before
+the brackets at `PrsExp.HC:1071-1100` evaluate their indices and restore
+`CCF_FUN_EXP`; the call then enters `PrsFunCall` at lines 1016-1020. Grouped
+`PrsExpression` calls push terminators at lines 264-280. One structural view
+retains the original prefix/index tree for binding and typing; the checked
+operand must still be the original fully indexed callback cell. Lowering reuses
+its existing load/address and adds no instruction for the canceled star. This
+is compiler-source evidence with no new oracle capture. See
+[native callback cells](native-local-callbacks.md).
+
+Arithmetic consuming a numeric callback update preserves two classes.
+`PrsExp.HC:15-48,223-240` uses the original pointer class for eight-byte scaling
+across addition and subtraction. `OptLib.HC:96-179` and
+`OptPass012.HC:485-486,619-620` select the resulting raw integer class, including
+U64 promotion. The semantic result retains the original update operand and
+source type while exposing that computation class to lowering and later
+comparisons and shifts. Bare callback reads do not acquire numeric ownership
+through this view.
+
 Numeric callback updates follow the separate RT_PTR storage selected in
 `Compiler/PrsVar.HC:350-357`, its signed RT_I64 identity in
 `Kernel/KernelA.HH:1572-1574`, `PrsExp.HC:15-63` for scaled compound addition

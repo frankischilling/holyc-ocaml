@@ -1670,6 +1670,25 @@ let make_top_level_bound_identifier_argument_expression ~occurrence =
 
 let argument_expression_kind expression = expression.expression_kind
 let argument_expression_origin expression = expression.expression_origin
+
+let callback_cancellation_operand expression =
+  let rec selection expression =
+    match argument_expression_kind expression with
+    | Bound_identifier_expression _ | Top_level_bound_identifier_expression _
+    | Unresolved_expression Identifier_expression -> true
+    | Index_expression index -> selection (index_base index)
+    | _ -> false
+  in
+  let rec whole expression =
+    match argument_expression_kind expression with
+    | Parenthesized_expression grouped -> whole grouped
+    | Prefix_expression prefix when prefix_operator prefix = Dereference ->
+        let operand = prefix_operand prefix in
+        if selection operand then Some operand else None
+    | _ -> None
+  in
+  whole expression
+
 let sizeof_keyword_spelling expression = expression.sizeof_keyword_spelling_
 let sizeof_keyword_origin expression = expression.sizeof_keyword_origin_
 let sizeof_opening_origins expression = expression.sizeof_opening_origins_
@@ -4089,7 +4108,8 @@ let indexed_identifier_callee computed =
     | Defined_expression _
     | Unresolved_expression _ -> None
   in
-  peel 0 computed
+  peel 0
+    (Option.value ~default:computed (callback_cancellation_operand computed))
 
 let bind_indexed_identifier_call occurrence (call : call) computed base
     actual_rank =

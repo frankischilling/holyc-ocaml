@@ -13342,3 +13342,21 @@ execution = "Prefix/postfix increments and decrements use eight-byte steps. Comp
 verification = "Public IR and actual host native execution cover both source modes, storage shapes, return metadata, signed and scaled operations, result consumers, alias ordering, retained storage, decoder authority and exact/one-below work."
 verification_boundary = "The existing callback STORAGE oracle records the eight-byte step but also performs owned-address arithmetic. These numeric projections do not reproduce that full fixture or add a new TempleOS capture."
 excluded = ["numeric arithmetic on owned function addresses", "native callback-valued arithmetic RHS", "callback member storage", "remaining and multistar dereferences", "native source-session scheduling and linking", "general F64/aggregate execution", "full compiler and release"]
+
+[[feature]]
+id = "HC-CALLBACK-INDEXED-DEREFERENCE"
+description = "One pending star before a fully indexed callback selection aliases the original cell for calls, reads, stores and numeric updates."
+sources = ["Compiler/PrsExp.HC:609-676 pending prefix operators", "Compiler/PrsExp.HC:761-770,867-904 callback selection", "Compiler/PrsLib.HC:21-29 PrsPopDeref", "Compiler/PrsExp.HC:1071-1100 subscript evaluation and restored CCF_FUN_EXP", "Compiler/PrsExp.HC:1016-1020 PrsFunCall", "Compiler/PrsExp.HC:264-280 expression-stack terminators"]
+implementation = ["src/driver/function_call_resolution.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/test_callback_dereference.ml", "test/native/test_native_callback_dereference.ml", "test/test_global_callback_cli.ml", "examples/indexed-callback-dereference.hc"]
+documentation = ["docs/native-local-callbacks.md", "docs/callback-updates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Call discovery retains the original complete prefix/index source. A shared structural view selects its operand for bracket binding and typing without copying or reparsing. The typed alias requires original fully indexed callback storage and the exact anonymous header and index children."
+numeric_consumers = "PrsExp.HC:15-48,223-240 preserves pointer scaling through grouped addition/subtraction following original callback updates. OptLib.HC:96-179 and OptPass012.HC:485-486,619-620 select the common raw I64/U64 computation class. Semantic and IR consumers share one exact update-lineage check; bare callback reads and ordinary pointers receive no numeric authority from that view."
+execution = "Automatic/static/global one-star callback arrays reuse the existing checked address and private owner lanes. Every index is evaluated once; callee capture precedes reverse arguments. The canceled star emits no instruction or runtime work. Original bounds, initialization, numeric-call and ownership faults retain their reached phase and effects."
+grouping = "Parentheses around the whole canceled expression are transparent. A group under the star or inside the bracket base prevents cancellation; partial arrays, remaining indirections and callback members keep their separate boundaries. Ordinary pointer dereferences acquire no callback authority."
+verification = "Public IR/native and CLI cases cover both source modes, storage and header shapes, exact source identities, reads/copies/stores/updates/calls, one-time index effects, callee capture, faults and same-work comparisons with the ordinary indexed form."
+verification_boundary = "The compiler paths supply the indexed cancellation rule. No literal pinned-corpus indexed-star call or new TempleOS oracle capture is claimed."
+excluded = ["grouping under the pending star", "grouping within the bracket base", "partial array cancellation", "member callback cancellation", "remaining and multistar dereferences", "owned-address arithmetic", "native shared task scheduling and linking", "general F64/aggregate execution", "full compiler and release"]

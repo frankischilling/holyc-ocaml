@@ -749,27 +749,13 @@ let result_is_callback_storage (result : expression_result) =
   && result.array_rank = 0
   && Option.is_some result.callback_pointer
 
-let callback_identifier_source source =
-  match Function_call_resolution.argument_expression_kind source with
-  | Function_call_resolution.Bound_identifier_expression _
-  | Function_call_resolution.Top_level_bound_identifier_expression _
-  | Function_call_resolution.Unresolved_expression
-      Function_call_resolution.Identifier_expression -> true
-  | _ -> false
+let canceled_callback_callee_operand =
+  Function_call_resolution.callback_cancellation_operand
 
-let callback_identifier (result : expression_result) =
-  result_is_callback_storage result && callback_identifier_source result.source
-
-let rec canceled_callback_callee_operand source =
-  match Function_call_resolution.argument_expression_kind source with
-  | Function_call_resolution.Parenthesized_expression grouped ->
-      canceled_callback_callee_operand grouped
-  | Function_call_resolution.Prefix_expression prefix
-    when Function_call_resolution.prefix_operator prefix
-         = Function_call_resolution.Dereference ->
-      let operand = Function_call_resolution.prefix_operand prefix in
-      if callback_identifier_source operand then Some operand else None
-  | _ -> None
+let canceled_callback_storage source (operand : expression_result) =
+  result_is_callback_storage operand
+  && Option.fold ~none:false ~some:(( == ) operand.source)
+       (canceled_callback_callee_operand source)
 
 let result_canceled_callback_operand (result : expression_result) =
   match
@@ -783,38 +769,166 @@ let result_canceled_callback_operand (result : expression_result) =
     when Function_call_resolution.prefix_operator prefix
          = Function_call_resolution.Dereference
          && Function_call_resolution.prefix_operand prefix == operand.source
-         && callback_identifier operand
+         && canceled_callback_storage result.source operand
          && result_is_callback_storage result
          && Option.fold ~none:false ~some:(( == ) pointer)
               operand.callback_pointer -> Some operand
   | _ -> None
 
+let rec result_callback_update_operand (result : expression_result) =
+  let checked (operand : expression_result) source =
+    if
+      operand.source == source
+      && result_is_callback_storage operand
+      && result.category = Object_value
+      && Option.fold ~none:false
+           ~some:(fun storage ->
+             Option.fold ~none:false ~some:(Type.equal storage)
+               result.source_type)
+           (result_storage_type operand)
+    then Some operand
+    else None
+  in
+  match Function_call_resolution.argument_expression_kind result.source with
+  | Function_call_resolution.Parenthesized_expression source ->
+      Option.bind result.operand_result (fun operand ->
+          if operand.source == source then
+            result_callback_update_operand operand
+          else None)
+  | Function_call_resolution.Prefix_expression prefix
+    when List.mem
+           (Function_call_resolution.prefix_operator prefix)
+           [ Function_call_resolution.Pre_increment; Pre_decrement ] ->
+      Option.bind result.operand_result (fun operand ->
+          checked operand (Function_call_resolution.prefix_operand prefix))
+  | Function_call_resolution.Postfix_expression postfix ->
+      Option.bind result.operand_result (fun operand ->
+          checked operand (Function_call_resolution.postfix_operand postfix))
+  | Function_call_resolution.Binary_expression binary
+    when List.mem
+           (Function_call_resolution.binary_operator binary)
+           Generated.Intermediate_codes.
+             [
+               Ic_add_equ;
+               Ic_sub_equ;
+               Ic_mul_equ;
+               Ic_div_equ;
+               Ic_mod_equ;
+               Ic_and_equ;
+               Ic_or_equ;
+               Ic_xor_equ;
+               Ic_shl_equ;
+               Ic_shr_equ;
+             ] ->
+      Option.bind result.binary_operands (fun (left, right) ->
+          if right.source == Function_call_resolution.binary_right binary then
+            checked left (Function_call_resolution.binary_left binary)
+          else None)
+  | _ -> None
+
+let rec result_is_numeric_callback (result : expression_result) =
+  match result.source_type with
+  | Some type_
+    when Type.pointer_depth type_ = 1
+         && Type.base type_
+            = Type.Primitive (Type.Internal_storage, Primitive_type.I64)
+         && result.result_class = Integer_result -> (
+      if Option.is_some (result_callback_update_operand result) then true
+      else
+        match
+          Function_call_resolution.argument_expression_kind result.source
+        with
+        | Function_call_resolution.Parenthesized_expression source ->
+            Option.fold ~none:false
+              ~some:(fun (operand : expression_result) ->
+                operand.source == source
+                && operand.source_type = Some type_
+                && result_is_numeric_callback operand)
+              result.operand_result
+        | Function_call_resolution.Binary_expression binary
+          when List.mem
+                 (Function_call_resolution.binary_operator binary)
+                 Generated.Intermediate_codes.[ Ic_add; Ic_sub ] ->
+            Option.fold ~none:false
+              ~some:(fun
+                  ((left : expression_result), (right : expression_result)) ->
+                left.source == Function_call_resolution.binary_left binary
+                && right.source == Function_call_resolution.binary_right binary
+                && left.source_type = Some type_
+                && result_is_numeric_callback left
+                && right.result_class = Integer_result
+                && right.array_rank = 0
+                && Option.fold ~none:false
+                     ~some:(fun right_type ->
+                       Type.pointer_depth right_type = 0
+                       &&
+                       match Type.base right_type with
+                       | Type.Primitive (_, primitive) ->
+                           Option.is_some
+                             (Primitive_type.integer_storage_info primitive)
+                       | _ -> false)
+                     (result_storage_type right))
+              result.binary_operands
+        | _ -> false)
+  | _ -> false
+
 let rec result_computation_type (result : expression_result) =
   let module C = Integer_computation_class in
   let declared () = Option.map C.declared (result_storage_type result) in
   let forwarded () = Option.map C.forward (result_storage_type result) in
-  match result.call_resolution with
-  | Some _ -> declared ()
-  | None -> (
-      match Function_call_resolution.argument_expression_kind result.source with
-      | Function_call_resolution.Parenthesized_expression _ -> (
-          match result.operand_result with
-          | Some operand when not operand.array_address ->
-              result_computation_type operand
-          | _ -> forwarded ())
-      | Function_call_resolution.Prefix_expression prefix
-        when Function_call_resolution.prefix_operator prefix
-             = Function_call_resolution.Unary_plus ->
-          Option.bind result.operand_result result_computation_type
-      | Function_call_resolution.Prefix_expression prefix
-        when Function_call_resolution.prefix_operator prefix
-             = Function_call_resolution.Bitwise_not ->
-          Option.map C.forward
-            (Option.bind result.operand_result result_computation_type)
-      | Function_call_resolution.Postfix_cast_expression _
-      | Function_call_resolution.Unresolved_expression
-          Function_call_resolution.Call_expression -> declared ()
-      | _ -> forwarded ())
+  if result_is_numeric_callback result then
+    let word primitive =
+      Type.make_primitive ~form:Type.Internal_storage ~primitive
+        ~pointer_depth:0
+      |> Result.to_option
+    in
+    match Function_call_resolution.argument_expression_kind result.source with
+    | Function_call_resolution.Parenthesized_expression _ ->
+        Option.bind result.operand_result result_computation_type
+    | Function_call_resolution.Binary_expression binary
+      when List.mem
+             (Function_call_resolution.binary_operator binary)
+             Generated.Intermediate_codes.[ Ic_add; Ic_sub ] ->
+        let unsigned operand =
+          Option.fold ~none:false
+            ~some:(fun type_ ->
+              match Type.base type_ with
+              | Type.Primitive (_, Primitive_type.U64) -> true
+              | _ -> false)
+            (result_computation_type operand)
+        in
+        Option.bind result.binary_operands (fun (left, right) ->
+            (* PrsAddOp retains the parser's pointer class for scaling. The
+               optimizer then selects the common raw class after that scale. *)
+            word
+              (if unsigned left || unsigned right then Primitive_type.U64
+               else Primitive_type.I64))
+    | _ -> word Primitive_type.I64
+  else
+    match result.call_resolution with
+    | Some _ -> declared ()
+    | None -> (
+        match
+          Function_call_resolution.argument_expression_kind result.source
+        with
+        | Function_call_resolution.Parenthesized_expression _ -> (
+            match result.operand_result with
+            | Some operand when not operand.array_address ->
+                result_computation_type operand
+            | _ -> forwarded ())
+        | Function_call_resolution.Prefix_expression prefix
+          when Function_call_resolution.prefix_operator prefix
+               = Function_call_resolution.Unary_plus ->
+            Option.bind result.operand_result result_computation_type
+        | Function_call_resolution.Prefix_expression prefix
+          when Function_call_resolution.prefix_operator prefix
+               = Function_call_resolution.Bitwise_not ->
+            Option.map C.forward
+              (Option.bind result.operand_result result_computation_type)
+        | Function_call_resolution.Postfix_cast_expression _
+        | Function_call_resolution.Unresolved_expression
+            Function_call_resolution.Call_expression -> declared ()
+        | _ -> forwarded ())
 
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
@@ -1092,7 +1206,9 @@ let select_known_binary_type left right result_class =
               | Some original, Type.Primitive (_, primitive) -> (
                   match Type.base original with
                   | Type.Primitive (_, actual)
-                    when Primitive_type.equal actual primitive -> Some original
+                    when Type.pointer_depth original = 0
+                         && Primitive_type.equal actual primitive ->
+                      Some original
                   | _ -> Some computation)
               | _ -> Some computation)
           | _ -> None)
@@ -1356,71 +1472,76 @@ let resolve_member_lookup members ~before_item_index ~aggregate_symbol
                   member_name))
       | Ok (Some lookup) -> Ok lookup)
 
-let rec callback_array_index_depth ~callee expression =
-  match Function_call_resolution.argument_expression_kind expression with
-  | Function_call_resolution.Parenthesized_expression grouped ->
-      callback_array_index_depth ~callee grouped
-  | Function_call_resolution.Index_expression index ->
-      Option.map Int.succ
-        (callback_array_index_depth ~callee
-           (Function_call_resolution.index_base index))
-  | Function_call_resolution.Top_level_bound_identifier_expression identifier ->
-      let occurrence =
-        Function_call_resolution.top_level_bound_identifier_occurrence
-          identifier
-      in
-      if occurrence == callee then Some 0 else None
-  | Function_call_resolution.Integer_literal _
-  | Function_call_resolution.Float_literal _
-  | Function_call_resolution.Character_literal _
-  | Function_call_resolution.String_literal _
-  | Function_call_resolution.Prefix_expression _
-  | Function_call_resolution.Postfix_expression _
-  | Function_call_resolution.Postfix_cast_expression _
-  | Function_call_resolution.Binary_expression _
-  | Function_call_resolution.Member_access_expression _
-  | Function_call_resolution.Bound_identifier_expression _
-  | Function_call_resolution.Aggregate_offset_base_expression _
-  | Function_call_resolution.Sizeof_expression _
-  | Function_call_resolution.Standalone_offset_expression _
-  | Function_call_resolution.Defined_expression _
-  | Function_call_resolution.Unresolved_expression _ -> None
+let callback_array_index_depth ~callee expression =
+  let rec peel expression =
+    match Function_call_resolution.argument_expression_kind expression with
+    | Function_call_resolution.Parenthesized_expression grouped -> peel grouped
+    | Function_call_resolution.Index_expression index ->
+        Option.map Int.succ (peel (Function_call_resolution.index_base index))
+    | Function_call_resolution.Top_level_bound_identifier_expression identifier
+      ->
+        let occurrence =
+          Function_call_resolution.top_level_bound_identifier_occurrence
+            identifier
+        in
+        if occurrence == callee then Some 0 else None
+    | Function_call_resolution.Integer_literal _
+    | Function_call_resolution.Float_literal _
+    | Function_call_resolution.Character_literal _
+    | Function_call_resolution.String_literal _
+    | Function_call_resolution.Prefix_expression _
+    | Function_call_resolution.Postfix_expression _
+    | Function_call_resolution.Postfix_cast_expression _
+    | Function_call_resolution.Binary_expression _
+    | Function_call_resolution.Member_access_expression _
+    | Function_call_resolution.Bound_identifier_expression _
+    | Function_call_resolution.Aggregate_offset_base_expression _
+    | Function_call_resolution.Sizeof_expression _
+    | Function_call_resolution.Standalone_offset_expression _
+    | Function_call_resolution.Defined_expression _
+    | Function_call_resolution.Unresolved_expression _ -> None
+  in
+  peel
+    (Option.value ~default:expression
+       (canceled_callback_callee_operand expression))
 
-let rec function_callback_array_index_depth ~callee expression =
-  match Function_call_resolution.argument_expression_kind expression with
-  | Function_call_resolution.Parenthesized_expression grouped ->
-      function_callback_array_index_depth ~callee grouped
-  | Function_call_resolution.Index_expression index ->
-      Option.map Int.succ
-        (function_callback_array_index_depth ~callee
-           (Function_call_resolution.index_base index))
-  | Function_call_resolution.Bound_identifier_expression identifier ->
-      let occurrence =
-        Function_call_resolution.bound_identifier_occurrence identifier
-      in
-      if occurrence == callee then Some 0 else None
-  | Function_call_resolution.Unresolved_expression
-      Function_call_resolution.Identifier_expression ->
-      if
-        Function_call_resolution.argument_expression_origin expression
-        = Module_expression_binding.occurrence_origin callee
-      then Some 0
-      else None
-  | Function_call_resolution.Integer_literal _
-  | Function_call_resolution.Float_literal _
-  | Function_call_resolution.Character_literal _
-  | Function_call_resolution.String_literal _
-  | Function_call_resolution.Prefix_expression _
-  | Function_call_resolution.Postfix_expression _
-  | Function_call_resolution.Postfix_cast_expression _
-  | Function_call_resolution.Binary_expression _
-  | Function_call_resolution.Member_access_expression _
-  | Function_call_resolution.Aggregate_offset_base_expression _
-  | Function_call_resolution.Top_level_bound_identifier_expression _
-  | Function_call_resolution.Sizeof_expression _
-  | Function_call_resolution.Standalone_offset_expression _
-  | Function_call_resolution.Defined_expression _
-  | Function_call_resolution.Unresolved_expression _ -> None
+let function_callback_array_index_depth ~callee expression =
+  let rec peel expression =
+    match Function_call_resolution.argument_expression_kind expression with
+    | Function_call_resolution.Parenthesized_expression grouped -> peel grouped
+    | Function_call_resolution.Index_expression index ->
+        Option.map Int.succ (peel (Function_call_resolution.index_base index))
+    | Function_call_resolution.Bound_identifier_expression identifier ->
+        let occurrence =
+          Function_call_resolution.bound_identifier_occurrence identifier
+        in
+        if occurrence == callee then Some 0 else None
+    | Function_call_resolution.Unresolved_expression
+        Function_call_resolution.Identifier_expression ->
+        if
+          Function_call_resolution.argument_expression_origin expression
+          = Module_expression_binding.occurrence_origin callee
+        then Some 0
+        else None
+    | Function_call_resolution.Integer_literal _
+    | Function_call_resolution.Float_literal _
+    | Function_call_resolution.Character_literal _
+    | Function_call_resolution.String_literal _
+    | Function_call_resolution.Prefix_expression _
+    | Function_call_resolution.Postfix_expression _
+    | Function_call_resolution.Postfix_cast_expression _
+    | Function_call_resolution.Binary_expression _
+    | Function_call_resolution.Member_access_expression _
+    | Function_call_resolution.Aggregate_offset_base_expression _
+    | Function_call_resolution.Top_level_bound_identifier_expression _
+    | Function_call_resolution.Sizeof_expression _
+    | Function_call_resolution.Standalone_offset_expression _
+    | Function_call_resolution.Defined_expression _
+    | Function_call_resolution.Unresolved_expression _ -> None
+  in
+  peel
+    (Option.value ~default:expression
+       (canceled_callback_callee_operand expression))
 
 let outer_binding_for_expression state source =
   match state.outer_function with
@@ -2530,10 +2651,11 @@ and type_prefix table members policies ~before_item_index ~context
               finish
                 ~source_type:(result_storage_type operand)
                 Object_value operand.result_class)
-      | Function_call_resolution.Dereference when callback_identifier operand ->
-          (* PrsPopDeref removes one pending star when the callback identifier
-             is selected. A grouped operand starts another expression stack,
-             and a second star remains an ordinary dereference. *)
+      | Function_call_resolution.Dereference
+        when canceled_callback_storage source operand ->
+          (* PrsPopDeref removes the pending star at callback selection before
+             any following indices run. A group under that star starts another
+             expression stack; a second star remains an ordinary dereference. *)
           finish ~source_type:operand.source_type
             ?callback_pointer:operand.callback_pointer Callback_value
             Integer_result
