@@ -272,14 +272,15 @@ let local_source_error (declaration : Ast.local_declaration) =
           Some (source_error local.local_declarator_location.span message)
         in
         if
-          (if is_static then local.local_pointer_layers <> []
-           else List.length local.local_pointer_layers > 1)
-          || (is_static && Option.is_some local.local_function_pointer)
+          if is_static && Option.is_none local.local_function_pointer then
+            local.local_pointer_layers <> []
+          else List.length local.local_pointer_layers > 1
         then
           reject "native locals admit only automatic one-level scalar pointers"
         else if
           local.local_array_dimensions <> []
           && (local.local_pointer_layers <> []
+              && Option.is_none local.local_function_pointer
              || ((not is_static) && Option.is_some local.local_initializer))
         then
           reject
@@ -299,14 +300,30 @@ let local_source_error (declaration : Ast.local_declaration) =
 let global_source_error ~span ~modifiers ~binding ~type_specifier
     ~pointer_layers ~function_pointer ~array_dimensions:_ ~has_initializer:_ =
   let reject message = Some (source_error span message) in
-  if modifiers <> [] || Option.is_some binding then
+  if
+    List.exists
+      (fun (modifier : Ast.declaration_modifier) ->
+        if Option.is_none function_pointer then true
+        else
+          match modifier.kind with
+          | Ast.Argument_pop | Ast.No_argument_pop | Ast.Has_error_code -> false
+          | _ -> true)
+      modifiers
+    || Option.is_some binding
+  then
     reject
-      "native globals require ordinary declarations without modifiers or \
-       aliases"
-  else if not (scalar_word_type type_specifier) then
-    reject "native globals require nonzero scalar integer types"
-  else if pointer_layers <> [] || Option.is_some function_pointer then
-    reject "native globals do not admit pointer or callback storage"
+      "native globals require ordinary integer or callback declarations \
+       without aliases or unsupported calling modifiers"
+  else if
+    not
+      (scalar_word_type type_specifier
+      || (void_return_type type_specifier && Option.is_some function_pointer))
+  then reject "native globals require nonzero scalar integer types"
+  else if
+    if Option.is_some function_pointer then List.length pointer_layers > 1
+    else pointer_layers <> []
+  then
+    reject "native globals require scalar integers or one-star callback storage"
   else None
 
 let ast_errors (ast : Ast.module_) =
@@ -407,19 +424,22 @@ let ast_errors (ast : Ast.module_) =
                   :: !work
             | Ast.Call_expression call -> (
                 match call.call_callee with
-                | Ast.Identifier_expression _ ->
+                | Ast.Identifier_expression _
+                | Ast.Index_expression _
+                | Ast.Parenthesized_expression _ ->
                     work :=
-                      List.rev_append
-                        (List.rev_map
-                           (fun argument ->
-                             match argument.Ast.call_argument_value with
-                             | Ast.Provided_call_argument expression ->
-                                 Some
-                                   (Gate_expression (in_function, expression))
-                             | Ast.Omitted_call_argument -> None)
-                           call.call_arguments
-                        |> List.filter_map Fun.id)
-                        !work
+                      Gate_expression (in_function, call.call_callee)
+                      :: List.rev_append
+                           (List.rev_map
+                              (fun argument ->
+                                match argument.Ast.call_argument_value with
+                                | Ast.Provided_call_argument expression ->
+                                    Some
+                                      (Gate_expression (in_function, expression))
+                                | Ast.Omitted_call_argument -> None)
+                              call.call_arguments
+                           |> List.filter_map Fun.id)
+                           !work
                 | _ ->
                     reject
                       (source_error call.call_location.span

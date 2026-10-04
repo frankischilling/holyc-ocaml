@@ -16,8 +16,8 @@ val hard_max_literal_bytes : int
 (** Hard logical literal byte bound, including terminators: 16 MiB. *)
 
 val hard_max_arena_bytes : int
-(** Hard host allocation bound for data plus per-slot initialization state: 32
-    MiB. *)
+(** Hard host allocation bound for data, initialization and callback ownership:
+    32 MiB. *)
 
 val hard_max_output_bytes : int
 (** Hard captured-output byte bound: 16 MiB. *)

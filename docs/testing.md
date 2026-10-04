@@ -1352,14 +1352,16 @@ one below and recover on the same image. The scalar CLI also runs
 and checked-batch interpreter executions. Windows and Linux run these through
 `@native-tests`; compiling both image ABIs locally does not execute a foreign ABI.
 
-Native automatic local callbacks and fixed callback parameters are checked in
-the native scalar suites, `examples/native-local-callbacks.hc` and
-`examples/native-callback-parameters.hc`. Encoder tests cover all allocator registers
+Native automatic/static/global callback cells, fully indexed arrays and fixed
+callback parameters are checked in the native scalar suites and
+`examples/native-local-callbacks.hc`, `examples/native-callback-parameters.hc`
+and `examples/native-callback-storage.hc`. Encoder tests cover all allocator registers
 for signed RIP-relative LEA and saved-slot CALL forms. Source tests reject copied
 producers, foreign contexts, code escapes and callback faults naming direct-call
 sites. Native API/CLI cases compare independent values and fresh public IR in
 JIT/AOT, exact checked-batch meters, reached output on numeric/null/signature
 faults, address/owner snapshots, fixed-parameter forwarding, numeric overwrites,
-nested calls, all integer widths, U0 and recursive quota
+nested calls, all integer widths, U0, cross-activation static state, per-element
+initialization and bounds, private metadata allocation caps and recursive quota
 failures followed by same-image recovery. Both image ABIs compile locally; the
 Windows and Linux CI jobs execute their host ABI through `@native-tests`.

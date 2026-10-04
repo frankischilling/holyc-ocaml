@@ -257,9 +257,10 @@ The final TempleOS backend saves the clobbered register set on interrupt entry a
 The complete saved-register contract, floating returns, machine-frame lowering, register-variable allocation, indirect-call details, exception unwinding, and hosted ABI bridging are not yet specified here. The semantic layout above records source-backed `RBP` displacements and byte counts; it is not a prologue, epilogue, register assignment, or complete HolyC ABI implementation.
 
 The hosted [native callback consumer](native-local-callbacks.md) saves address and
-ownership snapshots before reverse arguments. Automatic cells and fixed callback
-parameters preserve private ownership metadata; numeric stores clear it. Reached
+ownership snapshots before reverse arguments. Automatic/static/global cells,
+fully indexed arrays and fixed callback parameters preserve private ownership
+metadata; numeric stores clear it. Reached
 invocation checks the selected signature and cleanup policy. The indirect CALL
-enters the private fixed-RSP plain-RET adapter. Native global/static/array storage,
-callback defaults and word tails remain unfinished, along with HolyC ABI exports,
+enters the private fixed-RSP plain-RET adapter. Native member callbacks, declaration
+defaults, initializers, updates and word tails remain unfinished, along with HolyC ABI exports,
 RET-imm execution and interrupt entry.

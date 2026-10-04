@@ -15,6 +15,8 @@ type slot = {
   owner : Ir.Function_body.t option;
   symbol : Symbol.t;
   type_ : Sema.Type.t;
+  callback : Sema.Function_type_resolution.function_pointer option;
+  code_owner_offset : int option;
   scalar : Scalar.t;
   dimensions : int64 list;
   strides : int64 list;
@@ -170,6 +172,20 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           else Ok (total + (elements * 8)))
       (Ok 0) source_slots
   in
+  let* code_owner_bytes =
+    List.fold_left
+      (fun checked (storage, _, _) ->
+        let* total = checked in
+        if Option.is_none (Globals.storage_callback_pointer storage) then
+          Ok total
+        else
+          let elements = Globals.storage_element_count storage in
+          if elements <= 0 || elements > (hard_max_arena_bytes - total) / 8 then
+            resource
+              "private callback ownership exceeds the arena allocation bound"
+          else Ok (total + (elements * 8)))
+      (Ok 0) source_slots
+  in
   let* arena_bytes =
     if slot_count > hard_max_arena_bytes - declared_bytes then
       resource
@@ -184,7 +200,12 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
              "private global arena exceeds the hard allocation bound of %d \
               bytes"
              hard_max_arena_bytes)
-      else Ok (prefix_bytes + array_flag_bytes)
+      else if
+        code_owner_bytes
+        > hard_max_arena_bytes - prefix_bytes - array_flag_bytes
+      then
+        resource "private callback ownership exceeds the arena allocation bound"
+      else Ok (prefix_bytes + array_flag_bytes + code_owner_bytes)
   in
   let* () =
     if arena_bytes > hard_max_arena_bytes || arena_bytes > Sys.max_string_length
@@ -229,13 +250,14 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
               (Globals.static_root_materialized slot))
     | _ -> invalid ?span "native storage has an invalid initializer owner"
   in
-  let rec collect ordinal cell_index byte_offset array_flag_cursor slots =
-    function
+  let rec collect ordinal cell_index byte_offset array_flag_cursor owner_cursor
+      slots = function
     | [] ->
         if
           byte_offset <> declared_bytes
           || cell_index <> Globals.cell_count globals
-          || array_flag_cursor <> arena_bytes
+          || array_flag_cursor <> arena_bytes - code_owner_bytes
+          || owner_cursor <> arena_bytes
         then
           invalid
             "native global packed widths disagree with the sealed semantic \
@@ -254,9 +276,33 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let span = span_of_symbol symbol in
         let storage = source_slot in
         let type_ = Globals.storage_type source_slot in
+        let callback = Globals.storage_callback_pointer source_slot in
+        let* shape_type =
+          match callback with
+          | None -> Ok type_
+          | Some pointer ->
+              let module Headers = Sema.Function_type_resolution in
+              if
+                List.length
+                  (Headers.function_pointer_indirection_origins pointer)
+                <> 1
+                || not
+                     (Sema.Type.equal type_
+                        (Headers.function_pointer_storage_type pointer
+                        |> Result.get_ok))
+              then
+                invalid ?span
+                  "native callback storage requires its original one-star \
+                   header"
+              else
+                Ok
+                  (Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
+                     ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+                  |> Result.get_ok)
+        in
         let dimensions = Globals.storage_dimensions storage in
         let* shape =
-          match Shape.create ~type_ ~dimensions with
+          match Shape.create ~type_:shape_type ~dimensions with
           | Ok shape -> Ok shape
           | Error Shape.Unsupported_type ->
               unsupported ?span
@@ -319,7 +365,16 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                 || (not
                       (Symbol.equal_kind (Symbol.kind symbol)
                          Symbol.Local_variable))
-                || Frame.location_declarator_shape location <> Frame.Object
+                || (Frame.location_declarator_shape location
+                   <>
+                   if Option.is_some callback then Frame.Function_pointer
+                   else Frame.Object)
+                || (match
+                      (Frame.location_callback_pointer location, callback)
+                    with
+                  | None, None -> false
+                  | Some actual, Some expected -> actual != expected
+                  | _ -> true)
                 || (Frame.location_value_shape location
                    <> if is_array then Frame.Array else Frame.Scalar)
                 || frame_dimensions <> dimensions
@@ -337,7 +392,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                 || Frame.location_symbol location != symbol
                 || (not
                       (Sema.Type.equal
-                         (Frame.location_checked_type location)
+                         (Frame.location_storage_type location |> Result.get_ok)
                          type_))
                 || Option.is_some (Frame.location_frame_slot location)
               then
@@ -490,12 +545,19 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
             (Ok ()) array_image
         in
         let initially_initialized = !initialized_count = element_count in
+        let code_owner_offset = Option.map (fun _ -> owner_cursor) callback in
+        let next_owner_cursor =
+          if Option.is_some callback then owner_cursor + (element_count * 8)
+          else owner_cursor
+        in
         let slot =
           {
             source_slot;
             owner;
             symbol;
             type_;
+            callback;
+            code_owner_offset;
             scalar;
             dimensions;
             strides;
@@ -513,11 +575,14 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           collect (ordinal + 1)
             (cell_index + element_count)
             (byte_offset + allocation_bytes)
-            next_array_flag_cursor
+            next_array_flag_cursor next_owner_cursor
             (Symbol_map.add id slot slots)
             rest
   in
-  collect 0 0 0 (declared_bytes + slot_count) Symbol_map.empty source_slots
+  collect 0 0 0
+    (declared_bytes + slot_count)
+    (arena_bytes - code_owner_bytes)
+    Symbol_map.empty source_slots
 
 let create ~functions ~max_global_bytes ~initialization ~entry =
   create_internal ~functions ~max_global_bytes ~initialization ~entry ()
@@ -541,6 +606,8 @@ let find_symbol layout symbol =
 let source_slot slot = slot.source_slot
 let symbol slot = slot.symbol
 let type_ slot = slot.type_
+let callback slot = slot.callback
+let code_owner_offset slot = slot.code_owner_offset
 let scalar slot = slot.scalar
 let dimensions slot = slot.dimensions
 let strides slot = slot.strides

@@ -31,19 +31,22 @@ let source_inputs ~mode ~path contents =
   in
   (session, config, source)
 
-let compile_source ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
-    ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode contents =
+let compile_source ?max_global_bytes ?max_ir_instructions ?max_code_bytes
+    ?max_stack_bytes ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode
+    contents =
   let session, config, source =
     source_inputs ~mode ~path:"native-scalar-functions-test.hc" contents
   in
-  Native_program.compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
-    ?max_blocks ?max_initializer_steps ?max_default_bytes session ~config
-    ~source
+  Native_program.compile ?max_global_bytes ?max_ir_instructions ?max_code_bytes
+    ?max_stack_bytes ?max_blocks ?max_initializer_steps ?max_default_bytes
+    session ~config ~source
 
-let image ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
-    ?max_initializer_steps ?max_default_bytes ~mode contents =
-  compile_source ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
-    ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode contents
+let image ?max_global_bytes ?max_ir_instructions ?max_code_bytes
+    ?max_stack_bytes ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode
+    contents =
+  compile_source ?max_global_bytes ?max_ir_instructions ?max_code_bytes
+    ?max_stack_bytes ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode
+    contents
   |> require_ok diagnostics_text
   |> fun checked -> checked.value
 
@@ -864,8 +867,95 @@ let callback_parameter_source_and_authority () =
       ignore (image ~mode "I64 Run(){I64 (*p)();p=123;return p();}Run();"))
     modes
 
+let callback_storage_source_and_authority () =
+  let source =
+    "I64 (*G)(I64 n)[2][3];I64 Add(I64 n){return n+2;}I64 Run(){static I64 \
+     (*s)(I64 n)[2];I64 (*a)(I64 \
+     n)[2];G[1][2]=&Add;s[1]=G[1][2];a[0]=s[1];return a[0](40);}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source
+      and foreign = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let compile runtime_calls functions =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4080
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~max_global_bytes:64 ~runtime_calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry:(integer_program_entry unit)
+              ~functions ()
+          in
+          let functions = integer_program_functions unit in
+          ignore
+            (compile (integer_program_runtime_calls unit) functions
+            |> require_ok program_errors);
+          compile (integer_program_runtime_calls foreign) functions
+          |> reject_backend "persistent callbacks reject a foreign call context";
+          let add = List.hd functions and run = List.nth functions 1 in
+          compile
+            (integer_program_runtime_calls unit)
+            [ add; { run with frame = Obj.obj (Obj.dup (Obj.repr run.frame)) } ]
+          |> reject_backend "static callback requires its exact original frame")
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let compiled = image ~max_global_bytes:64 ~mode source in
+      Alcotest.(check int)
+        "callback arrays charge eight logical bytes per element" 64
+        (Program.global_bytes compiled);
+      Alcotest.(check int)
+        "packed image charges object bytes, slot flags, element flags and \
+         owners"
+        194
+        (String.length (Program.global_image compiled));
+      let exported = Program.global_image compiled in
+      Bytes.set (Bytes.unsafe_of_string exported) 0 '\255';
+      Alcotest.(check int)
+        "exported callback image does not mutate sealed storage" 0
+        (Char.code (Program.global_image compiled).[0]);
+      compile_source ~max_global_bytes:63 ~mode source
+      |> reject_compile ~code:"HCBACK0001" "callback logical bytes one below";
+      compile_source
+        ~max_global_bytes:(16 * 1024 * 1024)
+        ~mode "I64 (*G)()[2097152];42;"
+      |> reject_compile ~code:"HCBACK0001"
+           "private callback metadata is bounded before allocation";
+      let code = String.length (Program.code compiled)
+      and stack = Program.frame_bytes compiled in
+      ignore (image ~mode ~max_stack_bytes:stack ~max_code_bytes:code source);
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004" "array ownership frame one below";
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "array callback code one below";
+      List.iter
+        (fun source ->
+          compile_source ~mode source
+          |> reject_gate "callback arrays retain storage authority")
+        [
+          "I64 (*G)()[2];I64 A(){return 42;}I64 Run(){I64 \
+           n;G[1]=&A;n=G[1];return n;}Run();";
+          "I64 (*G)()[2];I64 A(){return 42;}I64 Run(){G[1]=&A;return \
+           G[1];}Run();";
+          "I64 A(){return 42;}I64 Run(){I64 (*p)()[2];p[1]=&A;return \
+           p[1];}Run();";
+          "I64 Read(I64 *p){return *p;}I64 (*G)()[2];I64 Run(){return \
+           Read(G[1]=123);}Run();";
+          "I64 Read(I64 *p){return *p;}I64 (*G)()[2];I64 Run(){return \
+           Read(G[1]=0);}Run();";
+          "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)()[2];return \
+           Read(p[1]=0);}Run();";
+          "I64 Read(I64 *p){return *p;}I64 (*G)()[2];I64 Run(){return \
+           Read((&G[1])(I64*));}Run();";
+          "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)()[2];return \
+           Read((&p[1])(I64*));}Run();";
+        ])
+    modes
+
 let tests =
   [
+    Alcotest.test_case
+      "callback storage preserves original roots and bounded metadata" `Quick
+      callback_storage_source_and_authority;
     Alcotest.test_case
       "callback parameters retain source, fault and budget authority" `Quick
       callback_parameter_source_and_authority;

@@ -12,12 +12,12 @@ val create :
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   (t, error list) result
-(** Seal ordinary integer globals and statics for one exact compiled bundle.
-    Fixed arrays retain their checked shape, full object extent and per-element
-    initialization state. Statics require their unique supplied function and
-    exact frame/location. Declaration initial values require [create_prepared]
-    and original native preparation proof. Retained task storage and foreign
-    owners are rejected. *)
+(** Seal integer and original callback globals and statics for one exact
+    compiled bundle. Fixed arrays retain their checked shape, full object extent
+    and per-element initialization state. Statics require their unique supplied
+    function and exact frame/location. Declaration initial values require
+    [create_prepared] and original native preparation proof. Retained task
+    storage and foreign owners are rejected. *)
 
 val create_prepared :
   functions:Ir.Integer_interpreter.function_definition list ->
@@ -48,6 +48,10 @@ val source_slot : slot -> Ir.Integer_globals.storage_slot
 val owns_address : slot -> Ir.Runtime_call_context.owner -> bool
 val symbol : slot -> Sema.Symbol.t
 val type_ : slot -> Sema.Type.t
+val callback : slot -> Sema.Function_type_resolution.function_pointer option
+val code_owner_offset : slot -> int option
+
+(* Private image-local ownership words, one per callback element. *)
 val scalar : slot -> Ir.Integer_scalar_storage.t
 val dimensions : slot -> int64 list
 val strides : slot -> int64 list

@@ -189,7 +189,7 @@ top-level final-value latch. This extends the bounded native storage/call path;
 it does not claim general memory, optimizer, ABI or loader compatibility.
 Ordinary `argpop`, `noargpop` and `haserrcode` combinations now use that adapter
 with original cleanup receipts. Local modifier order selects storage without
-changing anonymous callback calling flags. Interrupt entry and hosted native
+changing anonymous callback calling flags. Interrupt entry and broader native
 callback execution remain open; see [calling modifiers](native-scalars.md#ordinary-calling-modifiers).
 
 Issue #654 adds guarded native integer division and remainder to the checked
@@ -542,13 +542,13 @@ One-star [global callback cells and fully indexed arrays](global-callbacks.md) n
 
 The lexer corpus result is 528 of 528 files at TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`. The denominator is the complete committed set of files ending in `.HC`, `.HH`, or `.PRJ`. This is a raw-tokenization result, not a whole-compiler compatibility percentage. Preprocessing, parsing, semantic analysis, lowering, execution, native emission, and loader acceptance remain separate gates.
 
-The [native callback consumer](native-local-callbacks.md) supports automatic local
-cells, fixed callback parameters, forwarding and fixed integer/U0 invocation in
+The [native callback consumer](native-local-callbacks.md) supports automatic/static/global
+cells, fully indexed arrays, fixed callback parameters, forwarding and fixed integer/U0 invocation in
 both source modes. Private ownership metadata follows original function-address
 values through checked copies and parameter transfers. Numeric stores clear that
 metadata; reached numeric/null calls fault after argument effects. Address and
 owner snapshots precede reverse arguments, and invocation checks the original
 signature and cleanup. Cell-address escapes and owned-code transfers through
 ordinary word cells, ordinary parameters or returns remain unsupported. Native
-static/global/array/member storage, defaults, word tails and retained replacement
+member storage, defaults, initializers, updates, word tails and retained replacement
 remain open in #801. No new TempleOS capture or full HolyC ABI export is claimed.

@@ -23,11 +23,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 7)
+    (Array.length Sys.argv = 8)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
      <native-scalar-functions.hc> <native-u0-functions.hc> \
      <native-calling-flags.hc> <native-local-callbacks.hc> \
-     <native-callback-parameters.hc>"
+     <native-callback-parameters.hc> <native-callback-storage.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
@@ -35,6 +35,7 @@ let u0_fixture = Sys.argv.(3)
 let flags_fixture = Sys.argv.(4)
 let callbacks_fixture = Sys.argv.(5)
 let parameters_fixture = Sys.argv.(6)
+let storage_fixture = Sys.argv.(7)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -488,7 +489,55 @@ let callback_parameters_cli_contract () =
             "callback parameter fault exposes no final word"))
     [ "jit"; "aot" ]
 
+let callback_storage_cli_contract () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode ~source:storage_fixture
+           ~expected_preparation:0 ~expected_default_bytes:0
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a"));
+      List.iter
+        (fun (contents, code, output) ->
+          with_file ".hc" contents (fun source ->
+              let ir = ir_json ~status:1 ~mode source
+              and native = host_json ~status:1 ~mode source in
+              require
+                (first_code ir = code && first_code native = code)
+                "callback storage CLI fault code";
+              require
+                (member "output_hex" ir = `String output
+                && member "output_hex" native = `String output)
+                "callback storage CLI reached output";
+              let fixture = batch_fixture ~mode source in
+              let fault =
+                match
+                  Native_scalar_fixture.execute ~max_steps:100000 fixture
+                with
+                | Error (first :: _) -> first
+                | _ -> failwith "callback storage checked-batch fault missing"
+              in
+              require
+                (executed_steps native = fault.executed_steps)
+                "callback storage CLI exact reached work";
+              require
+                (member "final_value" native = `Null)
+                "callback storage CLI fault exposes no numeric word"))
+        [
+          ( "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}I64 \
+             Run(){static I64 (*p)(I64 n)[2];p[1]=123;return \
+             p[1](Arg());}Run();",
+            "HCIRVM0024",
+            "41" );
+          ( "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}I64 \
+             (*G)(I64 n)[2];G[2](Arg());",
+            "HCIRVM0019",
+            "" );
+        ])
+    [ "jit"; "aot" ]
+
 let () =
+  callback_storage_cli_contract ();
   callback_parameters_cli_contract ();
   owned_local_callbacks_cli_contract ();
   scalar_fixture_modes ();

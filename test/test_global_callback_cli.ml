@@ -159,12 +159,16 @@ let () =
           ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;I64 n=p(40);n;",
             "ir",
             "HCRUN0003" );
-          ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;p(40);",
-            "host-jit",
-            "HCRUN0001" );
-          ( "I64 A(){return 42;}I64 (*p)();I64 Run(){p=&A;return p();}Run();",
-            "host-jit",
-            "HCRUN0001" );
+        ];
+      List.iter
+        (fun source ->
+          with_file ".HC" source (fun path ->
+              let report = invoke ~mode ~target:"host-jit" path in
+              success report "42";
+              output report ""))
+        [
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;p(40);";
+          "I64 A(){return 42;}I64 (*p)();I64 Run(){p=&A;return p();}Run();";
         ];
       List.iter
         (fun (source, value) ->
