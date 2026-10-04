@@ -623,7 +623,8 @@
   ../../examples/native-calling-flags.hc
   ../../examples/native-local-callbacks.hc
   ../../examples/native-callback-parameters.hc
-  ../../examples/native-callback-storage.hc)
+  ../../examples/native-callback-storage.hc
+  ../../examples/native-callback-defaults.hc)
  (action
   (run
    %{exe:test_native_scalar_function_cli.exe}
@@ -633,7 +634,8 @@
    %{dep:../../examples/native-calling-flags.hc}
    %{dep:../../examples/native-local-callbacks.hc}
    %{dep:../../examples/native-callback-parameters.hc}
-   %{dep:../../examples/native-callback-storage.hc})))
+   %{dep:../../examples/native-callback-storage.hc}
+   %{dep:../../examples/native-callback-defaults.hc})))
 
 (executable
  (name test_native_goto_execution)

@@ -151,8 +151,9 @@ let prepare_static_destination value fragment receipt =
   value.static_stream <- Some (receipt.static_initializer, stream);
   Ok destination
 
-let prepare value ~session ~ledger receipt =
-  let span = receipt.Parser.default_ast.location.span in
+let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
+    ~pointer_layers ~function_pointer ~register_qualifiers ~default
+    ~begin_source ~finish_source =
   let fail code message =
     Error [ Integer_source.diagnostic ~span code message ]
   in
@@ -167,25 +168,22 @@ let prepare value ~session ~ledger receipt =
       || Option.fold ~none:false
            ~some:(fun prior -> prior != ledger)
            value.ledger
-      || Parser.context_mode
-           receipt.default_function.function_header.declaration_command
-             .command_context
-         <> value.compilation_mode
+      || mode <> value.compilation_mode
     then
       fail "HCRUN0004"
         "native default preparation has another source owner or mode"
     else if
-      (not (scalar_word_type receipt.default_type_specifier))
-      || receipt.default_pointer_layers <> []
-      || Option.is_some receipt.default_function_pointer
-      || receipt.default_register_qualifiers <> []
+      (not (scalar_word_type type_specifier))
+      || pointer_layers <> []
+      || Option.is_some function_pointer
+      || register_qualifiers <> []
     then
       fail "HCRUN0001"
         "native defaults require unqualified nonzero scalar integer parameters"
     else Ok ()
   in
   let* expression =
-    match receipt.default_ast.value with
+    match default with
     | Ast.Expression_default expression -> Ok expression
     | Ast.Lastclass_default _ ->
         fail "HCRUN0006"
@@ -198,10 +196,7 @@ let prepare value ~session ~ledger receipt =
       fail "HCIRVM0011" "native saved-default payload exceeds max_default_bytes"
     else Ok ()
   in
-  let* authority =
-    Task_declarations.begin_native_source_default ledger ~runtime:value.state
-      receipt
-  in
+  let* authority = begin_source ledger ~runtime:value.state in
   value.ledger <- Some ledger;
   let fragment = Sema.Default_fragment.authorized_fragment authority in
   let create_context =
@@ -236,10 +231,43 @@ let prepare value ~session ~ledger receipt =
         fail "HCRUN0006" "native defaults require checked constant preparation"
   in
 
-  let* () = Task_declarations.finish_native_source_default ledger execution in
+  let* () = finish_source ledger execution in
   value.saved_bytes <- value.saved_bytes + 8;
   value.completed_rev <- { execution } :: value.completed_rev;
   Ok ()
+
+let prepare value ~session ~ledger receipt =
+  prepare_source value ~session ~ledger
+    ~span:receipt.Parser.default_ast.location.span
+    ~mode:
+      (Parser.context_mode
+         receipt.default_function.function_header.declaration_command
+           .command_context)
+    ~type_specifier:receipt.default_type_specifier
+    ~pointer_layers:receipt.default_pointer_layers
+    ~function_pointer:receipt.default_function_pointer
+    ~register_qualifiers:receipt.default_register_qualifiers
+    ~default:receipt.default_ast.value
+    ~begin_source:(fun ledger ~runtime ->
+      Task_declarations.begin_native_source_default ledger ~runtime receipt)
+    ~finish_source:Task_declarations.finish_native_source_default
+
+let prepare_callback value ~session ~ledger receipt =
+  let parameter = receipt.Parser.callback_default_parameter in
+  prepare_source value ~session ~ledger
+    ~span:receipt.callback_default_ast.location.span
+    ~mode:
+      (Parser.context_mode
+         receipt.callback_default_signature.callback_command.command_context)
+    ~type_specifier:parameter.callback_parameter_type_specifier
+    ~pointer_layers:parameter.callback_parameter_pointer_layers
+    ~function_pointer:parameter.callback_parameter_function_pointer
+    ~register_qualifiers:parameter.callback_parameter_register_qualifiers
+    ~default:receipt.callback_default_ast.value
+    ~begin_source:(fun ledger ~runtime ->
+      Task_declarations.begin_native_source_callback_default ledger ~runtime
+        receipt)
+    ~finish_source:Task_declarations.finish_native_source_callback_default
 
 let prepare_initializer value ~session ~ledger receipt =
   let span = receipt.Parser.leaf_initializer.initializer_equals.span in

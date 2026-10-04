@@ -25,6 +25,15 @@ val prepare :
 
 val work : t -> int
 
+val prepare_callback :
+  t ->
+  session:Session.t ->
+  ledger:Task_declarations.t ->
+  Frontend.Parser.completed_callback_default ->
+  (unit, Common.Diagnostic.t list) result
+(** Prepare the original anonymous parameter default in the same declaration
+    work and saved-byte budgets as named defaults and initializers. *)
+
 val prepare_initializer :
   t ->
   session:Session.t ->

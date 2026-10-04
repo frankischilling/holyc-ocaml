@@ -22,6 +22,11 @@ val with_native_source_defaults :
     preparation certificate. Ordinary AOT and retained-task contracts are
     unchanged. *)
 
+val with_native_source_callback_defaults :
+  t -> Prepared_callback_default.t list -> (t, string) result
+(** Attach original anonymous saved defaults to an isolated JIT/AOT source
+    context. Native admission still requires opaque charged preparation. *)
+
 type slot
 type static_slot
 type storage_slot

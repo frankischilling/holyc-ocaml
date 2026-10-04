@@ -915,7 +915,7 @@ let callable_prepared_defaults_are_rejected_at_argument_producer () =
        ~initialization:default_initialization
        ~entry:(integer_program_entry defaulted)
        ~functions:(integer_program_functions defaulted)
-       ~prepared:[ default_prepared ] ~completions:[]
+       ~prepared:[ default_prepared ] ~prepared_callbacks:[] ~completions:[]
     |> Result.is_error);
   (match compile_callable defaulted with
   | Ok _ -> Alcotest.fail "prepared default argument unexpectedly compiled"

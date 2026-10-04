@@ -1342,6 +1342,16 @@ U0 output, callee snapshots, argument order, recursion and exact resource limits
 These checks do not establish native callback emission or native AOT behavior.
 See [global callbacks](global-callbacks.md) for the remaining scope.
 
+Native callback-default tests cover all integer widths, global/static/automatic
+arrays, parameter transfers, independent declaration values, sparse omissions,
+explicit overrides, repeated images, reverse effects and U0 output in both source
+modes. Anonymous and named defaults share exact and one-below preparation and
+saved-byte quotas. The native default authority suite rejects reconstructed saved
+objects, foreign namespaces/bundles, missing and duplicate completions, including
+unused declarations, and compiles both image ABIs. Maintained CLI coverage runs
+the callback-default example with exact runtime/preparation counters. These
+checks add no TempleOS capture or exported HolyC ABI proof.
+
 Ordinary calling-flag tests check both `argpop noargpop` orders, standalone
 `haserrcode`, original cleanup opcodes and slot counts, and foreign call-context
 rejection. Parser tests retain local modifier tokens and source-order storage.

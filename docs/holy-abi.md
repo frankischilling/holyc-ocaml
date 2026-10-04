@@ -261,6 +261,8 @@ ownership snapshots before reverse arguments. Automatic/static/global cells,
 fully indexed arrays and fixed callback parameters preserve private ownership
 metadata; numeric stores clear it. Reached
 invocation checks the selected signature and cleanup policy. The indirect CALL
-enters the private fixed-RSP plain-RET adapter. Native member callbacks, declaration
-defaults, initializers, updates and word tails remain unfinished, along with HolyC ABI exports,
+enters the private fixed-RSP plain-RET adapter. Original closed integer callback
+defaults prepare once and retain their declaration's saved values. Native member
+callbacks, effectful/owned-code defaults, initializers, updates and word tails
+remain unfinished, along with HolyC ABI exports,
 RET-imm execution and interrupt entry.

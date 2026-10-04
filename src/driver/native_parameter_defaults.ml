@@ -2,6 +2,8 @@ module Headers = Sema.Function_type_resolution
 module Function = Ir.Function_body
 module Program = Ir.Integer_interpreter
 module Prepared = Ir.Prepared_parameter_default
+module Prepared_callback = Ir.Prepared_callback_default
+module Frame = Sema.Function_frame_layout
 module Integer_globals = Ir.Integer_globals
 module Runtime_call_context = Ir.Runtime_call_context
 module Global_initialization = Ir.Global_initialization
@@ -16,6 +18,12 @@ type requirement = {
   prepared : Prepared.t;
 }
 
+type callback_requirement = {
+  pointer : Headers.function_pointer;
+  callback_parameter : Headers.parameter;
+  callback_prepared : Prepared_callback.t;
+}
+
 type t = {
   globals : Integer_globals.t;
   runtime_calls : Runtime_call_context.t;
@@ -23,6 +31,7 @@ type t = {
   entry : X87_stack.t;
   functions : Function.t list;
   requirements : requirement list;
+  callback_requirements : callback_requirement list;
 }
 
 let same_functions expected actual =
@@ -47,6 +56,15 @@ let admits proof ~prepared ~header ~parameter =
       && requirement.parameter == parameter
       && Prepared.matches prepared ~header ~parameter)
     proof.requirements
+
+let admits_callback proof ~prepared ~pointer ~parameter =
+  List.exists
+    (fun requirement ->
+      requirement.callback_prepared == prepared
+      && requirement.pointer == pointer
+      && requirement.callback_parameter == parameter
+      && Prepared_callback.matches prepared ~pointer ~parameter)
+    proof.callback_requirements
 
 let scalar_word type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_)
 
@@ -126,8 +144,112 @@ let execution_matches prepared execution =
        (Program.default_constant_bits execution)
        (Prepared.bits prepared)
 
+let callback_execution_matches prepared execution =
+  let authority = Program.default_constant_authority execution in
+  let fragment = Sema.Default_fragment.authorized_fragment authority in
+  let destination = Program.default_constant_destination execution in
+  (match Sema.Default_fragment.source fragment with
+    | Callback (namespace, receipt) ->
+        namespace == Prepared_callback.namespace prepared
+        && receipt == Prepared_callback.receipt prepared
+    | Named _ -> false)
+  && Sema.Default_fragment.references fragment = []
+  && Default_fragment_destination.fragment destination == fragment
+  && Type.equal
+       (Default_fragment_destination.type_ destination)
+       (Prepared_callback.type_ prepared)
+  && Program.default_constant_is_consumed execution
+  && Int64.equal
+       (Program.default_constant_bits execution)
+       (Prepared_callback.bits prepared)
+
+let callback_pointers globals functions =
+  let pointers = ref [] in
+  let rec add_pointer pointer =
+    if not (List.exists (( == ) pointer) !pointers) then (
+      pointers := pointer :: !pointers;
+      pointer |> Headers.function_pointer_signature |> add_signature)
+  and add_signature signature =
+    signature |> Headers.signature_parameters
+    |> List.iter (fun parameter ->
+        match Headers.parameter_declarator_kind parameter with
+        | Headers.Object -> ()
+        | Headers.Function_pointer pointer -> add_pointer pointer)
+  in
+  Integer_globals.storage_slots globals
+  |> List.iter (fun slot ->
+      Option.iter add_pointer (Integer_globals.storage_callback_pointer slot));
+  List.iter
+    (fun (definition : Integer_interpreter.function_definition) ->
+      definition.frame |> Frame.function_locations
+      |> List.iter (fun location ->
+          Option.iter add_pointer (Frame.location_callback_pointer location));
+      Option.iter
+        (fun declaration ->
+          declaration |> Sema.Function_resolution.resolved_declaration_header
+          |> Headers.function_signature |> add_signature;
+          declaration |> Sema.Function_resolution.resolved_declaration_site
+          |> Sema.Function_resolution.declaration_site_function
+          |> Headers.function_signature |> add_signature)
+        (Function.definition_declaration definition.body))
+    functions;
+  !pointers
+
+let add_callback_requirements globals prepared requirements pointer =
+  let ( let* ) = Result.bind in
+  List.fold_left
+    (fun result parameter ->
+      let* requirements = result in
+      match Headers.parameter_default parameter with
+      | None -> Ok requirements
+      | Some (Headers.Lastclass_default _) ->
+          Error "native callback defaults do not admit lastclass"
+      | Some (Headers.Expression_default { contains_string_literal = true; _ })
+        -> Error "native callback defaults do not admit string-backed values"
+      | Some (Headers.Expression_default _) ->
+          if
+            (not (scalar_word (parameter_type parameter)))
+            || Headers.parameter_register_requests parameter <> []
+            ||
+            match Headers.parameter_declarator_kind parameter with
+            | Headers.Object -> false
+            | Function_pointer _ -> true
+          then Error "native callback defaults require scalar integer objects"
+          else
+            let* value =
+              match
+                Integer_globals.prepared_callback_default globals ~pointer
+                  ~parameter
+              with
+              | Some value -> Ok value
+              | None ->
+                  Error "native callback default lacks its original saved value"
+            in
+            if not (List.exists (( == ) value) prepared) then
+              Error
+                "native callback default is outside its supplied source proof"
+            else
+              Ok
+                ({
+                   pointer;
+                   callback_parameter = parameter;
+                   callback_prepared = value;
+                 }
+                :: requirements))
+    (Ok requirements)
+    (pointer |> Headers.function_pointer_signature
+   |> Headers.signature_parameters)
+
+let requires_callback_proof ~globals ~functions =
+  callback_pointers globals functions
+  |> List.exists (fun pointer ->
+      pointer |> Headers.function_pointer_signature
+      |> Headers.signature_parameters
+      |> List.exists (fun parameter ->
+          Option.is_some (Headers.parameter_default parameter)))
+
 let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
-    ~completions =
+    ~prepared_callbacks ~completions =
   let ( let* ) = Result.bind in
   let executions = List.map Native_default_preparation.execution completions in
   let bodies =
@@ -162,6 +284,22 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
   let* () =
     let rec unique seen = function
       | [] -> Ok ()
+      | value :: rest ->
+          if
+            List.exists
+              (fun prior ->
+                prior == value
+                || Prepared_callback.receipt prior
+                   == Prepared_callback.receipt value)
+              seen
+          then Error "native callback-default proof repeats prepared evidence"
+          else unique (value :: seen) rest
+    in
+    unique [] prepared_callbacks
+  in
+  let* () =
+    let rec unique named callbacks = function
+      | [] -> Ok ()
       | execution :: rest -> (
           let source =
             execution |> Program.default_constant_authority
@@ -169,16 +307,17 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
             |> Sema.Default_fragment.source
           in
           match source with
-          | Callback _ ->
-              Error
-                "native defaults require their own anonymous signature consumer"
+          | Callback (_, receipt) ->
+              if List.exists (( == ) receipt) callbacks then
+                Error "native callback-default proof repeats execution evidence"
+              else unique named (receipt :: callbacks) rest
           | Named (_, receipt) ->
-              if List.exists (( == ) receipt) seen then
+              if List.exists (( == ) receipt) named then
                 Error
                   "native parameter-default proof repeats execution evidence"
-              else unique (receipt :: seen) rest)
+              else unique (receipt :: named) callbacks rest)
     in
-    unique [] executions
+    unique [] [] executions
   in
   let* requirements =
     List.fold_left
@@ -206,19 +345,44 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
       (Ok []) functions
   in
   let used = List.map (fun requirement -> requirement.prepared) requirements in
+  let* callback_requirements =
+    List.fold_left
+      (fun result pointer ->
+        let* requirements = result in
+        add_callback_requirements globals prepared_callbacks requirements
+          pointer)
+      (Ok [])
+      (callback_pointers globals functions)
+  in
+  let callback_used =
+    List.map
+      (fun requirement -> requirement.callback_prepared)
+      callback_requirements
+  in
   let* () =
     if
       List.for_all (fun value -> List.exists (( == ) value) used) prepared
       && List.for_all
+           (fun value -> List.exists (( == ) value) callback_used)
+           prepared_callbacks
+      && List.for_all
            (fun value -> List.exists (execution_matches value) executions)
            prepared
+      && List.for_all
+           (fun value ->
+             List.exists (callback_execution_matches value) executions)
+           prepared_callbacks
       && List.for_all
            (fun execution ->
              List.exists
                (fun value -> execution_matches value execution)
-               prepared)
+               prepared
+             || List.exists
+                  (fun value -> callback_execution_matches value execution)
+                  prepared_callbacks)
            executions
-      && List.length prepared = List.length executions
+      && List.length prepared + List.length prepared_callbacks
+         = List.length executions
     then Ok ()
     else
       Error
@@ -233,4 +397,5 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
       entry;
       functions = bodies;
       requirements;
+      callback_requirements;
     }

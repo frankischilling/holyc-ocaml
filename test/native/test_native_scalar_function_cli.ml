@@ -23,11 +23,12 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 8)
+    (Array.length Sys.argv = 9)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
      <native-scalar-functions.hc> <native-u0-functions.hc> \
      <native-calling-flags.hc> <native-local-callbacks.hc> \
-     <native-callback-parameters.hc> <native-callback-storage.hc>"
+     <native-callback-parameters.hc> <native-callback-storage.hc> \
+     <native-callback-defaults.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
@@ -36,6 +37,7 @@ let flags_fixture = Sys.argv.(4)
 let callbacks_fixture = Sys.argv.(5)
 let parameters_fixture = Sys.argv.(6)
 let storage_fixture = Sys.argv.(7)
+let defaults_fixture = Sys.argv.(8)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -185,8 +187,8 @@ let batch_execution ~max_steps fixture =
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
 
-let check_native_meter_against_ir ~mode ~source ~expected_preparation
-    ~expected_default_bytes ~check_final =
+let check_native_meter_with_preparation ~expected_source_preparation ~mode
+    ~source ~expected_preparation ~expected_default_bytes ~check_final =
   (* This public IR run is a fresh source-stream semantic oracle. Expression
      defaults intentionally activate separate JIT task units, so its executed
      step count is not the native batch meter. *)
@@ -194,7 +196,7 @@ let check_native_meter_against_ir ~mode ~source ~expected_preparation
   check_success ir;
   check_final ir;
   require
-    (preparation ir = expected_preparation)
+    (preparation ir = expected_source_preparation)
     "IR preparation work changed from source-derived fixture contract";
   let source_stream_steps = executed_steps ir in
   require (source_stream_steps > 1)
@@ -251,6 +253,12 @@ let check_native_meter_against_ir ~mode ~source ~expected_preparation
     "host-jit scalar one-below runtime allowance did not stop at the exact \
      meter";
   (source_stream_steps, batch_steps)
+
+let check_native_meter_against_ir ~mode ~source ~expected_preparation
+    ~expected_default_bytes ~check_final =
+  check_native_meter_with_preparation
+    ~expected_source_preparation:expected_preparation ~mode ~source
+    ~expected_preparation ~expected_default_bytes ~check_final
 
 let scalar_fixture_modes () =
   List.iter
@@ -537,6 +545,16 @@ let callback_storage_cli_contract () =
     [ "jit"; "aot" ]
 
 let () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_with_preparation
+           ~expected_source_preparation:(if mode = "jit" then 10 else 9)
+           ~mode ~source:defaults_fixture ~expected_preparation:9
+           ~expected_default_bytes:24
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
   callback_storage_cli_contract ();
   callback_parameters_cli_contract ();
   owned_local_callbacks_cli_contract ();

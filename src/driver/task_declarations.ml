@@ -188,6 +188,7 @@ type command = {
     list;
   implicit_outputs : selected_implicit_output list;
   source_callback_defaults : Ir.Prepared_callback_default.t list;
+  native_source_callback_defaults : Ir.Prepared_callback_default.t list;
   source_defaults : Ir.Prepared_parameter_default.t list;
   native_source_defaults : Ir.Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
@@ -244,6 +245,7 @@ type t = {
   mutable source_callback_attempts :
     (Parser.completed_callback_default
     * Sema.Default_fragment.authority
+    * source_default_owner
     * int
     * int64 option ref)
     list;
@@ -3371,6 +3373,27 @@ let seal ledger (ast : Ast.module_) =
                           entry.receipt.command_start == owner.callback_command)
                         original_commands)
                     ledger.prepared_source_callback_defaults;
+                native_source_callback_defaults =
+                  List.filter
+                    (fun value ->
+                      let publication =
+                        (Ir.Prepared_callback_default.header value)
+                          .Parser.callback_signature_publication
+                      in
+                      List.exists
+                        (fun entry ->
+                          entry.receipt.command_start
+                          == publication.callback_command)
+                        original_commands
+                      && List.exists
+                           (fun (receipt, _, owner, _, bits) ->
+                             owner = Native_source_default
+                             && receipt
+                                == Ir.Prepared_callback_default.receipt value
+                             && !bits
+                                = Some (Ir.Prepared_callback_default.bits value))
+                           ledger.source_callback_attempts)
+                    ledger.prepared_source_callback_defaults;
                 source_defaults =
                   List.filter
                     (fun value ->
@@ -5427,7 +5450,7 @@ let complete_callback_defaults_runtime ledger ~runtime header =
         header
       |> checked span)
 
-let begin_source_callback_default ledger ~runtime receipt =
+let begin_source_callback_default_with_owner owner ledger ~runtime receipt =
   protect (fun () ->
       let span = receipt.Parser.callback_default_ast.location.span in
       require_observed_callback_default ledger receipt;
@@ -5435,14 +5458,20 @@ let begin_source_callback_default ledger ~runtime receipt =
         Parser.context_mode
           receipt.callback_default_signature.callback_command.command_context
       in
-      (match (ledger.authority, mode) with
-      | Source_compilation _, Frontend.Preprocessor.Aot -> ()
+      (match ledger.authority with
+      | Source_compilation _
+        when owner = Native_source_default || mode = Frontend.Preprocessor.Aot
+        -> ()
       | _ ->
           fail span
             "anonymous output defaults require their original AOT source ledger");
       if
+        owner = Native_source_default
+        && not (VM.task_owns_table runtime ledger.table)
+      then fail span "anonymous native preparation has another semantic table";
+      if
         List.exists
-          (fun (r, _, _, _) -> r == receipt)
+          (fun (r, _, _, _, _) -> r == receipt)
           ledger.source_callback_attempts
       then fail span "anonymous output default already attempted";
       (match ledger.source_defaults_runtime with
@@ -5459,7 +5488,8 @@ let begin_source_callback_default ledger ~runtime receipt =
                 if
                   not
                     (List.exists
-                       (fun (p, _, _, bits) -> p == r && Option.is_some !bits)
+                       (fun (p, _, prior_owner, _, bits) ->
+                         p == r && prior_owner = owner && Option.is_some !bits)
                        ledger.source_callback_attempts)
                 then
                   fail span
@@ -5475,16 +5505,30 @@ let begin_source_callback_default ledger ~runtime receipt =
       if Sema.Initializer_source.expression_identifier_nodes expression <> []
       then
         fail ~code:"HCRUN0006" span
-          "AOT anonymous default references require output relocation and \
-           callable authority";
+          (match owner with
+          | Output_aot_default ->
+              "AOT anonymous default references require output relocation and \
+               callable authority"
+          | Native_source_default ->
+              "native defaults require closed expressions without value or \
+               function references");
       let module Outer = Sema.Outer_environment in
-      let table =
-        Outer.make_table ~table_kind:Outer.Assembler ~table_index:0 []
-        |> Result.map_error Outer.error_to_string
-        |> checked span
+      let compilation_mode, tables =
+        match mode with
+        | Frontend.Preprocessor.Aot -> (Outer.Aot, [ (Outer.Assembler, 0) ])
+        | Frontend.Preprocessor.Jit ->
+            (Outer.Jit, [ (Outer.Jit_task 0, 0); (Outer.Assembler, 1) ])
+      in
+      let tables =
+        List.map
+          (fun (table_kind, table_index) ->
+            Outer.make_table ~table_kind ~table_index []
+            |> Result.map_error Outer.error_to_string
+            |> checked span)
+          tables
       in
       let environment =
-        Outer.create ~table:ledger.table ~compilation_mode:Outer.Aot [ table ]
+        Outer.create ~table:ledger.table ~compilation_mode tables
         |> Result.map_error Outer.error_to_string
         |> checked span
       in
@@ -5512,11 +5556,17 @@ let begin_source_callback_default ledger ~runtime receipt =
       in
       ledger.source_defaults_runtime <- Some runtime;
       ledger.source_callback_attempts <-
-        (receipt, authority, VM.task_initializer_steps runtime, ref None)
+        (receipt, authority, owner, VM.task_initializer_steps runtime, ref None)
         :: ledger.source_callback_attempts;
       authority)
 
-let finish_source_callback_default ledger execution =
+let begin_source_callback_default =
+  begin_source_callback_default_with_owner Output_aot_default
+
+let begin_native_source_callback_default =
+  begin_source_callback_default_with_owner Native_source_default
+
+let finish_source_callback_default_with_owner owner ledger execution =
   protect (fun () ->
       let fragment =
         Sema.Default_fragment.authorized_fragment
@@ -5534,13 +5584,13 @@ let finish_source_callback_default ledger execution =
       let before, bits =
         match
           List.find_opt
-            (fun (r, a, _, bits) ->
-              r == receipt
+            (fun (r, a, prior_owner, _, bits) ->
+              r == receipt && prior_owner = owner
               && a == VM.default_constant_authority execution
               && !bits = None)
             ledger.source_callback_attempts
         with
-        | Some (_, _, before, bits) -> (before, bits)
+        | Some (_, _, _, before, bits) -> (before, bits)
         | _ ->
             fail span
               "anonymous output default completion is foreign or repeated"
@@ -5557,6 +5607,12 @@ let finish_source_callback_default ledger execution =
       in
       bits :=
         Some (VM.consume_default_constant runtime execution |> checked span))
+
+let finish_source_callback_default =
+  finish_source_callback_default_with_owner Output_aot_default
+
+let finish_native_source_callback_default =
+  finish_source_callback_default_with_owner Native_source_default
 
 let complete_source_callback_defaults ledger header =
   protect (fun () ->
@@ -5584,11 +5640,11 @@ let complete_source_callback_defaults ledger header =
                 let bits =
                   match
                     List.find_opt
-                      (fun (r, _, _, bits) ->
+                      (fun (r, _, _, _, bits) ->
                         r == receipt && Option.is_some !bits)
                       ledger.source_callback_attempts
                   with
-                  | Some (_, _, _, bits) -> Option.get !bits
+                  | Some (_, _, _, _, bits) -> Option.get !bits
                   | _ ->
                       fail span
                         "anonymous output signature requires every successful \
@@ -5614,3 +5670,10 @@ let source_callback_defaults ~table ~ast (Source_command command) =
         fail ast.Ast.span
           "anonymous output defaults belong to another original source seal";
       command.source_callback_defaults)
+
+let native_source_callback_defaults ~table ~ast (Source_command command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "anonymous native defaults belong to another original source seal";
+      command.native_source_callback_defaults)

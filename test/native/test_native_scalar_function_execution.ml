@@ -1774,6 +1774,279 @@ let callback_parameter_limits_and_recovery () =
         ])
     modes
 
+let callback_defaults_execute_saved_values () =
+  let cases =
+    [
+      ( "callback default differs from target default",
+        "I64 Add(I64 n=17){return n;}I64 (*G)(I64 n=42);I64 \
+         Run(){G=&Add;return G();}Run();",
+        42L );
+      ( "callback parameter keeps its own default",
+        "I64 Add(I64 n=17){return n;}I64 Apply(I64 (*p)(I64 n=42)){return \
+         p();}Apply(&Add);",
+        42L );
+      ( "copy invokes the destination header default",
+        "I64 (*G)(I64 n=17);I64 Add(I64 n){return n;}I64 Run(){I64 (*p)(I64 \
+         n=42);G=&Add;p=G;return p();}Run();",
+        42L );
+      ( "static default survives calls without re-preparation",
+        "I64 Add(I64 n){return n;}I64 Run(I64 seed){static I64 (*p)(I64 \
+         n=42);if(seed)p=&Add;return p();}Run(1);Run(0);",
+        42L );
+      ( "repeated anonymous calls reuse saved bits",
+        "I64 Add(I64 n){return n;}I64 Run(){I64 (*p)(I64 n=42);p=&Add;return \
+         p()+p();}Run();",
+        84L );
+      ( "defaults preserve full register bits before narrow entry",
+        "U8 Add(U8 n){return n;}I64 Run(){U8 (*p)(U8 n=554);p=&Add;return \
+         p();}Run();",
+        42L );
+      ( "two independent defaults and explicit override",
+        "I64 Take(I64 a,I64 b){return a+b;}I64 Run(){I64 (*p)(I64 a=17,I64 \
+         b=22);p=&Take;return p(20,);}Run();",
+        42L );
+      ( "index capture precedes explicit argument with omitted first slot",
+        "I64 Take(I64 a,I64 b){return a*10+b;}I64 Run(){I64 n=0;I64 (*p)(I64 \
+         a=1,I64 b=2)[2];p[1]=&Take;return p[++n](,++n);}Run();",
+        12L );
+      ( "saved callee precedes an argument overwrite",
+        "I64 Take(I64 a,I64 b){return a*10+b;}I64 Run(){I64 (*p)(I64 a=1,I64 \
+         b=2);p=&Take;return p(,p=123);}Run();",
+        133L );
+      ( "unused anonymous declaration still prepares",
+        "I64 (*G)(I64 n=42);42;",
+        42L );
+      ( "unused function callback default still prepares",
+        "I64 Run(){I64 (*p)(I64 n=42);return 17;}42;",
+        42L );
+      ( "original query default prepares",
+        "I64 Take(I64 n){return n;}I64 Run(){I64 (*p)(I64 \
+         n=sizeof(I64)+34);p=&Take;return p();}Run();",
+        42L );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, bits) ->
+          let _, native, _ =
+            compare_source ~mode ~label ~expected_type:"I64" ~expected_bits:bits
+              source
+          in
+          match
+            Runtime.execute ~max_steps:10000 native.image |> require_ok Fun.id
+          with
+          | Program.Completed execution ->
+              check_native_word (label ^ " reused image") "I64" bits
+                execution.final_value
+          | Program.Fault _ -> Alcotest.fail (label ^ " reused image faulted"))
+        cases;
+      List.iter
+        (fun (name, literal, expected_type, bits, steps) ->
+          List.iter
+            (fun storage ->
+              let declaration, body, entry =
+                match storage with
+                | "global" ->
+                    ( Printf.sprintf "%s (*p)(%s n=%s);" name name literal,
+                      "p=&Echo;return p();",
+                      "Run();" )
+                | "global array" ->
+                    ( Printf.sprintf "%s (*p)(%s n=%s)[2][3];" name name literal,
+                      "p[1][2]=&Echo;return p[1][2]();",
+                      "Run();" )
+                | "parameter" -> ("", "return p();", "Run(&Echo);")
+                | _ ->
+                    ( "",
+                      Printf.sprintf
+                        "%s %s (*p)(%s n=%s)[2][3];p[1][2]=&Echo;return \
+                         p[1][2]();"
+                        (if storage = "static array" then "static" else "")
+                        name name literal,
+                      "Run();" )
+              in
+              let signature =
+                if storage = "parameter" then
+                  Printf.sprintf "%s (*p)(%s n=%s)" name name literal
+                else ""
+              in
+              let source =
+                Printf.sprintf "%s %s Echo(%s n){return n;}%s Run(%s){%s}%s"
+                  declaration name name name signature body entry
+              in
+              let label = storage ^ " " ^ name ^ " saved default" in
+              let report, _, _ =
+                compare_source ~mode ~label ~expected_type ~expected_bits:bits
+                  source
+              in
+              Alcotest.(check int)
+                (label ^ " original preparation")
+                steps
+                (Native_program.preparation_steps report);
+              Alcotest.(check int)
+                (label ^ " one saved word")
+                8
+                (Native_program.default_bytes report))
+            [
+              "global";
+              "global array";
+              "automatic array";
+              "static array";
+              "parameter";
+            ])
+        default_rows;
+      List.iter
+        (fun flags ->
+          ignore
+            (compare_source ~mode
+               ~label:(flags ^ " anonymous default cleanup")
+               ~expected_type:"I64" ~expected_bits:42L
+               (Printf.sprintf
+                  "%s I64 (*G)(I64 n=42);%s I64 Echo(I64 n){return \
+                   n;}G=&Echo;G();"
+                  flags flags)))
+        [ "argpop"; "noargpop"; "argpop noargpop"; "haserrcode" ];
+      let source =
+        "extern U0 PutChars(U64 ch);U0 Done(I64 n){PutChars(n);}I64 Run(){U0 \
+         (*p)(I64 n=65);p=&Done;p();return 42;}Run();"
+      in
+      let report, _, _ =
+        compare_source ~mode ~label:"U0 callback saved default"
+          ~expected_type:"I64" ~expected_bits:42L source
+      in
+      Alcotest.(check string)
+        "U0 saved argument output" "A"
+        (Native_program.output_bytes report))
+    modes
+
+let callback_default_fault_order () =
+  let prefix =
+    "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 1;}"
+  in
+  let cases =
+    [
+      ( "numeric callback default",
+        prefix
+        ^ "I64 Run(){I64 (*p)(I64 a=42,I64 b=0);p=123;return p(,Arg());}Run();",
+        "HCIRVM0024",
+        "A" );
+      ( "mismatched callback default",
+        prefix
+        ^ "U64 Bad(I64 a,I64 b){return a+b;}I64 Run(){I64 (*p)(I64 a=42,I64 \
+           b=0);p=&Bad;return p(,Arg());}Run();",
+        "HCIRVM0014",
+        "A" );
+      ( "default array bounds precede arguments",
+        prefix
+        ^ "I64 Run(){I64 (*p)(I64 a=42,I64 b=0)[2];return p[2](,Arg());}Run();",
+        "HCIRVM0019",
+        "" );
+      ( "default uninitialized element precedes arguments",
+        prefix
+        ^ "I64 Run(){I64 (*p)(I64 a=42,I64 b=0)[2];return p[1](,Arg());}Run();",
+        "HCIRVM0012",
+        "" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, code, output) ->
+          let _, batch = batch_failure ~mode ~max_steps:10000 source in
+          let report, fault, errors =
+            native_fault ~mode ~max_steps:10000 source
+          in
+          Alcotest.(check string) (label ^ " batch diagnostic") code batch.code;
+          Alcotest.(check string)
+            (label ^ " native diagnostic: " ^ diagnostics_text errors)
+            code (List.hd errors).code;
+          Alcotest.(check int)
+            (label ^ " reached work") batch.executed_steps
+            (Option.get fault).executed_steps;
+          Alcotest.(check string)
+            (label ^ " argument output")
+            output
+            (Native_program.output_bytes report))
+        cases)
+    modes
+
+let callback_default_preparation_limits () =
+  let source =
+    "I64 Echo(I64 n=17){return n;}I64 (*G)(I64 n=42);I64 Run(){G=&Echo;return \
+     G();}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let report, value =
+        native_success_report ~max_initializer_steps:6 ~max_default_bytes:16
+          ~mode ~max_steps:10000 source
+      in
+      check_native_word "exact anonymous and named preparation" "I64" 42L
+        value.execution.final_value;
+      Alcotest.(check int)
+        "combined original work" 6
+        (Native_program.preparation_steps report);
+      Alcotest.(check int)
+        "combined saved words" 16
+        (Native_program.default_bytes report);
+      List.iter
+        (fun (work, bytes, code, reached, saved) ->
+          let report, fault, errors =
+            native_fault ~max_initializer_steps:work ~max_default_bytes:bytes
+              ~mode ~max_steps:10000 source
+          in
+          Alcotest.(check bool)
+            "preparation quota prevents native entry" true
+            (Option.is_none fault);
+          Alcotest.(check string)
+            "preparation quota diagnostic" code (List.hd errors).code;
+          Alcotest.(check int)
+            "preparation quota reached work" reached
+            (Native_program.preparation_steps report);
+          Alcotest.(check int)
+            "preparation quota preserves completed payloads" saved
+            (Native_program.default_bytes report))
+        [ (6, 15, "HCIRVM0011", 3, 8); (5, 16, "HCIRVM0007", 5, 8) ];
+      List.iter
+        (fun rejected ->
+          let report, fault, errors =
+            native_fault ~mode ~max_steps:10000 rejected
+          in
+          Alcotest.(check bool)
+            "unsupported anonymous preparation prevents native entry" true
+            (Option.is_none fault);
+          Alcotest.(check bool)
+            ("source preparation rejects: " ^ diagnostics_text errors)
+            true (errors <> []);
+          Alcotest.(check int)
+            "unsupported default publishes no saved word" 0
+            (Native_program.default_bytes report))
+        [
+          "I64 (*p)(I64 n=lastclass);42;";
+          "I64 (*p)(F64 n=1.0);42;";
+          "I64 (*p)(I64 n=\"A\");42;";
+          "I64 Value(){return 42;}I64 (*p)(I64 n=Value());42;";
+          "42;I64 (*p)(I64 n=42);42;";
+        ];
+      let malformed, fault, errors =
+        native_fault ~mode ~max_steps:10000 "I64 (*p)(I64 n=42;42;"
+      in
+      Alcotest.(check bool)
+        "closing failure prevents native entry" true (Option.is_none fault);
+      Alcotest.(check bool)
+        "closing failure reports parser errors" true (errors <> []);
+      Alcotest.(check int)
+        "closing failure retains successful saved default" 8
+        (Native_program.default_bytes malformed);
+      match
+        Runtime.execute ~max_steps:10000 value.image |> require_ok Fun.id
+      with
+      | Program.Completed execution ->
+          check_native_word "image recovers after default quota checks" "I64"
+            42L execution.final_value
+      | Program.Fault _ -> Alcotest.fail "default image did not recover")
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -1784,6 +2057,15 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case
+                "anonymous saved defaults execute original values" `Quick
+                callback_defaults_execute_saved_values;
+              Alcotest.test_case
+                "anonymous default faults preserve argument effects" `Quick
+                callback_default_fault_order;
+              Alcotest.test_case
+                "anonymous preparation shares quotas and recovers" `Quick
+                callback_default_preparation_limits;
               Alcotest.test_case "callback storage quotas unwind and recover"
                 `Quick callback_storage_limits_and_recovery;
               Alcotest.test_case

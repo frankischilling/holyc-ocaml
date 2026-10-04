@@ -550,5 +550,5 @@ metadata; reached numeric/null calls fault after argument effects. Address and
 owner snapshots precede reverse arguments, and invocation checks the original
 signature and cleanup. Cell-address escapes and owned-code transfers through
 ordinary word cells, ordinary parameters or returns remain unsupported. Native
-member storage, defaults, initializers, updates, word tails and retained replacement
+member storage, effectful/owned-code defaults, initializers, updates, word tails and retained replacement
 remain open in #801. No new TempleOS capture or full HolyC ABI export is claimed.

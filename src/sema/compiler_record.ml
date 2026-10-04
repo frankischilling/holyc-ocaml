@@ -1007,7 +1007,8 @@ let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
            modifier.kind <> Ast.Public
            && (Option.is_none source.global_function_pointer
               || modifier.kind <> Ast.Argument_pop
-                 && modifier.kind <> Ast.No_argument_pop))
+                 && modifier.kind <> Ast.No_argument_pop
+                 && modifier.kind <> Ast.Has_error_code))
          source.global_header.modifiers
   then Error "partial storage requires an ordinary code-heap definition"
   else

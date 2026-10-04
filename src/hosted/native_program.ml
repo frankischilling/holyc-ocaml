@@ -687,6 +687,17 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                          statements; interleaved declaration execution is \
                          unsupported";
                     ]
+              | Frontend.Parser.Callback_default_completed receipt
+                when !entry_statement_seen ->
+                  Error
+                    [
+                      diagnostic
+                        ~span:receipt.callback_default_ast.location.span
+                        "HCRUN0006"
+                        "native defaults must precede executable top-level \
+                         statements; interleaved declaration execution is \
+                         unsupported";
+                    ]
               | Frontend.Parser.Global_declared publication -> (
                   match
                     global_source_error
@@ -733,6 +744,12 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
             | Frontend.Parser.Parameter_default_completed receipt ->
                 Native_default_preparation.prepare preparation ~session ~ledger
                   receipt
+            | Frontend.Parser.Callback_default_completed receipt ->
+                Native_default_preparation.prepare_callback preparation ~session
+                  ~ledger receipt
+            | Frontend.Parser.Callback_signature_completed header ->
+                Task_declarations.complete_source_callback_defaults ledger
+                  header
             | Frontend.Parser.Global_initializer_leaf_completed receipt ->
                 Native_default_preparation.prepare_initializer preparation
                   ~session ~ledger receipt
@@ -768,6 +785,12 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
           in
           let* prepared_defaults =
             Task_declarations.native_source_defaults
+              ~table:(Session.semantic_symbols session)
+              ~ast source_command
+            |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
+          in
+          let* prepared_callbacks =
+            Task_declarations.native_source_callback_defaults
               ~table:(Session.semantic_symbols session)
               ~ast source_command
             |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
@@ -813,6 +836,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                               (Integer_unit.initialization checked.value)
                             ~entry:(Integer_unit.entry checked.value)
                             ~functions ~prepared:prepared_defaults
+                            ~prepared_callbacks
                             ~completions:
                               (Native_default_preparation.completions
                                  preparation)

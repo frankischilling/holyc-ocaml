@@ -2321,6 +2321,46 @@ let with_source_callback_defaults globals defaults =
       "anonymous source defaults require their original isolated AOT context"
   else Ok { globals with source_callback_defaults = defaults }
 
+let with_native_source_callback_defaults globals defaults =
+  if
+    Option.is_some globals.task_view
+    || globals.source_callback_defaults <> []
+    || Option.is_some globals.fragment_kind_
+    || List.exists
+         (fun slot ->
+           Option.is_some slot.declared_owner
+           || slot.initializer_preparation_steps <> 0
+           || Option.fold ~none:false
+                ~some:(fun arrays ->
+                  List.exists
+                    (fun entry -> Option.is_some (Arrays.prepared entry))
+                    (Arrays.entries arrays))
+                slot.array_initializers)
+         globals.slots_
+    || List.exists
+         (fun slot -> Integer_statics.preparation_steps slot <> 0)
+         globals.statics_
+    || globals.declared_slots_ <> []
+  then
+    Error
+      "anonymous native defaults require an isolated ordinary source context"
+  else if
+    List.exists
+      (fun value ->
+        let receipt = Prepared_callback_default.receipt value in
+        match
+          ( globals.mode,
+            Frontend.Parser.context_mode
+              receipt.callback_default_signature.callback_command
+                .command_context )
+        with
+        | Resolution.Jit, Frontend.Preprocessor.Jit
+        | Resolution.Aot, Frontend.Preprocessor.Aot -> false
+        | _ -> true)
+      defaults
+  then Error "anonymous native defaults have another original compilation mode"
+  else Ok { globals with source_callback_defaults = defaults }
+
 let publish_callback_defaults catalog ~namespace defaults =
   if
     (not (task_catalog_owns_namespace catalog namespace))

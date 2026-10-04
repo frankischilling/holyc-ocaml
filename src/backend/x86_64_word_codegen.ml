@@ -13,6 +13,7 @@ module Runtime = Ir.Runtime_call_context
 module Intrinsic = Ir.Integer_intrinsic
 module Defaults = Driver.Native_parameter_defaults
 module Prepared_default = Ir.Prepared_parameter_default
+module Prepared_callback_default = Ir.Prepared_callback_default
 module Function = Ir.Function_body
 module Headers = Sema.Function_type_resolution
 module Frame = Sema.Function_frame_layout
@@ -4739,13 +4740,12 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               if
                 List.exists
                   (fun argument ->
-                    Option.is_some (Runtime.argument_prepared_default argument)
-                    || Option.is_some
-                         (Runtime.argument_prepared_callback_default argument))
+                    Option.is_some (Runtime.argument_prepared_default argument))
                   callback.callback_arguments
               then
                 unsupported description
-                  "native callback declaration defaults are not yet admitted";
+                  "anonymous callback arguments cannot carry named default \
+                   evidence";
               if Option.is_some callback.callback_variadic_count then
                 unsupported description
                   "native local callbacks require fixed arguments";
@@ -6923,8 +6923,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                                (Runtime.argument_prepared_default argument)
                         then
                           unsupported raw
-                            "native callback declaration defaults are not yet \
-                             admitted";
+                            "anonymous callback arguments cannot carry named \
+                             default evidence";
                         (match Runtime.argument_prepared_default argument with
                         | None -> ()
                         | Some prepared -> (
@@ -6969,6 +6969,51 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                                     "prepared parameter default producer \
                                      differs from its sealed declaration-time \
                                      value"));
+                        (match
+                           Runtime.argument_prepared_callback_default argument
+                         with
+                        | None -> ()
+                        | Some prepared ->
+                            let pointer =
+                              match scope.callback_call with
+                              | Some callback -> callback.callback_pointer
+                              | None ->
+                                  malformed raw
+                                    "anonymous default has no original \
+                                     callback scope"
+                            in
+                            let parameter =
+                              pointer |> Headers.function_pointer_signature
+                              |> Headers.signature_parameters
+                              |> fun parameters -> List.nth_opt parameters index
+                            in
+                            (match (parameter_defaults, parameter) with
+                            | Some proof, Some parameter
+                              when Defaults.admits_callback proof ~prepared
+                                     ~pointer ~parameter -> ()
+                            | _ ->
+                                malformed raw
+                                  "anonymous default is outside its sealed \
+                                   native source authority");
+                            if
+                              raw.opcode <> Opcode.Ic_imm_i64
+                              || raw.operands <> [] || raw.flags <> 0x2000L
+                              || raw.payload
+                                 <> Some
+                                      (Sequence.Integer
+                                         (Prepared_callback_default.bits
+                                            prepared))
+                              || not
+                                   (Option.fold ~none:false
+                                      ~some:
+                                        (Type.equal
+                                           (Prepared_callback_default.type_
+                                              prepared))
+                                      raw.target_type)
+                            then
+                              malformed raw
+                                "anonymous default producer differs from its \
+                                 sealed declaration-time value");
                         (match raw.target_type with
                         | Some type_
                           when Type.equal
@@ -7787,6 +7832,13 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
           function_infos
       in
       validate_callable_parameter_defaults ~parameter_defaults function_infos;
+      if
+        Option.is_none parameter_defaults
+        && Defaults.requires_callback_proof ~globals ~functions
+      then
+        reject "HCBACK0002"
+          "native callback declarations require original default preparation \
+           authority";
       (* Resolve copies and fixed-parameter transfers across the entire original
          bundle before dispatch budgeting or machine allocation. Cycles retain
          only bodies supplied by original function-address producers. *)

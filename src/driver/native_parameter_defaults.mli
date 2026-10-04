@@ -1,5 +1,13 @@
 type t
 
+val requires_callback_proof :
+  globals:Ir.Integer_globals.t ->
+  functions:Ir.Integer_interpreter.function_definition list ->
+  bool
+(** Include default-bearing original global/static/frame callback declarations
+    and nested callback parameter signatures, even when no default is invoked.
+*)
+
 val create :
   globals:Ir.Integer_globals.t ->
   runtime_calls:Ir.Runtime_call_context.t ->
@@ -7,6 +15,7 @@ val create :
   entry:Ir.X87_stack.t ->
   functions:Ir.Integer_interpreter.function_definition list ->
   prepared:Ir.Prepared_parameter_default.t list ->
+  prepared_callbacks:Ir.Prepared_callback_default.t list ->
   completions:Native_default_preparation.completion list ->
   (t, string) result
 (** Seal the exact declaration-time scalar defaults admitted for one native
@@ -15,7 +24,9 @@ val create :
     its original prepared value and opaque charged native preparation receipt.
     Foreign, duplicate and unused evidence is rejected. Saved values retain
     their full bits and exact declared parameter type, including narrow types.
-*)
+    Original anonymous defaults on global/static/frame callback declarations and
+    nested callback parameters have a separate requirement set with the same
+    complete saved-object and charged-completion checks. *)
 
 val matches :
   t ->
@@ -34,3 +45,10 @@ val admits :
   bool
 (** Require the exact prepared object sealed into this proof and its original
     header/parameter authority. A value with equal bits is not sufficient. *)
+
+val admits_callback :
+  t ->
+  prepared:Ir.Prepared_callback_default.t ->
+  pointer:Sema.Function_type_resolution.function_pointer ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  bool

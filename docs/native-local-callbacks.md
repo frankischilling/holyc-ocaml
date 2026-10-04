@@ -21,6 +21,29 @@ It copies a global array element into a static array, clears the original cells,
 then transfers the saved callback through a parameter into an automatic array.
 The static element survives a second function activation.
 
+The [defaults example](../examples/native-callback-defaults.hc) returns I64 42.
+Its target function saves 17, its global callback array saves 7, and its callback
+parameter saves 42. Each invocation uses the selected callback declaration's
+saved value. Copying an executable address does not copy the source cell's defaults.
+
+## Declaration defaults
+
+Original callback signatures on automatic/static/global cells, arrays and named
+callback parameters admit closed scalar integer defaults in both source modes.
+The parser prepares each expression once, including defaults in unused
+declarations and calls with explicit arguments. Defaults share declaration work
+and saved-byte budgets with named function defaults; each successful default
+retains eight bytes with its full register bits. Narrowing occurs at callee entry.
+
+Native admission requires the original anonymous signature, parameter receipt,
+saved object and consumed preparation receipt for the exact compiled bundle.
+Matching bits, copied objects, foreign namespaces and omitted or duplicate
+completions cannot supply that authority. Omitted arguments use the sealed
+immediate producer while explicit arguments retain reverse evaluation order.
+Defaults must precede executable top-level statements. Value/function references,
+side effects, owned code, strings, `lastclass` and non-integer defaults still need
+broader declaration execution; this consumer does not implement those cases.
+
 ## Executable ownership and capture
 
 The backend accepts the original sealed function-address producer and its
@@ -99,7 +122,8 @@ and selects callback cleanup, including the saved-callee slot.
 `Compiler/PrsVar.HC:285-369` retains the anonymous header and RT_PTR storage
 before parsing array dimensions. Lines 521-532 multiply the physical element size
 by the dimension count; lines 590-628 allocate automatic locals, and 619-657
-retain eight-byte fixed parameter slots.
+retain eight-byte fixed parameter slots. Lines 628-656 evaluate each original
+default and save its value on that member, including anonymous signatures.
 `Compiler/OptPass789A.HC:723-732` emits CALL through an RSP displacement.
 `Compiler/OpCodes.DD:573,833` supplies the 64-bit indirect CALL and LEA forms.
 These are source audits; this work adds no TempleOS oracle capture.
@@ -118,7 +142,7 @@ on Windows and Linux.
 
 ## Remaining callback work
 
-Native member storage, callback initializers and updates, saved
+Native member storage, callback initializers and updates, effectful/owned-code
 callback defaults, callback-valued parameters of an indirect callback signature,
 word-tail variadics, retained publication after same-name replacement, unresolved
 extern slots and live task linking remain unfinished in
