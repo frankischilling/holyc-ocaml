@@ -44,6 +44,10 @@ val declared_function_owns_namespace :
   declared_function -> Declaration_collection.namespace -> bool
 
 val declare_global :
+  ?callback:
+    Frontend.Parser.completed_callback_signature
+    * Function_type_resolution.function_pointer ->
+  ?selected_aggregate:Function_type_resolution.selected_aggregate_resolver ->
   dimensions:declared_dimension list ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
@@ -58,6 +62,11 @@ val declared_global_source :
   declared_global -> Frontend.Parser.global_publication
 
 val declared_global_type : declared_global -> Type_reference.t
+
+val declared_global_callback_pointer :
+  declared_global -> Function_type_resolution.function_pointer option
+(** Retain the checked original anonymous header while its global initializer is
+    still being parsed. The header does not supply executable identity. *)
 
 val declared_global_storage_type : declared_global -> (Type.t, string) result
 (** Preserve physical [RT_PTR] storage separately from callback return metadata.

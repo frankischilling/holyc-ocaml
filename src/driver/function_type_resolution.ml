@@ -564,6 +564,33 @@ and parameter_fact ?selected_aggregate ?selected_owner visible index
                      parameter.delimiter)
                 ()))
 
+let resolve_completed_callback
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace
+    (header : Frontend.Parser.completed_callback_signature) =
+  let source = header.callback_pointer in
+  let ( let* ) = Result.bind in
+  let* signature =
+    signature_fact ~selected_aggregate ~selected_owner:(table, namespace)
+      String_map.empty ~opening:source.signature_opening_parenthesis
+      source.signature_parameters source.signature_variadic
+      ~closing:source.signature_closing_parenthesis
+  in
+  let* pointer =
+    Sema.Function_type_resolution.make_source_function_pointer ~source
+      ~origin:(origin source.function_pointer_location)
+      ~opening_origin:(origin source.declarator_opening_parenthesis)
+      ~indirection_origins:(pointer_origins source.indirection_layers)
+      ~closing_origin:(origin source.declarator_closing_parenthesis)
+      ~signature
+  in
+  let* () =
+    Sema.Function_type_resolution.validate_source_callback_types ~table
+      ~namespace ~selected_aggregate pointer
+  in
+  Ok pointer
+
 let parameter_entries entries =
   List.filter
     (fun entry ->

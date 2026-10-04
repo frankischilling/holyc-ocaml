@@ -506,7 +506,8 @@ let storage_callback_pointer = function
       match Global.global_declarator_kind global with
       | Global.Function_pointer pointer -> Some pointer
       | Global.Object -> None)
-  | Declared _ -> None
+  | Declared slot ->
+      Sema.Compiler_record.declared_global_callback_pointer slot.declaration
   | Static slot -> Integer_statics.callback_pointer slot
 
 let storage_is_callback = function
@@ -1216,10 +1217,18 @@ let snapshot_task catalog =
         let reference, slot, type_reference, declarator_kind =
           match publication with
           | Declared_publication (reference, slot) ->
+              let kind =
+                match
+                  Sema.Compiler_record.declared_global_callback_pointer
+                    slot.declaration
+                with
+                | None -> Outer.Object_global
+                | Some pointer -> Outer.Function_pointer_global pointer
+              in
               ( reference,
                 Declared slot,
                 Sema.Compiler_record.declared_global_type slot.declaration,
-                Outer.Object_global )
+                kind )
           | Global_publication (reference, slot) ->
               let source =
                 Records.classified_record_source slot.record

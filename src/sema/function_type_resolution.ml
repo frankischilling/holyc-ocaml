@@ -989,8 +989,10 @@ let rec source_signature_matches ?owner ~selected_aggregate ~opening ~parameters
          with
          | None, Object -> true
          | Some source, Function_pointer pointer ->
-             function_pointer_origin pointer
-             = source_location source.function_pointer_location
+             Option.fold ~none:false ~some:(( == ) source)
+               (function_pointer_source pointer)
+             && function_pointer_origin pointer
+                = source_location source.function_pointer_location
              && function_pointer_opening_origin pointer
                 = source_location source.declarator_opening_parenthesis
              && function_pointer_closing_origin pointer
@@ -1009,6 +1011,37 @@ let rec source_signature_matches ?owner ~selected_aggregate ~opening ~parameters
          | _ -> false)
        parameters
        (signature_parameters signature)
+
+let validate_source_callback_types ~table ~namespace
+    ?(selected_aggregate : selected_aggregate_resolver = fun _ -> None) pointer
+    =
+  match function_pointer_source pointer with
+  | None -> Error "retained callback typing requires its original source child"
+  | Some source ->
+      if
+        (not (Declaration_collection.namespace_owns_table namespace table))
+        || function_pointer_origin pointer
+           <> source_location source.function_pointer_location
+        || function_pointer_opening_origin pointer
+           <> source_location source.declarator_opening_parenthesis
+        || function_pointer_closing_origin pointer
+           <> source_location source.declarator_closing_parenthesis
+        || function_pointer_indirection_origins pointer
+           <> List.map
+                (fun (layer : Frontend.Ast.pointer_layer) ->
+                  source_location layer.location)
+                source.indirection_layers
+        || not
+             (source_signature_matches ~owner:(table, namespace)
+                ~selected_aggregate
+                ~opening:source.signature_opening_parenthesis
+                ~parameters:source.signature_parameters
+                ~variadic:source.signature_variadic
+                ~closing:source.signature_closing_parenthesis
+                (function_pointer_signature pointer))
+      then
+        Error "retained callback metadata differs from its original signature"
+      else Ok ()
 
 let validate_provisional_source_types ?table ?namespace
     ?(selected_aggregate : selected_aggregate_resolver = fun _ -> None) shape =

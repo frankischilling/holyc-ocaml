@@ -29,6 +29,14 @@ region's original expression subtree. Nested direct-call arguments retain the
 same source ownership. Copied instructions, foreign contexts or matching names
 cannot replace those records.
 
+The task view also retains the original completed anonymous header during the
+open declaration. Earlier initialized elements can be copied or called, including
+their saved defaults, while later leaves are still being parsed. Copies preserve
+the selected executable after the original cell is overwritten. JIT reads of
+unwritten elements retain `HCIRVM0012`; AOT uses its zeroed global storage.
+Missing or foreign headers and substituted signature metadata fail before
+storage admission.
+
 JIT function-address producers stay scheduled until the original executable is
 available. They cannot be folded into a numeric constant. Callback copies retain
 opaque executable identity; integer initializers retain their complete numeric

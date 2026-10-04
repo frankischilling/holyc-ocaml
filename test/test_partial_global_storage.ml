@@ -398,6 +398,156 @@ let raw_context_lifetime () =
         (VM.task_progress runtime).global_bytes)
     [ false; true ]
 
+let callback_header_authority () =
+  let module C = Semantic_compiler_record in
+  let module H = Semantic_function_type_resolution in
+  let session = Session.create () in
+  let ledger = D.create session |> checked in
+  let table = Session.semantic_symbols session in
+  let namespace =
+    Semantic_declaration_collection.create_namespace ~table () |> checked
+  in
+  let headers = ref [] in
+  let first = ref None in
+  let admitted = ref 0 in
+  let observe event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Callback_signature_completed header ->
+            headers := header :: !headers
+        | Parser.Global_declared source ->
+            let ast = Option.get source.global_function_pointer in
+            let header =
+              List.find
+                (fun header -> header.Parser.callback_pointer == ast)
+                !headers
+            in
+            let pointer =
+              Holyc_lib__Driver.Function_type_resolution
+              .resolve_completed_callback ~table ~namespace header
+              |> checked
+            in
+            let publication =
+              Semantic_declaration_collection.publish_global namespace source
+              |> checked
+            in
+            let declare callback =
+              C.declare_global ?callback ~dimensions:[] ~table ~namespace
+                ~predecessor:None ~previous_global:None publication
+            in
+            let reject label callback =
+              Alcotest.(check bool)
+                label true
+                (Result.is_error (declare callback))
+            in
+            reject "original header is required" None;
+            let make_pointer signature =
+              H.make_source_function_pointer ~source:ast
+                ~origin:(H.function_pointer_origin pointer)
+                ~opening_origin:(H.function_pointer_opening_origin pointer)
+                ~indirection_origins:
+                  (H.function_pointer_indirection_origins pointer)
+                ~closing_origin:(H.function_pointer_closing_origin pointer)
+                ~signature
+              |> checked
+            in
+            let signature = H.function_pointer_signature pointer in
+            let substituted_signature =
+              H.make_signature
+                ~opening_origin:(H.function_pointer_origin pointer)
+                ~parameters:(H.signature_parameters signature)
+                ?closing_origin:(H.signature_closing_origin signature)
+                ()
+              |> checked
+            in
+            reject "original signature origins are required"
+              (Some (header, make_pointer substituted_signature));
+            let metadata_pointer =
+              H.make_function_pointer
+                ~origin:(H.function_pointer_origin pointer)
+                ~opening_origin:(H.function_pointer_opening_origin pointer)
+                ~indirection_origins:
+                  (H.function_pointer_indirection_origins pointer)
+                ~closing_origin:(H.function_pointer_closing_origin pointer)
+                ~signature
+              |> checked
+            in
+            reject "metadata alone cannot substitute the source child"
+              (Some (header, metadata_pointer));
+            let parameters = H.signature_parameters signature in
+            List.iter
+              (fun parameter ->
+                match H.parameter_declarator_kind parameter with
+                | H.Object -> ()
+                | H.Function_pointer nested ->
+                    let metadata =
+                      H.make_function_pointer
+                        ~origin:(H.function_pointer_origin nested)
+                        ~opening_origin:
+                          (H.function_pointer_opening_origin nested)
+                        ~indirection_origins:
+                          (H.function_pointer_indirection_origins nested)
+                        ~closing_origin:
+                          (H.function_pointer_closing_origin nested)
+                        ~signature:(H.function_pointer_signature nested)
+                      |> checked
+                    in
+                    let substituted =
+                      H.make_parameter
+                        ?source:(H.parameter_source parameter)
+                        ~index:(H.parameter_index parameter)
+                        ~origin:(H.parameter_origin parameter)
+                        ~register_requests:
+                          (H.parameter_register_requests parameter)
+                        ?name:(H.parameter_name parameter)
+                        ?name_origin:(H.parameter_name_origin parameter)
+                        ~type_reference:(H.parameter_type_reference parameter)
+                        ~declarator_kind:(H.Function_pointer metadata)
+                        ~default:(H.parameter_default parameter)
+                        ?delimiter_origin:
+                          (H.parameter_delimiter_origin parameter)
+                        ()
+                      |> checked
+                    in
+                    let substituted_signature =
+                      H.make_signature
+                        ~opening_origin:(H.signature_opening_origin signature)
+                        ~parameters:
+                          (List.map
+                             (fun current ->
+                               if current == parameter then substituted
+                               else current)
+                             parameters)
+                        ?closing_origin:(H.signature_closing_origin signature)
+                        ()
+                      |> checked
+                    in
+                    reject "nested callback source children are required"
+                      (Some (header, make_pointer substituted_signature)))
+              parameters;
+            Option.iter
+              (fun earlier ->
+                reject "another original header cannot authorize this storage"
+                  (Some earlier))
+              !first;
+            let declaration = declare (Some (header, pointer)) |> checked in
+            Alcotest.(check bool)
+              "declaration preserves its original checked pointer" true
+              (Option.get (C.declared_global_callback_pointer declaration)
+              == pointer);
+            if Option.is_none !first then first := Some (header, pointer);
+            incr admitted
+        | _ -> ())
+      (D.observe ledger event)
+  in
+  let parsed, _ =
+    Test_task_declarations.parse ~observe session ledger
+      "I64 (*P)(I64 n),(*Q)(I64 n);I64 (*Nested)(I64 (*cb)(I64 n));"
+  in
+  ignore (Test_parser.expect_ast parsed);
+  Alcotest.(check int) "all original callback headers checked" 3 !admitted
+
 let tests =
   [
     Alcotest.test_case "nested write in an open initializer" `Quick
@@ -424,4 +574,6 @@ let tests =
       `Quick deferred_storage;
     Alcotest.test_case "raw admission checks current parser lifetime" `Quick
       raw_context_lifetime;
+    Alcotest.test_case "partial callbacks require their exact completed header"
+      `Quick callback_header_authority;
   ]

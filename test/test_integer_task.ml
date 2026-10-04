@@ -793,6 +793,43 @@ let retained_callback_initializers () =
       "I64 ****";
     ]
 
+let retained_callback_open_initializers () =
+  List.iter
+    (fun (source, output) ->
+      let session = Session.create () in
+      let task = create session in
+      ignore
+        (run session task
+           "extern U0 Print(U8 *fmt,...);I64 Add(I64 n){return n+2;}"
+        |> Test_integer_program.checked);
+      value 42L (run session task source);
+      Alcotest.(check string)
+        "open callback initializer preserves reached output" output
+        (Task.output_bytes task))
+    [
+      ("I64 (*P)(I64 n=40)[2]={&Add,P[0]};P[0]=0;P[1]();", "");
+      ( "I64 (*P)(I64 n=40)[2]={&Add,P[0]()};I64 Check(){if(P[1]==42)return \
+         42;return 0;}Check();",
+        "" );
+      ( "I64 (*P)(I64 \
+         n=40)[2][2]={{&Add,P[0][0]},{P[0][1],P[1][0]}};P[0][0]=0;P[1][1]();",
+        "" );
+      ( "F64 (*P)(I64 n=40)[2]={9007199254740993,P[0]};I64 \
+         Check(){if(P[1]==9007199254740993)return 42;return 0;}Check();",
+        "" );
+      ( "I64 Seed(I64 n){Print(\"A\");return n+2;}I64 \
+         Side(){Print(\"B\");return 40;}I64 (*P)(I64 \
+         n=40)[2]={&Seed,P[0](Side())};I64 Check(){if(P[1]==42)return \
+         42;return 0;}Check();",
+        "BA" );
+    ];
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Add(I64 n){return n+2;}"
+    |> Test_integer_program.checked);
+  fault "HCIRVM0012" (run session task "I64 (*P)(I64 n=40)[2]={P[1],&Add};42;")
+
 let retained_function_pointer_owner () =
   let session = Session.create () in
   let task = create session in
@@ -1422,6 +1459,8 @@ let tests =
       source_callbacks_across_inputs;
     Alcotest.test_case "task initializers retain original callbacks and effects"
       `Quick retained_callback_initializers;
+    Alcotest.test_case "open callback arrays retain their original header"
+      `Quick retained_callback_open_initializers;
     Alcotest.test_case "task inputs execute each resumed command" `Quick
       source_command_timing;
     Alcotest.test_case "task input results are local and recover after failures"

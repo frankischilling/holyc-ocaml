@@ -3015,8 +3015,29 @@ let admit_global ledger ~runtime (publication : Parser.global_publication) =
         | Some declaration -> declaration
         | None ->
             let assigned = Names.find ledger.names publication.global_name in
+            let callback =
+              Option.map
+                (fun source ->
+                  let header =
+                    match completed_callback_header ledger source with
+                    | Some header -> header
+                    | None ->
+                        fail span
+                          "declared callback lacks its original observed header"
+                  in
+                  let pointer =
+                    Function_type_resolution.resolve_completed_callback
+                      ~table:ledger.table ~namespace:ledger.namespace
+                      ~selected_aggregate:(selected_aggregate_for ledger)
+                      header
+                    |> checked span
+                  in
+                  (header, pointer))
+                publication.global_function_pointer
+            in
             let declaration =
-              Sema.Compiler_record.declare_global
+              Sema.Compiler_record.declare_global ?callback
+                ~selected_aggregate:(selected_aggregate_for ledger)
                 ~dimensions:
                   (selected_dimensions ledger publication.global_dimensions)
                 ~predecessor:boundary.storage_predecessor

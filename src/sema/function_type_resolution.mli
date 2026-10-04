@@ -133,6 +133,16 @@ val make_provisional_function_with_selection :
 (** The same checked projection with original named-aggregate selection proofs.
     Each proof must belong to the supplied table and namespace. *)
 
+val validate_source_callback_types :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  ?selected_aggregate:selected_aggregate_resolver ->
+  function_pointer ->
+  (unit, string) result
+(** Check the original callback AST children, origins, parameter types and
+    occurrence-owned aggregate selections. This check grants no runtime storage
+    or executable identity. *)
+
 val validate_provisional_source_types :
   ?table:Symbol_table.t ->
   ?namespace:Declaration_collection.namespace ->

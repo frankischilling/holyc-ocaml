@@ -270,6 +270,10 @@ type declared_global = {
   declared_publication : Declaration_collection.publication;
   declared_source : Parser.global_publication;
   declared_type : Type_reference.t;
+  declared_callback :
+    (Parser.completed_callback_signature
+    * Function_type_resolution.function_pointer)
+    option;
   declared_dimensions : declared_dimension list;
   mutable declared_completion : Ast.global_declarator option;
 }
@@ -994,7 +998,9 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
             aggregate_stamp = None;
           }
 
-let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
+let declare_global ?callback
+    ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~dimensions ~table ~namespace ~predecessor ~previous_global
     publication =
   let* _ = published_scalar ~dimensions ~table ~namespace publication in
   let source =
@@ -1012,6 +1018,25 @@ let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
          source.global_header.modifiers
   then Error "partial storage requires an ordinary code-heap definition"
   else
+    let* declared_callback =
+      match (source.global_function_pointer, callback) with
+      | None, None -> Ok None
+      | Some original, Some (header, pointer)
+        when header.Parser.callback_pointer == original
+             && header.callback_signature_publication.callback_command
+                == source.global_header.declaration_command
+             && Option.fold ~none:false ~some:(( == ) original)
+                  (Function_type_resolution.function_pointer_source pointer) ->
+          let* _ = Source_type_reference.callback_storage ~header original in
+          let* () =
+            Function_type_resolution.validate_source_callback_types ~table
+              ~namespace ~selected_aggregate pointer
+          in
+          Ok (Some (header, pointer))
+      | _ ->
+          Error
+            "declared callback storage lacks its exact completed source header"
+    in
     let* declared_type =
       Source_type_reference.builtin source.global_header.type_specifier
         source.global_pointer_layers
@@ -1025,6 +1050,7 @@ let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
         declared_publication = publication;
         declared_source = source;
         declared_type;
+        declared_callback;
         declared_dimensions = dimensions;
         declared_completion = None;
       }
@@ -1034,6 +1060,9 @@ let declared_global_symbol declaration =
 
 let declared_global_source declaration = declaration.declared_source
 let declared_global_type declaration = declaration.declared_type
+
+let declared_global_callback_pointer declaration =
+  Option.map snd declaration.declared_callback
 
 let declared_global_storage_type declaration =
   match declaration.declared_source.global_function_pointer with

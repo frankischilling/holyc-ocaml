@@ -10,6 +10,15 @@ val resolve :
   Frontend.Ast.module_ ->
   (Sema.Function_type_resolution.t, string) result
 
+val resolve_completed_callback :
+  ?selected_aggregate:Sema.Function_type_resolution.selected_aggregate_resolver ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_callback_signature ->
+  (Sema.Function_type_resolution.function_pointer, string) result
+(** Type the original completed anonymous header without publishing storage,
+    allocating a function scope or granting executable identity. *)
+
 val resolve_provisional_call :
   ?scope:Sema.Symbol_table.scope ->
   ?selected_aggregate:Sema.Function_type_resolution.selected_aggregate_resolver ->
