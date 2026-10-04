@@ -1424,6 +1424,10 @@ fresh status/output quotas. Separate owners, release/expiry, unreachable owner
 collection, original allocation bounds and foreign ABI rejection are covered.
 Concurrent domain entries accept distinct native writes or reject overlap.
 Original AOT load code also runs against retained state and recovers after
-reached load faults. The nine-group suite runs through `@native-tests` on Windows
-and Linux. Native JIT parser-callback scheduling and linking separate images
-remain open.
+reached load faults. Closed entries exercise their original frameless or spilled
+RSP frames, small and large unwind allocations, repeated execution across GC,
+exact stack/work quotas, division/remainder faults and recovery. Bridge controls
+reject changed ranges, allocations, unwind headers, status prologues and data
+arenas before mapping. The suite runs through `@native-tests` on Windows and
+Linux. Native JIT parser-callback scheduling and linking separate images remain
+open.

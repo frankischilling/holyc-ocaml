@@ -24,6 +24,15 @@ checks the host ABI, complete unwind metadata, entry stack and data bounds
 before mapping. Activations also check their execution limits before entry.
 Separate owners have separate arenas, even when created from the same image.
 
+Closed entries also retain their original code. A frameless entry charges its
+eight-byte CALL slot; a spilled entry adds its original RSP allocation. Callable
+entries charge their separate saved-RBP frame. The host validates each original
+metadata form before mapping or activation. Closed entries require a complete
+single code range, the original spill allocation and host status prologue, and
+no data arena. Windows registers a spilled entry's original unwind record; a
+frameless leaf needs no unwind table. Retention does not recompile an entry into
+another frame convention.
+
 The host bridge stages code as writable memory, then seals it executable and
 read-only. Its data arena remains read/write and non-executable. Windows keeps
 the original checked unwind table registered for the mapping's lifetime. Linux
@@ -43,12 +52,15 @@ The compiler, checked image, decoding and API ownership remain in OCaml. The C
 boundary handles native mappings, cache synchronization, entry and host resource
 lifetime. It adds no instruction selection, assembler or language evaluation.
 
-The maintained nine-group suite covers both source modes, actual native
+The maintained suite covers both source modes, actual native
 globals/statics/arrays/literals, callback owners across GC, reached arithmetic
 and step faults, recursive frame/depth/stack failures, recovery, output capture,
 separate arenas, release, collection, original bounds and foreign ABI rejection.
 Concurrent domain activations verify distinct writes for accepted entries. AOT
 load-region calls and reached load faults execute against retained state.
+Closed source entries cover frameless code and both small and large spill
+allocations, repeated entry across GC, exact stack/work quotas, reached division
+and remainder faults, recovery, and changed range/frame/prologue rejection.
 
 The pinned source context is `c26482bb6ad3f80106d28504ec5db3c6a360732c`:
 `Compiler/PrsStmt.HC:150-194` emits source-owned function code, and

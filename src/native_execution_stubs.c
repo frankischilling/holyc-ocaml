@@ -686,6 +686,7 @@ struct native_retained_program {
   size_t arena_length;
   atomic_int active;
   int closing;
+  int closed_entry;
 #if HOLYC_NATIVE_PLATFORM == 1
   PRUNTIME_FUNCTION function_table;
   DWORD function_count;
@@ -693,6 +694,70 @@ struct native_retained_program {
 #endif
   char close_error[240];
 };
+
+/* Closed entries use their original RSP spill frame, without a saved RBP.
+   Keep this admission separate from the callable unwind-table validator. */
+static unsigned native_validate_retained_functions(value code, value functions,
+                                                    int *closed_entry)
+{
+  const mlsize_t code_length = caml_string_length(code);
+  unsigned allocation = 0;
+  *closed_entry = 0;
+  if (Is_block(functions) && Tag_val(functions) == 0 &&
+      Wosize_val(functions) == 1) {
+    value descriptor = Field(functions, 0);
+    if (Is_block(descriptor) && Tag_val(descriptor) == 0 &&
+        Wosize_val(descriptor) == 3 && Is_long(Field(descriptor, 0)) &&
+        Is_long(Field(descriptor, 1)) &&
+        Is_block(Field(descriptor, 2)) &&
+        Tag_val(Field(descriptor, 2)) == String_tag) {
+      value unwind = Field(descriptor, 2);
+      const mlsize_t length = caml_string_length(unwind);
+      const unsigned char *bytes = (const unsigned char *)String_val(unwind);
+      if (length == 0 || (length == 8 && bytes[1] == 7)) {
+        size_t capture_offset = 0;
+        const unsigned char *encoded = (const unsigned char *)String_val(code);
+        if (Long_val(Field(descriptor, 0)) != 0 ||
+            Long_val(Field(descriptor, 1)) < 0 ||
+            (uintnat)Long_val(Field(descriptor, 1)) != (uintnat)code_length)
+          caml_invalid_argument("retained native closed entry range does not cover its code");
+        if (length != 0) {
+          if (bytes[0] != 1 || bytes[3] != 0 || bytes[4] != 7)
+            caml_invalid_argument("retained native closed entry unwind header is malformed");
+          if (bytes[2] == 1 && (bytes[5] & 15u) == 2u &&
+              bytes[6] == 0 && bytes[7] == 0) {
+            allocation = ((unsigned)(bytes[5] >> 4) + 1u) * 8u;
+          } else if (bytes[2] == 2 && bytes[5] == 1) {
+            allocation = ((unsigned)bytes[6] | ((unsigned)bytes[7] << 8)) * 8u;
+            if (allocation <= 128u)
+              caml_invalid_argument("retained native closed entry unwind allocation is not shortest");
+          } else {
+            caml_invalid_argument("retained native closed entry unwind allocation is malformed");
+          }
+          if (allocation < 8u || allocation > 4088u ||
+              (allocation & 15u) != 8u)
+            caml_invalid_argument("retained native closed entry unwind allocation exceeds its frame bound");
+          if (code_length < 10 || encoded[0] != 0x48 || encoded[1] != 0x81 ||
+              encoded[2] != 0xec || encoded[3] != (allocation & 0xffu) ||
+              encoded[4] != ((allocation >> 8) & 0xffu) ||
+              encoded[5] != 0 || encoded[6] != 0)
+            caml_invalid_argument("retained native closed entry code disagrees with its spill frame");
+          capture_offset = 7;
+        }
+        if (code_length < capture_offset + 3 ||
+            encoded[capture_offset] != 0x49 ||
+            encoded[capture_offset + 1] != 0x89 ||
+            encoded[capture_offset + 2] !=
+              (HOLYC_NATIVE_PLATFORM == 1 ? 0xcb : 0xfb))
+          caml_invalid_argument("retained native closed entry has another status prologue");
+        *closed_entry = 1;
+        return allocation + 8u;
+      }
+    }
+  }
+  (void)native_validate_program_functions(functions, code_length, &allocation);
+  return allocation + 16u;
+}
 
 static int native_retained_close(struct native_retained_program *program)
 {
@@ -810,7 +875,9 @@ static void native_retained_map(struct native_retained_program *program,
     caml_failwith("native function pointers do not match this host's address size");
   program->arena_length = arena_length;
 #if HOLYC_NATIVE_PLATFORM == 1
-  size_t count = (size_t)Wosize_val(functions);
+  size_t count = program->closed_entry &&
+    caml_string_length(Field(Field(functions, 0), 2)) == 0
+      ? 0 : (size_t)Wosize_val(functions);
   size_t metadata_offset = (code_length + 3u) & ~(size_t)3u;
   size_t unwind_offset = metadata_offset;
   size_t table_offset;
@@ -860,10 +927,12 @@ static void native_retained_map(struct native_retained_program *program,
   if (!FlushInstructionCache(GetCurrentProcess(), program->mapping, code_length))
     native_retained_creation_error(program, "instruction-cache synchronization",
                                     GetLastError());
-  if (!RtlAddFunctionTable(program->function_table, program->function_count,
-                           (DWORD64)(uintptr_t)program->mapping))
-    native_retained_creation_error(program, "unwind registration", GetLastError());
-  program->registered = 1;
+  if (program->function_count != 0) {
+    if (!RtlAddFunctionTable(program->function_table, program->function_count,
+                             (DWORD64)(uintptr_t)program->mapping))
+      native_retained_creation_error(program, "unwind registration", GetLastError());
+    program->registered = 1;
+  }
 #else
   int flags = personality(0xffffffffUL);
   if (flags == -1)
@@ -1302,10 +1371,20 @@ static value native_execute_program_output(value code, value functions,
   /* Validate the sealed code and unwind table before reserving the capture
      buffer. The checked execution helpers repeat these checks at entry. */
   code_length = caml_string_length(code);
-  (void)native_validate_program_functions(functions, code_length,
-                                          &entry_allocation);
-  if ((uintnat)entry_stack_bytes != (uintnat)entry_allocation + 16u)
-    caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
+  if (retained != Val_unit) {
+    int closed_entry = 0;
+    unsigned checked_stack =
+      native_validate_retained_functions(code, functions, &closed_entry);
+    if ((uintnat)entry_stack_bytes != checked_stack)
+      caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
+    if (closed_entry && arena_length != 0)
+      caml_invalid_argument("retained native closed entry cannot own a data arena");
+  } else {
+    (void)native_validate_program_functions(functions, code_length,
+                                            &entry_allocation);
+    if ((uintnat)entry_stack_bytes != (uintnat)entry_allocation + 16u)
+      caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
+  }
   if (code_length == 0 || code_length > 16u * 1024u * 1024u)
     caml_invalid_argument("native image length is outside the host allocation bound");
 
@@ -1401,7 +1480,8 @@ CAMLprim value holyc_native_retain_program(value identity)
   value code, functions, storage, arena_image;
   intnat globals, literals, metadata;
   size_t code_length, arena_length;
-  unsigned entry_allocation = 0;
+  unsigned checked_stack = 0;
+  int closed_entry = 0;
   struct native_retained_program *program;
   if (!Is_block(identity) || Tag_val(identity) != 0 || Wosize_val(identity) != 5 ||
       !Is_long(Field(identity, 2)) || !Is_long(Field(identity, 3)))
@@ -1422,8 +1502,8 @@ CAMLprim value holyc_native_retain_program(value identity)
   arena_length = (size_t)caml_string_length(arena_image);
   if (code_length == 0 || code_length > 16u * 1024u * 1024u)
     caml_invalid_argument("native image length is outside the host allocation bound");
-  (void)native_validate_program_functions(functions, code_length, &entry_allocation);
-  if (Long_val(Field(identity, 3)) != (intnat)entry_allocation + 16)
+  checked_stack = native_validate_retained_functions(code, functions, &closed_entry);
+  if (Long_val(Field(identity, 3)) != (intnat)checked_stack)
     caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
   globals = Long_val(Field(storage, 0));
   literals = Long_val(Field(storage, 1));
@@ -1435,6 +1515,8 @@ CAMLprim value holyc_native_retain_program(value identity)
       arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata ||
       (globals == 0 && literals == 0 && metadata != 0))
     caml_invalid_argument("retained native arena image is inconsistent with data and metadata");
+  if (closed_entry && arena_length != 0)
+    caml_invalid_argument("retained native closed entry cannot own a data arena");
   handle = caml_alloc_custom_mem(&native_retained_operations, sizeof(program),
                                   code_length + arena_length);
   *((struct native_retained_program **)Data_custom_val(handle)) = NULL;
@@ -1442,6 +1524,7 @@ CAMLprim value holyc_native_retain_program(value identity)
   if (program == NULL) caml_raise_out_of_memory();
   *((struct native_retained_program **)Data_custom_val(handle)) = program;
   atomic_init(&program->active, 0);
+  program->closed_entry = closed_entry;
   program->identity = identity;
   caml_register_generational_global_root(&program->identity);
   /* The allocation above can move the original rooted tuple and its children. */

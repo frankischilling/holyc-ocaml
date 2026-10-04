@@ -34,8 +34,10 @@ val retain :
 (** Retain the original sealed host image and one private data arena. Code moves
     from writable staging to executable/read-only protection once; data stays
     read/write and non-executable. Bounds and the host ABI are checked before
-    allocation. No native pointer or replacement image is accepted or exposed.
-*)
+    allocation. Closed entries retain their original RSP spill frame or
+    frameless code; callable entries retain their saved-RBP frame. Each charges
+    its own exact entry stack footprint. No native pointer or replacement image
+    is accepted or exposed. *)
 
 val release : retained -> (unit, string) result
 (** Release the original mapping, arena and Windows unwind registration.

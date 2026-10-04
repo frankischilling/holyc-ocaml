@@ -7,6 +7,8 @@ arena across activations, with OS mappings and unwind registration owned by the
 host bridge. Source-task admission, original JIT parser-time scheduling and
 linking separate images remain open. See
 [retained native images](native-retained-images.md).
+Closed entries retain their original frameless or RSP spill convention alongside
+callable saved-RBP frames, with separate exact stack and unwind checks.
 
 Issue #801 follows `Compiler/PrsStmt.HC:67-143` for AOT function-record reuse
 and stored cleanup flags, `PrsStmt.HC:140-207` for separate body emission, and

@@ -2,6 +2,11 @@ open Holyc_lib
 module Program = X86_64_program
 module Runtime = Native_program_execution
 
+type raw_retained
+
+external raw_retain : Obj.t -> raw_retained = "holyc_native_retain_program"
+external raw_release : raw_retained -> unit = "holyc_native_release_program"
+
 let checked = function
   | Ok value -> value
   | Error message -> Alcotest.fail message
@@ -331,6 +336,207 @@ let zero_data_and_collection () =
           ignore (run retained |> expect_value 42L)))
     modes
 
+let closed_entry_images () =
+  let pressure count =
+    let expression = ref (string_of_int count) in
+    for value = count - 1 downto 1 do
+      expression := Printf.sprintf "%d+(%s)" value !expression
+    done;
+    !expression ^ ";"
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected, spilled, large) ->
+          let image = compile mode source in
+          Alcotest.(check int)
+            "closed entry has no named functions" 0
+            (Program.function_count image);
+          Alcotest.(check int)
+            "closed entry has no arena" 0
+            (String.length (Program.global_image image));
+          Alcotest.(check bool)
+            "original spill frame" spilled
+            (Program.frame_bytes image > 0);
+          Alcotest.(check bool)
+            "original small or large unwind allocation" large
+            (Program.frame_bytes image > 128);
+          let stack = Program.entry_stack_bytes image in
+          Alcotest.(check int)
+            "closed entry charges its CALL and spill frame"
+            (8 + Program.frame_bytes image)
+            stack;
+          let steps =
+            Runtime.execute_report ~max_steps:10000 image
+            |> expect_value expected
+          in
+          let retained =
+            Runtime.retain ~max_active_stack_bytes:stack image |> checked
+          in
+          Fun.protect
+            ~finally:(fun () -> Runtime.release retained |> checked)
+            (fun () ->
+              for _ = 1 to 3 do
+                Gc.compact ();
+                let report =
+                  Runtime.execute_retained_report ~max_active_stack_bytes:stack
+                    ~max_steps:steps retained
+                in
+                Alcotest.(check int)
+                  "same actual closed-entry work" steps
+                  (report |> expect_value expected);
+                Alcotest.(check string)
+                  "closed entry captures no output" ""
+                  (Runtime.output_bytes report);
+                Alcotest.(check int)
+                  "closed entry has no output work" 0
+                  (Runtime.output_work report)
+              done;
+              ignore
+                (run ~max_steps:(steps - 1) retained
+                |> expect_fault Program.Step_limit_exceeded);
+              ignore (run ~max_steps:steps retained |> expect_value expected);
+              match
+                Runtime.execute_retained_report
+                  ~max_active_stack_bytes:(stack - 1) ~max_steps:steps retained
+                |> Runtime.outcome
+              with
+              | Error _ -> ()
+              | Ok _ -> Alcotest.fail "closed entry escaped its stack quota");
+          match Runtime.retain ~max_active_stack_bytes:(stack - 1) image with
+          | Error _ -> ()
+          | Ok retained ->
+              Runtime.release retained |> checked;
+              Alcotest.fail "closed entry mapped beyond its stack quota")
+        [
+          ("42;", 42L, false, false);
+          (pressure 14, 105L, true, false);
+          (pressure 48, 1176L, true, true);
+        ])
+    modes
+
+let closed_entry_faults () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, kind) ->
+          let image = compile mode source in
+          let steps =
+            Runtime.execute_report ~max_steps:10000 image |> expect_fault kind
+          in
+          with_retained image (fun retained ->
+              for _ = 1 to 3 do
+                let report = run ~max_steps:steps retained in
+                Alcotest.(check int)
+                  "same original closed-entry fault work" steps
+                  (report |> expect_fault kind);
+                Alcotest.(check string)
+                  "fault captures no output" ""
+                  (Runtime.output_bytes report)
+              done;
+              ignore
+                (run ~max_steps:(steps - 1) retained
+                |> expect_fault Program.Step_limit_exceeded);
+              ignore (run ~max_steps:steps retained |> expect_fault kind)))
+        [
+          ("42/0;", Program.Division_by_zero);
+          ("42%0;", Program.Division_by_zero);
+          ( "1+(2+(3+(4+(5+(6+(7+(8+(9+(10+(11+(12+(13+(14/0)))))))))))));",
+            Program.Division_by_zero );
+        ])
+    modes
+
+let closed_entry_bridge_guards () =
+  let abi =
+    match Runtime.platform () with
+    | Runtime.Windows_x86_64 -> 1
+    | Runtime.Linux_x86_64 -> 2
+    | Runtime.Unsupported -> Alcotest.fail "unsupported native host"
+  in
+  let reject image message ?code ?functions ?stack ?(storage = (0, 0, 0, "")) ()
+      =
+    let code = Option.value code ~default:(Program.code image) in
+    let functions =
+      Option.value functions
+        ~default:(Array.of_list (Program.windows_unwind_functions image))
+    in
+    let stack = Option.value stack ~default:(Program.entry_stack_bytes image) in
+    Alcotest.check_raises "closed-entry bridge rejects before mapping"
+      (Invalid_argument message) (fun () ->
+        let retained =
+          raw_retain (Obj.repr (code, functions, abi, stack, storage))
+        in
+        raw_release retained)
+  in
+  List.iter
+    (fun mode ->
+      let frameless = compile mode "42;" in
+      let spilled =
+        compile mode "1+(2+(3+(4+(5+(6+(7+(8+(9+(10+(11+(12+(13+14))))))))))));"
+      in
+      List.iter
+        (fun image ->
+          let code = Program.code image in
+          let functions =
+            Array.of_list (Program.windows_unwind_functions image)
+          in
+          let stack = Program.entry_stack_bytes image in
+          let retained =
+            raw_retain (Obj.repr (code, functions, abi, stack, (0, 0, 0, "")))
+          in
+          raw_release retained;
+          reject image
+            "native program entry stack metadata does not match its unwind \
+             frame"
+            ~stack:(stack + 8) ();
+          reject image "retained native closed entry cannot own a data arena"
+            ~storage:(1, 0, 0, "\000") ();
+          let first, last, unwind = functions.(0) in
+          reject image
+            "retained native closed entry range does not cover its code"
+            ~functions:[| (first + 1, last, unwind) |]
+            ();
+          reject image
+            "retained native closed entry range does not cover its code"
+            ~functions:[| (first, last - 1, unwind) |]
+            ();
+          let changed = Bytes.of_string code in
+          let capture = if Program.frame_bytes image = 0 then 0 else 7 in
+          Bytes.set changed (capture + 2)
+            (Char.chr (if abi = 1 then 0xfb else 0xcb));
+          reject image
+            "retained native closed entry has another status prologue"
+            ~code:(Bytes.to_string changed) ())
+        [ frameless; spilled ];
+      let first, last, unwind =
+        List.hd (Program.windows_unwind_functions spilled)
+      in
+      let changed = Bytes.of_string (Program.code spilled) in
+      Bytes.set changed 3 (Char.chr (Char.code (Bytes.get changed 3) lxor 16));
+      reject spilled
+        "retained native closed entry code disagrees with its spill frame"
+        ~code:(Bytes.to_string changed) ();
+      let mutate index value message =
+        let changed = Bytes.of_string unwind in
+        Bytes.set changed index (Char.chr value);
+        reject spilled message
+          ~functions:[| (first, last, Bytes.to_string changed) |]
+          ()
+      in
+      mutate 0 9 "retained native closed entry unwind header is malformed";
+      mutate 3 1 "retained native closed entry unwind header is malformed";
+      mutate 4 6 "retained native closed entry unwind header is malformed";
+      mutate 2 0 "retained native closed entry unwind allocation is malformed";
+      mutate 5 0 "retained native closed entry unwind allocation is malformed";
+      mutate 5 0x12
+        "retained native closed entry unwind allocation exceeds its frame bound";
+      let large_small = "\001\007\002\000\007\001\001\000" in
+      reject spilled
+        "retained native closed entry unwind allocation is not shortest"
+        ~functions:[| (first, last, large_small) |]
+        ())
+    modes
+
 let () =
   if Runtime.platform () = Runtime.Unsupported then
     failwith "retained native tests require Windows or Linux x86-64";
@@ -356,5 +562,12 @@ let () =
             `Quick shared_owner_across_domains;
           Alcotest.test_case "zero-data images and collected owners" `Quick
             zero_data_and_collection;
+          Alcotest.test_case "closed entries preserve their original frames"
+            `Quick closed_entry_images;
+          Alcotest.test_case "closed-entry faults retain exact native work"
+            `Quick closed_entry_faults;
+          Alcotest.test_case
+            "closed-entry bridge guards reject changed metadata" `Quick
+            closed_entry_bridge_guards;
         ] );
     ]
