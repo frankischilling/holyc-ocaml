@@ -1,9 +1,9 @@
 # Native callback cells, arrays and parameters
 
 `run --target=host-jit` invokes one-star automatic, static and global callback
-cells, fully indexed arrays and fixed callback parameters with integer arguments
-and integer or U0 returns. JIT and
-AOT preprocessing modes use the same source pipeline. Generated calls enter the
+cells, fully indexed arrays and fixed callback parameters. Calls admit integer
+fixed arguments and bounded integer word tails, with integer or U0 returns.
+JIT and AOT preprocessing modes use the same source pipeline. Generated calls enter the
 project's private fixed-RSP adapter.
 
 ```sh
@@ -25,6 +25,10 @@ The [defaults example](../examples/native-callback-defaults.hc) returns I64 42.
 Its target function saves 17, its global callback array saves 7, and its callback
 parameter saves 42. Each invocation uses the selected callback declaration's
 saved value. Copying an executable address does not copy the source cell's defaults.
+
+[Native word tails](native-word-tails.md) add matching variadic callback calls,
+source-defined variadic bodies and their original `argc`/`argv` storage. Fixed
+callback parameters can also be forwarded through a variadic function.
 
 ## Declaration defaults
 
@@ -144,8 +148,8 @@ on Windows and Linux.
 
 Native member storage, callback initializers and updates, effectful/owned-code
 callback defaults, callback-valued parameters of an indirect callback signature,
-word-tail variadics, retained publication after same-name replacement, unresolved
-extern slots and live task linking remain unfinished in
+pointer/owned-code variadic tails, retained publication after same-name
+replacement, unresolved extern slots and live task linking remain unfinished in
 [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). Ordinary
 word storage and return paths still need ownership-preserving consumers. General
 F64, aggregate and mixed-value execution remains in #688. The IR callback

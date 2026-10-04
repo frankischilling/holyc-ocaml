@@ -543,12 +543,18 @@ One-star [global callback cells and fully indexed arrays](global-callbacks.md) n
 The lexer corpus result is 528 of 528 files at TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`. The denominator is the complete committed set of files ending in `.HC`, `.HH`, or `.PRJ`. This is a raw-tokenization result, not a whole-compiler compatibility percentage. Preprocessing, parsing, semantic analysis, lowering, execution, native emission, and loader acceptance remain separate gates.
 
 The [native callback consumer](native-local-callbacks.md) supports automatic/static/global
-cells, fully indexed arrays, fixed callback parameters, forwarding and fixed integer/U0 invocation in
+cells, fully indexed arrays, fixed callback parameters, forwarding and integer/U0 invocation with bounded word tails in
 both source modes. Private ownership metadata follows original function-address
 values through checked copies and parameter transfers. Numeric stores clear that
 metadata; reached numeric/null calls fault after argument effects. Address and
 owner snapshots precede reverse arguments, and invocation checks the original
 signature and cleanup. Cell-address escapes and owned-code transfers through
 ordinary word cells, ordinary parameters or returns remain unsupported. Native
-member storage, effectful/owned-code defaults, initializers, updates, word tails and retained replacement
+member storage, effectful/owned-code defaults, initializers, updates, pointer/owned-code tails and retained replacement
 remain open in #801. No new TempleOS capture or full HolyC ABI export is claimed.
+
+[Native word tails](native-word-tails.md) execute direct variadic bodies and
+matching callbacks with the original hidden count, mutable `argc`/`argv`, typed
+aliases and actual bounds. Fixed callback owners survive the variable argument
+area. Both source modes retain original cleanup, reverse effects, exact quotas
+and same-image recovery. General mixed-value variadics remain open.

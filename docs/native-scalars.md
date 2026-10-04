@@ -16,7 +16,8 @@ numeric value. The ordinary `run` target remains the checked interpreter.
 
 ## Ordinary calling modifiers
 
-Fixed integer and U0 functions admit `argpop`, `noargpop` and `haserrcode`.
+Fixed and integer word-tail variadic functions with integer or U0 returns admit
+`argpop`, `noargpop` and `haserrcode`.
 `noargpop` suppresses callee cleanup even when `argpop` is also present, in either
 token order. `haserrcode` alone has no ordinary epilogue effect. Interrupt bodies
 still require a separate execution consumer and remain rejected.
@@ -66,6 +67,10 @@ Its object accesses use the declared width. Automatic locals occupy their exact
 checked ranges within the padded semantic frame. Preflight verifies the complete
 range, declared slot size and owner, including overlap with adjacent objects.
 Hidden initialization flags, spills and call staging remain outside those ranges.
+
+[Native word tails](native-word-tails.md) retain original synthetic `argc`/`argv`
+locations and actual per-activation bounds. The hidden count and each tail word
+also occupy eight-byte slots; changing `argc` does not change their allocation.
 
 The encoder uses signed or unsigned extending byte/word loads, MOVSXD for signed
 dword loads, and a dword MOV for unsigned loads. Stores select the exact byte,

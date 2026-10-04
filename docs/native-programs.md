@@ -8,7 +8,8 @@ See [conditional integer chains](conditional-comparison-chains.md) for native
 observations, grouping and the remaining floating/pending-reduction boundaries.
 
 `holyc run --target=host-jit` compiles integer statements, structured control
-flow and fixed direct scalar integer functions and U0 procedures with the project's OCaml x86-64
+flow and direct scalar integer functions and U0 procedures, including bounded
+integer word tails, with the project's OCaml x86-64
 backend, then executes the checked image on Windows or Linux x86-64. It uses the
 integer program lowerer's original source roots, function bodies, frame layouts
 and checked call context. It does not execute the entry through the interpreter
@@ -44,6 +45,8 @@ comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for` and `break`
 Source-defined functions add named fixed I8/U8/I16/U16/I32/U32/I64/U64 parameters,
 automatic scalar integer declarations, local assignment and updates, and
 value-return statements. U0 procedures also admit bare returns and fallthrough.
+[Native word tails](native-word-tails.md) add original hidden counts and
+per-activation `argc`/`argv` storage to direct and matching callback calls.
 Function-local language labels and direct gotos use the same checked block
 lowering as the interpreter; [goto execution](integer-goto.md) records their
 source identity, empty-block fallthrough and initialization behavior. Ordinary

@@ -682,6 +682,8 @@ let source_gate_is_compile_only () =
       "I64 F(){static I64 n=0;return ++n;} F();";
       "I64 Bad(){static I64 n[2];return n[0];}42;";
       "I64 values[2]={40,2};values[0]+values[1];";
+      "I64 F(I64 n,...){return n;} F(42);";
+      "I64 F(...){argc=0;I64 *p=argv;return p[1];}F(20,42);";
     ]
   in
   List.iter
@@ -726,7 +728,6 @@ let source_gate_is_compile_only () =
           "I64 Bad(){static I64 *n;return 0;}42;";
           "I64 Bad(){static I64 reg n;return 0;}42;";
           "I64 F(I64 **p){return **p;} 42;";
-          "I64 F(I64 n,...){return n;} F(42);";
           "extern I64 F(I64 n); 42;";
           "I64 N=1;I64 F(I64 n=N<<3){return n;} F(1);";
           "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
@@ -826,6 +827,44 @@ let callable_ownership_joins_are_exact () =
     (integer_program_initialization right)
     (integer_program_entry left)
     (integer_program_functions left)
+
+let word_tail_bundles_retain_original_authority () =
+  let source =
+    "I64 Sum(I64 n,...){return n+argv[0];}I64 Apply(I64 (*p)(I64 \
+     n,...),...){return p(argv[0],argv[1]);}Apply(&Sum,20,22);"
+  in
+  List.iter
+    (fun mode ->
+      let original = integer_unit ~mode source
+      and foreign = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let image =
+            compile_callable ~status_abi:abi original
+            |> require_ok program_errors
+          in
+          Alcotest.(check int)
+            "original variadic bodies compile in both ABIs" 2
+            (Program.function_count image);
+          let functions = integer_program_functions original in
+          let foreign_functions = integer_program_functions foreign in
+          let copied_frame : VM.function_definition =
+            {
+              body = (List.hd functions).body;
+              frame = (List.hd foreign_functions).frame;
+            }
+          in
+          ignore
+            (Program.compile_callable ~status_abi:abi ~max_stack_bytes:4088
+               ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+               ~runtime_calls:(integer_program_runtime_calls original)
+               ~initialization:(integer_program_initialization original)
+               ~entry:(integer_program_entry original)
+               ~functions:(copied_frame :: List.tl functions)
+               ()
+            |> reject ~code:"HCBACK0003" "equal foreign variadic frame"))
+        [ Program.Windows_x64; Program.System_v_x64 ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let callable_prepared_defaults_are_rejected_at_argument_producer () =
   let compile_aot call =
@@ -1942,6 +1981,8 @@ let tests =
       source_gate_is_compile_only;
     Alcotest.test_case "callable frame and call ownership joins are exact"
       `Quick callable_ownership_joins_are_exact;
+    Alcotest.test_case "word-tail frames retain original bundle authority"
+      `Quick word_tail_bundles_retain_original_authority;
     Alcotest.test_case
       "callable prepared defaults reject at the exact argument producer" `Quick
       callable_prepared_defaults_are_rejected_at_argument_producer;

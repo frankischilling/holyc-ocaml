@@ -163,13 +163,23 @@ let checked_reference description type_ =
       (pointee, checked_scalar ~allow_public:true description pointee)
   | Error message -> malformed description message
 
+let compatible_reference target source =
+  Type.compatible_u8_pointer target source
+  || Type.pointer_depth target = 1
+     && Type.pointer_depth source = 1
+     &&
+     match (Type.base target, Type.base source) with
+     | Type.Primitive (_, Primitive.I64), Type.Primitive (_, Primitive.I64) ->
+         true
+     | _ -> false
+
 let checked_copy description target source =
   if Type.pointer_depth target = 0 then (
     ignore (checked_scalar ~allow_public:true description target);
     ignore (checked_scalar ~allow_public:true description source))
   else (
     ignore (checked_reference description target);
-    if not (Type.compatible_u8_pointer target source) then
+    if not (compatible_reference target source) then
       malformed description
         "native reference copy requires its exact pointer type")
 
@@ -213,8 +223,15 @@ type reference_access = {
 
 type frame_reference_origin = { access : frame_access; extent_bytes : int }
 
+type variadic_reference_origin = {
+  data_offset : int;
+  count_offset : int;
+  maximum_count : int;
+}
+
 type reference_origin =
   | Frame_reference of frame_reference_origin
+  | Variadic_reference of variadic_reference_origin
   | Arena_reference of arena_access
   | Literal_reference of Literal_storage.region
 
@@ -229,10 +246,12 @@ let reference_scalar = function
       }
   | Arena_reference access ->
       { word_type = access.arena_word; byte_size = access.arena_bytes }
+  | Variadic_reference _ -> { word_type = I64; byte_size = 8 }
   | Literal_reference _ -> { word_type = U64; byte_size = 1 }
 
 let reference_extent = function
   | Frame_reference origin -> origin.extent_bytes
+  | Variadic_reference origin -> origin.maximum_count * 8
   | Arena_reference access -> access.arena_extent_bytes
   | Literal_reference region -> Literal_storage.byte_count region
 
@@ -1617,7 +1636,8 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
     emit_branch Less bounds_fault;
     if not one_past then (
       emit span (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int scalar.byte_size));
-      emit span (Encoder.Binary (Encoder.Sub, extent, Encoder.Rax)));
+      emit span (Encoder.Binary (Encoder.Sub, extent, Encoder.Rax));
+      emit_branch Below bounds_fault);
     emit span (Encoder.Cmp (extent, offset));
     emit_branch Below bounds_fault
   in
@@ -1649,6 +1669,10 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
     mark no_flag
   in
   let emit_reference_data span target = function
+    | Variadic_reference origin ->
+        emit span
+          (Encoder.Address_frame
+             (target, encoder_scalar_frame_slot span origin.data_offset))
     | Frame_reference origin ->
         emit span
           (Encoder.Address_frame
@@ -1674,7 +1698,19 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
         emit span
           (Encoder.Address_arena
              (target, encoder_arena_slot span access.initialized_flag_offset))
-    | Literal_reference _ -> emit span (Encoder.Mov_imm64 (target, 0L))
+    | Literal_reference _ | Variadic_reference _ ->
+        emit span (Encoder.Mov_imm64 (target, 0L))
+  in
+  (* The original tail extent is independent of writes to the source argc cell. *)
+  let emit_reference_extent span target = function
+    | Variadic_reference origin ->
+        emit span
+          (Encoder.Load_frame
+             (target, encoder_frame_slot span origin.count_offset));
+        emit_doubles span target 3
+    | origin ->
+        emit span
+          (Encoder.Mov_imm64 (target, Int64.of_int (reference_extent origin)))
   in
   List.iteri
     (fun position (instruction : prepared_instruction) ->
@@ -2119,12 +2155,11 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
       | Materialize_reference (origin, table, target_offset, result) ->
           spill_all_registers instruction.span;
           let scalar = reference_scalar origin in
-          let extent_bytes = reference_extent origin in
           (match target_offset with
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 0L))
           | Some offset ->
               copy_value_to instruction.span offset rcx;
-              emit (Encoder.Mov_imm64 (Encoder.R8, Int64.of_int extent_bytes));
+              emit_reference_extent instruction.span Encoder.R8 origin;
               emit_bounds instruction.span
                 (Option.get instruction.site)
                 ~one_past:true ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8);
@@ -2146,7 +2181,7 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           emit_reference_flag instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 8, Encoder.Rax));
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx));
-          emit (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int extent_bytes));
+          emit_reference_extent instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 24, Encoder.Rax));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rdx result
@@ -2229,9 +2264,7 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           spill_all_registers instruction.span;
           let scalar = reference_scalar access.origin in
           copy_value_to instruction.span access.offset rcx;
-          emit
-            (Encoder.Mov_imm64
-               (Encoder.R8, Int64.of_int (reference_extent access.origin)));
+          emit_reference_extent instruction.span Encoder.R8 access.origin;
           emit_bounds instruction.span
             (Option.get instruction.site)
             ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
@@ -2252,9 +2285,7 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           spill_all_registers instruction.span;
           let scalar = reference_scalar access.origin in
           copy_value_to instruction.span access.offset rcx;
-          emit
-            (Encoder.Mov_imm64
-               (Encoder.R8, Int64.of_int (reference_extent access.origin)));
+          emit_reference_extent instruction.span Encoder.R8 access.origin;
           emit_bounds instruction.span
             (Option.get instruction.site)
             ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
@@ -2430,9 +2461,7 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           spill_all_registers instruction.span;
           let scalar = reference_scalar access.origin in
           copy_value_to instruction.span access.offset rcx;
-          emit
-            (Encoder.Mov_imm64
-               (Encoder.R8, Int64.of_int (reference_extent access.origin)));
+          emit_reference_extent instruction.span Encoder.R8 access.origin;
           emit_bounds instruction.span
             (Option.get instruction.site)
             ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
@@ -3757,6 +3786,7 @@ type callable_function_info = {
   owner : program_owner;
   parameter_types : Type.t array;
   parameter_callbacks : Headers.function_pointer option array;
+  variadic : (variadic_reference_origin * Type.t) option;
   return_kind : callable_return_kind;
   rbp_bytes : int;
   activation_bytes : int;
@@ -3793,6 +3823,7 @@ type frame_term =
   | Frame_base of Type.t
   | Frame_offset of Type.t * int
   | Frame_address of callable_slot
+  | Variadic_address of variadic_reference_origin * Type.t
   | Global_address of Global_storage.slot
   | Reference_address of reference_access * Type.t
   | Index_offset of index_offset_term
@@ -3822,6 +3853,8 @@ type callable_call_scope = {
   argument_stages : int array;
   argument_owner_stages : int option array;
   argument_types : Type.t array;
+  fixed_count : int;
+  variadic_count : int64 option;
   scratch_stage : int;
   pushed : bool array;
   mutable phase : callable_call_phase;
@@ -3840,13 +3873,65 @@ type callable_intrinsic_scope = {
   mutable intrinsic_executed : bool;
 }
 
-let call_argument_index target = function
-  | Runtime.Fixed index ->
-      if target = Print_provider && index <> 0 then None else Some index
-  | Runtime.Variadic_count when target = Print_provider -> Some 1
-  | Runtime.Variadic index when target = Print_provider && index >= 0 ->
-      Some (index + 2)
-  | Runtime.Variadic_count | Runtime.Variadic _ -> None
+let call_argument_index ~fixed_count ~variadic_count = function
+  | Runtime.Fixed index when index >= 0 && index < fixed_count -> Some index
+  | Runtime.Variadic_count when Option.is_some variadic_count ->
+      Some fixed_count
+  | Runtime.Variadic index when index >= 0 -> (
+      match variadic_count with
+      | Some count when Int64.of_int index < count ->
+          Some (fixed_count + 1 + index)
+      | _ -> None)
+  | Runtime.Fixed _ | Runtime.Variadic_count | Runtime.Variadic _ -> None
+
+let callable_argument_types description ~max_stack_bytes ~fixed ~variadic_count
+    arguments =
+  let fixed_count = Array.length fixed in
+  let count =
+    match variadic_count with
+    | None -> fixed_count
+    | Some count
+      when count >= 0L
+           && count <= Int64.of_int ((max_stack_bytes / 8) - fixed_count - 1) ->
+        fixed_count + 1 + Int64.to_int count
+    | Some _ ->
+        reject ?span:description.Sequence.span "HCBACK0004"
+          "native word-tail argument staging exceeds max_stack_bytes"
+  in
+  if List.length arguments <> count then
+    malformed description
+      "native call argument count disagrees with its receipt";
+  let types = Array.of_list (List.map Runtime.argument_target_type arguments) in
+  let seen = Array.make count false in
+  List.iter
+    (fun argument ->
+      match
+        call_argument_index ~fixed_count ~variadic_count
+          (Runtime.argument_role argument)
+      with
+      | Some index when not seen.(index) ->
+          seen.(index) <- true;
+          let type_ = Runtime.argument_target_type argument in
+          (if index < fixed_count then (
+             if not (Type.equal type_ fixed.(index)) then
+               malformed description
+                 "native fixed argument type disagrees with its parameter")
+           else
+             let scalar = checked_scalar ~allow_public:true description type_ in
+             if
+               index = fixed_count
+               && (scalar.word_type <> I64 || scalar.byte_size <> 8)
+             then
+               malformed description
+                 "native hidden count requires its original I64 type");
+          types.(index) <- type_
+      | _ ->
+          malformed description
+            "native call has duplicate or invalid argument roles")
+    arguments;
+  if not (Array.for_all Fun.id seen) then
+    malformed description "native call is missing a physical argument slot";
+  types
 
 type prepared_callable_body = {
   callable_blocks : prepared_program_block list;
@@ -3947,7 +4032,7 @@ let callable_frame_update opcode word =
   | Opcode.Ic__mm -> Some (Update_binary Encoder.Sub, true, false)
   | _ -> None
 
-let prepare_callable_function ~max_stack_bytes
+let prepare_callable_function ~max_stack_bytes ~maximum_variadic_count
     (definition : Ir.Integer_interpreter.function_definition) =
   let body = definition.body in
   let frame = definition.frame in
@@ -3958,7 +4043,15 @@ let prepare_callable_function ~max_stack_bytes
   if Option.is_none (Function.definition_declaration body) then
     reject ?span "HCBACK0003"
       "native source functions require their original checked definition owner";
-  let allowed_flags = Function.ordinary_calling_flag_mask in
+  let variadic_bindings =
+    Headers.function_variadic_bindings (Frame.function_header frame)
+  in
+  let allowed_flags =
+    if Option.is_some variadic_bindings then
+      Int64.logor Function.ordinary_calling_flag_mask
+        (Sema.Function_flag.Stored.to_mask Variadic)
+    else Function.ordinary_calling_flag_mask
+  in
   if
     Int64.logand (Function.stored_flags body) (Int64.lognot allowed_flags) <> 0L
   then
@@ -4094,6 +4187,96 @@ let prepare_callable_function ~max_stack_bytes
             };
         })
     parameters;
+  let synthetic_locations kind =
+    Frame.function_locations frame
+    |> List.filter (fun location -> Frame.location_kind location = kind)
+  in
+  let variadic =
+    match
+      ( variadic_bindings,
+        synthetic_locations Frame.Variadic_argc,
+        synthetic_locations Frame.Variadic_argv )
+    with
+    | None, [], [] -> None
+    | Some bindings, [ argc ], [ argv ] ->
+        let check location binding kind expected =
+          let type_ = Frame.location_checked_type location in
+          let scalar = source_slot_scalar ?span "variadic binding" type_ in
+          let register_ok =
+            match Frame.location_register_selection location with
+            | Sema.Register_request.Unspecified | Sema.Register_request.Disabled
+              -> true
+            | _ -> false
+          in
+          let slot =
+            match Frame.location_frame_slot location with
+            | Some slot -> slot
+            | None ->
+                reject ?span "HCBACK0003"
+                  "native variadic binding has no original frame slot"
+          in
+          if
+            Frame.location_symbol location
+            != Headers.synthetic_binding_symbol binding
+            || (not (Type.equal type_ (Headers.synthetic_binding_type binding)))
+            || Frame.location_kind location <> kind
+            || (not register_ok) || scalar.word_type <> I64
+            || scalar.byte_size <> 8
+            || Frame.location_allocated_size location <> 8L
+            || Frame.frame_slot_size slot <> 8L
+            || Frame.frame_slot_displacement slot <> Int64.of_int expected
+          then
+            reject ?span "HCBACK0003"
+              "native variadic bindings disagree with the original checked \
+               frame";
+          type_
+        in
+        let argc_offset = 16 + (8 * List.length parameters) in
+        let argc_type =
+          check argc
+            (Headers.variadic_argc bindings)
+            Frame.Variadic_argc argc_offset
+        in
+        let argv_type =
+          check argv
+            (Headers.variadic_argv bindings)
+            Frame.Variadic_argv (argc_offset + 8)
+        in
+        if
+          Frame.location_value_shape argc <> Frame.Scalar
+          || Frame.location_value_shape argv <> Frame.Array
+        then
+          reject ?span "HCBACK0003"
+            "native variadic count/vector shape is inconsistent";
+        add_slot argc_offset 8
+          {
+            slot_type = argc_type;
+            slot_word = I64;
+            slot_dimensions = [];
+            slot_element_count = 1;
+            slot_extent_bytes = 8;
+            callback = None;
+            slot_owner_offset = None;
+            owned_targets = None;
+            access =
+              {
+                frame_offset = argc_offset;
+                frame_bytes = 8;
+                frame_word = I64;
+                initialized_flag_offset = None;
+              };
+          };
+        Some
+          ( {
+              data_offset = argc_offset + 8;
+              count_offset = reserve_metadata ();
+              maximum_count = maximum_variadic_count;
+            },
+            argv_type )
+    | _ ->
+        reject ?span "HCBACK0003"
+          "native variadic bindings lack their original count/vector pair"
+  in
   let locals = Function.locals body in
   List.iter
     (fun member ->
@@ -4281,9 +4464,13 @@ let prepare_callable_function ~max_stack_bytes
              Frame.find_location frame (Function.member_symbol member)
              |> Option.get |> Frame.location_callback_pointer)
            parameters);
+    variadic;
     return_kind;
     rbp_bytes;
-    activation_bytes = local_frame_bytes + (8 * List.length parameters);
+    activation_bytes =
+      (local_frame_bytes
+      + (8 * List.length parameters)
+      + if Option.is_some variadic then 8 else 0);
     frame_slots = !slots;
     init_flag_offsets = List.rev !init_flag_offsets_rev;
   }
@@ -4390,7 +4577,7 @@ let validate_callable_returns graph return_kind =
 
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     ~code_edges ~arena_code_cells ~global_storage ~literal_storage
-    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t)
+    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t) ~variadic
     ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
@@ -4485,8 +4672,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     let descriptor_bytes = 32 in
     let available = max_stack_bytes - rbp_bytes - !reference_bytes in
     if
-      element_count < 1
-      || available < descriptor_bytes * 2
+      element_count < 0
+      || available < descriptor_bytes
       || element_count > (available / descriptor_bytes) - 1
     then
       reject ?span:description.span "HCBACK0004"
@@ -4746,9 +4933,6 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 unsupported description
                   "anonymous callback arguments cannot carry named default \
                    evidence";
-              if Option.is_some callback.callback_variadic_count then
-                unsupported description
-                  "native local callbacks require fixed arguments";
               let captured =
                 operand values description position
                   callback.callback_capture_value
@@ -4761,7 +4945,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       "callback callee has no owned local cell"
               in
               let parameter_types =
-                Array.of_list callback.callback_fixed_types
+                callable_argument_types description ~max_stack_bytes
+                  ~fixed:(Array.of_list callback.callback_fixed_types)
+                  ~variadic_count:callback.callback_variadic_count
+                  callback.callback_arguments
               in
               Array.iter
                 (fun type_ ->
@@ -4801,6 +4988,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   argument_stages = Array.init count (fun i -> stage_base + i);
                   argument_owner_stages = Array.make count None;
                   argument_types = parameter_types;
+                  fixed_count = List.length callback.callback_fixed_types;
+                  variadic_count = callback.callback_variadic_count;
                   scratch_stage = !stage_cursor;
                   pushed = Array.make count false;
                   phase = Collecting;
@@ -4839,15 +5028,20 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         (Function.return_type body)
                         callback.callback_return_type
                       && callee_pop = callback.callback_callee_pop
-                      && Array.length callee.parameter_types
-                         = Array.length scope.argument_types
+                      && Option.is_some callee.variadic
+                         = Option.is_some callback.callback_variadic_count
+                      && Array.length callee.parameter_types = scope.fixed_count
                       && Array.for_all2 Type.equal callee.parameter_types
-                           scope.argument_types
+                           (Array.sub scope.argument_types 0 scope.fixed_count)
                     in
                     ( matches,
                       {
                         callee_index;
-                        activation_bytes = callee.activation_bytes;
+                        activation_bytes =
+                          callee.activation_bytes
+                          + 8
+                            * Option.fold ~none:0 ~some:Int64.to_int
+                                scope.variadic_count;
                         argument_stage_slots;
                         argument_owner_stages =
                           Array.copy scope.argument_owner_stages;
@@ -5106,7 +5300,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     List.iter
                       (fun argument ->
                         match
-                          call_argument_index Print_provider
+                          call_argument_index ~fixed_count:1
+                            ~variadic_count:(Runtime.variadic_count call)
                             (Runtime.argument_role argument)
                         with
                         | Some index
@@ -5181,15 +5376,39 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       malformed description
                         "direct call return type disagrees with its source \
                          definition";
+                    if
+                      Option.is_some callee.variadic
+                      <> Option.is_some (Runtime.variadic_count call)
+                    then
+                      malformed description
+                        "direct call variadic shape disagrees with its \
+                         original body";
                     ( Source_function callee_index,
-                      callee.parameter_types,
+                      callable_argument_types description ~max_stack_bytes
+                        ~fixed:callee.parameter_types
+                        ~variadic_count:(Runtime.variadic_count call)
+                        (Runtime.arguments call),
                       callee.return_kind,
-                      callee.activation_bytes )
+                      callee.activation_bytes
+                      + 8
+                        * Option.fold ~none:0 ~some:Int64.to_int
+                            (Runtime.variadic_count call) )
               in
               let parameter_count = Array.length parameter_types in
+              let fixed_count =
+                match target with
+                | Source_function index ->
+                    Array.length functions.(index).parameter_types
+                | Put_chars_provider | Print_provider -> 1
+              in
+              let variadic_count = Runtime.variadic_count call in
               let parameter_callbacks =
                 match target with
-                | Source_function index -> functions.(index).parameter_callbacks
+                | Source_function index ->
+                    Array.init parameter_count (fun position ->
+                        if position < fixed_count then
+                          functions.(index).parameter_callbacks.(position)
+                        else None)
                 | Put_chars_provider | Print_provider ->
                     Array.make parameter_count None
               in
@@ -5202,7 +5421,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               List.iter
                 (fun argument ->
                   match
-                    call_argument_index target (Runtime.argument_role argument)
+                    call_argument_index ~fixed_count ~variadic_count
+                      (Runtime.argument_role argument)
                   with
                   | Some index
                     when index >= 0 && index < parameter_count
@@ -5219,12 +5439,12 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                            parameter"
                   | Some _ | None ->
                       unsupported description
-                        "native callable programs require non-variadic fixed \
-                         arguments")
+                        "native call argument roles disagree with their \
+                         original signature")
                 arguments;
               if not (Array.for_all Fun.id seen) then
                 malformed description
-                  "direct call does not cover every fixed parameter";
+                  "direct call does not cover every physical argument slot";
               let stage_base = !stage_cursor in
               let argument_end = ref (stage_base + parameter_count) in
               let argument_owner_stages =
@@ -5272,6 +5492,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     Array.init parameter_count (fun index -> stage_base + index);
                   argument_owner_stages;
                   argument_types = parameter_types;
+                  fixed_count;
+                  variadic_count;
                   scratch_stage;
                   pushed = Array.make parameter_count false;
                   phase = Collecting;
@@ -5864,6 +6086,23 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                                   malformed description
                                     "frame address pointee type is inconsistent"
                               )
+                          | None
+                            when Option.fold ~none:false
+                                   ~some:(fun (origin, _) ->
+                                     origin.data_offset = offset)
+                                   variadic -> (
+                              let origin, type_ = Option.get variadic in
+                              match Type.pointer_to type_ with
+                              | Ok expected when Type.equal expected target_type
+                                ->
+                                  define_frame frame_values values void_values
+                                    description result
+                                    (Variadic_address (origin, type_));
+                                  (Frame_tick, None)
+                              | _ ->
+                                  malformed description
+                                    "variadic address pointee type is \
+                                     inconsistent")
                           | None ->
                               malformed description
                                 "frame address displacement names no checked \
@@ -5879,6 +6118,23 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       touch position scaled.index_offset;
                       let root, base, strides =
                         match Value_map.find_opt base_id !frame_values with
+                        | Some (Variadic_address (origin, type_)) ->
+                            (match Type.pointer_to type_ with
+                            | Ok expected when Type.equal expected target_type
+                              -> ()
+                            | _ ->
+                                malformed description
+                                  "indexed variadic base changes its checked \
+                                   pointer type");
+                            ( Indexed_object_root
+                                {
+                                  object_origin = Variadic_reference origin;
+                                  object_type = type_;
+                                  object_element_count = origin.maximum_count;
+                                  object_code = None;
+                                },
+                              Index_zero,
+                              [ 8L ] )
                         | Some (Frame_address slot) ->
                             if slot.slot_dimensions = [] then
                               malformed description
@@ -6042,6 +6298,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       None )
                   in
                   match address with
+                  | Variadic_address (origin, actual)
+                    when Type.equal pointee actual ->
+                      materialize (Variadic_reference origin)
+                        origin.maximum_count None
                   | Frame_address slot when Option.is_some slot.callback ->
                       unsupported description
                         "native callback cell addresses cannot escape"
@@ -6696,7 +6956,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   ignore (checked_reference description right.declared_type);
                   if
                     (not
-                       (Type.compatible_u8_pointer left.declared_type
+                       (compatible_reference left.declared_type
                           right.declared_type))
                     || checked_word description target_type <> I64
                   then
@@ -6910,7 +7170,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                          (Runtime.argument_value argument)
                          result.value_id -> (
                     match
-                      call_argument_index scope.target
+                      call_argument_index ~fixed_count:scope.fixed_count
+                        ~variadic_count:scope.variadic_count
                         (Runtime.argument_role argument)
                     with
                     | Some index
@@ -7067,12 +7328,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                               || raw.payload
                                  <> Option.map
                                       (fun count -> Sequence.Integer count)
-                                      (Runtime.variadic_count
-                                         (Option.get scope.call))
+                                      scope.variadic_count
                             then
                               malformed raw
-                                "native Print count producer lost its original \
-                                 captured argument count"
+                                "native variadic count producer lost its \
+                                 original captured argument count"
                         | Runtime.Fixed _ | Runtime.Variadic _ -> ());
                         scope.pushed.(index) <- true;
                         value.last_use <- max value.last_use position;
@@ -7801,9 +8061,45 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
         parameter_defaults;
       if block_count = 0 then
         reject "HCBACK0003" "native callable bundle requires an entry block";
+      (* Bound private descriptor capacity from sealed call receipts. Runtime
+         bounds always use each activation's captured count, including zero. *)
+      let maximum_variadic_count = ref 0 in
+      let collect_count = function
+        | None -> ()
+        | Some count
+          when count >= 0L && count <= Int64.of_int (max_stack_bytes / 8) ->
+            maximum_variadic_count :=
+              max !maximum_variadic_count (Int64.to_int count)
+        | Some _ ->
+            reject "HCBACK0004" "native word-tail count exceeds max_stack_bytes"
+      in
+      let collect_graph owner graph =
+        List.iter
+          (fun block ->
+            Sequence.instructions (Graph.instructions block)
+            |> List.iter (fun instruction ->
+                let id = (Sequence.description instruction).instruction_id in
+                (match Runtime.find_start runtime_calls ~owner id with
+                | Some call when Option.is_none (Runtime.provider call) ->
+                    collect_count (Runtime.variadic_count call)
+                | _ -> ());
+                Option.iter
+                  (fun callback ->
+                    collect_count callback.Runtime.callback_variadic_count)
+                  (Runtime.find_callback_start runtime_calls ~owner id)))
+          (Graph.blocks graph)
+      in
+      collect_graph Runtime.Entry entry_graph;
+      List.iter
+        (fun (definition : Ir.Integer_interpreter.function_definition) ->
+          collect_graph (Runtime.Function definition.body)
+            (Ir.X87_stack.graph (Function.x87 definition.body)))
+        functions;
       let function_infos =
         functions
-        |> List.map (prepare_callable_function ~max_stack_bytes)
+        |> List.map
+             (prepare_callable_function ~max_stack_bytes
+                ~maximum_variadic_count:!maximum_variadic_count)
         |> Array.of_list
       in
       let next_site = ref 0 in
@@ -7813,8 +8109,8 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
         preflight_callable_graph ~runtime_calls ~parameter_defaults ~code_edges
           ~arena_code_cells ~functions:function_infos ~global_storage
           ~literal_storage ~runtime_owner:Runtime.Entry ~owner:Entry_owner
-          ~frame_slots:Int_map.empty ~expected_return:None ~is_entry:true
-          ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
+          ~frame_slots:Int_map.empty ~variadic:None ~expected_return:None
+          ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
       in
       let function_prepared =
         Array.map
@@ -7824,7 +8120,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
               ~code_edges ~arena_code_cells ~functions:function_infos
               ~global_storage ~literal_storage
               ~runtime_owner:(Runtime.Function body) ~owner:info.owner
-              ~frame_slots:info.frame_slots
+              ~frame_slots:info.frame_slots ~variadic:info.variadic
               ~expected_return:(Some (Function.return_type body))
               ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes
               ~next_site
@@ -7887,7 +8183,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
         Array.init (Array.length function_infos) (fun _ -> fresh_label supply)
       in
       let allocate_graph ~graph ~prepared ~rbp_bytes ~init_flag_offsets
-          ~parameter_owner_offsets ~is_entry ~start_label =
+          ~parameter_owner_offsets ~variadic ~is_entry ~start_label =
         let rbp_bytes = rbp_bytes + prepared.callable_reference_bytes in
         let fixed_stack_slots =
           prepared.callable_home_slots + prepared.callable_stage_slots
@@ -7997,16 +8293,54 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                        (encoder_frame_slot None flag_offset, Encoder.Rax));
                 ])
               init_flag_offsets
-          @ List.concat_map
-              (fun (incoming_offset, owner_offset) ->
+          @ (match variadic with
+            | None -> []
+            | Some (origin, _) ->
                 [
                   Planned_instruction
                     (Encoder.Load_frame
-                       (Encoder.Rax, encoder_frame_slot None incoming_offset));
+                       ( Encoder.Rax,
+                         encoder_frame_slot None (origin.data_offset - 8) ));
                   Planned_instruction
                     (Encoder.Store_frame
-                       (encoder_frame_slot None owner_offset, Encoder.Rax));
+                       (encoder_frame_slot None origin.count_offset, Encoder.Rax));
                 ])
+          @ List.concat_map
+              (fun (incoming_offset, owner_offset) ->
+                (match variadic with
+                  | None ->
+                      [
+                        Planned_instruction
+                          (Encoder.Load_frame
+                             ( Encoder.Rax,
+                               encoder_frame_slot None incoming_offset ));
+                      ]
+                  | Some (origin, _) ->
+                      [
+                        Planned_instruction
+                          (Encoder.Load_frame
+                             ( Encoder.Rax,
+                               encoder_frame_slot None origin.count_offset ));
+                        Planned_instruction
+                          (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rax));
+                        Planned_instruction
+                          (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rax));
+                        Planned_instruction
+                          (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rax));
+                        Planned_instruction
+                          (Encoder.Address_frame
+                             ( Encoder.Rcx,
+                               encoder_scalar_frame_slot None incoming_offset ));
+                        Planned_instruction
+                          (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rax));
+                        Planned_instruction
+                          (Encoder.Load_indirect (Encoder.Rax, Encoder.Rcx, 0));
+                      ])
+                @ [
+                    Planned_instruction
+                      (Encoder.Store_frame
+                         (encoder_frame_slot None owner_offset, Encoder.Rax));
+                  ])
               parameter_owner_offsets
         in
         let entry_id = Graph.entry graph |> Graph.block_id in
@@ -8061,12 +8395,16 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
       let entry_allocated =
         allocate_graph ~graph:entry_graph ~prepared:entry_prepared ~rbp_bytes:0
           ~init_flag_offsets:[] ~parameter_owner_offsets:[] ~is_entry:true
-          ~start_label:None
+          ~variadic:None ~start_label:None
       in
       let functions_allocated =
         Array.mapi
           (fun index info ->
-            let incoming_index = ref (Array.length info.parameter_types) in
+            let incoming_index =
+              ref
+                (Array.length info.parameter_types
+                + if Option.is_some info.variadic then 1 else 0)
+            in
             let parameter_owner_offsets =
               Array.to_list
                 (Array.mapi
@@ -8089,7 +8427,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
               ~graph:(Ir.X87_stack.graph (Function.x87 info.definition.body))
               ~prepared:function_prepared.(index) ~rbp_bytes:info.rbp_bytes
               ~init_flag_offsets:info.init_flag_offsets ~is_entry:false
-              ~parameter_owner_offsets
+              ~parameter_owner_offsets ~variadic:info.variadic
               ~start_label:(Some function_labels.(index)))
           function_infos
       in

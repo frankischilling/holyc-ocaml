@@ -4513,15 +4513,41 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               site
           in
           let runtime_callee site =
+            let parameters =
+              Runtime.header site
+              |> Sema.Function_type_resolution.function_signature
+              |> Sema.Function_type_resolution.signature_parameters
+            in
             let argument_type argument =
               let type_ = Runtime.argument_target_type argument in
-              match
-                scalar_value_type ~allow_byte:true ~allow_public:true type_
-              with
-              | Some word -> Some (Stored_word word)
-              | None when scalar_pointer_type type_ ->
-                  Some (Stored_pointer type_)
-              | None -> None
+              let callback =
+                match Runtime.argument_role argument with
+                | Runtime.Fixed index ->
+                    Option.bind (List.nth_opt parameters index)
+                      (fun parameter ->
+                        match
+                          Sema.Function_type_resolution
+                          .parameter_declarator_kind parameter
+                        with
+                        | Sema.Function_type_resolution.Function_pointer pointer
+                          ->
+                            Some
+                              (Sema.Function_type_resolution
+                               .function_pointer_storage_type pointer
+                              |> Result.get_ok)
+                        | _ -> None)
+                | _ -> None
+              in
+              if Option.fold ~none:false ~some:(Type.equal type_) callback then
+                Some (Stored_word I64)
+              else
+                match
+                  scalar_value_type ~allow_byte:true ~allow_public:true type_
+                with
+                | Some word -> Some (Stored_word word)
+                | None when scalar_pointer_type type_ ->
+                    Some (Stored_pointer type_)
+                | None -> None
             in
             let arguments = List.rev (Runtime.arguments site) in
             let types = List.filter_map argument_type arguments in

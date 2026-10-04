@@ -1352,6 +1352,14 @@ unused declarations, and compiles both image ABIs. Maintained CLI coverage runs
 the callback-default example with exact runtime/preparation counters. These
 checks add no TempleOS capture or exported HolyC ABI proof.
 
+Native word-tail tests compare values and exact checked-batch work for direct
+variadic bodies and matching callback calls in both source modes. They exercise
+all integer widths, empty tails, mutable `argc`, indexed and aliased updates,
+fixed callback owner lanes after variable arguments, saved defaults, cleanup
+flags, reverse effects, reached faults and recursive quota recovery. Compile
+tests check both ABIs and foreign-frame rejection. The maintained word-tail CLI
+fixture returns 42 with sixteen saved bytes and six native preparation steps.
+
 Ordinary calling-flag tests check both `argpop noargpop` orders, standalone
 `haserrcode`, original cleanup opcodes and slot counts, and foreign call-context
 rejection. Parser tests retain local modifier tokens and source-order storage.

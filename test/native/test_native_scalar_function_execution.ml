@@ -2047,6 +2047,302 @@ let callback_default_preparation_limits () =
       | Program.Fault _ -> Alcotest.fail "default image did not recover")
     modes
 
+let word_tail_values_and_storage () =
+  let cases =
+    [
+      ("zero", "I64 F(I64 n,...){return n+argc;}F(42);");
+      ("only-tail", "I64 F(...){return argv[0]+argv[1]+argc;}F(20,20);");
+      ( "mutable-count",
+        "I64 F(I64 n,...){argc=100;return argv[0]+argv[1];}F(0,20,22);" );
+      ("shrink-count", "I64 F(I64 n,...){argc=0;return argv[1];}F(0,20,42);");
+      ( "array-updates",
+        "I64 F(I64 n,...){argv[0]+=2;argv[1]++;return \
+         ++argv[0]+argv[1];}F(0,17,21);" );
+      ( "pointer-alias",
+        "I64 F(I64 n,...){I64 *p=argv;argc=99;*(p+1)+=2;return p[1];}F(0,0,40);"
+      );
+      ( "one-past",
+        "I64 F(I64 n,...){I64 *p=&argv[argc];return *(p-1);}F(0,20,42);" );
+      ("zero-address", "I64 F(I64 n,...){I64 *p=argv;return argc+n;}F(42);");
+      ( "callback-params",
+        "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n),I64 \
+         n,...){return p(argv[argc-1]+n);}Apply(&Add,0,17,40);" );
+      ( "multiple-owners",
+        "I64 A(I64 n){return n+1;}I64 B(I64 n){return n+2;}I64 Apply(I64 \
+         (*a)(I64 n),I64 (*b)(I64 n),...){return \
+         a(argv[0])+b(argv[1]);}Apply(&A,&B,17,22);" );
+      ( "recursive-owners",
+        "I64 Add(I64 n){return n+2;}I64 Walk(I64 (*p)(I64 n),I64 \
+         n,...){if(n)return Walk(p,n-1,17,40);return \
+         p(argv[1]);}Walk(&Add,2,5,6);" );
+      ( "var-signature",
+        "I64 F(I64 n,...){return n+argv[0]+argc;}I64 Run(){I64 (*p)(I64 \
+         n,...);p=&F;return p(20,21);}Run();" );
+      ( "captured-overwrite",
+        "I64 (*G)(I64 n,...);I64 F(I64 n,...){return n+argv[0];}I64 Bad(I64 \
+         n,...){return 7;}I64 Arg(){G=&Bad;return 20;}I64 Run(){G=&F;return \
+         G(Arg(),22);}Run();" );
+      ( "default-tail",
+        "I64 F(I64 n=17,...){return n+argv[0];}I64 Run(){I64 (*p)(I64 \
+         n=20,...);p=&F;return p(,22);}Run();" );
+      ( "cleanup",
+        "argpop I64 F(I64 n,...){return n+argv[0];}argpop I64 (*G)(I64 \
+         n,...);I64 Run(){G=&F;return G(20,22);}Run();" );
+      ( "void",
+        "extern U0 PutChars(U64 ch);U0 F(I64 \
+         n,...){PutChars(argv[0]);}F(0,65);42;" );
+      ( "argc-address",
+        "I64 F(I64 n,...){I64 *p=&argc;*p=100;return argv[1];}F(0,17,42);" );
+      ( "large-recursion",
+        "I64 F(I64 n,...){if(n)return F(n-1,40,2,3);return \
+         argv[0]+argv[1];}F(2,99);" );
+      ( "pointer equality preserves the synthetic origin",
+        "I64 F(...){I64 *p=argv;I64 *q=&argv[0];if(p!=q)return 0;return \
+         p[0];}F(42);" );
+      ( "different tail lengths use their own bounds",
+        "I64 F(...){I64 *p=argv;return p[argc-1];}F(17);F(1,2,42);" );
+      ( "variadic callback parameter inside a variadic function",
+        "I64 Sum(I64 n,...){return n+argv[0];}I64 Apply(I64 (*p)(I64 \
+         n,...),...){return p(argv[0],argv[1]);}Apply(&Sum,20,22);" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source) ->
+          let report, _, _ =
+            compare_source ~mode ~label ~expected_type:"I64" ~expected_bits:42L
+              source
+          in
+          Alcotest.(check string)
+            (label ^ " output")
+            (if label = "void" then "A" else "")
+            (Native_program.output_bytes report))
+        cases;
+      List.iter
+        (fun (type_, input, expected_type, expected_bits) ->
+          List.iter
+            (fun callback ->
+              let call =
+                if callback then
+                  type_ ^ " Run(){" ^ type_ ^ " (*p)(" ^ type_
+                  ^ " n,...);p=&Echo;return p(" ^ input ^ "," ^ input
+                  ^ ");}Run();"
+                else "Echo(" ^ input ^ "," ^ input ^ ");"
+              in
+              let source =
+                type_ ^ " Echo(" ^ type_ ^ " n,...){return argv[0];}" ^ call
+              in
+              (* A tail occupies a complete word. The declared return class does not
+           normalize the literal through the fixed parameter's narrow storage. *)
+              let bits =
+                if type_ = "I8" || type_ = "U8" then 255L
+                else if type_ = "I16" || type_ = "U16" then 65535L
+                else if type_ = "I32" || type_ = "U32" then 4294967295L
+                else expected_bits
+              in
+              ignore
+                (compare_source ~mode
+                   ~label:(type_ ^ " complete tail word")
+                   ~expected_type ~expected_bits:bits source))
+            [ false; true ])
+        parameter_rows;
+      List.iter
+        (fun flags ->
+          let source =
+            Printf.sprintf
+              "%s I64 Sum(I64 n,...){return n+argv[0];}%s I64 (*G)(I64 \
+               n,...);I64 Run(){G=&Sum;return G(20,22);}Run();"
+              flags flags
+          in
+          ignore
+            (compare_source ~mode
+               ~label:(flags ^ " variadic cleanup")
+               ~expected_type:"I64" ~expected_bits:42L source))
+        [ ""; "argpop"; "noargpop"; "haserrcode" ];
+      List.iter
+        (fun storage ->
+          let source = "I64 Sum(I64 n,...){return n+argv[0];}" ^ storage in
+          ignore
+            (compare_source ~mode ~label:"variadic retained storage"
+               ~expected_type:"I64" ~expected_bits:42L source))
+        [
+          "I64 (*G)(I64 n,...);I64 Run(){G=&Sum;return G(20,22);}Run();";
+          "I64 Run(I64 seed){static I64 (*p)(I64 n,...);if(seed)p=&Sum;return \
+           p(20,22);}Run(1);Run(0);";
+          "I64 (*G)(I64 n,...)[2];I64 Run(){G[1]=&Sum;return \
+           G[1](20,22);}Run();";
+          "I64 Apply(I64 (*p)(I64 n,...)){return p(20,22);}Apply(&Sum);";
+          "I64 Run(){I64 (*p)(I64 n,...)[2];p[1]=&Sum;return \
+           p[1](20,22);}Run();";
+        ])
+    modes
+
+let word_tail_faults_and_effects () =
+  let prefix =
+    "extern U0 PutChars(U64 ch);I64 Arg(U64 ch){PutChars(ch);return 14;}"
+  in
+  let cases =
+    [
+      ( "bounds-mutable",
+        "I64 F(I64 n,...){argc=100;return argv[2];}F(0,20,22);",
+        "HCIRVM0019",
+        "" );
+      ( "negative",
+        "I64 F(I64 n,...){return argv[-1];}F(0,42);",
+        "HCIRVM0019",
+        "" );
+      ("empty-read", "I64 F(I64 n,...){return argv[0];}F(42);", "HCIRVM0019", "");
+      ( "one-past-read",
+        "I64 F(I64 n,...){I64 *p=&argv[argc];return *p;}F(0,42);",
+        "HCIRVM0019",
+        "" );
+      ( "empty-pointer",
+        "I64 F(I64 n,...){I64 *p=argv;return *p;}F(42);",
+        "HCIRVM0019",
+        "" );
+      ( "wrong-fixed",
+        "extern U0 PutChars(U64 ch);I64 F(I64 n){return n;}I64 \
+         A(){PutChars(65);return 20;}I64 Run(){I64 (*p)(I64 n,...);p=&F;return \
+         p(A(),22);}Run();",
+        "HCIRVM0014",
+        "A" );
+      ( "wrong-variadic",
+        "extern U0 PutChars(U64 ch);I64 F(I64 n,...){return n;}I64 \
+         A(){PutChars(65);return 42;}I64 Run(){I64 (*p)(I64 n);p=&F;return \
+         p(A());}Run();",
+        "HCIRVM0014",
+        "A" );
+      ( "numeric",
+        "extern U0 PutChars(U64 ch);I64 A(){PutChars(65);return 20;}I64 \
+         Run(){I64 (*p)(I64 n,...);p=42;return p(A(),22);}Run();",
+        "HCIRVM0024",
+        "A" );
+      ( "zero tail write",
+        "I64 F(...){argv[0]=42;return 0;}F();",
+        "HCIRVM0019",
+        "" );
+      ( "zero tail update",
+        "I64 F(...){argv[0]++;return 0;}F();",
+        "HCIRVM0019",
+        "" );
+      ( "short activation stays bounded after longer calls",
+        "I64 F(...){return argv[1];}F(0,42);F(42);",
+        "HCIRVM0019",
+        "" );
+      ( "null target evaluates fixed and tail arguments",
+        prefix
+        ^ "I64 Run(){I64 (*p)(I64 n,...);p=0;return \
+           p(Arg('A'),Arg('B'),Arg('C'));}Run();",
+        "HCIRVM0024",
+        "CBA" );
+      ( "uninitialized capture precedes tails",
+        prefix
+        ^ "I64 Run(){I64 (*p)(I64 n,...)[2];return \
+           p[1](Arg('A'),Arg('B'));}Run();",
+        "HCIRVM0012",
+        "" );
+      ( "capture bounds precede tails",
+        prefix
+        ^ "I64 Run(){I64 (*p)(I64 n,...)[2];return \
+           p[2](Arg('A'),Arg('B'));}Run();",
+        "HCIRVM0019",
+        "" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, code, output) ->
+          let _, batch = batch_failure ~mode ~max_steps:10000 source in
+          let report, fault, errors =
+            native_fault ~mode ~max_steps:10000 source
+          in
+          Alcotest.(check string) (label ^ " batch diagnostic") code batch.code;
+          Alcotest.(check string)
+            (label ^ " native diagnostic: " ^ diagnostics_text errors)
+            code (List.hd errors).code;
+          Alcotest.(check int)
+            (label ^ " reached work") batch.executed_steps
+            (Option.get fault).executed_steps;
+          Alcotest.(check string)
+            (label ^ " output") output
+            (Native_program.output_bytes report))
+        cases;
+      let source =
+        prefix
+        ^ "I64 Sum(I64 n,...){return n+argv[0]+argv[1];}I64 Run(){I64 (*p)(I64 \
+           n,...);p=&Sum;return p(Arg('A'),Arg('B'),Arg('C'));}Run();"
+      in
+      let report, _, _ =
+        compare_source ~mode ~label:"reverse fixed/tail argument order"
+          ~expected_type:"I64" ~expected_bits:42L source
+      in
+      Alcotest.(check string)
+        "tail effects precede fixed effects" "CBA"
+        (Native_program.output_bytes report))
+    modes
+
+let word_tail_quotas_and_recovery () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Walk(I64 (*p)(I64 n),I64 \
+     n,...){if(n)return Walk(p,n-1,17,40);return p(argv[1]);}Walk(&Add,2,5,6);"
+  in
+  List.iter
+    (fun mode ->
+      let _, native, _ =
+        compare_source ~mode ~label:"recursive variadic callback owner"
+          ~expected_type:"I64" ~expected_bits:42L source
+      in
+      let image = native.image and steps = native.execution.executed_steps in
+      let costs = named_physical_costs image in
+      let physical =
+        Program.entry_stack_bytes image + List.hd costs + (3 * List.nth costs 1)
+      in
+      let execute frame depth stack budget =
+        Runtime.execute ~max_frame_bytes:frame ~max_call_depth:depth
+          ~max_active_stack_bytes:stack ~max_steps:budget image
+        |> require_ok Fun.id
+      in
+      (match execute 128 4 physical steps with
+      | Program.Completed _ -> ()
+      | _ -> Alcotest.fail "exact word-tail activation quotas");
+      List.iter
+        (fun (frame, depth, stack, budget, kind) ->
+          (match execute frame depth stack budget with
+          | Program.Fault fault ->
+              Alcotest.(check bool)
+                "word-tail quota fault" true (fault.kind = kind)
+          | _ -> Alcotest.fail "one-below word-tail quota did not fault");
+          match execute 128 4 physical steps with
+          | Program.Completed result ->
+              check_native_word "word-tail image recovers" "I64" 42L
+                result.final_value
+          | _ -> Alcotest.fail "word-tail image did not recover")
+        [
+          (127, 4, physical, steps, Program.Frame_limit_exceeded);
+          (128, 3, physical, steps, Program.Call_depth_exceeded);
+          (128, 4, physical - 1, steps, Program.Native_stack_limit_exceeded);
+          (128, 4, physical, steps - 1, Program.Step_limit_exceeded);
+        ];
+      let defaults =
+        "I64 Sum(I64 n=17,...){return n+argv[0];}I64 Run(){I64 (*p)(I64 \
+         n=20,...);p=&Sum;return p(,22);}Run();"
+      in
+      let report, native =
+        native_success_report ~max_initializer_steps:6 ~max_default_bytes:16
+          ~mode ~max_steps:10000 defaults
+      in
+      check_native_word "variadic original saved default" "I64" 42L
+        native.execution.final_value;
+      Alcotest.(check int)
+        "variadic defaults share preparation work" 6
+        (Native_program.preparation_steps report);
+      Alcotest.(check int)
+        "variadic defaults share saved bytes" 16
+        (Native_program.default_bytes report))
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -2057,6 +2353,13 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case "word tails retain values and bounded storage"
+                `Quick word_tail_values_and_storage;
+              Alcotest.test_case "word-tail faults preserve argument effects"
+                `Quick word_tail_faults_and_effects;
+              Alcotest.test_case
+                "word-tail activation quotas unwind and recover" `Quick
+                word_tail_quotas_and_recovery;
               Alcotest.test_case
                 "anonymous saved defaults execute original values" `Quick
                 callback_defaults_execute_saved_values;

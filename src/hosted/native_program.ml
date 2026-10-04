@@ -218,8 +218,12 @@ let function_source_error (definition : Ast.function_definition) =
         | _ -> true)
       definition.modifiers
   then reject "native functions require ordinary calling modifiers"
-  else if Option.is_some definition.variadic then
-    reject "native functions require fixed parameters without a variadic tail"
+  else if
+    Option.fold ~none:false
+      ~some:(fun (variadic : Ast.variadic_marker) ->
+        variadic.register_qualifiers <> [])
+      definition.variadic
+  then reject "native variadic bindings require ordinary stack storage"
   else if Option.is_none definition.body then
     reject "native functions require their original source definition body"
   else

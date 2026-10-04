@@ -104,6 +104,12 @@ assignment, copies, clearing to zero and equality with owned code or null execut
 in both source modes. JIT replacement keeps the earlier address bound to its
 original body. A matching name or numeric word cannot select executable code.
 
+The [native word-tail consumer](native-word-tails.md) uses the original hidden
+count and synthetic `argc`/`argv` slots for direct bodies and matching callbacks.
+It preserves fixed callback owners after each activation's actual tail and uses
+captured bounds independently of mutable `argc`. Original cleanup receipts
+remain separate from its private plain-RET adapter.
+
 Named functions now prepare integer-word defaults for one-star callback
 parameters through the original declaration-time evaluator. The saved value is
 materialized as `IC_IMM_I64` with the parameter's physical internal `RT_PTR`
@@ -263,6 +269,6 @@ metadata; numeric stores clear it. Reached
 invocation checks the selected signature and cleanup policy. The indirect CALL
 enters the private fixed-RSP plain-RET adapter. Original closed integer callback
 defaults prepare once and retain their declaration's saved values. Native member
-callbacks, effectful/owned-code defaults, initializers, updates and word tails
+callbacks, effectful/owned-code defaults, initializers, updates and pointer/owned-code tails
 remain unfinished, along with HolyC ABI exports,
 RET-imm execution and interrupt entry.
