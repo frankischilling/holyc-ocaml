@@ -6800,7 +6800,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         then
                           unsupported raw
                             "native code values require a callback parameter"
-                        else if not (is_numeric_code value) then
+                        else if is_numeric_code value then
+                          ignore
+                            (checked_scalar ~allow_public:true raw
+                               (Runtime.argument_target_type argument))
+                        else
                           checked_copy raw
                             (Runtime.argument_target_type argument)
                             value.declared_type;

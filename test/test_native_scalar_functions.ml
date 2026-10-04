@@ -781,6 +781,10 @@ let local_callback_source_and_authority () =
         [
           "I64 A(){return 1;}I64 Run(){I64 (*p)();I64 n;p=&A;n=p;return \
            n;}Run();";
+          "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)();return \
+           Read(p=123);}Run();";
+          "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)();return \
+           Read(p=0);}Run();";
           "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p+1;}Run();";
           "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p(I32);}Run();";
           "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;I64 \

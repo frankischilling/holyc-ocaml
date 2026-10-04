@@ -29,6 +29,8 @@ Numeric stores clear it, even when they overwrite a previously owned callback.
 Source expressions cannot address these metadata words. Callback-cell addresses
 still cannot escape through object references, and owned code cannot pass through
 ordinary integer cells, ordinary parameters or returns.
+Numeric assignment results can supply ordinary integer arguments. Object-pointer
+parameters still require checked object references.
 
 Checked copies and fixed-parameter transfers form dependencies across the entire
 original bundle. The backend closes those dependencies before dispatch budgeting
