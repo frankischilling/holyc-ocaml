@@ -324,13 +324,13 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
       "native globals require ordinary integer or callback declarations \
        without aliases or unsupported calling modifiers"
   else if
-    not
-      (scalar_word_type type_specifier
-      || (void_return_type type_specifier && Option.is_some function_pointer))
+    not (scalar_word_type type_specifier || Option.is_some function_pointer)
   then reject "native globals require nonzero scalar integer types"
   else if
-    if Option.is_some function_pointer then List.length pointer_layers > 1
-    else pointer_layers <> []
+    match function_pointer with
+    | Some (pointer : Ast.function_pointer_declarator) ->
+        List.length pointer.indirection_layers <> 1
+    | None -> pointer_layers <> []
   then
     reject "native globals require scalar integers or one-star callback storage"
   else None

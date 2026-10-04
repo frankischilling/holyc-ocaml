@@ -2128,6 +2128,110 @@ let global_callback_storage_execution () =
         Run(){p[1]=&Add;return p[1]();}Run()+Run();"
     |> Test_integer_output.expect ~value:(Some 84L) "default")
 
+let global_callback_initializers_execute () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          ignore
+            (Test_integer_globals.run ~mode source
+            |> Test_integer_functions.expect 42L))
+        [
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n)=&Add;p(40);";
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 \
+           n)[2][2]={{&Add,0},{0,&Add}};p[1][1](40);";
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n)=&Add;I64 (*q)(I64 \
+           n)=p;p=0;q(40);";
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 \
+           n)[2]={&Add,p[0]};p[0]=0;p[1](40);";
+          "I64 Add(I64 n=17){return n+2;}I64 (*p)(I64 n=40)=&Add;p();";
+          "noargpop I64 Add(I64 n){return n+2;}noargpop I64 (*p)(I64 \
+           n)=&Add;p(40);";
+          "I64 Sum(I64 n,...){return n+argc+argv[0]+argv[1];}I64 (*p)(I64 \
+           n,...)=&Sum;p(37,1,2);";
+        ];
+      List.iter
+        (fun return_type ->
+          ignore
+            (Test_integer_globals.run ~mode
+               (return_type
+              ^ " (*p)()[2]={0xFFFFFFFFFFFFFFFF,0x8000000000000000};I64 \
+                 Check(){if(p[0]==-1&&p[1]==0x8000000000000000)return \
+                 42;return 0;}Check();")
+            |> Test_integer_functions.expect 42L))
+        [
+          "I8";
+          "U8";
+          "I16";
+          "U16";
+          "I32";
+          "U32";
+          "I64";
+          "U64";
+          "F64";
+          "U0";
+          "I64 *";
+          "I64 ****";
+        ];
+      ignore
+        (Test_integer_output.run ~mode
+           "extern U0 Print(U8 *fmt,...);I64 Seed(I64 n){Print(\"A\");return \
+            n+2;}I64 (*q)(I64 n)=&Seed;I64 (*p)()=q(15);I64 \
+            Check(){if(p==17)return 42;return 0;}Check();"
+        |> Test_integer_output.expect "A");
+      ignore
+        (Test_integer_output.run ~mode
+           "extern U0 Print(U8 *fmt,...);U0 Write(I64 n){Print(\"%d\",n);}U0 \
+            (*p)(I64 n)=&Write;p(42);42;"
+        |> Test_integer_output.expect "42"))
+    modes;
+  ignore
+    (Test_integer_globals.run ~mode:Preprocessor.Jit
+       "I64 Add(I64 n){return n+1;}I64 (*p)(I64 n)=&Add;I64 Add(I64 n){return \
+        n+2;}p(41);"
+    |> Test_integer_functions.expect 42L)
+
+let global_callback_initializer_faults_and_limits () =
+  List.iter
+    (fun mode ->
+      let prefix =
+        "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"arg\");return 40;}"
+      in
+      List.iter
+        (fun (body, code) ->
+          ignore
+            (Test_integer_output.run ~mode (prefix ^ body)
+            |> Test_integer_output.fault ~output:"arg" code))
+        [
+          ("I64 (*p)(I64 n)=0;I64 N=p(Side());42;", "HCIRVM0024");
+          ("I64 (*p)(I64 n)=17;I64 N=p(Side());42;", "HCIRVM0024");
+          ( "I64 Bad(I64 a,I64 b){return a+b;}I64 (*p)(I64 n)=&Bad;I64 \
+             N=p(Side());42;",
+            "HCIRVM0014" );
+        ];
+      let source =
+        "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n)[2]={&Add,0};p[0](40);"
+      in
+      let steps =
+        Test_integer_globals.run ~mode source
+        |> Test_integer_functions.expect 42L
+        |> Ir_integer_interpreter.executed_steps
+      in
+      ignore
+        (Test_integer_output.run ~mode ~max_steps:steps ~max_global_bytes:16
+           ~max_frame_bytes:8 ~max_call_depth:1 source
+        |> Test_integer_output.expect "");
+      List.iter
+        (fun (code, report) -> ignore (Test_integer_output.fault code report))
+        [
+          ( "HCIRVM0007",
+            Test_integer_output.run ~mode ~max_steps:(steps - 1) source );
+          ( "HCIRVM0016",
+            Test_integer_output.run ~mode ~max_global_bytes:15 source );
+          ("HCIRVM0011", Test_integer_output.run ~mode ~max_frame_bytes:7 source);
+        ])
+    modes
+
 let global_callback_reached_faults () =
   let prefix =
     "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"arg\");return 40;}"
@@ -2503,6 +2607,9 @@ let top_level_callback_graph_ownership () =
         [
           "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;p(40);";
           "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n)[2];p[1]=&Add;p[1](40);";
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n)=&Add;I64 N=p(40);N;";
+          "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n)[2]={&Add,0};I64 \
+           N=p[0](40);N;";
         ])
     modes
 
@@ -2542,6 +2649,11 @@ let ordinary_callback_flags_preserve_selected_cleanup () =
 
 let tests =
   [
+    Alcotest.test_case "global callback initializers retain words and code"
+      `Quick global_callback_initializers_execute;
+    Alcotest.test_case
+      "global callback initializer faults retain effects and limits" `Quick
+      global_callback_initializer_faults_and_limits;
     Alcotest.test_case "ordinary callback flags retain selected cleanup" `Quick
       ordinary_callback_flags_preserve_selected_cleanup;
     Alcotest.test_case

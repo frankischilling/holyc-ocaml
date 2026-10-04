@@ -66,6 +66,7 @@ let create ~task_view ~reference ~slot ~layout typed =
           "initializer destination is absent from its exact retained snapshot"
   in
   let value = Typed.top_level_root_value root in
+  let callback = Globals.storage_is_callback storage_ in
   let* () =
     match Layout.operation layout with
     | Layout.Copy_bytes _ -> Ok ()
@@ -74,11 +75,17 @@ let create ~task_view ~reference ~slot ~layout typed =
           Typed.result_array_rank value = 0
           && (match Typed.result_category value with
             | Typed.Object_value | Typed.Lvalue -> true
+            | Typed.Address_value ->
+                callback
+                && Option.is_some (Typed.result_function_declaration value)
+            | Typed.Callback_value ->
+                callback && Typed.result_is_callback_storage value
             | _ -> false)
-          && Option.fold ~none:false
-               ~some:(fun type_ ->
-                 Option.is_some (Integer_scalar_storage.of_type type_))
-               (Typed.result_type value)
+          && (Option.fold ~none:false
+                ~some:(fun type_ ->
+                  Option.is_some (Integer_scalar_storage.of_type type_))
+                (Typed.result_type value)
+             || (callback && Typed.result_is_callback_storage value))
         then Ok ()
         else
           Error

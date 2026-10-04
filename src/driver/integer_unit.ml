@@ -1007,6 +1007,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 (allow_zero_initializer_budget || Option.is_some task_view)
               ?on_progress:initializer_progress
               ~function_calls:(List.rev !all_function_calls)
+              ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
               ~span:ast.span ~globals:globals_ ~top_calls ~functions:definitions
               ()
           in

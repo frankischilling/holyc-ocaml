@@ -8,6 +8,9 @@ val strides : prepared_address -> int64 list
 (** Retain the complete declared stride sequence for ordinary reached addresses.
 *)
 
+val storage : prepared_address -> Integer_globals.storage_slot
+(** The exact storage selected by the checked source address. *)
+
 val prepare_initializer :
   globals:Integer_globals.t ->
   Sema.Function_call_expression_result.top_level_root_result ->

@@ -15,6 +15,7 @@ type prepared_address = {
 }
 
 let strides address = Integer_globals.storage_strides address.slot
+let storage address = address.slot
 
 type t = {
   sequence_ : Sequence.t;
@@ -342,8 +343,10 @@ let layout_indices ~slot destination =
       let cell = Integer_initializer_layout.cell_offset destination in
       let bytes = Integer_initializer_layout.byte_offset destination in
       match
-        Integer_scalar_storage.public_byte_size
-          (Integer_globals.storage_type slot)
+        if Integer_globals.storage_is_callback slot then Some 8
+        else
+          Integer_scalar_storage.public_byte_size
+            (Integer_globals.storage_type slot)
       with
       | Some width
         when cell >= 0

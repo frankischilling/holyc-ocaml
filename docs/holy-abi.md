@@ -172,9 +172,9 @@ across calls and JIT replacement. Automatic arrays are fresh on every activation
 The hosted arena checks the declared object's extent and offset overflow.
 
 These values do not supply concrete numeric addresses. Address arithmetic,
-numeric address output, callback members, callback initializers and updates,
+numeric address output, callback members, native owned-code/effectful initializers and callback updates,
 owned-code defaults, dereferenced or multistar callback forms, live task
-address linking and hosted native emission remain unfinished. F64 and aggregate
+address linking and broader hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the
 earlier native observations do not validate this new implementation. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)
 include assignment, member storage, eight-byte updates, callee capture before
@@ -275,7 +275,7 @@ metadata; numeric stores clear it. Reached
 invocation checks the selected signature and cleanup policy. The indirect CALL
 enters the private fixed-RSP plain-RET adapter. Original closed integer callback
 defaults prepare once and retain their declaration's saved values. Native member
-callbacks, effectful/owned-code defaults, initializers, updates and pointer/owned-code tails
+callbacks, effectful/owned-code defaults, owned-code/effectful initializers, updates and pointer/owned-code tails
 remain unfinished, along with HolyC ABI exports,
 RET-imm execution and interrupt entry.
 
@@ -284,3 +284,5 @@ original callback parameter storage from its return class. Integer preparation
 uses an internal I64 word; materialization retains RT_PTR and zero executable
 ownership. Original headers, receipts, complete charged evidence and selected
 `noreg` state remain checked.
+
+[Global callback initializers](global-callback-initializers.md) derive eight-byte physical storage from the original callback declaration before its return-type record is complete. IR initializers retain original executable identity and checked expression regions; native closed-word initializers require original consumed preparations and charged completions joined to the complete bundle. Numeric payloads retain zero executable owners.

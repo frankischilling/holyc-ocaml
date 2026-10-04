@@ -98,9 +98,22 @@ let storage_shape ~type_ ~dimensions =
 
 let prepare_global_destination value fragment receipt =
   let declaration = Sema.Initializer_fragment.declaration fragment in
-  let type_ =
-    declaration |> Sema.Compiler_record.declared_global_type
-    |> Sema.Type_reference.resolved_type
+  let* type_ =
+    match
+      (Sema.Compiler_record.declared_global_source declaration)
+        .global_function_pointer
+    with
+    | Some pointer when callback_word_parameter (Some pointer) ->
+        Sema.Type.make_primitive ~form:Public_spelling ~primitive:I64
+          ~pointer_depth:0
+    | Some _ ->
+        Error
+          "HCRUN0001: native initializer requires original one-star callback \
+           storage"
+    | None ->
+        Ok
+          (declaration |> Sema.Compiler_record.declared_global_type
+         |> Sema.Type_reference.resolved_type)
   in
   let dimensions =
     Sema.Compiler_record.declared_global_dimensions declaration

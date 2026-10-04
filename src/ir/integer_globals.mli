@@ -255,6 +255,10 @@ val cell_count : t -> int
 val storage_symbol : storage_slot -> Sema.Symbol.t
 val storage_type : storage_slot -> Sema.Type.t
 
+val storage_is_callback : storage_slot -> bool
+(** Identify physical callback storage from its original declaration, including
+    the current parser-owned destination before its type record is complete. *)
+
 val storage_callback_pointer :
   storage_slot -> Sema.Function_type_resolution.function_pointer option
 

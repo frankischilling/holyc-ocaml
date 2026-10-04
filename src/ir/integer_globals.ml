@@ -509,6 +509,15 @@ let storage_callback_pointer = function
   | Declared _ -> None
   | Static slot -> Integer_statics.callback_pointer slot
 
+let storage_is_callback = function
+  | Declared slot ->
+      (Sema.Compiler_record.declared_global_source slot.declaration)
+        .Frontend.Parser.global_function_pointer
+      |> Option.fold ~none:false ~some:(fun pointer ->
+          List.length pointer.Frontend.Ast.indirection_layers = 1)
+  | (Global _ | Static _) as storage ->
+      Option.is_some (storage_callback_pointer storage)
+
 let global_callback_storage globals pointer =
   let slots =
     List.map global_storage globals.slots_
@@ -840,16 +849,6 @@ let create_impl ?layout ?initializers ~span:unit_span records =
               (fun (owner, roots) -> (owner, List.rev roots))
               (Symbols.find_opt (Symbol.id symbol) roots)
           in
-          let* () =
-            if
-              Option.is_some callback
-              && Option.is_some (Global.global_initializer global)
-            then
-              fail "HCRUN0001"
-                "global callback initializers require their own saved word or \
-                 executable preparation"
-            else Ok ()
-          in
           let* array_initializers =
             if dimensions = [] then Ok None
             else
@@ -915,12 +914,23 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                     || (not
                           (match Typed.result_category value with
                           | Typed.Object_value | Typed.Lvalue -> true
+                          | Typed.Address_value ->
+                              Option.is_some callback
+                              && Option.is_some
+                                   (Typed.result_function_declaration value)
+                              && Option.is_some
+                                   (Typed.result_function_address_path value)
+                          | Typed.Callback_value ->
+                              Option.is_some callback
+                              && Typed.result_is_callback_storage value
                           | _ -> false))
                     || not
                          (match Typed.result_type value with
                          | Some type_ ->
                              Option.is_some
                                (Integer_scalar_storage.of_type type_)
+                             || Option.is_some callback
+                                && Typed.result_is_callback_storage value
                          | _ -> false)
                   then
                     fail "HCRUN0001"

@@ -4555,18 +4555,23 @@ let condition_chain_continuations lowered = lowered.continuations_
 let condition_chain_next_block_id lowered = lowered.next_block_id_
 
 let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
-    ?optimize_division ~lower_address ~target_type ~span ~instruction_id
-    ~value_id value =
+    ?optimize_division ?(callback = false) ~lower_address ~target_type ~span
+    ~instruction_id ~value_id value =
   let ( let* ) = Result.bind in
   let target_is_word =
     Option.is_some (Integer_scalar_storage.of_type target_type)
   in
+  let target_is_callback = callback && callback_word_type target_type in
   let* value_type =
     checked_frame_value value |> Result.map_error (fun error -> [ error ])
   in
   match value_type with
   | Checked_type value_type
     when (target_is_word && Type.pointer_depth value_type = 0)
+         || target_is_callback
+            && (Type.pointer_depth value_type = 0
+               || Semantic_result.result_is_callback_storage value
+                  && callback_word_type value_type)
          || Option.is_some frame
             && scalar_pointer_type target_type
             && Integer_scalar_storage.compatible_pointer target_type value_type
@@ -4676,10 +4681,8 @@ let lower_global_initializer ~globals ?lower_call ?optimize_shifts
     with
     | Sema.Top_level_expression_tree.Global_initializer owner ->
         let type_ =
-          owner |> Sema.Global_initializer_binding.global_record
-          |> Sema.Global_resolution.global_record_global
-          |> Sema.Global_type_resolution.global_type_reference
-          |> Sema.Type_reference.resolved_type
+          Global_address_lowering.storage prepared
+          |> Integer_globals.storage_type
         in
         let span =
           match
@@ -4703,8 +4706,11 @@ let lower_global_initializer ~globals ?lower_call ?optimize_shifts
         Global_address_lowering.next_value_id address )
   in
   lower_store_initializer ~globals ?lower_call ?optimize_shifts
-    ?optimize_division ~lower_address ~target_type ~span ~instruction_id
-    ~value_id
+    ?optimize_division
+    ~callback:
+      (Global_address_lowering.storage prepared
+      |> Integer_globals.storage_is_callback)
+    ~lower_address ~target_type ~span ~instruction_id ~value_id
     (Semantic_result.top_level_root_value root)
 
 let lower_fragment_initializer ?lower_call ?optimize_shifts ?optimize_division
@@ -4727,6 +4733,8 @@ let lower_fragment_initializer ?lower_call ?optimize_shifts ?optimize_division
   lower_store_initializer
     ~globals:(Destination.globals destination)
     ?lower_call ?optimize_shifts ?optimize_division ~lower_address
+    ~callback:
+      (Integer_globals.storage_is_callback (Destination.storage destination))
     ~target_type:
       (Integer_globals.storage_type (Destination.storage destination))
     ~span:(Some (Destination.span destination))

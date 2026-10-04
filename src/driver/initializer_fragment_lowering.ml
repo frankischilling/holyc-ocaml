@@ -42,7 +42,9 @@ let lower ~context ~authority destination =
   let* lowered =
     Lower.lower_complete
       ~globals:(Destination.globals destination)
-      ~records ~top_calls ~span
+      ~records ~top_calls
+      ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
+      ~span
       [ Lower.Initialize_fragment destination ]
   in
   let entry = Lower.graph lowered in
@@ -81,6 +83,8 @@ let prepare ~context ~authority ~runtime destination =
   let* top_calls = classify ~context destination in
   let* prepared =
     Integer_initializers.prepare_fragment
+      ~top_callback_calls:
+        (Ir.Callback_source.top_level_calls (Destination.typed destination))
       ~retained_function_source:(VM.task_function_source runtime)
       ~on_progress:(fun steps ->
         VM.record_task_preparation runtime ~before ~steps)

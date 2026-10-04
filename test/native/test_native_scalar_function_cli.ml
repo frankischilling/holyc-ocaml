@@ -23,13 +23,14 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 12)
+    (Array.length Sys.argv = 13)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
      <native-scalar-functions.hc> <native-u0-functions.hc> \
      <native-calling-flags.hc> <native-local-callbacks.hc> \
      <native-callback-parameters.hc> <native-callback-storage.hc> \
      <native-callback-defaults.hc> <native-word-tails.hc> \
-     <native-callback-arguments.hc> <native-callback-word-defaults.hc>"
+     <native-callback-arguments.hc> <native-callback-word-defaults.hc> \
+     <native-callback-initializers.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
@@ -42,6 +43,7 @@ let defaults_fixture = Sys.argv.(8)
 let word_tail_fixture = Sys.argv.(9)
 let callback_argument_fixture = Sys.argv.(10)
 let callback_word_default_fixture = Sys.argv.(11)
+let callback_initializer_fixture = Sys.argv.(12)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -191,8 +193,9 @@ let batch_execution ~max_steps fixture =
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
 
-let check_native_meter_with_preparation ~expected_source_preparation ~mode
-    ~source ~expected_preparation ~expected_default_bytes ~check_final =
+let check_native_meter_with_preparation ~initializer_steps
+    ~expected_source_preparation ~mode ~source ~expected_preparation
+    ~expected_default_bytes ~check_final =
   (* This public IR run is a fresh source-stream semantic oracle. Expression
      defaults intentionally activate separate JIT task units, so its executed
      step count is not the native batch meter. *)
@@ -210,7 +213,7 @@ let check_native_meter_with_preparation ~expected_source_preparation ~mode
      the independent native runtime oracle. *)
   let fixture = batch_fixture ~mode source in
   require
-    (fixture.preparation_steps = expected_preparation
+    (fixture.preparation_steps + initializer_steps = expected_preparation
     && fixture.default_bytes = expected_default_bytes)
     "isolated native-batch preparation metadata differs from fixture contract";
   let batch = batch_execution ~max_steps:100_000 fixture in
@@ -260,7 +263,7 @@ let check_native_meter_with_preparation ~expected_source_preparation ~mode
 
 let check_native_meter_against_ir ~mode ~source ~expected_preparation
     ~expected_default_bytes ~check_final =
-  check_native_meter_with_preparation
+  check_native_meter_with_preparation ~initializer_steps:0
     ~expected_source_preparation:expected_preparation ~mode ~source
     ~expected_preparation ~expected_default_bytes ~check_final
 
@@ -552,23 +555,35 @@ let () =
   List.iter
     (fun mode ->
       ignore
-        (check_native_meter_with_preparation ~expected_source_preparation:6
-           ~mode ~source:callback_word_default_fixture ~expected_preparation:6
+        (check_native_meter_with_preparation ~initializer_steps:6
+           ~expected_source_preparation:(if mode = "jit" then 10 else 9)
+           ~mode ~source:callback_initializer_fixture ~expected_preparation:9
+           ~expected_default_bytes:8
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_with_preparation ~initializer_steps:0
+           ~expected_source_preparation:6 ~mode
+           ~source:callback_word_default_fixture ~expected_preparation:6
            ~expected_default_bytes:16 ~check_final:(fun report ->
              check_word report "i64" "42" "0x000000000000002a")))
     [ "jit"; "aot" ];
   List.iter
     (fun mode ->
       ignore
-        (check_native_meter_with_preparation ~expected_source_preparation:9
-           ~mode ~source:callback_argument_fixture ~expected_preparation:9
+        (check_native_meter_with_preparation ~initializer_steps:0
+           ~expected_source_preparation:9 ~mode
+           ~source:callback_argument_fixture ~expected_preparation:9
            ~expected_default_bytes:24 ~check_final:(fun report ->
              check_word report "i64" "42" "0x000000000000002a")))
     [ "jit"; "aot" ];
   List.iter
     (fun mode ->
       ignore
-        (check_native_meter_with_preparation
+        (check_native_meter_with_preparation ~initializer_steps:0
            ~expected_source_preparation:(if mode = "jit" then 7 else 6)
            ~mode ~source:word_tail_fixture ~expected_preparation:6
            ~expected_default_bytes:16
@@ -578,7 +593,7 @@ let () =
   List.iter
     (fun mode ->
       ignore
-        (check_native_meter_with_preparation
+        (check_native_meter_with_preparation ~initializer_steps:0
            ~expected_source_preparation:(if mode = "jit" then 10 else 9)
            ~mode ~source:defaults_fixture ~expected_preparation:9
            ~expected_default_bytes:24

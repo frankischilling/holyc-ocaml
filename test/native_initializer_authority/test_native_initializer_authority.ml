@@ -616,6 +616,19 @@ let () =
         [
           Alcotest.test_case "original preparation and bundle ownership" `Quick
             (fun () -> ownership ());
+          Alcotest.test_case
+            "callback words require original charged completions" `Quick
+            (fun () ->
+              List.iter
+                (fun return_type ->
+                  ownership
+                    ~contents:
+                      (return_type
+                     ^ " (*P)()[2]={0xFFFFFFFFFFFFFFFF,0x8000000000000000};I64 \
+                        Check(){if(P[0]==-1&&P[1]==0x8000000000000000)return \
+                        42;return 0;}Check();")
+                    ())
+                [ "U8"; "F64"; "U0"; "I64 ****" ]);
           Alcotest.test_case "static original preparation and bundle ownership"
             `Quick (fun () -> static_ownership ());
           Alcotest.test_case

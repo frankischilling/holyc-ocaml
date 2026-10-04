@@ -14,6 +14,21 @@ module Dimension = Ir.Dimension_fragment_destination
 module Offset = Ir.Offset_fragment_destination
 module Runtime = Ir.Runtime_call_context
 
+let initializer_value_type declaration =
+  match
+    (Sema.Compiler_record.declared_global_source declaration)
+      .global_function_pointer
+  with
+  | Some pointer when List.length pointer.Frontend.Ast.indirection_layers = 1 ->
+      Sema.Type.make_primitive ~form:Internal_storage ~primitive:I64
+        ~pointer_depth:0
+  | Some _ ->
+      Error "native initializer requires original one-star callback storage"
+  | None ->
+      Ok
+        (declaration |> Sema.Compiler_record.declared_global_type
+       |> Sema.Type_reference.resolved_type)
+
 type classification = Prepared_constant of int64 | Scheduled
 
 type default_preparation =
@@ -116,9 +131,10 @@ let value_instructions graph =
 
 let prepare_internal ?fragment ?default ?default_execution ?internal_binding
     ?dimension ?offset ?native_global ?native_static ?(already_prepared = [])
-    ?(statics_prepared = []) ?(function_calls = []) ?(allow_zero_budget = false)
-    ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
-    ~max_steps ~span ~globals ~top_calls ~functions () =
+    ?(statics_prepared = []) ?(function_calls = []) ?(top_callback_calls = [])
+    ?(allow_zero_budget = false) ?(retained_function_source = fun _ -> None)
+    ?(on_progress = fun _ -> ()) ~max_steps ~span ~globals ~top_calls ~functions
+    () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -460,7 +476,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
           | Some Layout.Scalar_store | None ->
               let* value_lowered =
                 Ir.Integer_program_lowering.lower_complete ?frame ~globals
-                  ~top_calls ~function_calls ~span:at
+                  ~top_calls ~function_calls ~top_callback_calls ~span:at
                   [ Ir.Integer_program_lowering.Expression value ]
                 |> Result.map_error (fun errors ->
                     match root_ with
@@ -496,7 +512,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 List.for_all
                   (fun (item : Seq.description) ->
                     (not (Ir.Opcode.info item.opcode).prevents_constant_folding)
-                    && not (Ir.Integer_intrinsic.supports item.opcode))
+                    && (not (Ir.Integer_intrinsic.supports item.opcode))
+                    && not
+                         (item.opcode = Ir.Opcode.Ic_imm_i64
+                         &&
+                         match item.payload with
+                         | Some (Seq.Symbol _) -> true
+                         | _ -> false))
                   value_code
               in
               let guard ?runtime ~constant code =
@@ -599,26 +621,33 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                         ~notes ();
                     ])
               in
-              let destination_type, compiler_options =
+              let* destination_type, compiler_options =
                 match root_ with
                 | Native_static (fragment, _, _) ->
-                    (Sema.Static_initializer_fragment.type_ fragment, 0L)
+                    Ok (Sema.Static_initializer_fragment.type_ fragment, 0L)
                 | Native_global (fragment, _, _) ->
-                    ( fragment |> Sema.Initializer_fragment.declaration
-                      |> Sema.Compiler_record.declared_global_type
-                      |> Sema.Type_reference.resolved_type,
-                      0L )
-                | Offset destination -> (Offset.type_ destination, 0L)
+                    initializer_value_type
+                      (Sema.Initializer_fragment.declaration fragment)
+                    |> Result.map (fun type_ -> (type_, 0L))
+                    |> Result.map_error (fun message ->
+                        [
+                          Integer_source.message_diagnostic ~span:at
+                            ("HCRUN0006: " ^ message);
+                        ])
+                | Offset destination -> Ok (Offset.type_ destination, 0L)
                 | Internal_binding destination ->
-                    (Internal_binding.type_ destination, 0L)
-                | Dimension destination -> (Dimension.type_ destination, 0L)
-                | Default destination -> (Default.type_ destination, 0L)
+                    Ok (Internal_binding.type_ destination, 0L)
+                | Dimension destination -> Ok (Dimension.type_ destination, 0L)
+                | Default destination -> Ok (Default.type_ destination, 0L)
                 | Fragment destination ->
-                    (Globals.storage_type (Destination.storage destination), 0L)
-                | Global (slot, _) -> (Globals.slot_type slot, 0L)
+                    Ok
+                      ( Globals.storage_type (Destination.storage destination),
+                        0L )
+                | Global (slot, _) -> Ok (Globals.slot_type slot, 0L)
                 | Static (slot, _) ->
-                    ( Globals.static_storage slot |> Globals.storage_type,
-                      Globals.static_compiler_options slot )
+                    Ok
+                      ( Globals.static_storage slot |> Globals.storage_type,
+                        Globals.static_compiler_options slot )
               in
               let* terminal =
                 instructions (Ir.X87_stack.graph value_graph_)
@@ -1011,6 +1040,14 @@ let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
   in
   let value = Typed.top_level_root_value root in
   let scalar type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_) in
+  let* value_type =
+    initializer_value_type (Sema.Initializer_fragment.declaration fragment)
+    |> Result.map_error (fun message ->
+        [
+          Common.Diagnostic.make ~code:"HCRUN0006"
+            ~severity:Common.Diagnostic.Error ~message ~primary:span ();
+        ])
+  in
   let* () =
     if Sema.Initializer_source.leaf_identifier_nodes leaf <> [] then
       invalid "native initializer preparation requires a closed source leaf"
@@ -1018,10 +1055,7 @@ let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
       match operation with
       | Layout.Scalar_store ->
           if
-            scalar
-              (fragment |> Sema.Initializer_fragment.declaration
-             |> Sema.Compiler_record.declared_global_type
-             |> Sema.Type_reference.resolved_type)
+            scalar value_type
             && Typed.result_array_rank value = 0
             && Option.fold ~none:false ~some:scalar (Typed.result_type value)
           then Ok ()
@@ -1346,9 +1380,11 @@ let native_values ~span globals evidence =
           Globals.slot_symbol slot
           != Sema.Compiler_record.declared_global_symbol declaration
           || (not
-                (Sema.Type.equal (Globals.slot_type slot)
-                   (declaration |> Sema.Compiler_record.declared_global_type
-                  |> Sema.Type_reference.resolved_type)))
+                (match
+                   Sema.Compiler_record.declared_global_storage_type declaration
+                 with
+                | Ok type_ -> Sema.Type.equal (Globals.slot_type slot) type_
+                | Error _ -> false))
           || (not
                 (Option.fold ~none:false
                    ~some:(( == ) (native_leaf proof))
@@ -1434,8 +1470,8 @@ let native_complete ~span prepared =
       scalars && arrays
 
 let prepare ?native_preparations ?native_static_preparations ?function_calls
-    ?allow_zero_budget ?retained_function_source ?on_progress ~max_steps ~span
-    ~globals ~top_calls ~functions () =
+    ?top_callback_calls ?allow_zero_budget ?retained_function_source
+    ?on_progress ~max_steps ~span ~globals ~top_calls ~functions () =
   let evidence = Option.value native_preparations ~default:[] in
   let static_evidence = Option.value native_static_preparations ~default:[] in
   let* imported_steps =
@@ -1493,7 +1529,8 @@ let prepare ?native_preparations ?native_static_preparations ?function_calls
   in
   let* prepared =
     prepare_internal ~already_prepared ~statics_prepared ?function_calls
-      ~allow_zero_budget ?retained_function_source ?on_progress
+      ?top_callback_calls ~allow_zero_budget ?retained_function_source
+      ?on_progress
       ~max_steps:(max_steps - imported_steps)
       ~span ~globals ~top_calls ~functions ()
   in
@@ -1515,11 +1552,11 @@ let fragment_destination prepared = prepared.fragment_destination_
 let fragment_payload prepared = prepared.fragment_payload_
 let fragment_steps prepared = prepared.fragment_steps_
 
-let prepare_fragment ?retained_function_source ?on_progress ~max_steps
-    ~top_calls ~functions destination =
+let prepare_fragment ?top_callback_calls ?retained_function_source ?on_progress
+    ~max_steps ~top_calls ~functions destination =
   let* prepared =
     prepare_internal ~fragment:destination ~allow_zero_budget:true
-      ?retained_function_source ?on_progress ~max_steps
+      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
       ~span:(Destination.span destination)
       ~globals:(Destination.globals destination)
       ~top_calls ~functions ()

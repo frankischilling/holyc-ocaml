@@ -154,12 +154,7 @@ let () =
         (fun (source, target, code) ->
           with_file ".HC" source (fun path ->
               error (invoke ~mode ~target ~status:1 path) code ""))
-        [
-          ("I64 (*p)()=0;42;", "ir", "HCRUN0001");
-          ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;I64 n=p(40);n;",
-            "ir",
-            "HCRUN0003" );
-        ];
+        [ ("I64 (**p)()=0;42;", "ir", "HCRUN0001") ];
       List.iter
         (fun source ->
           with_file ".HC" source (fun path ->
@@ -178,6 +173,9 @@ let () =
               output report ""))
         [
           ("I64 A(){return 42;}I64 (*p)();p=&A;p();", "42");
+          ("I64 (*p)()=0;42;", "42");
+          ( "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;I64 n=p(40);n;",
+            "42" );
           ("I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;p(p=0);", "2");
           ( "I64 Take(I64 a,I64 b){return a*10+b;}I64 (*p)(I64 a,I64 b);I64 \
              n;n=0;p=&Take;p(++n,++n);",
@@ -243,14 +241,22 @@ let () =
                 = `String ("0x" ^ String.lowercase_ascii bits))
                 "native word projection"))
         [
-          (* GLOBAL uses an explicit store because callback initializers remain unsupported. *)
           ( "GLOBAL",
             "I64 CbAdd(I64 n){return n+2;}I64 (*CbGlobal)(I64 \
-             n);CbGlobal=&CbAdd;CbGlobal(40);" );
+             n)=&CbAdd;CbGlobal(40);" );
           ( "ARRAY",
             "I64 CbAdd(I64 n){return n+2;}I64 (*CbArray)(I64 \
              n)[2];CbArray[1]=&CbAdd;CbArray[1](40);" );
         ])
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      with_file ".HC"
+        "extern U0 Print(U8 *fmt,...);I64 Seed(I64 n){Print(\"A\");return \
+         n+2;}I64 (*p)(I64 n)[2]={&Seed,p[0]};I64 N=p[1](40);N;" (fun path ->
+          let report = invoke ~mode path in
+          success report "42";
+          output report "A"))
     [ "jit"; "aot" ];
   with_file ".HC"
     "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n=40);p=&Add;I64 Run(){return \

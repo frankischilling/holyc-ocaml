@@ -2630,6 +2630,8 @@ type declared_type =
       * Sema.Function_type_resolution.function_pointer
       * Type.t
       * int64 list
+  | Callback_initializer_address of
+      Integer_globals.storage_slot * Type.t * int64 list
   | Unsupported
 
 let reference_commit = Sequence.reference_commit
@@ -3295,6 +3297,16 @@ let indexed_address frame types (description : Sequence.description) =
           when Type.equal expected pointer -> Some (root, header)
         | _ -> None
       in
+      let initializer_root =
+        match Value_map.find_opt base types with
+        | Some (Global_address slot)
+          when Integer_globals.storage_is_callback slot
+               && Option.is_none (Integer_globals.storage_callback_pointer slot)
+          -> Some slot
+        | Some (Callback_initializer_address (slot, expected, _))
+          when Type.equal expected pointer -> Some slot
+        | _ -> None
+      in
       let strides =
         match Value_map.find_opt base types with
         | Some (Frame_address index) ->
@@ -3316,6 +3328,7 @@ let indexed_address frame types (description : Sequence.description) =
         | Some (Indexed_address (expected, strides))
           when Type.equal expected pointer -> Some strides
         | Some (Callback_array_address (_, _, expected, strides))
+        | Some (Callback_initializer_address (_, expected, strides))
           when Type.equal expected pointer -> Some strides
         | Some (Pointer_value expected) when Type.equal expected pointer ->
             Option.bind
@@ -3332,7 +3345,11 @@ let indexed_address frame types (description : Sequence.description) =
           match callback_root with
           | Some (root, header) ->
               Callback_array_address (root, header, pointer, remaining)
-          | None -> Indexed_address (pointer, remaining))
+          | None -> (
+              match initializer_root with
+              | Some slot ->
+                  Callback_initializer_address (slot, pointer, remaining)
+              | None -> Indexed_address (pointer, remaining)))
       | _ -> Unsupported)
   | _ -> Unsupported
 
@@ -3361,13 +3378,16 @@ let declared_types ?frame ?globals ?literals ?initialization
                        && Type.equal type_ slot.slot_type)
                      frame
                | Some (Global_address slot) ->
-                   Option.is_some
-                     (Integer_globals.storage_callback_pointer slot)
+                   Integer_globals.storage_is_callback slot
                    && Integer_globals.storage_dimensions slot = []
                    && Type.equal type_ (Integer_globals.storage_type slot)
                | Some (Callback_array_address (_, _, pointer, [])) ->
                    Option.fold ~none:false ~some:(Type.equal type_)
                      (Type.dereference pointer |> Result.to_option)
+               | Some (Callback_initializer_address (slot, pointer, [])) ->
+                   Integer_globals.storage_is_callback slot
+                   && Option.fold ~none:false ~some:(Type.equal type_)
+                        (Type.dereference pointer |> Result.to_option)
                | _ -> false)
            | _ -> false
          in
@@ -3389,8 +3409,7 @@ let declared_types ?frame ?globals ?literals ?initialization
                      frame
                | Some (Global_address slot) ->
                    Integer_globals.storage_dimensions slot <> []
-                   && Option.is_some
-                        (Integer_globals.storage_callback_pointer slot)
+                   && Integer_globals.storage_is_callback slot
                    && Option.fold ~none:false ~some:(Type.equal type_)
                         (Type.pointer_to (Integer_globals.storage_type slot)
                         |> Result.to_option)
@@ -3492,8 +3511,10 @@ let declared_types ?frame ?globals ?literals ?initialization
                          | _, (Opcode.Ic_add | Opcode.Ic_sub)
                            when frame_pointer type_ -> (
                              match indexed_address frame types description with
-                             | (Indexed_address _ | Callback_array_address _) as
-                               indexed -> indexed
+                             | ( Indexed_address _
+                               | Callback_array_address _
+                               | Callback_initializer_address _ ) as indexed ->
+                                 indexed
                              | _ -> (
                                  match frame with
                                  | Some context ->
@@ -3547,6 +3568,7 @@ let operand_of_value types value_id =
       | Index_offset _
       | Indexed_address _
       | Callback_array_address _
+      | Callback_initializer_address _
       | Global_address _ )
   | None -> None
 
@@ -3589,8 +3611,7 @@ let storage_operand ?(allow_array = false) frame initialization types
       let type_ = Integer_globals.storage_type slot in
       Option.map
         (fun kind -> (Global_slot slot, type_, kind))
-        (if Option.is_some (Integer_globals.storage_callback_pointer slot) then
-           Some (Stored_word I64)
+        (if Integer_globals.storage_is_callback slot then Some (Stored_word I64)
          else stored_type type_)
   | _, Some (Indexed_address (pointer_type, remaining))
     when allow_array || remaining = [] -> (
@@ -3604,6 +3625,7 @@ let storage_operand ?(allow_array = false) frame initialization types
             (stored_type pointee)
       | Error _ -> None)
   | _, Some (Callback_array_address (_, _, pointer_type, remaining))
+  | _, Some (Callback_initializer_address (_, pointer_type, remaining))
     when allow_array || remaining = [] ->
       Option.bind
         (Type.dereference pointer_type |> Result.to_option)
@@ -3854,7 +3876,10 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
            | _ -> false -> Some Scale_index_kind
     | _, (Opcode.Ic_add | Opcode.Ic_sub)
       when match produced with
-           | Some (Indexed_address _ | Callback_array_address _) -> true
+           | Some
+               ( Indexed_address _
+               | Callback_array_address _
+               | Callback_initializer_address _ ) -> true
            | _ -> false -> Some Index_address_kind
     | _, Opcode.Ic_addr when memory_enabled -> Some Pointer_address_kind
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
@@ -3949,7 +3974,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   None,
                   Some
                     ( Indexed_address (pointer, _)
-                    | Callback_array_address (_, _, pointer, _) ) ) -> (
+                    | Callback_array_address (_, _, pointer, _)
+                    | Callback_initializer_address (_, pointer, _) ) ) -> (
                   match
                     ( storage_operand ~allow_array:true frame initialization
                         types description.instruction_id base,
@@ -5755,8 +5781,7 @@ let storage_word slot bits =
         (Integer_globals.storage_type slot)
     with
     | Some type_ -> type_
-    | None when Option.is_some (Integer_globals.storage_callback_pointer slot)
-      -> I64
+    | None when Integer_globals.storage_is_callback slot -> I64
     | None -> assert false
   in
   { type_; bits = Scalar.narrow_bits (Integer_globals.storage_type slot) bits }

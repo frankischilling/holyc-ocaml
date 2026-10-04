@@ -49,7 +49,7 @@ Copied or foreign graphs fail before execution.
 
 Top-level invocation retains the original typed global, indexed-global or
 outer-call record. The runtime context requires that record to belong to its
-exact source batch and to an executable statement's expression subtree. A
+exact source batch and to its executable statement or checked initializer expression subtree. A
 function record cannot authorize an entry call, and an initializer record cannot
 borrow statement authority. The invocation's signature remains separate from
 its result type and from callback cell metadata. A copied signature-shaped
@@ -67,12 +67,11 @@ The maintained tests cover storage, defaults, callee snapshots, reverse argument
 order, word tails, original cleanup flags, replacement, source-owned graph
 receipts, faults and exact resource limits. CLI tests compare top-level global
 and array call words with both native repeats in the existing TempleOS fixture.
-The global projection replaces its native initializer with an explicit store;
+The global projection retains its observed callback initializer;
 the array projection retains the observed declaration, store and call. Shell
 screen clearing and result formatting are outside these value projections.
 The reference was observed in native JIT only; replay in the hosted AOT mode
-does not establish native AOT behavior. Global callback initializers,
-member storage, updates, owned-code defaults,
-multistar and dereferenced calls, live task linking/expiry and hosted native
-callbacks remain under issue #801. General F64, aggregate and mixed-value
+does not establish native AOT behavior. [Global callback initializers](global-callback-initializers.md) now retain original code, numeric words and supported effects in IR; native execution accepts closed numeric initializers. Native owned-code/effectful initializers, member storage, updates, owned-code defaults,
+multistar and dereferenced calls, live task linking/expiry and broader native
+callback execution remain under issue #801. General F64, aggregate and mixed-value
 execution remains under issue #688. No new TempleOS capture is claimed here.

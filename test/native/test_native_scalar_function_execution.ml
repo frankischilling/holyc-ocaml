@@ -2892,6 +2892,126 @@ let callback_word_default_quotas () =
         ])
     modes
 
+let global_callback_words_execute () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun return_type ->
+          List.iter
+            (fun flags ->
+              let source =
+                Printf.sprintf
+                  "%s %s (*p)()[2]={0xFFFFFFFFFFFFFFFF,0x8000000000000000};I64 \
+                   Check(){if(p[0]==-1&&p[1]==0x8000000000000000)return \
+                   42;return 0;}Check();"
+                  flags return_type
+              in
+              let _, native, _ =
+                compare_source ~mode
+                  ~label:(flags ^ " " ^ return_type)
+                  ~initializer_steps:6 ~expected_type:"I64" ~expected_bits:42L
+                  source
+              in
+              Alcotest.(check int)
+                "callback elements occupy full words" 16
+                (Program.global_bytes native.image))
+            [ ""; "noargpop"; "argpop noargpop haserrcode" ])
+        [
+          "I8";
+          "U8";
+          "I16";
+          "U16";
+          "I32";
+          "U32";
+          "I64";
+          "U64";
+          "F64";
+          "U0";
+          "I64 *";
+          "I64 ****";
+        ])
+    modes
+
+let global_callback_word_faults () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun initial ->
+          let source =
+            "extern U0 Print(U8 *fmt,...);I64 Side(){Print(\"arg\");return \
+             40;}I64 (*p)(I64 n)=" ^ initial ^ ";p(Side());"
+          in
+          let vm_report =
+            let session, config, source = source_inputs ~mode source in
+            run_integer_program_report session ~config ~source ~max_steps:10000
+          in
+          let native_report, native, diagnostics =
+            native_fault ~mode ~max_steps:10000 source
+          in
+          Alcotest.(check bool)
+            "numeric callback reaches native fault" true (Option.is_some native);
+          Alcotest.(check string)
+            "numeric callback remains uncallable" "HCIRVM0024"
+            (List.hd diagnostics).code;
+          Alcotest.(check string)
+            "arguments precede reached native fault" "arg"
+            (Native_program.output_bytes native_report);
+          Alcotest.(check string)
+            "independent public IR sees the same effects" "arg"
+            (integer_program_report_output_bytes vm_report);
+          let errors =
+            match integer_program_report_outcome vm_report with
+            | Error errors -> errors
+            | Ok _ -> Alcotest.fail "numeric callback invoked through public IR"
+          in
+          Alcotest.(check string)
+            "public IR numeric callback fault" "HCIRVM0024"
+            (List.hd errors).code)
+        [ "0"; "17"; "0xFFFFFFFFFFFFFFFF" ];
+      ignore
+        (compare_source ~mode
+           ~label:"healthy image after initialized callback faults"
+           ~initializer_steps:3 ~expected_type:"I64" ~expected_bits:42L
+           "U8 (*p)()=0xFFFFFFFFFFFFFFFF;I64 Check(){if(p==-1)return 42;return \
+            0;}Check();"))
+    modes
+
+let global_callback_word_preparation_limits () =
+  let source =
+    "F64 (*p)()[2]={0xFFFFFFFFFFFFFFFF,0x8000000000000000};I64 Check(I64 \
+     (*q)()=17){if(p[0]==-1&&p[1]==0x8000000000000000&&q==17)return 42;return \
+     0;}Check();"
+  in
+  List.iter
+    (fun mode ->
+      let exact () =
+        let report, native =
+          native_success_report ~mode ~max_steps:10000 ~max_initializer_steps:9
+            ~max_default_bytes:8 source
+        in
+        Alcotest.(check int)
+          "global and saved words share preparation work" 9
+          (Native_program.preparation_steps report);
+        check_native_word "exact initialized callback preparation" "I64" 42L
+          native.execution.final_value
+      in
+      exact ();
+      List.iter
+        (fun (work, bytes, code) ->
+          let _, fault, diagnostics =
+            native_fault ~mode ~max_steps:10000 ~max_initializer_steps:work
+              ~max_default_bytes:bytes source
+          in
+          Alcotest.(check string)
+            "one below callback preparation quota" code
+            (List.hd diagnostics).code;
+          Alcotest.(check bool)
+            "preparation failure does not execute an image" true
+            (Option.is_none fault);
+          exact ())
+        [ (8, 8, "HCIRVM0007"); (9, 7, "HCIRVM0011") ])
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -2902,6 +3022,14 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case
+                "global callback initializers preserve full words" `Quick
+                global_callback_words_execute;
+              Alcotest.test_case
+                "initialized callback words preserve reached faults" `Quick
+                global_callback_word_faults;
+              Alcotest.test_case "global callback preparation quotas recover"
+                `Quick global_callback_word_preparation_limits;
               Alcotest.test_case "callback word defaults retain numeric bits"
                 `Quick callback_word_defaults_execute;
               Alcotest.test_case

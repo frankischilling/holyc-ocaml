@@ -2419,11 +2419,12 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
               | Some (base, index) -> [ base; index ]
               | None -> []))
     in
-    let subtree_contains ~resolve ~arguments ~selected root =
+    let subtree_contains ?(children = expression_children) ~resolve ~arguments
+        ~selected root =
       let rec visit = function
         | [] -> false
         | value :: rest -> (
-            let children = expression_children value in
+            let children = children value in
             match resolve value with
             | Some call when call == selected -> true
             | Some call ->
@@ -2482,7 +2483,17 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
           (Typed.top_level_direct_fixed_results call)
         @ Typed.top_level_direct_variadic_results call
       in
-      subtree_contains ~resolve ~arguments ~selected root
+      let children value =
+        expression_children value
+        @ (Callback_source.top_level_calls top_level
+          |> List.find_opt (fun call ->
+              Callback_source.matches_result call value)
+          |> Option.fold ~none:[] ~some:(fun call ->
+              Option.to_list (Callback_source.callee call)
+              @ List.filter_map snd (Callback_source.fixed_arguments call)
+              @ Callback_source.variadic_arguments call))
+      in
+      subtree_contains ~children ~resolve ~arguments ~selected root
     in
     let entry_region ?span description =
       let region =
@@ -2583,26 +2594,48 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                (source_function ?span (Function_body.symbol body))
                source)
             "runtime call source is not owned by this exact typed function body"
-      | Entry, Callback_call call ->
+      | Entry, Callback_call call -> (
           require ?span
             (Callback_source.top_level_member call top_level)
             "entry callback source is not owned by this exact top-level batch";
-          require ?span
-            (List.exists
-               (fun root ->
-                 match
-                   Typed.top_level_root_source root
-                   |> Sema.Top_level_expression_tree.root_role
-                 with
-                 | Sema.Top_level_expression_tree.Global_initializer _ -> false
-                 | _ ->
-                     top_level_callback_subtree_contains call
-                       (Typed.top_level_root_value root))
-               top_roots)
-            "entry callback is absent from its original executable source root";
-          require ?span
-            (Option.is_none (entry_region ?span description))
-            "entry callback cannot acquire initializer authority"
+          match entry_region ?span description with
+          | Some region ->
+              require ?span
+                (Option.is_none (Global_initialization.storage_frame region))
+                "top-level callback cannot belong to a static initializer";
+              let root =
+                match Global_initialization.storage_root region with
+                | Some root -> root
+                | None ->
+                    fail ?span
+                      "global-initializer callback has no exact source root"
+              in
+              require ?span
+                (List.exists (fun actual -> actual == root) top_roots)
+                "global-initializer callback root is foreign to its top-level \
+                 batch";
+              require ?span
+                (top_level_callback_subtree_contains call
+                   (Typed.top_level_root_value root))
+                "entry callback is absent from its exact global-initializer \
+                 expression"
+          | None ->
+              require ?span
+                (List.exists
+                   (fun root ->
+                     match
+                       Typed.top_level_root_source root
+                       |> Sema.Top_level_expression_tree.root_role
+                     with
+                     | Sema.Top_level_expression_tree.Global_initializer _
+                     | Sema.Top_level_expression_tree.Initializer_fragment _ ->
+                         false
+                     | _ ->
+                         top_level_callback_subtree_contains call
+                           (Typed.top_level_root_value root))
+                   top_roots)
+                "entry callback is absent from its original executable source \
+                 root")
       | Entry, Function_output _ ->
           fail ?span "function output statement cannot authorize a module entry"
       | Entry, (Function_call target as source) ->

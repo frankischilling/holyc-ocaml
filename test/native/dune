@@ -627,7 +627,8 @@
   ../../examples/native-callback-defaults.hc
   ../../examples/native-word-tails.hc
   ../../examples/native-callback-arguments.hc
-  ../../examples/native-callback-word-defaults.hc)
+  ../../examples/native-callback-word-defaults.hc
+  ../../examples/native-callback-initializers.hc)
  (action
   (run
    %{exe:test_native_scalar_function_cli.exe}
@@ -641,7 +642,8 @@
    %{dep:../../examples/native-callback-defaults.hc}
    %{dep:../../examples/native-word-tails.hc}
    %{dep:../../examples/native-callback-arguments.hc}
-   %{dep:../../examples/native-callback-word-defaults.hc})))
+   %{dep:../../examples/native-callback-word-defaults.hc}
+   %{dep:../../examples/native-callback-initializers.hc})))
 
 (executable
  (name test_native_goto_execution)
