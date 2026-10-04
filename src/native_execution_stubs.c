@@ -963,7 +963,7 @@ static void native_retained_map(struct native_retained_program *program,
 #endif
 }
 
-static uint64_t native_retained_run(value handle, uint64_t *context)
+static uint64_t native_retained_run(value handle, uint64_t *context, value entered)
 {
   struct native_retained_program *program = native_retained_get(handle);
   int expected = 0;
@@ -979,6 +979,8 @@ static uint64_t native_retained_run(value handle, uint64_t *context)
   arena = (uint64_t)(uintptr_t)program->arena;
   context[9] = arena;
   memcpy(&entry, &program->mapping, sizeof(entry));
+  if (entered != Val_unit)
+    Store_field(entered, 0, Val_true);
   bits = entry(context);
   atomic_store(&program->active, 0);
   if (context[9] != arena)
@@ -1266,10 +1268,11 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
 
 static value native_execute_program_output(value code, value functions,
                                             value abi, value limits,
-                                            value storage, value retained)
+                                            value storage, value retained,
+                                            value consumed, value entered)
 {
   CAMLparam5(code, functions, abi, limits, storage);
-  CAMLxparam1(retained);
+  CAMLxparam3(retained, consumed, entered);
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -1295,6 +1298,10 @@ static value native_execute_program_output(value code, value functions,
   uint64_t output_address;
   uint64_t written;
   uint64_t work;
+  uint64_t consumed_steps = 0;
+  uint64_t remaining_steps;
+  uint64_t remaining_output;
+  uint64_t remaining_work;
 
   if (!Is_long(abi))
     caml_invalid_argument("native program status ABI is not integral");
@@ -1350,6 +1357,32 @@ static value native_execute_program_output(value code, value functions,
     caml_invalid_argument("native program max_output_bytes is outside the host bound");
   if (output_work_limit <= 0)
     caml_invalid_argument("native program max_output_work must be greater than zero");
+  remaining_steps = (uint64_t)step_limit;
+  remaining_output = (uint64_t)output_limit;
+  remaining_work = (uint64_t)output_work_limit;
+  if (consumed != Val_unit) {
+    intnat prior_steps, prior_output, prior_work;
+    if (!Is_block(entered) || Tag_val(entered) != 0 ||
+        Wosize_val(entered) != 1 || Field(entered, 0) != Val_false)
+      caml_invalid_argument("retained native entry marker is malformed or consumed");
+    if (retained == Val_unit || !Is_block(consumed) ||
+        Tag_val(consumed) != 0 || Wosize_val(consumed) != 3 ||
+        !Is_long(Field(consumed, 0)) || !Is_long(Field(consumed, 1)) ||
+        !Is_long(Field(consumed, 2)))
+      caml_invalid_argument("retained native consumed budget is malformed");
+    prior_steps = Long_val(Field(consumed, 0));
+    prior_output = Long_val(Field(consumed, 1));
+    prior_work = Long_val(Field(consumed, 2));
+    if (prior_steps < 0 || prior_steps > step_limit ||
+        prior_output < 0 || prior_output > output_limit ||
+        prior_work < 0 || prior_work > output_work_limit ||
+        prior_output > prior_work)
+      caml_invalid_argument("retained native consumed budget exceeds its limits");
+    consumed_steps = (uint64_t)prior_steps;
+    remaining_steps -= consumed_steps;
+    remaining_output -= (uint64_t)prior_output;
+    remaining_work -= (uint64_t)prior_work;
+  }
   if (logical_global_bytes < 0 ||
       (uintnat)logical_global_bytes > HOLYC_NATIVE_MAX_GLOBAL_BYTES ||
       logical_global_bytes > global_limit)
@@ -1388,19 +1421,19 @@ static value native_execute_program_output(value code, value functions,
   if (code_length == 0 || code_length > 16u * 1024u * 1024u)
     caml_invalid_argument("native image length is outside the host allocation bound");
 
-  output_buffer = caml_alloc_string((mlsize_t)output_limit);
-  memset((char *)String_val(output_buffer), 0, (size_t)output_limit);
+  output_buffer = caml_alloc_string((mlsize_t)remaining_output);
+  memset((char *)String_val(output_buffer), 0, (size_t)remaining_output);
   output_address = (uint64_t)(uintptr_t)String_val(output_buffer);
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
     uint64_t context[14] = {
-      0, 0, (uint64_t)step_limit, 0, 0, 0,
+      0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
-      output_address, (uint64_t)output_limit, (uint64_t)output_work_limit, 0
+      output_address, remaining_output, remaining_work, 0
     };
 
     if (retained != Val_unit) {
-      (void)native_retained_run(retained, context);
+      (void)native_retained_run(retained, context, entered);
     } else if (arena_length == 0) {
       (void)native_execute_checked_program_image(
         code, functions, abi_code, (uintnat)entry_stack_bytes, context);
@@ -1412,8 +1445,14 @@ static value native_execute_program_output(value code, value functions,
         context);
     }
 
-    if (context[2] != (uint64_t)step_limit)
+    if (context[2] != remaining_steps)
       caml_failwith("native program status integrity failure: budget was modified");
+    if (context[3] > remaining_steps)
+      caml_failwith("native program status integrity failure: steps exceed the remaining budget");
+    if (consumed != Val_unit &&
+        ((context[0] == 3 && context[3] != remaining_steps) ||
+         (context[3] == 0 && (context[0] != 3 || remaining_steps != 0))))
+      caml_failwith("retained native status integrity failure: activation work disagrees with its fault");
     if (context[6] != (uint64_t)frame_limit)
       caml_failwith("native program status integrity failure: frame quota was not restored");
     if (context[7] != (uint64_t)depth_limit)
@@ -1422,13 +1461,13 @@ static value native_execute_program_output(value code, value functions,
       caml_failwith("native program status integrity failure: active-stack quota was not restored");
     if (context[10] != output_address)
       caml_failwith("native program status integrity failure: output pointer was modified");
-    if (context[11] > (uint64_t)output_limit ||
-        context[12] > (uint64_t)output_work_limit ||
-        context[13] > (uint64_t)output_limit)
+    if (context[11] > remaining_output ||
+        context[12] > remaining_work ||
+        context[13] > remaining_output)
       caml_failwith("native program status integrity failure: output counters exceed their bounds");
 
-    written = (uint64_t)output_limit - context[11];
-    work = (uint64_t)output_work_limit - context[12];
+    written = remaining_output - context[11];
+    work = remaining_work - context[12];
     if (context[13] != written)
       caml_failwith("native program status integrity failure: output byte count is inconsistent");
 
@@ -1441,7 +1480,7 @@ static value native_execute_program_output(value code, value functions,
 
     boxed_kind = native_box_word(context[0]);
     boxed_site = native_box_word(context[1]);
-    boxed_steps = native_box_word(context[3]);
+    boxed_steps = native_box_word(consumed_steps + context[3]);
     boxed_value_site = native_box_word(context[4]);
     boxed_bits = native_box_word(context[5]);
     status = caml_alloc_tuple(5);
@@ -1467,7 +1506,7 @@ CAMLprim value holyc_native_execute_program_output(value code, value functions,
                                                   value storage)
 {
   return native_execute_program_output(code, functions, abi, limits, storage,
-                                        Val_unit);
+                                        Val_unit, Val_unit, Val_unit);
 }
 
 CAMLprim value holyc_native_retain_program(value identity)
@@ -1568,7 +1607,28 @@ CAMLprim value holyc_native_execute_retained_program(value handle, value limits)
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle));
+    Field(identity, 4), handle, Val_unit, Val_unit));
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_execute_retained_budget_program(value handle,
+                                                           value limits,
+                                                           value consumed,
+                                                           value entered)
+{
+  CAMLparam4(handle, limits, consumed, entered);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  CAMLlocal1(identity);
+  struct native_retained_program *program = native_retained_get(handle);
+  if (consumed == Val_unit)
+    caml_invalid_argument("retained native consumed budget is malformed");
+  identity = program->identity;
+  CAMLreturn(native_execute_program_output(
+    Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
+    Field(identity, 4), handle, consumed, entered));
 #endif
   CAMLreturn(Val_unit);
 }

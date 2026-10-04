@@ -1,5 +1,12 @@
 # Reference source map
 
+Native callback storage follows `Compiler/PrsVar.HC:350-357`: `PrsFunJoin`
+keeps the declared return type in the anonymous header, then the declarator
+switches to internal RT_PTR storage. Return-pointer layers therefore do not
+count as additional callback indirections. Native local/static source admission
+uses that distinction before checked eight-byte storage and owner transfer.
+See [native callback storage](native-local-callbacks.md).
+
 Native retained-image lifetime work uses `Compiler/PrsStmt.HC:150-194` as the
 source-owned function-code context and `Kernel/KTask.HC:251-264` for task-owned
 code/data heaps. The hosted API keeps the original sealed image and private
@@ -9,6 +16,10 @@ linking separate images remain open. See
 [retained native images](native-retained-images.md).
 Closed entries retain their original frameless or RSP spill convention alongside
 callable saved-RBP frames, with separate exact stack and unwind checks.
+The retained API also charges shared host instruction and output allowances
+across activations. Those resource bounds are hosted policy. They preserve
+original generated guards and fault sites without claiming TempleOS scheduling
+or linkage between images.
 
 Issue #801 follows `Compiler/PrsStmt.HC:67-143` for AOT function-record reuse
 and stored cleanup flags, `PrsStmt.HC:140-207` for separate body emission, and

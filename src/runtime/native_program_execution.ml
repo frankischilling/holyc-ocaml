@@ -49,6 +49,14 @@ external execute_retained_program :
   (int64 * int64 * int64 * int64 * int64) * string * int
   = "holyc_native_execute_retained_program"
 
+external execute_retained_budget_program :
+  retained_handle ->
+  int * int * int * int * int * int * int * int * int ->
+  int * int * int ->
+  bool ref ->
+  (int64 * int64 * int64 * int64 * int64) * string * int
+  = "holyc_native_execute_retained_budget_program"
+
 type retained = {
   image_ : Image.t;
   handle_ : retained_handle;
@@ -76,12 +84,15 @@ let output_work report = report.output_work_
 let error_report message =
   { outcome_ = Error message; output_bytes_ = ""; output_work_ = 0 }
 
-let execute_report_internal ?retained ?(max_frame_bytes = 1_048_576)
-    ?(max_call_depth = 128)
+let execute_report_internal ?retained ?consumed ?entered
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_active_stack_bytes = hard_max_active_stack_bytes)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~max_steps
     image =
+  let prior_steps, prior_output, prior_work =
+    Option.value ~default:(0, 0, 0) consumed
+  in
   if max_steps <= 0 then
     error_report "native program max_steps must be greater than zero"
   else if max_frame_bytes <= 0 then
@@ -112,6 +123,15 @@ let execute_report_internal ?retained ?(max_frame_bytes = 1_048_576)
          hard_max_output_bytes)
   else if max_output_work <= 0 then
     error_report "native program max_output_work must be greater than zero"
+  else if
+    Option.is_some consumed
+    && (Option.is_none retained || Option.is_none entered)
+    || prior_steps < 0 || prior_steps > max_steps || prior_output < 0
+    || prior_output > max_output_bytes
+    || prior_work < 0
+    || prior_work > max_output_work
+    || prior_output > prior_work
+  then error_report "retained native consumed budget exceeds its limits"
   else
     let entry_stack_bytes = Image.entry_stack_bytes image in
     if entry_stack_bytes <= 0 then
@@ -190,7 +210,7 @@ let execute_report_internal ?retained ?(max_frame_bytes = 1_048_576)
                 in
                 let status, captured, work =
                   if Option.is_some retained then
-                    execute_retained_program (Option.get retained)
+                    let limits =
                       ( max_steps,
                         max_frame_bytes,
                         max_call_depth,
@@ -200,6 +220,13 @@ let execute_report_internal ?retained ?(max_frame_bytes = 1_048_576)
                         max_literal_bytes,
                         max_output_bytes,
                         max_output_work )
+                    in
+                    match consumed with
+                    | None ->
+                        execute_retained_program (Option.get retained) limits
+                    | Some consumed ->
+                        execute_retained_budget_program (Option.get retained)
+                          limits consumed (Option.get entered)
                   else if Image.has_output image then
                     execute_program_output (Image.code image)
                       (Array.of_list unwind_functions)
@@ -258,16 +285,21 @@ let execute_report_internal ?retained ?(max_frame_bytes = 1_048_576)
                   | Ok (Image.Completed _) | Error _ -> false
                 in
                 let captured_length = String.length captured in
+                let available_output = max_output_bytes - prior_output in
+                let available_work = max_output_work - prior_work in
                 let output_status_valid =
-                  captured_length <= max_output_bytes
-                  && work >= 0 && work <= max_output_work
+                  captured_length <= available_output
+                  && work >= 0 && work <= available_work
                   && captured_length <= work
-                  && ((not (Int64.equal executed_steps 0L))
+                  && Int64.compare executed_steps (Int64.of_int prior_steps)
+                     >= 0
+                  && ((not
+                         (Int64.equal executed_steps (Int64.of_int prior_steps)))
                      || (captured_length = 0 && work = 0))
                   &&
                   if Int64.equal kind 11L then
-                    atomic_fault || captured_length = max_output_bytes
-                  else if Int64.equal kind 12L then work = max_output_work
+                    atomic_fault || captured_length = available_output
+                  else if Int64.equal kind 12L then work = available_work
                   else true
                 in
                 if not output_status_valid then
@@ -358,6 +390,134 @@ let execute_retained_report ?max_frame_bytes ?max_call_depth
       ?max_call_depth ?max_active_stack_bytes ?max_global_bytes
       ?max_literal_bytes ?max_output_bytes ?max_output_work ~max_steps
       retained.image_
+
+type budget_state = {
+  steps_ : int;
+  bytes_ : int;
+  work_ : int;
+  chunks_ : string list;
+  error_ : string option;
+}
+
+type budget = {
+  max_steps_ : int;
+  max_output_bytes_ : int;
+  max_output_work_ : int;
+  active_ : bool Atomic.t;
+  state_ : budget_state Atomic.t;
+}
+
+type budget_progress = {
+  executed_steps : int;
+  output_byte_length : int;
+  output_work : int;
+  output_bytes : string;
+  error : string option;
+}
+
+let create_budget ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
+    ~max_steps () =
+  if max_steps <= 0 then
+    Error "native budget max_steps must be greater than zero"
+  else if max_output_bytes <= 0 || max_output_bytes > hard_max_output_bytes then
+    Error "native budget max_output_bytes is outside the host bound"
+  else if max_output_work <= 0 then
+    Error "native budget max_output_work must be greater than zero"
+  else
+    Ok
+      {
+        max_steps_ = max_steps;
+        max_output_bytes_ = max_output_bytes;
+        max_output_work_ = max_output_work;
+        active_ = Atomic.make false;
+        state_ =
+          Atomic.make
+            { steps_ = 0; bytes_ = 0; work_ = 0; chunks_ = []; error_ = None };
+      }
+
+let copy_string value = Bytes.to_string (Bytes.of_string value)
+
+let budget_progress budget =
+  let state = Atomic.get budget.state_ in
+  {
+    executed_steps = state.steps_;
+    output_byte_length = state.bytes_;
+    output_work = state.work_;
+    output_bytes = copy_string (String.concat "" (List.rev state.chunks_));
+    error = state.error_;
+  }
+
+(* Newest chunks come first, with strictly increasing lengths. Coalescing
+   bounds retained list metadata and avoids copying the full output prefix on
+   every one-byte activation. Reports never share writable backing with it. *)
+let append_capture captured chunks =
+  if captured = "" then chunks
+  else
+    let rec append current = function
+      | prior :: rest when String.length prior <= String.length current ->
+          append (prior ^ current) rest
+      | rest -> current :: rest
+    in
+    append (copy_string captured) chunks
+
+let execute_retained_budget_report ?max_frame_bytes ?max_call_depth
+    ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes budget retained
+    =
+  if not (Atomic.compare_and_set budget.active_ false true) then
+    error_report "retained native budget is already active"
+  else
+    Fun.protect
+      ~finally:(fun () -> Atomic.set budget.active_ false)
+      (fun () ->
+        let state = Atomic.get budget.state_ in
+        match state.error_ with
+        | Some message -> error_report message
+        | None when Atomic.get retained.released_ ->
+            error_report "retained native image has been released"
+        | None -> (
+            let entered = ref false in
+            let poisoned =
+              {
+                state with
+                error_ =
+                  Some
+                    "retained native budget is unavailable after an unverified \
+                     activation";
+              }
+            in
+            try
+              let report =
+                execute_report_internal ~retained:retained.handle_
+                  ~consumed:(state.steps_, state.bytes_, state.work_)
+                  ~entered ?max_frame_bytes ?max_call_depth
+                  ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
+                  ~max_steps:budget.max_steps_
+                  ~max_output_bytes:budget.max_output_bytes_
+                  ~max_output_work:budget.max_output_work_ retained.image_
+              in
+              (match report.outcome_ with
+              | Error _ -> if !entered then Atomic.set budget.state_ poisoned
+              | Ok outcome ->
+                  let steps_ =
+                    match outcome with
+                    | Image.Completed execution -> execution.executed_steps
+                    | Image.Fault fault -> fault.executed_steps
+                  in
+                  let next =
+                    {
+                      steps_;
+                      bytes_ = state.bytes_ + String.length report.output_bytes_;
+                      work_ = state.work_ + report.output_work_;
+                      chunks_ =
+                        append_capture report.output_bytes_ state.chunks_;
+                      error_ = None;
+                    }
+                  in
+                  Atomic.set budget.state_ next);
+              report
+            with exception_ ->
+              if !entered then Atomic.set budget.state_ poisoned;
+              raise exception_))
 
 let execute_report ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
     ?max_global_bytes ?max_literal_bytes ?max_output_bytes ?max_output_work

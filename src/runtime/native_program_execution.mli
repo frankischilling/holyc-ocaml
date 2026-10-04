@@ -66,6 +66,62 @@ val execute_retained_report :
     This host lifetime primitive does not schedule or replay parser callbacks,
     link separate images, or establish native JIT declaration execution. *)
 
+type budget
+
+type budget_progress = private {
+  executed_steps : int;
+  output_byte_length : int;
+  output_work : int;
+  output_bytes : string;
+  error : string option;
+}
+
+val create_budget :
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  max_steps:int ->
+  unit ->
+  (budget, string) result
+(** Create one cumulative instruction and output allowance. Limits must be
+    positive; output bytes have the same hard bound as [execute_report]. The
+    default byte and work limits are each 1,048,576. The allowance cannot reset
+    or grow. This does not allocate or admit a native image. *)
+
+val budget_progress : budget -> budget_progress
+(** Freeze the last verified cumulative counters and ordered output, including
+    checked faults. The byte string is a copy. A concurrent activation publishes
+    its complete observation atomically. [error] revokes further use after a
+    host or status failure whose native effects could not be verified; counters
+    then describe only the last verified prefix. *)
+
+val execute_retained_budget_report :
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_active_stack_bytes:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  budget ->
+  retained ->
+  report
+(** Execute an original retained entry using this allowance's remaining
+    instruction, output-byte and output-work limits. Zero remaining allowances
+    reach the generated guards: exhausted output does not prevent quiet code,
+    while exhausted steps stop before the first source instruction. A checked
+    completion or fault reports cumulative executed steps, with output and work
+    for this activation. Both consume the original shared allowance and preserve
+    reached native writes. Preflight and rejected native admission consume
+    nothing. The host marks entry only after acquiring the original image's
+    activation guard and checking its lifetime. Once native entry begins, an
+    unverified host/status failure revokes the allowance.
+
+    Concurrent use of one allowance rejects overlap. Multiple original images
+    may share an allowance while retaining their separate data arenas. Frame,
+    call-depth, active-stack and image-storage bounds keep their per-activation
+    meanings. This host execution primitive supplies no source-command receipts,
+    once-only declaration scheduling, cumulative allocation admission, or
+    linkage between images. The existing [execute_retained_report] keeps fresh
+    limits. *)
+
 val execute_report :
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->

@@ -587,6 +587,16 @@
   (run %{exe:test_native_scalar_function_execution.exe})))
 
 (executable
+ (name test_callback_return_storage)
+ (modules test_callback_return_storage)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_callback_return_storage.exe})))
+
+(executable
  (name test_native_load_initializer_cli)
  (modules test_native_load_initializer_cli)
  (libraries unix yojson))
@@ -642,7 +652,8 @@
   ../../examples/native-word-tails.hc
   ../../examples/native-callback-arguments.hc
   ../../examples/native-callback-word-defaults.hc
-  ../../examples/native-callback-initializers.hc)
+  ../../examples/native-callback-initializers.hc
+  ../../examples/native-callback-return-storage.hc)
  (action
   (run
    %{exe:test_native_scalar_function_cli.exe}
@@ -657,7 +668,8 @@
    %{dep:../../examples/native-word-tails.hc}
    %{dep:../../examples/native-callback-arguments.hc}
    %{dep:../../examples/native-callback-word-defaults.hc}
-   %{dep:../../examples/native-callback-initializers.hc})))
+   %{dep:../../examples/native-callback-initializers.hc}
+   %{dep:../../examples/native-callback-return-storage.hc})))
 
 (executable
  (name test_native_goto_execution)
@@ -902,3 +914,13 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_retained_execution.exe})))
+
+(executable
+ (name test_native_retained_budget)
+ (modules test_native_retained_budget)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_retained_budget.exe})))

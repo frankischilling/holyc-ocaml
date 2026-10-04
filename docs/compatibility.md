@@ -1,5 +1,19 @@
 # holyc-ocaml compatibility status
 
+Issue #801 admits native automatic/static callback storage independently of
+return metadata, including F64 and pointer-return headers. Scalar cells,
+fully indexed arrays and fixed parameters preserve complete words and original
+executable owners. The selected header still governs invocation; F64 objects
+and F64/pointer-returning calls remain unsupported. See
+[native callback storage](native-local-callbacks.md).
+
+Retained native images can share cumulative instruction and output allowances.
+Checked faults preserve reached writes, output prefixes and consumed work;
+zero remaining allowances reach the generated guards. This supplies the budget
+primitive for native sessions. Original parser-callback scheduling, persistent
+source admission and linking separate images remain open. See
+[retained native images](native-retained-images.md).
+
 Issue #795 connects primitive type recognition to original symbol selection.
 Functions, globals, locals and parameters can shadow primitive spellings in both
 source modes and execution targets. Live post-body lookahead keeps its selected

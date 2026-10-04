@@ -13278,3 +13278,35 @@ execution = "The original complete entry executes against persistent global/stat
 verification = "Maintained groups cover both source modes, native global/static/narrow array/literal writes, callback owners across GC/compaction, reached arithmetic and step faults, recursive frame/depth/stack recovery, AOT load calls and faults, separate arenas, release/expiry, collected owners, original bounds and foreign ABI rejection. Closed entries exercise frameless code, small/large spill frames, exact stack/work quotas, reached division/remainder faults, recovery and changed range/frame/prologue rejection. Concurrent domains accept distinct native writes or reject overlap."
 verification_boundary = "This host resource-lifetime primitive supplies neither once-only source declaration scheduling nor linkage between separate images. It adds no new TempleOS capture, exported ABI or native source-task parity."
 excluded = ["native execution during original JIT parser callbacks", "persistent source-task admission and cumulative quotas", "linking separate images", "live native replacement/target expiry", "general F64/aggregate execution", "exported HolyC ABI", "object/BIN loader or bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-CALLBACK-RETURN-STORAGE"
+description = "Native callback local/static storage admits return metadata independently of its physical one-star word."
+sources = ["Compiler/PrsVar.HC:285-369 original return-pointer parsing, anonymous callback header and internal RT_PTR storage", "Compiler/PrsVar.HC:521-532 physical array extent", "Compiler/PrsVar.HC:590-628 automatic and fixed-parameter allocation"]
+implementation = ["src/hosted/native_program.ml", "src/hosted/native_program.mli"]
+tests = ["test/native/test_callback_return_storage.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-callback-return-storage.hc"]
+documentation = ["docs/native-local-callbacks.md", "docs/native-scalars.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Original callback declarators select physical one-star storage; their return type and return-pointer layers remain in the anonymous signature. An ordinary object in a mixed declaration still requires an admitted integer type. Existing sealed frame, array and owner-transfer receipts remain required."
+execution = "Automatic/static scalar cells, fully indexed arrays and fixed callback parameters preserve complete numeric words and original executable owners across F64 and pointer-return metadata. A later integer/U0 callback can invoke the copied original body under its own selected header. No floating evaluation or pointer-returning invocation is introduced."
+verification = "Both image ABIs compile. Fresh public IR and checked-batch IR compare host-native values and work. The maintained example returns 42, prints A and consumes 101 runtime steps in both source modes, with 16 global bytes and 3 dimension visits; exact and one-below work limits preserve reached effects."
+verification_boundary = "Pinned source and hosted native checks add no TempleOS capture, general floating execution, exported ABI or native task linking proof."
+excluded = ["F64 object storage and execution", "F64 and pointer-returning calls", "multi-star callback consumers", "callback member storage", "live native publication/linking", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-RETAINED-CUMULATIVE-BUDGET"
+description = "Original retained native activations share cumulative instruction and output allowances."
+sources = ["Compiler/PrsStmt.HC:150-194 original function code context", "Kernel/KTask.HC:251-264 task-owned code/data context", "docs/native-retained-images.md hosted resource policy"]
+implementation = ["src/runtime/native_program_execution.ml", "src/runtime/native_program_execution.mli", "src/native_execution_stubs.c"]
+tests = ["test/native/test_native_retained_budget.ml", "test/native/dune"]
+documentation = ["docs/native-retained-images.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "An opaque allowance is separate from each original sealed native image and its private arena. Calls retain the original entry, owner and fault-site decoder. Sharing an allowance gives no new executable or source receipt authority."
+execution = "The host passes exact remaining instruction/output capacities to generated code, including zero. Checked completions and faults charge cumulative steps and per-activation output/work; partial native writes persist. Immutable progress publishes ordered output and counters atomically. Overlap rejects, preflight and rejected native admission preserve the allowance, and uncertain failures after native entry revoke further use. The host marks entry only after original image activation and lifetime checks. Existing one-shot limits remain positive and independent."
+verification = "Both source modes compare public IR values/output with native execution. Tests exercise repeated writes, exact and one-below steps, zero remaining output/work, partial and atomic faults, preflight recovery, separate arenas, concurrent admission, independent report bytes, bounded capture chunks and malformed or overdrawn consumed counters."
+verification_boundary = "These cumulative bounds are hosted resource policy. They add no TempleOS capture, source-task admission, original parser-callback execution or linkage between images."
+excluded = ["native source-session scheduling and receipts", "cumulative allocation admission", "linking separate images", "live native replacement/expiry", "general F64/aggregate execution", "exported HolyC ABI", "object/BIN loader or bootstrap", "full compiler and release"]

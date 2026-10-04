@@ -21,6 +21,21 @@ It copies a global array element into a static array, clears the original cells,
 then transfers the saved callback through a parameter into an automatic array.
 The static element survives a second function activation.
 
+Callback storage also admits `F64` return metadata and pointer-return headers.
+For example, `F64 **(*p)(I64 n)` has one callback indirection and an eight-byte
+cell; the two return-pointer layers belong to its saved signature. Automatic
+locals, statics, fully indexed arrays and fixed callback parameters preserve
+complete numeric words and executable owners through copies. The selected
+header still controls invocation. F64 objects, mixed declarations containing
+F64 objects, F64 calls and pointer-returning calls remain unsupported.
+
+The [return-storage example](../examples/native-callback-return-storage.hc)
+copies an original integer function address through an `F64` callback array,
+an `F64 **` callback parameter, and automatic and static cells. An I64 callback
+then invokes that original body. Both source modes return 42, print `A`, and
+consume 101 native runtime steps, with 16 global bytes and three dimension
+visits. The stored callback headers are preserved throughout the copies.
+
 The [defaults example](../examples/native-callback-defaults.hc) returns I64 42.
 Its target function saves 17, its global callback array saves 7, and its callback
 parameter saves 42. Each invocation uses the selected callback declaration's

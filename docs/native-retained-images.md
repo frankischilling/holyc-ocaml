@@ -52,6 +52,41 @@ The compiler, checked image, decoding and API ownership remain in OCaml. The C
 boundary handles native mappings, cache synchronization, entry and host resource
 lifetime. It adds no instruction selection, assembler or language evaluation.
 
+## Shared execution allowances
+
+`create_budget` gives retained activations one cumulative instruction,
+output-byte and output-work allowance. `execute_retained_budget_report` charges
+that allowance when an activation completes or reaches a checked fault. Its
+step counter is cumulative; the returned output and output work belong to that
+activation. `budget_progress` freezes the verified totals and ordered output.
+
+For a retained entry `I64 G=40;++G;`, a budget covering two activations permits
+41 and 42. The next activation reaches the original native instruction guard
+with zero remaining steps. It cannot increment `G` again. Reached writes during
+a partial activation remain in the arena and its consumed work stays charged.
+
+Exhausted output allowances still permit code that produces no output. A later
+output operation reaches the native byte or work guard with zero remaining
+capacity. PutChars retains its published byte prefix on a fault; Print keeps
+its atomic draft behavior. No extra byte or work unit is granted to get past a
+positive-limit API check. Configured total limits remain positive, and the
+existing single-activation interfaces keep their original validation rules.
+
+An atomic guard rejects concurrent use of the same budget. Verified counters
+and output publish together. Saved output uses bounded, coalesced chunks;
+activation reports and progress snapshots cannot modify that saved prefix.
+Invalid preflight limits or an already released owner leave the allowance
+unchanged. The host marks entry only after its activation and lifetime checks;
+a rejected concurrent entry cannot revoke an untouched allowance. Once native
+entry begins, an unverified host or status failure revokes the allowance
+because its native effects cannot be accounted for.
+Progress then retains the last verified prefix and records the failure state.
+
+Different retained images may share an allowance while keeping separate arenas.
+Frame, depth, active-stack and image-storage bounds remain per activation.
+Source receipt admission, cumulative data allocation, declaration scheduling
+and linking separate images still belong to the native source-session work.
+
 The maintained suite covers both source modes, actual native
 globals/statics/arrays/literals, callback owners across GC, reached arithmetic
 and step faults, recursive frame/depth/stack failures, recovery, output capture,
@@ -61,6 +96,10 @@ load-region calls and reached load faults execute against retained state.
 Closed source entries cover frameless code and both small and large spill
 allocations, repeated entry across GC, exact stack/work quotas, reached division
 and remainder faults, recovery, and changed range/frame/prologue rejection.
+The cumulative-budget suite compares public IR values and output with native
+execution, then exercises repeated writes, exact and one-below steps, exhausted
+byte/work limits, partial and atomic output faults, retryable preflight,
+separate arenas, concurrent admission and malformed consumed-counter tuples.
 
 The pinned source context is `c26482bb6ad3f80106d28504ec5db3c6a360732c`:
 `Compiler/PrsStmt.HC:150-194` emits source-owned function code, and

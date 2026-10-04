@@ -1,5 +1,19 @@
 # Testing holyc-ocaml
 
+`test/native/test_callback_return_storage.ml` checks callback storage whose
+return metadata is independent of its eight-byte cell. Native and fresh public
+IR runs cover automatic/static cells, arrays and fixed-parameter transfers;
+checked-batch IR supplies the native work comparison. Both image ABIs compile.
+The maintained CLI example `native-callback-return-storage.hc` returns 42 and
+prints `A` in both source modes, including exact and one-below runtime limits.
+
+`test/native/test_native_retained_budget.ml` checks cumulative native steps,
+output bytes and output work across original retained images. Coverage includes
+zero remaining allowances, partial writes, output faults, concurrent admission,
+separate arenas, immutable output snapshots, preflight recovery, bounded capture
+chunks and malformed consumed-counter tuples at the C boundary. Both source
+modes execute the host ABI; public IR checks independent values and output.
+
 `test/test_primitive_type_shadowing.ml` checks all twelve primitive spellings,
 original call syntax, storage, parameters, replacement input, restored types,
 aggregate identity and unshadowed casts. The CLI suite consumes the repeated

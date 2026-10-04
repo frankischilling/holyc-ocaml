@@ -269,11 +269,11 @@ let local_source_error (declaration : Ast.local_declaration) =
   if
     not
       (scalar_word_type declaration.local_type_specifier
-      || void_return_type declaration.local_type_specifier
-         && List.for_all
-              (fun local -> Option.is_some local.Ast.local_function_pointer)
-              declaration.local_declarators)
-  then reject "native locals require nonzero scalar integer types"
+      || List.for_all
+           (fun local -> Option.is_some local.Ast.local_function_pointer)
+           declaration.local_declarators)
+  then
+    reject "native locals require nonzero scalar integers or callback storage"
   else
     List.find_map
       (fun (local : Ast.local_declarator) ->
@@ -281,11 +281,15 @@ let local_source_error (declaration : Ast.local_declaration) =
           Some (source_error local.local_declarator_location.span message)
         in
         if
-          if is_static && Option.is_none local.local_function_pointer then
-            local.local_pointer_layers <> []
-          else List.length local.local_pointer_layers > 1
+          match local.local_function_pointer with
+          | Some pointer -> List.length pointer.Ast.indirection_layers <> 1
+          | None ->
+              if is_static then local.local_pointer_layers <> []
+              else List.length local.local_pointer_layers > 1
         then
-          reject "native locals admit only automatic one-level scalar pointers"
+          reject
+            "native locals admit one-star callbacks or automatic one-level \
+             scalar pointers"
         else if
           local.local_array_dimensions <> []
           && (local.local_pointer_layers <> []

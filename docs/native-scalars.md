@@ -61,6 +61,13 @@ and signedness; there is no additional native primitive registry.
 | Bool | 1 | Sign-extended I64 |
 | U8 / U16 / U32 | 1 / 2 / 4 | Zero-extended U64 |
 | I64 / U64 | 8 | Full I64 / U64 word |
+| One-star callback cell | 8 | Complete word and private executable owner |
+
+Callback return metadata does not determine storage width. This includes F64
+return classes and pointer-return headers on automatic/static cells and fully
+indexed arrays. Each selected callback header still governs its eventual call;
+native invocation currently supports integer and U0 returns. See
+[callback storage](native-local-callbacks.md).
 
 Each fixed parameter still occupies eight bytes in the private call convention.
 Its object accesses use the declared width. Automatic locals occupy their exact

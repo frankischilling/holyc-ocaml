@@ -23,14 +23,14 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 13)
+    (Array.length Sys.argv = 14)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
      <native-scalar-functions.hc> <native-u0-functions.hc> \
      <native-calling-flags.hc> <native-local-callbacks.hc> \
      <native-callback-parameters.hc> <native-callback-storage.hc> \
      <native-callback-defaults.hc> <native-word-tails.hc> \
      <native-callback-arguments.hc> <native-callback-word-defaults.hc> \
-     <native-callback-initializers.hc>"
+     <native-callback-initializers.hc> <native-callback-return-storage.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
@@ -44,6 +44,7 @@ let word_tail_fixture = Sys.argv.(9)
 let callback_argument_fixture = Sys.argv.(10)
 let callback_word_default_fixture = Sys.argv.(11)
 let callback_initializer_fixture = Sys.argv.(12)
+let callback_return_storage_fixture = Sys.argv.(13)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -552,6 +553,17 @@ let callback_storage_cli_contract () =
     [ "jit"; "aot" ]
 
 let () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode
+           ~source:callback_return_storage_fixture ~expected_preparation:0
+           ~expected_default_bytes:0 ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a";
+             require
+               (member "output_hex" report = `String "41")
+               "callback copies preserve their original executable owner")))
+    [ "jit"; "aot" ];
   List.iter
     (fun mode ->
       ignore
