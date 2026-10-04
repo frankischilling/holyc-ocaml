@@ -17,7 +17,11 @@ holyc run --target=host-jit --mode=aot examples/native-aot-callback-initializers
 The IR example returns 42 and writes `A` once while initializing `Word`.
 Its array copies the first element's original executable into the second.
 Overwriting the first element does not revoke the second element's ownership.
-JIT task inputs also retain original bodies across later same-name definitions.
+JIT task inputs and AOT programs retain original bodies across later same-name
+definitions. AOT may reuse one canonical callable record, while each checked
+definition keeps its own body, frame and declaration. Earlier callback addresses
+and direct calls execute their selected original definition. Repeated bodies,
+foreign canonical records and substituted frames still fail preflight.
 Initializer calls use their selected callback header, capture the callee before
 reverse arguments and preserve reached effects on null, numeric or signature
 faults.
@@ -66,7 +70,8 @@ The AOT example returns 42, prints `A`, uses 24 global bytes and executes 86
 runtime steps. Only its anonymous saved default consumes preparation work:
 three steps and eight saved bytes. The example covers an earlier-element copy,
 an indirect call using that default, and a direct initializer call storing a
-numeric callback word. Every execution starts with fresh storage.
+numeric callback word. A later same-name definition does not replace the body
+selected by either copied callback. Every execution starts with fresh storage.
 
 Global initializer start, leaf and delimiter receipts require their exact
 private parser identity and the current context at the top of the source stack.
@@ -88,12 +93,19 @@ and return metadata, at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 `Demo/Graphics/Grid.HC:13` preserves the direct automatic callback initializer
 syntax boundary. No new TempleOS capture or exported ABI proof is claimed.
 
+`Compiler/PrsStmt.HC:67-143` distinguishes AOT function-record reuse from ordinary
+JIT replacement. A reused AOT record rebuilds its header but keeps the existing
+stored cleanup flags: `fsp_flags` are applied only when creating a new record.
+Calls use those checked flags, including when a later definition spells a
+different modifier. A callback header that disagrees still faults after reached
+argument effects. Public IR, isolated batch IR and native tests cover separate
+old/new bodies, parameter counts, selected defaults, recursion and persistent
+static storage. CLI tests check exact runtime limits and recovery for each case.
+
 Native JIT initializers with references still require execution during their
 original parser callback. They currently report `HCRUN0006`. Static initializers
 and saved defaults retain their closed-expression boundary. The native AOT
-consumer does not establish retained native replacement or task linking. AOT
-public IR currently rejects multiple same-name definitions during duplicate
-identity preflight; that comparison remains unresolved.
+consumer does not establish live native replacement or task linking.
 
 Member storage, callback updates,
 multistar consumers, live native replacement/linking, general F64/aggregate

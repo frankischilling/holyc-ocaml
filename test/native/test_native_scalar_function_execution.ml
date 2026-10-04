@@ -3012,6 +3012,75 @@ let global_callback_word_preparation_limits () =
         [ (8, 8, "HCIRVM0007"); (9, 7, "HCIRVM0011") ])
     modes
 
+let aot_function_versions_execute () =
+  List.iter
+    (fun (label, initializer_steps, source) ->
+      let _, native, public =
+        compare_source ~mode:Preprocessor.Aot ~label ~initializer_steps
+          ~expected_type:"I64" ~expected_bits:42L source
+      in
+      Alcotest.(check int)
+        "original AOT body runtime work agrees with fresh public IR"
+        (VM.executed_steps public) native.execution.executed_steps)
+    [
+      ( "original callback body survives a later same-name definition",
+        0,
+        "I64 Add(I64 n){return n+1;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n){return \
+         n+2;}P(41);" );
+      ( "old and new callbacks retain their own bodies",
+        0,
+        "I64 Add(I64 n){return n+1;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n){return \
+         n+2;}I64 (*Q)(I64 n)=&Add;I64 Check(){return P(41)+Q(40)-42;}Check();"
+      );
+      ( "old and new direct calls retain their own declarations",
+        0,
+        "I64 Add(I64 n){return n+1;}I64 Early(){return Add(41);}I64 Add(I64 \
+         n){return n+2;}I64 Check(){return Early()+Add(40)-42;}Check();" );
+      ( "an original callback retains its earlier parameter count",
+        0,
+        "I64 Add(I64 n){return n+2;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n,I64 \
+         m){return n+m;}P(40);" );
+      ( "selected callback defaults survive replacement headers",
+        0,
+        "I64 Add(I64 n=1){return n+1;}I64 (*P)(I64 n=41)=&Add;I64 Add(I64 \
+         n=17){return n+2;}I64 (*Q)(I64 n=40)=&Add;I64 Check(){return \
+         P()+Q()-42;}Check();" );
+      ( "a reused AOT function retains its original cleanup flags",
+        0,
+        "argpop I64 Add(I64 n){return n+1;}argpop I64 (*P)(I64 \
+         n)=&Add;noargpop I64 Add(I64 n){return n+2;}argpop I64 (*Q)(I64 \
+         n)=&Add;I64 Check(){return P(41)+Q(40)-42;}Check();" );
+      ( "original recursive calls stay in their original body",
+        0,
+        "I64 R(I64 n){if(n)return 1+R(n-1);return 40;}I64 (*P)(I64 n)=&R;I64 \
+         R(I64 n){if(n)return 100+R(n-1);return 40;}P(2);" );
+      ( "an original body keeps its own persistent static storage",
+        3,
+        "I64 Add(){static I64 n=40;return ++n;}I64 (*P)()=&Add;I64 \
+         Add(){return 99;}P();P();" );
+    ];
+  let source =
+    "extern U0 Print(U8 *fmt,...);argpop I64 Add(I64 n){return n+1;}argpop I64 \
+     (*P)(I64 n)=&Add;noargpop I64 Add(I64 n){return n+2;}noargpop I64 \
+     (*Q)(I64 n)=&Add;I64 Side(){Print(\"A\");return 40;}P(41);Q(Side());"
+  in
+  let _, batch = batch_failure ~mode:Preprocessor.Aot ~max_steps:10000 source in
+  let report, fault, errors =
+    native_fault ~mode:Preprocessor.Aot ~max_steps:10000 source
+  in
+  Alcotest.(check string)
+    "new callback spelling cannot replace reused AOT cleanup" "HCIRVM0014"
+    (List.hd errors).code;
+  Alcotest.(check string)
+    "checked batch rejects the same cleanup disagreement" "HCIRVM0014"
+    batch.code;
+  Alcotest.(check int)
+    "reused cleanup fault consumes the same work" batch.executed_steps
+    (Option.get fault).executed_steps;
+  Alcotest.(check string)
+    "reached cleanup fault preserves argument output" "A"
+    (Native_program.output_bytes report)
+
 let aot_load_callback_words () =
   List.iter
     (fun (type_name, value) ->
@@ -3276,6 +3345,8 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case "AOT function versions retain original bodies"
+                `Quick aot_function_versions_execute;
               Alcotest.test_case "AOT load callbacks retain owned words" `Quick
                 aot_load_callback_words;
               Alcotest.test_case "AOT load calls preserve storage and effects"

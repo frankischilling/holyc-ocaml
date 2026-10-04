@@ -286,3 +286,10 @@ ownership. Original headers, receipts, complete charged evidence and selected
 `noreg` state remain checked.
 
 [Global callback initializers](global-callback-initializers.md) derive eight-byte physical storage from the original callback declaration before its return-type record is complete. IR initializers retain original executable identity and checked expression regions. Native closed-word initializers require original consumed preparations and charged completions; AOT load regions require their original ordered source and destination receipts in the exact callable bundle. Numeric payloads retain zero executable owners. This private adapter does not establish exported HolyC ABI or loader execution.
+
+AOT function-record reuse preserves a canonical callable identity, separately
+from each original checked definition and its frame. Earlier calls and callback
+addresses retain that definition's body. `PrsStmt.HC:67-143` applies function
+modifiers when creating a record; reuse keeps its stored cleanup flags. The
+private IR and native adapters check the selected call header against those
+original flags. Later source spelling cannot replace the checked cleanup policy.

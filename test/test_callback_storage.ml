@@ -1192,6 +1192,85 @@ let replaced_function_address_keeps_original_body () =
         A(){return 2;}Old()*100+A();"
     |> Test_integer_functions.expect 102L)
 
+let aot_definition_snapshots_keep_original_bodies () =
+  let module T = Test_integer_functions in
+  let module G = Test_integer_globals in
+  let module B = Ir_function_body in
+  let module VM = Ir_integer_interpreter in
+  List.iter
+    (fun source ->
+      ignore (G.run ~mode:Preprocessor.Jit source |> T.expect 42L);
+      let result = G.run ~mode:Preprocessor.Aot source |> T.expect 42L in
+      let steps = VM.executed_steps result in
+      ignore
+        (G.run ~mode:Preprocessor.Aot ~max_steps:steps source |> T.expect 42L);
+      Alcotest.(check string)
+        "one below original-body execution work" "HCIRVM0007"
+        (T.first_error
+           (G.run ~mode:Preprocessor.Aot ~max_steps:(steps - 1) source))
+          .code)
+    [
+      "I64 Add(I64 n){return n+1;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n){return \
+       n+2;}P(41);";
+      "I64 Add(I64 n){return n+1;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n){return \
+       n+2;}I64 (*Q)(I64 n)=&Add;I64 Check(){return P(41)+Q(40)-42;}Check();";
+      "I64 Add(I64 n){return n+1;}I64 Early(){return Add(41);}I64 Add(I64 \
+       n){return n+2;}I64 Check(){return Early()+Add(40)-42;}Check();";
+      "I64 Add(I64 n){return n+2;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n,I64 \
+       m){return n+m;}P(40);";
+    ];
+  let source =
+    "I64 Add(I64 n){return n+1;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n){return \
+     n+2;}P(41);"
+  in
+  let compiled = G.compile ~mode:Preprocessor.Aot source in
+  let functions = integer_program_functions compiled in
+  let first = List.hd functions and second = List.nth functions 1 in
+  Alcotest.(check bool)
+    "checked definitions share their canonical callable symbol" true
+    (B.callable_symbol first.body == B.callable_symbol second.body);
+  Alcotest.(check bool)
+    "each original body keeps a distinct source symbol" false
+    (Semantic_symbol.Id.equal
+       (Semantic_symbol.id (B.symbol first.body))
+       (Semantic_symbol.id (B.symbol second.body)));
+  Alcotest.(check bool)
+    "each original body keeps a distinct checked declaration" false
+    (Option.get (B.definition_declaration first.body)
+    == Option.get (B.definition_declaration second.body));
+  let execute ?runtime_calls functions =
+    VM.execute_program ?runtime_calls
+      ~globals:(integer_program_globals compiled)
+      ~initialization:(integer_program_initialization compiled)
+      ~functions ~max_steps:1000 ~max_frame_bytes:64 ~max_call_depth:4
+      (integer_program_entry compiled)
+  in
+  let reject label result =
+    match result with
+    | Ok _ -> Alcotest.fail label
+    | Error errors ->
+        Alcotest.(check bool)
+          label true
+          (List.for_all
+             (fun (error : VM.error) ->
+               error.stage = VM.Preflight && error.executed_steps = 0)
+             errors)
+  in
+  let repeated = execute (first :: functions) in
+  reject "a repeated body still rejects before execution" repeated;
+  Alcotest.(check string)
+    "repeated body identity still rejects" "HCIRVM0014"
+    (List.hd (Result.get_error repeated)).code;
+  let context = integer_program_runtime_calls compiled in
+  reject "reordered original bodies lose their complete bundle authority"
+    (execute ~runtime_calls:context (List.rev functions));
+  let other = G.compile ~mode:Preprocessor.Aot source in
+  reject "equal-source foreign bodies cannot substitute original definitions"
+    (execute ~runtime_calls:context (integer_program_functions other));
+  reject "the original body still requires its original frame"
+    (execute ~runtime_calls:context
+       [ { first with frame = second.frame }; second ])
+
 let checked_callback_invocation () =
   let cases =
     [
@@ -2786,4 +2865,6 @@ let tests =
       function_address_limits_and_reached_faults;
     Alcotest.test_case "replaced function address keeps its original body"
       `Quick replaced_function_address_keeps_original_body;
+    Alcotest.test_case "AOT definition snapshots keep original bodies" `Quick
+      aot_definition_snapshots_keep_original_bodies;
   ]

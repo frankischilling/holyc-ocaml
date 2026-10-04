@@ -1,5 +1,16 @@
 # Reference source map
 
+Issue #801 follows `Compiler/PrsStmt.HC:67-143` for AOT function-record reuse
+and stored cleanup flags, `PrsStmt.HC:140-207` for separate body emission, and
+`PrsExp.HC:621-654` for the function address selected at each source occurrence.
+Public IR keeps each original checked body, frame and declaration while allowing
+their shared physical canonical callable record. Native and CLI comparisons
+cover earlier and later calls, defaults, parameter counts, recursion and static
+storage. Reused AOT records retain their earlier cleanup flags; disagreeing
+callback headers still fault after reached argument effects. These checks add
+no TempleOS AOT capture, exported ABI or live native linking proof. See
+[global callback initializers](global-callback-initializers.md).
+
 Issue #797 follows `PrsExp.HC:49-52,225-230` for shared comparison operands and
 `OptPass012.HC:141-150,809-822` for their cumulative computation classes.
 `OptPass4.HC:516-527` marks comparison branch destinations for stack cleanup;

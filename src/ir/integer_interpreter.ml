@@ -7851,6 +7851,10 @@ let execute_program_with_output ?task ?isolated_budget
       | [] -> Ok (List.rev rev)
       | ({ frame; body } : function_definition) :: rest ->
           let symbol = Function.callable_symbol body in
+          let source_symbol = Function.symbol body in
+          (* AOT joins source definitions to one canonical callable record.
+             Original bodies, frames and declarations keep distinct owners;
+             a shared numeric identity alone grants no authority. *)
           let function_id =
             Function.Function_id.to_int (Function.function_id body)
           in
@@ -7859,9 +7863,24 @@ let execute_program_with_output ?task ?isolated_budget
             List.exists
               (fun other ->
                 Sema.Symbol.Id.equal (Sema.Symbol.id other)
-                  (Sema.Symbol.id symbol))
+                  (Sema.Symbol.id source_symbol))
               symbols
             || List.mem function_id ids
+            || List.exists
+                 (fun (callee, _, prior) ->
+                   Sema.Symbol.Id.equal
+                     (Sema.Symbol.id callee.callee_symbol)
+                     (Sema.Symbol.id symbol)
+                   && not
+                        (callee.callee_symbol == symbol
+                        &&
+                        match
+                          ( Function.definition_declaration prior,
+                            Function.definition_declaration body )
+                        with
+                        | Some original, Some current -> original != current
+                        | _ -> false))
+                 rev
           then
             Error
               [
@@ -7904,7 +7923,7 @@ let execute_program_with_output ?task ?isolated_budget
                 variadic = Option.is_some context.variadic_location;
               }
             in
-            summaries (index + 1) (symbol :: symbols) (function_id :: ids)
+            summaries (index + 1) (source_symbol :: symbols) (function_id :: ids)
               ((callee, context, body) :: rev)
               rest
     in

@@ -178,3 +178,66 @@ let () =
             "reached load fault runtime work";
           success (invoke example)))
     [ "0"; "17"; "0xffffffffffffffff" ]
+
+let () =
+  List.iter
+    (fun source ->
+      with_file ".hc" source (fun path ->
+          let check report =
+            require
+              (member "outcome" report = `String "success"
+              && member "diagnostics" report = `List []
+              && member "final_value" report |> member "value" = `String "42"
+              && member "output_hex" report = `String "")
+              "original AOT function body execution"
+          in
+          let native = invoke path and ir = invoke ~target:"ir" path in
+          check native;
+          check ir;
+          require
+            (member "executed_steps" native = member "executed_steps" ir)
+            "original AOT body runtime work";
+          let steps = member "executed_steps" native |> to_int in
+          let exact = [ "--step-limit=" ^ string_of_int steps ] in
+          List.iter
+            (fun target ->
+              check (invoke ~target ~options:exact path);
+              error
+                (invoke ~target ~status:1
+                   ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+                   path)
+                "HCIRVM0007" "";
+              check (invoke ~target ~options:exact path))
+            [ "ir"; "host-jit" ]))
+    [
+      "I64 Add(I64 n){return n+1;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n){return \
+       n+2;}P(41);";
+      "I64 Add(I64 n){return n+1;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n){return \
+       n+2;}I64 (*Q)(I64 n)=&Add;I64 Check(){return P(41)+Q(40)-42;}Check();";
+      "I64 Add(I64 n){return n+1;}I64 Early(){return Add(41);}I64 Add(I64 \
+       n){return n+2;}I64 Check(){return Early()+Add(40)-42;}Check();";
+      "I64 Add(I64 n){return n+2;}I64 (*P)(I64 n)=&Add;I64 Add(I64 n,I64 \
+       m){return n+m;}P(40);";
+      "I64 Add(I64 n=1){return n+1;}I64 (*P)(I64 n=41)=&Add;I64 Add(I64 \
+       n=17){return n+2;}I64 (*Q)(I64 n=40)=&Add;I64 Check(){return \
+       P()+Q()-42;}Check();";
+      "argpop I64 Add(I64 n){return n+1;}argpop I64 (*P)(I64 n)=&Add;noargpop \
+       I64 Add(I64 n){return n+2;}argpop I64 (*Q)(I64 n)=&Add;I64 \
+       Check(){return P(41)+Q(40)-42;}Check();";
+      "I64 R(I64 n){if(n)return 1+R(n-1);return 40;}I64 (*P)(I64 n)=&R;I64 \
+       R(I64 n){if(n)return 100+R(n-1);return 40;}P(2);";
+      "I64 Add(){static I64 n=40;return ++n;}I64 (*P)()=&Add;I64 Add(){return \
+       99;}P();P();";
+    ];
+  with_file ".hc"
+    "extern U0 Print(U8 *fmt,...);argpop I64 Add(I64 n){return n+1;}argpop I64 \
+     (*P)(I64 n)=&Add;noargpop I64 Add(I64 n){return n+2;}noargpop I64 \
+     (*Q)(I64 n)=&Add;I64 Side(){Print(\"A\");return 40;}P(41);Q(Side());"
+    (fun path ->
+      let native = invoke ~status:1 path
+      and ir = invoke ~target:"ir" ~status:1 path in
+      error native "HCIRVM0014" "41";
+      error ir "HCIRVM0014" "41";
+      require
+        (member "executed_steps" native = member "executed_steps" ir)
+        "reused AOT cleanup fault runtime work")

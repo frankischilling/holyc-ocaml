@@ -44,33 +44,39 @@ val compile :
     array global/static initializer leaves prepare after original expression
     lookahead under that same work budget and require completed declarations.
     Their exact receipts authorize the native initial image, which restores
-    declared-width values on each execution. Persistent integer arrays retain
-    original extents, strides and per-element state. Mutable string literals
-    retain their exact producer and terminated byte image; their canonical
-    reference tables occupy private arena bytes. Prepared JIT publications must
-    precede entry. The ordinary [extern U0 PutChars(U64)] and
-    [extern U0 Print(U8 *fmt,...)] provider headers may authorize explicit calls
-    and their corresponding implicit output statements through sealed runtime
-    call metadata. Native Print retains the bounded interpreter format domain:
-    ordinary bytes plus [%%], [%d], [%s] and [%c], with dynamic owned format and
-    string pointers. A source-defined [Print] or [PutChars] remains an ordinary
-    direct source call. Source-owned internal declarations support owned StrLen,
-    ToUpper, ToBool, integer absolute/sign/square, Min/Max, Bsf/Bsr and pointed
-    ModU64, plain Bt/Bts/Btr/Btc and U0 SwapI64/SwapU32/SwapU16/SwapU8
-    operations under their exact numeric signatures. Swap calls read both
-    original matching-width scalar cells before writing either and complete
-    actual U0. Bit calls select nonnegative bits within original owned
-    integer/Bool extents and mutate at the original declared width. Bool retains
-    its public identity and signed one-byte backing. Internal integer arguments
-    retain full computed words without formal-width storage; original numeric
-    targets and sealed call phases control admission. Effectful initializers,
-    escaping/deeper pointers, automatic array initializers and other unsupported
-    declarations/defaults reject before native entry. This never interprets
-    ordinary commands or allocates executable memory. Parser warnings retain
-    their original source identities. Defaults are 4096 total IR instructions,
-    65536 code bytes, 4088 private frame bytes, 4096 total blocks, 100,000
-    declaration-preparation steps and 65,536 bytes of saved default payloads
-    (eight bytes per prepared value). Global/static storage defaults to
+    declared-width values on each execution. Original reference-bearing AOT
+    leaves retain ordered load receipts instead of prepared payloads; generated
+    code executes their checked stores, callback copies and supported calls
+    before entry against zero storage and any mixed closed prepared leaves.
+    Earlier addresses retain their original checked function body across a later
+    same-name definition sharing the canonical callable record. Persistent
+    integer arrays retain original extents, strides and per-element state.
+    Mutable string literals retain their exact producer and terminated byte
+    image; their canonical reference tables occupy private arena bytes. Prepared
+    JIT publications must precede entry. The ordinary [extern U0 PutChars(U64)]
+    and [extern U0 Print(U8 *fmt,...)] provider headers may authorize explicit
+    calls and their corresponding implicit output statements through sealed
+    runtime call metadata. Native Print retains the bounded interpreter format
+    domain: ordinary bytes plus [%%], [%d], [%s] and [%c], with dynamic owned
+    format and string pointers. A source-defined [Print] or [PutChars] remains
+    an ordinary direct source call. Source-owned internal declarations support
+    owned StrLen, ToUpper, ToBool, integer absolute/sign/square, Min/Max,
+    Bsf/Bsr and pointed ModU64, plain Bt/Bts/Btr/Btc and U0
+    SwapI64/SwapU32/SwapU16/SwapU8 operations under their exact numeric
+    signatures. Swap calls read both original matching-width scalar cells before
+    writing either and complete actual U0. Bit calls select nonnegative bits
+    within original owned integer/Bool extents and mutate at the original
+    declared width. Bool retains its public identity and signed one-byte
+    backing. Internal integer arguments retain full computed words without
+    formal-width storage; original numeric targets and sealed call phases
+    control admission. Reference-bearing JIT initializers, effectful static
+    initializers, escaping/deeper pointers, automatic array initializers and
+    other unsupported declarations/defaults reject before native entry. This
+    never interprets ordinary commands or allocates executable memory. Parser
+    warnings retain their original source identities. Defaults are 4096 total IR
+    instructions, 65536 code bytes, 4088 private frame bytes, 4096 total blocks,
+    100,000 declaration-preparation steps and 65,536 bytes of saved default
+    payloads (eight bytes per prepared value). Global/static storage defaults to
     1,048,576 bytes, with statics rounded to eight; its separate host cap is
     16,777,216 bytes. Literal bytes have the same default and hard bound,
     independently. The combined arena, including private flags and reference

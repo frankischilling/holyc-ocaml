@@ -7,6 +7,11 @@ I64 Add(I64 n)
 
 I64 (*Callbacks)(I64 n=40)[2]={&Add,Callbacks[0]};
 
+I64 Add(I64 n)
+{
+  return n+100;
+}
+
 I64 Seed()
 {
   Print("A");

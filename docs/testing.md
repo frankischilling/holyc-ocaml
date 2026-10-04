@@ -1405,3 +1405,13 @@ returns 42 with six preparation steps and sixteen saved bytes. See
 [callback-word defaults](native-callback-word-defaults.md).
 
 Global callback initializer tests cover original code and numeric words, multidimensional leaf order, copies, selected defaults and flags, indirect initializer calls, output, reached null/numeric/signature faults, original JIT bodies after replacement, source-task inputs, return-type-independent word width and exact resource limits. Entry graphs reject copied instructions and foreign contexts. Native tests compare public IR values, isolated checked-batch meters and host execution for closed words in both modes and original AOT load regions. Authority tests reject cloned, suspended or expired parser receipts and missing, repeated, reordered or foreign load evidence; both image ABIs compile. Load-time calls cover reverse arguments, saved callees, callback parameters, word tails, U0, multidimensional copies, reached faults and exact runtime limits with recovery. The maintained AOT CLI example returns 42, prints A and uses 86 runtime steps, three preparation steps, 24 global bytes and eight saved default bytes. It checks exact and one-below code, IR, block, global, frame, depth, runtime, preparation and saved-byte limits. The existing TempleOS fixture replays its initialized global directly; no new capture is claimed. See [global callback initializers](global-callback-initializers.md).
+
+AOT function-version tests distinguish the shared canonical callable record
+from each original body, frame and declaration. Fresh public IR, isolated batch
+IR and native execution compare old/new callback and direct calls, changed
+parameter counts, anonymous defaults, recursion and persistent static storage.
+The maintained AOT load CLI repeats those cases at exact runtime limits,
+one below, and after quota failure. A later cleanup modifier does not replace
+flags stored by AOT record reuse; an incompatible callback preserves reached
+argument output before faulting. Source tests retain preflight rejection of
+repeated bodies, reordered or foreign bundles and substituted frames.
