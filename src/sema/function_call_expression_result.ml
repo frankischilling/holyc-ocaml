@@ -749,6 +749,46 @@ let result_is_callback_storage (result : expression_result) =
   && result.array_rank = 0
   && Option.is_some result.callback_pointer
 
+let callback_identifier_source source =
+  match Function_call_resolution.argument_expression_kind source with
+  | Function_call_resolution.Bound_identifier_expression _
+  | Function_call_resolution.Top_level_bound_identifier_expression _
+  | Function_call_resolution.Unresolved_expression
+      Function_call_resolution.Identifier_expression -> true
+  | _ -> false
+
+let callback_identifier (result : expression_result) =
+  result_is_callback_storage result && callback_identifier_source result.source
+
+let rec canceled_callback_callee_operand source =
+  match Function_call_resolution.argument_expression_kind source with
+  | Function_call_resolution.Parenthesized_expression grouped ->
+      canceled_callback_callee_operand grouped
+  | Function_call_resolution.Prefix_expression prefix
+    when Function_call_resolution.prefix_operator prefix
+         = Function_call_resolution.Dereference ->
+      let operand = Function_call_resolution.prefix_operand prefix in
+      if callback_identifier_source operand then Some operand else None
+  | _ -> None
+
+let result_canceled_callback_operand (result : expression_result) =
+  match
+    ( Function_call_resolution.argument_expression_kind result.source,
+      result.operand_result,
+      result.callback_pointer )
+  with
+  | ( Function_call_resolution.Prefix_expression prefix,
+      Some operand,
+      Some pointer )
+    when Function_call_resolution.prefix_operator prefix
+         = Function_call_resolution.Dereference
+         && Function_call_resolution.prefix_operand prefix == operand.source
+         && callback_identifier operand
+         && result_is_callback_storage result
+         && Option.fold ~none:false ~some:(( == ) pointer)
+              operand.callback_pointer -> Some operand
+  | _ -> None
+
 let rec result_computation_type (result : expression_result) =
   let module C = Integer_computation_class in
   let declared () = Option.map C.declared (result_storage_type result) in
@@ -2381,11 +2421,11 @@ and type_prefix table members policies ~before_item_index ~context
   | Error _ as error -> error
   | Ok (operand, state) -> (
       let finish ?(source_type = None) ?(array_rank = 0) ?function_declaration
-          ?function_address_path category result_class =
+          ?function_address_path ?callback_pointer category result_class =
         Ok
           (make_result ~operand_result:operand ~array_rank ?function_declaration
-             ?function_address_path ~intrinsic_conversion state ~id ~source
-             ~source_type ~category ~result_class)
+             ?function_address_path ?callback_pointer ~intrinsic_conversion
+             state ~id ~source ~source_type ~category ~result_class)
       in
       match operator with
       | Function_call_resolution.Unary_minus ->
@@ -2490,6 +2530,13 @@ and type_prefix table members policies ~before_item_index ~context
               finish
                 ~source_type:(result_storage_type operand)
                 Object_value operand.result_class)
+      | Function_call_resolution.Dereference when callback_identifier operand ->
+          (* PrsPopDeref removes one pending star when the callback identifier
+             is selected. A grouped operand starts another expression stack,
+             and a second star remains an ordinary dereference. *)
+          finish ~source_type:operand.source_type
+            ?callback_pointer:operand.callback_pointer Callback_value
+            Integer_result
       | Function_call_resolution.Dereference -> (
           let value_category =
             match context with
@@ -2990,6 +3037,17 @@ and type_outer_callback_call table members policies ~before_item_index
             let actual_rank =
               match computed with
               | None -> Some 0
+              | Some expression
+                when expected_rank = 0
+                     && Function_call_resolution.call_callee_form call
+                        = Function_call_resolution
+                          .Dereferenced_identifier_callee
+                            1 ->
+                  Option.bind
+                    (canceled_callback_callee_operand expression)
+                    (function_callback_array_index_depth
+                       ~callee:
+                         (Outer_expression_binding.occurrence_source occurrence))
               | Some expression ->
                   function_callback_array_index_depth
                     ~callee:
@@ -3140,9 +3198,19 @@ and type_top_level_call table members policies ~before_item_index
               (Top_level_identifier_resolution.Global_value { global; value })
             when Function_call_resolution.identifier_value_shape value
                  = Function_call_resolution.Function_pointer_value
-                 && Function_call_resolution.call_callee_form
-                      (Top_level_expression_tree.call_source call)
-                    = Function_call_resolution.Identifier_callee ->
+                 && (Function_call_resolution.call_callee_form
+                       (Top_level_expression_tree.call_source call)
+                     = Function_call_resolution.Identifier_callee
+                    || Function_call_resolution.call_callee_form
+                         (Top_level_expression_tree.call_source call)
+                       = Function_call_resolution.Dereferenced_identifier_callee
+                           1
+                       && Option.bind
+                            (canceled_callback_callee_operand
+                               (Top_level_expression_tree.call_callee_expression
+                                  call))
+                            (callback_array_index_depth ~callee)
+                          = Some 0) ->
               type_top_level_global_callback_call table members policies
                 ~before_item_index ~intrinsic_conversion state id source call
                 global value
@@ -3422,6 +3490,15 @@ and type_top_level_outer_callback_metadata table members policies =
         if
           Function_call_resolution.call_callee_form source_call
           <> Function_call_resolution.Identifier_callee
+          && not
+               (Function_call_resolution.call_callee_form source_call
+                = Function_call_resolution.Dereferenced_identifier_callee 1
+               && Option.bind
+                    (canceled_callback_callee_operand
+                       (Top_level_expression_tree.call_callee_expression call))
+                    (callback_array_index_depth
+                       ~callee:(Top_level_expression_tree.call_callee call))
+                  = Some 0)
         then
           invalid "top-level outer callback does not use an identifier callee"
         else

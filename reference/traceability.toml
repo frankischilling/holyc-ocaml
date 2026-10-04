@@ -13310,3 +13310,19 @@ execution = "The host passes exact remaining instruction/output capacities to ge
 verification = "Both source modes compare public IR values/output with native execution. Tests exercise repeated writes, exact and one-below steps, zero remaining output/work, partial and atomic faults, preflight recovery, separate arenas, concurrent admission, independent report bytes, bounded capture chunks and malformed or overdrawn consumed counters."
 verification_boundary = "These cumulative bounds are hosted resource policy. They add no TempleOS capture, source-task admission, original parser-callback execution or linkage between images."
 excluded = ["native source-session scheduling and receipts", "cumulative allocation admission", "linking separate images", "live native replacement/expiry", "general F64/aggregate execution", "exported HolyC ABI", "object/BIN loader or bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-CALLBACK-CANCELED-IDENTIFIER-DEREFERENCE"
+description = "A single pending dereference of an original scalar callback identifier preserves its storage and callable header."
+sources = ["Compiler/PrsLib.HC:21-29 PrsPopDeref", "Compiler/PrsExp.HC:264-277,728-747 nested expression stack", "Compiler/PrsExp.HC:761-770,899-903 callback identifier selection", "Compiler/PrsExp.HC:420-425,541-586 callee capture and argument order", "Kernel/QSort.HC:16,18 comparator calls", "Kernel/KTask.HC:295,497 global callback calls"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/sema/function_call_expression_result.mli", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/test_callback_dereference.ml", "test/test_function_call_expression_result.ml", "test/test_global_callback_cli.ml", "test/native/test_native_callback_dereference.ml", "examples/callback-dereference.hc"]
+documentation = ["src/holyc_lib.mli", "docs/native-local-callbacks.md", "docs/global-callbacks.md", "docs/holy-abi.md", "docs/compatibility.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The checked prefix keeps the exact scalar identifier operand and original callback header. Top-level and retained-outer selection checks the original occurrence. Lowering reuses its original storage load; runtime source validation follows that producer without creating new executable authority."
+execution = "One-star automatic/static/global cells and named callback parameters support canceled-star reads, plain stores and integer/U0 invocation. Parentheses around the complete canceled expression preserve the callee. Capture still precedes reverse arguments; defaults belong to the selected header. The canceled star adds no instructions or work."
+verification = "Both source modes compare public IR and native values, output, reached faults and exact work. Native retained calls share cumulative limits. Semantic/lowering tests check original signature and producer identity; public CLI tests check top-level values and exact/one-below steps."
+verification_boundary = "This source audit and hosted execution add no TempleOS oracle capture, exported ABI or native source-task linking proof."
+excluded = ["cancellation through a grouped operand", "remaining or multistar dereferences", "callback updates and compound assignment execution", "array and member callback cancellation", "F64 and pointer-returning calls", "native source-task linking", "full compiler and release"]

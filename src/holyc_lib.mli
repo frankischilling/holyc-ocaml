@@ -1023,13 +1023,15 @@ val run_integer_program :
     with explicit fixed arguments and word variadic tails. Callee capture
     precedes right-to-left arguments; null/numeric and incompatible reached
     targets fail after argument effects. The original local/parameter anonymous
-    header controls saved-callee cleanup. Dereferenced and multistar callback
-    invocation, live task address linking and F64/aggregate callbacks remain
-    unsupported. General memory and native code also remain unsupported. Checked
-    Print/PutChars calls execute under separate positive output/work limits
-    (both default 1,048,576). This convenience entrypoint projects the outcome;
-    use [run_integer_program_report] to retain captured bytes on both success
-    and failure. Implicit output preserves the last ordinary expression. *)
+    header controls saved-callee cleanup. A single star directly before a scalar
+    callback identifier is canceled, retaining its original storage and header.
+    Uncanceled dereferences and multistar callback invocation, live task address
+    linking and F64/aggregate callbacks remain unsupported. General memory and
+    native code also remain unsupported. Checked Print/PutChars calls execute
+    under separate positive output/work limits (both default 1,048,576). This
+    convenience entrypoint projects the outcome; use
+    [run_integer_program_report] to retain captured bytes on both success and
+    failure. Implicit output preserves the last ordinary expression. *)
 
 type integer_program_report
 

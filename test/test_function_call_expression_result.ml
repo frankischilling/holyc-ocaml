@@ -1405,11 +1405,27 @@ let dereferences_retain_source_types_and_shapes () =
           "object-value";
           "object-value";
           "object-value";
-          "function-value";
+          "callback-value";
           "object-value";
           "unavailable";
         ]
         (category_names roots);
+      let canceled = List.nth roots 10 in
+      let operand =
+        Semantic_function_call_expression_result
+        .result_canceled_callback_operand canceled
+      in
+      Alcotest.(check bool)
+        "the canceled star preserves the original callback header" true
+        (match operand with
+        | Some operand ->
+            Option.get
+              (Semantic_function_call_expression_result.result_callback_pointer
+                 canceled)
+            == Option.get
+                 (Semantic_function_call_expression_result
+                  .result_callback_pointer operand)
+        | None -> false);
       Alcotest.(check (list string))
         "dereferenced classes follow the resulting type"
         [
@@ -3381,9 +3397,8 @@ let invalid_update_operands_report_the_operator () =
        (*callback)(I64)[2];return Target(callback++);}",
       "++",
       "post-increment operand is not an lvalue" );
-    ( "function",
-      "extern I64 Target(I64 value);I64 Caller(I64 (*callback)(I64)){return \
-       Target((*callback)--);}",
+    ( "function address",
+      "extern I64 Target(I64 value);I64 Caller(){return Target((&Caller)--);}",
       "--",
       "post-decrement operand is not an lvalue" );
     ( "aggregate",

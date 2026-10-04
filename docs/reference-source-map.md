@@ -1721,3 +1721,21 @@ Both ABI images compile; native execution uses the host ABI. Native JIT
 reference-bearing initialization still needs execution at the original parser
 callback. This source audit and hosted test add no TempleOS AOT capture or
 exported ABI/loader proof. See [global callback initializers](global-callback-initializers.md).
+
+## Canceled callback identifier dereferences
+
+`Compiler/PrsLib.HC:21-29` removes exactly one pending `IC_DEREF` when
+`PrsExp.HC:761-770,899-903` selects a local or global callback identifier.
+`PrsExp.HC:264-277,728-747` starts a separate expression stack inside parentheses.
+`Kernel/QSort.HC:16,18` and `Kernel/KTask.HC:295,497` consume this rule through
+explicit `(*callback)(...)` calls.
+
+The semantic result retains the exact identifier operand and anonymous header.
+The existing expression lowerer aliases that result to the original cell load;
+runtime call validation follows the same producer origin. Function, top-level
+and retained-outer calls keep the original signature, callee snapshot and
+argument order. Ordinary and native tests cover storage, default selection,
+fault effects, foreign frames and exact runtime limits. Grouping around the
+complete canceled expression is supported; a grouped operand or a remaining
+second star still needs a real dereference. These source and hosted execution
+checks add no TempleOS oracle capture or exported ABI proof.

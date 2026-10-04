@@ -21,6 +21,21 @@ It copies a global array element into a static array, clears the original cells,
 then transfers the saved callback through a parameter into an automatic array.
 The static element survives a second function activation.
 
+Scalar callback identifiers also accept an explicit star: `(*callback)(40)`
+invokes the same saved target as `callback(40)`. The
+[dereference example](../examples/callback-dereference.hc) copies a selected
+global callback into a parameter and invokes it with that parameter's saved
+default. Both execution targets return 42 in JIT and AOT modes.
+
+The star immediately before the identifier is canceled when the original parser
+selects the callback header. The checked result keeps that identifier, its
+storage and its signature. Lowering emits the same single cell load and callee
+snapshot, so the star adds no runtime work. This also permits reads and plain
+assignments through `*callback`. Parentheses around the complete `*callback`
+preserve the result. In `*(callback)`, parentheses start a new expression stack;
+in `**callback`, a second star remains. Those forms still require separate
+dereference support.
+
 Callback storage also admits `F64` return metadata and pointer-return headers.
 For example, `F64 **(*p)(I64 n)` has one callback indirection and an eight-byte
 cell; the two return-pointer layers belong to its saved signature. Automatic
@@ -147,6 +162,16 @@ default and save its value on that member, including anonymous signatures.
 `Compiler/OptPass789A.HC:723-732` emits CALL through an RSP displacement.
 `Compiler/OpCodes.DD:573,833` supplies the 64-bit indirect CALL and LEA forms.
 These are source audits; this work adds no TempleOS oracle capture.
+
+`Compiler/PrsLib.HC:21-29` removes one pending `IC_DEREF`.
+`PrsExp.HC:761-770,899-903` applies this to local and global callback identifiers;
+lines 264-277 and 728-747 establish the nested expression stack for grouping.
+`Kernel/QSort.HC:16,18` calls a comparator through `(*fp_compare)`, and
+`Kernel/KTask.HC:295,497` uses the same syntax for global callbacks.
+`test_callback_dereference.ml` checks the retained typed operand and original
+load; `test_native_callback_dereference.ml` compares public IR with native
+execution, including defaults, U0 calls, callee mutation, fault output and
+retained cumulative limits.
 
 Ordinary tests check both image ABIs, exact instruction bytes, signed RIP range,
 code/frame quotas, copied/foreign graph rejection and fault-site identity.

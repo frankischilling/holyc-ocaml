@@ -1853,6 +1853,11 @@ let rec prepare_assignment_address ?frame ?globals result =
     Semantic_source.argument_expression_kind
       (Semantic_result.result_source result)
   with
+  | Semantic_source.Prefix_expression _
+    when Option.is_some
+           (Semantic_result.result_canceled_callback_operand result) ->
+      prepare_assignment_address ?frame ?globals
+        (Option.get (Semantic_result.result_canceled_callback_operand result))
   | Semantic_source.Index_expression _ ->
       prepare_index_address ?frame ?globals result
       |> Result.map (Option.map fst)
@@ -2200,6 +2205,18 @@ let plan ?frame ?globals ~allow_calls root =
                       Visit { result = operand; conversion }
                       :: Finish_alias { result; operand }
                       :: !pending)
+            | Semantic_source.Prefix_expression _
+              when Option.is_some
+                     (Semantic_result.result_canceled_callback_operand result)
+              ->
+                let operand =
+                  Option.get
+                    (Semantic_result.result_canceled_callback_operand result)
+                in
+                pending :=
+                  Visit { result = operand; conversion }
+                  :: Finish_alias { result; operand }
+                  :: !pending
             | Semantic_source.Prefix_expression prefix -> (
                 let source_operand = Semantic_source.prefix_operand prefix in
                 match Semantic_source.prefix_operator prefix with

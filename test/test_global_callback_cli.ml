@@ -262,4 +262,24 @@ let () =
     "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n=40);p=&Add;I64 Run(){return \
      p();}Run();I64 Add(I64 n){return n+100;}Run();" (fun path ->
       success (invoke ~mode:"jit" path) "42");
+  List.iter
+    (fun mode ->
+      with_file ".HC"
+        "I64 Add(I64 n){return n+2;}I64 (*p)(I64 n);p=&Add;(*p)(40);"
+        (fun path ->
+          let report = invoke ~mode path in
+          success report "42";
+          output report "";
+          let steps = member "executed_steps" report |> to_int in
+          success
+            (invoke ~mode
+               ~options:[ "--step-limit=" ^ string_of_int steps ]
+               path)
+            "42";
+          error
+            (invoke ~mode ~status:1
+               ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+               path)
+            "HCIRVM0007" ""))
+    [ "jit"; "aot" ];
   print_endline "Global callback CLI checks passed."

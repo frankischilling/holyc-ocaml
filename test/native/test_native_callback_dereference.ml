@@ -1,0 +1,258 @@
+open Holyc_lib
+module Program = X86_64_program
+module Runtime = Native_program_execution
+module VM = Ir_integer_interpreter
+
+let checked = function
+  | Ok value -> value
+  | Error message -> Alcotest.fail message
+
+let diagnostics errors =
+  errors
+  |> List.map (fun (error : Diagnostic.t) -> error.code ^ ": " ^ error.message)
+  |> String.concat "; "
+
+let inputs mode contents =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"native-callback-dereference.hc" ~contents
+  in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:mode () |> checked
+  in
+  (session, config, source)
+
+let native ?(max_steps = 100_000) mode contents =
+  let session, config, source = inputs mode contents in
+  Native_program.evaluate session ~config ~source ~max_steps
+
+let ir mode contents =
+  let session, config, source = inputs mode contents in
+  run_integer_program_report session ~config ~source ~max_steps:100_000
+
+let native_value expected report =
+  let result =
+    Native_program.outcome report |> Result.map_error diagnostics |> checked
+    |> fun checked -> checked.value.execution
+  in
+  Alcotest.(check int64)
+    "native final word" expected (Option.get result.final_value).bits;
+  result.executed_steps
+
+let compare mode contents expected output =
+  let public = ir mode contents in
+  let result =
+    integer_program_report_outcome public
+    |> Result.map_error diagnostics
+    |> checked
+    |> fun checked -> checked.value
+  in
+  Alcotest.(check int64)
+    "public IR final word" expected (Option.get (VM.final_value result)).bits;
+  Alcotest.(check string)
+    "public IR output" output
+    (integer_program_report_output_bytes public);
+  let report = native mode contents in
+  let steps = native_value expected report in
+  Alcotest.(check string)
+    "native output" output
+    (Native_program.output_bytes report);
+  steps
+
+let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
+let target = "I64 Target(I64 n){return n+2;}"
+
+let storage_and_signatures () =
+  let sources =
+    [
+      target ^ "I64 Run(){I64 (*p)(I64 n);p=&Target;return (*p)(40);}Run;";
+      target ^ "I64 Run(I64 (*p)(I64 n)){return ((*p))(40);}Run(&Target);";
+      target
+      ^ "I64 Run(){static I64 (*p)(I64 n);p=&Target;return (*p)(40);}Run;Run;";
+      target ^ "I64 (*p)(I64 n);p=&Target;(*p)(40);";
+      target ^ "I64 (*p)(I64 n);I64 Run(){p=&Target;return (*p)(40);}Run;";
+      target ^ "I64 Run(){I64 (*p)(I64 n=40);p=&Target;return (*p)();}Run;";
+      "I64 Target(I64 n,...){return n+argc+argv[0];}"
+      ^ "I64 Run(){I64 (*p)(I64 n,...);p=&Target;return (*p)(39,2);}Run;";
+      "I64 G=0;U0 Target(I64 n){G=n;}"
+      ^ "I64 Run(){U0 (*p)(I64 n);p=&Target;(*p)(42);return G;}Run;";
+      target
+      ^ "I64 Run(){I64 (*p)(I64 n);I64 (*q)(I64 n);*p=&Target;q=*p;return \
+         q(40);}Run;";
+      "I64 Run(){F64 (*p)(I64 n);*p=42;if(*p==42)return 42;return 0;}Run;";
+      "I64 Run(){U8 *(*p)(I64 n);*p=42;if(*p==42)return 42;return 0;}Run;";
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter (fun source -> ignore (compare mode source 42L "")) sources)
+    modes
+
+let callee_capture_and_argument_order () =
+  let source =
+    "extern U0 PutChars(U64 ch);I64 (*p)(I64 a,I64 b);"
+    ^ "I64 Old(I64 a,I64 b){PutChars('C');return a+b;}"
+    ^ "I64 New(I64 a,I64 b){PutChars('N');return 99;}"
+    ^ "I64 Left(){PutChars('L');return 20;}"
+    ^ "I64 Right(){p=&New;PutChars('R');return 22;}"
+    ^ "p=&Old;(*p)(Left(),Right());"
+  in
+  List.iter (fun mode -> ignore (compare mode source 42L "RLC")) modes
+
+let expect_error expected = function
+  | Ok _ -> Alcotest.fail "expected a checked execution failure"
+  | Error errors ->
+      Alcotest.(check bool)
+        ("expected " ^ expected ^ "; received " ^ diagnostics errors)
+        true
+        (List.exists
+           (fun (error : Diagnostic.t) -> error.code = expected)
+           errors)
+
+let faults_keep_reached_effects () =
+  let prefix =
+    "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}"
+  in
+  let rows =
+    [
+      ("I64 Run(){I64 (*p)(I64 n);return (*p)(Arg());}Run;", "HCIRVM0012", "");
+      ( "I64 Run(){I64 (*p)(I64 n);p=0;return (*p)(Arg());}Run;",
+        "HCIRVM0024",
+        "A" );
+      ( "I64 Target(I64 n,I64 m){PutChars('B');return n+m;}"
+        ^ "I64 Run(){I64 (*p)(I64 n);p=&Target;return (*p)(Arg());}Run;",
+        "HCIRVM0014",
+        "A" );
+      ( "I64 Target(I64 n){PutChars('B');return 1/0;}"
+        ^ "I64 Run(){I64 (*p)(I64 n);p=&Target;return (*p)(Arg());}Run;",
+        "HCIRVM0009",
+        "AB" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, code, output) ->
+          let source = prefix ^ source in
+          let public = ir mode source in
+          expect_error code (integer_program_report_outcome public);
+          Alcotest.(check string)
+            "public IR reached output" output
+            (integer_program_report_output_bytes public);
+          let report = native mode source in
+          expect_error code (Native_program.outcome report);
+          Alcotest.(check string)
+            "native reached output" output
+            (Native_program.output_bytes report);
+          Alcotest.(check bool)
+            "fault happened after native entry" true
+            (match Native_program.native_outcome report with
+            | Some (Program.Fault _) -> true
+            | _ -> false))
+        rows)
+    modes
+
+let exact_work_and_retained_calls () =
+  List.iter
+    (fun mode ->
+      let make callee =
+        target ^ "I64 Run(){I64 (*p)(I64 n);p=&Target;return " ^ callee
+        ^ "(40);}Run;"
+      in
+      let plain = compare mode (make "p") 42L "" in
+      let source = make "(*p)" in
+      let canceled = compare mode source 42L "" in
+      Alcotest.(check int)
+        "canceled star adds no instruction work" plain canceled;
+      ignore (native ~max_steps:canceled mode source |> native_value 42L);
+      expect_error "HCIRVM0007"
+        (native ~max_steps:(canceled - 1) mode source |> Native_program.outcome);
+      let session, config, source = inputs mode source in
+      let image =
+        Native_program.compile session ~config ~source
+        |> Result.map_error diagnostics
+        |> checked
+        |> fun checked -> checked.value
+      in
+      let retained = Runtime.retain image |> checked in
+      Fun.protect
+        ~finally:(fun () -> Runtime.release retained |> checked)
+        (fun () ->
+          let budget =
+            Runtime.create_budget ~max_steps:(2 * canceled) () |> checked
+          in
+          for activation = 1 to 2 do
+            match
+              Runtime.execute_retained_budget_report budget retained
+              |> Runtime.outcome |> checked
+            with
+            | Program.Completed result ->
+                Alcotest.(check int)
+                  "cumulative native work" (activation * canceled)
+                  result.executed_steps;
+                Alcotest.(check int64)
+                  "retained owned callee" 42L
+                  (Option.get result.final_value).bits
+            | Program.Fault _ -> Alcotest.fail "retained callback faulted"
+          done;
+          match
+            Runtime.execute_retained_budget_report budget retained
+            |> Runtime.outcome |> checked
+          with
+          | Program.Fault { kind = Program.Step_limit_exceeded; _ } -> ()
+          | _ -> Alcotest.fail "retained callback bypassed the cumulative quota"))
+    modes
+
+let remaining_dereferences_reject () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun callee ->
+          let source =
+            target ^ "I64 Run(){I64 (*p)(I64 n);p=&Target;return " ^ callee
+            ^ "(40);}Run;"
+          in
+          let report = native mode source in
+          expect_error "HCRUN0003" (Native_program.outcome report);
+          Alcotest.(check bool)
+            "unsupported dereference did not enter native code" true
+            (Option.is_none (Native_program.native_outcome report)))
+        [ "(**p)"; "(*(p))" ];
+      List.iter
+        (fun update ->
+          let source =
+            "I64 Run(){I64 (*p)(I64 n);p=40;" ^ update ^ ";return 42;}Run;"
+          in
+          expect_error "HCRUN0003"
+            (ir mode source |> integer_program_report_outcome);
+          let report = native mode source in
+          expect_error "HCRUN0003" (Native_program.outcome report);
+          Alcotest.(check bool)
+            "unsupported update did not enter native code" true
+            (Option.is_none (Native_program.native_outcome report)))
+        [ "++*p"; "(*p)--"; "*p+=1" ];
+      ignore
+        (compare mode "I64 Run(){I64 n=42;I64 *p=&n;return *p;}Run;" 42L ""))
+    modes
+
+let () =
+  match Runtime.platform () with
+  | Runtime.Unsupported -> Alcotest.fail "native callback tests require x86-64"
+  | Runtime.Windows_x86_64 | Runtime.Linux_x86_64 ->
+      Alcotest.run "holyc native callback dereference"
+        [
+          ( "callback dereference",
+            [
+              Alcotest.test_case "storage and original signatures" `Quick
+                storage_and_signatures;
+              Alcotest.test_case
+                "callee capture precedes right-to-left arguments" `Quick
+                callee_capture_and_argument_order;
+              Alcotest.test_case "faults preserve reached effects" `Quick
+                faults_keep_reached_effects;
+              Alcotest.test_case "exact work and retained execution" `Quick
+                exact_work_and_retained_calls;
+              Alcotest.test_case "remaining dereferences stay separate" `Quick
+                remaining_dereferences_reject;
+            ] );
+        ]

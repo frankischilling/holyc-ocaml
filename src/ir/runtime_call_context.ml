@@ -1240,6 +1240,10 @@ let rec producer_origin result =
   if Typed.result_is_array_address result then own ()
   else
     match Typed.result_source result |> Resolution.argument_expression_kind with
+    | Resolution.Prefix_expression _
+      when Option.is_some (Typed.result_canceled_callback_operand result) ->
+        producer_origin
+          (Option.get (Typed.result_canceled_callback_operand result))
     | Resolution.Parenthesized_expression _ ->
         let operand = operand () in
         if Typed.result_is_array_address operand then own ()

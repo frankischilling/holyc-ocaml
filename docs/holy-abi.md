@@ -173,7 +173,7 @@ The hosted arena checks the declared object's extent and offset overflow.
 
 These values do not supply concrete numeric addresses. Address arithmetic,
 numeric address output, callback members, native JIT owned-code/effectful initializers and callback updates,
-owned-code defaults, dereferenced or multistar callback forms, live task
+owned-code defaults, uncanceled dereferences or multistar callback forms, live task
 address linking and broader hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the
 earlier native observations do not validate this new implementation. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)

@@ -510,8 +510,8 @@ val result_type : expression_result -> Type.t option
 val result_callback_pointer :
   expression_result -> Function_type_resolution.function_pointer option
 (** Original callback declarator evidence propagated through storage selection,
-    grouping and indexing. Call results and arithmetic values do not inherit the
-    callee signature. *)
+    grouping, indexing and a canceled identifier dereference. Call results and
+    arithmetic values do not inherit the callee signature. *)
 
 val result_callback_call_pointer :
   expression_result -> Function_type_resolution.function_pointer option
@@ -528,6 +528,13 @@ val result_storage_type : expression_result -> Type.t option
 val result_is_callback_storage : expression_result -> bool
 (** True for a scalar or fully indexed callback cell with positive declarator
     evidence. An unindexed or partial callback array is not writable storage. *)
+
+val result_canceled_callback_operand :
+  expression_result -> expression_result option
+(** The original scalar callback identifier whose immediately preceding star was
+    removed by [PrsPopDeref]. The result retains that identifier's signature and
+    storage. A grouped operand or another remaining star is not canceled. This
+    view supplies no runtime address or executable authority. *)
 
 val result_computation_type : expression_result -> Type.t option
 (** Effective native integer producer class, derived from retained expression

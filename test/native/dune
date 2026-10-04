@@ -924,3 +924,13 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_retained_budget.exe})))
+
+(executable
+ (name test_native_callback_dereference)
+ (modules test_native_callback_dereference)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_callback_dereference.exe})))

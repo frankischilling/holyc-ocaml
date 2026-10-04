@@ -6,6 +6,13 @@ and executable top-level statements use the selected storage header's saved
 integer defaults, fixed arguments, word variadic tail and calling flags.
 Top-level assignments can install or copy an owned address before invocation.
 
+An explicit star directly before a scalar callback identifier is canceled:
+`(*callback)(40)` uses the same original cell and signature as `callback(40)`.
+Function calls, top-level calls and retained outer bindings share this path.
+Reads and plain assignments through `*callback` retain the same storage owner.
+The [native callback notes](native-local-callbacks.md) describe the source rule
+and the grouping and indirection forms that still need separate support.
+
 ```sh
 holyc run --target ir --mode jit examples/global-callbacks.hc
 holyc run --target ir --mode aot examples/global-callbacks.hc
@@ -72,6 +79,6 @@ the array projection retains the observed declaration, store and call. Shell
 screen clearing and result formatting are outside these value projections.
 The reference was observed in native JIT only; replay in the hosted AOT mode
 does not establish TempleOS AOT behavior. [Global callback initializers](global-callback-initializers.md) retain original code, numeric words and supported effects in IR; hosted native execution accepts closed numeric initializers in both modes and original AOT load regions for checked addresses, copies and calls. Native JIT initializers with references, member storage, updates, owned-code defaults,
-multistar and dereferenced calls, live task linking/expiry and broader native
+multistar calls and uncanceled dereferences, live task linking/expiry and broader native
 callback execution remain under issue #801. General F64, aggregate and mixed-value
 execution remains under issue #688. No new TempleOS capture is claimed here.
