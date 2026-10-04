@@ -325,7 +325,8 @@ TempleOS language rules.
 This gate does not complete general native source execution. Effectful defaults,
 interleaved source execution, owned string/`lastclass` defaults,
 broader persistent/pointer storage, automatic initialized arrays, indirect calls, variadics,
-explicit register and function flags, the complete HolyC ABI, floating operations,
+explicit register requests, interrupt entry and public/static function definitions,
+the complete HolyC ABI, floating operations,
 Print and broader runtime providers, and native `#exe` remain required. Optimizer parity, the integrated
 assembler, object/BIN writing, loader acceptance and bootstrap retain their own
 gates. Canonical shifts and their verified full-word source integration are covered by #574/#787; #585 and #593 retain division and comparison-reduction requirements.

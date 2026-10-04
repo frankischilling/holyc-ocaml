@@ -1228,7 +1228,7 @@ The bounded integer-interpreter group contains ten ordinary cases and two 500-ca
 dune exec test/test_main.exe -- test "IR bounded integer interpreter"
 ```
 
-The named-function IR group checks stable nonnegative function IDs, distinct declaration and body scopes, return types, source-ordered parameters and locals, independent member positions, stored function flags, compiler-option snapshots, source spans, and byte-stable `holyc-ir-function-v1` output. Negative cases cover wrong symbol kinds and scopes, duplicate positions and symbols, unknown mask bits, incompatible calling flags, malformed spans, and x87 verifier failures with function context. Run only this group with:
+The named-function IR group checks stable nonnegative function IDs, distinct declaration and body scopes, return types, source-ordered parameters and locals, independent member positions, stored function flags, compiler-option snapshots, source spans, and byte-stable `holyc-ir-function-v1` output. It accepts source-valid `ARGPOP`/`NOARGPOP` combinations and standalone `HASERRCODE` metadata. Negative cases cover wrong symbol kinds and scopes, duplicate positions and symbols, unknown mask bits, malformed spans, and x87 verifier failures with function context. Run only this group with:
 
 ```text
 dune exec test/test_main.exe -- test "IR function body"
