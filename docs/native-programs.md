@@ -70,11 +70,13 @@ and payload-zero internal word views.
 
 The source driver parses without a command or stream executor. Original
 declaration callbacks prepare bounded scalar defaults and closed scalar global
-initializers in both modes; an iterative source gate admits ordinary scalar
-globals and rejects statics, prototypes/externs,
-explicit register/declaration modifiers, non-integer parameters or locals,
-arrays, broader pointer operations, callbacks beyond integer/U0 cells, fully indexed arrays and fixed callback parameters, implicit output and unsupported
-statements. Arrays and aggregates reject before their preparation.
+initializers in both modes. The source gate admits checked scalar globals and
+statics, integer arrays, typed pointer aliases, callback cells/indexed arrays,
+fixed callback parameters and integer word tails. Invocation returns remain
+integer or U0. The original Print/PutChars providers have their own checked
+consumer. General prototypes/extern linking, explicit register storage, callback
+member storage, arrays of pointer objects and F64/aggregate/mixed execution
+remain outside this gate.
 Entry statements cannot declare storage.
 It reports the first source-domain violation while retaining parser diagnostics.
 A directive needing
