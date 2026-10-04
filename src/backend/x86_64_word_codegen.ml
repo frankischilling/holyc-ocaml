@@ -279,6 +279,11 @@ type frame_update =
   | Update_shift of Encoder.shift
   | Update_division of arithmetic_operation
 
+type callback_access =
+  | Callback_frame of frame_access * int
+  | Callback_arena of arena_access * int
+  | Callback_indexed of indexed_object_access * reference_table
+
 type operation =
   | Load_immediate of value * int64
   | Load_function_address of value * int
@@ -348,6 +353,13 @@ type operation =
       * bool
       * value
       * word_type
+      * fault_site option
+  | Update_callback_value of
+      callback_access
+      * frame_update
+      * value option
+      * bool
+      * value
       * fault_site option
   | Call_start
   | Call_capture of value * int
@@ -2424,6 +2436,92 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
               (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
             ();
           assign position (if old_result then r8 else computed_index) result
+      | Update_callback_value
+          (access, update, input, old_result, result, arithmetic_site) ->
+          spill_all_registers instruction.span;
+          let site = Option.get instruction.site in
+          let owned = fresh_label supply in
+          fault_blocks :=
+            { label = owned; kind_value = 22; site_value = site }
+            :: !fault_blocks;
+          (match access with
+          | Callback_frame (access, owner_offset) ->
+              Option.iter
+                (fun offset ->
+                  let uninitialized = fault_label 7 site in
+                  emit
+                    (Encoder.Load_frame
+                       (Encoder.Rax, encoder_frame_slot instruction.span offset));
+                  emit (Encoder.Test Encoder.Rax);
+                  emit_branch Equal uninitialized)
+                access.initialized_flag_offset;
+              emit
+                (Encoder.Address_frame
+                   ( Encoder.Rdx,
+                     encoder_scalar_frame_slot instruction.span
+                       access.frame_offset ));
+              emit
+                (Encoder.Load_frame
+                   ( Encoder.Rax,
+                     encoder_frame_slot instruction.span owner_offset ))
+          | Callback_arena (access, owner_offset) ->
+              let uninitialized = fault_label 7 site in
+              emit (load_arena_flag instruction.span Encoder.Rax access);
+              emit (Encoder.Test Encoder.Rax);
+              emit_branch Equal uninitialized;
+              emit
+                (Encoder.Address_arena
+                   ( Encoder.Rdx,
+                     encoder_arena_slot instruction.span access.arena_offset ));
+              emit
+                (Encoder.Load_arena
+                   ( Encoder.Rax,
+                     encoder_arena_slot instruction.span owner_offset ))
+          | Callback_indexed (access, home) ->
+              let scalar = reference_scalar access.origin in
+              copy_value_to instruction.span access.offset rcx;
+              emit_reference_extent instruction.span Encoder.R8 access.origin;
+              emit_bounds instruction.span site ~one_past:false ~scalar
+                ~offset:Encoder.Rcx ~extent:Encoder.R8;
+              emit_reference_flag instruction.span Encoder.R8 access.origin;
+              emit_reference_data instruction.span Encoder.Rdx access.origin;
+              emit_flag_check instruction.span site scalar ~flag_base:Encoder.R8
+                ~offset:Encoder.Rcx;
+              emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
+              (match home with
+              | Frame_table offset ->
+                  emit
+                    (Encoder.Address_frame
+                       (Encoder.R8, encoder_frame_slot instruction.span offset));
+                  emit (Encoder.Binary (Encoder.Sub, Encoder.R8, Encoder.Rcx))
+              | Arena_table offset ->
+                  emit
+                    (Encoder.Address_arena
+                       (Encoder.R8, encoder_arena_slot instruction.span offset));
+                  emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx)));
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.R8, 0)));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Not_equal owned;
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
+          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          (match input with
+          | Some input -> copy_value_to instruction.span input rcx
+          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 8L)));
+          let target =
+            match update with
+            | Update_division _ ->
+                emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
+                Encoder.R8
+            | Update_binary _ | Update_shift _ -> Encoder.Rdx
+          in
+          let computed_index =
+            emit_update instruction.span update I64 arithmetic_site
+          in
+          emit
+            (Encoder.Store_indirect_offset
+               (target, 0, registers.(computed_index)));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position (if old_result then r8 else computed_index) result
       | Update_arena_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -3383,6 +3481,7 @@ type program_site = {
   call_site : bool;
   callback_call_site : bool;
   code_comparison_site : bool;
+  code_update_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -3681,6 +3780,7 @@ let preflight_program graph =
                 call_site = false;
                 callback_call_site = false;
                 code_comparison_site = false;
+                code_update_site = false;
                 uninitialized_read_site = false;
                 index_scale_site = false;
                 index_addition_site = false;
@@ -4850,6 +4950,57 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     if is_zero input then
       zero_values := Value_set.add value.value_id !zero_values;
     (operation input value, None)
+  in
+  let update_callback description position result target_type storage_type
+      access operands site arithmetic_sites =
+    if not (Type.equal target_type storage_type) then
+      malformed description "callback update changes its original storage type";
+    let update, old_result, expects_operand =
+      Option.get (callable_frame_update description.opcode I64)
+    in
+    let input =
+      match (expects_operand, operands) with
+      | true, [ input_id ] ->
+          let input = operand values description position input_id in
+          ignore
+            (checked_scalar ~allow_public:true description input.declared_type);
+          Some input
+      | false, [] -> None
+      | _ -> malformed description "invalid callback update operands"
+    in
+    (* The reached operation requires an unowned numeric cell. Its result is
+       therefore an ordinary word; the original storage type remains on the
+       checked instruction and never authorizes an object reference. *)
+    let numeric_type =
+      Type.make_primitive ~form:Type.Internal_storage ~primitive:Primitive.I64
+        ~pointer_depth:0
+      |> Result.get_ok
+    in
+    let value =
+      define values description position result numeric_type numeric_type
+    in
+    numeric_code_values := Value_set.add value.value_id !numeric_code_values;
+    let arithmetic_site =
+      match update with
+      | Update_division operation ->
+          let fault_site =
+            {
+              site;
+              operation;
+              instruction_id =
+                Sequence.Instruction_id.to_int description.instruction_id;
+              position;
+              span = description.span;
+              signed = true;
+            }
+          in
+          arithmetic_sites := fault_site :: !arithmetic_sites;
+          Some fault_site
+      | Update_binary _ | Update_shift _ -> None
+    in
+    ( Update_callback_value
+        (access, update, input, old_result, value, arithmetic_site),
+      None )
   in
   let visit_block block next =
     let block_id = Graph.block_id block in
@@ -6786,6 +6937,42 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       address_id
                   with
                   | Frame_address slot
+                    when Option.is_some slot.callback
+                         && slot.slot_dimensions = [] ->
+                      update_callback description position result target_type
+                        slot.slot_type
+                        (Callback_frame
+                           (slot.access, Option.get slot.slot_owner_offset))
+                        operands site arithmetic_sites
+                  | Global_address slot
+                    when Option.is_some (Global_storage.callback slot)
+                         && Global_storage.dimensions slot = [] ->
+                      update_callback description position result target_type
+                        (Global_storage.type_ slot)
+                        (Callback_arena
+                           ( arena_access slot,
+                             Option.get (Global_storage.code_owner_offset slot)
+                           ))
+                        operands site arithmetic_sites
+                  | Indexed_address
+                      {
+                        indexed_root =
+                          Indexed_object_root
+                            ({ object_code = Some (_, home, _); _ } as object_);
+                        indexed_offset;
+                        indexed_remaining_strides = [];
+                        _;
+                      } ->
+                      update_callback description position result target_type
+                        object_.object_type
+                        (Callback_indexed
+                           ( {
+                               origin = object_.object_origin;
+                               offset = indexed_offset;
+                             },
+                             home ))
+                        operands site arithmetic_sites
+                  | Frame_address slot
                     when slot.slot_dimensions = []
                          && Type.equal target_type slot.slot_type ->
                       ignore
@@ -7496,6 +7683,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
           | Internal_mod_u64 _ -> Some (Remainder, false)
           | Apply_division (arithmetic_operation, word, _, _, _, _) ->
               Some (arithmetic_operation, word = I64)
+          | Update_callback_value
+              (_, Update_division arithmetic_operation, _, _, _, _) ->
+              Some (arithmetic_operation, true)
           | Update_frame_value
               (_, Update_division arithmetic_operation, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
@@ -7532,6 +7722,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               (match operation with
               | Apply_code_comparison _ -> true
               | _ -> false);
+            code_update_site =
+              (match operation with
+              | Update_callback_value _ -> true
+              | _ -> false);
             uninitialized_read_site =
               (match operation with
               | Load_frame_value ({ initialized_flag_offset = Some _; _ }, _)
@@ -7539,6 +7733,16 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 -> true
               | Update_frame_value
                   ({ initialized_flag_offset = Some _; _ }, _, _, _, _, _, _) ->
+                  true
+              | Update_callback_value
+                  ( Callback_frame ({ initialized_flag_offset = Some _; _ }, _),
+                    _,
+                    _,
+                    _,
+                    _,
+                    _ )
+              | Update_callback_value (Callback_arena _, _, _, _, _, _)
+              | Update_callback_value (Callback_indexed _, _, _, _, _, _) ->
                   true
               | Load_arena_value _
               | Load_code_arena _
@@ -7564,6 +7768,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ -> false);
             address_bounds_site =
               (match operation with
+              | Update_callback_value (Callback_indexed _, _, _, _, _, _) ->
+                  true
               | Materialize_reference (_, _, Some _, _)
               | Materialize_existing_reference ({ offset = Some _; _ }, _)
               | Load_reference_value _

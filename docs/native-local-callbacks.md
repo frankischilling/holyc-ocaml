@@ -193,7 +193,13 @@ callback and object-reference parameter kinds even when physical types match.
 
 ## Remaining callback work
 
-Native member storage, JIT owned-code/effectful callback initializers and updates, effectful/owned-code
+[Numeric callback updates](callback-updates.md) support one-star scalar and
+fully indexed array cells, including canceled scalar dereferences. Numeric
+results can supply integer consumers while retaining the checked storage type
+on the original update instruction.
+
+Native member storage, JIT owned-code/effectful callback initializers,
+arithmetic on owned code, native callback-valued arithmetic right operands, effectful/owned-code
 callback defaults,
 pointer/owned-code variadic tails, retained publication after same-name
 replacement, unresolved extern slots and live task linking remain unfinished in

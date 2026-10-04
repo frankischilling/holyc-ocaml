@@ -13326,3 +13326,19 @@ execution = "One-star automatic/static/global cells and named callback parameter
 verification = "Both source modes compare public IR and native values, output, reached faults and exact work. Native retained calls share cumulative limits. Semantic/lowering tests check original signature and producer identity; public CLI tests check top-level values and exact/one-below steps."
 verification_boundary = "This source audit and hosted execution add no TempleOS oracle capture, exported ABI or native source-task linking proof."
 excluded = ["cancellation through a grouped operand", "remaining or multistar dereferences", "callback updates and compound assignment execution", "array and member callback cancellation", "F64 and pointer-returning calls", "native source-task linking", "full compiler and release"]
+
+[[feature]]
+id = "HC-CALLBACK-NUMERIC-UPDATES"
+description = "Numeric words in original one-star callback cells support prefix, postfix and compound updates in IR and native execution."
+sources = ["Compiler/PrsVar.HC:350-357 callback storage separate from return metadata", "Kernel/KernelA.HH:1572-1574 signed RT_PTR", "Compiler/PrsExp.HC:15-63 pointer compound scaling", "Compiler/BackB.HC:304-380 prefix and postfix pointee-size steps", "Compiler/OptPass012.HC:824-895 compound storage class"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_callback_updates.ml", "test/native/test_native_callback_updates.ml", "test/test_global_callback_cli.ml", "examples/callback-updates.hc"]
+documentation = ["docs/callback-updates.md", "docs/native-local-callbacks.md", "docs/global-callbacks.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The original checked update retains its scalar or fully indexed callback storage operand and separate return header. An exact numeric update result may flow into ordinary word consumers without granting an object reference or executable owner."
+execution = "Prefix/postfix increments and decrements use eight-byte steps. Compound addition/subtraction lower the original RHS times eight before updating; other compound operations follow signed RT_PTR computation. The RHS precedes the old-cell read. Bounds, initialization, arithmetic, ownership and quota faults preserve prior effects. Native owned-address status 22 requires an original update site and consumed work."
+verification = "Public IR and actual host native execution cover both source modes, storage shapes, return metadata, signed and scaled operations, result consumers, alias ordering, retained storage, decoder authority and exact/one-below work."
+verification_boundary = "The existing callback STORAGE oracle records the eight-byte step but also performs owned-address arithmetic. These numeric projections do not reproduce that full fixture or add a new TempleOS capture."
+excluded = ["numeric arithmetic on owned function addresses", "native callback-valued arithmetic RHS", "callback member storage", "remaining and multistar dereferences", "native source-session scheduling and linking", "general F64/aggregate execution", "full compiler and release"]

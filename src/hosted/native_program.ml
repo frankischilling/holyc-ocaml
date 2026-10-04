@@ -975,6 +975,8 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ( "HCIRVM0024",
           "opaque function addresses can compare only with owned code or null"
         )
+    | Image.Callback_update_owned_address ->
+        ("HCIRVM0024", "opaque function address has no numeric callback update")
     | Image.Pointer_difference_object_mismatch ->
         ("HCIRVM0018", "pointer difference requires the same live object extent")
   in

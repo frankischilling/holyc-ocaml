@@ -20,12 +20,13 @@ let with_file suffix contents action =
       action path)
 
 let () =
-  require (Array.length Sys.argv = 5) "expected compiler, examples and oracle"
+  require (Array.length Sys.argv = 6) "expected compiler, examples and oracle"
 
 let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
 let top_level_example = Sys.argv.(3)
 let oracle = Yojson.Safe.from_file Sys.argv.(4)
+let update_example = Sys.argv.(5)
 
 let invoke ~mode ?(target = "ir") ?(options = []) ?(status = 0) path =
   let arguments =
@@ -281,5 +282,30 @@ let () =
                ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
                path)
             "HCIRVM0007" ""))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun target ->
+          let report = invoke ~mode ~target update_example in
+          success report "42";
+          output report "";
+          let steps = member "executed_steps" report |> to_int in
+          success
+            (invoke ~mode ~target
+               ~options:[ "--step-limit=" ^ string_of_int steps ]
+               update_example)
+            "42";
+          error
+            (invoke ~mode ~target ~status:1
+               ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+               update_example)
+            "HCIRVM0007" "";
+          with_file ".HC"
+            "extern U0 Print(U8 *fmt,...);I64 Target(I64 n){return n;}I64 \
+             Side(){Print(\"R\");return 1;}I64 F(){I64 (*p)(I64 n);p=&Target; \
+             Print(\"B\");p+=Side();return 42;}F();" (fun path ->
+              error (invoke ~mode ~target ~status:1 path) "HCIRVM0024" "BR"))
+        [ "ir"; "host-jit" ])
     [ "jit"; "aot" ];
   print_endline "Global callback CLI checks passed."

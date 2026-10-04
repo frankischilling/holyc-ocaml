@@ -164,6 +164,7 @@
  (deps
   ../examples/global-callbacks.hc
   ../examples/top-level-callbacks.hc
+  ../examples/callback-updates.hc
   oracle/callback-storage-and-calls.json)
  (action
   (run
@@ -171,7 +172,8 @@
    %{exe:../bin/holyc.exe}
    %{dep:../examples/global-callbacks.hc}
    %{dep:../examples/top-level-callbacks.hc}
-   %{dep:oracle/callback-storage-and-calls.json})))
+   %{dep:oracle/callback-storage-and-calls.json}
+   %{dep:../examples/callback-updates.hc})))
 
 (test
  (name test_pointer_bit_cli)
@@ -517,6 +519,7 @@
   test_function_call_expression_result
   test_callback_storage
   test_callback_dereference
+  test_callback_updates
   test_implicit_output_target_resolution
   test_top_level_implicit_output_target_resolution
   test_top_level_implicit_output_argument_binding

@@ -934,3 +934,13 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_callback_dereference.exe})))
+
+(executable
+ (name test_native_callback_updates)
+ (modules test_native_callback_updates)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_callback_updates.exe})))

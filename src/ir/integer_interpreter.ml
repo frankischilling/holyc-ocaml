@@ -227,6 +227,7 @@ and prepared_operation =
       * bool
       * Value_id.t
       * stored_type
+      * bool
   | Immediate of Value_id.t * word
   | Function_address of Value_id.t * Runtime.function_address
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
@@ -3367,7 +3368,8 @@ let declared_types ?frame ?globals ?literals ?initialization
            match (description.operands, description.target_type) with
            | address :: _, Some type_
              when description.opcode = Opcode.Ic_deref
-                  || description.opcode = Opcode.Ic_assign -> (
+                  || description.opcode = Opcode.Ic_assign
+                  || Option.is_some (update_kind description.opcode) -> (
                match Value_map.find_opt address types with
                | Some (Frame_address index) ->
                    Option.fold ~none:false
@@ -4089,7 +4091,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      Some operand,
                                      false,
                                      result.value_id,
-                                     stored_type ))
+                                     stored_type,
+                                     callback_word_type slot_type ))
                           | None ->
                               Error (invalid_type_matrix block_id description))
                       | Increment_slot_kind (operation, old_result), []
@@ -4103,7 +4106,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  None,
                                  old_result,
                                  result.value_id,
-                                 stored_type ))
+                                 stored_type,
+                                 callback_word_type slot_type ))
                       | _ -> Error (malformed block_id description))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
@@ -7089,7 +7093,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                              "prepared store disagrees with its checked \
                               storage type")))
           | Update_slot
-              (location, operation, operand, old_result, result, stored) -> (
+              ( location,
+                operation,
+                operand,
+                old_result,
+                result,
+                stored,
+                callback ) -> (
               let type_ =
                 match stored with
                 | Stored_word type_ -> type_
@@ -7098,7 +7108,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               in
               let right =
                 match operand with
-                | None -> Some { type_; bits = 1L }
+                | None -> Some { type_; bits = (if callback then 8L else 1L) }
                 | Some operand -> require_operand block instruction operand
               in
               match right with
@@ -7113,6 +7123,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                             Some
                               (runtime_error ~instruction block !steps
                                  "HCIRVM0012" storage.unknown_message)
+                      | Some (Runtime_code _) when callback ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0024"
+                                 "opaque function address has no numeric \
+                                  callback update")
                       | Some
                           ( Runtime_code _
                           | Runtime_pointer _

@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Numeric callback updates](callback-updates.md) execute through IR and native
+code in JIT and AOT modes. One-star scalar and fully indexed array cells support
+prefix/postfix updates and all ten compound operators with separate return
+metadata. Owned-address arithmetic and native callback-valued right operands
+remain outside this increment of issue #801.
+
 Issue #801 admits native automatic/static callback storage independently of
 return metadata, including F64 and pointer-return headers. Scalar cells,
 fully indexed arrays and fixed parameters preserve complete words and original

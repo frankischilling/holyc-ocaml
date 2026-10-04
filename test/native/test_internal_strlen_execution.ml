@@ -202,6 +202,7 @@ let status_kind = function
   | Program.Callback_unowned_address -> 19L
   | Program.Callback_signature_mismatch -> 20L
   | Program.Code_comparison_invalid_word -> 21L
+  | Program.Callback_update_owned_address -> 22L
 
 let fault_from_outcome = function
   | Program.Fault fault -> fault

@@ -296,9 +296,66 @@ let lowering_error ?span code message =
 
 let metadata_error ?span message = lowering_error ?span "HCIRL0004" message
 
+let rec callback_update_operand result =
+  let checked operand source =
+    if
+      Semantic_result.result_source operand == source
+      && Semantic_result.result_is_callback_storage operand
+      && Semantic_result.result_category result = Semantic_result.Object_value
+      && Option.fold ~none:false
+           ~some:(fun storage ->
+             Option.fold ~none:false ~some:(Type.equal storage)
+               (Semantic_result.result_type result))
+           (Semantic_result.result_storage_type operand)
+    then Some operand
+    else None
+  in
+  match
+    Semantic_source.argument_expression_kind
+      (Semantic_result.result_source result)
+  with
+  | Semantic_source.Parenthesized_expression source ->
+      Option.bind (Semantic_result.result_operand result) (fun operand ->
+          if Semantic_result.result_source operand == source then
+            callback_update_operand operand
+          else None)
+  | Semantic_source.Prefix_expression prefix
+    when List.mem
+           (Semantic_source.prefix_operator prefix)
+           [ Semantic_source.Pre_increment; Semantic_source.Pre_decrement ] ->
+      Option.bind (Semantic_result.result_operand result) (fun operand ->
+          checked operand (Semantic_source.prefix_operand prefix))
+  | Semantic_source.Postfix_expression postfix ->
+      Option.bind (Semantic_result.result_operand result) (fun operand ->
+          checked operand (Semantic_source.postfix_operand postfix))
+  | Semantic_source.Binary_expression binary
+    when List.mem
+           (Semantic_source.binary_operator binary)
+           [
+             Opcode.Ic_add_equ;
+             Ic_sub_equ;
+             Ic_mul_equ;
+             Ic_div_equ;
+             Ic_mod_equ;
+             Ic_and_equ;
+             Ic_or_equ;
+             Ic_xor_equ;
+             Ic_shl_equ;
+             Ic_shr_equ;
+           ] ->
+      Option.bind (Semantic_result.result_binary_operands result)
+        (fun (left, right) ->
+          if
+            Semantic_result.result_source right
+            == Semantic_source.binary_right binary
+          then checked left (Semantic_source.binary_left binary)
+          else None)
+  | _ -> None
+
 let checked_integer_type result =
   if
-    Semantic_result.result_is_callback_storage result
+    (Semantic_result.result_is_callback_storage result
+    || Option.is_some (callback_update_operand result))
     && Semantic_result.result_class result = Semantic_result.Integer_result
   then
     Ok
@@ -383,17 +440,21 @@ let array_storage_address result =
      && Option.is_some (Semantic_result.result_callback_pointer result)
 
 let checked_frame_value result =
-  match Semantic_result.result_storage_type result with
-  | Some type_ when array_storage_address result -> (
-      match Type.pointer_to type_ with
-      | Ok pointer when array_pointer_type pointer -> Ok (Checked_type pointer)
-      | _ -> Ok Unsupported_type)
-  | Some type_
-    when scalar_pointer_type type_
-         && Semantic_result.result_array_rank result = 0
-         && Semantic_result.result_class result = Semantic_result.Integer_result
-    -> Ok (Checked_type type_)
-  | _ -> checked_frame_integer result
+  if Option.is_some (callback_update_operand result) then
+    checked_frame_integer result
+  else
+    match Semantic_result.result_storage_type result with
+    | Some type_ when array_storage_address result -> (
+        match Type.pointer_to type_ with
+        | Ok pointer when array_pointer_type pointer ->
+            Ok (Checked_type pointer)
+        | _ -> Ok Unsupported_type)
+    | Some type_
+      when scalar_pointer_type type_
+           && Semantic_result.result_array_rank result = 0
+           && Semantic_result.result_class result
+              = Semantic_result.Integer_result -> Ok (Checked_type type_)
+    | _ -> checked_frame_integer result
 
 let checked_frame_scalar result =
   match Semantic_result.result_category result with
@@ -1937,23 +1998,35 @@ let compound_assignment = function
   | _ -> false
 
 let prepare_update_address ?frame ?globals result operand =
-  match (checked_frame_integer result, checked_frame_integer operand) with
-  | Error item, _ | _, Error item -> Error [ item ]
-  | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok None
-  | Ok (Checked_type result_type), Ok (Checked_type operand_type) ->
-      if
-        Semantic_result.result_category operand <> Semantic_result.Lvalue
-        || Semantic_result.result_category result
-           <> Semantic_result.Object_value
-        || not (Type.equal result_type operand_type)
-      then
-        Error
-          [
-            metadata_error ?span:(result_span result)
-              "scalar update does not retain its lvalue and destination result \
-               type";
-          ]
-      else prepare_assignment_address ?frame ?globals operand
+  if Semantic_result.result_is_callback_storage operand then
+    if
+      Option.fold ~none:false ~some:(( == ) operand)
+        (callback_update_operand result)
+    then prepare_assignment_address ?frame ?globals operand
+    else
+      Error
+        [
+          metadata_error ?span:(result_span result)
+            "callback update lost its original storage operand or result type";
+        ]
+  else
+    match (checked_frame_integer result, checked_frame_integer operand) with
+    | Error item, _ | _, Error item -> Error [ item ]
+    | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok None
+    | Ok (Checked_type result_type), Ok (Checked_type operand_type) ->
+        if
+          Semantic_result.result_category operand <> Semantic_result.Lvalue
+          || Semantic_result.result_category result
+             <> Semantic_result.Object_value
+          || not (Type.equal result_type operand_type)
+        then
+          Error
+            [
+              metadata_error ?span:(result_span result)
+                "scalar update does not retain its lvalue and destination \
+                 result type";
+            ]
+        else prepare_assignment_address ?frame ?globals operand
 
 let plan ?frame ?globals ~allow_calls root =
   let root_conversion = requested_conversion root in
@@ -2564,6 +2637,9 @@ let plan ?frame ?globals ~allow_calls root =
                         match
                           if opcode = Opcode.Ic_assign then
                             validate_frame_assignment result left right
+                          else if
+                            Semantic_result.result_is_callback_storage left
+                          then validate_frame_assignment result left right
                           else
                             validate_binary_with checked_frame_integer result
                               left right
@@ -4138,6 +4214,40 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                     (metadata_error ~span
                        "binary expression does not have a checked result type")
             | Ok left_node, Ok right_node, Some result_type -> (
+                let right_node =
+                  if
+                    (opcode = Opcode.Ic_add_equ || opcode = Opcode.Ic_sub_equ)
+                    && Semantic_result.result_is_callback_storage left
+                  then
+                    (* PrsAddOp scales the original RHS by the RT_PTR pointee
+                       size before the update reads its destination. *)
+                    match
+                      emit_index_value ~opcode:Opcode.Ic_imm_i64 ~operands:[]
+                        ~target_type:internal_i64_type
+                        ~payload:(Some (Sequence.Integer 8L)) ~span
+                    with
+                    | Error item ->
+                        error := Some item;
+                        right_node
+                    | Ok stride -> (
+                        let scaled_type =
+                          match Type.base right_node.lowered_type with
+                          | Type.Primitive (_, Sema.Primitive_type.U64) ->
+                              internal_u64_type
+                          | _ -> internal_i64_type
+                        in
+                        match
+                          emit_index_value ~opcode:Opcode.Ic_mul
+                            ~operands:
+                              [ right_node.lowered_value; stride.lowered_value ]
+                            ~target_type:scaled_type ~payload:None ~span
+                        with
+                        | Error item ->
+                            error := Some item;
+                            right_node
+                        | Ok value -> value)
+                  else right_node
+                in
                 let left_node =
                   if not (Int_map.mem (result_key result) unsigned_comparisons)
                   then left_node

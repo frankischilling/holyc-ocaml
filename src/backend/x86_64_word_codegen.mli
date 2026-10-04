@@ -31,6 +31,7 @@ type program_site = {
   call_site : bool;
   callback_call_site : bool;
   code_comparison_site : bool;
+  code_update_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;

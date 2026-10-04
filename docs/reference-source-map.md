@@ -1,5 +1,15 @@
 # Reference source map
 
+Numeric callback updates follow the separate RT_PTR storage selected in
+`Compiler/PrsVar.HC:350-357`, its signed RT_I64 identity in
+`Kernel/KernelA.HH:1572-1574`, `PrsExp.HC:15-63` for scaled compound addition
+and subtraction, and `BackB.HC:304-380` for prefix/postfix pointee-size steps.
+`OptPass012.HC:824-895` retains the left storage class for compound operations.
+IR and native execution preserve the original cell, evaluate the right operand
+before reading its old contents, and distinguish numeric words from executable
+owners. The hosted owned-address fault is a remaining execution boundary; this
+change adds no TempleOS capture. See [numeric callback updates](callback-updates.md).
+
 Native callback storage follows `Compiler/PrsVar.HC:350-357`: `PrsFunJoin`
 keeps the declared return type in the anonymous header, then the declarator
 switches to internal RT_PTR storage. Return-pointer layers therefore do not

@@ -33,6 +33,7 @@ type fault_kind =
   | Callback_unowned_address
   | Callback_signature_mismatch
   | Code_comparison_invalid_word
+  | Callback_update_owned_address
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -380,6 +381,14 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       "native code-comparison fault did not consume its \
                        instruction"
                   else make_fault Code_comparison_invalid_word None
+                else if kind = 22L then
+                  if not candidate.code_update_site then
+                    Error "native callback-update fault names a non-update site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native callback-update fault did not consume its \
+                       instruction"
+                  else make_fault Callback_update_owned_address None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =

@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+[Numeric callback updates](docs/callback-updates.md) run through IR and native
+execution in both source modes. Callback cells keep their separate return
+headers while increments and scaled compound assignments update numeric words.
+`examples/callback-updates.hc` returns 42. Arithmetic on owned function addresses
+and the remaining native source-session work are still open.
+
 [Conditional integer comparison chains](docs/conditional-comparison-chains.md)
 retain each original middle operand and skip later operands after a false link.
 They run through both IR and native targets in JIT/AOT parsing modes; the

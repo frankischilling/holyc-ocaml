@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added numeric callback prefix, postfix and compound updates to IR and native
+  execution. One-star cells and fully indexed arrays preserve return metadata,
+  eight-byte scaling, signed compound computation and right-operand effects.
+  Reached faults preserve earlier writes and output; numeric results can flow
+  into integer consumers without acquiring executable ownership. Arithmetic on
+  owned function addresses remains unfinished.
+
 - Added integer comparison chains in conditions. Original middle values survive
   branches and calls, and a false link skips later operands. Both execution
   targets preserve cumulative unsigned classes, grouping and eager value

@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+`test/test_callback_updates.ml` and
+`test/native/test_native_callback_updates.ml` check numeric callback updates in
+both source modes. Cases cover eight-byte scaling, signed compound operations,
+return metadata, scalar and array storage, canceled scalar dereferences,
+initializer and argument results, aliasing effects, reached faults and exact
+runtime limits. Native checks also exercise retained storage across collection
+and authenticate the owned-address fault against its original update site.
+The CLI runs `examples/callback-updates.hc` through both targets. See
+[numeric callback updates](callback-updates.md).
+
 `test/native/test_callback_return_storage.ml` checks callback storage whose
 return metadata is independent of its eight-byte cell. Native and fresh public
 IR runs cover automatic/static cells, arrays and fixed-parameter transfers;

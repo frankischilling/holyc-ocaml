@@ -219,18 +219,13 @@ let remaining_dereferences_reject () =
             (Option.is_none (Native_program.native_outcome report)))
         [ "(**p)"; "(*(p))" ];
       List.iter
-        (fun update ->
+        (fun (update, expected) ->
           let source =
-            "I64 Run(){I64 (*p)(I64 n);p=40;" ^ update ^ ";return 42;}Run;"
+            "I64 Run(){I64 (*p)(I64 n);p=40;" ^ update ^ ";return p=="
+            ^ string_of_int expected ^ ";}Run;"
           in
-          expect_error "HCRUN0003"
-            (ir mode source |> integer_program_report_outcome);
-          let report = native mode source in
-          expect_error "HCRUN0003" (Native_program.outcome report);
-          Alcotest.(check bool)
-            "unsupported update did not enter native code" true
-            (Option.is_none (Native_program.native_outcome report)))
-        [ "++*p"; "(*p)--"; "*p+=1" ];
+          ignore (compare mode source 1L ""))
+        [ ("++*p", 48); ("(*p)--", 32); ("*p+=1", 48) ];
       ignore
         (compare mode "I64 Run(){I64 n=42;I64 *p=&n;return *p;}Run;" 42L ""))
     modes
