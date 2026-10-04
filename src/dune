@@ -8,7 +8,7 @@
    %{workspace_root}
    (with-stdout-to
     %{targets}
-    (run %{exe:../tools/version_gen.exe})))))
+    (run %{exe:../tools/version_gen.exe} %{project_root})))))
 
 (library
  (name holyc_lib)

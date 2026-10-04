@@ -16,7 +16,8 @@ $utf8 = New-Object System.Text.UTF8Encoding($false)
 $savedEnvironment = @{}
 $environmentNames = @(
   'HOLYC_IMPLEMENTATION_COMMIT', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR',
-  'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES'
+  'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'DUNE_SOURCEROOT'
 )
 
 function Write-FixtureText([string]$Path, [string]$Text) {
@@ -31,8 +32,8 @@ function Remove-FixtureEnvironment([string]$Name) {
   }
 }
 
-function New-ProjectFixture([string]$Name, [string]$BuildTarget, [string]$CacheMode) {
-  $projectRoot = Join-Path $fixtureRoot $Name
+function New-ProjectFixture([string]$Name, [string]$BuildTarget, [string]$CacheMode, [string]$SourceRoot = '') {
+  $projectRoot = if ($SourceRoot -eq '') { Join-Path $fixtureRoot $Name } else { $SourceRoot }
   New-Item -ItemType Directory -Path (Join-Path $projectRoot 'src') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $projectRoot 'src/driver') -Force | Out-Null
   New-Item -ItemType Directory -Path (Join-Path $projectRoot 'tools') -Force | Out-Null
@@ -49,6 +50,11 @@ function New-ProjectFixture([string]$Name, [string]$BuildTarget, [string]$CacheM
   Write-FixtureText (Join-Path $projectRoot 'bin/probe.ml') "let () = print_endline Holyc_lib.Driver.Version.implementation_commit`n"
   return [PSCustomObject]@{
     Root = $projectRoot
+    WorkspaceRoot = $projectRoot
+    SourceRelativePath = '.'
+    BuildDirectory = Join-Path $projectRoot '_build'
+    InvocationDirectory = $projectRoot
+    InstallPrefix = Join-Path $fixtureRoot ("install-$Name")
     BuildTarget = $BuildTarget
     CacheMode = $CacheMode
     LastExpected = $null
@@ -63,8 +69,9 @@ function Read-Consumer([string]$Path) {
 
 function Assert-Metadata($Fixture, [string]$Expected, [string]$Label) {
   $label = "$($Fixture.CacheMode) $($Fixture.BuildTarget): $Label"
-  $executable = Join-Path $Fixture.Root '_build/default/bin/probe.exe'
-  Push-Location -LiteralPath $Fixture.Root
+  $projectBuild = Join-Path (Join-Path $Fixture.BuildDirectory 'default') $Fixture.SourceRelativePath
+  $executable = Join-Path $projectBuild 'bin/probe.exe'
+  Push-Location -LiteralPath $Fixture.InvocationDirectory
   try {
     if ($null -ne $Fixture.LastExpected -and $Fixture.BuildTarget -ne 'src/build_metadata.ml') {
       $before = Read-Consumer $executable
@@ -74,9 +81,16 @@ function Assert-Metadata($Fixture, [string]$Expected, [string]$Label) {
     }
     # Supply the target as a string argument. Bare @all/@install are PowerShell
     # variable splats and may disappear before Dune receives the command.
-    & $Dune build "--cache=$($Fixture.CacheMode)" --display=quiet $Fixture.BuildTarget
+    $target = if ($Fixture.SourceRelativePath -eq '.') {
+      $Fixture.BuildTarget
+    } elseif ($Fixture.BuildTarget.StartsWith('@')) {
+      '@' + $Fixture.SourceRelativePath + '/' + $Fixture.BuildTarget.Substring(1)
+    } else {
+      "$($Fixture.SourceRelativePath)/$($Fixture.BuildTarget)"
+    }
+    & $Dune build --root $Fixture.WorkspaceRoot --build-dir $Fixture.BuildDirectory "--cache=$($Fixture.CacheMode)" --display=quiet $target
     if ($LASTEXITCODE -ne 0) { throw "Provenance build failed: $label" }
-    $actual = [System.IO.File]::ReadAllText((Join-Path $Fixture.Root '_build/default/src/build_metadata.ml')).Trim()
+    $actual = [System.IO.File]::ReadAllText((Join-Path $projectBuild 'src/build_metadata.ml')).Trim()
     $expectedLine = 'let implementation_commit = "' + $Expected + '"'
     if ($actual -ne $expectedLine) {
       throw "Stale metadata for ${label}: expected $expectedLine; got $actual"
@@ -91,10 +105,16 @@ function Assert-Metadata($Fixture, [string]$Expected, [string]$Label) {
     if ($Fixture.BuildTarget -eq '@install') {
       $installedName = 'holyc-provenance-probe'
       if ([System.IO.Path]::DirectorySeparatorChar -eq '\') { $installedName += '.exe' }
-      $installed = Join-Path $Fixture.Root "_build/install/default/bin/$installedName"
+      $installed = Join-Path $Fixture.BuildDirectory "install/default/bin/$installedName"
       $actual = Read-Consumer $installed
       if ($actual -ne $Expected) {
         throw "Stale install artifact for ${label}: expected $Expected; got $actual"
+      }
+      & $Dune install --root $Fixture.WorkspaceRoot --build-dir $Fixture.BuildDirectory --prefix $Fixture.InstallPrefix --display=quiet
+      if ($LASTEXITCODE -ne 0) { throw "Provenance installation failed: $label" }
+      $actual = Read-Consumer (Join-Path $Fixture.InstallPrefix "bin/$installedName")
+      if ($actual -ne $Expected) {
+        throw "Stale installed executable for ${label}: expected $Expected; got $actual"
       }
     }
     $Fixture.LastExpected = $Expected
@@ -158,6 +178,109 @@ function Test-Scenarios([string]$BuildTarget, [string]$CacheMode, [int]$Index) {
   Assert-Metadata $archive $third 'explicit source-archive provenance'
   Remove-FixtureEnvironment 'HOLYC_IMPLEMENTATION_COMMIT'
   Assert-Metadata $archive 'unknown' 'source archive without an override'
+
+  $foreignRoot = Join-Path $fixtureRoot "$Index-foreign"
+  $foreignGit = Join-Path $foreignRoot '.git'
+  New-Item -ItemType Directory -Path (Join-Path $foreignGit 'objects') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $foreignGit 'refs/heads') -Force | Out-Null
+  Write-FixtureText (Join-Path $foreignGit 'config') "[core]`nrepositoryformatversion = 0`nbare = false`n"
+  Write-FixtureText (Join-Path $foreignGit 'HEAD') ((('e' * 40) + "`n"))
+
+  $external = $normal.PSObject.Copy()
+  $external.BuildDirectory = Join-Path $foreignRoot 'external output with spaces'
+  $external.InvocationDirectory = $foreignRoot
+  $external.LastExpected = $null
+  Assert-Metadata $external $fourth 'external output under a different checkout'
+  Write-FixtureText (Join-Path $foreignGit 'HEAD') ((('f' * 40) + "`n"))
+  Assert-Metadata $external $fourth 'unrelated checkout changes do not retag the source'
+  Write-FixtureText (Join-Path $gitDir 'HEAD') "$second`n"
+  Assert-Metadata $external $second 'external output refreshes changed source HEAD'
+  Write-FixtureText (Join-Path $gitDir 'HEAD') "ref: refs/heads/probe`n"
+  Write-FixtureText (Join-Path $gitDir 'packed-refs') "$third refs/heads/probe`n"
+  Assert-Metadata $external $third 'external output follows original packed refs'
+
+  $env:GIT_DIR = $foreignGit
+  $env:GIT_WORK_TREE = $foreignRoot
+  $env:GIT_COMMON_DIR = $foreignGit
+  try {
+    Assert-Metadata $external $third 'ambient Git location cannot select another checkout'
+  } finally {
+    Remove-FixtureEnvironment 'GIT_DIR'
+    Remove-FixtureEnvironment 'GIT_WORK_TREE'
+    Remove-FixtureEnvironment 'GIT_COMMON_DIR'
+  }
+  $env:DUNE_SOURCEROOT = $foreignRoot
+  try {
+    Assert-Metadata $external $third 'Dune supplies the original root despite caller environment'
+  } finally {
+    Remove-FixtureEnvironment 'DUNE_SOURCEROOT'
+  }
+
+  $externalLinked = $linked.PSObject.Copy()
+  $externalLinked.BuildDirectory = Join-Path $foreignRoot 'linked-output'
+  $externalLinked.InvocationDirectory = $foreignRoot
+  $externalLinked.LastExpected = $null
+  Assert-Metadata $externalLinked $third 'external output retains linked worktree identity'
+  Write-FixtureText (Join-Path $gitDir 'packed-refs') "$first refs/heads/probe`n"
+  Assert-Metadata $externalLinked $first 'external linked output follows changed shared ref'
+
+  $outside = $normal.PSObject.Copy()
+  $outside.BuildDirectory = Join-Path $fixtureRoot "$Index-output-outside-git"
+  $outside.InvocationDirectory = $fixtureRoot
+  $outside.LastExpected = $null
+  Assert-Metadata $outside $first 'external output and invocation outside Git'
+
+  $nested = New-ProjectFixture "$Index-nested" $BuildTarget $CacheMode (Join-Path $foreignRoot 'nested-source')
+  $nestedGit = Join-Path $nested.Root '.git'
+  New-Item -ItemType Directory -Path (Join-Path $nestedGit 'objects') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $nestedGit 'refs/heads') -Force | Out-Null
+  Write-FixtureText (Join-Path $nestedGit 'config') "[core]`nrepositoryformatversion = 0`nbare = false`n"
+  Write-FixtureText (Join-Path $nestedGit 'HEAD') "$second`n"
+  $nested.BuildDirectory = Join-Path $fixtureRoot "$Index-nested-output"
+  $nested.InvocationDirectory = $foreignRoot
+  Assert-Metadata $nested $second 'nested source checkout owns its revision'
+
+  $nestedArchive = New-ProjectFixture "$Index-nested-archive" $BuildTarget $CacheMode (Join-Path $foreignRoot 'archive-source')
+  $nestedArchive.BuildDirectory = Join-Path $fixtureRoot "$Index-archive-output"
+  $nestedArchive.InvocationDirectory = $foreignRoot
+  Assert-Metadata $nestedArchive 'unknown' 'archive cannot adopt an ancestor checkout'
+  $env:HOLYC_IMPLEMENTATION_COMMIT = $second
+  Assert-Metadata $nestedArchive $second 'nested archive accepts explicit release provenance'
+  $env:HOLYC_IMPLEMENTATION_COMMIT = 'invalid-override'
+  Assert-Metadata $nestedArchive 'unknown' 'invalid archive override cannot acquire ancestor identity'
+  Remove-FixtureEnvironment 'HOLYC_IMPLEMENTATION_COMMIT'
+
+  $incomplete = New-ProjectFixture "$Index-incomplete" $BuildTarget $CacheMode (Join-Path $foreignRoot 'incomplete-source')
+  New-Item -ItemType Directory -Path (Join-Path $incomplete.Root '.git') -Force | Out-Null
+  $incomplete.BuildDirectory = Join-Path $fixtureRoot "$Index-incomplete-output"
+  $incomplete.InvocationDirectory = $foreignRoot
+  Assert-Metadata $incomplete 'unknown' 'incomplete checkout marker cannot adopt an ancestor'
+
+  $workspaceRoot = Join-Path $fixtureRoot "$Index-workspace"
+  $workspaceGit = Join-Path $workspaceRoot '.git'
+  New-Item -ItemType Directory -Path (Join-Path $workspaceGit 'objects') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $workspaceGit 'refs/heads') -Force | Out-Null
+  Write-FixtureText (Join-Path $workspaceGit 'config') "[core]`nrepositoryformatversion = 0`nbare = false`n"
+  Write-FixtureText (Join-Path $workspaceGit 'HEAD') "ref: refs/heads/probe`n"
+  Write-FixtureText (Join-Path $workspaceRoot 'dune-workspace') "(lang dune 3.12)`n"
+  $workspace = New-ProjectFixture "$Index-workspace-project" $BuildTarget $CacheMode (Join-Path $workspaceRoot 'compiler')
+  $workspace.WorkspaceRoot = $workspaceRoot
+  $workspace.SourceRelativePath = 'compiler'
+  $workspace.BuildDirectory = Join-Path $fixtureRoot "$Index-workspace-output"
+  $workspace.InvocationDirectory = $fixtureRoot
+  Assert-Metadata $workspace 'unknown' 'untracked workspace archive has no checkout identity'
+
+  # Only the temporary fixture's index is populated. This creates no commits.
+  & git -C $workspaceRoot add -- compiler/dune-project compiler/src/dune compiler/tools/version_gen.ml
+  if ($LASTEXITCODE -ne 0) { throw 'Failed to populate the fixture source index' }
+  Write-FixtureText (Join-Path $workspaceGit 'HEAD') "$first`n"
+  Assert-Metadata $workspace $first 'tracked project inside a parent checkout retains its identity'
+  $childGit = Join-Path $workspace.Root '.git'
+  New-Item -ItemType Directory -Path (Join-Path $childGit 'objects') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $childGit 'refs/heads') -Force | Out-Null
+  Write-FixtureText (Join-Path $childGit 'config') "[core]`nrepositoryformatversion = 0`nbare = false`n"
+  Write-FixtureText (Join-Path $childGit 'HEAD') "$second`n"
+  Assert-Metadata $workspace $second 'nested project checkout takes precedence over workspace Git'
 }
 
 try {
