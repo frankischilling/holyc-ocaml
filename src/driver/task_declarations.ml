@@ -3683,6 +3683,50 @@ let native_initializer_fragment ledger ~runtime receipt =
       in
       authority)
 
+let declare_native_static_symbol ledger ~runtime receipt =
+  protect (fun () ->
+      let publication = receipt.Parser.allocation_function in
+      let span = publication.function_name.location.span in
+      if
+        not
+          (Option.fold ~none:false ~some:(( == ) runtime)
+             (ledger_runtime ledger))
+      then fail span "static symbol belongs to another task runtime";
+      validate_command ledger publication.function_header;
+      if receipt.allocation_storage <> Ast.Static_local then
+        fail span "native static symbol requires original static storage";
+      let allocation =
+        match
+          Sema.Compiler_record.static_allocation ledger.compiler_positions
+            receipt
+        with
+        | Some allocation -> allocation
+        | None -> fail span "native static symbol has no observed allocation"
+      in
+      let partial =
+        match (find ledger publication.function_name).source with
+        | Function state when state.publication == publication -> (
+            match state.typed_header with
+            | Some (collected, _) -> collected
+            | None ->
+                fail span "native static symbol has no original partial header")
+        | _ -> fail span "native static symbol has another function owner"
+      in
+      let symbol =
+        Sema.Function_collection.declare_static ~table:ledger.table partial
+          allocation
+        |> checked span
+      in
+      let storage =
+        Ir.Integer_static_allocation.create ~table:ledger.table ~header:partial
+          allocation
+        |> checked span
+      in
+      if Ir.Integer_static_allocation.symbol storage != symbol then
+        fail span "private static storage substituted its original symbol";
+      VM.admit_static_allocation runtime storage |> checked span;
+      storage)
+
 let native_static_initializer_fragment ledger ~runtime
     (receipt : Parser.static_initializer_preparation) =
   protect (fun () ->

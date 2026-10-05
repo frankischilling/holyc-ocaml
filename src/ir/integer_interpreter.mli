@@ -95,6 +95,11 @@ type native_program_attempt
 type internal_binding_attempt
 type dimension_attempt
 
+val admit_static_allocation :
+  task_state -> Integer_static_allocation.t -> (unit, string) result
+(** Charge one original live private static declaration in its native task. This
+    retains metadata only and creates no interpreter value cells. *)
+
 val prepare_task_closed_dimension :
   task_state ->
   table:Sema.Symbol_table.t ->

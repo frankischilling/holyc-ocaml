@@ -100,10 +100,30 @@ let sequence_accepted sequence =
   | Some ast -> ast == sequence.sequence_ast
   | None -> false
 
+type local_source =
+  | Local_parameter of Ast.function_parameter
+  | Local_variable of {
+      local_type_specifier : Ast.type_specifier;
+      local_name : Ast.identifier;
+      local_pointer_layers : Ast.pointer_layer list;
+      local_array_dimensions : Ast.array_dimension list;
+      local_function_pointer : Ast.function_pointer_declarator option;
+    }
+  | Variadic_count of Ast.variadic_marker
+  | Variadic_vector of Ast.variadic_marker
+
+type local_publication = {
+  local_environment : Symbol_visibility.Environment.t;
+  local_command : command_start;
+  local_spelling : string;
+  local_source : local_source;
+}
+
 type reference_selection = {
   identifier : Ast.identifier;
   environment : Symbol_visibility.Environment.t;
   lookup : Symbol_visibility.lookup;
+  selected_local : local_publication option;
   selected_command : command_start;
   mutable reference_active : bool;
 }
@@ -111,6 +131,7 @@ type reference_selection = {
 let selected_identifier selection = selection.identifier
 let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
+let selected_local selection = selection.selected_local
 let selected_command selection = selection.selected_command
 let reference_selection_is_current selection = selection.reference_active
 
@@ -195,25 +216,6 @@ let claim_implicit_arguments selection =
 
 let claim_implicit_emission selection =
   claim_call_activity selection.output_emission
-
-type local_source =
-  | Local_parameter of Ast.function_parameter
-  | Local_variable of {
-      local_type_specifier : Ast.type_specifier;
-      local_name : Ast.identifier;
-      local_pointer_layers : Ast.pointer_layer list;
-      local_array_dimensions : Ast.array_dimension list;
-      local_function_pointer : Ast.function_pointer_declarator option;
-    }
-  | Variadic_count of Ast.variadic_marker
-  | Variadic_vector of Ast.variadic_marker
-
-type local_publication = {
-  local_environment : Symbol_visibility.Environment.t;
-  local_command : command_start;
-  local_spelling : string;
-  local_source : local_source;
-}
 
 type query_node =
   | Sizeof_target of Ast.identifier
@@ -1681,6 +1683,7 @@ let expression_identifier cursor item =
           identifier;
           environment;
           lookup;
+          selected_local = item.local_selection;
           selected_command = Option.get cursor.current_command;
           reference_active = false;
         }

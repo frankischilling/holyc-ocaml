@@ -73,6 +73,25 @@ val sequence_accepted : completed_sequence -> bool
     Later parent parsing or stream-generation failures do not revoke accepted
     child syntax. *)
 
+type local_source = private
+  | Local_parameter of Ast.function_parameter
+  | Local_variable of {
+      local_type_specifier : Ast.type_specifier;
+      local_name : Ast.identifier;
+      local_pointer_layers : Ast.pointer_layer list;
+      local_array_dimensions : Ast.array_dimension list;
+      local_function_pointer : Ast.function_pointer_declarator option;
+    }
+  | Variadic_count of Ast.variadic_marker
+  | Variadic_vector of Ast.variadic_marker
+
+type local_publication = private {
+  local_environment : Symbol_visibility.Environment.t;
+  local_command : command_start;
+  local_spelling : string;
+  local_source : local_source;
+}
+
 type reference_selection
 
 val selected_identifier : reference_selection -> Ast.identifier
@@ -87,6 +106,11 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
     the receipt remains fixed and belongs to this exact AST occurrence and
     environment. Selected absence and local shadowing also remain fixed. Retain
     entry objects, not environment-local numeric IDs. *)
+
+val selected_local : reference_selection -> local_publication option
+(** Original local publication captured when this identifier token was produced,
+    before subsequent lookahead or generated input. This source record grants no
+    semantic symbol or storage authority. *)
 
 val selected_command : reference_selection -> command_start
 val reference_selection_is_current : reference_selection -> bool
@@ -183,25 +207,6 @@ val claim_implicit_emission : implicit_output_selection -> bool
     only while its original observer runs. A successful parse later attaches the
     exact completed statement to the same receipt. No ordinary identifier or
     call is synthesized. *)
-
-type local_source = private
-  | Local_parameter of Ast.function_parameter
-  | Local_variable of {
-      local_type_specifier : Ast.type_specifier;
-      local_name : Ast.identifier;
-      local_pointer_layers : Ast.pointer_layer list;
-      local_array_dimensions : Ast.array_dimension list;
-      local_function_pointer : Ast.function_pointer_declarator option;
-    }
-  | Variadic_count of Ast.variadic_marker
-  | Variadic_vector of Ast.variadic_marker
-
-type local_publication = private {
-  local_environment : Symbol_visibility.Environment.t;
-  local_command : command_start;
-  local_spelling : string;
-  local_source : local_source;
-}
 
 type query_node =
   | Sizeof_target of Ast.identifier

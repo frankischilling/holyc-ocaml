@@ -174,9 +174,18 @@ its original function publication, table, namespace and checked dimensions.
 The sealed command keeps these witnesses in source order. Compilation joins
 them to the declaring frame and exact checked local location; foreign owners
 and substituted dimensions fail that join. These records carry no prepared
-values or native execution permission. Native task statics still need arena
-admission and original live initializer execution before the storage guard can
-be removed.
+values or native execution permission. Native task collection inserts each
+static's original symbol in the partial function scope during allocation and
+reuses that symbol at completion. Its private task record retains the checked
+integer shape without publishing a global name. The task charges the padded
+extent at declaration; the completed frame joins the same storage owner without
+charging it again. Identifier receipts also retain the exact local publication
+selected when their token was produced.
+
+This private storage record carries no arena address, interpreter cells or
+initializer values. Native task statics still need arena admission and original
+live initializer execution before either the storage guard or the historical
+static guard can be removed.
 StreamPrint and StreamExePrint keep their separate generated-source and
 outer-context authority requirements.
 The existing `host-jit` target keeps

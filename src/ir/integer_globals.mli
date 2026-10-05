@@ -191,6 +191,28 @@ val retained_binding :
   (Retained_global.t * storage_slot) option
 
 val declared_storage : declared_slot -> storage_slot
+val declared_static_storage : Integer_static_allocation.t -> storage_slot
+val static_source_allocation : static_slot -> Integer_static_allocation.t option
+
+val check_static_allocation :
+  task_catalog -> Integer_static_allocation.t -> (unit, string) result
+
+val publish_static_allocation :
+  task_catalog -> Integer_static_allocation.t -> (unit, string) result
+(** Retain private storage under its original live task function header. This
+    does not publish a global name or allocate execution values. *)
+
+val private_static_allocations : task_view -> Integer_static_allocation.t list
+
+val private_static_bindings :
+  t -> (Integer_static_allocation.t * storage_slot) list
+
+val join_static_allocations :
+  sources:Sema.Static_local_source.t list -> t -> (t, string) result
+(** Join completed locals to the same original private allocations in this task
+    snapshot. Their padded quota was charged at declaration and is not charged
+    again at function completion. No initializer is evaluated by this join. *)
+
 val declared_record : declared_slot -> Sema.Compiler_record.declared_global
 val declared_initializer_failed : declared_slot -> bool
 val begin_declared_initializer : declared_slot -> (unit, string) result

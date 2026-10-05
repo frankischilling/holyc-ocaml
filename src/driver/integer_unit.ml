@@ -372,6 +372,12 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             |> Result.map List.rev
           in
           let* globals_ =
+            Ir.Integer_globals.join_static_allocations ~sources:static_sources_
+              globals_
+            |> Result.map_error (fun message ->
+                [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
+          in
+          let* globals_ =
             Ir.Integer_globals.with_function_publications
               ~retain_replaced:(Option.is_none task_view)
               ~records:(Integer_source.records prepared)

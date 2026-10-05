@@ -41,6 +41,7 @@ type storage_slot =
   | Global of slot
   | Static of static_slot
   | Declared of declared_slot
+  | Declared_static of Integer_static_allocation.t
 
 type task_publication =
   | Global_publication of Retained_global.t * slot
@@ -53,6 +54,7 @@ type task_catalog = {
   table : Sema.Symbol_table.t;
   mutable namespace : Sema.Declaration_collection.namespace option;
   mutable published : task_publication list;
+  mutable private_statics : Integer_static_allocation.t list;
   source_order : Sema.Task_command_order.t;
   mutable admitted_commands : Sema.Task_command_order.command list;
 }
@@ -66,6 +68,7 @@ type task_view = {
   entries :
     (Sema.Outer_environment.entry * Retained_global.t * storage_slot) list;
   function_entries : (Sema.Outer_environment.entry * Retained_function.t) list;
+  private_statics : Integer_static_allocation.t list;
   source_command : Sema.Task_command_order.command option;
 }
 
@@ -404,8 +407,10 @@ let static_root_materialized slot root =
 
 let static_compiler_options = Integer_statics.compiler_options
 let static_storage slot = Static slot
+let static_source_allocation = Integer_statics.source_allocation
 let global_storage slot = Global slot
 let declared_storage slot = Declared slot
+let declared_static_storage allocation = Declared_static allocation
 let declared_record slot = slot.declaration
 
 let begin_declared_initializer slot =
@@ -449,6 +454,11 @@ let same_storage left right =
   | Global left, Global right -> left == right
   | Static left, Static right -> left == right
   | Declared left, Declared right -> left == right
+  | Declared_static left, Declared_static right -> left == right
+  | Static complete, Declared_static pending
+  | Declared_static pending, Static complete ->
+      Option.fold ~none:false ~some:(( == ) pending)
+        (Integer_statics.source_allocation complete)
   | Global complete, Declared pending | Declared pending, Global complete ->
       Option.fold ~none:false ~some:(( == ) pending) complete.declared_owner
   | _ -> false
@@ -462,9 +472,11 @@ let allocated_storage_slots globals =
   storage_slots globals
   |> List.filter (function
     | Global slot -> Option.is_none slot.declared_owner
+    | Static slot -> Option.is_none (Integer_statics.source_allocation slot)
     | _ -> true)
 
 let storage_shape = function
+  | Declared_static allocation -> Integer_static_allocation.shape allocation
   | Declared slot -> slot.declared_shape
   | Global slot -> slot.shape
   | Static slot -> Integer_statics.shape slot
@@ -481,17 +493,20 @@ let cell_count globals =
       0 globals.statics_
 
 let storage_index = function
+  | Declared_static _ -> 0
   | Declared _ -> 0
   | Global slot -> slot.index
   | Static slot -> Integer_statics.index slot
 
 let storage_symbol = function
+  | Declared_static allocation -> Integer_static_allocation.symbol allocation
   | Declared slot ->
       Sema.Compiler_record.declared_global_symbol slot.declaration
   | Global slot -> slot.symbol
   | Static slot -> Integer_statics.symbol slot
 
 let storage_type = function
+  | Declared_static allocation -> Integer_static_allocation.type_ allocation
   | Declared slot ->
       Sema.Compiler_record.declared_global_storage_type slot.declaration
       |> Result.get_ok
@@ -499,6 +514,7 @@ let storage_type = function
   | Static slot -> Integer_statics.type_ slot
 
 let storage_callback_pointer = function
+  | Declared_static _ -> None
   | Global slot -> (
       let global =
         Records.classified_record_source slot.record
@@ -512,6 +528,7 @@ let storage_callback_pointer = function
   | Static slot -> Integer_statics.callback_pointer slot
 
 let storage_is_callback = function
+  | Declared_static _ -> false
   | Declared slot ->
       (Sema.Compiler_record.declared_global_source slot.declaration)
         .Frontend.Parser.global_function_pointer
@@ -556,22 +573,25 @@ let callback_callee_pop globals pointer =
   Sema.Function_flag.caller_expects_callee_pop ~stored_mask:flags
 
 let storage_opcode = function
+  | Declared_static _ -> Opcode.Ic_imm_i64
   | Declared _ -> Opcode.Ic_imm_i64
   | Global slot -> slot.opcode
   | Static slot -> Integer_statics.opcode slot
 
 let storage_initial_bits = function
+  | Declared_static _ -> None
   | Declared _ -> None
   | Global slot -> slot.initial_bits
   | Static slot -> Integer_statics.initial_bits slot
 
 let storage_preparation_steps = function
+  | Declared_static _ -> 0
   | Declared _ -> 0
   | Global slot -> slot_initializer_preparation_steps slot
   | Static slot -> Integer_statics.preparation_steps slot
 
 let storage_frame = function
-  | Global _ | Declared _ -> None
+  | Global _ | Declared _ | Declared_static _ -> None
   | Static slot -> Some (static_frame slot)
 
 let find_static globals symbol =
@@ -998,6 +1018,7 @@ let create_task_catalog ~table =
     table;
     namespace = None;
     published = [];
+    private_statics = [];
     source_order = Sema.Task_command_order.create ~table;
     admitted_commands = [];
   }
@@ -1022,6 +1043,51 @@ let call_command_is_admitted catalog start =
 
 let task_catalog_owns_namespace catalog namespace =
   Option.fold ~none:false ~some:(( == ) namespace) catalog.namespace
+
+let check_static_allocation (catalog : task_catalog) allocation =
+  let module Allocation = Integer_static_allocation in
+  let module Record = Sema.Compiler_record in
+  let source = Allocation.source allocation in
+  let receipt = Record.static_allocation_receipt source in
+  let original_function =
+    List.exists
+      (function
+        | Function_publication reference ->
+            Retained_function.metadata reference
+            |> Sema.Outer_environment.function_declaration
+            |> Sema.Function_resolution.resolved_declaration_site
+            |> Sema.Function_resolution.declaration_site_function
+            |> Sema.Function_type_resolution.function_completed_header
+            |> Option.fold ~none:false ~some:(fun header ->
+                header.Frontend.Parser.function_publication
+                == receipt.allocation_function)
+        | _ -> false)
+      catalog.published
+  in
+  if
+    (not (Frontend.Parser.function_local_allocation_is_current receipt))
+    || (not (Allocation.owns_table allocation catalog.table))
+    || (not
+          (task_catalog_owns_namespace catalog
+             (Record.static_allocation_namespace source)))
+    || (not original_function)
+    || List.exists
+         (fun prior ->
+           Allocation.source prior == source
+           || Allocation.symbol prior == Allocation.symbol allocation)
+         catalog.private_statics
+  then
+    Error
+      "private static requires its original current task header and allocation"
+  else
+    Sema.Task_command_order.check_function_publication catalog.source_order
+      ~admitted:catalog.admitted_commands receipt.allocation_function
+
+let publish_static_allocation (catalog : task_catalog) allocation =
+  Result.map
+    (fun () ->
+      catalog.private_statics <- catalog.private_statics @ [ allocation ])
+    (check_static_allocation catalog allocation)
 
 let publish_parameter_defaults catalog ~namespace defaults =
   if
@@ -1298,6 +1364,7 @@ let snapshot_task catalog =
       task_table;
       entries;
       function_entries;
+      private_statics = catalog.private_statics;
       source_command = None;
       callback_defaults = catalog.callback_defaults;
       defaults = catalog.defaults;
@@ -1323,6 +1390,80 @@ let task_function_binding view reference =
     view.function_entries
 
 let with_task_view view globals = { globals with task_view = Some view }
+let private_static_allocations view = view.private_statics
+
+let private_static_bindings globals =
+  Option.fold ~none:[]
+    ~some:(fun view ->
+      List.map
+        (fun allocation ->
+          let storage =
+            List.find_map
+              (fun slot ->
+                if
+                  Option.fold ~none:false ~some:(( == ) allocation)
+                    (Integer_statics.source_allocation slot)
+                then Some (Static slot)
+                else None)
+              globals.statics_
+            |> Option.value ~default:(Declared_static allocation)
+          in
+          (allocation, storage))
+        view.private_statics)
+    globals.task_view
+
+let join_static_allocations ~sources globals =
+  let ( let* ) = Result.bind in
+  match globals.task_view with
+  | None -> Ok globals
+  | Some view ->
+      let* statics_, reused_bytes =
+        List.fold_left
+          (fun checked slot ->
+            let* reversed, reused_bytes = checked in
+            let symbol = Integer_statics.symbol slot in
+            match
+              List.find_opt
+                (fun allocation ->
+                  Integer_static_allocation.symbol allocation == symbol)
+                view.private_statics
+            with
+            | None -> Ok (slot :: reversed, reused_bytes)
+            | Some allocation ->
+                let* source =
+                  match
+                    List.find_opt
+                      (fun source ->
+                        Sema.Static_local_source.allocation source
+                        == Integer_static_allocation.source allocation)
+                      sources
+                  with
+                  | Some source -> Ok source
+                  | None ->
+                      Error "private static lacks its original completed source"
+                in
+                let* slot =
+                  Integer_statics.with_source_allocation ~allocation ~source
+                    slot
+                in
+                let* bytes =
+                  match Shape.padded_byte_size (Integer_statics.shape slot) with
+                  | Some bytes -> Ok bytes
+                  | None -> Error "private static padded extent overflows"
+                in
+                if bytes > globals.byte_size_ - reused_bytes then
+                  Error
+                    "private static quota disagrees with its completed storage"
+                else Ok (slot :: reversed, reused_bytes + bytes))
+          (Ok ([], 0))
+          globals.statics_
+      in
+      Ok
+        {
+          globals with
+          statics_ = List.rev statics_;
+          byte_size_ = globals.byte_size_ - reused_bytes;
+        }
 
 let retained_binding globals binding =
   let module Outer = Sema.Outer_environment in
@@ -2174,7 +2315,7 @@ let storage_array_image slot =
               (Arrays.prepared entry))
   in
   match slot with
-  | Declared _ -> []
+  | Declared _ | Declared_static _ -> []
   | Global slot -> image slot.array_initializers
   | Static slot -> image (Integer_statics.array_initializers slot)
 
@@ -2275,6 +2416,7 @@ let array_human globals =
             let owner, values =
               match slot with
               | Declared _ -> ("declared-global", "")
+              | Declared_static _ -> ("declared-static", "")
               | Global slot -> ("global", initializers slot.array_initializers)
               | Static slot ->
                   ( "static:"

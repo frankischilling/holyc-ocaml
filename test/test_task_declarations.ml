@@ -3129,8 +3129,141 @@ let original_static_frame_sources () =
     (Extent.static_allocation_dimensions (List.nth allocations 1)
     |> List.map Extent.dimension_count)
 
+let native_static_storage_owners () =
+  let module Task = Holyc_lib__Driver.Integer_task in
+  let module Dispatch = Task.Native_dispatch in
+  let module Unit = Holyc_lib__Driver.Integer_unit in
+  let module Globals = Holyc_lib__Ir.Integer_globals in
+  let module Allocation = Holyc_lib__Ir.Integer_static_allocation in
+  let module Source = Holyc_lib__Sema.Static_local_source in
+  let session = Session.create () in
+  let observed_programs = ref [] in
+  let dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun _ -> Alcotest.fail "metadata probe reached an initializer");
+      execute_command =
+        (fun request ->
+          observed_programs :=
+            Dispatch.command_program request :: !observed_programs;
+          Dispatch.claim_command_request request |> checked;
+          Ok Dispatch.Unchanged);
+    }
+  in
+  let task =
+    Task.create ~native_dispatch:dispatch ~max_global_bytes:24 session
+    |> checked
+  in
+  let source =
+    Session.add_source session ~path:"private-native-statics.hc"
+      ~contents:
+        "I64 F(){static I64 A;static U8 B[2];return 42;}I64 G(){static I64 \
+         A;return 42;}"
+  in
+  ignore (Task.run task ~source |> expect);
+  let programs = List.rev !observed_programs in
+  Alcotest.(check int)
+    "both original definitions reach the metadata probe" 2
+    (List.length programs);
+  Alcotest.(check int)
+    "original padded allocation quota is charged once" 24
+    (Task.progress task).runtime.global_bytes;
+  Alcotest.(check int)
+    "metadata probe executes no interpreter instructions" 0
+    (Task.progress task).runtime.executed_steps;
+  let first = List.hd programs and second = List.nth programs 1 in
+  let bindings = Globals.private_static_bindings (Unit.globals first) in
+  Alcotest.(check int)
+    "first snapshot has two private allocations" 2 (List.length bindings);
+  Alcotest.(check int)
+    "later snapshot retains all original private allocations" 3
+    (List.length (Globals.private_static_bindings (Unit.globals second)));
+  List.iter
+    (fun program ->
+      Alcotest.(check int)
+        "completion does not charge storage again" 0
+        (Globals.byte_size (Unit.globals program));
+      Alcotest.(check int)
+        "private statics create no ordinary global declarations" 0
+        (List.length (Globals.slots (Unit.globals program)));
+      Alcotest.(check int)
+        "private statics create no retained global bindings" 0
+        (List.length (Globals.retained_storage_bindings (Unit.globals program)));
+      Alcotest.(check int)
+        "completed private statics need no new interpreter cells" 0
+        (List.length (Globals.allocated_storage_slots (Unit.globals program)));
+      let private_ = Globals.private_static_bindings (Unit.globals program) in
+      List.iter2
+        (fun slot source ->
+          let allocation =
+            Globals.static_source_allocation slot |> Option.get
+          in
+          Allocation.check_completed allocation source |> checked;
+          Alcotest.(check bool)
+            "completed slot retains exact original allocation" true
+            (Allocation.source allocation == Source.allocation source);
+          Alcotest.(check bool)
+            "pending and completed storage share one owner" true
+            (Globals.same_storage
+               (Globals.declared_static_storage allocation)
+               (Globals.static_storage slot));
+          List.iter
+            (fun (other, _) ->
+              if other != allocation then
+                reject
+                  "another private declaration cannot borrow the completed \
+                   local"
+                  (Allocation.check_completed other source))
+            private_;
+          let foreign =
+            Holyc_lib__Ir.Integer_interpreter.create_task_state
+              ~native_storage_authority:true
+              ~table:(Session.semantic_symbols (Session.create ()))
+              ()
+            |> checked
+          in
+          reject "expired allocation cannot enter another task"
+            (Holyc_lib__Ir.Integer_interpreter.admit_static_allocation foreign
+               allocation))
+        (Globals.statics (Unit.globals program))
+        (Unit.static_sources program))
+    programs;
+  Gc.full_major ();
+  let later = Globals.private_static_bindings (Unit.globals second) in
+  List.iter2
+    (fun (original, _) (retained, _) ->
+      Alcotest.(check bool)
+        "later view preserves original allocation objects" true
+        (original == retained))
+    bindings
+    (List.filteri (fun index _ -> index < 2) later);
+  let exhausted =
+    Session.add_source session ~path:"private-static-quota.hc"
+      ~contents:"I64 H(){static U8 C;return 42;}"
+  in
+  let errors =
+    match Task.run task ~source:exhausted with
+    | Error errors -> errors
+    | Ok _ ->
+        Alcotest.fail "private static exceeded the original cumulative quota"
+  in
+  Alcotest.(check bool)
+    "private declaration reports cumulative quota failure" true
+    (List.exists
+       (fun (error : Diagnostic.t) -> error.code = "HCIRVM0016")
+       errors);
+  Alcotest.(check int)
+    "failed allocation preserves earlier charges" 24
+    (Task.progress task).runtime.global_bytes;
+  Alcotest.(check int)
+    "failed declaration never reaches a command request" 2
+    (List.length !observed_programs)
+
 let tests =
   [
+    Alcotest.test_case
+      "live native statics retain private storage and completed frames" `Quick
+      native_static_storage_owners;
     Alcotest.test_case "static allocations join exact original completed frames"
       `Quick original_static_frame_sources;
     Alcotest.test_case

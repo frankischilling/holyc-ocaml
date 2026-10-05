@@ -814,6 +814,12 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
       when Task_declarations.dimension_requires_runtime receipt ->
         execute_runtime_dimension ~use_active_stream ?stream_exe_print task
           receipt
+    | Frontend.Parser.Function_local_allocated receipt
+      when Option.is_some task.native_dispatch
+           && receipt.allocation_storage = Frontend.Ast.Static_local ->
+        Task_declarations.declare_native_static_symbol task.declarations
+          ~runtime:task.state receipt
+        |> Result.map ignore
     | Frontend.Parser.Global_declared publication ->
         admit_global task publication
     | Frontend.Parser.Global_initializer_started start ->

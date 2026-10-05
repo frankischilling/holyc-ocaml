@@ -19,6 +19,17 @@ val index : slot -> int
 val frame : slot -> Sema.Function_frame_layout.function_layout
 val location : slot -> Sema.Function_frame_layout.location
 val shape : slot -> Integer_storage_shape.t
+val source_allocation : slot -> Integer_static_allocation.t option
+
+val with_source_allocation :
+  allocation:Integer_static_allocation.t ->
+  source:Sema.Static_local_source.t ->
+  slot ->
+  (slot, string) result
+(** Preserve the exact provisional storage owner when its original checked local
+    joins the completed frame. Initializer payloads and preparation state are
+    unchanged; this grants no native execution authority. *)
+
 val symbol : slot -> Sema.Symbol.t
 val type_ : slot -> Sema.Type.t
 

@@ -2062,6 +2062,31 @@ let admit_declared_global task declaration =
     task.source_promotion_open <- false;
     Ok ()
 
+let admit_static_allocation task allocation =
+  let ( let* ) = Result.bind in
+  let* () =
+    if not task.native_storage_authority then
+      Error "private source static admission requires native task storage"
+    else Integer_globals.check_static_allocation task.catalog allocation
+  in
+  let* bytes =
+    match
+      Integer_storage_shape.padded_byte_size
+        (Integer_static_allocation.shape allocation)
+    with
+    | Some bytes -> Ok bytes
+    | None -> Error "HCIRVM0016: task static allocation extent overflows"
+  in
+  if bytes > task.max_global_bytes - task.global_bytes then
+    Error "HCIRVM0016: task static storage exceeds the cumulative byte limit"
+  else
+    let* () =
+      Integer_globals.publish_static_allocation task.catalog allocation
+    in
+    task.global_bytes <- task.global_bytes + bytes;
+    task.source_promotion_open <- false;
+    Ok ()
+
 let require_initializer_namespace task namespace =
   if Integer_globals.task_catalog_owns_namespace task.catalog namespace then
     Ok ()

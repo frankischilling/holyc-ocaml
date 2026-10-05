@@ -39,6 +39,7 @@ type collected_function = {
   entries : entry list;
   completed_header : Frontend.Parser.completed_function_header option;
   mutable header_reused : bool;
+  mutable source_statics : (Compiler_record.static_allocation * Symbol.t) list;
 }
 
 type t = { functions : collected_function list }
@@ -51,6 +52,62 @@ let function_entries (function_ : collected_function) = function_.entries
 
 let function_completed_header (function_ : collected_function) =
   function_.completed_header
+
+let static_symbol (function_ : collected_function) allocation =
+  List.find_map
+    (fun (original, symbol) ->
+      if original == allocation then Some symbol else None)
+    function_.source_statics
+
+let declare_static ~table (function_ : collected_function) allocation =
+  let module Record = Compiler_record in
+  let module Parser = Frontend.Parser in
+  let receipt = Record.static_allocation_receipt allocation in
+  let valid_header =
+    Option.fold ~none:false
+      ~some:(fun header ->
+        header.Parser.function_publication == receipt.allocation_function)
+      function_.completed_header
+  in
+  if
+    (not (Parser.function_local_allocation_is_current receipt))
+    || (not (Record.static_allocation_owns_table allocation table))
+    || (not valid_header) || function_.header_reused
+    || function_.symbol
+       != Declaration_collection.publication_symbol
+            (Record.static_allocation_publication allocation)
+    || (not (Symbol_table.owns_scope table function_.scope))
+    || (not
+          (Option.fold ~none:false
+             ~some:
+               (( == )
+                  (Declaration_collection.namespace_scope
+                     (Record.static_allocation_namespace allocation)))
+             (Symbol_table.parent function_.scope)))
+    || Option.is_some (static_symbol function_ allocation)
+  then
+    Error
+      "static symbol requires its original live allocation and partial header"
+  else
+    match receipt.allocation_local.local_source with
+    | Parser.Local_variable source ->
+        let location = source.local_name.location in
+        let origin =
+          Symbol.Source_location
+            {
+              span = location.span;
+              source_segments = location.source_segments;
+              generated_from = location.generated_from;
+              defined_at = location.defined_at;
+            }
+        in
+        Symbol_table.add table ~scope:function_.scope
+          ~name:source.local_name.spelling ~kind:Symbol.Local_variable ~origin
+        |> Result.map (fun symbol ->
+            function_.source_statics <-
+              (allocation, symbol) :: function_.source_statics;
+            symbol)
+    | _ -> Error "static symbol requires an original variable allocation"
 
 let entry_symbol (entry : entry) = entry.symbol
 let entry_kind (entry : entry) = entry.kind
@@ -337,6 +394,7 @@ let collect_function table parent (function_ : function_declaration) =
               entries;
               completed_header = function_.completed_header;
               header_reused = false;
+              source_statics = [];
             })
 
 let same_symbol left right = left == right
@@ -452,7 +510,47 @@ let validate_retained ~table ~parent retained_headers function_facts =
 
 let collect_reused_function table (function_ : function_declaration) retained =
   let _, locals = parameter_bindings function_.bindings in
-  match add_bindings table retained.scope locals with
+  let rec add used_rev entries_rev = function
+    | [] ->
+        if List.length used_rev <> List.length retained.source_statics then
+          Error
+            "completed function did not consume every original static symbol"
+        else Ok (List.rev entries_rev)
+    | (binding : binding) :: rest ->
+        let original =
+          match (binding.kind, binding.origin) with
+          | Static_local, Symbol.Source_location origin ->
+              List.find_opt
+                (fun (_, symbol) ->
+                  match Symbol.origin symbol with
+                  | Symbol.Source_location source -> source.span == origin.span
+                  | _ -> false)
+                retained.source_statics
+          | _ -> None
+        in
+        let checked =
+          match original with
+          | None ->
+              add_bindings table retained.scope [ binding ]
+              |> Result.map (fun entries -> (used_rev, List.hd entries))
+          | Some (allocation, symbol) ->
+              if
+                List.exists (( == ) allocation) used_rev
+                || (not (Symbol_table.owns_symbol table symbol))
+                || Symbol.name symbol <> binding.name
+              then
+                Error
+                  "completed function substituted its original static symbol"
+              else
+                Ok
+                  ( allocation :: used_rev,
+                    { symbol; kind = binding.kind; position = binding.position }
+                  )
+        in
+        Result.bind checked (fun (used_rev, entry) ->
+            add used_rev (entry :: entries_rev) rest)
+  in
+  match add [] [] locals with
   | Error _ as error -> error
   | Ok local_entries ->
       retained.header_reused <- true;
@@ -464,6 +562,7 @@ let collect_reused_function table (function_ : function_declaration) retained =
           entries = retained.entries @ local_entries;
           completed_header = retained.completed_header;
           header_reused = true;
+          source_statics = retained.source_statics;
         }
 
 let collect ?(retained_headers = []) ~table ~parent function_facts =

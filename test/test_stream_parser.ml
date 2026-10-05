@@ -1716,8 +1716,54 @@ let implicit_defaults_do_not_consume_supplied_values () =
       {|extern U0 Print(U8 *s=0);"" "value" #exe {};|};
     ]
 
+let original_local_identifier_selection () =
+  let allocations = ref [] and selections = ref [] in
+  let commands =
+    {
+      (declaration_sink (function
+        | Parser.Function_local_allocated receipt ->
+            allocations := receipt :: !allocations;
+            Ok ()
+        | _ -> Ok ()))
+      with
+      reference =
+        Some
+          (fun selection ->
+            selections := selection :: !selections;
+            Ok ());
+      call = None;
+    }
+  in
+  let _, _, parsed, _, _, _ =
+    parse ~same_task:true ~commands
+      {|I64 Top;I64 F(){static I64 A;A;I64 B;B;return A;}I64 G(){static I64 A;return A;}Top;|}
+  in
+  ignore (P.expect_ast parsed);
+  let allocations = List.rev !allocations
+  and selections = List.rev !selections in
+  let first = (List.nth allocations 0).Parser.allocation_local in
+  let automatic = (List.nth allocations 1).Parser.allocation_local in
+  let later = (List.nth allocations 2).Parser.allocation_local in
+  List.iter2
+    (fun selection expected ->
+      match (Parser.selected_local selection, expected) with
+      | Some original, Some expected ->
+          Alcotest.(check bool)
+            "identifier retains exact original local publication" true
+            (original == expected)
+      | None, None -> ()
+      | _ -> Alcotest.fail "identifier lost its original local selection")
+    selections
+    [ Some first; Some automatic; Some first; Some later; None ];
+  Alcotest.(check bool)
+    "same spelling in another function has a distinct owner" true
+    (first != later)
+
 let tests =
   [
+    Alcotest.test_case
+      "identifiers retain original static and automatic local selections" `Quick
+      original_local_identifier_selection;
     Alcotest.test_case
       "implicit call parentheses retain separate expression groups" `Quick
       (fun () ->

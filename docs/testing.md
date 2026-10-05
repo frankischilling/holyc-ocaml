@@ -1529,5 +1529,11 @@ Static allocation tests retain successful live JIT receipts through callback
 expiry and reject foreign tables and fresh registries. Sealed source tests join
 scalar and array allocations to their completed frames, distinguish same-name
 locals in different functions, and reject foreign frames, locations and source
-views. These checks cover source ownership; native source-task statics remain
-unsupported.
+views. Parser tests retain the original static or automatic publication selected
+by each identifier, including same-named locals in separate functions. A native
+dispatch metadata probe follows live private declarations through function
+completion, checks pending/completed storage identity and snapshot retention,
+and rejects foreign-task admission. It charges padded extents once and retains
+earlier charges after quota failure. The probe creates no native arena or
+initializer values and executes no interpreter instructions. These checks cover
+source and storage ownership; native source-task statics remain unsupported.

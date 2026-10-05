@@ -10,6 +10,7 @@ module Shape = Integer_storage_shape
 module Arrays = Integer_array_initializers
 
 type slot = {
+  source_allocation : Integer_static_allocation.t option;
   index : int;
   frame : Frame.function_layout;
   location : Frame.location;
@@ -26,6 +27,7 @@ let index slot = slot.index
 let frame slot = slot.frame
 let location slot = slot.location
 let shape slot = slot.shape
+let source_allocation slot = slot.source_allocation
 let symbol slot = Frame.location_symbol slot.location
 let type_ slot = Frame.location_storage_type slot.location |> Result.get_ok
 let callback_pointer slot = Frame.location_callback_pointer slot.location
@@ -50,6 +52,22 @@ let materialized slot =
   && not
        (Option.fold ~none:false ~some:Arrays.has_unprepared
           slot.array_initializers)
+
+let with_source_allocation ~allocation ~source slot =
+  let ( let* ) = Result.bind in
+  let* () = Integer_static_allocation.check_completed allocation source in
+  if
+    Sema.Static_local_source.frame source != slot.frame
+    || Sema.Static_local_source.location source != slot.location
+    || Option.is_some slot.source_allocation
+    || Integer_storage_shape.dimensions slot.shape
+       <> Integer_storage_shape.dimensions
+            (Integer_static_allocation.shape allocation)
+    || Integer_storage_shape.byte_size slot.shape
+       <> Integer_storage_shape.byte_size
+            (Integer_static_allocation.shape allocation)
+  then Error "static slot requires its original completed source and shape"
+  else Ok { slot with source_allocation = Some allocation }
 
 let ( let* ) = Result.bind
 
@@ -319,6 +337,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     locals
                       (index + Shape.element_count shape)
                       ({
+                         source_allocation = None;
                          index;
                          frame;
                          location;
