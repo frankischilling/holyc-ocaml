@@ -18,6 +18,13 @@ Historical callees remain distinct after same-name declarations. Code mappings
 belong to individual fragments; the source registry supplies no stable native
 function address.
 
+Retained Print and PutChars calls use the original body's sealed call occurrence
+and admitted extern link. A request-scoped check verifies their task and source
+owner before compilation. If the original extern slot has gained a joined
+source body, the backend rejects provider fallback until native extern-slot
+dispatch is implemented. Output shares the task's cumulative allowance and
+keeps the existing atomic Print and incremental PutChars contracts.
+
 `Ir.Expression_lowering` emits branch continuations for original integer
 comparison chains used as conditions. `Ir.Block_graph` validates dominance of
 values shared across blocks and supplies definition order for type preparation.

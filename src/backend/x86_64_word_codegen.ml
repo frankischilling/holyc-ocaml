@@ -8097,7 +8097,8 @@ let callable_definition_matches_call
   | None -> false
 
 let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
-    ~runtime_calls ~entry ~functions ~retained_function_source =
+    ~runtime_calls ~entry ~functions ~retained_function_source
+    ~retained_provider_available =
   let queue = Queue.create () in
   let collected_rev = ref [] in
   let admitted_blocks = ref 0 in
@@ -8319,6 +8320,19 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
                      sealed runtime context"
               | Some call -> (
                   match Runtime.provider call with
+                  | Some (Runtime.Print | Runtime.Put_chars) when historical
+                    -> (
+                      match
+                        retained_provider_available ~runtime_calls ~owner call
+                      with
+                      | Ok true -> ()
+                      | Ok false ->
+                          reject ?span:raw.span "HCBACK0002"
+                            "retained native provider has a joined source \
+                             body; unresolved extern-slot dispatch remains \
+                             unsupported"
+                      | Error message ->
+                          reject ?span:raw.span "HCBACK0003" message)
                   | Some _ when historical ->
                       reject ?span:raw.span "HCBACK0002"
                         "retained native task functions currently require \
@@ -8651,7 +8665,8 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
               with Rejected error -> Error [ error ])))
 
 let compile_callable_internal ?task_snapshot ?retained_function_source
-    ?status_abi ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
+    ?retained_provider_available ?status_abi
+    ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?parameter_defaults ?global_initializers ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
@@ -8710,8 +8725,8 @@ let compile_callable_internal ?task_snapshot ?retained_function_source
               };
             ]
         else
-          match retained_function_source with
-          | None ->
+          match (retained_function_source, retained_provider_available) with
+          | None, _ | _, None ->
               Error
                 [
                   {
@@ -8722,12 +8737,12 @@ let compile_callable_internal ?task_snapshot ?retained_function_source
                     span = None;
                   };
                 ]
-          | Some retained_function_source -> (
+          | Some retained_function_source, Some retained_provider_available -> (
               try
                 Ok
                   (collect_task_callable_sources ~max_ir_instructions
                      ~max_blocks ~globals ~runtime_calls ~entry ~functions
-                     ~retained_function_source)
+                     ~retained_function_source ~retained_provider_available)
               with Rejected error -> Error [ error ]))
     | None ->
         Ok
@@ -9369,9 +9384,10 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
 
 let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
     ~task_snapshot ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~retained_function_source ~initialization ~entry ~functions () =
-  compile_callable_internal ~task_snapshot ~retained_function_source ?status_abi
-    ?max_stack_bytes ?max_blocks
+    ~retained_function_source ~retained_provider_available ~initialization
+    ~entry ~functions () =
+  compile_callable_internal ~task_snapshot ~retained_function_source
+    ~retained_provider_available ?status_abi ?max_stack_bytes ?max_blocks
     ~max_global_bytes:Global_storage.hard_max_global_bytes ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
 

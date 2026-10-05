@@ -7,6 +7,8 @@ storage. `examples/native-source-arrays.hc` returns 42 from
 Direct functions retain their original source across commands;
 `examples/native-source-functions.hc` returns 42 from
 `I64 A=41; I64 F(){return A+1;} F();`.
+Retained functions can also call the checked Print and PutChars providers.
+`examples/native-source-output.hc` prints `A42;` and returns 42.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
 and remaining native address, dimension and runtime work under #704.
 

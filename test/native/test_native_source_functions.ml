@@ -23,20 +23,20 @@ let inputs text =
 
 let run ?(max_steps = 100_000) ?max_ir_instructions ?max_code_bytes
     ?max_initializer_steps ?max_global_bytes ?max_frame_bytes ?max_call_depth
-    ?max_active_stack_bytes text =
+    ?max_active_stack_bytes ?max_output_bytes ?max_output_work text =
   let session, config, source = inputs text in
   Native.evaluate ?max_ir_instructions ?max_code_bytes ?max_initializer_steps
     ?max_global_bytes ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
-    session ~config ~source ~max_steps
+    ?max_output_bytes ?max_output_work session ~config ~source ~max_steps
 
-let value expected report =
+let value ?(output = "") expected report =
   let result =
     Native.outcome report |> Result.map_error diagnostics |> checked
   in
   let word = Option.get result.value.final_value in
   Alcotest.(check int64) "original native function result" expected word.bits;
   Alcotest.(check string)
-    "quiet source task output" ""
+    "captured ordinary output" output
     (Native.output_bytes report);
   word
 
@@ -331,6 +331,187 @@ let unsupported_persistent_function_storage () =
       "I64 F(){1.0;return 42;} F();";
     ]
 
+let retained_provider_output () =
+  List.iter
+    (fun (output, text) ->
+      let report = run ~max_code_bytes:262_144 text in
+      ignore (value ~output 42L report);
+      completed report;
+      let session, config, source = inputs text in
+      let interpreted =
+        run_integer_program_report session ~config ~source ~max_steps:100_000
+      in
+      let result =
+        integer_program_report_outcome interpreted
+        |> Result.map_error diagnostics
+        |> checked
+      in
+      let word = Option.get (Ir_integer_interpreter.final_value result.value) in
+      Alcotest.(check int64) "independent IR result" 42L word.bits;
+      Alcotest.(check string)
+        "independent IR bytes" output
+        (integer_program_report_output_bytes interpreted))
+    [
+      ("A", "extern U0 PutChars(U64 ch);I64 F(){PutChars('A');return 42;}F();");
+      ("AB", "extern U0 PutChars(U64 ch);U0 F(){PutChars('AB');}F();42;");
+      ( "42;",
+        "extern U0 Print(U8 *fmt,...);U8 Format[4]={37,100,59,0};I64 \
+         F(){Print(Format,42);return 42;}F();" );
+      ( "42;42;",
+        "extern U0 Print(U8 *fmt,...);U8 Format[4]={37,100,59,0};I64 \
+         F(){Print(Format,42);return 42;}F();I64 B=F();B;" );
+    ]
+
+let retained_output_effect_order () =
+  let text =
+    "extern U0 PutChars(U64 ch);I64 N=0;I64 Left(){N++;PutChars('L');return \
+     20;}I64 Right(){N++;PutChars('R');return 22;}I64 Add(I64 a,I64 \
+     b){PutChars('C');return a+b;}I64 F(){return Add(Left(),Right());}F()+N-2;"
+  in
+  ignore (value ~output:"RLC" 42L (run text));
+  let text =
+    "extern U0 PutChars(U64 ch);I64 N=40;I64 Next(){PutChars('I');return \
+     ++N;}I64 A[2]={Next(),Next()};A[1];"
+  in
+  ignore (value ~output:"II" 42L (run text));
+  let text =
+    "extern U0 PutChars(U64 ch);I64 Recur(I64 n){PutChars('R');if(n)return \
+     Recur(n-1);return 42;}Recur(2);"
+  in
+  ignore (value ~output:"RRR" 42L (run text))
+
+let retained_output_limits_and_faults () =
+  let text =
+    "extern U0 PutChars(U64 ch);I64 F(){PutChars('ABC');return \
+     42;}PutChars('P');F();"
+  in
+  let report = run text in
+  ignore (value ~output:"PABC" 42L report);
+  let work = Native.output_work report in
+  let steps = Native.executed_steps report in
+  ignore
+    (value ~output:"PABC" 42L
+       (run ~max_output_bytes:4 ~max_output_work:work ~max_steps:steps text));
+  let report = run ~max_output_bytes:3 text in
+  ignore (fault Image.Output_limit_exceeded report);
+  Alcotest.(check string)
+    "PutChars retains reached prefix" "PAB"
+    (Native.output_bytes report);
+  let report = run ~max_output_work:(work - 1) text in
+  ignore (fault Image.Output_work_limit_exceeded report);
+  Alcotest.(check int)
+    "output work consumes exact remaining allowance" (work - 1)
+    (Native.output_work report);
+  let report = run ~max_steps:(steps - 1) text in
+  ignore (fault Image.Step_limit_exceeded report);
+  Alcotest.(check string)
+    "later instruction fault retains ordinary output" "PABC"
+    (Native.output_bytes report);
+  let report =
+    run
+      "extern U0 PutChars(U64 ch);I64 F(){PutChars('A');return \
+       1/0;}PutChars('P');F();PutChars('Z');"
+  in
+  ignore (fault Image.Division_by_zero report);
+  Alcotest.(check string)
+    "earlier output survives reached function fault" "PA"
+    (Native.output_bytes report)
+
+let retained_print_atomic_faults () =
+  let text =
+    "extern U0 PutChars(U64 ch);extern U0 Print(U8 *fmt,...);U8 \
+     Format[4]={37,100,59,0};I64 F(){Print(Format,42);return \
+     42;}PutChars('P');F();"
+  in
+  let report = run text in
+  ignore (value ~output:"P42;" 42L report);
+  let work = Native.output_work report in
+  ignore
+    (value ~output:"P42;" 42L
+       (run ~max_output_bytes:4 ~max_output_work:work text));
+  let report = run ~max_output_bytes:3 text in
+  ignore (fault Image.Output_limit_exceeded report);
+  Alcotest.(check string)
+    "Print publishes no partial draft" "P"
+    (Native.output_bytes report);
+  let report = run ~max_output_work:(work - 1) text in
+  ignore (fault Image.Output_work_limit_exceeded report);
+  Alcotest.(check string)
+    "Print work failure retains earlier output" "P"
+    (Native.output_bytes report);
+  let report =
+    run
+      "extern U0 PutChars(U64 ch);extern U0 Print(U8 *fmt,...);U8 \
+       Format[3]={65,37,115};U8 Text[2]={66,0};I64 \
+       F(){Print(Format,Text);return 42;}PutChars('P');F();"
+  in
+  ignore (fault Image.Address_out_of_bounds report);
+  Alcotest.(check string)
+    "faulting format scan publishes no draft" "P"
+    (Native.output_bytes report)
+
+let retained_provider_history () =
+  let text =
+    "extern U0 Print(U8 *fmt,...);U8 Format[4]={37,100,59,0};I64 \
+     F(){Print(Format,42);return 42;}U8 Format[2]={88,0};F();"
+  in
+  ignore (value ~output:"42;" 42L (run text));
+  let text =
+    "extern U0 PutChars(U64 ch);I64 F(){PutChars('A');return 42;}I64 \
+     Old(){return F();}I64 F(){PutChars('N');return 100;}Old();"
+  in
+  ignore (value ~output:"A" 42L (run text));
+  let text =
+    "I64 A=0;U0 PutChars(U64 ch){A++;}I64 F(){PutChars('A');return 41;}F()+A;"
+  in
+  ignore (value 42L (run text));
+  let text =
+    "extern U0 PutChars(U64 ch);I64 A=0;I64 F(){PutChars('A');return 42;}U0 \
+     PutChars(U64 ch){A++;}F();"
+  in
+  let report = run text in
+  diagnostic "HCBACK0002" report;
+  Alcotest.(check bool)
+    "replacement reaches the joined-provider guard" true
+    (rejection report
+    |> List.exists (fun (error : Diagnostic.t) ->
+        String.starts_with ~prefix:"retained native provider has a joined"
+          error.message));
+  Alcotest.(check string)
+    "a joined source executable cannot fall back to its older provider" ""
+    (Native.output_bytes report)
+
+let retained_provider_compilation_limits () =
+  let text =
+    "extern U0 PutChars(U64 ch);extern U0 Print(U8 *fmt,...);U8 \
+     Format[4]={37,100,59,0};I64 Emit(){PutChars('A');Print(Format,42);return \
+     42;}Emit();"
+  in
+  let report = run text in
+  ignore (value ~output:"A42;" 42L report);
+  let code, ir =
+    List.fold_left
+      (fun (code, ir) (fragment : Native.fragment) ->
+        (code + fragment.image.code_bytes, ir + fragment.image.ir_instructions))
+      (0, 0) (Native.fragments report)
+  in
+  ignore
+    (value ~output:"A42;" 42L
+       (run ~max_code_bytes:code ~max_ir_instructions:ir text));
+  List.iter
+    (fun (diagnostic_code, report) ->
+      diagnostic diagnostic_code report;
+      Alcotest.(check string)
+        "rejected caller publishes no output" ""
+        (Native.output_bytes report);
+      Alcotest.(check int)
+        "earlier initializer and declaration fragments remain" 5
+        (List.length (Native.fragments report)))
+    [
+      ("HCBACK0005", run ~max_code_bytes:(code - 1) text);
+      ("HCBACK0001", run ~max_ir_instructions:(ir - 1) text);
+    ]
+
 let () =
   Alcotest.run "Native source functions"
     [
@@ -362,5 +543,17 @@ let () =
             transitive_closure_limits;
           Alcotest.test_case "persistent function storage boundaries" `Quick
             unsupported_persistent_function_storage;
+          Alcotest.test_case "retained ordinary output providers" `Quick
+            retained_provider_output;
+          Alcotest.test_case "retained output effects and original order" `Quick
+            retained_output_effect_order;
+          Alcotest.test_case "retained output limits and faults" `Quick
+            retained_output_limits_and_faults;
+          Alcotest.test_case "retained Print atomic drafts and faults" `Quick
+            retained_print_atomic_faults;
+          Alcotest.test_case "original providers, formats and joined bodies"
+            `Quick retained_provider_history;
+          Alcotest.test_case "provider closures and cumulative compile limits"
+            `Quick retained_provider_compilation_limits;
         ] );
     ]

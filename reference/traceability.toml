@@ -13408,3 +13408,19 @@ execution = "Each caller fragment compiles the original direct-call closure with
 verification = "Public API and CLI tests cover original definition and call events, initializer calls, right-to-left argument effects, integer widths, arrays, recursive and transitive calls, historical bodies and globals, reached function faults, cumulative code/IR/runtime limits, independent tasks and garbage collection. Original request and registry tests check publication, replay, source identity and host ABI compilation."
 verification_boundary = "Direct source relinking is a hosted code-lifetime policy. Each emitted copy counts against cumulative code and IR limits. The source audit and hosted execution add no TempleOS oracle capture, stable cross-fragment executable address or exported HolyC ABI."
 excluded = ["persistent native function addresses and task callbacks", "general unresolved extern slots and late replacement", "function statics and declaration defaults", "task literals", "runtime-dependent dimensions", "native #exe", "AOT source-task execution", "general F64/aggregate execution", "exported HolyC ABI", "assembler/object/BIN output", "actual TempleOS loader acceptance", "whole-tree compilation and bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-TASK-OUTPUT"
+description = "Retained native source functions call checked Print and PutChars with cumulative output and original source ownership."
+sources = ["Compiler/PrsExp.HC:544-586 original call occurrence, argument order and cleanup", "Compiler/PrsStmt.HC:62-137 original extern record reuse", "Kernel/KeyDev.HC:20-27 packed PutChars bytes", "Kernel/StrPrint.HC:890-896 completed Print publication"]
+implementation = ["src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-output.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Each provider occurrence belongs to the exact admitted body and sealed runtime context. Its original retained extern link belongs to the same task. Request and domain checks remain live during compilation. A joined source definition disables provider fallback by exact symbol and declaration ancestry."
+execution = "The existing native provider path reads original global or automatic array formats, captures arguments in their original order, and charges the shared task instruction/output allowance. Print publishes complete drafts; PutChars retains reached prefixes. Earlier output survives later faults and fragments."
+verification = "Public source/API/CLI tests check independent interpreted bytes, historical functions and array formats, nested and reverse argument effects, initializer output once, recursion, late faults, atomic drafts and exact/one-below output, work, code and IR limits. Both provider bodies compile for both host status ABIs. Foreign tasks, contexts, call occurrences, domains and expired requests reject with valid retry controls."
+verification_boundary = "Provider adapters, memory guards and quota handling are hosted policy. This connection adds no TempleOS oracle capture or exported ABI."
+excluded = ["task literal storage", "StreamPrint and StreamExePrint native source bridges", "joined unresolved extern-slot execution", "persistent function addresses and task callbacks", "effectful defaults and native #exe", "AOT source tasks", "F64 and aggregate execution", "TempleOS loader and bootstrap", "full compiler and release"]

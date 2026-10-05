@@ -21,9 +21,9 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3)
+    (Array.length Sys.argv = 3 || Array.length Sys.argv = 4)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
-     <native-source-functions.hc>"
+     <native-source-functions.hc> [native-source-output.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -178,5 +178,38 @@ let () =
     (String.split_on_char '\n' stdout
     |> List.exists (String.starts_with ~prefix:"native-fragments=3"))
     "human report retains separate native function fragments";
+  let output_fixture =
+    "extern U0 PutChars(U64 ch);extern U0 Print(U8 *fmt,...);U8 \
+     Format[4]={37,100,59,0};I64 Emit(){PutChars('A');Print(Format,42);return \
+     42;}Emit();"
+  in
+  let output_checks path =
+    let report = json_path path in
+    require (final_bits report = "0x000000000000002a") "provider result";
+    require
+      (report |> member "output_hex" |> to_string = "4134323b")
+      "retained provider captures original bytes";
+    let ir = json_path ~target:"ir" path in
+    require
+      (ir |> member "output_hex" |> to_string = "4134323b")
+      "independent source output";
+    let limited =
+      json_path ~status:1 ~options:[ "--output-byte-limit=3" ] path
+    in
+    require (has_diagnostic "HCIRVM0022" limited) "retained output limit";
+    require
+      (limited |> member "output_hex" |> to_string = "41")
+      "faulting Print preserves prior PutChars only"
+  in
+  if Array.length Sys.argv = 4 then output_checks Sys.argv.(3)
+  else with_file ".hc" output_fixture output_checks;
+  with_file ".hc"
+    "extern U0 PutChars(U64 ch);I64 F(){PutChars('A');return \
+     1/0;}PutChars('P');F();PutChars('Z');" (fun path ->
+      let report = json_path ~status:1 path in
+      require (has_diagnostic "HCIRVM0009" report) "late provider body fault";
+      require
+        (report |> member "output_hex" |> to_string = "5041")
+        "earlier output survives native function fault");
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

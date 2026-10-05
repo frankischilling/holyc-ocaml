@@ -69,6 +69,12 @@ module Native_dispatch = struct
     | None ->
         Error "native initializer request has no exact admitted function source"
 
+  let initializer_provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    VM.task_native_provider_available request.initializer_task ~runtime_calls
+      ~owner call
+
   let check_command_request request =
     if not (owns_domain request.command_domain) then
       Error "native command request belongs to another execution domain"
@@ -113,6 +119,12 @@ module Native_dispatch = struct
     | Some source -> Ok source
     | None ->
         Error "native command request has no exact admitted function source"
+
+  let command_provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    VM.task_native_provider_available request.command_task ~runtime_calls ~owner
+      call
 
   let create_initializer ~task ~attempt ~execution ~program =
     {

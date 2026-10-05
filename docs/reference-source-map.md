@@ -21,6 +21,14 @@ retained bodies with their original global references. A same-name replacement
 does not retarget an already selected direct call. This hosted code-lifetime
 policy supplies no persistent function address or new TempleOS capture.
 
+Retained native source output connects the original `PrsExp.HC:544-586` call
+occurrence to the admitted body's runtime context and extern link.
+`Kernel/KeyDev.HC:20-27` supplies packed PutChars iteration;
+`Kernel/StrPrint.HC:890-896` publishes Print's completed buffer. The existing
+hosted providers supply checked array reads and output limits. A joined native
+source body disables earlier provider fallback. See
+`examples/native-source-output.hc` and the native source-function tests.
+
 Explicit indexed callback dereferences follow the pending-operator stack in
 `Compiler/PrsExp.HC:609-676`, callback selection at lines 761-770 and 867-904,
 and `PrsLib.HC:21-29`. The callback selection removes one pending star before

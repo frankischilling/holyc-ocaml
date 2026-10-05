@@ -28,6 +28,24 @@ module Native_dispatch : sig
     (Ir.Integer_interpreter.task_function_source, string) result
 
   val check_command_request : command_request -> (unit, string) result
+
+  val initializer_provider_available :
+    initializer_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val command_provider_available :
+    command_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+  (** Inspect an original admitted Print/PutChars call while its source request
+      is still offered. Foreign contexts, domains and entered or expired
+      requests reject. A joined source body disables provider fallback. *)
+
   val claim_command_request : command_request -> (unit, string) result
 
   val command_function_source :

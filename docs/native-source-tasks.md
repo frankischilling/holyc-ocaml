@@ -56,6 +56,26 @@ storage and nested calls retain their original frame and argument owners.
 Arguments retain their right-to-left evaluation order; modifying `argc` does
 not change the original variadic extent.
 
+Retained functions can call the checked Print and PutChars providers. The
+maintained `examples/native-source-output.hc` prints `A42;` and returns 42.
+Its format bytes come from an original U8 array in the task arena. The example
+uses six native fragments, 62 runtime steps, thirteen preparation steps and
+nine output-work units. Formats can also use checked automatic arrays; task
+string literals still need their separate storage path.
+
+The provider call must retain its original sealed occurrence, admitted function
+context and extern link. A source function named Print or PutChars remains an
+ordinary function. If an originally unresolved provider slot acquires a joined
+source body, compilation rejects fallback to the earlier provider. Executing
+that replacement needs the remaining native extern-slot consumer.
+
+Ordinary output survives later faults and source fragments. Print publishes a
+complete draft, so a format, output-byte or work fault adds no partial bytes.
+PutChars retains its reached prefix. Both consume the remaining task allowance,
+including zero, and preserve argument order and initializer effects once.
+Each caller still pays for its recompiled body and formatting code; repeated
+Print calls across fragments can exhaust the cumulative code limit.
+
 Self-recursion uses the original current body and physical frame. Its JIT
 unresolved call form may bind only to that same body's checked definition and
 declaration ancestry. General unresolved extern calls and later slot replacement
@@ -135,6 +155,8 @@ retained direct functions. Runtime-dependent dimensions, task callback and
 literal storage, function statics, declaration defaults, native `#exe`,
 persistent executable addresses and AOT source-task execution remain separate
 work under #704.
+StreamPrint and StreamExePrint keep their separate generated-source and
+outer-context authority requirements.
 The existing `host-jit` target keeps
 its isolated compilation and AOT load-region contracts. This path adds no
 exported HolyC ABI, object or BIN loader, bootstrap, whole-tree compilation or
@@ -156,3 +178,7 @@ The hosted direct-call path retains that source identity while compiling code
 for each caller fragment. The arena bounds and
 ownership checks are hosted policy. These source audits and host tests add no
 new TempleOS oracle capture.
+`Kernel/KeyDev.HC:20-27` consumes a packed PutChars word byte by byte.
+`Kernel/StrPrint.HC:890-896` builds the complete Print buffer before publishing
+it. The checked hosted providers reuse those existing source-backed contracts;
+this source-task connection adds no native oracle observation.

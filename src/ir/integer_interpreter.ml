@@ -2848,6 +2848,44 @@ let task_native_function_source task link =
     exact_native_function_source task link
   else None
 
+let task_native_provider_available task ~runtime_calls ~owner call =
+  let original_owner =
+    List.exists
+      (fun (_, source) ->
+        source.source_runtime_calls == runtime_calls
+        &&
+        match owner with
+        | Runtime.Function body -> source.source_definition.body == body
+        | Runtime.Entry -> false)
+      task.native_function_sources
+  in
+  if not original_owner then
+    Error "native provider has no original admitted function context"
+  else if
+    not
+      (Option.is_some (Runtime.original_function_addresses runtime_calls ~owner)
+      && Option.fold ~none:false ~some:(( == ) call)
+           (Runtime.find_start runtime_calls ~owner (Runtime.first call)))
+  then Error "native provider call is not its original sealed occurrence"
+  else
+    match (Runtime.provider call, Runtime.retained_function call) with
+    | Some (Runtime.Print | Runtime.Put_chars), Some link
+      when Integer_globals.task_catalog_contains_function task.catalog link ->
+        let replaced =
+          List.exists
+            (fun (_, source) ->
+              let body = source.source_definition.body in
+              Function.callable_symbol body == Runtime.symbol call
+              && Option.fold ~none:false
+                   ~some:(fun later ->
+                     Sema.Function_resolution.is_joined_successor
+                       ~earlier:(Runtime.declaration call) ~later)
+                   (Function.definition_declaration body))
+            task.native_function_sources
+        in
+        Ok (not replaced)
+    | _ -> Error "native provider lacks its original admitted extern link"
+
 let task_function_source task link =
   match task_native_function_source task link with
   | Some _ as source -> source

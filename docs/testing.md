@@ -14,6 +14,15 @@ source after an actual native fault.
 An independent installed-library consumer exercises the same public API outside
 the compiler checkout.
 
+The native source-function suites also check retained Print and PutChars calls,
+array format ownership, reverse arguments, initializer output and recursion.
+Exact output/work and compile limits preserve reached effects. Faulting Print
+drafts publish no partial bytes; PutChars keeps its prefix. Source and request
+controls reject foreign contexts, call occurrences, domains and expired entries,
+and compile both providers for both status ABIs. A newly joined source body
+cannot run through the older provider fallback. The output CLI fixture is
+`examples/native-source-output.hc`.
+
 `test/native/test_native_source_execution.ml` checks original live scalar and array
 initializers, stable cross-fragment writes, declared widths, unsigned words,
 reached faults and exact cumulative native limits. It distinguishes native

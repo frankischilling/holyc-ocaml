@@ -124,6 +124,11 @@ val compile_task_fragment :
   retained_function_source:
     (Ir.Retained_function.t ->
     (Ir.Integer_interpreter.task_function_source, string) result) ->
+  retained_provider_available:
+    (runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result) ->
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   functions:Ir.Integer_interpreter.function_definition list ->

@@ -4,6 +4,8 @@ Issue #704 connects original scalar and fixed-array JIT initializer leaves,
 retained direct functions and resumed commands to one native arena through
 `host-jit-task`. Source requests execute once under a shared native budget.
 Each caller compiles its original function bodies and historical global bindings.
+Retained Print and PutChars calls use those original contexts and share the
+task's output allowance. Joined extern-body dispatch remains unfinished.
 Persistent executable addresses, task callbacks, runtime dimensions, task
 literals, effectful defaults, native `#exe` and AOT task execution remain open. See
 [native source tasks](docs/native-source-tasks.md).

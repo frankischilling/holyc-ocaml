@@ -116,7 +116,8 @@ let create_task_layout ~max_global_bytes =
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~runtime_calls
-    ~retained_function_source ~initialization ~entry ~functions () =
+    ~retained_function_source ~retained_provider_available ~initialization
+    ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -133,8 +134,8 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
   let* image =
     Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
       ~task_snapshot:snapshot ~max_ir_instructions ~max_code_bytes
-      ~runtime_calls ~retained_function_source ~initialization ~entry ~functions
-      ()
+      ~runtime_calls ~retained_function_source ~retained_provider_available
+      ~initialization ~entry ~functions ()
     |> Result.map_error project_errors
   in
   if
@@ -163,6 +164,8 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~runtime_calls:(Fragment.runtime_calls program)
     ~retained_function_source:
       (Task_dispatch.initializer_function_source request)
+    ~retained_provider_available:
+      (Task_dispatch.initializer_provider_available request)
     ~initialization:(Fragment.initialization program)
     ~entry:(Fragment.entry program) ~functions:[] ()
 
@@ -176,6 +179,8 @@ let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
     ~claim:(fun () -> Task_dispatch.claim_command_request request)
     ~runtime_calls:(Unit.runtime_calls program)
     ~retained_function_source:(Task_dispatch.command_function_source request)
+    ~retained_provider_available:
+      (Task_dispatch.command_provider_available request)
     ~initialization:(Unit.initialization program)
     ~entry:(Unit.entry program) ~functions:(Unit.functions program) ()
 

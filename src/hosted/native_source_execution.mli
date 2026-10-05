@@ -58,7 +58,9 @@ val evaluate :
     Named direct functions retain their original admitted source body, frame,
     call context and global references. Each caller fragment compiles its exact
     direct-call closure, including historical definitions. The task retains no
-    persistent executable address for these source records.
+    persistent executable address for these source records. Original checked
+    Print/PutChars calls keep their cumulative output contracts. A joined extern
+    body cannot fall back to its earlier provider.
 
     Code bytes and verified IR instructions are bounded cumulatively across
     emitted fragments. Runtime steps and output share one native allowance;

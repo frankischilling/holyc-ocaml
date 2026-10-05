@@ -543,6 +543,17 @@ val task_native_function_source :
     task claim. This carries no executable owner or address authority and never
     follows a later joined definition. *)
 
+val task_native_provider_available :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  Runtime_call_context.call ->
+  (bool, string) result
+(** Check an original Print/PutChars occurrence in an admitted native function.
+    The retained extern link must belong to this task. [false] means that its
+    original address slot has acquired a joined source body; hosted provider
+    fallback cannot stand in for that executable. This grants no entry. *)
+
 val task_output_bytes : task_state -> string
 val task_output_work : task_state -> int
 val task_generated_bytes : task_state -> int

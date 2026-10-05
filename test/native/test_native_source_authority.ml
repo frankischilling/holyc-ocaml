@@ -1011,6 +1011,136 @@ let native_function_reached_fault_retains_source () =
     (Task.native_final_value task = Some (Dispatch.I64 42L));
   Runtime.release_task_arena arena |> checked
 
+let native_provider_source_authority () =
+  let module Calls = Holyc_lib__Ir.Runtime_call_context in
+  let module Graph = Holyc_lib__Ir.Block_graph in
+  let module Sequence = Holyc_lib__Ir.Instruction_sequence in
+  let provider_calls bundle =
+    Graph.blocks (Body.body bundle.definition.body)
+    |> List.concat_map (fun block ->
+        Sequence.instructions (Graph.instructions block))
+    |> List.filter_map (fun instruction ->
+        let raw = Sequence.description instruction in
+        Calls.find_start bundle.runtime_calls
+          ~owner:(Calls.Function bundle.definition.body) raw.instruction_id)
+  in
+  let provider_call bundle = List.hd (provider_calls bundle) in
+  let declaration =
+    "extern U0 PutChars(U64 ch);extern U0 Print(U8 *fmt,...);"
+  in
+  let definition =
+    "I64 F(){U8 \
+     Format[4];Format[0]=37;Format[1]=100;Format[2]=59;Format[3]=0;PutChars('A');Print(Format,42);return \
+     42;}"
+  in
+  let foreign_bundle = ref None in
+  let foreign_session = Session.create () in
+  let foreign_dispatch : Dispatch.t =
+    {
+      execute_initializer = (fun _ -> Alcotest.fail "foreign initializer");
+      execute_command =
+        (fun request ->
+          if Unit.functions (Dispatch.command_program request) <> [] then
+            foreign_bundle := Some (command_function_bundle request);
+          Dispatch.claim_command_request request |> checked;
+          Ok Dispatch.Unchanged);
+    }
+  in
+  let foreign_task =
+    Task.create ~native_dispatch:foreign_dispatch foreign_session |> checked
+  in
+  task_succeeds "foreign provider declaration"
+    (task_run foreign_session foreign_task 50 declaration);
+  task_succeeds "foreign original body"
+    (task_run foreign_session foreign_task 51 definition);
+  let foreign = Option.get !foreign_bundle in
+  let session = Session.create () in
+  let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
+  let original = ref None and saved_request = ref None in
+  let original_check available =
+    let bundle = Option.get !original in
+    Alcotest.(check int)
+      "both original providers remain in the body" 2
+      (List.length (provider_calls bundle));
+    List.fold_left
+      (fun checked_prior call ->
+        Result.bind checked_prior (fun prior ->
+            available ~runtime_calls:bundle.runtime_calls
+              ~owner:(Calls.Function bundle.definition.body) call
+            |> Result.map (fun available -> prior && available)))
+      (Ok true) (provider_calls bundle)
+  in
+  let command_checks request =
+    let available = Dispatch.command_provider_available request in
+    Alcotest.(check bool)
+      "original retained provider is available" true
+      (original_check available |> checked);
+    rejected "another task's equal source cannot authorize output"
+      (available ~runtime_calls:foreign.runtime_calls
+         ~owner:(Calls.Function foreign.definition.body) (provider_call foreign));
+    let bundle = Option.get !original in
+    rejected "foreign call cannot borrow the original context"
+      (available ~runtime_calls:bundle.runtime_calls
+         ~owner:(Calls.Function bundle.definition.body) (provider_call foreign));
+    rejected "entry ownership cannot replace original function ownership"
+      (available ~runtime_calls:bundle.runtime_calls ~owner:Calls.Entry
+         (provider_call bundle));
+    let worker = Domain.spawn (fun () -> original_check available) in
+    rejected "another domain cannot use the live provider request"
+      (Domain.join worker);
+    Alcotest.(check bool)
+      "rejection preserves legitimate provider inspection" true
+      (original_check available |> checked)
+  in
+  let native_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          compile_initializer_both_abis layout request;
+          let available = Dispatch.initializer_provider_available request in
+          Alcotest.(check bool)
+            "original initializer provider is available" true
+            (original_check available |> checked);
+          rejected "foreign initializer output owner"
+            (available ~runtime_calls:foreign.runtime_calls
+               ~owner:(Calls.Function foreign.definition.body)
+               (provider_call foreign));
+          Dispatch.claim_initializer_request request |> checked;
+          rejected "entered initializer revokes provider inspection"
+            (original_check available);
+          Ok ());
+      execute_command =
+        (fun request ->
+          let definitions = Unit.functions (Dispatch.command_program request) in
+          (match definitions with
+          | [ _ ] ->
+              original := Some (command_function_bundle request);
+              rejected "unadmitted body grants no provider authority"
+                (original_check (Dispatch.command_provider_available request))
+          | [] when Option.is_some !original ->
+              saved_request := Some request;
+              command_checks request
+          | [] -> ()
+          | _ -> Alcotest.fail "unexpected provider function bundle");
+          compile_command_both_abis layout request;
+          Dispatch.claim_command_request request |> checked;
+          if Option.is_some !original then
+            rejected "entered command revokes provider inspection"
+              (original_check (Dispatch.command_provider_available request));
+          Ok Dispatch.Unchanged);
+    }
+  in
+  let task = Task.create ~native_dispatch session |> checked in
+  task_succeeds "original provider declaration"
+    (task_run session task 52 declaration);
+  task_succeeds "original provider body" (task_run session task 53 definition);
+  task_succeeds "original provider caller" (task_run session task 54 "F();");
+  rejected "saved command cannot reuse provider authority"
+    (original_check
+       (Dispatch.command_provider_available (Option.get !saved_request)));
+  task_succeeds "original provider initializer"
+    (task_run session task 55 "I64 A=F();")
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -1043,5 +1173,8 @@ let () =
           Alcotest.test_case
             "reached native fault retains admitted function source" `Quick
             native_function_reached_fault_retains_source;
+          Alcotest.test_case
+            "original provider contexts, both ABIs and request lifetimes" `Quick
+            native_provider_source_authority;
         ] );
     ]

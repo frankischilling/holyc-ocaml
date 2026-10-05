@@ -11,6 +11,14 @@ callbacks, runtime dimensions, literals, defaults, native `#exe` and AOT task
 execution remain open under #704.
 See [native source tasks](native-source-tasks.md).
 
+Retained task functions use their original source context for Print and PutChars.
+Owned array formats, nested calls and initializer output share cumulative native
+instruction, output-byte and output-work limits. Print faults preserve earlier
+output without publishing a partial draft; PutChars keeps reached prefixes.
+Joined source-body replacement rejects provider fallback while native extern-slot
+dispatch remains unfinished. StreamPrint and StreamExePrint remain separate
+source-generation consumers.
+
 Explicit stars on fully indexed callback cells execute through both runners in
 JIT and AOT modes. Calls, reads, stores and numeric updates reuse the original
 array selection. Grouping under the star, callback members and remaining
