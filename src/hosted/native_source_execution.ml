@@ -144,8 +144,13 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       Native.create_budget ~max_steps ~max_output_bytes ~max_output_work ()
       |> Result.map_error host_error
     in
+    let max_arena_bytes =
+      if max_global_bytes > Native.hard_max_arena_bytes / 9 then
+        Native.hard_max_arena_bytes
+      else 9 * max_global_bytes
+    in
     let* arena =
-      Native.create_task_arena ~max_arena_bytes:(2 * max_global_bytes) layout
+      Native.create_task_arena ~max_arena_bytes layout
       |> Result.map_error host_error
     in
     Ok (layout, budget, arena)

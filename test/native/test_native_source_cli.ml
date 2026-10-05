@@ -21,12 +21,13 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3)
+    (Array.length Sys.argv = 4)
     "usage: test_native_source_cli.exe <holyc.exe> \
-     <native-source-initializers.hc>"
+     <native-source-initializers.hc> <native-source-arrays.hc>"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
+let array_fixture = Sys.argv.(3)
 
 let invoke expected arguments =
   with_file ".out" "" (fun stdout ->
@@ -173,4 +174,70 @@ let () =
     (String.split_on_char '\n' stdout
     |> List.exists (String.starts_with ~prefix:"native-fragments=3"))
     "human report identifies individual native fragments";
-  print_endline "Native source CLI: 12 executions passed."
+  let arrays = json_path array_fixture in
+  require (final_bits arrays = "0x000000000000002a") "native array result 42";
+  let array_fragments = fragments arrays in
+  require (List.length array_fragments = 4) "three array leaves and one command";
+  require
+    (List.map
+       (fun fragment -> fragment |> member "global_bytes" |> to_int)
+       array_fragments
+    = [ 16; 16; 24; 24 ])
+    "array logical data grows only for new declarations";
+  require
+    (List.map
+       (fun fragment -> fragment |> member "global_arena_bytes" |> to_int)
+       array_fragments
+    = [ 32; 32; 41; 41 ])
+    "array initialization flags retain their original offsets";
+  require
+    (final_bits (json_path ~target:"ir" array_fixture) = final_bits arrays)
+    "independent interpreted array result";
+  let array_steps = arrays |> member "executed_steps" |> to_int in
+  require
+    (final_bits
+       (json_path
+          ~options:[ "--step-limit=" ^ string_of_int array_steps ]
+          array_fixture)
+    = final_bits arrays)
+    "exact native array step limit";
+  let array_fault =
+    json_path ~status:1
+      ~options:[ "--step-limit=" ^ string_of_int (array_steps - 1) ]
+      array_fixture
+  in
+  require
+    (array_fault |> member "executed_steps" |> to_int = array_steps - 1)
+    "array quota preserves reached work";
+  with_file ".hc" "U8 A[2]={257,41}; A[0]+A[1];" (fun path ->
+      let narrow = json_path ~options:[ "--global-byte-limit=2" ] path in
+      require
+        (final_bits narrow = "0x000000000000002a")
+        "narrow array fits its declared-byte limit";
+      require
+        (List.hd (fragments narrow)
+        |> member "global_arena_bytes"
+        |> to_int = 18)
+        "narrow array privately reserves all element flags");
+  with_file ".hc" "I64 A[2]; A[0]=42; A[1];" (fun path ->
+      let fault = json_path ~status:1 path in
+      require
+        (fault |> member "diagnostics" |> to_list
+        |> List.exists (fun diagnostic ->
+            diagnostic |> member "code" |> to_string = "HCIRVM0012"))
+        "unwritten array element remains uninitialized");
+  with_file ".hc" "I64 A[2]={41,1}; A[2];" (fun path ->
+      let fault = json_path ~status:1 path in
+      require
+        (List.hd (List.rev (fragments fault))
+        |> member "outcome" |> to_string = "fault")
+        "array bounds fault reaches native CLI");
+  let stdout, _ =
+    invoke 0
+      [ "run"; "--target=host-jit-task"; "--format=human"; array_fixture ]
+  in
+  require
+    (String.split_on_char '\n' stdout
+    |> List.exists (String.starts_with ~prefix:"native-fragments=4"))
+    "human report preserves original array fragments";
+  print_endline "Native source CLI: 20 executions passed."

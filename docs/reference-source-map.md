@@ -1,7 +1,11 @@
 # Reference source map
 
-Native scalar source tasks follow `Compiler/PrsVar.HC:53-107`, which compiles
-and calls each initializer expression before storing its declared-width result.
+Native scalar and array source tasks follow `Compiler/PrsVar.HC:53-107`, which
+compiles and calls each initializer expression before storing its declared-width result.
+`PrsVar.HC:123-212` follows original dimensions and visits fixed-count array
+leaves in order. `PrsExp.HC:1068-1100` scales subscripts by the remaining stride
+and original element width. The checked hosted layout retains these dimensions
+and the exact original storage identity, with independent flags for each element.
 `Compiler/CMain.HC:1-32` compiles the original statement and returns its final
 expression. The hosted driver admits each original live request, and separate
 native fragments share one append-only arena. Retained references, destination

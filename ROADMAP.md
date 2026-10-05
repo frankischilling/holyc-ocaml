@@ -1,9 +1,10 @@
 # holyc-ocaml roadmap
 
-Issue #704 connects original scalar JIT initializer leaves and resumed commands
-to one append-only native arena through the `host-jit-task` target. Source
+Issue #704 connects original scalar and fixed-array JIT initializer leaves and
+resumed commands to one append-only native arena through the `host-jit-task` target. Source
 requests retain their original admission and execute once under a shared native
-budget. Retained function linking, task arrays/literals, effectful defaults,
+budget. Retained function linking, runtime dimensions, task literals, effectful
+defaults,
 native `#exe` and live replacement remain open. See
 [native source tasks](docs/native-source-tasks.md).
 

@@ -1,10 +1,11 @@
 # holyc-ocaml
 
-The `host-jit-task` target executes scalar initializers at their original live
-source callbacks, with later commands sharing the same native storage.
-`examples/native-source-initializers.hc` returns 42 from `I64 A=41; I64 B=A+1; B;`.
+The `host-jit-task` target executes integer scalar and fixed-array initializers
+at their original live source callbacks. Later commands share the same native
+storage. `examples/native-source-arrays.hc` returns 42 from
+`I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;`.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
-and remaining function, array and runtime work under #704.
+and remaining function, dynamic-dimension and runtime work under #704.
 
 Explicit indexed callback forms such as `(*callbacks[index])(40)` run through
 IR and native execution, as do reads, stores and numeric updates through the

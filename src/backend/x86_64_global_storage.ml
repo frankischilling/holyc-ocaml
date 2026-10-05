@@ -738,17 +738,16 @@ let create_task_snapshot layout ~initialization ~entry =
           | None ->
               let* () =
                 if
-                  Globals.storage_dimensions storage <> []
-                  || Globals.storage_element_count storage <> 1
-                  || Option.is_some (Globals.storage_frame storage)
+                  Option.is_some (Globals.storage_frame storage)
                   || Globals.storage_is_callback storage
                 then
                   unsupported ?span
-                    "native task storage currently requires scalar integer \
-                     globals"
+                    "native task storage requires integer globals without \
+                     callback or frame ownership"
                 else if
                   Globals.storage_opcode storage <> Opcode.Ic_imm_i64
                   || Option.is_some (Globals.storage_initial_bits storage)
+                  || Globals.storage_array_image storage <> []
                 then
                   invalid ?span
                     "native task allocation must retain its original \
@@ -756,27 +755,69 @@ let create_task_snapshot layout ~initialization ~entry =
                 else Ok ()
               in
               let type_ = Globals.storage_type storage in
-              let* scalar =
-                match Scalar.of_type type_ with
-                | Some scalar -> Ok scalar
-                | None ->
+              let dimensions = Globals.storage_dimensions storage in
+              let* shape =
+                match Shape.create ~type_ ~dimensions with
+                | Ok shape -> Ok shape
+                | Error Shape.Unsupported_type ->
                     unsupported ?span
                       "native task globals require nonzero public integer \
                        storage"
+                | Error (Shape.Invalid_extent | Shape.Overflow) ->
+                    invalid ?span
+                      "native task storage has an invalid checked array shape"
               in
+              let scalar = Shape.scalar shape in
               let width = Scalar.byte_size scalar in
+              let strides = Shape.strides shape in
+              let element_count = Shape.element_count shape in
+              let extent_bytes = Shape.byte_size shape in
+              let is_array = dimensions <> [] in
               let* () =
                 if
-                  width > layout.max_task_global_bytes - state.task_global_bytes
+                  strides <> Globals.storage_strides storage
+                  || element_count <> Globals.storage_element_count storage
+                then
+                  invalid ?span
+                    "native task storage shape disagrees with its original \
+                     checked layout"
+                else if
+                  extent_bytes
+                  > layout.max_task_global_bytes - state.task_global_bytes
                 then
                   resource ?span "native task globals exceed max_global_bytes"
+                else Ok ()
+              in
+              let* arena_bytes, flag_offset =
+                if is_array then
+                  if
+                    extent_bytes > hard_max_arena_bytes - state.task_arena_bytes
+                  then
+                    resource ?span
+                      "native task data and initialization flags exceed the \
+                       arena bound"
+                  else
+                    let remaining =
+                      hard_max_arena_bytes - state.task_arena_bytes
+                      - extent_bytes
+                    in
+                    if element_count > remaining / 8 then
+                      resource ?span
+                        "native task data and initialization flags exceed the \
+                         arena bound"
+                    else
+                      let flag_bytes = element_count * 8 in
+                      Ok
+                        ( extent_bytes + flag_bytes,
+                          state.task_arena_bytes + extent_bytes + flag_bytes - 8
+                        )
                 else if
                   width + 1 > hard_max_arena_bytes - state.task_arena_bytes
                 then
                   resource ?span
                     "native task data and initialization flags exceed the \
                      arena bound"
-                else Ok ()
+                else Ok (width + 1, state.task_arena_bytes + width)
               in
               let slot =
                 {
@@ -787,12 +828,12 @@ let create_task_snapshot layout ~initialization ~entry =
                   callback = None;
                   code_owner_offset = None;
                   scalar;
-                  dimensions = [];
-                  strides = [];
-                  element_count = 1;
-                  extent_bytes = width;
+                  dimensions;
+                  strides;
+                  element_count;
+                  extent_bytes;
                   data_offset = state.task_arena_bytes;
-                  flag_offset = state.task_arena_bytes + width;
+                  flag_offset;
                   initially_initialized = false;
                 }
               in
@@ -804,8 +845,8 @@ let create_task_snapshot layout ~initialization ~entry =
                         state.task_slots;
                     task_symbols =
                       Symbol_map.add (Symbol.id symbol) slot state.task_symbols;
-                    task_global_bytes = state.task_global_bytes + width;
-                    task_arena_bytes = state.task_arena_bytes + width + 1;
+                    task_global_bytes = state.task_global_bytes + extent_bytes;
+                    task_arena_bytes = state.task_arena_bytes + arena_bytes;
                   },
                   slot )
         in

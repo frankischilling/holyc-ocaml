@@ -1,7 +1,8 @@
 # Incremental integer task execution
 
 The [native source-task API](native-source-tasks.md) now shares this driver's
-original declaration and command scheduling for scalar integer JIT source.
+original declaration and command scheduling for scalar and fixed-array integer
+JIT source.
 `holyc run --target=host-jit-task` executes each live initializer and resumed
 numeric command in one native arena. The public `Integer_task` interface below
 retains its interpreted execution contract and broader supported task domain.

@@ -1,10 +1,11 @@
 # holyc-ocaml compatibility status
 
-The `host-jit-task` target executes original scalar JIT initializer leaves and
-resumed source commands in one native arena. Exact retained references and
+The `host-jit-task` target executes original integer scalar and fixed-array JIT
+initializer leaves and resumed source commands in one native arena. Exact retained references and
 append-only offsets preserve earlier writes and initialization flags. Actual
 native outcomes supply cumulative steps; the source driver retains metadata
-without an interpreter storage copy. Task arrays, callback/function linking,
+without an interpreter storage copy. Runtime dimensions, callback/function
+linking,
 literals, defaults, native `#exe` and AOT task execution remain open under #704.
 See [native source tasks](native-source-tasks.md).
 

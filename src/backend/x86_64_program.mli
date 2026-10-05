@@ -143,7 +143,7 @@ val compile_task_initializer :
   layout:task_layout ->
   Driver.Integer_task.Native_dispatch.initializer_request ->
   (t, error list) result
-(** Compile the original live scalar initializer against the task's stable
+(** Compile the original live integer initializer leaf against the task's stable
     storage layout. The image retains its exact one-shot source-entry token. *)
 
 val compile_task_command :

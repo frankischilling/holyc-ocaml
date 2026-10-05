@@ -43,12 +43,12 @@ let inputs ?(mode = Preprocessor.Jit) text =
   (session, config, source)
 
 let run ?mode ?(max_steps = 100_000) ?max_global_bytes ?max_code_bytes
-    ?max_ir_instructions ?max_initializer_steps ?max_active_stack_bytes
-    ?status_abi text =
+    ?max_ir_instructions ?max_initializer_steps ?max_dimension_work
+    ?max_active_stack_bytes ?status_abi text =
   let session, config, source = inputs ?mode text in
   Native.evaluate ?max_global_bytes ?max_code_bytes ?max_ir_instructions
-    ?max_initializer_steps ?max_active_stack_bytes ?status_abi session ~config
-    ~source ~max_steps
+    ?max_initializer_steps ?max_dimension_work ?max_active_stack_bytes
+    ?status_abi session ~config ~source ~max_steps
 
 let expect_value expected report =
   let result =
@@ -174,6 +174,233 @@ let declared_widths () =
   Alcotest.(check bool)
     "full unsigned result class" true
     ((Option.get result.final_value).type_ = Image.U64)
+
+let array_source = "I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;"
+
+let original_array_leaves () =
+  let report = run array_source in
+  ignore (expect_value 42L report);
+  let fragments = Native.fragments report in
+  Alcotest.(check int)
+    "three original leaves and one command" 4 (List.length fragments);
+  Alcotest.(check (list int))
+    "array and scalar logical extents" [ 16; 16; 24; 24 ]
+    (List.map
+       (fun (fragment : Native.fragment) -> fragment.image.global_bytes)
+       fragments);
+  Alcotest.(check (list int))
+    "stable array flags and appended scalar" [ 32; 32; 41; 41 ]
+    (List.map
+       (fun (fragment : Native.fragment) -> fragment.image.global_arena_bytes)
+       fragments);
+  List.iteri
+    (fun index (fragment : Native.fragment) ->
+      Alcotest.(check bool)
+        "original array fragment kind" true
+        (fragment.kind
+        = if index < 3 then Native.Initializer else Native.Command);
+      match fragment.native_outcome with
+      | Some (Ok (Image.Completed execution)) ->
+          Alcotest.(check bool)
+            "array leaf executed natively" true
+            (execution.executed_steps > 0)
+      | _ -> Alcotest.fail "array fragment has no native completion")
+    fragments;
+  let progress = Option.get (Native.source_progress report) in
+  Alcotest.(check int)
+    "array task allocates no interpreted runtime work" 0
+    progress.runtime.executed_steps;
+  List.iter
+    (fun text -> ignore (expect_value 42L (run text)))
+    [
+      "I64 A[2]={41,A[0]+1}; A[1];";
+      "I64 N=0; I64 A[2]={++N,++N}; A[0]*10+A[1]+N+28;";
+      "I64 A[2][2]={{10,11},{20,1}}; I64 B=A[0][0]+A[0][1]+A[1][0]+A[1][1]; B;";
+      "I64 A[2][2]={{10,11},{20,1}}; A[0][2]+A[1][-1]+11;";
+      "I64 A[1]={41}; I64 B[1]={A[0]+1}; B[0];";
+      "I64 A[2]={20,21}; I64 B[2]={A[0],A[1]}; A[0]++; B[0]+A[0]+1;";
+    ]
+
+let array_widths () =
+  List.iter
+    (fun (type_name, first, second) ->
+      let text =
+        Printf.sprintf "%s A[2]={%s,%s}; A[0]+A[1];" type_name first second
+      in
+      ignore (expect_value 42L (run text)))
+    [
+      ("I8", "-1", "43");
+      ("U8", "257", "41");
+      ("I16", "-2", "44");
+      ("U16", "65537", "41");
+      ("I32", "-3", "45");
+      ("U32", "4294967297", "41");
+      ("I64", "-4", "46");
+      ("U64", "1", "41");
+      ("Bool", "257", "41");
+    ];
+  let narrow = run ~max_global_bytes:2 "U8 A[2]={257,41}; A[0]+A[1];" in
+  ignore (expect_value 42L narrow);
+  Alcotest.(check (list int))
+    "byte array reserves every element flag" [ 18; 18; 18 ]
+    (List.map
+       (fun (fragment : Native.fragment) -> fragment.image.global_arena_bytes)
+       (Native.fragments narrow));
+  let result =
+    run "U64 A[2]={0x8000000000000000,1}; A[0]+A[1];"
+    |> expect_value (Int64.succ Int64.min_int)
+  in
+  Alcotest.(check bool)
+    "array unsigned computation class" true
+    ((Option.get result.final_value).type_ = Image.U64)
+
+let indexed_array_effects () =
+  List.iter
+    (fun text -> ignore (expect_value 42L (run text)))
+    [
+      "I64 A[2]; A[0]=41; A[1]=1; A[0]+A[1];";
+      "I64 A[2]={20,21}; I64 N=0; ++A[N++]; A[0]+A[1]+N-1;";
+      "I64 A[2]={20,21}; I64 N=0; I64 B=A[N++]++; B+A[0]+N;";
+      "I64 A[2]={1,2}; A[0]+=(A[0]=20); A[0]+A[1];";
+      "I64 A[2]={1,2}; I64 N=0; A[N++]+=39; A[0]+A[1]+N-1;";
+      "I64 A[2]={0,0}; I64 I=0; while(I<2){A[I]=21; I++;} A[0]+A[1];";
+      "U8 A[2]={255,41}; A[0]+=2; A[0]+A[1];";
+      "I8 A[2]={127,170}; A[0]++; A[0]-A[1]+84;";
+    ]
+
+let array_faults () =
+  List.iter
+    (fun text ->
+      let report = run text in
+      ignore (expect_error "HCIRVM0012" report);
+      ignore (expect_native_fault Image.Uninitialized_read report))
+    [
+      "I64 A[2]; A[0]=42; A[1];";
+      "I64 A[2]; A[1]=42; A[0];";
+      "I64 A[2]={A[1],42}; A[0];";
+      "I64 A[2]={41,A[1]}; A[0];";
+      "U8 A[2]; A[0]=42; A[1];";
+      "I64 A[1]; I64 B=42; A[0];";
+    ];
+  List.iter
+    (fun text ->
+      ignore (expect_native_fault Image.Address_out_of_bounds (run text)))
+    [
+      "I64 A[2]={41,1}; A[2];";
+      "I64 A[2]={41,1}; A[-1];";
+      "I64 A[2]={41,1}; A[2]=42;";
+      "I64 A[2]={41,1}; ++A[2];";
+    ];
+  let partial = run "I64 A[2]={41,A[1]}; A[0]=99;" in
+  ignore (expect_native_fault Image.Uninitialized_read partial);
+  Alcotest.(check int)
+    "later array command never executes" 2
+    (List.length (Native.fragments partial));
+  (match (List.hd (Native.fragments partial)).native_outcome with
+  | Some (Ok (Image.Completed _)) -> ()
+  | _ -> Alcotest.fail "earlier array leaf lost its native completion");
+  let parsed = run "I64 A[2]={41,1}; I64 Broken=; A[0]=99;" in
+  expect_rejection parsed;
+  Alcotest.(check int)
+    "array writes survive later parse failure" 2
+    (List.length (Native.fragments parsed))
+
+let array_limits () =
+  let baseline = run array_source in
+  ignore (expect_value 42L baseline);
+  let steps = Native.executed_steps baseline in
+  ignore (expect_value 42L (run ~max_steps:steps array_source));
+  let stopped = run ~max_steps:(steps - 1) array_source in
+  ignore (expect_native_fault Image.Step_limit_exceeded stopped);
+  Alcotest.(check int)
+    "array cumulative runtime boundary" (steps - 1)
+    (Native.executed_steps stopped);
+  ignore (expect_value 42L (run ~max_global_bytes:24 array_source));
+  let storage = run ~max_global_bytes:23 array_source in
+  expect_rejection storage;
+  Alcotest.(check int)
+    "array leaves survive later storage admission failure" 2
+    (List.length (Native.fragments storage));
+  let fragments = Native.fragments baseline in
+  let code, ir =
+    List.fold_left
+      (fun (code, ir) (fragment : Native.fragment) ->
+        (code + fragment.image.code_bytes, ir + fragment.image.ir_instructions))
+      (0, 0) fragments
+  in
+  ignore
+    (expect_value 42L
+       (run ~max_code_bytes:code ~max_ir_instructions:ir array_source));
+  ignore
+    (expect_error "HCBACK0005" (run ~max_code_bytes:(code - 1) array_source));
+  ignore
+    (expect_error "HCBACK0001" (run ~max_ir_instructions:(ir - 1) array_source));
+  let preparation = Native.preparation_steps baseline in
+  ignore
+    (expect_value 42L (run ~max_initializer_steps:preparation array_source));
+  expect_rejection (run ~max_initializer_steps:(preparation - 1) array_source);
+  let dimensions = Native.dimension_work baseline in
+  Alcotest.(check bool) "original array dimension charged" true (dimensions > 0);
+  ignore (expect_value 42L (run ~max_dimension_work:dimensions array_source));
+  let multidimensional =
+    "I64 A[2][2]={{20,1},{20,1}}; A[0][0]+A[0][1]+A[1][0]+A[1][1];"
+  in
+  let multidimensional_report = run multidimensional in
+  ignore (expect_value 42L multidimensional_report);
+  let dimension_work = Native.dimension_work multidimensional_report in
+  Alcotest.(check bool)
+    "each original dimension consumes work" true (dimension_work > 1);
+  ignore (expect_value 42L (run ~max_dimension_work:1 multidimensional));
+  let preparation_work = Native.preparation_steps multidimensional_report in
+  ignore
+    (expect_value 42L
+       (run ~max_initializer_steps:preparation_work multidimensional));
+  let bounded_preparation =
+    run ~max_initializer_steps:(preparation_work - 1) multidimensional
+  in
+  ignore (expect_error "HCIRVM0007" bounded_preparation);
+  Alcotest.(check int)
+    "later preparation exhaustion retains three original array leaves" 3
+    (List.length (Native.fragments bounded_preparation));
+  Alcotest.(check int)
+    "array preparation consumes its exact remaining allowance"
+    (preparation_work - 1)
+    (Native.preparation_steps bounded_preparation);
+  let bounded_dimensions =
+    run ~max_initializer_steps:(dimension_work - 1) multidimensional
+  in
+  expect_rejection bounded_dimensions;
+  Alcotest.(check int)
+    "incomplete dimensions precede native array entry" 0
+    (Native.executed_steps bounded_dimensions);
+  expect_rejection (run ~max_global_bytes:1 "U8 A[2]={1,41}; A[0]+A[1];");
+  let capacity = Native_program_execution.hard_max_arena_bytes / 9 in
+  let source count = Printf.sprintf "U8 A[%d]; A[0]=42; A[0];" count in
+  let largest = run ~max_global_bytes:capacity (source capacity) in
+  ignore (expect_value 42L largest);
+  Alcotest.(check int)
+    "largest byte array includes every private flag" (capacity * 9)
+    (List.hd (Native.fragments largest)).image.global_arena_bytes;
+  let too_large =
+    run ~max_global_bytes:(capacity + 1) (source (capacity + 1))
+  in
+  ignore (expect_error "HCBACK0001" too_large);
+  Alcotest.(check int)
+    "private arena limit rejects before native entry" 0
+    (Native.executed_steps too_large)
+
+let array_lifetimes () =
+  for _ = 1 to 3 do
+    ignore (expect_value 42L (run array_source));
+    Gc.full_major ();
+    Gc.compact ();
+    ignore
+      (expect_native_fault Image.Uninitialized_read
+         (run "I64 A[2]; A[1]=42; A[0];"))
+  done;
+  let worker = Domain.spawn (fun () -> run array_source) in
+  ignore (expect_value 42L (run "U8 A[2]={1,41}; A[0]+A[1];"));
+  ignore (expect_value 42L (Domain.join worker))
 
 let reached_faults () =
   let uninitialized = run "I64 A; I64 B=A+1; B;" in
@@ -326,7 +553,7 @@ let unsupported_domains () =
     (fun text -> expect_rejection (run text))
     [
       "I64 F(){return 42;} F();";
-      "I64 A[2]={41,42}; A[1];";
+      "I64 N=2; I64 A[N]; A[0]=42; A[0];";
       "I64 *A; A;";
       "F64 A=42.0; A;";
       "\"unsupported\";";
@@ -512,6 +739,16 @@ let () =
             preserved_writes_and_growth;
           Alcotest.test_case "declared scalar widths and unsigned words" `Quick
             declared_widths;
+          Alcotest.test_case "original array leaves and stable layout" `Quick
+            original_array_leaves;
+          Alcotest.test_case "array widths and private flags" `Quick
+            array_widths;
+          Alcotest.test_case "indexed array effects and updates" `Quick
+            indexed_array_effects;
+          Alcotest.test_case "per-element faults and partial initialization"
+            `Quick array_faults;
+          Alcotest.test_case "array resource boundaries" `Quick array_limits;
+          Alcotest.test_case "array task lifetimes" `Quick array_lifetimes;
           Alcotest.test_case "reached faults and stopped source" `Quick
             reached_faults;
           Alcotest.test_case "exact cumulative native limits" `Quick

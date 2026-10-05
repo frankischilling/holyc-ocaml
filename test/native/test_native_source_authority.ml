@@ -193,6 +193,219 @@ let actual_source ?max_layout_work ~adversarial () =
     !saved;
   (report, Storage.task_layout_work layout, Runtime.budget_progress budget)
 
+let array_source ?(max_arena_bytes = 41) () =
+  let session, config, source = inputs "I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;" in
+  let compilation_errors errors =
+    List.map
+      (fun (error : Image.error) ->
+        Diagnostic.make ~code:error.code ~severity:Diagnostic.Error
+          ~message:error.message
+          ~primary:(Driver.Integer_source.source_span source)
+          ())
+      errors
+  in
+  let native_error message =
+    [
+      Diagnostic.make ~code:"HCRUN0004" ~severity:Diagnostic.Error ~message
+        ~primary:(Driver.Integer_source.source_span source)
+        ();
+    ]
+  in
+  let layout = Image.create_task_layout ~max_global_bytes:24 |> compiled in
+  let arena = Runtime.create_task_arena ~max_arena_bytes layout |> checked in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let observed = ref [] and saved = ref [] in
+  let execute image =
+    observed := (Image.global_bytes image, Image.arena_bytes image) :: !observed;
+    saved := image :: !saved;
+    Image.check_task_request image |> checked;
+    match Runtime.retain_task_fragment arena image with
+    | Error message -> Error message
+    | Ok retained ->
+        Fun.protect
+          ~finally:(fun () -> Runtime.release retained |> checked)
+          (fun () ->
+            let report =
+              Runtime.execute_retained_budget_report budget retained
+            in
+            let result = completed report in
+            rejected "array source request is consumed by its original entry"
+              (Image.check_task_request image);
+            Ok (report, result))
+  in
+  let native_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          match Image.compile_task_initializer ~layout request with
+          | Error errors -> Error (compilation_errors errors)
+          | Ok image -> (
+              match execute image with
+              | Ok _ -> Ok ()
+              | Error message -> Error (native_error message)));
+      execute_command =
+        (fun request ->
+          match Image.compile_task_command ~layout request with
+          | Error errors -> Error (compilation_errors errors)
+          | Ok image -> (
+              match execute image with
+              | Error message -> Error (native_error message)
+              | Ok (report, result) ->
+                  Ok
+                    (if Runtime.value_captured report then
+                       Dispatch.Captured
+                         (Option.map
+                            (fun (word : Image.word) ->
+                              match word.type_ with
+                              | Image.I64 -> Dispatch.I64 word.bits
+                              | U64 -> Dispatch.U64 word.bits)
+                            result.final_value)
+                     else Dispatch.Unchanged)));
+    }
+  in
+  let report =
+    Fun.protect
+      ~finally:(fun () -> Runtime.release_task_arena arena |> checked)
+      (fun () ->
+        Source.run ~native_dispatch session ~config ~source ~max_steps:100_000)
+  in
+  List.iter
+    (fun image ->
+      rejected "array request expires after its source callback"
+        (Image.check_task_request image);
+      rejected "released array arena cannot retain a saved fragment"
+        (Runtime.retain_task_fragment arena image))
+    !saved;
+  ( report,
+    List.rev !observed,
+    Storage.task_layout_work layout,
+    Runtime.budget_progress budget )
+
+let array_layout_and_capacity () =
+  let report, extents, work, _ = array_source () in
+  Source.outcome report |> Result.map_error describe |> checked |> ignore;
+  Alcotest.(check bool)
+    "array native final word" true
+    (Source.native_final_value report = Some (Dispatch.I64 42L));
+  Alcotest.(check (list (pair int int)))
+    "append-only array logical and arena extents"
+    [ (16, 32); (16, 32); (24, 41); (24, 41) ]
+    extents;
+  Alcotest.(check int) "exact array layout work" 6 work;
+  let report, extents, work, _ = array_source ~max_arena_bytes:40 () in
+  rejected "one-byte-short task arena stops the scalar suffix"
+    (Source.outcome report);
+  Alcotest.(check (list (pair int int)))
+    "short arena observes the exact rejected extent"
+    [ (16, 32); (16, 32); (24, 41) ]
+    extents;
+  Alcotest.(check int)
+    "rejected scalar suffix still charges its admitted layout visit" 4 work
+
+let array_abi_compilation () =
+  let session, config, source = inputs "I64 A[2]={41,1};" in
+  let reached = ref false in
+  let stop () =
+    Error
+      [
+        Diagnostic.make ~code:"HCRUN0004" ~severity:Diagnostic.Error
+          ~message:"array ABI probe stops before native entry"
+          ~primary:(Driver.Integer_source.source_span source)
+          ();
+      ]
+  in
+  let native_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          List.iter
+            (fun abi ->
+              let layout =
+                Image.create_task_layout ~max_global_bytes:16 |> compiled
+              in
+              let image =
+                Image.compile_task_initializer ~status_abi:abi ~layout request
+                |> compiled
+              in
+              Alcotest.(check bool)
+                "array task keeps requested status ABI" true
+                (Image.status_abi image = abi);
+              Alcotest.(check int)
+                "array ABI logical bytes" 16 (Image.global_bytes image);
+              Alcotest.(check int)
+                "array ABI arena bytes" 32 (Image.arena_bytes image))
+            [ Image.Windows_x64; Image.System_v_x64 ];
+          reached := true;
+          stop ());
+      execute_command =
+        (fun _ -> Alcotest.fail "array ABI probe reached a command");
+    }
+  in
+  ignore
+    (Source.run ~native_dispatch session ~config ~source ~max_steps:100_000);
+  Alcotest.(check bool)
+    "array ABI probe reached its original leaf" true !reached
+
+let foreign_array_source_layout () =
+  let create_layout () =
+    Image.create_task_layout ~max_global_bytes:16 |> compiled
+  in
+  let compile_original layout =
+    let session, config, source = inputs "I64 A[2]={41,1};" in
+    let observed = ref None in
+    let stop () =
+      Error
+        [
+          Diagnostic.make ~code:"HCRUN0004" ~severity:Diagnostic.Error
+            ~message:"array layout probe stops before native entry"
+            ~primary:(Driver.Integer_source.source_span source)
+            ();
+        ]
+    in
+    let native_dispatch : Dispatch.t =
+      {
+        execute_initializer =
+          (fun request ->
+            observed := Some (Image.compile_task_initializer ~layout request);
+            stop ());
+        execute_command =
+          (fun _ -> Alcotest.fail "array layout probe reached a command");
+      }
+    in
+    ignore
+      (Source.run ~native_dispatch session ~config ~source ~max_steps:100_000);
+    match !observed with
+    | Some result -> result
+    | None -> Alcotest.fail "array layout probe did not reach its original leaf"
+  in
+  let layout = create_layout () in
+  let original = compile_original layout |> compiled in
+  Alcotest.(check int)
+    "foreign array probe logical bytes" 16
+    (Image.global_bytes original);
+  Alcotest.(check int)
+    "foreign array probe arena bytes" 32
+    (Image.arena_bytes original);
+  rejected "saved array request expires after its callback"
+    (Image.check_task_request original);
+  let admitted = Storage.task_layout_work layout in
+  Alcotest.(check int) "first array leaf consumes one layout visit" 1 admitted;
+  (match compile_original layout with
+  | Ok _ ->
+      Alcotest.fail "equal array source in a foreign task acquired the layout"
+  | Error errors ->
+      Alcotest.(check bool)
+        "foreign array source reaches the task-owner guard" true
+        (List.exists
+           (fun (error : Image.error) ->
+             error.code = "HCBACK0003"
+             && error.message
+                = "native task storage belongs to another original task")
+           errors));
+  Alcotest.(check int)
+    "foreign array source consumes no layout allowance" admitted
+    (Storage.task_layout_work layout)
+
 let foreign_owners_and_budget () =
   let report, work, progress = actual_source ~adversarial:true () in
   Source.outcome report |> Result.map_error describe |> checked |> ignore;
@@ -351,6 +564,12 @@ let () =
             layout_work_limits;
           Alcotest.test_case "foreign source catalog and expired snapshots"
             `Quick foreign_source_layout;
+          Alcotest.test_case "fixed array layout, flags and exact capacity"
+            `Quick array_layout_and_capacity;
+          Alcotest.test_case "fixed array task fragments compile for both ABIs"
+            `Quick array_abi_compilation;
+          Alcotest.test_case "fixed array foreign and expired source authority"
+            `Quick foreign_array_source_layout;
           Alcotest.test_case
             "released arena preserves the offered source request" `Quick
             released_arena_preserves_request;

@@ -42,7 +42,7 @@ val create_task_layout :
   max_global_bytes:int ->
   unit ->
   (task_layout, error list) result
-(** Create a bounded append-only scalar layout. Its first original fragment
+(** Create a bounded append-only integer layout. Its first original fragment
     binds the layout to that retained task; later snapshots require the same
     catalog and exact retained references and storage objects. *)
 
@@ -57,9 +57,12 @@ val create_task_snapshot :
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   (task_snapshot, error list) result
-(** Append previously unseen original scalar globals and their initialization
-    flags without moving earlier offsets. This allocates immutable layout
-    metadata, not runtime values, and grants no source execution authority. *)
+(** Append previously unseen original scalar globals or fixed integer arrays and
+    their initialization flags without moving earlier offsets. Arrays retain the
+    original checked dimensions, strides and full object extent, with one
+    reversed eight-byte initialization flag per element. This allocates
+    immutable layout metadata, not runtime values, and grants no source
+    execution authority. *)
 
 val task_snapshot_matches_layout : task_snapshot -> task_layout -> bool
 val task_snapshot_arena_image : task_snapshot -> string
