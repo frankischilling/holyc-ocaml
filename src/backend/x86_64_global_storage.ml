@@ -14,6 +14,7 @@ type error = { code : string; message : string; span : Common.Span.t option }
 type slot = {
   source_slot : Globals.storage_slot;
   owner : Ir.Function_body.t option;
+  static_source : Ir.Integer_static_allocation.t option;
   symbol : Symbol.t;
   type_ : Sema.Type.t;
   callback : Sema.Function_type_resolution.function_pointer option;
@@ -60,6 +61,12 @@ type task_snapshot = {
   task_layout : task_layout;
   task_storage : t;
   task_state_snapshot : task_layout_state;
+}
+
+type static_reservation = {
+  reservation_layout : task_layout;
+  reservation_state : task_layout_state;
+  reservation_request : Driver.Integer_task.Native_static_allocation.request;
 }
 
 let hard_max_global_bytes = 16 * 1024 * 1024
@@ -601,6 +608,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           {
             source_slot;
             owner;
+            static_source = None;
             symbol;
             type_;
             callback;
@@ -678,18 +686,14 @@ let claim_task_arena layout =
   if Atomic.compare_and_set layout.task_arena_claimed false true then Ok ()
   else Error "native task layout already has its original arena owner"
 
-let create_task_snapshot layout ~initialization ~entry =
+let append_task_globals layout ~globals =
   let ( let* ) = Result.bind in
-  let globals = Initialization.globals initialization in
   let invalid ?span message = error ?span "HCBACK0003" message in
   let unsupported ?span message = error ?span "HCBACK0002" message in
   let resource ?span message = error ?span "HCBACK0001" message in
   let before = Atomic.get layout.task_state in
   let* () =
-    if not (Initialization.matches initialization ~globals ~entry) then
-      invalid
-        "native task storage requires its original entry and initialization"
-    else if
+    if
       (not (Globals.is_task_command globals))
       || Globals.compilation_mode globals <> Sema.Global_resolution.Jit
     then
@@ -699,20 +703,14 @@ let create_task_snapshot layout ~initialization ~entry =
         ~some:(fun owner -> not (Globals.same_task_storage owner globals))
         before.task_owner
     then invalid "native task storage belongs to another original task"
-    else if
-      Globals.statics globals <> []
-      || Initialization.static_regions initialization <> []
-      || Initialization.publications initialization <> []
-      || Option.is_some (Initialization.publication_evidence initialization)
-      || Initialization.prepared_steps initialization <> 0
-    then
-      unsupported
-        "native task fragments do not admit static storage or prepared image \
-         publications"
     else Ok ()
   in
   let bindings = Globals.retained_storage_bindings globals in
-  let declared = Globals.storage_slots globals in
+  let declared =
+    Globals.storage_slots globals
+    |> List.filter (fun storage ->
+        Option.is_none (Globals.storage_frame storage))
+  in
   let required_work = List.length bindings + List.length declared in
   let* () =
     if required_work > layout.max_task_layout_work - before.task_layout_work
@@ -838,6 +836,7 @@ let create_task_snapshot layout ~initialization ~entry =
                 {
                   source_slot = storage;
                   owner = None;
+                  static_source = None;
                   symbol;
                   type_;
                   callback = None;
@@ -892,6 +891,96 @@ let create_task_snapshot layout ~initialization ~entry =
       task_layout_work = before.task_layout_work + required_work;
     }
   in
+  if Atomic.compare_and_set layout.task_state before after then Ok after
+  else invalid "native task storage changed during fragment admission"
+
+let create_task_snapshot ?(functions = []) layout ~initialization ~entry =
+  let ( let* ) = Result.bind in
+  let globals = Initialization.globals initialization in
+  let* () =
+    if not (Initialization.matches initialization ~globals ~entry) then
+      error "HCBACK0003"
+        "native task storage requires its original entry and initialization"
+    else if
+      List.exists
+        (fun slot ->
+          Sema.Compiler_option.is_enabled
+            ~mask:(Globals.static_compiler_options slot)
+            Sema.Compiler_option.Globals_on_data_heap
+          || Option.is_none (Globals.static_source_allocation slot)
+          || not
+               (List.for_all
+                  (Globals.static_root_executed slot)
+                  (Globals.static_initializers slot)))
+        (Globals.statics globals)
+      || Initialization.static_regions initialization <> []
+      || Initialization.publications initialization <> []
+      || Option.is_some (Initialization.publication_evidence initialization)
+      || Initialization.prepared_steps initialization <> 0
+    then
+      error "HCBACK0002"
+        "native task fragments do not admit static storage or prepared image \
+         publications"
+    else Ok ()
+  in
+  let* after = append_task_globals layout ~globals in
+  let* after =
+    let* symbols =
+      List.fold_left
+        (fun checked static ->
+          let* symbols = checked in
+          let allocation =
+            Option.get (Globals.static_source_allocation static)
+          in
+          let symbol = Globals.storage_symbol (Globals.static_storage static) in
+          let* definition =
+            match
+              List.filter
+                (fun (definition : Ir.Integer_interpreter.function_definition)
+                   ->
+                  definition.frame == Globals.static_frame static
+                  && Ir.Function_body.definition_matches_frame definition.body
+                       definition.frame
+                  && Option.is_some
+                       (Ir.Function_body.definition_declaration definition.body))
+                functions
+            with
+            | [ definition ] -> Ok definition
+            | _ ->
+                error "HCBACK0003"
+                  "native task static lacks its unique original completed \
+                   function body"
+          in
+          match Symbol_map.find_opt (Symbol.id symbol) symbols with
+          | Some slot
+            when slot.symbol == symbol
+                 && Option.fold ~none:false ~some:(( == ) allocation)
+                      slot.static_source
+                 && Globals.same_storage slot.source_slot
+                      (Globals.static_storage static)
+                 && Option.fold ~none:true ~some:(( == ) definition.body)
+                      slot.owner ->
+              Ok
+                (Symbol_map.add (Symbol.id symbol)
+                   {
+                     slot with
+                     source_slot = Globals.static_storage static;
+                     owner = Some definition.body;
+                   }
+                   symbols)
+          | _ ->
+              error "HCBACK0003"
+                "native task static replaced its original arena allocation")
+        (Ok after.task_symbols) (Globals.statics globals)
+    in
+    if symbols == after.task_symbols then Ok after
+    else
+      let joined = { after with task_symbols = symbols } in
+      if Atomic.compare_and_set layout.task_state after joined then Ok joined
+      else
+        error "HCBACK0003"
+          "native task storage changed during original static completion"
+  in
   let task_storage =
     {
       globals;
@@ -903,9 +992,116 @@ let create_task_snapshot layout ~initialization ~entry =
       retained_slots = after.task_slots;
     }
   in
-  if Atomic.compare_and_set layout.task_state before after then
-    Ok { task_layout = layout; task_storage; task_state_snapshot = after }
-  else invalid "native task storage changed during fragment admission"
+  Ok { task_layout = layout; task_storage; task_state_snapshot = after }
+
+let reserve_static layout request =
+  let ( let* ) = Result.bind in
+  let module Request = Driver.Integer_task.Native_static_allocation in
+  let* () =
+    Request.check request
+    |> Result.map_error (fun message ->
+        [ { code = "HCBACK0003"; message; span = None } ])
+  in
+  let globals = Request.context request in
+  let allocation = Request.allocation request in
+  let* before = append_task_globals layout ~globals in
+  let symbol = Ir.Integer_static_allocation.symbol allocation in
+  let span = span_of_symbol symbol in
+  let invalid message = error ?span "HCBACK0003" message in
+  let resource message = error ?span "HCBACK0001" message in
+  let* after =
+    match Symbol_map.find_opt (Symbol.id symbol) before.task_symbols with
+    | Some slot ->
+        if
+          slot.symbol == symbol
+          && Option.fold ~none:false ~some:(( == ) allocation)
+               slot.static_source
+        then Ok before
+        else
+          invalid "static allocation replaced its original native storage owner"
+    | None ->
+        let shape = Ir.Integer_static_allocation.shape allocation in
+        let scalar = Shape.scalar shape in
+        let elements = Shape.element_count shape in
+        let dimensions = Shape.dimensions shape in
+        let* padded =
+          match Shape.padded_byte_size shape with
+          | Some bytes -> Ok bytes
+          | None -> resource "native static padded extent overflows"
+        in
+        let* () =
+          if before.task_layout_work >= layout.max_task_layout_work then
+            resource "native static allocation exceeds cumulative layout work"
+          else if
+            padded > layout.max_task_global_bytes - before.task_global_bytes
+          then resource "native statics exceed max_global_bytes"
+          else Ok ()
+        in
+        let flag_width = if dimensions = [] then 1 else 8 in
+        let* arena_bytes =
+          if
+            padded > hard_max_arena_bytes - before.task_arena_bytes
+            || elements
+               > (hard_max_arena_bytes - before.task_arena_bytes - padded)
+                 / flag_width
+          then resource "native static data and flags exceed the arena bound"
+          else Ok (padded + (elements * flag_width))
+        in
+        let slot =
+          {
+            source_slot = Globals.declared_static_storage allocation;
+            owner = None;
+            static_source = Some allocation;
+            symbol;
+            type_ = Ir.Integer_static_allocation.type_ allocation;
+            callback = None;
+            code_owner_offset = None;
+            scalar;
+            dimensions;
+            strides = Shape.strides shape;
+            element_count = elements;
+            extent_bytes = Shape.byte_size shape;
+            data_offset = before.task_arena_bytes;
+            flag_offset =
+              before.task_arena_bytes + padded + ((elements - 1) * flag_width);
+            initially_initialized = false;
+          }
+        in
+        Ok
+          {
+            before with
+            task_symbols =
+              Symbol_map.add (Symbol.id symbol) slot before.task_symbols;
+            task_global_bytes = before.task_global_bytes + padded;
+            task_arena_bytes = before.task_arena_bytes + arena_bytes;
+            task_layout_work = before.task_layout_work + 1;
+          }
+  in
+  if after == before || Atomic.compare_and_set layout.task_state before after
+  then
+    Ok
+      {
+        reservation_layout = layout;
+        reservation_state = after;
+        reservation_request = request;
+      }
+  else invalid "native task storage changed during static allocation"
+
+let check_static_reservation reservation ~layout ~request =
+  if
+    reservation.reservation_layout != layout
+    || reservation.reservation_request != request
+    || Atomic.get layout.task_state != reservation.reservation_state
+  then
+    Error "native static reservation is foreign or precedes the current layout"
+  else Driver.Integer_task.Native_static_allocation.check request
+
+let static_reservation_arena_bytes reservation =
+  reservation.reservation_state.task_arena_bytes
+
+let static_reservation_initializations_since reservation ~arena_prefix_bytes =
+  Literals.initializations_since reservation.reservation_state.task_literals
+    ~arena_prefix_bytes
 
 let append_task_literals snapshot ~sources ~work =
   let ( let* ) = Result.bind in
@@ -1059,8 +1255,35 @@ let data_offset slot = slot.data_offset
 let flag_offset slot = slot.flag_offset
 let initially_initialized slot = slot.initially_initialized
 
-let owns_address slot runtime_owner =
-  match (slot.owner, runtime_owner) with
-  | None, _ -> true
-  | Some expected, Ir.Runtime_call_context.Function actual -> expected == actual
-  | Some _, _ -> false
+let owns_address ?source_globals slot runtime_owner =
+  match (slot.owner, slot.static_source, runtime_owner) with
+  | _, Some allocation, Ir.Runtime_call_context.Entry ->
+      Option.fold ~none:false
+        ~some:(fun globals ->
+          Option.fold ~none:false
+            ~some:(fun fragment ->
+              let original = Ir.Integer_static_allocation.source allocation in
+              let receipt =
+                Sema.Compiler_record.static_allocation_receipt original
+              in
+              let destination =
+                (Sema.Static_initializer_fragment.receipt fragment)
+                  .static_allocation
+              in
+              destination.allocation_function == receipt.allocation_function
+              && (destination == receipt
+                 || List.exists
+                      (fun (_, selection) ->
+                        match Sema.Reference_selection.kind selection with
+                        | Sema.Reference_selection.Static_local reference ->
+                            Sema.Static_reference.allocation reference
+                            == original
+                        | _ -> false)
+                      (Sema.Static_initializer_fragment.references fragment)))
+            (Globals.static_fragment globals))
+        source_globals
+  | None, Some _, _ -> false
+  | None, None, _ -> true
+  | Some expected, _, Ir.Runtime_call_context.Function actual ->
+      expected == actual
+  | Some _, _, _ -> false

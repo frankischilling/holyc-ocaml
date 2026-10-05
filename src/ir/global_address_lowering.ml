@@ -133,6 +133,84 @@ let prepare_retained ~globals result =
                     "retained global has no checked pointer type or physical \
                      span"))
 
+let prepare_static_reference ~globals result =
+  let ( let* ) = Stdlib.Result.bind in
+  let source = Result.result_source result in
+  let origin = Source.argument_expression_origin source in
+  let span =
+    match origin with
+    | Sema.Symbol.Source_location location -> Some location.span
+    | _ -> None
+  in
+  let invalid message = error ?span "HCIRL0004" message in
+  match
+    ( Source.argument_expression_kind source,
+      Result.result_top_level_outer_occurrence result )
+  with
+  | Source.Top_level_bound_identifier_expression identifier, Some occurrence
+    when occurrence == Source.top_level_bound_identifier_occurrence identifier
+    -> (
+      match Top.occurrence_resolution occurrence with
+      | Top.Static_binding reference -> (
+          let* slot =
+            match
+              List.find_opt
+                (fun (allocation, slot) ->
+                  Integer_static_allocation.source allocation
+                  == Sema.Static_reference.allocation reference
+                  && Integer_globals.storage_symbol slot
+                     == Sema.Static_reference.symbol reference)
+                (Integer_globals.private_static_bindings globals)
+            with
+            | Some (_, slot) -> Ok slot
+            | None ->
+                invalid
+                  "static reference is absent from its original private task \
+                   view"
+          in
+          let* () =
+            if
+              origin <> Top.occurrence_origin occurrence
+              || Result.result_origin result <> origin
+              || (not
+                    (Sema.Type.equal
+                       (Sema.Static_reference.type_ reference)
+                       (Integer_globals.storage_type slot)))
+              || Sema.Static_reference.dimensions reference
+                 <> Integer_globals.storage_dimensions slot
+              || (not
+                    (Option.fold ~none:false
+                       ~some:
+                         (Sema.Type.equal (Integer_globals.storage_type slot))
+                       (Result.result_type result)))
+              || Result.result_array_rank result
+                 <> List.length (Integer_globals.storage_dimensions slot)
+              || Result.result_is_array_address result
+                 <> (Result.result_array_rank result > 0)
+            then
+              invalid
+                "static reference substituted its original type, occurrence or \
+                 shape"
+            else Ok ()
+          in
+          match (span, Type.pointer_to (Integer_globals.storage_type slot)) with
+          | Some span, Ok address_type ->
+              Ok
+                (Some
+                   {
+                     slot;
+                     address_type;
+                     span;
+                     initializer_indices = [];
+                     retained = None;
+                   })
+          | _ ->
+              invalid
+                "static reference has no original physical span or checked \
+                 address")
+      | _ -> prepare_retained ~globals result)
+  | _ -> prepare_retained ~globals result
+
 let prepare_global ~globals result =
   let source = Result.result_source result in
   let origin = Source.argument_expression_origin source in
@@ -166,7 +244,7 @@ let prepare_global ~globals result =
     | _ -> None
   in
   match bound with
-  | None -> prepare_retained ~globals result
+  | None -> prepare_static_reference ~globals result
   | Some (publication, name, occurrence_origin, source_type) -> (
       if Binding.publication_kind publication <> Binding.Global_variable then
         Ok None
@@ -413,6 +491,59 @@ let prepare_fragment_initializer destination =
           span = Destination.span destination;
           initializer_indices;
           retained = Some (Destination.reference destination);
+        }
+
+let prepare_static_fragment_initializer destination =
+  let ( let* ) = Stdlib.Result.bind in
+  let module Destination = Static_initializer_destination in
+  let slot = Destination.storage destination in
+  let bytes = Destination.byte_offset destination in
+  let cell = Destination.cell_offset destination in
+  let* initializer_indices =
+    let width =
+      Integer_storage_shape.scalar
+        (Integer_static_allocation.shape (Destination.allocation destination))
+      |> Integer_scalar_storage.byte_size
+    in
+    if
+      cell < 0
+      || cell >= Integer_globals.storage_element_count slot
+      || bytes < 0
+      || bytes / width <> cell
+      || bytes mod width <> 0
+    then
+      error "HCIRL0004" "static initializer cell and byte destination disagree"
+    else
+      let rec coordinates offset = function
+        | [], [] when offset = 0L -> Ok []
+        | count :: dimensions, stride :: strides when count > 0L && stride > 0L
+          ->
+            let index = Int64.div offset stride in
+            if index >= count then
+              error "HCIRL0004" "static initializer exceeds its checked extent"
+            else
+              let* rest =
+                coordinates (Int64.rem offset stride) (dimensions, strides)
+              in
+              Ok ((stride, index) :: rest)
+        | _ ->
+            error "HCIRL0004"
+              "static initializer has inconsistent checked dimensions"
+      in
+      coordinates (Int64.of_int bytes)
+        ( Integer_globals.storage_dimensions slot,
+          Integer_globals.storage_strides slot )
+  in
+  match Type.pointer_to (Integer_globals.storage_type slot) with
+  | Error message -> error "HCIRL0004" message
+  | Ok address_type ->
+      Ok
+        {
+          slot;
+          address_type;
+          span = Destination.span destination;
+          initializer_indices;
+          retained = None;
         }
 
 let prepare_initializer ~globals root =

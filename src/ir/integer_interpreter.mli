@@ -100,6 +100,18 @@ val admit_static_allocation :
 (** Charge one original live private static declaration in its native task. This
     retains metadata only and creates no interpreter value cells. *)
 
+val check_native_static_allocation :
+  task_state ->
+  Integer_static_allocation.t ->
+  Integer_globals.task_view ->
+  (unit, string) result
+
+val check_native_static_initializer :
+  task_state -> Static_initializer_program.t -> (unit, string) result
+
+val complete_native_static_initializer :
+  task_state -> Static_initializer_program.t -> (unit, string) result
+
 val prepare_task_closed_dimension :
   task_state ->
   table:Sema.Symbol_table.t ->

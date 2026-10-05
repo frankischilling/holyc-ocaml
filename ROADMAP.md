@@ -8,6 +8,9 @@ Retained Print and PutChars calls use those original contexts and share the
 task's output allowance. Joined extern-body dispatch remains unfinished.
 Original task literals now keep their mutable bytes and reference tables across
 fragments, including retained formats and initializer calls.
+Integer function statics now allocate at the original live declaration and
+execute initializer leaves once in source order. Retained calls share their
+original private storage, including historical bodies after replacement.
 Persistent executable addresses, task callbacks, runtime dimensions,
 effectful defaults, native `#exe` and AOT task execution remain open. See
 [native source tasks](docs/native-source-tasks.md).

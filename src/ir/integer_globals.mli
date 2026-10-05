@@ -204,6 +204,19 @@ val publish_static_allocation :
 
 val private_static_allocations : task_view -> Integer_static_allocation.t list
 
+val static_fragment_context :
+  task_view ->
+  Integer_static_allocation.t ->
+  Sema.Static_initializer_fragment.t ->
+  (t, string) result
+
+val static_fragment : t -> Sema.Static_initializer_fragment.t option
+
+val static_allocation_context :
+  task_view -> Integer_static_allocation.t -> (t, string) result
+(** Original private task view for live allocation, without an entry graph or
+    initializer values. It cannot be admitted as an executable task command. *)
+
 val private_static_bindings :
   t -> (Integer_static_allocation.t * storage_slot) list
 
@@ -277,6 +290,9 @@ val static_array_initializers :
   Sema.Function_call_expression_result.initializer_result
   Integer_array_initializers.t
   option
+
+val static_root_executed :
+  static_slot -> Sema.Function_call_expression_result.initializer_result -> bool
 
 val static_storage : static_slot -> storage_slot
 val global_storage : slot -> storage_slot

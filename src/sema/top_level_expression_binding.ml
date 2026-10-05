@@ -266,6 +266,7 @@ let make_global_initializer ~statement_index ~initializers ~global events =
   | _ -> Error "global initializer owner belongs to another binding batch"
 
 type resolution =
+  | Static_binding of Static_reference.t
   | Module_binding of Module_expression_binding.publication
   | Outer_candidate
 
@@ -600,6 +601,8 @@ let resolve_events table publications visible next_occurrence next_query events
           |> Result.map_error invalid_input)
           (fun () ->
             match Reference_selection.kind selection with
+            | Reference_selection.Static_local reference ->
+                Ok (Static_binding reference)
             | Reference_selection.Absent
             | Reference_selection.Unavailable
             | Reference_selection.Outer _ -> Ok Outer_candidate

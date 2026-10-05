@@ -1152,7 +1152,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             |> List.concat_map (fun slot ->
                 Ir.Integer_globals.static_initializers slot
                 |> List.filter_map (fun root ->
-                    if
+                    if Ir.Integer_globals.static_root_executed slot root then
+                      None
+                    else if
                       not
                         (Ir.Integer_globals.static_root_materialized slot root)
                     then Some (slot, Lower.Initialize_static_leaf (slot, root))

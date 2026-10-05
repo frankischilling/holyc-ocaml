@@ -3852,7 +3852,8 @@ let initializer_declaration ledger (start : Parser.global_initializer_start) =
       | _ -> fail span "initializer layout storage has not been admitted");
       declaration)
 
-let selected_fragment_transcript ledger ~task_view ~span expression =
+let selected_fragment_transcript ?resolve_local ledger ~task_view ~span
+    expression =
   let module Selection = Sema.Reference_selection in
   let module Globals = Ir.Integer_globals in
   let table = ledger.table in
@@ -3881,13 +3882,16 @@ let selected_fragment_transcript ledger ~task_view ~span expression =
           | None ->
               fail span
                 "initializer reference has no original source observation"
-          | Some { target; _ } -> (
+          | Some ({ target; _ } as original) -> (
               match target with
               | Selected_absent -> Selection.absent ~table ~name |> checked span
               | Selected_unbound _ | Selected_source { admitted = None; _ } ->
                   Selection.unavailable ~table ~name |> checked span
-              | Selected_local ->
-                  fail span "global initializer selected a local reference"
+              | Selected_local -> (
+                  match resolve_local with
+                  | Some resolve -> resolve identifier original
+                  | None ->
+                      fail span "global initializer selected a local reference")
               | Selected_runtime publication
               | Selected_source { admitted = Some publication; _ } ->
                   retained name publication)
@@ -3904,6 +3908,107 @@ let selected_fragment_transcript ledger ~task_view ~span expression =
             fail span "initializer query has no original source observation")
   in
   (environment, references, queries)
+
+let native_task_static_fragment ledger ~runtime ~task_view receipt =
+  protect (fun () ->
+      let publication = receipt.Parser.static_allocation.allocation_function in
+      let span = publication.function_name.location.span in
+      (match ledger.authority with
+      | Task_runtime owner when owner == runtime -> ()
+      | _ ->
+          fail span
+            "native static initializer requires its original task authority");
+      if
+        (not (Parser.static_initializer_is_current receipt))
+        || (not
+              (Option.fold ~none:false ~some:(( == ) runtime)
+                 (ledger_runtime ledger)))
+        || (not (VM.task_owns_snapshot runtime task_view))
+        || (not (List.exists (( == ) receipt) ledger.static_preparations))
+        || List.exists (( == ) receipt) ledger.native_static_attempts
+      then
+        fail span
+          "native task static initializer is foreign, unobserved or already \
+           attempted";
+      validate_command ledger publication.function_header;
+      let allocation =
+        match
+          List.find_opt
+            (fun allocation ->
+              Ir.Integer_static_allocation.source allocation
+              |> Sema.Compiler_record.static_allocation_receipt
+              |> fun original -> original == receipt.static_allocation)
+            (Ir.Integer_globals.private_static_allocations task_view)
+        with
+        | Some allocation -> allocation
+        | None ->
+            fail span
+              "native static initializer has no admitted original allocation"
+      in
+      let assigned = find ledger publication.function_name in
+      let expression =
+        match receipt.static_leaf_value with
+        | Ast.Scalar_initializer expression -> expression
+        | _ ->
+            fail span "native static initializer is not an original scalar leaf"
+      in
+      let resolve_local (identifier : Ast.identifier) original =
+        let selected = Parser.selected_local original.selection in
+        let storage =
+          List.find_opt
+            (fun storage ->
+              let original =
+                Ir.Integer_static_allocation.source storage
+                |> Sema.Compiler_record.static_allocation_receipt
+              in
+              original.allocation_function == publication
+              && Option.fold ~none:false
+                   ~some:(( == ) original.allocation_local)
+                   selected)
+            (Ir.Integer_globals.private_static_allocations task_view)
+        in
+        let storage =
+          match storage with
+          | Some storage -> storage
+          | None ->
+              fail ~code:"HCRUN0006" span
+                "native static initializer cannot read automatic or parameter \
+                 storage"
+        in
+        let header =
+          match assigned.source with
+          | Function state -> (
+              match state.typed_header with
+              | Some (header, _) -> header
+              | None ->
+                  fail span "static reference has no original partial header")
+          | _ -> fail span "static reference has another declaring function"
+        in
+        let reference =
+          Sema.Static_reference.create ~table:ledger.table ~header
+            ~allocation:(Ir.Integer_static_allocation.source storage)
+            ~selection:original.selection
+          |> checked span
+        in
+        Sema.Reference_selection.static_local ~table:ledger.table
+          ~name:identifier.Ast.spelling reference
+        |> checked span
+      in
+      let environment, references, queries =
+        selected_fragment_transcript ~resolve_local ledger ~task_view ~span
+          expression
+      in
+      let fragment =
+        Sema.Static_initializer_fragment.create_selected ~table:ledger.table
+          ~namespace:ledger.namespace ~publication:assigned.publication ~receipt
+          ~dimensions:
+            (Ir.Integer_storage_shape.dimensions
+               (Ir.Integer_static_allocation.shape allocation))
+          ~environment ~references ~queries
+        |> checked span
+      in
+      ledger.native_static_attempts <- receipt :: ledger.native_static_attempts;
+      (allocation, fragment))
 
 let initializer_fragment ledger ~runtime ~task_view
     (receipt : Parser.completed_initializer_leaf) =

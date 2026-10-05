@@ -796,24 +796,32 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
     | None, Some static -> (
         Option.is_none offset && Option.is_none dimension
         && Option.is_none default && Option.is_none fragment
-        && Option.is_none owner && switch_cases = [] && calls = []
+        && Option.is_none owner && switch_cases = []
         &&
         match roots with
         | [
-         {
-           role = Static_initializer_fragment selected;
-           static_fragment_ = Some proof;
-           initializer_calls_ = [];
-           initializer_call_trees_ = [];
-           origin;
-           expression;
-           _;
-         };
+         ({
+            role = Static_initializer_fragment selected;
+            static_fragment_ = Some proof;
+            origin;
+            expression;
+            _;
+          } as root);
         ] ->
             selected == static && proof == static
             && origin = Static_initializer_fragment.origin static
             && Function_call_resolution.argument_expression_origin expression
                = origin
+            && List.length calls = List.length root.initializer_call_trees_
+            && List.for_all2
+                 (fun (call : call) (source_call, callee, result) ->
+                   call.source == source_call
+                   && call.callee_expression == callee
+                   && call.result_expression == result
+                   && List.exists (( == ) call.callee)
+                        (Top_level_outer_expression_binding
+                         .statement_occurrences source))
+                 calls root.initializer_call_trees_
         | _ -> false)
     | None, None -> (
         match (offset, dimension, default, fragment) with

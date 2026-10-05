@@ -9,6 +9,7 @@ type kind = private
   | Absent
   | Unavailable
   | Local
+  | Static_local of Static_reference.t
   | Source of Symbol.t * source_stage
   | Outer of Outer_environment.t * Outer_environment.binding
 
@@ -17,6 +18,12 @@ type t
 val absent : table:Symbol_table.t -> name:string -> (t, string) result
 val unavailable : table:Symbol_table.t -> name:string -> (t, string) result
 val local : table:Symbol_table.t -> name:string -> (t, string) result
+
+val static_local :
+  table:Symbol_table.t ->
+  name:string ->
+  Static_reference.t ->
+  (t, string) result
 
 val source :
   table:Symbol_table.t ->

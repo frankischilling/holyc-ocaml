@@ -168,6 +168,16 @@ val compile_task_command :
 
 val task_snapshot : t -> X86_64_global_storage.task_snapshot option
 
+val compile_task_static_initializer :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_static_initializer.request ->
+  (t, error list) result
+
 val check_task_request : t -> (unit, string) result
 (** Pure validation of the original live source request before retention or
     storage admission. It rejects closed, already claimed and foreign requests.

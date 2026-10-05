@@ -685,6 +685,7 @@ let top_level_outer_globals_retain_checked_shapes () =
                 Alcotest.(check bool)
                   "the result and classifier share one binding" true
                   (selected == binding)
+            | Semantic_top_level_identifier_resolution.Static_value _
             | Semantic_top_level_identifier_resolution.Module_value _
             | Semantic_top_level_identifier_resolution.Outer_function_value _
             | Semantic_top_level_identifier_resolution.Outer_type_required _ ->
@@ -1200,6 +1201,9 @@ let top_level_global_object_offset_paths () =
                        publication) -> publication
                 | Semantic_top_level_outer_expression_binding.Query_binding
                     (Semantic_top_level_outer_expression_binding.Outer_binding _)
+                | Semantic_top_level_outer_expression_binding.Query_binding
+                    (Semantic_top_level_outer_expression_binding.Static_binding
+                       _)
                 | Semantic_top_level_outer_expression_binding.Query_undefined ->
                     Alcotest.fail
                       "expected the offset query to select its module global"

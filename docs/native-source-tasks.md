@@ -164,12 +164,12 @@ expression results. The C bridge owns mappings, protection, entry and release;
 source admission, lowering, instruction selection and report validation remain
 in OCaml.
 
-This source-task path supports integer globals, fixed integer arrays and
-retained direct functions and their original literals. Runtime-dependent
-dimensions, task callback storage, function statics, declaration defaults, native `#exe`,
+This source-task path supports integer globals, fixed integer arrays,
+integer function statics, and retained direct functions and their original
+literals. Runtime-dependent dimensions, task callback storage, declaration defaults, native `#exe`,
 persistent executable addresses and AOT source-task execution remain separate
 work under #704.
-The compiler now retains each successful live JIT static allocation, including
+The compiler retains each successful live JIT static allocation, including
 its original function publication, table, namespace and checked dimensions.
 The sealed command keeps these witnesses in source order. Compilation joins
 them to the declaring frame and exact checked local location; foreign owners
@@ -181,11 +181,27 @@ integer shape without publishing a global name. The task charges the padded
 extent at declaration; the completed frame joins the same storage owner without
 charging it again. Identifier receipts also retain the exact local publication
 selected when their token was produced.
+Each private reference also retains that exact identifier AST occurrence.
+Another token selecting the same allocation cannot replace it in an initializer.
 
-This private storage record carries no arena address, interpreter cells or
-initializer values. Native task statics still need arena admission and original
-live initializer execution before either the storage guard or the historical
-static guard can be removed.
+Each allocation appends zeroed data and initialization flags to the original
+native task arena. Admission preserves earlier native writes and charges the
+padded extent once. Each scalar initializer leaf compiles and executes through
+its original live parser request, including direct calls, provider effects,
+global references and references to earlier private statics in the same
+function. Successful leaf receipts join the exact completed typed roots and
+array destinations. Later calls and historical direct-function closures use
+that same private allocation without replaying its initialization. These
+storage records carry no arena address, interpreter cells or initializer values.
+
+`examples/native-source-statics.hc` returns 43 and captures `I` once. The native
+tests cover narrow stores, fixed arrays, independent function owners, historical
+calls, cumulative limits and reached initialization faults. Released arenas,
+foreign sources and domains, and repeated or expired requests are rejected.
+Automatic or parameter references in static initializers, string-copy leaves,
+partial fixed-array initialization, noninteger static storage and dynamic
+dimensions still return diagnostics. The runtime checks bounds against the
+declared accessible extent, excluding static padding.
 StreamPrint and StreamExePrint keep their separate generated-source and
 outer-context authority requirements.
 The existing `host-jit` target keeps

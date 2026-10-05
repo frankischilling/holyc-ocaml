@@ -9,6 +9,12 @@ cumulative allowance for those fragments. Driver admission retains metadata
 without allocating interpreter cells or importing native values. The driver has
 no dependency on the backend. See [native source tasks](docs/native-source-tasks.md).
 
+Private function statics append data and initialization flags during their
+original allocation callback. Each live initializer request binds the original
+static destination, selected references, checked graph and runtime context.
+Successful native leaves join the completed frame without replaying their
+values. Historical bodies retain the same private arena allocation.
+
 Native task admission also publishes original function source records in
 `Ir.Integer_interpreter`, independently of interpreter executable owners.
 Request-scoped Driver resolvers return exact retained definitions and frames.

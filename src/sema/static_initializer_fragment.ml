@@ -8,6 +8,7 @@ type t = {
   dimensions_ : int64 list;
   environment_ : Outer_environment.t;
   queries_ : Query_selection.t list;
+  references_ : (Frontend.Ast.identifier * Reference_selection.t) list;
 }
 
 let owns_table value table = value.table == table
@@ -24,14 +25,20 @@ let leaf_delimiters value =
 
 let environment value = value.environment_
 let queries value = value.queries_
-let references _ = []
+let references value = value.references_
 
 let origin value =
   Initializer_source.origin_of_location
     (Frontend.Ast.expression_location value.expression_)
 
-let reference_for _ _ =
-  Error "native static initializer cannot read storage or call a function"
+let reference_for value identifier =
+  match
+    List.find_opt
+      (fun (original, _) -> original == identifier)
+      value.references_
+  with
+  | Some (_, selection) -> Ok selection
+  | None -> Error "static initializer lacks its original identifier selection"
 
 let query_for value expression =
   match
@@ -42,7 +49,7 @@ let query_for value expression =
   | Some q -> Ok q
   | None -> Error "static initializer lacks its original query"
 
-let create ~table ~namespace ~publication
+let create_selected ~references ~table ~namespace ~publication
     ~(receipt : Frontend.Parser.static_initializer_preparation) ~dimensions
     ~environment ~queries =
   let ( let* ) = Result.bind in
@@ -122,11 +129,48 @@ let create ~table ~namespace ~publication
          dimension to have a checked fixed bound"
   in
   let* () =
-    if Initializer_source.expression_identifier_nodes expression = [] then Ok ()
-    else
-      Error
-        "HCRUN0006: native static initializers require closed expressions \
-         without value or function references"
+    let rec validate expected actual =
+      match (expected, actual) with
+      | [], [] -> Ok ()
+      | (identifier : Ast.identifier) :: rest, (original, selection) :: tail
+        when identifier == original ->
+          let* () =
+            Reference_selection.validate ~table ~name:identifier.spelling
+              selection
+          in
+          let* () =
+            match Reference_selection.kind selection with
+            | Reference_selection.Outer (owner, binding)
+              when owner == environment
+                   && Outer_environment.owns_binding environment binding ->
+                Ok ()
+            | Reference_selection.Absent | Reference_selection.Unavailable ->
+                Ok ()
+            | Reference_selection.Static_local reference ->
+                let original =
+                  Static_reference.allocation reference
+                  |> Compiler_record.static_allocation_receipt
+                in
+                if
+                  original.allocation_function == allocation.allocation_function
+                  && Static_reference.owns_identifier reference identifier
+                then Ok ()
+                else
+                  Error
+                    "static initializer replaced its original local occurrence \
+                     or declaring function"
+            | _ ->
+                Error "static initializer selected another source environment"
+          in
+          validate rest tail
+      | _ ->
+          Error
+            "HCRUN0006: static initializer requires every original identifier \
+             selection"
+    in
+    validate
+      (Initializer_source.expression_identifier_nodes expression)
+      references
   in
   let* () = Query_selection.validate_manifest ~table ~expression queries in
   Ok
@@ -140,4 +184,10 @@ let create ~table ~namespace ~publication
       dimensions_ = dimensions;
       environment_ = environment;
       queries_ = queries;
+      references_ = references;
     }
+
+let create ~table ~namespace ~publication ~receipt ~dimensions ~environment
+    ~queries =
+  create_selected ~references:[] ~table ~namespace ~publication ~receipt
+    ~dimensions ~environment ~queries

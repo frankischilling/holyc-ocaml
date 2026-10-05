@@ -280,6 +280,20 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
         }
       in
       let outcome_ =
+        let native_static_initializer request =
+          let* image =
+            remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                Image.compile_task_static_initializer ?status_abi
+                  ~max_stack_bytes ~max_blocks ~max_ir_instructions
+                  ~max_code_bytes ~layout request)
+          in
+          execute Initializer image |> Result.map ignore
+        in
+        let native_static_allocation request =
+          Native.allocate_task_static arena request
+          |> Result.map_error (fun message ->
+              [ Driver.Integer_source.message_diagnostic ~span message ])
+        in
         Fun.protect
           ~finally:(fun () ->
             match Native.release_task_arena arena with
@@ -287,7 +301,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             | Error message -> cleanup_errors := host_error message)
           (fun () ->
             let report =
-              Source.run ~native_dispatch ~max_dimension_work ~max_switch_work
+              Source.run ~native_dispatch ~native_static_allocation
+                ~native_static_initializer ~max_dimension_work ~max_switch_work
                 ~max_initializer_steps ~max_global_bytes ~max_literal_bytes
                 ~max_frame_bytes ~max_call_depth ~max_output_bytes
                 ~max_output_work session ~config ~source ~max_steps

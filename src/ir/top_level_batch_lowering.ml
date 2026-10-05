@@ -122,7 +122,7 @@ let call_is_direct_root source call =
   match call |> Tree.call_callee |> Outer_binding.occurrence_resolution with
   | Outer_binding.Module_binding publication ->
       Publication.publication_kind publication = Publication.Function
-  | Outer_binding.Outer_binding _ -> false
+  | Outer_binding.Outer_binding _ | Outer_binding.Static_binding _ -> false
 
 let statement_has_direct_root statement source =
   statement |> Semantic_result.top_level_statement_source

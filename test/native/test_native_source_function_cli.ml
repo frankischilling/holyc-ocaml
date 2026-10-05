@@ -255,5 +255,44 @@ let () =
       require
         (final_bits report = "0x0000000000000043")
         "literal mutation survives later array fragments");
+  with_file ".hc" "I64 F(){static I64 A=41;return ++A;}F();F();" (fun path ->
+      let report = json_path path in
+      require (final_bits report = "0x000000000000002b") "native static counter";
+      require
+        (report |> member "compiled_initializer_steps" |> to_int = 0)
+        "static values execute without closed preparation";
+      let steps = report |> member "executed_steps" |> to_int in
+      require
+        (final_bits
+           (json_path ~options:[ "--step-limit=" ^ string_of_int steps ] path)
+        = final_bits report)
+        "exact native static runtime allowance";
+      let limited =
+        json_path ~status:1
+          ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+          path
+      in
+      require
+        (has_diagnostic "HCIRVM0007" limited)
+        "native static runtime limit";
+      require
+        (limited |> member "executed_steps" |> to_int = steps - 1)
+        "static runtime allowance remains cumulative";
+      require
+        (final_bits (json_path ~target:"ir" path) = final_bits report)
+        "independent static counter result");
+  with_file ".hc"
+    "extern U0 PutChars(U64 ch);I64 N=40;I64 Next(){PutChars('I');return \
+     ++N;}I64 F(){static I64 A=Next(),B=A+1;return B;}F();F();" (fun path ->
+      let report = json_path path in
+      require (final_bits report = "0x000000000000002a") "static leaf order";
+      require
+        (report |> member "output_hex" |> to_string = "49")
+        "static initializer effect occurs once";
+      let ir = json_path ~target:"ir" path in
+      require
+        (final_bits ir = final_bits report
+        && ir |> member "output_hex" |> to_string = "49")
+        "independent static initializer effects");
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

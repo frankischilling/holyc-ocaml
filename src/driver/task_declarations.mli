@@ -706,6 +706,15 @@ val native_static_initializer_fragment :
   Frontend.Parser.static_initializer_preparation ->
   (Sema.Static_initializer_fragment.t, Common.Diagnostic.t list) result
 
+val native_task_static_fragment :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( Ir.Integer_static_allocation.t * Sema.Static_initializer_fragment.t,
+    Common.Diagnostic.t list )
+  result
+
 val static_allocations :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->

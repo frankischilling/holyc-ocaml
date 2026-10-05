@@ -57,6 +57,15 @@ val release_task_arena : task_arena -> (unit, string) result
     native entry or admission rejects release, and a released arena cannot admit
     or execute another fragment. Unreachable handles have a native finalizer. *)
 
+val allocate_task_static :
+  task_arena ->
+  Driver.Integer_task.Native_static_allocation.request ->
+  (unit, string) result
+(** Admit original private static storage under the arena lease during its live
+    allocation callback. Claim the request once immediately before committing
+    the new zeroed suffix. Existing data and initialization flags remain
+    authoritative. This executes no initializer or function entry. *)
+
 val retain_task_fragment :
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->

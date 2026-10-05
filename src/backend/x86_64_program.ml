@@ -132,7 +132,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     | Error message -> invalid message
   in
   let* snapshot =
-    Task_storage.create_task_snapshot layout ~initialization ~entry
+    Task_storage.create_task_snapshot ~functions layout ~initialization ~entry
     |> Result.map_error project_storage_errors
   in
   let* image =
@@ -175,6 +175,21 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
       (Task_dispatch.initializer_provider_available request)
     ~initialization:(Fragment.initialization program)
     ~entry:(Fragment.entry program) ~functions:[] ()
+
+let compile_task_static_initializer ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_static_initializer in
+  let module Program = Ir.Static_initializer_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_provider_available:(Request.provider_available request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
 
 let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
     ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =

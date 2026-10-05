@@ -43,6 +43,13 @@ let initializers slot =
 
 let initial_bits slot = slot.initial_bits
 
+let root_executed slot root =
+  List.exists (( == ) root) (initializers slot)
+  && Option.fold ~none:false
+       ~some:(fun allocation ->
+         Integer_static_allocation.native_leaf_executed allocation root)
+       slot.source_allocation
+
 let preparation_steps slot =
   slot.preparation_steps
   + Option.fold ~none:0 ~some:Arrays.steps slot.array_initializers
@@ -67,7 +74,21 @@ let with_source_allocation ~allocation ~source slot =
        <> Integer_storage_shape.byte_size
             (Integer_static_allocation.shape allocation)
   then Error "static slot requires its original completed source and shape"
-  else Ok { slot with source_allocation = Some allocation }
+  else
+    let* () =
+      Integer_static_allocation.check_native_layout allocation
+        (match slot.array_initializers with
+        | None ->
+            List.map (fun root -> (root, 0, 0)) (Option.to_list slot.initial)
+        | Some arrays ->
+            Arrays.entries arrays
+            |> List.map (fun entry ->
+                let destination = Arrays.destination entry in
+                ( Arrays.root entry,
+                  Integer_initializer_layout.cell_offset destination,
+                  Integer_initializer_layout.byte_offset destination )))
+    in
+    Ok { slot with source_allocation = Some allocation }
 
 let ( let* ) = Result.bind
 

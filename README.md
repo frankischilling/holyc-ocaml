@@ -11,6 +11,9 @@ Retained functions can also call the checked Print and PutChars providers.
 `examples/native-source-output.hc` prints `A42;` and returns 42.
 Task strings retain their original mutable bytes across fragments;
 `examples/native-source-literals.hc` prints `42;` from a retained format.
+Function statics use that same arena and initialize at their original source
+position. `examples/native-source-statics.hc` prints `I` once and returns 43
+after two counter calls.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
 and remaining native address, dimension and runtime work under #704.
 

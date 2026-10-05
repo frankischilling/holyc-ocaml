@@ -78,6 +78,8 @@ type fragment_kind =
   | Internal_binding_context
   | Dimension_context
   | Offset_context
+  | Static_allocation_context
+  | Static_initializer_context of Sema.Static_initializer_fragment.t
 
 type t = {
   source_callback_defaults : Prepared_callback_default.t list;
@@ -391,6 +393,7 @@ let static_frame = Integer_statics.frame
 let static_location = Integer_statics.location
 let static_initializer = Integer_statics.initial
 let static_initializers = Integer_statics.initializers
+let static_root_executed = Integer_statics.root_executed
 let static_array_initializers = Integer_statics.array_initializers
 
 let static_root_materialized slot root =
@@ -677,7 +680,17 @@ let find_storage globals symbol =
           globals.declared_slots_
       with
       | Some slot -> Some (Declared slot)
-      | None -> Option.map static_storage (find_static globals symbol))
+      | None -> (
+          match find_static globals symbol with
+          | Some slot -> Some (static_storage slot)
+          | None ->
+              Option.bind globals.task_view (fun view ->
+                  List.find_opt
+                    (fun allocation ->
+                      Integer_static_allocation.symbol allocation == symbol)
+                    view.private_statics
+                  |> Option.map (fun allocation -> Declared_static allocation)))
+      )
 
 let find_allocated_storage globals symbol =
   match find_storage globals symbol with
@@ -1391,6 +1404,44 @@ let task_function_binding view reference =
 
 let with_task_view view globals = { globals with task_view = Some view }
 let private_static_allocations view = view.private_statics
+
+let static_allocation_context view allocation =
+  if not (List.exists (( == ) allocation) view.private_statics) then
+    Error "static allocation context has another original task snapshot"
+  else
+    Ok
+      {
+        source_callback_defaults = [];
+        source_defaults = [];
+        fragment_kind_ = Some Static_allocation_context;
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let static_fragment_context view allocation fragment =
+  let ( let* ) = Result.bind in
+  if view.environment != Sema.Static_initializer_fragment.environment fragment
+  then Error "static initializer has another original task snapshot"
+  else
+    let* context = static_allocation_context view allocation in
+    Ok
+      {
+        context with
+        fragment_kind_ = Some (Static_initializer_context fragment);
+      }
+
+let static_fragment globals =
+  match globals.fragment_kind_ with
+  | Some (Static_initializer_context fragment) -> Some fragment
+  | _ -> None
 
 let private_static_bindings globals =
   Option.fold ~none:[]

@@ -80,6 +80,12 @@ before publishing its compiled entry.
 
 ## Remaining connections
 
+The [native source-task path](native-source-tasks.md) supports scalar and fixed
+integer-array statics with original live allocation and once-only initializer
+execution. Each allocation retains its declaring function and later completed
+frame. Narrow storage uses its accessible extent for bounds checks and its
+eight-byte padded extent for the cumulative allocation allowance.
+
 Nonconstant AOT statics with globals-on-data-heap still require their separate
 compile-time phase. The normal JIT/AOT declaration paths are documented in
 [static initializers](integer-static-initializers.md). Parameter reads cannot

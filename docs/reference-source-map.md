@@ -13,6 +13,16 @@ storage and initialization flags keep their original identities. Arena ownership
 and cumulative resource limits are hosted policy; no new TempleOS capture is
 claimed. See [native source tasks](native-source-tasks.md).
 
+Native task function statics follow `Compiler/PrsVar.HC:534-589` for the original
+private allocation and `PrsVar.HC:215-244` for `PrsStaticInit`'s call into the
+shared leaf traversal. The source driver retains the original partial-header
+symbol, local token selection, dimensions and static-specific destination.
+The backend appends padded data and per-element flags to the existing arena,
+then executes each original initializer leaf before body completion. Completed
+frame joins preserve that allocation for historical calls. Hosted source tests
+and `examples/native-source-statics.hc` cover this connection; they add no new
+TempleOS capture.
+
 Retained direct native calls follow `Compiler/PrsStmt.HC:62-137` for original
 function records and `PrsStmt.HC:140-207` for body compilation and publication.
 The hosted task admits the exact checked definition, physical frame and call

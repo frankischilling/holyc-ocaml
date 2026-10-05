@@ -10,6 +10,7 @@ type module_value =
   | Aggregate_offset_base of Module_expression_binding.publication
 
 type resolution =
+  | Static_value of Static_reference.t
   | Module_value of module_value
   | Outer_value of Outer_environment.binding
   | Outer_function_value of {

@@ -655,6 +655,56 @@ let admit_task_snapshot_locked arena snapshot =
             Ok observed)
         with Failure message | Invalid_argument message -> Error message
 
+let allocate_task_static arena request =
+  let module Request = Driver.Integer_task.Native_static_allocation in
+  let ( let* ) = Result.bind in
+  let* () =
+    acquire_lease arena.arena_lease_ "native task arena is already active"
+  in
+  Fun.protect
+    ~finally:(fun () -> release_lease arena.arena_lease_)
+    (fun () ->
+      if Atomic.get arena.arena_revoked_ then
+        Error "native task arena has been released"
+      else
+        let* () = Request.check request in
+        let* reservation =
+          Task_storage.reserve_static arena.layout_ request
+          |> Result.map_error (fun errors ->
+              errors
+              |> List.map (fun (error : Task_storage.error) ->
+                  error.code ^ ": " ^ error.message)
+              |> String.concat "; ")
+        in
+        let required =
+          Task_storage.static_reservation_arena_bytes reservation
+        in
+        let admitted = Atomic.get arena.admitted_bytes_ in
+        if required > arena.max_arena_bytes_ then
+          Error "HCBACK0001: native static exceeds reserved arena capacity"
+        else if required < admitted then
+          Error "native static reservation precedes already admitted storage"
+        else
+          let* () =
+            Task_storage.check_static_reservation reservation
+              ~layout:arena.layout_ ~request
+          in
+          let* () = Request.claim request in
+          try
+            let observed =
+              admit_task_arena arena.handle_ admitted required
+                (Task_storage.static_reservation_initializations_since
+                   reservation ~arena_prefix_bytes:admitted)
+            in
+            if observed <> required then (
+              Atomic.set arena.arena_revoked_ true;
+              Error
+                "native static allocation returned an inconsistent arena prefix")
+            else (
+              Atomic.set arena.admitted_bytes_ observed;
+              Ok ())
+          with Failure message | Invalid_argument message -> Error message)
+
 let retain_task_fragment ?max_global_bytes ?max_literal_bytes
     ?max_active_stack_bytes arena image =
   match Image.task_snapshot image with

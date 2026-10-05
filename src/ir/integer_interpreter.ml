@@ -2092,6 +2092,65 @@ let require_initializer_namespace task namespace =
     Ok ()
   else Error "initializer operation belongs to another task source namespace"
 
+let check_native_static_allocation task allocation view =
+  let source = Integer_static_allocation.source allocation in
+  let receipt = Sema.Compiler_record.static_allocation_receipt source in
+  if
+    (not task.native_storage_authority)
+    || (not (Integer_globals.task_catalog_owns_view task.catalog view))
+    || (not
+          (List.exists (( == ) allocation)
+             (Integer_globals.private_static_allocations view)))
+    || not (Frontend.Parser.function_local_allocation_is_current receipt)
+  then Error "native static allocation requires its original live task source"
+  else
+    require_initializer_namespace task
+      (Sema.Compiler_record.static_allocation_namespace source)
+
+let check_native_static_initializer task program =
+  let module Destination = Static_initializer_destination in
+  let destination = Static_initializer_program.destination program in
+  let allocation = Destination.allocation destination in
+  let source = Integer_static_allocation.source allocation in
+  let receipt =
+    Sema.Static_initializer_fragment.receipt (Destination.fragment destination)
+  in
+  if
+    (not task.native_storage_authority)
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not (Frontend.Parser.static_initializer_is_current receipt))
+    || receipt.static_allocation
+       != Sema.Compiler_record.static_allocation_receipt source
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) (Destination.fragment destination))
+             (Integer_globals.static_fragment (Destination.globals destination))))
+    || not
+         (List.exists
+            (fun (original, _) -> original == allocation)
+            (Integer_globals.private_static_bindings
+               (Destination.globals destination)))
+  then
+    Error
+      "native static initializer requires its original live task, leaf and \
+       storage"
+  else
+    require_initializer_namespace task
+      (Sema.Compiler_record.static_allocation_namespace source)
+
+let complete_native_static_initializer task program =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_initializer task program in
+  let destination = Static_initializer_program.destination program in
+  Integer_static_allocation.record_native_leaf
+    (Static_initializer_destination.allocation destination)
+    (Sema.Static_initializer_fragment.receipt
+       (Static_initializer_destination.fragment destination))
+    ~cell_offset:(Static_initializer_destination.cell_offset destination)
+    ~byte_offset:(Static_initializer_destination.byte_offset destination)
+
 let begin_task_default task ~namespace ~publication receipt =
   let ( let* ) = Result.bind in
   let* () = require_initializer_namespace task namespace in

@@ -78,6 +78,41 @@ val result :
   sequence:Frontend.Parser.completed_sequence ->
   (Ir.Integer_interpreter.t, Common.Diagnostic.t list) result
 
+module Native_static_allocation : sig
+  type request
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  val allocation : request -> Ir.Integer_static_allocation.t
+  val context : request -> Ir.Integer_globals.t
+  val check : request -> (unit, string) result
+
+  val claim : request -> (unit, string) result
+  (** Check or claim the original live allocation in its originating domain.
+      Claims are single-use. No initializer values or arena addresses are
+      supplied by the caller. *)
+end
+
+module Native_static_initializer : sig
+  type request
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  val program : request -> Ir.Static_initializer_program.t
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+end
+
 type progress = private {
   runtime : Ir.Integer_interpreter.task_progress;
   dimension_work : int;
@@ -129,6 +164,8 @@ val create :
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
   ?native_dispatch:Native_dispatch.t ->
+  ?native_static_allocation:Native_static_allocation.t ->
+  ?native_static_initializer:Native_static_initializer.t ->
   Session.t ->
   (t, string) result
 (** Limits belong to the task. Preparation is charged during compilation,
@@ -205,6 +242,8 @@ val adopt_source :
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
   ?native_dispatch:Native_dispatch.t ->
+  ?native_static_allocation:Native_static_allocation.t ->
+  ?native_static_initializer:Native_static_initializer.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->
@@ -226,6 +265,8 @@ val adopt_source_for_activation :
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
   ?native_dispatch:Native_dispatch.t ->
+  ?native_static_allocation:Native_static_allocation.t ->
+  ?native_static_initializer:Native_static_initializer.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->

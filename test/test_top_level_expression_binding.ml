@@ -106,6 +106,7 @@ let resolution_name occurrence =
         (publication
        |> Semantic_module_expression_binding.publication_source_symbol
        |> Semantic_symbol.name)
+  | Semantic_top_level_expression_binding.Static_binding _
   | Semantic_top_level_expression_binding.Outer_candidate -> "outer"
 
 let signature result =
@@ -160,6 +161,7 @@ let source_order_and_outer_candidates () =
         | Semantic_top_level_expression_binding.Module_binding publication ->
             publication
             |> Semantic_module_expression_binding.publication_source_symbol
+        | Semantic_top_level_expression_binding.Static_binding _
         | Semantic_top_level_expression_binding.Outer_candidate ->
             Alcotest.fail "expected a module publication"
       in
@@ -229,6 +231,7 @@ let defined_queries_follow_the_module_prefix () =
               ^ (publication
                |> Semantic_module_expression_binding.publication_kind
                |> Semantic_module_expression_binding.publication_kind_name)
+          | Semantic_top_level_expression_binding.Static_binding _
           | Semantic_top_level_expression_binding.Outer_candidate -> "outer"
         in
         (Semantic_top_level_expression_binding.query_name query, resolution)

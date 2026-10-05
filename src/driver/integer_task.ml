@@ -154,6 +154,111 @@ module Native_dispatch = struct
   let close_command request = Atomic.set request.command_state Closed
 end
 
+module Native_static_allocation = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    allocation_ : Ir.Integer_static_allocation.t;
+    view : Ir.Integer_globals.task_view;
+    context_ : Ir.Integer_globals.t;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  let allocation request = request.allocation_
+  let context request = request.context_
+
+  let check request =
+    if Domain.self () <> request.domain then
+      Error "native static allocation belongs to another execution domain"
+    else if Atomic.get request.phase <> Offered then
+      Error "native static allocation was already claimed or closed"
+    else
+      VM.check_native_static_allocation request.task request.allocation_
+        request.view
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      Atomic.set request.phase Entered;
+      Ok ())
+    else Error "native static allocation was already claimed"
+
+  let create task allocation_ =
+    let ( let* ) = Result.bind in
+    let* view = VM.task_snapshot task in
+    let* context_ =
+      Ir.Integer_globals.static_allocation_context view allocation_
+    in
+    let request =
+      {
+        task;
+        allocation_;
+        view;
+        context_;
+        domain = Domain.self ();
+        phase = Atomic.make Offered;
+      }
+    in
+    let* () = check request in
+    Ok request
+
+  let entered request = Atomic.get request.phase = Entered
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_static_initializer = struct
+  type phase = Offered | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    program_ : Ir.Static_initializer_program.t;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error
+        "native static initializer belongs to another domain or was already \
+         claimed"
+    else VM.check_native_static_initializer request.task request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Entered then Ok ()
+    else Error "native static initializer was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None ->
+        Error "native static initializer lacks its admitted original callee"
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let create task program_ =
+    { task; program_; domain = Domain.self (); phase = Atomic.make Offered }
+
+  let entered request = Atomic.get request.phase = Entered
+  let close request = Atomic.set request.phase Closed
+end
+
 type stream = VM.task_stream
 
 type progress = {
@@ -169,6 +274,8 @@ type t = {
   declarations : Task_declarations.t;
   identity : unit ref;
   native_dispatch : Native_dispatch.t option;
+  native_static_allocation : Native_static_allocation.t option;
+  native_static_initializer : Native_static_initializer.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
 }
 
@@ -183,7 +290,8 @@ and command = {
 let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_initializer_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
-    ?max_stream_depth ?native_dispatch session =
+    ?max_stream_depth ?native_dispatch ?native_static_allocation
+    ?native_static_initializer session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -208,6 +316,8 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             declarations;
             identity = ref ();
             native_dispatch;
+            native_static_allocation;
+            native_static_initializer;
             commands = [];
           }))
 
@@ -216,7 +326,8 @@ let frontend task = task.session
 let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
-    ?native_dispatch session ~source ~ledger =
+    ?native_dispatch ?native_static_allocation ?native_static_initializer
+    session ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
@@ -236,6 +347,8 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       declarations = ledger;
       identity = ref ();
       native_dispatch;
+      native_static_allocation;
+      native_static_initializer;
       commands = [];
     }
 
@@ -785,6 +898,7 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
 
 let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     task event =
+  let ( let* ) = Result.bind in
   let native_reject span work =
     Error
       [
@@ -793,6 +907,54 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
       ]
   in
   (match event with
+    | Frontend.Parser.Static_initializer_preparing receipt
+      when Option.is_some task.native_static_initializer ->
+        let span =
+          receipt.static_allocation.allocation_function.function_name.location
+            .span
+        in
+        let diagnose result =
+          Result.map_error
+            (fun message -> [ Integer_source.message_diagnostic ~span message ])
+            result
+        in
+        let* task_view = VM.task_snapshot task.state |> diagnose in
+        let* allocation, fragment =
+          Task_declarations.native_task_static_fragment task.declarations
+            ~runtime:task.state ~task_view receipt
+        in
+        let* context =
+          Initializer_fragment_typing.create_context
+            ~table:(Session.semantic_symbols task.session)
+            ~parent:(Task_declarations.initializer_scope task.declarations)
+          |> diagnose
+        in
+        let* typed =
+          Initializer_fragment_typing.prepare_static context fragment
+          |> diagnose
+        in
+        let* destination =
+          Ir.Static_initializer_destination.create ~allocation ~task_view
+            ~cursor:(Ir.Integer_static_allocation.cursor allocation)
+            typed
+          |> diagnose
+        in
+        let* program = Static_initializer_lowering.lower ~context destination in
+        let request = Native_static_initializer.create task.state program in
+        Fun.protect
+          ~finally:(fun () -> Native_static_initializer.close request)
+          (fun () ->
+            let* () = (Option.get task.native_static_initializer) request in
+            if Native_static_initializer.entered request then
+              VM.complete_native_static_initializer task.state program
+              |> diagnose
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native static initializer returned without claiming its \
+                     original entry";
+                ])
     | Frontend.Parser.Internal_binding_preparing receipt
       when Option.is_some task.native_dispatch ->
         native_reject receipt.binding_ast.location.span "internal bindings"
@@ -816,10 +978,34 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
           receipt
     | Frontend.Parser.Function_local_allocated receipt
       when Option.is_some task.native_dispatch
-           && receipt.allocation_storage = Frontend.Ast.Static_local ->
-        Task_declarations.declare_native_static_symbol task.declarations
-          ~runtime:task.state receipt
-        |> Result.map ignore
+           && receipt.allocation_storage = Frontend.Ast.Static_local -> (
+        let* allocation =
+          Task_declarations.declare_native_static_symbol task.declarations
+            ~runtime:task.state receipt
+        in
+        match task.native_static_allocation with
+        | None -> Ok ()
+        | Some allocate ->
+            let span =
+              receipt.allocation_function.function_name.location.span
+            in
+            let* request =
+              Native_static_allocation.create task.state allocation
+              |> Result.map_error (fun message ->
+                  [ Integer_source.message_diagnostic ~span message ])
+            in
+            Fun.protect
+              ~finally:(fun () -> Native_static_allocation.close request)
+              (fun () ->
+                let* () = allocate request in
+                if Native_static_allocation.entered request then Ok ()
+                else
+                  Error
+                    [
+                      Integer_source.diagnostic ~span "HCIRVM0026"
+                        "native static allocator returned without claiming its \
+                         original request";
+                    ]))
     | Frontend.Parser.Global_declared publication ->
         admit_global task publication
     | Frontend.Parser.Global_initializer_started start ->

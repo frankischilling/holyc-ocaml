@@ -1306,6 +1306,206 @@ let native_literal_source_authority () =
       rejected "expired caller cannot readmit original literal storage"
         (Image.compile_task_command ~layout (Option.get !saved_request)))
 
+let native_static_source_authority () =
+  let module Allocation = Task.Native_static_allocation in
+  let module Initializer = Task.Native_static_initializer in
+  let session = Session.create () in
+  let layout = Image.create_task_layout ~max_global_bytes:32 |> compiled in
+  let arena = Runtime.create_task_arena ~max_arena_bytes:64 layout |> checked in
+  let foreign_layout =
+    Image.create_task_layout ~max_global_bytes:32 |> compiled
+  in
+  let foreign_arena =
+    Runtime.create_task_arena ~max_arena_bytes:64 foreign_layout |> checked
+  in
+  let released_layout =
+    Image.create_task_layout ~max_global_bytes:32 |> compiled
+  in
+  let released_arena =
+    Runtime.create_task_arena ~max_arena_bytes:64 released_layout |> checked
+  in
+  Runtime.release_task_arena released_arena |> checked;
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let saved_allocation = ref None and saved_initializer = ref None in
+  let allocation_count = ref 0 and initializer_count = ref 0 in
+  let execute image =
+    let retained = Runtime.retain_task_fragment arena image |> checked in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release retained |> checked)
+      (fun () ->
+        let report = Runtime.execute_retained_budget_report budget retained in
+        (completed report, Runtime.value_captured report))
+  in
+  let dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          ignore
+            (execute
+               (Image.compile_task_initializer ~layout request |> compiled));
+          Ok ());
+      execute_command =
+        (fun request ->
+          let result, captured =
+            execute (Image.compile_task_command ~layout request |> compiled)
+          in
+          Ok
+            (if captured then
+               Dispatch.Captured
+                 (Option.map
+                    (fun (word : Image.word) ->
+                      match word.type_ with
+                      | Image.I64 -> Dispatch.I64 word.bits
+                      | U64 -> Dispatch.U64 word.bits)
+                    result.final_value)
+             else Dispatch.Unchanged));
+    }
+  in
+  let allocate request =
+    incr allocation_count;
+    saved_allocation := Some request;
+    Allocation.check request |> checked;
+    Alcotest.(check int)
+      "allocation metadata contains no data payload" 0
+      (Globals.byte_size (Allocation.context request));
+    let before = (Runtime.budget_progress budget).executed_steps in
+    rejected "released arena cannot consume the offered allocation"
+      (Runtime.allocate_task_static released_arena request);
+    Allocation.check request |> checked;
+    rejected "another domain cannot reserve the original static allocation"
+      (Domain.join
+         (Domain.spawn (fun () -> Runtime.allocate_task_static arena request)));
+    Allocation.check request |> checked;
+    Runtime.allocate_task_static arena request |> checked;
+    rejected "original allocation cannot be replayed"
+      (Runtime.allocate_task_static arena request);
+    Alcotest.(check int)
+      "allocation executes no source instructions" before
+      (Runtime.budget_progress budget).executed_steps;
+    Ok ()
+  in
+  let initialize request =
+    incr initializer_count;
+    saved_initializer := Some request;
+    Initializer.check request |> checked;
+    let module Fragment = Holyc_lib__Sema.Static_initializer_fragment in
+    let module Program = Holyc_lib__Ir.Static_initializer_program in
+    let module Destination = Holyc_lib__Ir.Static_initializer_destination in
+    let fragment =
+      Initializer.program request |> Program.destination |> Destination.fragment
+    in
+    let references = Fragment.references fragment in
+    let create references =
+      Fragment.create_selected ~references
+        ~table:(Session.semantic_symbols session)
+        ~namespace:(Fragment.namespace fragment)
+        ~publication:(Fragment.publication fragment)
+        ~receipt:(Fragment.receipt fragment)
+        ~dimensions:(Fragment.dimensions fragment)
+        ~environment:(Fragment.environment fragment)
+        ~queries:(Fragment.queries fragment)
+    in
+    create references |> checked |> ignore;
+    (match references with
+    | [ first; (second_identifier, _) ] ->
+        rejected
+          "another occurrence selecting the same static cannot substitute"
+          (create [ first; (second_identifier, snd first) ])
+    | _ -> ());
+    rejected "initializer cannot borrow an arena from another source"
+      (Image.compile_task_static_initializer ~layout:foreign_layout request);
+    Initializer.check request |> checked;
+    rejected "static code limit failure leaves the original leaf offered"
+      (Image.compile_task_static_initializer ~max_code_bytes:1 ~layout request);
+    Initializer.check request |> checked;
+    rejected "another domain cannot compile the original static leaf"
+      (Domain.join
+         (Domain.spawn (fun () ->
+              Image.compile_task_static_initializer ~layout request)));
+    List.iter
+      (fun status_abi ->
+        let image =
+          Image.compile_task_static_initializer ~status_abi ~layout request
+          |> compiled
+        in
+        Alcotest.(check int)
+          "both ABIs reuse padded static and global bytes"
+          (if !initializer_count = 1 then 16 else 24)
+          (Image.global_bytes image))
+      [ Image.Windows_x64; Image.System_v_x64 ];
+    ignore
+      (execute
+         (Image.compile_task_static_initializer ~status_abi:(host_status_abi ())
+            ~layout request
+         |> compiled));
+    rejected "entered original static leaf cannot compile again"
+      (Image.compile_task_static_initializer ~layout request);
+    Ok ()
+  in
+  let foreign_session = Session.create () in
+  let foreign_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun _ -> Alcotest.fail "foreign allocation initializer");
+      execute_command = (fun _ -> Alcotest.fail "foreign allocation command");
+    }
+  in
+  let foreign_allocate request =
+    Runtime.allocate_task_static foreign_arena request |> checked;
+    let original =
+      Allocation.allocation request
+      |> Holyc_lib__Ir.Integer_static_allocation.source
+      |> Holyc_lib__Sema.Compiler_record.static_allocation_receipt
+    in
+    Error
+      [
+        Diagnostic.make ~code:"HCRUN0004" ~severity:Diagnostic.Error
+          ~message:"stop after the foreign source allocation"
+          ~primary:original.allocation_function.function_name.location.span ();
+      ]
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      Runtime.release_task_arena arena |> checked;
+      Runtime.release_task_arena foreign_arena |> checked)
+    (fun () ->
+      let foreign_task =
+        Task.create ~native_dispatch:foreign_dispatch
+          ~native_static_allocation:foreign_allocate foreign_session
+        |> checked
+      in
+      rejected "foreign source stops after its real native allocation"
+        (task_run foreign_session foreign_task 70
+           "I64 H(){static I64 A;return 0;}");
+      let task =
+        Task.create ~native_dispatch:dispatch ~native_static_allocation:allocate
+          ~native_static_initializer:initialize session
+        |> checked
+      in
+      task_succeeds "original native global prefix"
+        (task_run session task 71 "I64 X=40;X++;");
+      task_succeeds "live private allocation and initializer"
+        (task_run session task 72 "I64 F(){static I64 A=X,B=A+A;return ++A;}");
+      task_succeeds "first retained static call"
+        (task_run session task 73 "F();");
+      Gc.full_major ();
+      Gc.compact ();
+      task_succeeds "later retained static call after collection"
+        (task_run session task 74 "F();");
+      Alcotest.(check bool)
+        "native static and previous global writes survive arena growth" true
+        (Task.native_final_value task = Some (Dispatch.I64 43L));
+      Alcotest.(check int)
+        "each static allocation is offered once" 2 !allocation_count;
+      Alcotest.(check int)
+        "each static initializer is offered once" 2 !initializer_count;
+      rejected "expired allocation cannot reserve another arena"
+        (Runtime.allocate_task_static foreign_arena
+           (Option.get !saved_allocation));
+      rejected "expired initializer cannot borrow original arena storage"
+        (Image.compile_task_static_initializer ~layout
+           (Option.get !saved_initializer)))
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -1344,5 +1544,8 @@ let () =
           Alcotest.test_case
             "original literals, both ABIs, retry and request lifetimes" `Quick
             native_literal_source_authority;
+          Alcotest.test_case
+            "live static allocation, initializer and arena authority" `Quick
+            native_static_source_authority;
         ] );
     ]

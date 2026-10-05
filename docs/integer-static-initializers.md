@@ -5,6 +5,15 @@ and owner checks to a complete batch of original expression leaves. Initializati
 still occurs at the containing definition's module position, including functions
 that are never invoked.
 
+The [native source-task target](native-source-tasks.md) executes scalar integer
+and fully initialized fixed-array static leaves at their original live JIT
+callbacks. Calls and earlier global/static reads use the same append-only arena;
+initializer effects occur once before the enclosing function is published.
+`examples/native-source-statics.hc` prints `I` once and returns 43 after two calls.
+This path charges initializer instructions to native runtime work. It does not
+prepare their values through the interpreter. AOT source tasks, string-copy
+leaves, partial array initialization and dynamic bounds remain open.
+
 A declaration region can materialize [scalar references](integer-pointers.md)
 for fixed pointer arguments. `IC_ADDR` checks authority at its own instruction;
 canonical metadata cannot be borrowed after the region ends. Explicit references

@@ -3,6 +3,28 @@ type slot
 type t
 type task_layout
 type task_snapshot
+type static_reservation
+
+val reserve_static :
+  task_layout ->
+  Driver.Integer_task.Native_static_allocation.request ->
+  (static_reservation, error list) result
+
+val check_static_reservation :
+  static_reservation ->
+  layout:task_layout ->
+  request:Driver.Integer_task.Native_static_allocation.request ->
+  (unit, string) result
+
+val static_reservation_arena_bytes : static_reservation -> int
+
+val static_reservation_initializations_since :
+  static_reservation -> arena_prefix_bytes:int -> (int * string) list
+(** Original live private allocation, with padded data and inaccessible padding
+    separate from the checked object extent. No entry graph, address or initial
+    values are fabricated. Pending static storage grants no function address
+    access. The host must still claim its live request before arena admission.
+*)
 
 val hard_max_task_layout_work : int
 (** Cumulative retained binding and declared storage visits admitted by one task
@@ -54,6 +76,7 @@ val claim_task_arena : task_layout -> (unit, string) result
 val task_layout_work : task_layout -> int
 
 val create_task_snapshot :
+  ?functions:Ir.Integer_interpreter.function_definition list ->
   task_layout ->
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
@@ -127,7 +150,13 @@ val find_retained_from_source :
     object must match the slot originally admitted to the layout. *)
 
 val source_slot : slot -> Ir.Integer_globals.storage_slot
-val owns_address : slot -> Ir.Runtime_call_context.owner -> bool
+
+val owns_address :
+  ?source_globals:Ir.Integer_globals.t ->
+  slot ->
+  Ir.Runtime_call_context.owner ->
+  bool
+
 val symbol : slot -> Sema.Symbol.t
 val type_ : slot -> Sema.Type.t
 val callback : slot -> Sema.Function_type_resolution.function_pointer option

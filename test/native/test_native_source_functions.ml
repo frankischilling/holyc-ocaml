@@ -61,7 +61,9 @@ let fault kind report =
         "native fault retains cumulative work" fault.executed_steps
         (Native.executed_steps report);
       fault
-  | _ -> Alcotest.fail "function failure has no native fault outcome"
+  | _ ->
+      Alcotest.failf "function failure has no native fault outcome: %s"
+        (diagnostics (rejection report))
 
 let completed report =
   List.iter
@@ -320,8 +322,6 @@ let unsupported_persistent_function_storage () =
   List.iter
     (fun text -> ignore (rejection (run text)))
     [
-      "I64 F(){static I64 A=42;return A;} F();";
-      "I64 F(){static I64 A;A=42;return A;} F();";
       "extern I64 Missing(); I64 F(){return Missing();} F();";
       "extern I64 Later(); I64 F(){return Later();} I64 Later(){return 42;} \
        F();";
@@ -360,6 +360,182 @@ let retained_provider_output () =
         "extern U0 Print(U8 *fmt,...);U8 Format[4]={37,100,59,0};I64 \
          F(){Print(Format,42);return 42;}F();I64 B=F();B;" );
     ]
+
+let retained_static_counter () =
+  List.iter
+    (fun (expected, text) ->
+      let report = run text in
+      ignore (value expected report);
+      completed report;
+      let progress = Option.get (Native.source_progress report) in
+      Alcotest.(check int)
+        "static execution does not run IR instructions" 0
+        progress.runtime.executed_steps;
+      Alcotest.(check int)
+        "initializer leaves have no value preparation"
+        (Native.dimension_work report)
+        (Native.preparation_steps report))
+    [
+      (43L, "I64 F(){static I64 A=41;return ++A;}F();F();");
+      (42L, "I64 F(){static I64 A;A=42;return A;}F();");
+      (42L, "I64 F(){static U8 A=297;return ++A;}F();");
+      (43L, "I64 F(){static I64 A[2]={40,41};return ++A[1];}F();F();");
+    ]
+
+let retained_static_effects () =
+  let text =
+    "extern U0 PutChars(U64 ch);I64 N=40;I64 Next(){PutChars('I');return \
+     ++N;}I64 F(){static I64 A=Next();return ++A;}F();F();"
+  in
+  let report = run text in
+  ignore (value ~output:"I" 43L report);
+  completed report;
+  let baseline =
+    run
+      "extern U0 PutChars(U64 ch);I64 N=40;I64 Next(){PutChars('I');return \
+       ++N;}Next();"
+  in
+  Alcotest.(check int)
+    "static call adds no IR preparation"
+    (Native.preparation_steps baseline)
+    (Native.preparation_steps report);
+  let progress = Option.get (Native.source_progress report) in
+  Alcotest.(check int)
+    "effectful static leaf runs no IR instructions" 0
+    progress.runtime.executed_steps;
+  List.iter
+    (fun body ->
+      ignore
+        (value ~output:"I" 41L
+           (run
+              ("extern U0 PutChars(U64 ch);I64 N=40;I64 \
+                Next(){PutChars('I');return ++N;}I64 F(){" ^ body ^ "}N;"))))
+    [
+      "static I64 A=Next();return A;";
+      "if(0){static I64 A=Next();}return 0;";
+      "return 0;static I64 A=Next();";
+    ];
+  List.iter
+    (fun (expected, text) -> ignore (value expected (run text)))
+    [
+      (42L, "I64 F(){static I64 A=40,B=A+2;return B;}F();");
+      (42L, "I64 F(){static U8 A=297;static I64 B=++A;return B;}F();");
+      (42L, "I64 F(){static I64 A[2]={40,41};static I64 B=A[1]+1;return B;}F();");
+    ]
+
+let retained_static_order_and_faults () =
+  let prefix =
+    "extern U0 PutChars(U64 ch);I64 N=40;I64 Next(){PutChars('I');return ++N;}"
+  in
+  let report =
+    run (prefix ^ "I64 F(){static I64 A=Next(),B=A+1;return B;}F();F();")
+  in
+  ignore (value ~output:"I" 42L report);
+  completed report;
+  let report =
+    run
+      (prefix ^ "I64 F(){static I64 A[2]={Next(),Next()};return A[1];}F();F();")
+  in
+  ignore (value ~output:"II" 42L report);
+  completed report;
+  let broken =
+    run
+      (prefix
+     ^ "I64 Z=0;I64 F(){static I64 A=Next(),B=1/Z,C=Next();return C;}F();")
+  in
+  ignore (fault Image.Division_by_zero broken);
+  Alcotest.(check string)
+    "later static fault preserves earlier initializer output" "I"
+    (Native.output_bytes broken);
+  let malformed =
+    run (prefix ^ "I64 F(){static I64 A=Next(),;return A;}F();")
+  in
+  ignore (rejection malformed);
+  Alcotest.(check string)
+    "later delimiter failure preserves live initializer output" "I"
+    (Native.output_bytes malformed);
+  List.iter
+    (fun (kind, text) -> ignore (fault kind (run text)))
+    [
+      (Image.Uninitialized_read, "I64 F(){static I64 A;return A;}F();");
+      (Image.Uninitialized_read, "I64 F(){static I64 A[3];return A[2];}F();");
+      ( Image.Address_out_of_bounds,
+        "I64 F(){static U8 A[2]={40,41};return A[2];}F();" );
+    ];
+  let limited =
+    run ~max_global_bytes:16
+      (prefix
+     ^ "I64 F(){static I64 A=Next();return A;}I64 G(){static I64 \
+        A=Next();return A;}G();")
+  in
+  diagnostic "HCIRVM0016" limited;
+  Alcotest.(check string)
+    "padded quota failure preserves earlier native initializer" "I"
+    (Native.output_bytes limited);
+  diagnostic "HCRUN0006" (run "I64 F(I64 n){static I64 A=n;return A;}F(42);");
+  diagnostic "HCRUN0006"
+    (run "I64 F(){I64 n=40;static I64 A=n+2;return A;}F();");
+  diagnostic "HCRUN0006"
+    (run "I64 F(){static I64 A[3]={40,41};return A[2];}F();")
+
+let retained_static_history () =
+  List.iter
+    (fun (expected, text) -> ignore (value expected (run text)))
+    [
+      ( 45L,
+        "I64 F(){static I64 A=40;return ++A;}F();I64 G(){static I64 \
+         A=42;return ++A;}G();F()+3;" );
+      ( 43L,
+        "I64 F(){static I64 A=40;return ++A;}I64 G(){return F();}G();G();G();"
+      );
+      (42L, "I64 F(){static I8 A=255;return A+43;}F();");
+      (42L, "I64 F(){static U32 A=4294967338;return A;}F();");
+      ( 43L,
+        "I64 F(){static I64 A=40;return ++A;}I64 Old(){return F();}Old();I64 \
+         F(){static I64 A=100;return ++A;}F();Old();Old();" );
+      ( 43L,
+        "I64 F(){static U8 A[2][2]={{39,40},{41,42}};return ++A[1][0];}F();F();"
+      );
+      ( 67L,
+        "I64 F(){static I64 A=0;U8 *p=\"A\";A++;p[0]++;return p[0];}F();I64 \
+         B[2]={20,22};F();" );
+    ]
+
+let retained_static_limits () =
+  let text = "I64 F(){static U8 A=41;return ++A;}F();F();" in
+  let report = run ~max_global_bytes:8 text in
+  ignore (value 43L report);
+  completed report;
+  let code, ir =
+    List.fold_left
+      (fun (code, ir) (fragment : Native.fragment) ->
+        (code + fragment.image.code_bytes, ir + fragment.image.ir_instructions))
+      (0, 0) (Native.fragments report)
+  in
+  ignore
+    (value 43L
+       (run ~max_global_bytes:8 ~max_code_bytes:code ~max_ir_instructions:ir
+          ~max_steps:(Native.executed_steps report)
+          text));
+  List.iter
+    (fun (code, report) -> diagnostic code report)
+    [
+      ("HCIRVM0016", run ~max_global_bytes:7 text);
+      ("HCBACK0005", run ~max_code_bytes:(code - 1) text);
+      ("HCBACK0001", run ~max_ir_instructions:(ir - 1) text);
+      ("HCIRVM0007", run ~max_steps:(Native.executed_steps report - 1) text);
+    ];
+  let session, config, source = inputs text in
+  let interpreted =
+    run_integer_program_report session ~config ~source ~max_steps:100_000
+  in
+  let result =
+    integer_program_report_outcome interpreted
+    |> Result.map_error diagnostics
+    |> checked
+  in
+  let word = Option.get (Ir_integer_interpreter.final_value result.value) in
+  Alcotest.(check int64) "independent narrow static counter" 43L word.bits
 
 let retained_output_effect_order () =
   let text =
@@ -542,6 +718,16 @@ let () =
             transitive_closure_limits;
           Alcotest.test_case "persistent function storage boundaries" `Quick
             unsupported_persistent_function_storage;
+          Alcotest.test_case "live native static storage and retained counter"
+            `Quick retained_static_counter;
+          Alcotest.test_case "live native static initializer effects" `Quick
+            retained_static_effects;
+          Alcotest.test_case "native static order, faults and padded quotas"
+            `Quick retained_static_order_and_faults;
+          Alcotest.test_case "native static historical bodies and widths" `Quick
+            retained_static_history;
+          Alcotest.test_case "native static exact and one-below limits" `Quick
+            retained_static_limits;
           Alcotest.test_case "retained ordinary output providers" `Quick
             retained_provider_output;
           Alcotest.test_case "retained output effects and original order" `Quick

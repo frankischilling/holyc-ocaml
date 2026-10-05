@@ -1785,6 +1785,10 @@ let bind_top_level_offset state ~before_item_index offset =
           | Top_level_outer_expression_binding.Query_undefined ->
               invalid "top-level offset target is not source-visible"
           | Top_level_outer_expression_binding.Query_binding
+              (Top_level_outer_expression_binding.Static_binding _) ->
+              invalid
+                "top-level offset target cannot use private static storage"
+          | Top_level_outer_expression_binding.Query_binding
               (Top_level_outer_expression_binding.Outer_binding _) ->
               invalid "top-level offset target is not a module global"
           | Top_level_outer_expression_binding.Query_binding
@@ -2152,6 +2156,29 @@ let rec type_expression table members policies ~before_item_index ~context
                   match
                     Top_level_identifier_resolution.leaf_resolution leaf
                   with
+                  | Top_level_id.Static_value reference ->
+                      let ( let* ) = Result.bind in
+                      let* source_type =
+                        known_type table (Static_reference.type_ reference)
+                      in
+                      let array_rank =
+                        List.length (Static_reference.dimensions reference)
+                      in
+                      let category =
+                        if array_rank > 0 then Array_value
+                        else
+                          match context with
+                          | Value_context -> Object_value
+                          | Lvalue_context -> Lvalue
+                      in
+                      finish ~source_type:(Some source_type) ~array_rank
+                        ~array_address:(array_rank > 0)
+                        ~top_level_outer_occurrence:occurrence category
+                        (if array_rank > 0 then Integer_result
+                         else
+                           forwarded_class policies ~before_item_index
+                             source_type)
+                        state
                   | Top_level_id.Outer_function_value { binding; metadata } -> (
                       let declaration =
                         Outer_environment.function_declaration metadata
@@ -3304,6 +3331,11 @@ and type_top_level_call table members policies ~before_item_index
                "top-level call callee is absent from its identifier batch")
       | Some leaf -> (
           match Top_level_identifier_resolution.leaf_resolution leaf with
+          | Top_level_identifier_resolution.Static_value _ ->
+              Ok
+                (make_result ~intrinsic_conversion state ~id ~source
+                   ~source_type:None ~category:Unavailable
+                   ~result_class:Unresolved_actual_class)
           | Top_level_identifier_resolution.Module_value
               (Top_level_identifier_resolution.Direct_function_value
                  { declaration; _ }) ->
@@ -3578,7 +3610,8 @@ and type_top_level_outer_callback_call table members policies =
     with
     | Top_level_outer_expression_binding.Outer_binding selected ->
         selected != binding
-    | Top_level_outer_expression_binding.Module_binding _ -> true
+    | Top_level_outer_expression_binding.Module_binding _
+    | Top_level_outer_expression_binding.Static_binding _ -> true
   then invalid "top-level outer callback does not retain its selected binding"
   else
     let entry = Outer_environment.binding_entry binding in

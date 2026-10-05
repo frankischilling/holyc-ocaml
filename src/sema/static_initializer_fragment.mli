@@ -17,6 +17,21 @@ val create :
     mandatory. This fragment alone grants no native image authority. *)
 
 val owns_table : t -> Symbol_table.t -> bool
+
+val create_selected :
+  references:(Frontend.Ast.identifier * Reference_selection.t) list ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  publication:Declaration_collection.publication ->
+  receipt:Frontend.Parser.static_initializer_preparation ->
+  dimensions:int64 list ->
+  environment:Outer_environment.t ->
+  queries:Query_selection.t list ->
+  (t, string) result
+(** Retain the ordered original identifier selections, including private statics
+    in the declaring function. Each selection must belong to the original source
+    namespace and allocation. This manifest grants no native entry authority. *)
+
 val namespace : t -> Declaration_collection.namespace
 val publication : t -> Declaration_collection.publication
 val receipt : t -> Frontend.Parser.static_initializer_preparation

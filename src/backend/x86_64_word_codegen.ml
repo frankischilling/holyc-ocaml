@@ -6344,7 +6344,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         || Ir.Integer_globals.storage_opcode source_slot
                            <> description.opcode
                         || (not (Type.equal expected_type target_type))
-                        || not (Global_storage.owns_address slot runtime_owner)
+                        || not
+                             (Global_storage.owns_address ~source_globals slot
+                                runtime_owner)
                       then
                         malformed description
                           "global address opcode, type or exact slot owner is \
@@ -8287,7 +8289,27 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
               in
               Option.iter
                 (fun storage ->
-                  if Option.is_some (Ir.Integer_globals.storage_frame storage)
+                  let original_static =
+                    match
+                      ( owner,
+                        Ir.Integer_globals.find_static source_globals
+                          (Ir.Integer_globals.storage_symbol storage) )
+                    with
+                    | Runtime.Function body, Some slot ->
+                        Option.is_some
+                          (Ir.Integer_globals.static_source_allocation slot)
+                        && Function.definition_matches_frame body
+                             (Ir.Integer_globals.static_frame slot)
+                        && Ir.Integer_globals.same_task_storage globals
+                             source_globals
+                        && List.for_all
+                             (Ir.Integer_globals.static_root_executed slot)
+                             (Ir.Integer_globals.static_initializers slot)
+                    | _ -> false
+                  in
+                  if
+                    Option.is_some (Ir.Integer_globals.storage_frame storage)
+                    && not original_static
                   then
                     reject ?span:raw.span "HCBACK0002"
                       "retained native task functions do not yet admit \

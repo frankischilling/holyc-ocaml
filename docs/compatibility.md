@@ -6,7 +6,12 @@ arena. Exact retained references preserve earlier writes and initialization
 flags. Each caller compiles its selected original function bodies, including
 historical definitions and global bindings after same-name declarations. Actual
 native outcomes supply cumulative steps; source admission keeps metadata
-without an interpreter storage copy. Persistent function addresses, task
+without an interpreter storage copy. Integer function statics append private
+storage during allocation and initialize once at their original live leaves.
+Scalar and fully initialized fixed-array statics retain declared widths,
+per-element initialization flags and historical function ownership.
+Automatic/parameter reads in static initializers, string-copy leaves and partial
+array initialization still reject. Persistent function addresses, task
 callbacks, runtime dimensions, defaults, native `#exe` and AOT task
 execution remain open under #704.
 See [native source tasks](native-source-tasks.md).

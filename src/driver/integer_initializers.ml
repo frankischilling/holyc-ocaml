@@ -193,7 +193,9 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                           (fun root -> Static (slot, root))
                           (Globals.static_initializers slot
                           |> List.filter (fun root ->
-                              not (List.exists (( == ) root) statics_prepared))
+                              (not (Globals.static_root_executed slot root))
+                              && not
+                                   (List.exists (( == ) root) statics_prepared))
                           )))
                   |> List.stable_sort (fun left right ->
                       let index = function

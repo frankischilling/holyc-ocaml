@@ -224,6 +224,15 @@ val lower_indirect_callee :
   Sema.Function_call_expression_result.indirect_call ->
   (lowering_result, Instruction_sequence.error list) result
 
+val lower_static_fragment_initializer :
+  ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Static_initializer_destination.t ->
+  (lowering_result, Instruction_sequence.error list) result
+
 val result_value : t -> Instruction_sequence.Value_id.t
 val result_type : t -> Sema.Type.t
 val next_instruction_id : t -> Instruction_sequence.Instruction_id.t

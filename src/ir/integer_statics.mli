@@ -44,6 +44,9 @@ val initial :
 
 val initial_bits : slot -> int64 option
 
+val root_executed :
+  slot -> Sema.Function_call_expression_result.initializer_result -> bool
+
 val initializers :
   slot -> Sema.Function_call_expression_result.initializer_result list
 

@@ -1536,4 +1536,23 @@ completion, checks pending/completed storage identity and snapshot retention,
 and rejects foreign-task admission. It charges padded extents once and retains
 earlier charges after quota failure. The probe creates no native arena or
 initializer values and executes no interpreter instructions. These checks cover
-source and storage ownership; native source-task statics remain unsupported.
+source and storage ownership without substituting for native execution.
+
+Native source-function tests execute persistent scalar and fixed-array statics,
+declared narrow widths, separate same-name owners and historical direct-call
+closures. Live initializer tests check direct calls and captured provider effects
+once, source-order references to earlier private statics, faults after reached
+effects, malformed later declarations, uninitialized reads and declared bounds.
+The source-progress counters prove that these initializer values did not execute
+in the interpreter or closed preparation. The native authority tests allocate
+and execute in the original arena, preserve preceding global writes, and retain
+static state across collection. They reject released arenas, foreign layouts and
+sources, other domains, replay and expired requests. An initializer cannot
+substitute another identifier occurrence that selects the same static;
+the original occurrence remains a valid control. Both private ABI images
+compile; actual execution uses the host ABI. The function CLI tests check the
+counter against public IR, exact and one-below cumulative native limits, and
+once-only output. `examples/native-source-statics.hc` returns 43 and captures `I`.
+No new TempleOS runtime capture is claimed. Unsupported automatic or parameter
+references, partial array leaves, string copies and noninteger statics remain
+explicit boundaries.
