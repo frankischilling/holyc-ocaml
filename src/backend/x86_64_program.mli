@@ -134,6 +134,13 @@ val compile_callable :
 val create_task_layout :
   max_global_bytes:int -> (task_layout, error list) result
 
+val create_task_layout_with_literals :
+  max_literal_bytes:int ->
+  max_global_bytes:int ->
+  (task_layout, error list) result
+(** Fix cumulative global and literal quotas for one original task layout. The
+    compatibility constructor uses a 1 MiB literal allowance. *)
+
 val compile_task_initializer :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
@@ -156,7 +163,8 @@ val compile_task_command :
   Driver.Integer_task.Native_dispatch.command_request ->
   (t, error list) result
 (** Compile an original resumed source command using the same retained task
-    storage. Retained function linking and literal storage are separate gaps. *)
+    storage. Retained direct bodies and original literal regions keep their
+    source identities; cross-event executable addresses remain unsupported. *)
 
 val task_snapshot : t -> X86_64_global_storage.task_snapshot option
 

@@ -29,6 +29,15 @@ hosted providers supply checked array reads and output limits. A joined native
 source body disables earlier provider fallback. See
 `examples/native-source-output.hc` and the native source-function tests.
 
+Task literals follow `Compiler/PrsExp.HC:692-697`, which creates an original
+`CMT_STR_CONST` object, emits internal U8-pointer `IC_STR_CONST`, and retains the
+combined bytes from `LexExtStr`. `OptPass789A.HC:296-304` addresses that original
+object within the generated image. The hosted task layout retains the original
+sealed producer, graph and runtime context while appending stable byte and
+reference-table regions to its shared arena. Initial payloads are copied only
+when the new suffix is admitted; later fragments keep any mutation. These
+memory and quota checks are hosted policy. No new TempleOS oracle was captured.
+
 Explicit indexed callback dereferences follow the pending-operator stack in
 `Compiler/PrsExp.HC:609-676`, callback selection at lines 761-770 and 867-904,
 and `PrsLib.HC:21-29`. The callback selection removes one pending star before

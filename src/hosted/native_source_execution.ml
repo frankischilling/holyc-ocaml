@@ -15,6 +15,8 @@ type image = {
   code_bytes : int;
   global_bytes : int;
   global_arena_bytes : int;
+  literal_bytes : int;
+  arena_metadata_bytes : int;
   entry_stack_bytes : int;
   function_count : int;
 }
@@ -56,6 +58,8 @@ let describe_image image =
     code_bytes = Image.code_bytes image;
     global_bytes = Image.global_bytes image;
     global_arena_bytes = Image.arena_bytes image;
+    literal_bytes = Image.literal_bytes image;
+    arena_metadata_bytes = Image.arena_metadata_bytes image;
     entry_stack_bytes = Image.entry_stack_bytes image;
     function_count = Image.function_count image;
   }
@@ -138,16 +142,23 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       | _ -> Ok ()
     in
     let* layout =
-      Image.create_task_layout ~max_global_bytes |> Result.map_error errors
+      Image.create_task_layout_with_literals ~max_global_bytes
+        ~max_literal_bytes
+      |> Result.map_error errors
     in
     let* budget =
       Native.create_budget ~max_steps ~max_output_bytes ~max_output_work ()
       |> Result.map_error host_error
     in
     let max_arena_bytes =
-      if max_global_bytes > Native.hard_max_arena_bytes / 9 then
-        Native.hard_max_arena_bytes
-      else 9 * max_global_bytes
+      let global_bound =
+        min Native.hard_max_arena_bytes (9 * max_global_bytes)
+      in
+      let literal_bound =
+        min Native.hard_max_arena_bytes (65 * max_literal_bytes)
+      in
+      global_bound
+      + min (Native.hard_max_arena_bytes - global_bound) literal_bound
     in
     let* arena =
       Native.create_task_arena ~max_arena_bytes layout

@@ -66,7 +66,8 @@ external execute_retained_budget_program :
 external create_task_arena_handle : int -> task_arena_handle
   = "holyc_native_create_task_arena"
 
-external admit_task_arena : task_arena_handle -> int -> int -> int
+external admit_task_arena :
+  task_arena_handle -> int -> int -> (int * string) list -> int
   = "holyc_native_task_arena_admit"
 
 external release_task_arena_handle : task_arena_handle -> unit
@@ -642,6 +643,8 @@ let admit_task_snapshot_locked arena snapshot =
         try
           let observed =
             admit_task_arena arena.handle_ admitted required_arena_bytes
+              (Task_storage.task_snapshot_initializations_since snapshot
+                 ~arena_prefix_bytes:admitted)
           in
           if observed <> required_arena_bytes then
             Error
@@ -677,6 +680,8 @@ let retain_task_fragment ?max_global_bytes ?max_literal_bytes
               else if
                 Task_storage.task_snapshot_global_bytes snapshot
                 <> Image.global_bytes image
+                || Task_storage.task_snapshot_literal_bytes snapshot
+                   <> Image.literal_bytes image
               then
                 Error
                   "native task fragment logical storage disagrees with its \

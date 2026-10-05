@@ -21,9 +21,10 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3 || Array.length Sys.argv = 4)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 5)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
-     <native-source-functions.hc> [native-source-output.hc]"
+     <native-source-functions.hc> [native-source-output.hc] \
+     [native-source-literals.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -201,7 +202,7 @@ let () =
       (limited |> member "output_hex" |> to_string = "41")
       "faulting Print preserves prior PutChars only"
   in
-  if Array.length Sys.argv = 4 then output_checks Sys.argv.(3)
+  if Array.length Sys.argv >= 4 then output_checks Sys.argv.(3)
   else with_file ".hc" output_fixture output_checks;
   with_file ".hc"
     "extern U0 PutChars(U64 ch);I64 F(){PutChars('A');return \
@@ -211,5 +212,48 @@ let () =
       require
         (report |> member "output_hex" |> to_string = "5041")
         "earlier output survives native function fault");
+  let literal_checks path =
+    let report = json_path ~options:[ "--literal-byte-limit=4" ] path in
+    require (final_bits report = "0x000000000000002a") "retained literal result";
+    require
+      (report |> member "output_hex" |> to_string = "34323b")
+      "retained literal output";
+    require
+      (List.map
+         (fun fragment -> fragment |> member "literal_bytes" |> to_int)
+         (fragments report)
+      = [ 4; 4 ])
+      "original literal bytes are admitted once";
+    require
+      (List.map
+         (fun fragment -> fragment |> member "arena_metadata_bytes" |> to_int)
+         (fragments report)
+      = [ 160; 160 ])
+      "canonical reference metadata is admitted once";
+    let ir = json_path ~target:"ir" path in
+    require
+      (ir |> member "output_hex" |> to_string = "34323b")
+      "independent IR literal output";
+    let limited =
+      json_path ~status:1 ~options:[ "--literal-byte-limit=3" ] path
+    in
+    require (has_diagnostic "HCBACK0004" limited) "one-byte-below literal quota";
+    require
+      (limited |> member "output_hex" |> to_string = "")
+      "unadmitted literal prints nothing"
+  in
+  if Array.length Sys.argv = 5 then literal_checks Sys.argv.(4)
+  else
+    with_file ".hc"
+      "extern U0 Print(U8 *fmt,...);I64 Answer(){Print(\"%d;\",42);return \
+       42;}Answer();"
+      literal_checks;
+  with_file ".hc"
+    "I64 F(){U8 *p=\"A\";p[0]++;return p[0];}F();I64 A[2]={20,22};F();"
+    (fun path ->
+      let report = json_path ~options:[ "--literal-byte-limit=2" ] path in
+      require
+        (final_bits report = "0x0000000000000043")
+        "literal mutation survives later array fragments");
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

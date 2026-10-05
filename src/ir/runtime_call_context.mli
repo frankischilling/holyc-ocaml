@@ -120,6 +120,11 @@ val find_callback_load :
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option
 
+val matches_graph : t -> owner:owner -> Block_graph.t -> bool
+(** Require the physical original entry or function graph and every sealed
+    instruction record. Equal text, copied graphs and another context do not
+    establish storage ownership. *)
+
 type function_address
 type function_addresses
 

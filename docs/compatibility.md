@@ -7,17 +7,24 @@ flags. Each caller compiles its selected original function bodies, including
 historical definitions and global bindings after same-name declarations. Actual
 native outcomes supply cumulative steps; source admission keeps metadata
 without an interpreter storage copy. Persistent function addresses, task
-callbacks, runtime dimensions, literals, defaults, native `#exe` and AOT task
+callbacks, runtime dimensions, defaults, native `#exe` and AOT task
 execution remain open under #704.
 See [native source tasks](native-source-tasks.md).
 
 Retained task functions use their original source context for Print and PutChars.
-Owned array formats, nested calls and initializer output share cumulative native
+Owned array and original literal formats, nested calls and initializer output share cumulative native
 instruction, output-byte and output-work limits. Print faults preserve earlier
 output without publishing a partial draft; PutChars keeps reached prefixes.
 Joined source-body replacement rejects provider fallback while native extern-slot
 dispatch remains unfinished. StreamPrint and StreamExePrint remain separate
 source-generation consumers.
+
+Original task string producers append stable byte regions and canonical
+reference tables. Retained functions reuse those same mutable bytes after later
+globals, arrays or function bodies append storage. Distinct producers remain
+distinct objects. Literal bytes include their NUL terminators and are charged
+once; private reference metadata has its own arena bound. This does not admit
+pointer globals, saved parameter defaults or persistent native function addresses.
 
 Explicit stars on fully indexed callback cells execute through both runners in
 JIT and AOT modes. Calls, reads, stores and numeric updates reuse the original

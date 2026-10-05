@@ -114,6 +114,10 @@ let create_task_layout ~max_global_bytes =
   Task_storage.create_task_layout ~max_global_bytes ()
   |> Result.map_error project_storage_errors
 
+let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
+  Task_storage.create_task_layout ~max_literal_bytes ~max_global_bytes ()
+  |> Result.map_error project_storage_errors
+
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~runtime_calls
     ~retained_function_source ~retained_provider_available ~initialization
@@ -138,9 +142,12 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
       ~initialization ~entry ~functions ()
     |> Result.map_error project_errors
   in
+  let snapshot = Option.get (Codegen.program_task_snapshot image) in
   if
     Codegen.program_global_bytes image
     <> Task_storage.task_snapshot_global_bytes snapshot
+    || Codegen.program_literal_bytes image
+       <> Task_storage.task_snapshot_literal_bytes snapshot
     || Codegen.program_arena_bytes image
        <> Task_storage.task_snapshot_arena_bytes snapshot
   then invalid "native task code disagrees with its original storage snapshot"

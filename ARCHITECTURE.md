@@ -18,6 +18,13 @@ Historical callees remain distinct after same-name declarations. Code mappings
 belong to individual fragments; the source registry supplies no stable native
 function address.
 
+Task literal regions belong to their original sealed graph and producer.
+`Backend.X86_64_literal_storage` appends data and canonical reference tables to
+the same layout as globals. Process-local graph keys provide bounded map lookup;
+physical graph, context and instruction checks establish ownership. The C host
+zeros each newly admitted suffix and copies its original payloads once. Later
+fragments preserve mutated bytes without an arena-sized seed copy.
+
 Retained Print and PutChars calls use the original body's sealed call occurrence
 and admitted extern link. A request-scoped check verifies their task and source
 owner before compilation. If the original extern slot has gained a joined

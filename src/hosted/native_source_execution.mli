@@ -9,6 +9,8 @@ type image = private {
   code_bytes : int;
   global_bytes : int;
   global_arena_bytes : int;
+  literal_bytes : int;
+  arena_metadata_bytes : int;
   entry_stack_bytes : int;
   function_count : int;
 }
@@ -65,9 +67,11 @@ val evaluate :
     Code bytes and verified IR instructions are bounded cumulatively across
     emitted fragments. Runtime steps and output share one native allowance;
     frame, call-depth and active native stack limits apply to each activation.
-    Unsupported task declarations, function statics/defaults, literals and AOT
-    mode return diagnostics. There is no isolated program or interpreter
-    fallback. *)
+    Original literal bytes and canonical reference tables append to the shared
+    arena and preserve mutation across fragments. Logical literal and metadata
+    counts appear separately in each detached image report. Unsupported task
+    declarations, function statics/defaults and AOT mode return diagnostics.
+    There is no isolated program or interpreter fallback. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val fragments : report -> fragment list

@@ -325,7 +325,6 @@ let unsupported_persistent_function_storage () =
       "extern I64 Missing(); I64 F(){return Missing();} F();";
       "extern I64 Later(); I64 F(){return Later();} I64 Later(){return 42;} \
        F();";
-      "I64 F(){return (\"*\")[0];} F();";
       "I64 F(I64 n=42){return n;} F();";
       "I64 F(){return 42;} I64 (*p)()=&F; p();";
       "I64 F(){1.0;return 42;} F();";

@@ -167,4 +167,8 @@ val program_literal_bytes : program_image -> int
 val program_arena_metadata_bytes : program_image -> int
 val program_arena_bytes : program_image -> int
 val program_global_image : program_image -> string
+
+val program_task_snapshot :
+  program_image -> X86_64_global_storage.task_snapshot option
+
 val hard_max_global_bytes : int

@@ -23,6 +23,16 @@ and compile both providers for both status ABIs. A newly joined source body
 cannot run through the older provider fallback. The output CLI fixture is
 `examples/native-source-output.hc`.
 
+`test/native/test_native_source_literals.ml` executes original entry and retained
+function strings. It compares native results and bytes with independent IR runs,
+including mutation across fragments, later globals and arrays, distinct
+producers, historical bodies, recursion and initializer calls. Exact and
+one-below literal, runtime, output, code and IR limits preserve reached effects.
+The source-authority suite checks copied graphs, foreign contexts and domains,
+both status ABIs, pre-entry retries and expired requests through real native
+entry. `examples/native-source-literals.hc` also runs through the function CLI
+suite, which checks detached logical literal and private metadata counts.
+
 `test/native/test_native_source_execution.ml` checks original live scalar and array
 initializers, stable cross-fragment writes, declared widths, unsigned words,
 reached faults and exact cumulative native limits. It distinguishes native

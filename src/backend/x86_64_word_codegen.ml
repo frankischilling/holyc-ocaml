@@ -3509,6 +3509,7 @@ type program_image = {
   arena_metadata_bytes : int;
   global_image : string;
   task_zero_bytes : int option;
+  task_snapshot : Global_storage.task_snapshot option;
   has_output : bool;
   sites : program_site list;
 }
@@ -8296,10 +8297,6 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
                       "retained native task functions do not yet admit \
                        historical callback storage")
                 source_storage;
-              if historical && raw.opcode = Opcode.Ic_str_const then
-                reject ?span:raw.span "HCBACK0002"
-                  "retained native task functions do not yet admit historical \
-                   literal storage";
               Option.iter
                 (fun addresses ->
                   if
@@ -8659,6 +8656,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         arena_metadata_bytes = 0;
                         global_image = "";
                         task_zero_bytes = None;
+                        task_snapshot = None;
                         has_output = false;
                         sites;
                       }
@@ -8794,34 +8792,76 @@ let compile_callable_internal ?task_snapshot ?retained_function_source
          (List.map (fun (error : Global_storage.error) ->
               { code = error.code; message = error.message; span = error.span }))
   in
+  let literal_errors =
+    List.map (fun (error : Literal_storage.error) ->
+        { code = error.code; message = error.message; span = error.span })
+  in
+  let* task_snapshot, global_storage, literal_storage =
+    match task_snapshot with
+    | None ->
+        let* literals =
+          Literal_storage.create ~max_literal_bytes ~max_arena_bytes:33_554_432
+            ~arena_prefix_bytes:(Global_storage.arena_bytes global_storage)
+            ~runtime_calls ~initialization ~entry ~functions
+          |> Result.map_error literal_errors
+        in
+        Ok (None, global_storage, literals)
+    | Some snapshot ->
+        let candidates =
+          (Runtime.Entry, entry_graph, runtime_calls)
+          :: List.map
+               (fun source ->
+                 ( Runtime.Function source.source_definition.body,
+                   Function.body source.source_definition.body,
+                   source.source_runtime_calls ))
+               callable_sources
+        in
+        let* sources, work =
+          List.fold_left
+            (fun result (owner, graph, runtime_calls) ->
+              let* sources, work = result in
+              let instructions =
+                Graph.blocks graph
+                |> List.concat_map (fun block ->
+                    Graph.instructions block |> Sequence.instructions)
+              in
+              if
+                not
+                  (List.exists
+                     (fun instruction ->
+                       (Sequence.description instruction).opcode
+                       = Opcode.Ic_str_const)
+                     instructions)
+              then Ok (sources, work)
+              else
+                let* source =
+                  Literal_storage.source ~runtime_calls ~owner ~graph
+                  |> Result.map_error literal_errors
+                in
+                Ok (source :: sources, work + List.length instructions))
+            (Ok ([], 0))
+            candidates
+        in
+        let* snapshot =
+          Global_storage.append_task_literals snapshot
+            ~sources:(List.rev sources) ~work
+          |> Result.map_error
+               (List.map (fun (error : Global_storage.error) ->
+                    {
+                      code = error.code;
+                      message = error.message;
+                      span = error.span;
+                    }))
+        in
+        Ok
+          ( Some snapshot,
+            Global_storage.task_snapshot_storage snapshot,
+            Global_storage.task_snapshot_literals snapshot )
+  in
   let global_arena_bytes = Global_storage.arena_bytes global_storage in
   let global_image =
     if Option.is_some task_snapshot then ""
     else Global_storage.image global_storage
-  in
-  let* literal_storage =
-    Literal_storage.create ~max_literal_bytes ~max_arena_bytes:33_554_432
-      ~arena_prefix_bytes:global_arena_bytes ~runtime_calls ~initialization
-      ~entry ~functions
-    |> Result.map_error
-         (List.map (fun (error : Literal_storage.error) ->
-              { code = error.code; message = error.message; span = error.span }))
-  in
-  let* () =
-    if
-      Option.is_some task_snapshot
-      && not (Literal_storage.is_empty literal_storage)
-    then
-      Error
-        [
-          {
-            code = "HCBACK0002";
-            message =
-              "native task fragments do not yet admit retained literal storage";
-            span = None;
-          };
-        ]
-    else Ok ()
   in
   let has_storage =
     (not (Global_storage.is_empty global_storage))
@@ -8857,6 +8897,7 @@ let compile_callable_internal ?task_snapshot ?retained_function_source
       | None | Some _ ->
           compile_program ?status_abi ~max_stack_bytes ~max_blocks
             ~max_ir_instructions ~max_code_bytes entry
+          |> Result.map (fun image -> { image with task_snapshot })
     else
       Error
         [
@@ -9361,13 +9402,18 @@ let compile_callable_internal ?task_snapshot ?retained_function_source
               global_bytes = Global_storage.global_bytes global_storage;
               literal_bytes = Literal_storage.literal_bytes literal_storage;
               arena_metadata_bytes =
-                global_arena_bytes
+                (global_arena_bytes
                 - Global_storage.global_bytes global_storage
-                + Literal_storage.metadata_bytes literal_storage;
+                +
+                if Option.is_some task_snapshot then
+                  -Literal_storage.literal_bytes literal_storage
+                else Literal_storage.metadata_bytes literal_storage);
               global_image =
-                global_image ^ Literal_storage.image literal_storage;
+                (if Option.is_some task_snapshot then ""
+                 else global_image ^ Literal_storage.image literal_storage);
               task_zero_bytes =
                 Option.map (fun _ -> global_arena_bytes) task_snapshot;
+              task_snapshot;
               has_output = List.exists (fun site -> site.output_site) sites;
               sites;
             }
@@ -9453,3 +9499,5 @@ let program_global_image (compiled : program_image) =
   match compiled.task_zero_bytes with
   | Some count -> String.make count '\000'
   | None -> Bytes.to_string (Bytes.of_string compiled.global_image)
+
+let program_task_snapshot (compiled : program_image) = compiled.task_snapshot

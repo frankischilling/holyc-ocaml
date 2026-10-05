@@ -8,8 +8,11 @@ type raw_arena
 external raw_create_arena : Obj.t -> raw_arena
   = "holyc_native_create_task_arena"
 
-external raw_admit_arena : raw_arena -> Obj.t -> Obj.t -> int
+external raw_admit_arena_chunks : raw_arena -> Obj.t -> Obj.t -> Obj.t -> int
   = "holyc_native_task_arena_admit"
+
+let raw_admit_arena arena prefix extent =
+  raw_admit_arena_chunks arena prefix extent (Obj.repr [])
 
 external raw_release_arena : raw_arena -> unit
   = "holyc_native_release_task_arena"
@@ -656,6 +659,22 @@ let raw_arena_admission () =
         raw_admit_arena arena (Obj.repr prefix) (Obj.repr extent)
       in
       Alcotest.(check int) "initial prefix" 16 (admit 0 16);
+      List.iter
+        (fun chunks ->
+          reject (fun () ->
+              ignore
+                (raw_admit_arena_chunks arena (Obj.repr 16) (Obj.repr 24) chunks)))
+        [
+          Obj.repr 1;
+          Obj.repr "list";
+          Obj.repr [ 16 ];
+          Obj.repr [ (15, "A") ];
+          Obj.repr [ (24, "") ];
+          Obj.repr [ (16, "12345678") ];
+          Obj.repr [ (16, "A"); (23, "B") ];
+          Obj.repr [ (16.0, "A") ];
+          Obj.repr [ (16, 1) ];
+        ];
       reject (fun () -> ignore (admit 0 24));
       reject (fun () -> ignore (admit 16 8));
       reject (fun () -> ignore (admit 16 33));

@@ -1001,10 +1001,22 @@
  (alias native-tests)
  (deps
   ../../examples/native-source-functions.hc
-  ../../examples/native-source-output.hc)
+  ../../examples/native-source-output.hc
+  ../../examples/native-source-literals.hc)
  (action
   (run
    %{exe:test_native_source_function_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-source-functions.hc}
-   %{dep:../../examples/native-source-output.hc})))
+   %{dep:../../examples/native-source-output.hc}
+   %{dep:../../examples/native-source-literals.hc})))
+
+(executable
+ (name test_native_source_literals)
+ (modules test_native_source_literals)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_literals.exe})))

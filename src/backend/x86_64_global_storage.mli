@@ -39,6 +39,7 @@ val create_prepared :
 
 val create_task_layout :
   ?max_layout_work:int ->
+  ?max_literal_bytes:int ->
   max_global_bytes:int ->
   unit ->
   (task_layout, error list) result
@@ -68,6 +69,21 @@ val task_snapshot_matches_layout : task_snapshot -> task_layout -> bool
 val task_snapshot_arena_image : task_snapshot -> string
 val task_snapshot_arena_bytes : task_snapshot -> int
 val task_snapshot_global_bytes : task_snapshot -> int
+val task_snapshot_literal_bytes : task_snapshot -> int
+val task_snapshot_literals : task_snapshot -> X86_64_literal_storage.t
+
+val task_snapshot_initializations_since :
+  task_snapshot -> arena_prefix_bytes:int -> (int * string) list
+
+val append_task_literals :
+  task_snapshot ->
+  sources:X86_64_literal_storage.source list ->
+  work:int ->
+  (task_snapshot, error list) result
+(** Append original sealed literal regions after this exact current snapshot.
+    Literal bytes, canonical reference tables and graph visits are cumulative.
+    Earlier global, literal and table offsets remain unchanged. *)
+
 val task_snapshot_storage : task_snapshot -> t
 
 val task_snapshot_matches :

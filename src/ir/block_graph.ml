@@ -32,11 +32,14 @@ module Int_map = Map.Make (Int)
 module Int_set = Set.Make (Int)
 
 type t = {
+  storage_identity : int;
   entry : block;
   blocks : block list;
   index : block Block_map.t;
   definition_order : block list;
 }
+
+let next_storage_identity = Atomic.make 0
 
 type checked_block = {
   checked_id : Block_id.t;
@@ -616,12 +619,14 @@ let create ~entry descriptions =
         Ok
           {
             entry = entry_block;
+            storage_identity = Atomic.fetch_and_add next_storage_identity 1;
             blocks = built;
             index = built_index;
             definition_order;
           }
 
 let entry graph = graph.entry
+let storage_identity graph = graph.storage_identity
 let blocks graph = graph.blocks
 let definition_order graph = graph.definition_order
 let find_block graph id = Block_map.find_opt id graph.index

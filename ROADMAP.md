@@ -6,8 +6,10 @@ retained direct functions and resumed commands to one native arena through
 Each caller compiles its original function bodies and historical global bindings.
 Retained Print and PutChars calls use those original contexts and share the
 task's output allowance. Joined extern-body dispatch remains unfinished.
-Persistent executable addresses, task callbacks, runtime dimensions, task
-literals, effectful defaults, native `#exe` and AOT task execution remain open. See
+Original task literals now keep their mutable bytes and reference tables across
+fragments, including retained formats and initializer calls.
+Persistent executable addresses, task callbacks, runtime dimensions,
+effectful defaults, native `#exe` and AOT task execution remain open. See
 [native source tasks](docs/native-source-tasks.md).
 
 Issue #797 adds [conditional integer chains](docs/conditional-comparison-chains.md)

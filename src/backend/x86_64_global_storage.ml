@@ -7,6 +7,7 @@ module Layout = Ir.Integer_initializer_layout
 module Opcode = Ir.Opcode
 module Symbol = Sema.Symbol
 module Symbol_map = Map.Make (Symbol.Id)
+module Literals = X86_64_literal_storage
 
 type error = { code : string; message : string; span : Common.Span.t option }
 
@@ -44,16 +45,22 @@ type task_layout_state = {
   task_global_bytes : int;
   task_arena_bytes : int;
   task_layout_work : int;
+  task_literals : Literals.t;
 }
 
 type task_layout = {
   max_task_global_bytes : int;
   max_task_layout_work : int;
+  max_task_literal_bytes : int;
   task_state : task_layout_state Atomic.t;
   task_arena_claimed : bool Atomic.t;
 }
 
-type task_snapshot = { task_layout : task_layout; task_storage : t }
+type task_snapshot = {
+  task_layout : task_layout;
+  task_storage : t;
+  task_state_snapshot : task_layout_state;
+}
 
 let hard_max_global_bytes = 16 * 1024 * 1024
 let hard_max_arena_bytes = 32 * 1024 * 1024
@@ -633,9 +640,15 @@ let create_prepared ~functions ~initializers ~max_global_bytes ~initialization
     ~entry ()
 
 let create_task_layout ?(max_layout_work = hard_max_task_layout_work)
-    ~max_global_bytes () =
+    ?(max_literal_bytes = 1_048_576) ~max_global_bytes () =
   let ( let* ) = Result.bind in
   let* () = validate_global_limit ~max_global_bytes in
+  let* () =
+    Literals.validate_limit ~max_literal_bytes
+    |> Result.map_error
+         (List.map (fun (error : Literals.error) ->
+              { code = error.code; message = error.message; span = error.span }))
+  in
   let* () =
     if max_layout_work <= 0 || max_layout_work > hard_max_task_layout_work then
       error "HCBACK0001"
@@ -646,6 +659,7 @@ let create_task_layout ?(max_layout_work = hard_max_task_layout_work)
     {
       max_task_global_bytes = max_global_bytes;
       max_task_layout_work = max_layout_work;
+      max_task_literal_bytes = max_literal_bytes;
       task_arena_claimed = Atomic.make false;
       task_state =
         Atomic.make
@@ -656,6 +670,7 @@ let create_task_layout ?(max_layout_work = hard_max_task_layout_work)
             task_global_bytes = 0;
             task_arena_bytes = 0;
             task_layout_work = 0;
+            task_literals = Literals.empty;
           };
     }
 
@@ -889,8 +904,47 @@ let create_task_snapshot layout ~initialization ~entry =
     }
   in
   if Atomic.compare_and_set layout.task_state before after then
-    Ok { task_layout = layout; task_storage }
+    Ok { task_layout = layout; task_storage; task_state_snapshot = after }
   else invalid "native task storage changed during fragment admission"
+
+let append_task_literals snapshot ~sources ~work =
+  let ( let* ) = Result.bind in
+  let layout = snapshot.task_layout in
+  let before = snapshot.task_state_snapshot in
+  let* () =
+    if Atomic.get layout.task_state != before then
+      error "HCBACK0003"
+        "native task literal snapshot precedes current layout admission"
+    else if
+      work < 0 || work > layout.max_task_layout_work - before.task_layout_work
+    then
+      error "HCBACK0001"
+        "native task literal admission exceeds cumulative layout work"
+    else Ok ()
+  in
+  let* literals =
+    Literals.append before.task_literals
+      ~max_literal_bytes:layout.max_task_literal_bytes
+      ~max_arena_bytes:hard_max_arena_bytes
+      ~arena_prefix_bytes:before.task_arena_bytes ~sources
+    |> Result.map_error
+         (List.map (fun (error : Literals.error) ->
+              { code = error.code; message = error.message; span = error.span }))
+  in
+  let after =
+    {
+      before with
+      task_literals = literals;
+      task_arena_bytes = Literals.arena_bytes literals;
+      task_layout_work = before.task_layout_work + work;
+    }
+  in
+  let task_storage =
+    { snapshot.task_storage with zero_bytes = Some after.task_arena_bytes }
+  in
+  if Atomic.compare_and_set layout.task_state before after then
+    Ok { snapshot with task_storage; task_state_snapshot = after }
+  else error "HCBACK0003" "native task storage changed during literal admission"
 
 let task_snapshot_matches_layout snapshot layout =
   snapshot.task_layout == layout
@@ -907,6 +961,16 @@ let task_snapshot_arena_image snapshot =
 
 let task_snapshot_arena_bytes snapshot = arena_bytes snapshot.task_storage
 let task_snapshot_global_bytes snapshot = snapshot.task_storage.global_bytes
+let task_snapshot_literals snapshot = snapshot.task_state_snapshot.task_literals
+
+let task_snapshot_literal_bytes snapshot =
+  Literals.literal_bytes (task_snapshot_literals snapshot)
+
+let task_snapshot_initializations_since snapshot ~arena_prefix_bytes =
+  Literals.initializations_since
+    (task_snapshot_literals snapshot)
+    ~arena_prefix_bytes
+
 let task_snapshot_storage snapshot = snapshot.task_storage
 
 let task_snapshot_matches snapshot ~initialization ~entry =

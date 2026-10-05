@@ -1141,6 +1141,171 @@ let native_provider_source_authority () =
   task_succeeds "original provider initializer"
     (task_run session task 55 "I64 A=F();")
 
+let native_literal_source_authority () =
+  let module Calls = Holyc_lib__Ir.Runtime_call_context in
+  let module Graph = Holyc_lib__Ir.Block_graph in
+  let module Sequence = Holyc_lib__Ir.Instruction_sequence in
+  let module Literals = Holyc_lib__Backend.X86_64_literal_storage in
+  let definition = "I64 F(){U8 *p=\"A\";p[0]++;return p[0];}" in
+  let foreign = ref None in
+  let foreign_session = Session.create () in
+  let foreign_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun _ -> Alcotest.fail "foreign literal initializer");
+      execute_command =
+        (fun request ->
+          foreign := Some (command_function_bundle request);
+          Dispatch.claim_command_request request |> checked;
+          Ok Dispatch.Unchanged);
+    }
+  in
+  let foreign_task =
+    Task.create ~native_dispatch:foreign_dispatch foreign_session |> checked
+  in
+  task_succeeds "foreign original literal body"
+    (task_run foreign_session foreign_task 60 definition);
+  let foreign = Option.get !foreign in
+  let session = Session.create () in
+  let layout =
+    Image.create_task_layout_with_literals ~max_global_bytes:1
+      ~max_literal_bytes:2
+    |> compiled
+  in
+  let arena = Runtime.create_task_arena ~max_arena_bytes:98 layout |> checked in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let saved_request = ref None and original = ref None in
+  let native_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun _ -> Alcotest.fail "literal authority initializer");
+      execute_command =
+        (fun request ->
+          (match Unit.functions (Dispatch.command_program request) with
+          | [ _ ] ->
+              let bundle = command_function_bundle request in
+              original := Some bundle;
+              let graph = Body.body bundle.definition.body in
+              let owner = Calls.Function bundle.definition.body in
+              ignore
+                (Literals.source ~runtime_calls:bundle.runtime_calls ~owner
+                   ~graph
+                |> Result.map_error (fun errors ->
+                    errors
+                    |> List.map (fun (error : Literals.error) -> error.message)
+                    |> String.concat "; ")
+                |> checked);
+              rejected "foreign context cannot own the original literal graph"
+                (Literals.source ~runtime_calls:foreign.runtime_calls ~owner
+                   ~graph);
+              rejected "foreign graph cannot borrow original literal context"
+                (Literals.source ~runtime_calls:bundle.runtime_calls
+                   ~owner:(Calls.Function foreign.definition.body)
+                   ~graph:(Body.body foreign.definition.body));
+              rejected "entry owner cannot substitute for the function literal"
+                (Literals.source ~runtime_calls:bundle.runtime_calls
+                   ~owner:Calls.Entry ~graph);
+              let copied =
+                Graph.create
+                  ~entry:(Graph.block_id (Graph.entry graph))
+                  (Graph.blocks graph
+                  |> List.map (fun block ->
+                      {
+                        Graph.block_id = Graph.block_id block;
+                        instructions =
+                          Sequence.instructions (Graph.instructions block)
+                          |> List.map (fun instruction ->
+                              let raw = Sequence.description instruction in
+                              { raw with Sequence.flags = raw.flags });
+                      }))
+                |> Result.map_error (fun _ ->
+                    "copied graph construction failed")
+                |> checked
+              in
+              rejected "copied producers and graph confer no literal ownership"
+                (Literals.source ~runtime_calls:bundle.runtime_calls ~owner
+                   ~graph:copied);
+              rejected "failed code compilation leaves literal request live"
+                (Image.compile_task_command ~max_code_bytes:1 ~layout request);
+              Dispatch.check_command_request request |> checked
+          | [] ->
+              saved_request := Some request;
+              let bundle = Option.get !original in
+              ignore
+                (Dispatch.command_function_source request bundle.link |> checked)
+          | _ -> Alcotest.fail "unexpected literal function bundle");
+          let worker =
+            Domain.spawn (fun () -> Image.compile_task_command ~layout request)
+          in
+          rejected
+            "foreign domain cannot compile or append task literal storage"
+            (Domain.join worker);
+          List.iter
+            (fun abi ->
+              let image =
+                Image.compile_task_command ~status_abi:abi ~layout request
+                |> compiled
+              in
+              Alcotest.(check int)
+                "both ABIs reuse the original producer's two bytes" 2
+                (Image.literal_bytes image);
+              Alcotest.(check int)
+                "both ABIs reuse the exact canonical table extent" 98
+                (Image.arena_bytes image))
+            [ Image.Windows_x64; Image.System_v_x64 ];
+          let image =
+            Image.compile_task_command ~status_abi:(host_status_abi ()) ~layout
+              request
+            |> compiled
+          in
+          rejected
+            "retention quota rejection leaves original literal request live"
+            (Runtime.retain_task_fragment ~max_literal_bytes:1 arena image);
+          Dispatch.check_command_request request |> checked;
+          let retained =
+            Runtime.retain_task_fragment ~max_literal_bytes:2 arena image
+            |> checked
+          in
+          Fun.protect
+            ~finally:(fun () -> Runtime.release retained |> checked)
+            (fun () ->
+              let report =
+                Runtime.execute_retained_budget_report ~max_literal_bytes:2
+                  budget retained
+              in
+              let result = completed report in
+              rejected
+                "entered source cannot append literals through a saved request"
+                (Image.compile_task_command ~layout request);
+              Ok
+                (if Runtime.value_captured report then
+                   Dispatch.Captured
+                     (Option.map
+                        (fun (word : Image.word) ->
+                          match word.type_ with
+                          | Image.I64 -> Dispatch.I64 word.bits
+                          | U64 -> Dispatch.U64 word.bits)
+                        result.final_value)
+                 else Dispatch.Unchanged)));
+    }
+  in
+  let task = Task.create ~native_dispatch session |> checked in
+  Fun.protect
+    ~finally:(fun () -> Runtime.release_task_arena arena |> checked)
+    (fun () ->
+      task_succeeds "original literal definition"
+        (task_run session task 61 definition);
+      task_succeeds "first original literal mutation"
+        (task_run session task 62 "F();");
+      Gc.full_major ();
+      task_succeeds "later source keeps original mutated literal"
+        (task_run session task 63 "F();");
+      Alcotest.(check bool)
+        "actual native storage persists across source runs" true
+        (Task.native_final_value task = Some (Dispatch.I64 67L));
+      rejected "expired caller cannot readmit original literal storage"
+        (Image.compile_task_command ~layout (Option.get !saved_request)))
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -1176,5 +1341,8 @@ let () =
           Alcotest.test_case
             "original provider contexts, both ABIs and request lifetimes" `Quick
             native_provider_source_authority;
+          Alcotest.test_case
+            "original literals, both ABIs, retry and request lifetimes" `Quick
+            native_literal_source_authority;
         ] );
     ]

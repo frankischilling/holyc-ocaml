@@ -67,8 +67,10 @@ val retain_task_fragment :
 (** Retain code for a source-task image whose opaque storage snapshot belongs to
     this exact arena layout. A larger snapshot commits and zero-initializes only
     the appended suffix, so earlier native values and initialization flags stay
-    authoritative. The retained fragment owns its executable mapping and unwind
-    registration but no private data arena. Task fragments execute only through
+    authoritative. New original literal payloads are copied into that suffix
+    once; existing mutable bytes and canonical reference tables are preserved.
+    The retained fragment owns its executable mapping and unwind registration
+    but no private data arena. Task fragments execute only through
     [execute_retained_budget_report], which uses the same shared arena and the
     image's live one-shot source activation. Request identity, image bounds,
     host ABI and stack metadata are checked before arena admission. *)

@@ -330,6 +330,13 @@ let matches context ~entry ~initialization ~functions =
 let find_graph context owner =
   List.find_opt (fun graph -> same_owner graph.owner owner) context.graphs
 
+let matches_graph context ~owner graph =
+  Option.is_some (find_graph context owner)
+  && (match owner with
+    | Entry -> X87_stack.graph context.entry == graph
+    | Function body -> Function_body.body body == graph)
+  && source_producers_match context
+
 type function_addresses = function_address Instructions.t
 
 let original_function_addresses context ~owner =

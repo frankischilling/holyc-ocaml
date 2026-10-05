@@ -9,6 +9,8 @@ Direct functions retain their original source across commands;
 `I64 A=41; I64 F(){return A+1;} F();`.
 Retained functions can also call the checked Print and PutChars providers.
 `examples/native-source-output.hc` prints `A42;` and returns 42.
+Task strings retain their original mutable bytes across fragments;
+`examples/native-source-literals.hc` prints `42;` from a retained format.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
 and remaining native address, dimension and runtime work under #704.
 

@@ -60,8 +60,18 @@ Retained functions can call the checked Print and PutChars providers. The
 maintained `examples/native-source-output.hc` prints `A42;` and returns 42.
 Its format bytes come from an original U8 array in the task arena. The example
 uses six native fragments, 62 runtime steps, thirteen preparation steps and
-nine output-work units. Formats can also use checked automatic arrays; task
-string literals still need their separate storage path.
+nine output-work units. Formats can also use checked automatic arrays or original
+task string literals.
+
+`examples/native-source-literals.hc` prints `42;` and returns 42 using a retained
+`Print("%d;",42)` call. The original function declaration admits four literal
+bytes, including the NUL, and 160 private reference-table bytes. Its later
+caller uses those same 164 arena bytes. Each original producer owns a distinct
+region, even when two literals have equal text. Repeated or recursive calls
+reuse the producer's region and preserve mutations after later globals, arrays
+or functions append storage. Literal admission validates the physical graph,
+original runtime context and sealed instructions; a copied graph grants no
+authority. Logical literal bytes and private metadata remain separately bounded.
 
 The provider call must retain its original sealed occurrence, admitted function
 context and extern link. A source function named Print or PutChars remains an
@@ -120,7 +130,8 @@ the source task has separate fragments.
 
 Each layout has one opaque native arena. Its data and initialization flags
 occupy stable offsets as later globals append. Admission passes a checked
-extent to the host, which zeros only the new suffix. Compilation, retention and
+extent and new original literal payloads to the host, which zeros only the new
+suffix and copies those payloads once. Compilation, retention and
 report metadata do not build a seed copy of the whole arena. Old native writes
 remain in that arena without a second interpreter storage copy. Retention
 checks the original live request, layout, ABI and limits before admission.
@@ -135,7 +146,10 @@ bytes before `B` appends eight data bytes and one scalar flag. Logical storage
 is 24 bytes; the arena extent is 41 bytes. A two-element U8 array needs two
 logical bytes and sixteen flag bytes. Arena reservation accounts for that ratio
 and remains capped by the hard native arena limit. Logical byte limits and
-private metadata limits are checked separately before admission.
+private metadata limits are checked separately before admission. Reservation
+also includes the worst-case literal byte and reference-table ratio, within
+the same hard arena cap. Retained task metadata stores original payload chunks,
+not a duplicate initialized arena image.
 
 Code and arena leases cover source admission, entry and release. A concurrent
 release rejects before changing an active owner. Failed OS cleanup revokes
@@ -151,8 +165,8 @@ source admission, lowering, instruction selection and report validation remain
 in OCaml.
 
 This source-task path supports integer globals, fixed integer arrays and
-retained direct functions. Runtime-dependent dimensions, task callback and
-literal storage, function statics, declaration defaults, native `#exe`,
+retained direct functions and their original literals. Runtime-dependent
+dimensions, task callback storage, function statics, declaration defaults, native `#exe`,
 persistent executable addresses and AOT source-task execution remain separate
 work under #704.
 StreamPrint and StreamExePrint keep their separate generated-source and
@@ -182,3 +196,7 @@ new TempleOS oracle capture.
 `Kernel/StrPrint.HC:890-896` builds the complete Print buffer before publishing
 it. The checked hosted providers reuse those existing source-backed contracts;
 this source-task connection adds no native oracle observation.
+`Compiler/PrsExp.HC:692-697` creates the original string object and internal U8
+pointer producer. `OptPass789A.HC:296-304` addresses that object's generated
+storage. The shared task arena preserves the original mutable bytes under the
+hosted ownership and lifetime rules described above.

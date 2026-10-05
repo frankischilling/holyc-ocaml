@@ -1858,9 +1858,9 @@ CAMLprim value holyc_native_create_task_arena(value capacity)
 }
 
 CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
-                                             value required_extent)
+                                             value required_extent, value literal_chunks)
 {
-  CAMLparam3(handle, expected_used, required_extent);
+  CAMLparam4(handle, expected_used, required_extent, literal_chunks);
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -1869,13 +1869,38 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
   intnat expected_prefix;
   intnat extent;
   size_t target;
+  value chunks;
+  size_t initialization_count = 0;
+  size_t payload_bytes = 0;
   unsigned long commit_error;
   if (!Is_long(expected_used) || !Is_long(required_extent))
     caml_invalid_argument("native task arena admission is malformed");
   expected_prefix = Long_val(expected_used);
   extent = Long_val(required_extent);
-  if (expected_prefix < 0 || extent < 0)
-    caml_invalid_argument("native task arena extent is negative");
+  if (expected_prefix < 0 || extent < expected_prefix
+      || (uintnat)extent > HOLYC_NATIVE_MAX_ARENA_BYTES)
+    caml_invalid_argument("native task arena extent is outside its host bound");
+  for (chunks = literal_chunks; chunks != Val_emptylist; chunks = Field(chunks, 1)) {
+    value chunk;
+    intnat offset;
+    mlsize_t length;
+    if (!Is_block(chunks) || Tag_val(chunks) != 0 || Wosize_val(chunks) != 2)
+      caml_invalid_argument("native task literal initialization list is malformed");
+    chunk = Field(chunks, 0);
+    if (!Is_block(chunk) || Tag_val(chunk) != 0 || Wosize_val(chunk) != 2
+        || !Is_long(Field(chunk, 0)) || !Is_block(Field(chunk, 1))
+        || Tag_val(Field(chunk, 1)) != String_tag)
+      caml_invalid_argument("native task literal initialization is malformed");
+    offset = Long_val(Field(chunk, 0));
+    length = caml_string_length(Field(chunk, 1));
+    if (++initialization_count > HOLYC_NATIVE_MAX_ARENA_BYTES / 65u
+        || length > (uintnat)(extent - expected_prefix) - payload_bytes)
+      caml_invalid_argument("native task literal initialization exceeds its suffix bound");
+    payload_bytes += length;
+    if (offset < expected_prefix || offset >= extent
+        || length >= (uintnat)(extent - offset))
+      caml_invalid_argument("native task literal initialization leaves the new suffix");
+  }
   if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
     caml_invalid_argument("native task arena is already active");
   if (arena->closing || arena->mapping == NULL) {
@@ -1898,6 +1923,12 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
   }
   if (target > arena->used)
     memset((char *)arena->mapping + arena->used, 0, target - arena->used);
+  for (chunks = literal_chunks; chunks != Val_emptylist; chunks = Field(chunks, 1)) {
+    value chunk = Field(chunks, 0);
+    value payload = Field(chunk, 1);
+    memcpy((char *)arena->mapping + Long_val(Field(chunk, 0)),
+           String_val(payload), caml_string_length(payload));
+  }
   arena->used = target;
   atomic_store(&arena->active, 0);
   CAMLreturn(Val_long((intnat)target));
