@@ -1,12 +1,14 @@
 # holyc-ocaml compatibility status
 
 The `host-jit-task` target executes original integer scalar and fixed-array JIT
-initializer leaves and resumed source commands in one native arena. Exact retained references and
-append-only offsets preserve earlier writes and initialization flags. Actual
-native outcomes supply cumulative steps; the source driver retains metadata
-without an interpreter storage copy. Runtime dimensions, callback/function
-linking,
-literals, defaults, native `#exe` and AOT task execution remain open under #704.
+initializer leaves, retained direct functions and resumed commands in one native
+arena. Exact retained references preserve earlier writes and initialization
+flags. Each caller compiles its selected original function bodies, including
+historical definitions and global bindings after same-name declarations. Actual
+native outcomes supply cumulative steps; source admission keeps metadata
+without an interpreter storage copy. Persistent function addresses, task
+callbacks, runtime dimensions, literals, defaults, native `#exe` and AOT task
+execution remain open under #704.
 See [native source tasks](native-source-tasks.md).
 
 Explicit stars on fully indexed callback cells execute through both runners in

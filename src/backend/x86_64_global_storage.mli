@@ -90,9 +90,25 @@ val find_symbol : t -> Sema.Symbol.t -> slot option
 (** Lookup requires the exact symbol object retained by the sealed storage slot.
 *)
 
+val find_symbol_from_source :
+  t -> source_globals:Ir.Integer_globals.t -> Sema.Symbol.t -> slot option
+(** Resolve a historical source symbol through an exact task storage view from
+    the same catalog. The source view and persistent slot must name the same
+    physical storage object. *)
+
 val find_retained : t -> Ir.Retained_global.t -> slot option
 (** Resolve only an original reference present in this fragment's exact retained
     snapshot and bound to the same append-only storage object. *)
+
+val find_retained_from_source :
+  t ->
+  source_globals:Ir.Integer_globals.t ->
+  Ir.Retained_global.t ->
+  slot option
+(** Resolve a historical retained reference through its exact original task
+    storage view. The source view must belong to the same task catalog as this
+    append-only layout, and both the retained reference and physical storage
+    object must match the slot originally admitted to the layout. *)
 
 val source_slot : slot -> Ir.Integer_globals.storage_slot
 val owns_address : slot -> Ir.Runtime_call_context.owner -> bool

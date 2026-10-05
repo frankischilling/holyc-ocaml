@@ -21,9 +21,19 @@ module Native_dispatch : sig
   val command_program : command_request -> Integer_unit.compiled
   val check_initializer_request : initializer_request -> (unit, string) result
   val claim_initializer_request : initializer_request -> (unit, string) result
-  val check_command_request : command_request -> (unit, string) result
 
+  val initializer_function_source :
+    initializer_request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val check_command_request : command_request -> (unit, string) result
   val claim_command_request : command_request -> (unit, string) result
+
+  val command_function_source :
+    command_request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
   (** Requests exist only during their original parser callback. Checking is
       pure; claiming consumes the one native-entry capability. Saved, expired,
       foreign or already-entered requests fail. *)

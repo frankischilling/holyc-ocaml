@@ -981,3 +981,27 @@
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-source-initializers.hc}
    %{dep:../../examples/native-source-arrays.hc})))
+
+(executable
+ (name test_native_source_functions)
+ (modules test_native_source_functions)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_functions.exe})))
+
+(executable
+ (name test_native_source_function_cli)
+ (modules test_native_source_function_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-source-functions.hc)
+ (action
+  (run
+   %{exe:test_native_source_function_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-source-functions.hc})))

@@ -269,6 +269,7 @@ let native_fragment_json (fragment : Holyc_lib.Native_source_execution.fragment)
       ("code_bytes", `Int fragment.image.code_bytes);
       ("global_bytes", `Int fragment.image.global_bytes);
       ("global_arena_bytes", `Int fragment.image.global_arena_bytes);
+      ("function_count", `Int fragment.image.function_count);
     ]
 
 let render_native_view ~human ~session ~limits ~native_limits ?command_error

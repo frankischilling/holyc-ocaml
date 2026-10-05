@@ -1,8 +1,9 @@
 # Native integer programs
 
 The separate [`host-jit-task` target](native-source-tasks.md) executes original
-live scalar and fixed-array JIT initializer leaves and resumed commands against
-one shared native arena. The `host-jit` contracts below describe isolated native programs.
+live scalar and fixed-array JIT initializer leaves, retained direct functions
+and resumed commands against one shared native arena. The `host-jit` contracts
+below describe isolated native programs.
 
 Integer comparison chains now run in conditions with the original shared middle
 word and skipped later operands after a false link. Private frame homes preserve
@@ -367,5 +368,6 @@ still rejects.
 [Retained native images](native-retained-images.md) provide an opaque host
 lifetime for an original compiled image and its data across activations. Reached
 writes survive checked faults; each activation keeps fresh bounded status and
-output capture. Native parser-time JIT execution and source-task linking still
-require their original declaration and publication consumers.
+output capture. The source-task driver schedules original live JIT requests and
+compiles direct calls from their admitted function sources. Persistent native
+addresses across source events still require their own code owners.

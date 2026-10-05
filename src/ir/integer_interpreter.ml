@@ -498,6 +498,8 @@ type task_state = {
   mutable literal_arenas : runtime_storage list;
   mutable started : X87.t list;
   mutable functions : retained_executable list;
+  mutable native_function_sources :
+    (Retained_function.t * task_function_source) list;
   mutable global_bytes : int;
   mutable literal_bytes : int;
   mutable steps : int;
@@ -584,6 +586,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         literal_arenas = [];
         started = [];
         functions = [];
+        native_function_sources = [];
         global_bytes = 0;
         literal_bytes = 0;
         steps = 0;
@@ -1104,6 +1107,110 @@ let native_source_program task ~runtime_calls ~globals ~initialization
         ~functions entry)
     task.source_programs
 
+let exact_native_function_source task link =
+  List.find_map
+    (fun (candidate, source) ->
+      if Retained_function.same candidate link then Some source else None)
+    task.native_function_sources
+
+let native_function_sources_for_program task source =
+  let module Functions = Sema.Function_resolution in
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      Runtime.matches source.source_calls ~entry:source.source_entry
+        ~initialization:(Some source.source_initialization)
+        ~functions:
+          (List.map (fun definition -> definition.body) source.source_bodies)
+    then Ok ()
+    else Error "native task function source has another original call graph"
+  in
+  let source_for definition =
+    {
+      source_globals = source.source_storage;
+      source_runtime_calls = source.source_calls;
+      source_functions = source.source_bodies;
+      source_definition = definition;
+    }
+  in
+  let publications =
+    Integer_globals.function_publications source.source_storage
+  in
+  let rec collect rev = function
+    | [] -> Ok (List.rev rev)
+    | link :: rest -> (
+        if List.exists (fun (prior, _) -> Retained_function.same prior link) rev
+        then Error "native task function source repeats its retained link"
+        else
+          let declaration =
+            Retained_function.metadata link
+            |> Sema.Outer_environment.function_declaration
+          in
+          let site = Functions.resolved_declaration_site declaration in
+          if Functions.declaration_site_kind site <> Functions.Definition then
+            collect rev rest
+          else if Option.is_some (exact_native_function_source task link) then
+            Error "native task function source was already admitted"
+          else
+            let matches =
+              List.filter
+                (fun (definition : function_definition) ->
+                  Option.fold ~none:false ~some:(( == ) declaration)
+                    (Function.definition_declaration definition.body))
+                source.source_bodies
+            in
+            match matches with
+            | [ definition ]
+              when Function.definition_matches_frame definition.body
+                     definition.frame
+                   && Function.callable_symbol definition.body
+                      == Retained_function.symbol link ->
+                collect ((link, source_for definition) :: rev) rest
+            | [ definition ]
+              when Function.callable_symbol definition.body
+                   != Retained_function.symbol link ->
+                Error
+                  "native task function source body has another callable symbol"
+            | [ _ ] ->
+                Error
+                  "native task function source body has another physical frame"
+            | [] ->
+                Error
+                  "native task function publication has no exact bound source \
+                   body"
+            | _ ->
+                Error
+                  "native task function publication repeats its exact source \
+                   body")
+  in
+  let* sources = collect [] publications in
+  let* () =
+    List.fold_left
+      (fun checked (definition : function_definition) ->
+        let* () = checked in
+        match Function.definition_declaration definition.body with
+        | None ->
+            Error "native task function source body has no bound definition"
+        | Some declaration ->
+            let matches =
+              List.filter
+                (fun (link, source) ->
+                  source.source_definition.body == definition.body
+                  && source.source_definition.frame == definition.frame
+                  && Retained_function.metadata link
+                     |> Sema.Outer_environment.function_declaration
+                     |> ( == ) declaration)
+                sources
+            in
+            if List.length matches = 1 then Ok ()
+            else
+              Error
+                "native task function source body has no unique retained \
+                 definition link")
+      (Ok ()) source.source_bodies
+  in
+  Ok sources
+
 let check_native_task_program task ~runtime_calls ~globals ~initialization
     ~functions entry =
   if not task.native_storage_authority then
@@ -1148,16 +1255,22 @@ let check_native_task_program task ~runtime_calls ~globals ~initialization
   then Error "native source command cannot interleave active preparation"
   else if List.exists (fun started -> started == entry) task.started then
     Error "native source command has already entered this task"
-  else if List.exists (fun _ -> true) functions then
-    Error
-      "native source task function publication requires retained native \
-       function execution support"
   else if
     Option.is_none
       (native_source_program task ~runtime_calls ~globals ~initialization
          ~functions entry)
   then Error "native source command lacks its exact bound task program"
-  else Integer_globals.check_task_command task.catalog globals
+  else
+    let source =
+      Option.get
+        (native_source_program task ~runtime_calls ~globals ~initialization
+           ~functions entry)
+    in
+    Result.bind (Integer_globals.check_task_command task.catalog globals)
+      (fun () ->
+        Result.map
+          (fun _ -> ())
+          (native_function_sources_for_program task source))
 
 let claim_native_task_program task ~runtime_calls ~globals ~initialization
     ~functions entry =
@@ -1170,6 +1283,9 @@ let claim_native_task_program task ~runtime_calls ~globals ~initialization
     Option.get
       (native_source_program task ~runtime_calls ~globals ~initialization
          ~functions entry)
+  in
+  let* native_function_sources =
+    native_function_sources_for_program task source
   in
   let admission_publications =
     Integer_globals.publish_task task.catalog globals
@@ -1200,6 +1316,8 @@ let claim_native_task_program task ~runtime_calls ~globals ~initialization
   task.started <- entry :: task.started;
   task.admissions <- admission :: task.admissions;
   task.native_program_attempts <- attempt :: task.native_program_attempts;
+  task.native_function_sources <-
+    native_function_sources @ task.native_function_sources;
   Ok attempt
 
 let owns_active_native_task_program task attempt =
@@ -2725,30 +2843,38 @@ let task_input_result task ~sequence =
     -> result
   | _ -> Error "task input has no original execution completion"
 
+let task_native_function_source task link =
+  if Integer_globals.task_catalog_contains_function task.catalog link then
+    exact_native_function_source task link
+  else None
+
 let task_function_source task link =
-  let module Records = Sema.Function_record_classification in
-  let dynamic =
-    link |> Retained_function.metadata
-    |> Sema.Outer_environment.function_classified_declaration
-    |> Records.classified_declaration_record |> Records.call_access
-    |> fun access -> access = Records.Jit_extern_address_slot_call
-  in
-  List.find_opt
-    (fun executable ->
-      Retained_function.same executable.function_link link
-      || dynamic
-         && Retained_function.symbol link
-            == executable.function_callee.callee_symbol
-         && Option.fold ~none:false
-              ~some:(fun later ->
-                Sema.Function_resolution.is_joined_successor
-                  ~earlier:
-                    (link |> Retained_function.metadata
-                   |> Sema.Outer_environment.function_declaration)
-                  ~later)
-              executable.function_callee.callee_definition)
-    task.functions
-  |> Option.map (fun executable -> executable.function_source)
+  match task_native_function_source task link with
+  | Some _ as source -> source
+  | None ->
+      let module Records = Sema.Function_record_classification in
+      let dynamic =
+        link |> Retained_function.metadata
+        |> Sema.Outer_environment.function_classified_declaration
+        |> Records.classified_declaration_record |> Records.call_access
+        |> fun access -> access = Records.Jit_extern_address_slot_call
+      in
+      List.find_opt
+        (fun executable ->
+          Retained_function.same executable.function_link link
+          || dynamic
+             && Retained_function.symbol link
+                == executable.function_callee.callee_symbol
+             && Option.fold ~none:false
+                  ~some:(fun later ->
+                    Sema.Function_resolution.is_joined_successor
+                      ~earlier:
+                        (link |> Retained_function.metadata
+                       |> Sema.Outer_environment.function_declaration)
+                      ~later)
+                  executable.function_callee.callee_definition)
+        task.functions
+      |> Option.map (fun executable -> executable.function_source)
 
 let task_output_bytes task = Output.contents task.output
 let task_output_work task = Output.work task.output

@@ -937,6 +937,17 @@ let find_symbol layout symbol =
             else None)
   | Some _ | None -> None
 
+let find_symbol_from_source layout ~source_globals symbol =
+  if not (Globals.same_task_storage layout.globals source_globals) then None
+  else
+    match Symbol_map.find_opt (Symbol.id symbol) layout.slots with
+    | Some slot when slot.symbol == symbol ->
+        Option.bind (Globals.find_storage source_globals symbol)
+          (fun original ->
+            if Globals.same_storage original slot.source_slot then Some slot
+            else None)
+    | Some _ | None -> None
+
 let find_retained layout reference =
   match Globals.retained_slot layout.globals reference with
   | None -> None
@@ -951,6 +962,24 @@ let find_retained layout reference =
             && Globals.same_storage source slot.source_slot
           then Some slot
           else None)
+
+let find_retained_from_source layout ~source_globals reference =
+  if not (Globals.same_task_storage layout.globals source_globals) then None
+  else
+    match Globals.retained_slot source_globals reference with
+    | None -> None
+    | Some source ->
+        Option.bind
+          (Symbol_map.find_opt
+             (Symbol.id (Ir.Retained_global.symbol reference))
+             layout.retained_slots)
+          (fun (candidate, slot) ->
+            if
+              Ir.Retained_global.same candidate reference
+              && slot.symbol == Ir.Retained_global.symbol reference
+              && Globals.same_storage source slot.source_slot
+            then Some slot
+            else None)
 
 let source_slot slot = slot.source_slot
 let symbol slot = slot.symbol

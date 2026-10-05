@@ -116,7 +116,7 @@ let create_task_layout ~max_global_bytes =
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~runtime_calls
-    ~initialization ~entry () =
+    ~retained_function_source ~initialization ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -133,7 +133,8 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
   let* image =
     Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
       ~task_snapshot:snapshot ~max_ir_instructions ~max_code_bytes
-      ~runtime_calls ~initialization ~entry ()
+      ~runtime_calls ~retained_function_source ~initialization ~entry ~functions
+      ()
     |> Result.map_error project_errors
   in
   if
@@ -160,31 +161,23 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~check:(fun () -> Task_dispatch.check_initializer_request request)
     ~claim:(fun () -> Task_dispatch.claim_initializer_request request)
     ~runtime_calls:(Fragment.runtime_calls program)
+    ~retained_function_source:
+      (Task_dispatch.initializer_function_source request)
     ~initialization:(Fragment.initialization program)
-    ~entry:(Fragment.entry program) ()
+    ~entry:(Fragment.entry program) ~functions:[] ()
 
 let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
     ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
   let module Unit = Driver.Integer_unit in
   let program = Task_dispatch.command_program request in
-  if Unit.functions program <> [] then
-    Error
-      [
-        {
-          code = "HCBACK0002";
-          message =
-            "native task fragments do not yet link retained function bodies";
-          span = None;
-        };
-      ]
-  else
-    compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
-      ~max_ir_instructions ~max_code_bytes ~layout
-      ~check:(fun () -> Task_dispatch.check_command_request request)
-      ~claim:(fun () -> Task_dispatch.claim_command_request request)
-      ~runtime_calls:(Unit.runtime_calls program)
-      ~initialization:(Unit.initialization program)
-      ~entry:(Unit.entry program) ()
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Task_dispatch.check_command_request request)
+    ~claim:(fun () -> Task_dispatch.claim_command_request request)
+    ~runtime_calls:(Unit.runtime_calls program)
+    ~retained_function_source:(Task_dispatch.command_function_source request)
+    ~initialization:(Unit.initialization program)
+    ~entry:(Unit.entry program) ~functions:(Unit.functions program) ()
 
 let task_snapshot image = image.task_snapshot_
 

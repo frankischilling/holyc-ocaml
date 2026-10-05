@@ -1,5 +1,19 @@
 # Testing holyc-ocaml
 
+`test/native/test_native_source_functions.ml` checks original native function
+declarations and direct calls, including initializer calls, argument order,
+automatic frames, recursion, integer widths, historical definitions and globals.
+Integer word tails retain their original count despite writes to `argc`.
+Reached faults retain their original function and source location. Cumulative
+code, IR and runtime limits include each compiled caller closure. The dedicated
+function CLI suite runs `examples/native-source-functions.hc` and checks native
+fragment reports, original source effects, historical bindings and faults.
+The source-authority suite also checks original initializer and command domains,
+rejection before admission, retry during the same live request, and retained
+source after an actual native fault.
+An independent installed-library consumer exercises the same public API outside
+the compiler checkout.
+
 `test/native/test_native_source_execution.ml` checks original live scalar and array
 initializers, stable cross-fragment writes, declared widths, unsigned words,
 reached faults and exact cumulative native limits. It distinguishes native

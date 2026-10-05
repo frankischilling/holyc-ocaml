@@ -121,13 +121,20 @@ val compile_task_fragment :
   max_ir_instructions:int ->
   max_code_bytes:int ->
   runtime_calls:Ir.Runtime_call_context.t ->
+  retained_function_source:
+    (Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result) ->
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
+  functions:Ir.Integer_interpreter.function_definition list ->
   unit ->
   (program_image, error list) result
-(** Compile an original scalar task fragment against its append-only storage
-    snapshot through the callable instruction path. Source activation authority
-    remains a separate requirement of the sealed program image. *)
+(** Compile an original task fragment against its append-only storage snapshot.
+    Exact retained direct-function links may re-link their original checked body
+    and transitive fixed-call closure into this transient image. Each historical
+    body keeps its own sealed runtime-call context and task-storage provenance;
+    no executable address or callback ownership survives the fragment. Source
+    activation authority remains a separate requirement of the sealed image. *)
 
 val program_code : program_image -> string
 val program_code_bytes : program_image -> int

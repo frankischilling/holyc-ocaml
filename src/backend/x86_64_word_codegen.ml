@@ -3882,8 +3882,18 @@ type callable_return_kind =
   | Callable_word_return of scalar_value
   | Callable_void_return
 
+type callable_function_source = {
+  source_definition : Ir.Integer_interpreter.function_definition;
+  source_runtime_calls : Runtime.t;
+  source_globals : Ir.Integer_globals.t;
+  source_functions : Ir.Integer_interpreter.function_definition list;
+  source_historical : bool;
+}
+
 type callable_function_info = {
   definition : Ir.Integer_interpreter.function_definition;
+  runtime_calls : Runtime.t;
+  source_globals : Ir.Integer_globals.t;
   owner : program_owner;
   parameter_types : Type.t array;
   parameter_callbacks : Headers.function_pointer option array;
@@ -4206,7 +4216,8 @@ let callable_frame_update opcode word =
   | _ -> None
 
 let prepare_callable_function ~max_stack_bytes ~maximum_variadic_count
-    (definition : Ir.Integer_interpreter.function_definition) =
+    (source : callable_function_source) =
+  let definition = source.source_definition in
   let body = definition.body in
   let frame = definition.frame in
   let span = Function.span body in
@@ -4620,6 +4631,8 @@ let prepare_callable_function ~max_stack_bytes ~maximum_variadic_count
   let function_id = Function.function_id body |> Function.Function_id.to_int in
   {
     definition;
+    runtime_calls = source.source_runtime_calls;
+    source_globals = source.source_globals;
     owner =
       Function_owner
         { function_id; function_name = Symbol.name (Function.symbol body) };
@@ -4683,19 +4696,54 @@ let validate_callable_parameter_defaults ~parameter_defaults functions =
           "native source functions do not admit parameter defaults")
     functions
 
-let callable_callee_index functions call =
+let retained_link_matches_definition link
+    (definition : Ir.Integer_interpreter.function_definition) =
+  let metadata = Ir.Retained_function.metadata link in
+  let declaration = Sema.Outer_environment.function_declaration metadata in
+  Function.callable_symbol definition.body == Ir.Retained_function.symbol link
+  && Function.definition_matches_frame definition.body definition.frame
+  &&
+  match Function.definition_declaration definition.body with
+  | Some candidate -> candidate == declaration
+  | None -> false
+
+let callable_self_call_matches_definition ~runtime_owner call
+    (definition : Ir.Integer_interpreter.function_definition) =
+  match runtime_owner with
+  | Runtime.Function owner_body when owner_body == definition.body -> (
+      Runtime.call_opcode call = Opcode.Ic_call_indirect2
+      && Function.definition_matches_frame definition.body definition.frame
+      && Function.callable_symbol definition.body == Runtime.symbol call
+      &&
+      match Function.definition_declaration definition.body with
+      | Some candidate ->
+          let selected = Runtime.declaration call in
+          candidate == selected
+          || Sema.Function_resolution.is_joined_successor ~earlier:selected
+               ~later:candidate
+      | None -> false)
+  | Runtime.Entry | Runtime.Function _ -> false
+
+let callable_callee_index ~allow_task_self_call ~runtime_owner functions call =
   let symbol = Runtime.symbol call in
   let declaration = Runtime.declaration call in
   let rec find index =
     if index = Array.length functions then None
     else
-      let body = functions.(index).definition.body in
+      let definition = functions.(index).definition in
+      let body = definition.body in
       if
-        Function.callable_symbol body == symbol
-        &&
-        match Function.definition_declaration body with
-        | Some candidate -> candidate == declaration
-        | None -> false
+        allow_task_self_call
+        && callable_self_call_matches_definition ~runtime_owner call definition
+        ||
+        match Runtime.retained_function call with
+        | Some link -> retained_link_matches_definition link definition
+        | None -> (
+            Function.callable_symbol body == symbol
+            &&
+            match Function.definition_declaration body with
+            | Some candidate -> candidate == declaration
+            | None -> false)
       then Some index
       else find (index + 1)
   in
@@ -4748,11 +4796,11 @@ let validate_callable_returns graph return_kind =
           (Graph.successors block)
       done
 
-let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
-    ~code_edges ~indirect_code_edges ~arena_code_cells ~global_storage
-    ~literal_storage ~runtime_owner ~owner
-    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
-    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+let preflight_callable_graph ~runtime_calls ~source_globals
+    ~allow_retained_functions ~parameter_defaults ~functions ~code_edges
+    ~indirect_code_edges ~arena_code_cells ~global_storage ~literal_storage
+    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t) ~variadic
+    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -5428,7 +5476,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ ->
                   malformed description
                     "IC_CALL_START has another selected function symbol");
-              if Option.is_some (Runtime.retained_function call) then
+              if
+                Option.is_some (Runtime.retained_function call)
+                && not allow_retained_functions
+              then
                 unsupported description
                   "native calls do not admit retained source functions";
               let target, parameter_types, return_kind, activation_bytes =
@@ -5579,12 +5630,28 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     unsupported description
                       "native calls do not admit this runtime provider"
                 | None ->
-                    if Runtime.call_opcode call <> Opcode.Ic_call then
+                    let task_self_call =
+                      allow_retained_functions
+                      && Runtime.call_opcode call = Opcode.Ic_call_indirect2
+                      && Array.exists
+                           (fun info ->
+                             callable_self_call_matches_definition
+                               ~runtime_owner call info.definition)
+                           functions
+                    in
+                    if
+                      Runtime.call_opcode call <> Opcode.Ic_call
+                      && not task_self_call
+                    then
                       unsupported description
                         "native callable programs require fixed direct source \
                          calls or the checked PutChars provider";
                     let callee_index =
-                      match callable_callee_index functions call with
+                      match
+                        callable_callee_index
+                          ~allow_task_self_call:allow_retained_functions
+                          ~runtime_owner functions call
+                      with
                       | Some index -> index
                       | None ->
                           malformed description
@@ -5592,6 +5659,20 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                              definition"
                     in
                     let callee = functions.(callee_index) in
+                    Option.iter
+                      (fun link ->
+                        if
+                          not
+                            (retained_link_matches_definition link
+                               callee.definition
+                            || allow_retained_functions
+                               && callable_self_call_matches_definition
+                                    ~runtime_owner call callee.definition)
+                        then
+                          malformed description
+                            "retained direct call selected another source \
+                             body, frame or declaration")
+                      (Runtime.retained_function call);
                     if
                       not
                         (Type.equal (Runtime.return_type call)
@@ -6217,10 +6298,29 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Some result, Some target_type, Some payload -> (
                   let selected =
                     match payload with
-                    | Sequence.Symbol symbol ->
-                        Global_storage.find_symbol global_storage symbol
-                    | Sequence.Retained_global reference ->
-                        Global_storage.find_retained global_storage reference
+                    | Sequence.Symbol symbol -> (
+                        match
+                          Global_storage.find_symbol_from_source global_storage
+                            ~source_globals symbol
+                        with
+                        | Some _ as slot -> slot
+                        | None
+                          when Global_storage.globals global_storage
+                               == source_globals ->
+                            Global_storage.find_symbol global_storage symbol
+                        | None -> None)
+                    | Sequence.Retained_global reference -> (
+                        match
+                          Global_storage.find_retained_from_source
+                            global_storage ~source_globals reference
+                        with
+                        | Some _ as slot -> slot
+                        | None
+                          when Global_storage.globals global_storage
+                               == source_globals ->
+                            Global_storage.find_retained global_storage
+                              reference
+                        | None -> None)
                     | _ -> None
                   in
                   match selected with
@@ -7988,6 +8088,274 @@ let bounded_callable_counts ~max_ir_instructions ~max_blocks graphs =
     graphs;
   (!block_count, !ir_count)
 
+let callable_definition_matches_call
+    (definition : Ir.Integer_interpreter.function_definition) call =
+  Function.callable_symbol definition.body == Runtime.symbol call
+  &&
+  match Function.definition_declaration definition.body with
+  | Some declaration -> declaration == Runtime.declaration call
+  | None -> false
+
+let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
+    ~runtime_calls ~entry ~functions ~retained_function_source =
+  let queue = Queue.create () in
+  let collected_rev = ref [] in
+  let admitted_blocks = ref 0 in
+  let admitted_ir = ref 0 in
+  let charge_graph graph =
+    List.iter
+      (fun block ->
+        if !admitted_blocks = max_blocks then
+          reject "HCBACK0001"
+            (Printf.sprintf "block count exceeds max_blocks (%d)" max_blocks);
+        incr admitted_blocks;
+        Graph.instructions block |> Sequence.instructions
+        |> List.iter (fun instruction ->
+            if !admitted_ir = max_ir_instructions then
+              reject ?span:(Sequence.description instruction).span "HCBACK0001"
+                (Printf.sprintf
+                   "IR instruction count exceeds max_ir_instructions (%d)"
+                   max_ir_instructions);
+            incr admitted_ir))
+      (Graph.blocks graph)
+  in
+  let find_body body =
+    List.find_opt
+      (fun source -> source.source_definition.body == body)
+      !collected_rev
+  in
+  let add source =
+    let definition = source.source_definition in
+    let body = definition.body in
+    if
+      source.source_historical
+      && List.exists
+           (fun location ->
+             Option.is_some (Frame.location_callback_pointer location))
+           (Frame.function_locations definition.frame)
+    then
+      reject ?span:(Function.span body) "HCBACK0002"
+        "retained native task functions do not yet admit cross-event callback \
+         storage";
+    match find_body body with
+    | Some prior ->
+        if
+          prior.source_definition.frame != definition.frame
+          || prior.source_runtime_calls != source.source_runtime_calls
+          || prior.source_globals != source.source_globals
+        then
+          reject ?span:(Function.span body) "HCBACK0003"
+            "native task callable body has conflicting original source \
+             provenance"
+    | None ->
+        charge_graph (Function.body body);
+        collected_rev := source :: !collected_rev;
+        Queue.add source queue
+  in
+  let current_source definition =
+    {
+      source_definition = definition;
+      source_runtime_calls = runtime_calls;
+      source_globals = globals;
+      source_functions = functions;
+      source_historical = false;
+    }
+  in
+  charge_graph (Ir.X87_stack.graph entry);
+  List.iter (fun definition -> add (current_source definition)) functions;
+  let exact_local source_functions call =
+    List.find_opt
+      (fun definition -> callable_definition_matches_call definition call)
+      source_functions
+  in
+  let validate_resolved link
+      (source : Ir.Integer_interpreter.task_function_source) =
+    let definition = source.source_definition in
+    let body = definition.body in
+    if not (Ir.Integer_globals.same_task_storage globals source.source_globals)
+    then
+      reject ?span:(Function.span body) "HCBACK0003"
+        "retained native task function belongs to another original task storage";
+    if not (retained_link_matches_definition link definition) then
+      reject ?span:(Function.span body) "HCBACK0003"
+        "retained native task function does not match its exact source body, \
+         frame and declaration";
+    if
+      not
+        (List.exists
+           (fun (candidate : Ir.Integer_interpreter.function_definition) ->
+             candidate.body == body && candidate.frame == definition.frame)
+           source.source_functions)
+    then
+      reject ?span:(Function.span body) "HCBACK0003"
+        "retained native task function is absent from its original callable \
+         bundle";
+    {
+      source_definition = definition;
+      source_runtime_calls = source.source_runtime_calls;
+      source_globals = source.source_globals;
+      source_functions = source.source_functions;
+      source_historical = true;
+    }
+  in
+  let resolve_retained link =
+    match retained_function_source link with
+    | Ok source -> validate_resolved link source
+    | Error message ->
+        reject "HCBACK0003"
+          ("retained native task function source resolution failed: " ^ message)
+  in
+  let source_for_call ~runtime_calls ~source_globals ~source_functions
+      ~historical call =
+    match Runtime.retained_function call with
+    | Some link -> (
+        match exact_local source_functions call with
+        | Some definition when retained_link_matches_definition link definition
+          ->
+            {
+              source_definition = definition;
+              source_runtime_calls = runtime_calls;
+              source_globals;
+              source_functions;
+              source_historical = historical;
+            }
+        | Some _ | None -> resolve_retained link)
+    | None -> (
+        match exact_local source_functions call with
+        | Some definition ->
+            {
+              source_definition = definition;
+              source_runtime_calls = runtime_calls;
+              source_globals;
+              source_functions;
+              source_historical = historical;
+            }
+        | None ->
+            reject "HCBACK0003"
+              "native direct call has no exact source definition in its \
+               original callable bundle")
+  in
+  let exact_self_call ~owner ~source_functions call =
+    match owner with
+    | Runtime.Entry -> None
+    | Runtime.Function owner_body ->
+        List.find_opt
+          (fun (definition : Ir.Integer_interpreter.function_definition) ->
+            definition.body == owner_body
+            && callable_self_call_matches_definition ~runtime_owner:owner call
+                 definition)
+          source_functions
+  in
+  let scan ~runtime_calls ~source_globals ~source_functions ~historical ~owner
+      graph =
+    let addresses =
+      if historical then
+        match Runtime.original_function_addresses runtime_calls ~owner with
+        | Some addresses -> Some addresses
+        | None ->
+            reject "HCBACK0003"
+              "retained native task function address context is not its \
+               original sealed graph"
+      else None
+    in
+    (if historical then
+       match Runtime.original_callback_calls runtime_calls ~owner with
+       | Some [] -> ()
+       | Some _ ->
+           reject "HCBACK0002"
+             "retained native task functions do not yet admit cross-event \
+              callbacks"
+       | None ->
+           reject "HCBACK0003"
+             "retained native task callback context is not its original sealed \
+              graph");
+    List.iter
+      (fun block ->
+        Graph.instructions block |> Sequence.instructions
+        |> List.iter (fun instruction ->
+            let raw = Sequence.description instruction in
+            if historical then (
+              let source_storage =
+                match raw.payload with
+                | Some (Sequence.Symbol symbol) ->
+                    Ir.Integer_globals.find_storage source_globals symbol
+                | Some (Sequence.Retained_global reference) ->
+                    Ir.Integer_globals.retained_slot source_globals reference
+                | _ -> None
+              in
+              Option.iter
+                (fun storage ->
+                  if Option.is_some (Ir.Integer_globals.storage_frame storage)
+                  then
+                    reject ?span:raw.span "HCBACK0002"
+                      "retained native task functions do not yet admit \
+                       historical static storage"
+                  else if Ir.Integer_globals.storage_is_callback storage then
+                    reject ?span:raw.span "HCBACK0002"
+                      "retained native task functions do not yet admit \
+                       historical callback storage")
+                source_storage;
+              if historical && raw.opcode = Opcode.Ic_str_const then
+                reject ?span:raw.span "HCBACK0002"
+                  "retained native task functions do not yet admit historical \
+                   literal storage";
+              Option.iter
+                (fun addresses ->
+                  if
+                    Option.is_some
+                      (Runtime.original_function_address addresses raw)
+                  then
+                    reject ?span:raw.span "HCBACK0002"
+                      "retained native task functions do not expose stable \
+                       cross-event function addresses")
+                addresses);
+            if raw.opcode = Opcode.Ic_call_start then
+              match
+                Runtime.find_start runtime_calls ~owner raw.instruction_id
+              with
+              | None ->
+                  reject ?span:raw.span "HCBACK0003"
+                    "native task direct call is absent from its original \
+                     sealed runtime context"
+              | Some call -> (
+                  match Runtime.provider call with
+                  | Some _ when historical ->
+                      reject ?span:raw.span "HCBACK0002"
+                        "retained native task functions currently require \
+                         fixed direct integer or U0 calls"
+                  | Some _ -> ()
+                  | None ->
+                      let self_call =
+                        Runtime.call_opcode call = Opcode.Ic_call_indirect2
+                        && Option.is_some
+                             (exact_self_call ~owner ~source_functions call)
+                      in
+                      if
+                        Runtime.call_opcode call <> Opcode.Ic_call
+                        && not self_call
+                      then
+                        reject ?span:raw.span "HCBACK0002"
+                          "retained native task function closure requires \
+                           fixed direct calls";
+                      if not self_call then
+                        add
+                          (source_for_call ~runtime_calls ~source_globals
+                             ~source_functions ~historical call))))
+      (Graph.blocks graph)
+  in
+  scan ~runtime_calls ~source_globals:globals ~source_functions:functions
+    ~historical:false ~owner:Runtime.Entry (Ir.X87_stack.graph entry);
+  while not (Queue.is_empty queue) do
+    let source = Queue.take queue in
+    let body = source.source_definition.body in
+    scan ~runtime_calls:source.source_runtime_calls
+      ~source_globals:source.source_globals
+      ~source_functions:source.source_functions
+      ~historical:source.source_historical ~owner:(Runtime.Function body)
+      (Ir.X87_stack.graph (Function.x87 body))
+  done;
+  List.rev !collected_rev
+
 let validate_switch_code_floor ~max_code_bytes ~label block_groups =
   let used = ref 0 in
   let charge targets =
@@ -8282,8 +8650,8 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                       }
               with Rejected error -> Error [ error ])))
 
-let compile_callable_internal ?task_snapshot ?status_abi
-    ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
+let compile_callable_internal ?task_snapshot ?retained_function_source
+    ?status_abi ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?parameter_defaults ?global_initializers ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
@@ -8316,11 +8684,68 @@ let compile_callable_internal ?task_snapshot ?status_abi
               { code = error.code; message = error.message; span = error.span }))
   in
   let entry_graph = Ir.X87_stack.graph entry in
-  let function_graphs =
+  let current_function_bodies =
     List.map
       (fun (definition : Ir.Integer_interpreter.function_definition) ->
-        Function.body definition.body)
+        definition.body)
       functions
+  in
+  let* callable_sources =
+    match task_snapshot with
+    | Some _ -> (
+        if
+          not
+            (Runtime.matches runtime_calls ~entry
+               ~initialization:(Some initialization)
+               ~functions:current_function_bodies)
+        then
+          Error
+            [
+              {
+                code = "HCBACK0003";
+                message =
+                  "native task callable entry disagrees with its sealed \
+                   runtime-call context";
+                span = None;
+              };
+            ]
+        else
+          match retained_function_source with
+          | None ->
+              Error
+                [
+                  {
+                    code = "HCBACK0003";
+                    message =
+                      "native task callable compilation has no retained \
+                       function source resolver";
+                    span = None;
+                  };
+                ]
+          | Some retained_function_source -> (
+              try
+                Ok
+                  (collect_task_callable_sources ~max_ir_instructions
+                     ~max_blocks ~globals ~runtime_calls ~entry ~functions
+                     ~retained_function_source)
+              with Rejected error -> Error [ error ]))
+    | None ->
+        Ok
+          (List.map
+             (fun definition ->
+               {
+                 source_definition = definition;
+                 source_runtime_calls = runtime_calls;
+                 source_globals = globals;
+                 source_functions = functions;
+                 source_historical = false;
+               })
+             functions)
+  in
+  let function_graphs =
+    List.map
+      (fun source -> Function.body source.source_definition.body)
+      callable_sources
   in
   let graphs = entry_graph :: function_graphs in
   let* block_count, ir_count =
@@ -8330,8 +8755,7 @@ let compile_callable_internal ?task_snapshot ?status_abi
   let* global_storage =
     (match (task_snapshot, global_initializers) with
       | Some snapshot, None
-        when functions = []
-             && Option.is_none parameter_defaults
+        when Option.is_none parameter_defaults
              && Global_storage.task_snapshot_matches snapshot ~initialization
                   ~entry -> Ok (Global_storage.task_snapshot_storage snapshot)
       | Some _, _ ->
@@ -8395,7 +8819,7 @@ let compile_callable_internal ?task_snapshot ?status_abi
         |> List.exists (fun instruction ->
             (Sequence.description instruction).opcode = Opcode.Ic_call_start))
   in
-  if functions = [] && (not has_storage) && not entry_has_calls then
+  if callable_sources = [] && (not has_storage) && not entry_has_calls then
     if
       Runtime.matches runtime_calls ~entry ~initialization:(Some initialization)
         ~functions:[]
@@ -8431,16 +8855,11 @@ let compile_callable_internal ?task_snapshot ?status_abi
         ]
   else
     try
-      let function_bodies =
-        List.map
-          (fun (definition : Ir.Integer_interpreter.function_definition) ->
-            definition.body)
-          functions
-      in
       if
         not
           (Runtime.matches runtime_calls ~entry
-             ~initialization:(Some initialization) ~functions:function_bodies)
+             ~initialization:(Some initialization)
+             ~functions:current_function_bodies)
       then
         reject "HCBACK0003"
           "native callable bundle disagrees with its sealed runtime-call \
@@ -8470,7 +8889,7 @@ let compile_callable_internal ?task_snapshot ?status_abi
         | Some _ ->
             reject "HCBACK0004" "native word-tail count exceeds max_stack_bytes"
       in
-      let collect_graph owner graph =
+      let collect_graph runtime_calls owner graph =
         List.iter
           (fun block ->
             Sequence.instructions (Graph.instructions block)
@@ -8486,14 +8905,16 @@ let compile_callable_internal ?task_snapshot ?status_abi
                   (Runtime.find_callback_start runtime_calls ~owner id)))
           (Graph.blocks graph)
       in
-      collect_graph Runtime.Entry entry_graph;
+      collect_graph runtime_calls Runtime.Entry entry_graph;
       List.iter
-        (fun (definition : Ir.Integer_interpreter.function_definition) ->
-          collect_graph (Runtime.Function definition.body)
+        (fun source ->
+          let definition = source.source_definition in
+          collect_graph source.source_runtime_calls
+            (Runtime.Function definition.body)
             (Ir.X87_stack.graph (Function.x87 definition.body)))
-        functions;
+        callable_sources;
       let function_infos =
-        functions
+        callable_sources
         |> List.map
              (prepare_callable_function ~max_stack_bytes
                 ~maximum_variadic_count:!maximum_variadic_count)
@@ -8504,22 +8925,26 @@ let compile_callable_internal ?task_snapshot ?status_abi
       let indirect_code_edges = ref [] in
       let arena_code_cells = ref Int_map.empty in
       let entry_prepared =
-        preflight_callable_graph ~runtime_calls ~parameter_defaults ~code_edges
-          ~indirect_code_edges ~arena_code_cells ~functions:function_infos
-          ~global_storage ~literal_storage ~runtime_owner:Runtime.Entry
-          ~owner:Entry_owner ~frame_slots:Int_map.empty ~variadic:None
-          ~expected_return:None ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes
-          ~next_site entry_graph
+        preflight_callable_graph ~runtime_calls ~source_globals:globals
+          ~allow_retained_functions:(Option.is_some task_snapshot)
+          ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
+          ~functions:function_infos ~global_storage ~literal_storage
+          ~runtime_owner:Runtime.Entry ~owner:Entry_owner
+          ~frame_slots:Int_map.empty ~variadic:None ~expected_return:None
+          ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
       in
       let function_prepared =
         Array.map
           (fun info ->
             let body = info.definition.body in
-            preflight_callable_graph ~runtime_calls ~parameter_defaults
-              ~code_edges ~indirect_code_edges ~arena_code_cells
-              ~functions:function_infos ~global_storage ~literal_storage
-              ~runtime_owner:(Runtime.Function body) ~owner:info.owner
-              ~frame_slots:info.frame_slots ~variadic:info.variadic
+            preflight_callable_graph ~runtime_calls:info.runtime_calls
+              ~source_globals:info.source_globals
+              ~allow_retained_functions:(Option.is_some task_snapshot)
+              ~parameter_defaults ~code_edges ~indirect_code_edges
+              ~arena_code_cells ~functions:function_infos ~global_storage
+              ~literal_storage ~runtime_owner:(Runtime.Function body)
+              ~owner:info.owner ~frame_slots:info.frame_slots
+              ~variadic:info.variadic
               ~expected_return:(Some (Function.return_type body))
               ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes
               ~next_site
@@ -8944,11 +9369,11 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
 
 let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
     ~task_snapshot ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~initialization ~entry () =
-  compile_callable_internal ~task_snapshot ?status_abi ?max_stack_bytes
-    ?max_blocks ~max_global_bytes:Global_storage.hard_max_global_bytes
-    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
-    ~functions:[] ()
+    ~retained_function_source ~initialization ~entry ~functions () =
+  compile_callable_internal ~task_snapshot ~retained_function_source ?status_abi
+    ?max_stack_bytes ?max_blocks
+    ~max_global_bytes:Global_storage.hard_max_global_bytes ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
 
 let expression_code (compiled : expression_image) =
   Bytes.to_string compiled.encoded

@@ -55,11 +55,17 @@ val evaluate :
     Fragment observations retain detached image metadata after code and arena
     release.
 
+    Named direct functions retain their original admitted source body, frame,
+    call context and global references. Each caller fragment compiles its exact
+    direct-call closure, including historical definitions. The task retains no
+    persistent executable address for these source records.
+
     Code bytes and verified IR instructions are bounded cumulatively across
     emitted fragments. Runtime steps and output share one native allowance;
     frame, call-depth and active native stack limits apply to each activation.
-    Unsupported native task declarations, functions, literals and AOT mode
-    return diagnostics. There is no isolated program or interpreter fallback. *)
+    Unsupported task declarations, function statics/defaults, literals and AOT
+    mode return diagnostics. There is no isolated program or interpreter
+    fallback. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val fragments : report -> fragment list

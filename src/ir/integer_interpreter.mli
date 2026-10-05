@@ -532,9 +532,16 @@ val latest_task_admission : task_state -> task_admission option
 
 val task_function_source :
   task_state -> Retained_function.t -> task_function_source option
-(** Read the original checked source owner for an exact admitted executable
-    link. Unadmitted definitions and foreign links have no source publication.
-*)
+(** Read the original checked source owner for an admitted retained link. Exact
+    native source-only publications are preferred; the older interpreter-owned
+    executable lookup remains available for source inspection. This grants no
+    native execution or address authority. *)
+
+val task_native_function_source :
+  task_state -> Retained_function.t -> task_function_source option
+(** Exact source-only publication for a retained function admitted by native
+    task claim. This carries no executable owner or address authority and never
+    follows a later joined definition. *)
 
 val task_output_bytes : task_state -> string
 val task_output_work : task_state -> int

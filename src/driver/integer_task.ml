@@ -61,6 +61,14 @@ module Native_dispatch = struct
           Atomic.set request.initializer_state Closed;
           Error message
 
+  let initializer_function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    match VM.task_native_function_source request.initializer_task link with
+    | Some source -> Ok source
+    | None ->
+        Error "native initializer request has no exact admitted function source"
+
   let check_command_request request =
     if not (owns_domain request.command_domain) then
       Error "native command request belongs to another execution domain"
@@ -97,6 +105,14 @@ module Native_dispatch = struct
       | Error message ->
           Atomic.set request.command_state Closed;
           Error message
+
+  let command_function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    match VM.task_native_function_source request.command_task link with
+    | Some source -> Ok source
+    | None ->
+        Error "native command request has no exact admitted function source"
 
   let create_initializer ~task ~attempt ~execution ~program =
     {

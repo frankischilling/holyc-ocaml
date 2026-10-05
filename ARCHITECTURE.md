@@ -9,6 +9,15 @@ cumulative allowance for those fragments. Driver admission retains metadata
 without allocating interpreter cells or importing native values. The driver has
 no dependency on the backend. See [native source tasks](docs/native-source-tasks.md).
 
+Native task admission also publishes original function source records in
+`Ir.Integer_interpreter`, independently of interpreter executable owners.
+Request-scoped Driver resolvers return exact retained definitions and frames.
+`Backend.X86_64_word_codegen` compiles their direct-call closure into each caller
+fragment, using each body's original runtime-call context and storage references.
+Historical callees remain distinct after same-name declarations. Code mappings
+belong to individual fragments; the source registry supplies no stable native
+function address.
+
 `Ir.Expression_lowering` emits branch continuations for original integer
 comparison chains used as conditions. `Ir.Block_graph` validates dominance of
 values shared across blocks and supplies definition order for type preparation.

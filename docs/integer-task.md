@@ -2,9 +2,11 @@
 
 The [native source-task API](native-source-tasks.md) now shares this driver's
 original declaration and command scheduling for scalar and fixed-array integer
-JIT source.
+JIT source and retained direct functions.
 `holyc run --target=host-jit-task` executes each live initializer and resumed
-numeric command in one native arena. The public `Integer_task` interface below
+command in one native arena. Native function source records retain original
+definitions and frames independently of interpreter executable owners.
+The public `Integer_task` interface below
 retains its interpreted execution contract and broader supported task domain.
 
 Primitive-member classes and unions retain checked size metadata during member

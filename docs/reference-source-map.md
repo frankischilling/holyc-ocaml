@@ -13,6 +13,14 @@ storage and initialization flags keep their original identities. Arena ownership
 and cumulative resource limits are hosted policy; no new TempleOS capture is
 claimed. See [native source tasks](native-source-tasks.md).
 
+Retained direct native calls follow `Compiler/PrsStmt.HC:62-137` for original
+function records and `PrsStmt.HC:140-207` for body compilation and publication.
+The hosted task admits the exact checked definition, physical frame and call
+context at its original declaration request. Later callers compile those
+retained bodies with their original global references. A same-name replacement
+does not retarget an already selected direct call. This hosted code-lifetime
+policy supplies no persistent function address or new TempleOS capture.
+
 Explicit indexed callback dereferences follow the pending-operator stack in
 `Compiler/PrsExp.HC:609-676`, callback selection at lines 761-770 and 867-904,
 and `PrsLib.HC:21-29`. The callback selection removes one pending star before
@@ -55,8 +63,9 @@ Native retained-image lifetime work uses `Compiler/PrsStmt.HC:150-194` as the
 source-owned function-code context and `Kernel/KTask.HC:251-264` for task-owned
 code/data heaps. The hosted API keeps the original sealed image and private
 arena across activations, with OS mappings and unwind registration owned by the
-host bridge. The scalar source-task path adds original JIT parser-time scheduling
-and shared data; broader source-task admission and function linking remain open. See
+host bridge. The source-task path adds original JIT parser-time scheduling,
+shared data and direct calls compiled from retained source. Persistent function
+addresses and broader source-task admission remain open. See
 [retained native images](native-retained-images.md).
 Closed entries retain their original frameless or RSP spill convention alongside
 callable saved-RBP frames, with separate exact stack and unwind checks.

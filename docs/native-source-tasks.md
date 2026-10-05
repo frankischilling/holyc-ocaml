@@ -35,6 +35,53 @@ including Bool's signed byte storage. Multidimensional indexing retains flat
 offsets within the original object. An unwritten element remains uninitialized;
 writing another element does not authorize its load.
 
+Named direct calls use the exact function selected by the original source:
+
+```c
+I64 A=41;
+I64 F(){return A+1;}
+F();
+```
+
+This is `examples/native-source-functions.hc`. The declaration retains its
+original checked body, frame and call context. A later call compiles that body
+into the caller's native fragment and reads `A` from the same task arena.
+Initializer calls such as `I64 B=F();` execute at that original live leaf.
+The example returns 42 in three native fragments with nineteen runtime steps
+and three separately counted preparation steps. Its eight-byte global and one
+initialization flag occupy the same nine-byte arena throughout.
+Supported integer and checked scalar-pointer arguments, integer word tails,
+and integer or U0 results use the existing native calling path. Automatic local
+storage and nested calls retain their original frame and argument owners.
+Arguments retain their right-to-left evaluation order; modifying `argc` does
+not change the original variadic extent.
+
+Self-recursion uses the original current body and physical frame. Its JIT
+unresolved call form may bind only to that same body's checked definition and
+declaration ancestry. General unresolved extern calls and later slot replacement
+remain outside this direct-call path.
+
+The task publishes function source records when its original declaration
+request claims admission. Rejection before that claim leaves the registry
+unchanged. An admitted declaration keeps its source after a later reached fault. Each
+retained function link identifies its original definition; a newer declaration
+with the same name cannot retarget an earlier call. Historical function bodies
+also retain their original global references after a global name is replaced.
+
+Each compiled body uses its own original runtime-call context and source
+storage. Retained callee lookup consumes the original emission link while
+caller arguments retain their selected header. The backend validates those
+records before collecting its direct callees. Every body included in a fragment
+counts toward that fragment's IR, block and code limits. Recompiling a retained
+body in another fragment charges
+that new code again. The shared data arena preserves native writes across
+those fragment lifetimes.
+
+The collector checks IR and block limits before admitting each body to its work
+queue. These source records contain no executable address. The host releases
+each fragment's code after execution; stored function addresses and callbacks across
+source events still require their own persistent native code owners.
+
 `Native_source_execution.evaluate` accepts the original session, preprocessor
 configuration and source. An internal synchronous dispatch connects source
 admission to the hosted native executor. The public task API preserves its
@@ -44,10 +91,11 @@ interpreter cells.
 Closed expression preparation has its own counter. JIT dimensions share that
 cumulative initializer allowance; `dimension_work` also reports their reached
 node visits. The separate dimension limit applies to ordinary source compilation.
-Native steps come from actual native outcomes. Reports retain detached image metadata and each checked
+Native steps come from actual native outcomes. Reports retain detached image
+metadata and each checked
 completion or fault, without keeping executable images or closed source tasks
 alive. The JSON `native.fragments` array records their source order, cumulative
-native work and storage sizes; `native.image` is null because
+native work, storage sizes and compiled function counts; `native.image` is null because
 the source task has separate fragments.
 
 Each layout has one opaque native arena. Its data and initialization flags
@@ -82,10 +130,11 @@ expression results. The C bridge owns mappings, protection, entry and release;
 source admission, lowering, instruction selection and report validation remain
 in OCaml.
 
-This source-task path supports integer globals, fixed integer arrays and their
-ordinary numeric commands. Runtime-dependent dimensions, callback storage,
-retained functions, literals, effectful defaults, native `#exe`, live function
-replacement and AOT source-task execution remain separate work under #704.
+This source-task path supports integer globals, fixed integer arrays and
+retained direct functions. Runtime-dependent dimensions, task callback and
+literal storage, function statics, declaration defaults, native `#exe`,
+persistent executable addresses and AOT source-task execution remain separate
+work under #704.
 The existing `host-jit` target keeps
 its isolated compilation and AOT load-region contracts. This path adds no
 exported HolyC ABI, object or BIN loader, bootstrap, whole-tree compilation or
@@ -97,6 +146,13 @@ writing its declared-width destination. `PrsVar.HC:123-212` traverses array
 dimensions and initializes each fixed-count leaf in order.
 `Compiler/PrsExp.HC:1068-1100` scales each subscript by its original remaining
 dimension stride and element width. `Compiler/CMain.HC:1-32` compiles the
-original statement and returns its final expression. The arena bounds and
+original statement and returns its final expression. `PrsStmt.HC:62-137`
+distinguishes original function declarations and reused extern records;
+`PrsStmt.HC:140-207` compiles each original body and installs its executable.
+`PrsExp.HC:544-586` retains the argument order, selects the unresolved JIT
+address-slot call while `Cf_EXTERN` is set, and applies the selected cleanup.
+`PrsStmt.HC:181-191` installs the JIT body before clearing that flag.
+The hosted direct-call path retains that source identity while compiling code
+for each caller fragment. The arena bounds and
 ownership checks are hosted policy. These source audits and host tests add no
 new TempleOS oracle capture.
