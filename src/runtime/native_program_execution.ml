@@ -4,6 +4,7 @@ type platform = Native_execution.platform =
   | Unsupported
 
 module Image = Backend.X86_64_program
+module Task_storage = Backend.X86_64_global_storage
 
 external execute_program_image :
   string -> string -> int -> int -> int64 * int64 * int64 * int64 * int64
@@ -35,10 +36,15 @@ external execute_program_output :
   = "holyc_native_execute_program_output"
 
 type retained_handle
+type task_arena_handle
 
 external retain_program :
   string * (int * int * string) array * int * int * (int * int * int * string) ->
   retained_handle = "holyc_native_retain_program"
+
+external retain_task_fragment_program :
+  string * (int * int * string) array * int * int * (int * int * int * int) ->
+  retained_handle = "holyc_native_retain_task_fragment"
 
 external release_program : retained_handle -> unit
   = "holyc_native_release_program"
@@ -57,9 +63,51 @@ external execute_retained_budget_program :
   (int64 * int64 * int64 * int64 * int64) * string * int
   = "holyc_native_execute_retained_budget_program"
 
+external create_task_arena_handle : int -> task_arena_handle
+  = "holyc_native_create_task_arena"
+
+external admit_task_arena : task_arena_handle -> int -> int -> int
+  = "holyc_native_task_arena_admit"
+
+external release_task_arena_handle : task_arena_handle -> unit
+  = "holyc_native_release_task_arena"
+
+external execute_retained_budget_task_program :
+  retained_handle ->
+  task_arena_handle * int ->
+  int * int * int * int * int * int * int * int * int ->
+  int * int * int ->
+  bool ref ->
+  (int64 * int64 * int64 * int64 * int64) * string * int
+  = "holyc_native_execute_retained_budget_task_program"
+
+type task_arena = {
+  layout_ : Task_storage.task_layout;
+  handle_ : task_arena_handle;
+  max_arena_bytes_ : int;
+  admitted_bytes_ : int Atomic.t;
+  budget_owner_ : unit ref option Atomic.t;
+  arena_lease_ : bool Atomic.t;
+  arena_revoked_ : bool Atomic.t;
+  arena_released_ : bool Atomic.t;
+}
+
+type task_execution_binding = {
+  task_arena_ : task_arena;
+  task_required_arena_bytes_ : int;
+  task_budget_identity_ : unit ref;
+}
+
+type retained_storage =
+  | Private_storage
+  | Shared_task_storage of { arena : task_arena; required_arena_bytes : int }
+
 type retained = {
   image_ : Image.t;
   handle_ : retained_handle;
+  storage_ : retained_storage;
+  lease_ : bool Atomic.t;
+  revoked_ : bool Atomic.t;
   released_ : bool Atomic.t;
 }
 
@@ -75,16 +123,41 @@ type report = {
   outcome_ : (Image.outcome, string) result;
   output_bytes_ : string;
   output_work_ : int;
+  value_captured_ : bool;
 }
 
 let outcome report = report.outcome_
 let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
+let value_captured report = report.value_captured_
 
 let error_report message =
-  { outcome_ = Error message; output_bytes_ = ""; output_work_ = 0 }
+  {
+    outcome_ = Error message;
+    output_bytes_ = "";
+    output_work_ = 0;
+    value_captured_ = false;
+  }
 
-let execute_report_internal ?retained ?consumed ?entered
+let bind_task_budget arena identity =
+  let rec bind () =
+    match Atomic.get arena.budget_owner_ with
+    | Some owner ->
+        if owner == identity then Ok ()
+        else Error "native task arena belongs to another cumulative budget"
+    | None ->
+        if Atomic.compare_and_set arena.budget_owner_ None (Some identity) then
+          Ok ()
+        else bind ()
+  in
+  bind ()
+
+let acquire_lease lease message =
+  if Atomic.compare_and_set lease false true then Ok () else Error message
+
+let release_lease lease = Atomic.set lease false
+
+let execute_report_internal ?retained ?consumed ?entered ?task_binding
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_active_stack_bytes = hard_max_active_stack_bytes)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
@@ -126,6 +199,9 @@ let execute_report_internal ?retained ?consumed ?entered
   else if
     Option.is_some consumed
     && (Option.is_none retained || Option.is_none entered)
+    || Option.is_some task_binding
+       && (Option.is_none retained || Option.is_none consumed
+         || Option.is_none entered)
     || prior_steps < 0 || prior_steps > max_steps || prior_output < 0
     || prior_output > max_output_bytes
     || prior_work < 0
@@ -157,8 +233,7 @@ let execute_report_internal ?retained ?consumed ?entered
         let global_bytes = Image.global_bytes image in
         let literal_bytes = Image.literal_bytes image in
         let metadata_bytes = Image.arena_metadata_bytes image in
-        let global_image = Image.global_image image in
-        let arena_bytes = String.length global_image in
+        let arena_bytes = Image.arena_bytes image in
         if global_bytes < 0 then
           error_report "native program image has a negative global byte count"
         else if global_bytes > hard_max_global_bytes then
@@ -208,43 +283,63 @@ let execute_report_internal ?retained ?consumed ?entered
                   | Image.Windows_x64 -> 1
                   | Image.System_v_x64 -> 2
                 in
-                let status, captured, work =
-                  if Option.is_some retained then
-                    let limits =
-                      ( max_steps,
-                        max_frame_bytes,
-                        max_call_depth,
-                        max_active_stack_bytes,
-                        entry_stack_bytes,
-                        max_global_bytes,
-                        max_literal_bytes,
-                        max_output_bytes,
-                        max_output_work )
-                    in
-                    match consumed with
-                    | None ->
-                        execute_retained_program (Option.get retained) limits
-                    | Some consumed ->
-                        execute_retained_budget_program (Option.get retained)
-                          limits consumed (Option.get entered)
-                  else if Image.has_output image then
-                    execute_program_output (Image.code image)
-                      (Array.of_list unwind_functions)
-                      abi_code
-                      ( max_steps,
-                        max_frame_bytes,
-                        max_call_depth,
-                        max_active_stack_bytes,
-                        entry_stack_bytes,
-                        max_global_bytes,
-                        max_literal_bytes,
-                        max_output_bytes,
-                        max_output_work )
-                      (global_bytes, literal_bytes, metadata_bytes, global_image)
-                  else
-                    let status =
-                      if arena_bytes > 0 then
-                        execute_program_storage (Image.code image)
+                let activation =
+                  match task_binding with
+                  | None -> Ok ()
+                  | Some binding ->
+                      let required_arena_bytes =
+                        binding.task_required_arena_bytes_
+                      in
+                      if required_arena_bytes <> arena_bytes then
+                        Error
+                          "native task fragment arena extent disagrees with \
+                           its sealed image"
+                      else
+                        let ( let* ) = Result.bind in
+                        let* () = Image.check_task_request image in
+                        let* () =
+                          bind_task_budget binding.task_arena_
+                            binding.task_budget_identity_
+                        in
+                        Image.check_task_activation image
+                in
+                match activation with
+                | Error message -> error_report message
+                | Ok () -> (
+                    let status, captured, work =
+                      if Option.is_some retained then
+                        let limits =
+                          ( max_steps,
+                            max_frame_bytes,
+                            max_call_depth,
+                            max_active_stack_bytes,
+                            entry_stack_bytes,
+                            max_global_bytes,
+                            max_literal_bytes,
+                            max_output_bytes,
+                            max_output_work )
+                        in
+                        match (consumed, task_binding) with
+                        | None, None ->
+                            execute_retained_program (Option.get retained)
+                              limits
+                        | Some consumed, None ->
+                            execute_retained_budget_program
+                              (Option.get retained) limits consumed
+                              (Option.get entered)
+                        | Some consumed, Some binding ->
+                            execute_retained_budget_task_program
+                              (Option.get retained)
+                              ( binding.task_arena_.handle_,
+                                binding.task_required_arena_bytes_ )
+                              limits consumed (Option.get entered)
+                        | None, Some _ ->
+                            invalid_arg
+                              "native task fragment requires a cumulative \
+                               budget"
+                      else if Image.has_output image then
+                        let global_image = Image.global_image image in
+                        execute_program_output (Image.code image)
                           (Array.of_list unwind_functions)
                           abi_code
                           ( max_steps,
@@ -253,77 +348,101 @@ let execute_report_internal ?retained ?consumed ?entered
                             max_active_stack_bytes,
                             entry_stack_bytes,
                             max_global_bytes,
-                            max_literal_bytes )
+                            max_literal_bytes,
+                            max_output_bytes,
+                            max_output_work )
                           ( global_bytes,
                             literal_bytes,
                             metadata_bytes,
                             global_image )
-                      else if function_count = 0 then
-                        execute_program_image (Image.code image)
-                          (Image.windows_unwind_info image)
-                          abi_code max_steps
                       else
-                        execute_program_functions (Image.code image)
-                          (Array.of_list unwind_functions)
-                          abi_code
-                          ( max_steps,
-                            max_frame_bytes,
-                            max_call_depth,
-                            max_active_stack_bytes,
-                            entry_stack_bytes )
+                        let status =
+                          if arena_bytes > 0 then
+                            let global_image = Image.global_image image in
+                            execute_program_storage (Image.code image)
+                              (Array.of_list unwind_functions)
+                              abi_code
+                              ( max_steps,
+                                max_frame_bytes,
+                                max_call_depth,
+                                max_active_stack_bytes,
+                                entry_stack_bytes,
+                                max_global_bytes,
+                                max_literal_bytes )
+                              ( global_bytes,
+                                literal_bytes,
+                                metadata_bytes,
+                                global_image )
+                          else if function_count = 0 then
+                            execute_program_image (Image.code image)
+                              (Image.windows_unwind_info image)
+                              abi_code max_steps
+                          else
+                            execute_program_functions (Image.code image)
+                              (Array.of_list unwind_functions)
+                              abi_code
+                              ( max_steps,
+                                max_frame_bytes,
+                                max_call_depth,
+                                max_active_stack_bytes,
+                                entry_stack_bytes )
+                        in
+                        (status, "", 0)
                     in
-                    (status, "", 0)
-                in
-                let kind, site, executed_steps, value_site, bits = status in
-                let decoded =
-                  Image.decode_runtime_status image ~max_steps ~kind ~site
-                    ~executed_steps ~value_site ~bits
-                in
-                let atomic_fault =
-                  match decoded with
-                  | Ok (Image.Fault fault) -> fault.atomic_output
-                  | Ok (Image.Completed _) | Error _ -> false
-                in
-                let captured_length = String.length captured in
-                let available_output = max_output_bytes - prior_output in
-                let available_work = max_output_work - prior_work in
-                let output_status_valid =
-                  captured_length <= available_output
-                  && work >= 0 && work <= available_work
-                  && captured_length <= work
-                  && Int64.compare executed_steps (Int64.of_int prior_steps)
-                     >= 0
-                  && ((not
-                         (Int64.equal executed_steps (Int64.of_int prior_steps)))
-                     || (captured_length = 0 && work = 0))
-                  &&
-                  if Int64.equal kind 11L then
-                    atomic_fault || captured_length = available_output
-                  else if Int64.equal kind 12L then work = available_work
-                  else true
-                in
-                if not output_status_valid then
-                  error_report
-                    "native program status integrity failure: output counters \
-                     disagree with the returned fault status"
-                else
-                  match decoded with
-                  | Ok outcome_ ->
-                      {
-                        outcome_ = Ok outcome_;
-                        output_bytes_ = captured;
-                        output_work_ = work;
-                      }
-                  | Error message ->
+                    let kind, site, executed_steps, value_site, bits = status in
+                    let decoded =
+                      Image.decode_runtime_status image ~max_steps ~kind ~site
+                        ~executed_steps ~value_site ~bits
+                    in
+                    let atomic_fault =
+                      match decoded with
+                      | Ok (Image.Fault fault) -> fault.atomic_output
+                      | Ok (Image.Completed _) | Error _ -> false
+                    in
+                    let captured_length = String.length captured in
+                    let available_output = max_output_bytes - prior_output in
+                    let available_work = max_output_work - prior_work in
+                    let output_status_valid =
+                      captured_length <= available_output
+                      && work >= 0 && work <= available_work
+                      && captured_length <= work
+                      && Int64.compare executed_steps (Int64.of_int prior_steps)
+                         >= 0
+                      && ((not
+                             (Int64.equal executed_steps
+                                (Int64.of_int prior_steps)))
+                         || (captured_length = 0 && work = 0))
+                      &&
+                      if Int64.equal kind 11L then
+                        atomic_fault || captured_length = available_output
+                      else if Int64.equal kind 12L then work = available_work
+                      else true
+                    in
+                    if not output_status_valid then
                       error_report
-                        ("native program status integrity failure: " ^ message)
+                        "native program status integrity failure: output \
+                         counters disagree with the returned fault status"
+                    else
+                      match decoded with
+                      | Ok outcome_ ->
+                          {
+                            outcome_ = Ok outcome_;
+                            output_bytes_ = captured;
+                            output_work_ = work;
+                            value_captured_ = not (Int64.equal value_site 0L);
+                          }
+                      | Error message ->
+                          error_report
+                            ("native program status integrity failure: "
+                           ^ message))
               with Failure message | Invalid_argument message ->
                 error_report message)
           | _ ->
               error_report
                 "native program status ABI does not match this process"
 
-let retain ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+let retained_identity_prefix ?(max_global_bytes = 1_048_576)
+    ?(max_literal_bytes = 1_048_576)
     ?(max_active_stack_bytes = hard_max_active_stack_bytes) image =
   let abi = Image.status_abi image in
   let abi_code =
@@ -355,41 +474,285 @@ let retain ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
   else
     match abi_code with
     | None -> Error "retained native status ABI does not match this host"
-    | Some abi_code -> (
+    | Some abi_code ->
+        Ok
+          ( Image.code image,
+            Array.of_list (Image.windows_unwind_functions image),
+            abi_code,
+            Image.entry_stack_bytes image,
+            Image.global_bytes image,
+            Image.literal_bytes image,
+            Image.arena_metadata_bytes image )
+
+let retained_identity ?max_global_bytes ?max_literal_bytes
+    ?max_active_stack_bytes image =
+  Result.map
+    (fun ( code,
+           functions,
+           abi_code,
+           entry_stack_bytes,
+           global_bytes,
+           literal_bytes,
+           metadata_bytes ) ->
+      ( code,
+        functions,
+        abi_code,
+        entry_stack_bytes,
+        (global_bytes, literal_bytes, metadata_bytes, Image.global_image image)
+      ))
+    (retained_identity_prefix ?max_global_bytes ?max_literal_bytes
+       ?max_active_stack_bytes image)
+
+let retained_task_identity ?max_global_bytes ?max_literal_bytes
+    ?max_active_stack_bytes image =
+  Result.map
+    (fun ( code,
+           functions,
+           abi_code,
+           entry_stack_bytes,
+           global_bytes,
+           literal_bytes,
+           metadata_bytes ) ->
+      ( code,
+        functions,
+        abi_code,
+        entry_stack_bytes,
+        (global_bytes, literal_bytes, metadata_bytes, Image.arena_bytes image)
+      ))
+    (retained_identity_prefix ?max_global_bytes ?max_literal_bytes
+       ?max_active_stack_bytes image)
+
+let retain_identity ~storage ~retain_host image identity =
+  try
+    let handle_ = retain_host identity in
+    Ok
+      {
+        image_ = image;
+        handle_;
+        storage_ = storage;
+        lease_ = Atomic.make false;
+        revoked_ = Atomic.make false;
+        released_ = Atomic.make false;
+      }
+  with Failure message | Invalid_argument message -> Error message
+
+let retain_checked ?max_global_bytes ?max_literal_bytes ?max_active_stack_bytes
+    ~storage ~retain_host image =
+  match
+    retained_identity ?max_global_bytes ?max_literal_bytes
+      ?max_active_stack_bytes image
+  with
+  | Error _ as error -> error
+  | Ok identity -> retain_identity ~storage ~retain_host image identity
+
+let retain ?max_global_bytes ?max_literal_bytes ?max_active_stack_bytes image =
+  match Image.task_snapshot image with
+  | Some _ ->
+      Error
+        "native task fragment requires retain_task_fragment and its shared \
+         task arena"
+  | None ->
+      retain_checked ?max_global_bytes ?max_literal_bytes
+        ?max_active_stack_bytes ~storage:Private_storage
+        ~retain_host:retain_program image
+
+let create_task_arena ?(max_arena_bytes = hard_max_arena_bytes) layout =
+  if max_arena_bytes <= 0 || max_arena_bytes > hard_max_arena_bytes then
+    Error
+      (Printf.sprintf
+         "native task arena max_arena_bytes must be between 1 and %d"
+         hard_max_arena_bytes)
+  else
+    match platform () with
+    | Unsupported ->
+        Error
+          "native execution requires Windows or Linux x86-64 with 64-bit \
+           pointers"
+    | Windows_x86_64 | Linux_x86_64 -> (
         try
-          let handle_ =
-            retain_program
-              ( Image.code image,
-                Array.of_list (Image.windows_unwind_functions image),
-                abi_code,
-                Image.entry_stack_bytes image,
-                ( Image.global_bytes image,
-                  Image.literal_bytes image,
-                  Image.arena_metadata_bytes image,
-                  Image.global_image image ) )
-          in
-          Ok { image_ = image; handle_; released_ = Atomic.make false }
+          let handle_ = create_task_arena_handle max_arena_bytes in
+          match Task_storage.claim_task_arena layout with
+          | Ok () ->
+              Ok
+                {
+                  layout_ = layout;
+                  handle_;
+                  max_arena_bytes_ = max_arena_bytes;
+                  admitted_bytes_ = Atomic.make 0;
+                  budget_owner_ = Atomic.make None;
+                  arena_lease_ = Atomic.make false;
+                  arena_revoked_ = Atomic.make false;
+                  arena_released_ = Atomic.make false;
+                }
+          | Error message ->
+              let release_error =
+                try
+                  release_task_arena_handle handle_;
+                  None
+                with Failure detail | Invalid_argument detail -> Some detail
+              in
+              Error
+                (match release_error with
+                | None -> message
+                | Some detail ->
+                    message ^ "; temporary arena release: " ^ detail)
         with Failure message | Invalid_argument message -> Error message)
+
+let release_task_arena arena =
+  if Atomic.get arena.arena_released_ then Ok ()
+  else
+    match
+      acquire_lease arena.arena_lease_ "native task arena is already active"
+    with
+    | Error _ as error -> error
+    | Ok () ->
+        Fun.protect
+          ~finally:(fun () -> release_lease arena.arena_lease_)
+          (fun () ->
+            if Atomic.get arena.arena_released_ then Ok ()
+            else
+              try
+                release_task_arena_handle arena.handle_;
+                Atomic.set arena.arena_revoked_ true;
+                Atomic.set arena.arena_released_ true;
+                Ok ()
+              with
+              | Invalid_argument message -> Error message
+              | Failure message ->
+                  Atomic.set arena.arena_revoked_ true;
+                  Error message)
+
+let admit_task_snapshot_locked arena snapshot =
+  if not (Task_storage.task_snapshot_matches_layout snapshot arena.layout_) then
+    Error "native task fragment belongs to another task arena layout"
+  else
+    let required_arena_bytes =
+      Task_storage.task_snapshot_arena_bytes snapshot
+    in
+    if required_arena_bytes > arena.max_arena_bytes_ then
+      Error
+        "native task fragment storage exceeds its reserved task arena capacity"
+    else
+      let admitted = Atomic.get arena.admitted_bytes_ in
+      if required_arena_bytes < admitted then
+        Error
+          "native task fragment snapshot precedes already admitted task storage"
+      else if required_arena_bytes = admitted then Ok required_arena_bytes
+      else
+        try
+          let observed =
+            admit_task_arena arena.handle_ admitted required_arena_bytes
+          in
+          if observed <> required_arena_bytes then
+            Error
+              "native task arena admission returned an inconsistent prefix \
+               length"
+          else (
+            Atomic.set arena.admitted_bytes_ observed;
+            Ok observed)
+        with Failure message | Invalid_argument message -> Error message
+
+let retain_task_fragment ?max_global_bytes ?max_literal_bytes
+    ?max_active_stack_bytes arena image =
+  match Image.task_snapshot image with
+  | None -> Error "ordinary native image has no shared task storage snapshot"
+  | Some snapshot -> (
+      match
+        acquire_lease arena.arena_lease_ "native task arena is already active"
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          Fun.protect
+            ~finally:(fun () -> release_lease arena.arena_lease_)
+            (fun () ->
+              if Atomic.get arena.arena_revoked_ then
+                Error "native task arena has been released"
+              else if
+                not
+                  (Task_storage.task_snapshot_matches_layout snapshot
+                     arena.layout_)
+              then
+                Error
+                  "native task fragment belongs to another task arena layout"
+              else if
+                Task_storage.task_snapshot_global_bytes snapshot
+                <> Image.global_bytes image
+              then
+                Error
+                  "native task fragment logical storage disagrees with its \
+                   snapshot"
+              else if
+                Task_storage.task_snapshot_arena_bytes snapshot
+                <> Image.arena_bytes image
+              then
+                Error
+                  "native task fragment arena extent disagrees with its task \
+                   snapshot"
+              else
+                let ( let* ) = Result.bind in
+                let* () = Image.check_task_request image in
+                let* identity =
+                  retained_task_identity ?max_global_bytes ?max_literal_bytes
+                    ?max_active_stack_bytes image
+                in
+                let* required_arena_bytes =
+                  admit_task_snapshot_locked arena snapshot
+                in
+                retain_identity
+                  ~storage:(Shared_task_storage { arena; required_arena_bytes })
+                  ~retain_host:retain_task_fragment_program image identity))
 
 let release retained =
   if Atomic.get retained.released_ then Ok ()
   else
-    try
-      release_program retained.handle_;
-      Atomic.set retained.released_ true;
-      Ok ()
-    with Failure message | Invalid_argument message -> Error message
+    match
+      acquire_lease retained.lease_ "retained native image is already active"
+    with
+    | Error _ as error -> error
+    | Ok () ->
+        Fun.protect
+          ~finally:(fun () -> release_lease retained.lease_)
+          (fun () ->
+            if Atomic.get retained.released_ then Ok ()
+            else
+              try
+                release_program retained.handle_;
+                Atomic.set retained.revoked_ true;
+                Atomic.set retained.released_ true;
+                Ok ()
+              with
+              | Invalid_argument message -> Error message
+              | Failure message ->
+                  Atomic.set retained.revoked_ true;
+                  Error message)
 
 let execute_retained_report ?max_frame_bytes ?max_call_depth
     ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
     ?max_output_bytes ?max_output_work ~max_steps retained =
-  if Atomic.get retained.released_ then
+  if Atomic.get retained.revoked_ then
     error_report "retained native image has been released"
   else
-    execute_report_internal ~retained:retained.handle_ ?max_frame_bytes
-      ?max_call_depth ?max_active_stack_bytes ?max_global_bytes
-      ?max_literal_bytes ?max_output_bytes ?max_output_work ~max_steps
-      retained.image_
+    match
+      acquire_lease retained.lease_ "retained native image is already active"
+    with
+    | Error message -> error_report message
+    | Ok () ->
+        Fun.protect
+          ~finally:(fun () -> release_lease retained.lease_)
+          (fun () ->
+            if Atomic.get retained.revoked_ then
+              error_report "retained native image has been released"
+            else
+              match retained.storage_ with
+              | Shared_task_storage _ ->
+                  error_report
+                    "native task fragment requires its cumulative shared task \
+                     budget"
+              | Private_storage ->
+                  execute_report_internal ~retained:retained.handle_
+                    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
+                    ?max_global_bytes ?max_literal_bytes ?max_output_bytes
+                    ?max_output_work ~max_steps retained.image_)
 
 type budget_state = {
   steps_ : int;
@@ -400,6 +763,7 @@ type budget_state = {
 }
 
 type budget = {
+  identity_ : unit ref;
   max_steps_ : int;
   max_output_bytes_ : int;
   max_output_work_ : int;
@@ -426,6 +790,7 @@ let create_budget ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
   else
     Ok
       {
+        identity_ = ref ();
         max_steps_ = max_steps;
         max_output_bytes_ = max_output_bytes;
         max_output_work_ = max_output_work;
@@ -446,6 +811,8 @@ let budget_progress budget =
     output_bytes = copy_string (String.concat "" (List.rev state.chunks_));
     error = state.error_;
   }
+
+let budget_output_bytes budget = (budget_progress budget).output_bytes
 
 (* Newest chunks come first, with strictly increasing lengths. Coalescing
    bounds retained list metadata and avoids copying the full output prefix on
@@ -472,59 +839,119 @@ let execute_retained_budget_report ?max_frame_bytes ?max_call_depth
         let state = Atomic.get budget.state_ in
         match state.error_ with
         | Some message -> error_report message
-        | None when Atomic.get retained.released_ ->
+        | None when Atomic.get retained.revoked_ ->
             error_report "retained native image has been released"
         | None -> (
-            let entered = ref false in
-            let poisoned =
-              {
-                state with
-                error_ =
-                  Some
-                    "retained native budget is unavailable after an unverified \
-                     activation";
-              }
-            in
-            try
-              let report =
-                execute_report_internal ~retained:retained.handle_
-                  ~consumed:(state.steps_, state.bytes_, state.work_)
-                  ~entered ?max_frame_bytes ?max_call_depth
-                  ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
-                  ~max_steps:budget.max_steps_
-                  ~max_output_bytes:budget.max_output_bytes_
-                  ~max_output_work:budget.max_output_work_ retained.image_
+            let run task_binding =
+              let entered = ref false in
+              let poisoned =
+                {
+                  state with
+                  error_ =
+                    Some
+                      "retained native budget is unavailable after an \
+                       unverified activation";
+                }
               in
-              (match report.outcome_ with
-              | Error _ -> if !entered then Atomic.set budget.state_ poisoned
-              | Ok outcome ->
-                  let steps_ =
-                    match outcome with
-                    | Image.Completed execution -> execution.executed_steps
-                    | Image.Fault fault -> fault.executed_steps
-                  in
-                  let next =
-                    {
-                      steps_;
-                      bytes_ = state.bytes_ + String.length report.output_bytes_;
-                      work_ = state.work_ + report.output_work_;
-                      chunks_ =
-                        append_capture report.output_bytes_ state.chunks_;
-                      error_ = None;
-                    }
-                  in
-                  Atomic.set budget.state_ next);
-              report
-            with exception_ ->
-              if !entered then Atomic.set budget.state_ poisoned;
-              raise exception_))
+              try
+                let report =
+                  execute_report_internal ~retained:retained.handle_
+                    ~consumed:(state.steps_, state.bytes_, state.work_)
+                    ~entered ?task_binding ?max_frame_bytes ?max_call_depth
+                    ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
+                    ~max_steps:budget.max_steps_
+                    ~max_output_bytes:budget.max_output_bytes_
+                    ~max_output_work:budget.max_output_work_ retained.image_
+                in
+                (match report.outcome_ with
+                | Error _ -> if !entered then Atomic.set budget.state_ poisoned
+                | Ok outcome ->
+                    let steps_ =
+                      match outcome with
+                      | Image.Completed execution -> execution.executed_steps
+                      | Image.Fault fault -> fault.executed_steps
+                    in
+                    let next =
+                      {
+                        steps_;
+                        bytes_ =
+                          state.bytes_ + String.length report.output_bytes_;
+                        work_ = state.work_ + report.output_work_;
+                        chunks_ =
+                          append_capture report.output_bytes_ state.chunks_;
+                        error_ = None;
+                      }
+                    in
+                    Atomic.set budget.state_ next);
+                report
+              with exception_ ->
+                if !entered then Atomic.set budget.state_ poisoned;
+                raise exception_
+            in
+            let run_with_retained_lease () =
+              if Atomic.get retained.revoked_ then
+                error_report "retained native image has been released"
+              else
+                match retained.storage_ with
+                | Private_storage -> run None
+                | Shared_task_storage { arena; required_arena_bytes } -> (
+                    match
+                      acquire_lease arena.arena_lease_
+                        "native task arena is already active"
+                    with
+                    | Error message -> error_report message
+                    | Ok () ->
+                        Fun.protect
+                          ~finally:(fun () -> release_lease arena.arena_lease_)
+                          (fun () ->
+                            if Atomic.get arena.arena_revoked_ then
+                              error_report "native task arena has been released"
+                            else if
+                              Atomic.get arena.admitted_bytes_
+                              < required_arena_bytes
+                            then
+                              error_report
+                                "native task fragment requires unadmitted task \
+                                 storage"
+                            else
+                              match Atomic.get arena.budget_owner_ with
+                              | Some owner when owner != budget.identity_ ->
+                                  error_report
+                                    "native task arena belongs to another \
+                                     cumulative budget"
+                              | None | Some _ ->
+                                  run
+                                    (Some
+                                       {
+                                         task_arena_ = arena;
+                                         task_required_arena_bytes_ =
+                                           required_arena_bytes;
+                                         task_budget_identity_ =
+                                           budget.identity_;
+                                       })))
+            in
+            match
+              acquire_lease retained.lease_
+                "retained native image is already active"
+            with
+            | Error message -> error_report message
+            | Ok () ->
+                Fun.protect
+                  ~finally:(fun () -> release_lease retained.lease_)
+                  run_with_retained_lease))
 
 let execute_report ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
     ?max_global_bytes ?max_literal_bytes ?max_output_bytes ?max_output_work
     ~max_steps image =
-  execute_report_internal ?max_frame_bytes ?max_call_depth
-    ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
-    ?max_output_bytes ?max_output_work ~max_steps image
+  match Image.task_snapshot image with
+  | Some _ ->
+      error_report
+        "native task fragment requires retain_task_fragment and its shared \
+         task arena"
+  | None ->
+      execute_report_internal ?max_frame_bytes ?max_call_depth
+        ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
+        ?max_output_bytes ?max_output_work ~max_steps image
 
 let execute ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
     ?max_global_bytes ?max_literal_bytes ?max_output_bytes ?max_output_work

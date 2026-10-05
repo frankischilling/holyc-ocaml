@@ -9,8 +9,8 @@ stored callback through a later name.
 
 Activation enters the complete original entry again, including any scheduled
 AOT load regions. Those regions execute as ordinary generated code against the
-retained arena. Scheduling each source declaration once belongs to the remaining
-native task driver.
+retained arena. The separate [native source-task driver](native-source-tasks.md)
+schedules supported scalar JIT declarations once against a shared task arena.
 
 Each activation has fresh bounded status, frame/depth/stack allowances and
 output capture. The ordinary sealed-image decoder checks its actual native
@@ -84,8 +84,9 @@ Progress then retains the last verified prefix and records the failure state.
 
 Different retained images may share an allowance while keeping separate arenas.
 Frame, depth, active-stack and image-storage bounds remain per activation.
-Source receipt admission, cumulative data allocation, declaration scheduling
-and linking separate images still belong to the native source-session work.
+The scalar source-task path connects original source receipts, cumulative data
+allocation and declaration scheduling to one shared arena. Retained function
+linking and the wider source-session requirements remain open.
 
 The maintained suite covers both source modes, actual native
 globals/statics/arrays/literals, callback owners across GC, reached arithmetic
@@ -104,7 +105,8 @@ separate arenas, concurrent admission and malformed consumed-counter tuples.
 The pinned source context is `c26482bb6ad3f80106d28504ec5db3c6a360732c`:
 `Compiler/PrsStmt.HC:150-194` emits source-owned function code, and
 `Kernel/KTask.HC:251-264` initializes task-owned code/data heaps. Hosted retention
-is a resource-lifetime foundation. Native execution during original JIT parser
-callbacks, persistent source-task admission, linking separate images and live
-native replacement/expiry remain unfinished. No new TempleOS capture, exported
-HolyC ABI, loader, bootstrap or full-compiler proof is claimed.
+is a resource-lifetime foundation. Original scalar JIT parser callbacks now
+execute through the source-task path; broader persistent admission, retained
+function linking and live native replacement/expiry remain unfinished. No new
+TempleOS capture, exported HolyC ABI, loader, bootstrap or full-compiler proof
+is claimed.

@@ -31,6 +31,7 @@ type compilation_report = {
 
 type report = {
   outcome_ : (VM.t Unit.checked, Common.Diagnostic.t list) result;
+  native_final_value_ : Task.Native_dispatch.word option;
   output_bytes_ : string;
   output_work_ : int;
   dimension_work_ : int;
@@ -68,6 +69,7 @@ let compilation_dimension_work report =
 
 let compilation_switch_work report = report.source_switch_work
 let outcome report = report.outcome_
+let native_final_value report = report.native_final_value_
 let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
 let dimension_work report = report.dimension_work_
@@ -133,8 +135,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_initializer_steps = 100_000) ?(max_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
-    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) session
-    ~config ~source =
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
+    ?native_dispatch session ~config ~source =
   let limits =
     {
       steps = max_steps;
@@ -170,6 +172,15 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
         [
           Integer_source.diagnostic ~span "HCIRVM0001"
             "max_switch_work must be greater than zero";
+        ]
+    else if
+      Option.is_some native_dispatch
+      && Frontend.Preprocessor.Config.compilation_mode config <> Jit
+    then
+      Error
+        [
+          Integer_source.diagnostic ~span "HCIRVM0001"
+            "native task source execution requires JIT compilation mode";
         ]
     else
       let compiler_positions =
@@ -215,7 +226,7 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       ~max_output_bytes ~max_output_work
                       ~max_generated_bytes:
                         (Frontend.Preprocessor.Config.max_generated_bytes config)
-                      session ~source ~ledger
+                      ?native_dispatch session ~source ~ledger
             in
             let* retained =
               create ()
@@ -251,12 +262,19 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
             Some
               (fun event ->
                 let* () = Task_declarations.observe_command ledger event in
+                let* () =
+                  match (native_dispatch, !task, event) with
+                  | Some _, None, Parser.Sequence_started context
+                    when Option.is_none (Parser.context_parent context) ->
+                      ensure_task span |> Result.map ignore
+                  | _ -> Ok ()
+                in
                 match (is_jit, !task, event) with
                 | true, Some task, Parser.Command_resumed receipt ->
                     let* command =
                       Task.compile_source_ast task receipt.command_ast
                     in
-                    Task.execute task command |> Result.map ignore
+                    Task.execute_source task command |> Result.map ignore
                 | true, Some _, Parser.Sequence_completed receipt ->
                     completed_sequence := Some receipt;
                     Ok ()
@@ -429,11 +447,13 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
 
 let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
-    ?max_output_bytes ?max_output_work session ~config ~source ~max_steps =
+    ?max_output_bytes ?max_output_work ?native_dispatch session ~config ~source
+    ~max_steps =
   let compilation =
     compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
       ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
-      ?max_output_bytes ?max_output_work ~max_steps session ~config ~source
+      ?max_output_bytes ?max_output_work ?native_dispatch ~max_steps session
+      ~config ~source
   in
   let span = Integer_source.source_span source in
   let program_ =
@@ -447,6 +467,13 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     let* checked = compilation.compilation_outcome_ in
     match checked.value with
     | Stateful value -> Ok { checked with Unit.value }
+    | Isolated _ when Option.is_some native_dispatch ->
+        Error
+          (checked.diagnostics
+          @ [
+              Integer_source.diagnostic ~span "HCIRVM0026"
+                "native task source unexpectedly produced isolated execution";
+            ])
     | Isolated compiled ->
         let execution =
           match compilation.task with
@@ -487,6 +514,10 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
   in
   {
     outcome_;
+    native_final_value_ =
+      (match outcome_ with
+      | Ok _ -> Option.bind compilation.task Task.native_final_value
+      | Error _ -> None);
     output_bytes_;
     output_work_;
     progress_;

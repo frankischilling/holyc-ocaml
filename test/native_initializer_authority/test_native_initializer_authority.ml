@@ -5,6 +5,7 @@ module Initializers = Holyc_lib__Driver.Integer_initializers
 module Unit = Holyc_lib__Driver.Integer_unit
 module Proof = Native_global_initializers
 module Image = X86_64_program
+module VM = Ir_integer_interpreter
 
 let checked = function
   | Ok value -> value
@@ -21,6 +22,78 @@ let diagnostics = function
 
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
+
+let initializer_failure_settles_once () =
+  let session = Session.task_frontend (Session.create ()) in
+  let source =
+    Session.add_source session ~path:"initializer-failure.hc"
+      ~contents:"I64 A=41;"
+  in
+  let ledger = D.create_source session ~source |> checked in
+  let runtime =
+    VM.create_task_state ~table:(Session.semantic_symbols session) () |> checked
+  in
+  let foreign =
+    VM.create_task_state ~table:(Session.semantic_symbols session) () |> checked
+  in
+  let reached = ref false in
+  let checkpoint event =
+    Result.bind (D.observe_command ledger event) (fun () ->
+        match event with
+        | Parser.Sequence_started _ ->
+            D.promote_source ledger ~runtime session ~source |> checked;
+            Ok ()
+        | _ -> Ok ())
+  in
+  let declaration event =
+    Result.bind (D.observe ledger event) (fun () ->
+        match event with
+        | Parser.Global_declared publication ->
+            D.admit_global ledger ~runtime publication
+        | Parser.Global_initializer_started start ->
+            D.begin_initializer_runtime ledger ~runtime start
+        | Parser.Global_initializer_leaf_completed receipt ->
+            Result.bind (D.begin_initializer_attempt ledger ~runtime receipt)
+              (fun attempt ->
+                reached := true;
+                Alcotest.(check bool)
+                  "first failure settles original live attempt" true
+                  (Result.is_ok
+                     (VM.fail_task_initializer_attempt runtime attempt));
+                reject "failed initializer attempt cannot settle twice"
+                  (VM.fail_task_initializer_attempt runtime attempt);
+                reject "foreign task cannot settle original initializer attempt"
+                  (VM.fail_task_initializer_attempt foreign attempt);
+                Ok ())
+        | _ -> Ok ())
+  in
+  let commands : Parser.command_sink =
+    {
+      checkpoint = Some checkpoint;
+      call = None;
+      implicit_output = None;
+      reference = Some (D.observe_reference ledger);
+      declaration = Some declaration;
+      query = Some (D.observe_query ledger);
+      dimension_count = Some (D.grammar_dimension_count ledger);
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:Preprocessor.Jit () |> checked
+  in
+  let parsed =
+    Parser.parse ~commands ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session) ~config source
+  in
+  if Parser.has_errors parsed then
+    ignore (diagnostics (Error parsed.diagnostics));
+  Alcotest.(check bool)
+    "original parser source completes" true
+    (Option.is_some parsed.ast);
+  Alcotest.(check bool) "original initializer leaf was reached" true !reached
 
 let fixture ?contents ?(statics = false) mode =
   let session = Session.create () in
@@ -703,6 +776,8 @@ let () =
             `Quick array_publication_prefix;
           Alcotest.test_case "preparation failures precede entry" `Quick
             failed_preparation;
+          Alcotest.test_case "initializer failure settles exactly once" `Quick
+            initializer_failure_settles_once;
           Alcotest.test_case "static leaf and copy failures retain exact work"
             `Quick array_failure_work;
         ] );

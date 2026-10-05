@@ -24,6 +24,7 @@ val hard_max_output_bytes : int
 
 type report
 type retained
+type task_arena
 
 val retain :
   ?max_global_bytes:int ->
@@ -37,10 +38,46 @@ val retain :
     allocation. Closed entries retain their original RSP spill frame or
     frameless code; callable entries retain their saved-RBP frame. Each charges
     its own exact entry stack footprint. No native pointer or replacement image
-    is accepted or exposed. *)
+    is accepted or exposed. Task-fragment images are rejected here and require
+    [retain_task_fragment]. *)
+
+val create_task_arena :
+  ?max_arena_bytes:int ->
+  Backend.X86_64_global_storage.task_layout ->
+  (task_arena, string) result
+(** Allocate one opaque native storage owner for an exact append-only task
+    layout. [max_arena_bytes] defaults to 32 MiB and is bounded by
+    [hard_max_arena_bytes]. The host reserves one stable address range and
+    commits it read/write and non-executable as task snapshots grow. No native
+    address is exposed. A task layout admits exactly one arena owner; creating a
+    second owner fails, including after the original arena has been released. *)
+
+val release_task_arena : task_arena -> (unit, string) result
+(** Release the task storage mapping. Successful release is idempotent. Active
+    native entry or admission rejects release, and a released arena cannot admit
+    or execute another fragment. Unreachable handles have a native finalizer. *)
+
+val retain_task_fragment :
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_active_stack_bytes:int ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (retained, string) result
+(** Retain code for a source-task image whose opaque storage snapshot belongs to
+    this exact arena layout. A larger snapshot commits and zero-initializes only
+    the appended suffix, so earlier native values and initialization flags stay
+    authoritative. The retained fragment owns its executable mapping and unwind
+    registration but no private data arena. Task fragments execute only through
+    [execute_retained_budget_report], which uses the same shared arena and the
+    image's live one-shot source activation. Request identity, image bounds,
+    host ABI and stack metadata are checked before arena admission. *)
 
 val release : retained -> (unit, string) result
-(** Release the original mapping, arena and Windows unwind registration.
+(** Release the original code mapping and Windows unwind registration, plus the
+    private arena of an ordinary retained image. A task fragment leaves its
+    separately owned [task_arena] intact.
+
     Successful release is idempotent. A released image cannot execute; an active
     image rejects release. Once cleanup starts, the owner cannot activate again.
     Failed OS release keeps remaining resources only for a later release retry.
@@ -64,7 +101,9 @@ val execute_retained_report :
     OCaml domains. The complete original entry runs again, including scheduled
     AOT load regions; this API supplies no once-only declaration scheduling.
     This host lifetime primitive does not schedule or replay parser callbacks,
-    link separate images, or establish native JIT declaration execution. *)
+    link separate images, or establish native JIT declaration execution. Shared
+    task fragments are rejected because their source entry requires the
+    cumulative task budget and live activation path. *)
 
 type budget
 
@@ -94,6 +133,10 @@ val budget_progress : budget -> budget_progress
     host or status failure whose native effects could not be verified; counters
     then describe only the last verified prefix. *)
 
+val budget_output_bytes : budget -> string
+(** Return a copied ordered output prefix from the last verified cumulative
+    budget state. *)
+
 val execute_retained_budget_report :
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
@@ -114,13 +157,20 @@ val execute_retained_budget_report :
     activation guard and checking its lifetime. Once native entry begins, an
     unverified host/status failure revokes the allowance.
 
-    Concurrent use of one allowance rejects overlap. Multiple original images
-    may share an allowance while retaining their separate data arenas. Frame,
-    call-depth, active-stack and image-storage bounds keep their per-activation
-    meanings. This host execution primitive supplies no source-command receipts,
-    once-only declaration scheduling, cumulative allocation admission, or
-    linkage between images. The existing [execute_retained_report] keeps fresh
-    limits. *)
+    Concurrent use of one allowance rejects overlap. Ordinary retained images
+    may share an allowance while keeping independent private arenas. Task
+    fragments retained against the same [task_arena] instead use that single
+    authoritative mapping; code and arena exclusion are both acquired before
+    entry, and each fragment must name a snapshot already admitted to the exact
+    layout. The first task entry binds that arena to this exact cumulative
+    [budget]; later fragments reject another budget before consuming their live
+    source request. Its opaque live source activation is checked after OCaml
+    preflight and immediately before native dispatch. A rejected host admission
+    leaves the allowance verified; once native entry is marked, an unverified
+    host/status failure revokes it. Frame, call-depth, active-stack and
+    image-storage bounds keep their per-activation meanings. The existing
+    [execute_retained_report] keeps fresh limits only for ordinary retained
+    images. *)
 
 val execute_report :
   ?max_frame_bytes:int ->
@@ -143,11 +193,17 @@ val execute_report :
     rooted private capture buffer and output counters in the existing status
     context. A reached program fault retains bytes published before the fault
     and their exact work count. Host, ABI and status-integrity failures expose
-    no captured bytes or work. *)
+    no captured bytes or work. Source-task images are rejected here and require
+    [retain_task_fragment] plus [execute_retained_budget_report]. *)
 
 val outcome : report -> (Backend.X86_64_program.outcome, string) result
 val output_bytes : report -> string
 val output_work : report -> int
+
+val value_captured : report -> bool
+(** A checked native END_EXP site was reached during this activation. An empty
+    command leaves an earlier task value alone; an explicit no-value capture can
+    clear it. This observes the returned native site, not source syntax. *)
 
 val execute :
   ?max_frame_bytes:int ->
@@ -162,7 +218,8 @@ val execute :
   (Backend.X86_64_program.outcome, string) result
 (** Execute a sealed program image with positive instruction, semantic-frame,
     call-depth and output-work limits plus bounded stack, storage and output
-    bytes. This is [execute_report] projected through [outcome].
+    bytes. This is [execute_report] projected through [outcome]. Source-task
+    images have the same shared-arena restriction as [execute_report].
 
     [max_frame_bytes] defaults to 1,048,576 and [max_call_depth] to 128,
     matching the checked interpreter. [max_active_stack_bytes] defaults to

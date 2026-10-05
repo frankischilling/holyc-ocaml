@@ -113,6 +113,22 @@ val compile_callable :
     defaults remain rejected unless [parameter_defaults] seals the exact
     original declaration-time preparation for this bundle. *)
 
+val compile_task_fragment :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  task_snapshot:X86_64_global_storage.task_snapshot ->
+  max_ir_instructions:int ->
+  max_code_bytes:int ->
+  runtime_calls:Ir.Runtime_call_context.t ->
+  initialization:Ir.Global_initialization.t ->
+  entry:Ir.X87_stack.t ->
+  unit ->
+  (program_image, error list) result
+(** Compile an original scalar task fragment against its append-only storage
+    snapshot through the callable instruction path. Source activation authority
+    remains a separate requirement of the sealed program image. *)
+
 val program_code : program_image -> string
 val program_code_bytes : program_image -> int
 val program_windows_unwind_info : program_image -> string
@@ -137,5 +153,6 @@ val validate_global_limit : max_global_bytes:int -> (unit, error list) result
 val program_global_bytes : program_image -> int
 val program_literal_bytes : program_image -> int
 val program_arena_metadata_bytes : program_image -> int
+val program_arena_bytes : program_image -> int
 val program_global_image : program_image -> string
 val hard_max_global_bytes : int

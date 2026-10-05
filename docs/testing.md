@@ -1,5 +1,22 @@
 # Testing holyc-ocaml
 
+`test/native/test_native_source_execution.ml` checks original live scalar
+initializers, stable cross-fragment writes, declared widths, unsigned words,
+reached faults and exact cumulative native limits. It distinguishes native
+runtime work from closed preparation and interpreter runtime counters. Arena
+ownership, garbage collection, independent tasks, raw admission shapes and
+capacity bounds have separate controls. The CLI suite runs the maintained
+`native-source-initializers.hc` fixture through `host-jit-task`, checks individual
+fragment reports and compares the result with independent IR and isolated AOT
+native runs. See [native source tasks](native-source-tasks.md).
+
+`test/native/test_native_source_authority.ml` checks the original live requests
+through the runtime entry API. Foreign domains, budgets, arenas, expired leaves
+and repeated entries cannot consume another request. A rejected first entry
+must leave an unbound arena available to its original budget. Layout limits
+retain the visits and native effects of earlier admitted initializers. Code and
+IR limits also cover exhaustion exactly between two fragments.
+
 The callback dereference suites cover explicit stars on fully indexed callback
 arrays in function bodies and top-level expressions. Public IR and native runs
 check calls, reads, stores and numeric updates, one evaluation of each index,

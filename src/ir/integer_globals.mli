@@ -211,6 +211,16 @@ val prepare_declared :
 val publish_declared : task_catalog -> declared_slot -> task_publication
 val join_declared : task_view -> t -> (t, string) result
 val retained_slot : t -> Retained_global.t -> storage_slot option
+
+val retained_storage_bindings : t -> (Retained_global.t * storage_slot) list
+(** Original retained references and storage objects visible in this immutable
+    task snapshot. This grants no source-command or initializer admission. *)
+
+val same_task_storage : t -> t -> bool
+(** Both storage views must belong to the same original task catalog. Matching
+    symbols, declarations or snapshot contents do not establish this identity.
+*)
+
 val is_task_command : t -> bool
 val check_task_command : task_catalog -> t -> (unit, string) result
 

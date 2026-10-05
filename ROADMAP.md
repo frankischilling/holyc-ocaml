@@ -1,5 +1,12 @@
 # holyc-ocaml roadmap
 
+Issue #704 connects original scalar JIT initializer leaves and resumed commands
+to one append-only native arena through the `host-jit-task` target. Source
+requests retain their original admission and execute once under a shared native
+budget. Retained function linking, task arrays/literals, effectful defaults,
+native `#exe` and live replacement remain open. See
+[native source tasks](docs/native-source-tasks.md).
+
 Issue #797 adds [conditional integer chains](docs/conditional-comparison-chains.md)
 with original middle values, branch-skipped effects, cumulative classes and
 checked cross-block definitions. Pending reductions and floating chains remain

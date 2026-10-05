@@ -56,6 +56,7 @@ type fault = private {
 type execution = private { executed_steps : int; final_value : word option }
 type outcome = Completed of execution | Fault of fault
 type t
+type task_layout = X86_64_global_storage.task_layout
 
 val hard_max_stack_bytes : int
 (** Maximum shared spill frame size: 4088 bytes. *)
@@ -130,6 +131,45 @@ val compile_callable :
     from the exact source preparation; omitting it preserves the low-level
     rejection. *)
 
+val create_task_layout :
+  max_global_bytes:int -> (task_layout, error list) result
+
+val compile_task_initializer :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_dispatch.initializer_request ->
+  (t, error list) result
+(** Compile the original live scalar initializer against the task's stable
+    storage layout. The image retains its exact one-shot source-entry token. *)
+
+val compile_task_command :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_dispatch.command_request ->
+  (t, error list) result
+(** Compile an original resumed source command using the same retained task
+    storage. Retained function linking and literal storage are separate gaps. *)
+
+val task_snapshot : t -> X86_64_global_storage.task_snapshot option
+
+val check_task_request : t -> (unit, string) result
+(** Pure validation of the original live source request before retention or
+    storage admission. It rejects closed, already claimed and foreign requests.
+*)
+
+val check_task_activation : t -> (unit, string) result
+(** Internal runtime admission. A task image claims only its exact still-active
+    synchronous source request, once. Standalone images require no task claim.
+*)
+
 val code : t -> string
 
 val code_bytes : t -> int
@@ -191,6 +231,7 @@ val validate_literal_limit : max_literal_bytes:int -> (unit, error list) result
 val global_bytes : t -> int
 val literal_bytes : t -> int
 val arena_metadata_bytes : t -> int
+val arena_bytes : t -> int
 
 val global_image : t -> string
 (** Fresh copy of the private initial data and per-object initialization flags.

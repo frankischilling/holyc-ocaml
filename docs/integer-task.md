@@ -1,5 +1,11 @@
 # Incremental integer task execution
 
+The [native source-task API](native-source-tasks.md) now shares this driver's
+original declaration and command scheduling for scalar integer JIT source.
+`holyc run --target=host-jit-task` executes each live initializer and resumed
+numeric command in one native arena. The public `Integer_task` interface below
+retains its interpreted execution contract and broader supported task domain.
+
 Primitive-member classes and unions retain checked size metadata during member
 parsing and across directives. Original member bounds are prepared once, and consumed
 `sizeof` values survive type replacement. Closed `$$` offset expressions also
@@ -131,8 +137,14 @@ One-star [global callback cells and arrays](global-callbacks.md) share this
 storage contract. Retained completion keeps the original allocation and outer
 reference; the checked header supplies its saved defaults and original calling
 flags to later functions. Top-level assignments can install or copy addresses.
-Top-level calls and [global callback initializers](global-callback-initializers.md) retain original callbacks, full-word storage and supported effects through the source journal. Hosted native AOT consumes checked load-time initializer regions in an isolated bundle. Member callbacks, updates, native JIT initializers with references and broader retained native execution remain
-unfinished under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801).
+Top-level calls and [global callback initializers](global-callback-initializers.md)
+retain original callbacks, full-word storage and supported effects through the
+source journal. Hosted native AOT consumes checked load-time initializer regions
+in an isolated bundle. [Numeric callback updates](callback-updates.md) execute
+through the original cells in IR and native code. Member callbacks, arithmetic
+on owned function addresses, native JIT callback initializers with references
+and broader retained native linking remain unfinished under
+[issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801).
 
 Each deferred operation requires its exact active journal event. Failure or
 exception revokes that authority, including saved storage and command admission;

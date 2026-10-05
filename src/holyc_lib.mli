@@ -5,7 +5,7 @@ module Span = Common.Span
 module Diagnostic = Common.Diagnostic
 module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
-module Integer_task = Driver.Integer_task
+module Integer_task = Driver.Public_integer_task
 module Task_declarations = Driver.Task_declarations
 module Semantic_compiler_record = Sema.Compiler_record
 module Semantic_provisional_function = Sema.Provisional_function
@@ -33,6 +33,7 @@ module Native_execution = Runtime.Native_execution
 module Native_program_execution = Runtime.Native_program_execution
 module Native_expression = Hosted.Native_expression
 module Native_program = Hosted.Native_program
+module Native_source_execution = Hosted.Native_source_execution
 
 module Ir_integer_globals : sig
   type t = Ir.Integer_globals.t
@@ -111,7 +112,7 @@ module Ir_initializer_fragment_program : sig
   val runtime_calls : t -> Ir.Runtime_call_context.t
 end
 
-module Ir_integer_interpreter = Ir.Integer_interpreter
+module Ir_integer_interpreter = Ir.Public_integer_interpreter
 
 module Ir_prepared_callback_default = Ir.Prepared_callback_default
 (** Original anonymous signature/member evidence for a saved integer default.

@@ -161,3 +161,15 @@ val output_bytes : report -> string
 val output_work : report -> int
 (** Reached native output formatting and byte-scan work. Reports that fail
     before native execution return zero. *)
+
+val fault_diagnostic :
+  fallback:Common.Span.t -> Backend.X86_64_program.fault -> Common.Diagnostic.t
+(** Render a checked native fault at its original instruction span. Source-task
+    fragments and standalone images share this diagnostic contract. *)
+
+val host_diagnostic :
+  span:Common.Span.t ->
+  Runtime.Native_program_execution.platform ->
+  string ->
+  Common.Diagnostic.t
+(** Render a host bridge failure using the selected platform and source span. *)

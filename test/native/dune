@@ -944,3 +944,37 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_callback_updates.exe})))
+
+(executable
+ (name test_native_source_execution)
+ (modules test_native_source_execution)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_execution.exe})))
+
+(executable
+ (name test_native_source_authority)
+ (modules test_native_source_authority)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_authority.exe})))
+
+(executable
+ (name test_native_source_cli)
+ (modules test_native_source_cli)
+ (libraries holyc_lib yojson unix))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-source-initializers.hc)
+ (action
+  (run
+   %{exe:test_native_source_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-source-initializers.hc})))

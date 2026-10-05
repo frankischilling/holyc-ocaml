@@ -3508,6 +3508,7 @@ type program_image = {
   literal_bytes : int;
   arena_metadata_bytes : int;
   global_image : string;
+  task_zero_bytes : int option;
   has_output : bool;
   sites : program_site list;
 }
@@ -6204,7 +6205,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                    description.target_type
                  &&
                  match description.payload with
-                 | Some (Sequence.Symbol _) -> true
+                 | Some (Sequence.Symbol _ | Sequence.Retained_global _) -> true
                  | _ -> false -> (
               if description.flags <> 0L || description.operands <> [] then
                 malformed description "invalid native global address producer";
@@ -6213,15 +6214,23 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   description.target_type,
                   description.payload )
               with
-              | Some result, Some target_type, Some (Sequence.Symbol symbol)
-                -> (
-                  match Global_storage.find_symbol global_storage symbol with
+              | Some result, Some target_type, Some payload -> (
+                  let selected =
+                    match payload with
+                    | Sequence.Symbol symbol ->
+                        Global_storage.find_symbol global_storage symbol
+                    | Sequence.Retained_global reference ->
+                        Global_storage.find_retained global_storage reference
+                    | _ -> None
+                  in
+                  match selected with
                   | None ->
                       malformed description
                         "global address symbol is absent from the exact sealed \
                          storage layout"
                   | Some slot ->
                       let source_slot = Global_storage.source_slot slot in
+                      let symbol = Global_storage.symbol slot in
                       let expected_type =
                         match Type.pointer_to (Global_storage.type_ slot) with
                         | Ok type_ -> type_
@@ -8267,16 +8276,17 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         literal_bytes = 0;
                         arena_metadata_bytes = 0;
                         global_image = "";
+                        task_zero_bytes = None;
                         has_output = false;
                         sites;
                       }
               with Rejected error -> Error [ error ])))
 
-let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
-    ?(max_blocks = 4096) ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ?parameter_defaults ?global_initializers
-    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
-    ~functions () =
+let compile_callable_internal ?task_snapshot ?status_abi
+    ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+    ?parameter_defaults ?global_initializers ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
   let globals = Ir.Global_initialization.globals initialization in
   let ( let* ) = Result.bind in
   let* () =
@@ -8318,25 +8328,61 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
     with Rejected error -> Error [ error ]
   in
   let* global_storage =
-    (match global_initializers with
-      | None ->
+    (match (task_snapshot, global_initializers) with
+      | Some snapshot, None
+        when functions = []
+             && Option.is_none parameter_defaults
+             && Global_storage.task_snapshot_matches snapshot ~initialization
+                  ~entry -> Ok (Global_storage.task_snapshot_storage snapshot)
+      | Some _, _ ->
+          Error
+            [
+              {
+                Global_storage.code = "HCBACK0003";
+                message =
+                  "native task fragment has another storage snapshot or \
+                   callable bundle";
+                span = None;
+              };
+            ]
+      | None, None ->
           Global_storage.create ~functions ~max_global_bytes ~initialization
             ~entry
-      | Some initializers ->
+      | None, Some initializers ->
           Global_storage.create_prepared ~functions ~initializers
             ~max_global_bytes ~initialization ~entry)
     |> Result.map_error
          (List.map (fun (error : Global_storage.error) ->
               { code = error.code; message = error.message; span = error.span }))
   in
-  let global_image = Global_storage.image global_storage in
+  let global_arena_bytes = Global_storage.arena_bytes global_storage in
+  let global_image =
+    if Option.is_some task_snapshot then ""
+    else Global_storage.image global_storage
+  in
   let* literal_storage =
     Literal_storage.create ~max_literal_bytes ~max_arena_bytes:33_554_432
-      ~arena_prefix_bytes:(String.length global_image)
-      ~runtime_calls ~initialization ~entry ~functions
+      ~arena_prefix_bytes:global_arena_bytes ~runtime_calls ~initialization
+      ~entry ~functions
     |> Result.map_error
          (List.map (fun (error : Literal_storage.error) ->
               { code = error.code; message = error.message; span = error.span }))
+  in
+  let* () =
+    if
+      Option.is_some task_snapshot
+      && not (Literal_storage.is_empty literal_storage)
+    then
+      Error
+        [
+          {
+            code = "HCBACK0002";
+            message =
+              "native task fragments do not yet admit retained literal storage";
+            span = None;
+          };
+        ]
+    else Ok ()
   in
   let has_storage =
     (not (Global_storage.is_empty global_storage))
@@ -8875,15 +8921,34 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
               global_bytes = Global_storage.global_bytes global_storage;
               literal_bytes = Literal_storage.literal_bytes literal_storage;
               arena_metadata_bytes =
-                String.length global_image
+                global_arena_bytes
                 - Global_storage.global_bytes global_storage
                 + Literal_storage.metadata_bytes literal_storage;
               global_image =
                 global_image ^ Literal_storage.image literal_storage;
+              task_zero_bytes =
+                Option.map (fun _ -> global_arena_bytes) task_snapshot;
               has_output = List.exists (fun site -> site.output_site) sites;
               sites;
             }
     with Rejected error -> Error [ error ]
+
+let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
+    ?max_literal_bytes ?parameter_defaults ?global_initializers
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
+    ~functions () =
+  compile_callable_internal ?status_abi ?max_stack_bytes ?max_blocks
+    ?max_global_bytes ?max_literal_bytes ?parameter_defaults
+    ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ~initialization ~entry ~functions ()
+
+let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
+    ~task_snapshot ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ~initialization ~entry () =
+  compile_callable_internal ~task_snapshot ?status_abi ?max_stack_bytes
+    ?max_blocks ~max_global_bytes:Global_storage.hard_max_global_bytes
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
+    ~functions:[] ()
 
 let expression_code (compiled : expression_image) =
   Bytes.to_string compiled.encoded
@@ -8938,5 +9003,12 @@ let program_literal_bytes (compiled : program_image) = compiled.literal_bytes
 let program_arena_metadata_bytes (compiled : program_image) =
   compiled.arena_metadata_bytes
 
+let program_arena_bytes (compiled : program_image) =
+  match compiled.task_zero_bytes with
+  | Some count -> count
+  | None -> String.length compiled.global_image
+
 let program_global_image (compiled : program_image) =
-  Bytes.to_string (Bytes.of_string compiled.global_image)
+  match compiled.task_zero_bytes with
+  | Some count -> String.make count '\000'
+  | None -> Bytes.to_string (Bytes.of_string compiled.global_image)

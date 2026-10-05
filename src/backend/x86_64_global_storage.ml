@@ -32,11 +32,32 @@ type t = {
   entry : Ir.X87_stack.t;
   global_bytes : int;
   image : string;
+  zero_bytes : int option;
   slots : slot Symbol_map.t;
+  retained_slots : (Ir.Retained_global.t * slot) Symbol_map.t;
 }
+
+type task_layout_state = {
+  task_owner : Globals.t option;
+  task_slots : (Ir.Retained_global.t * slot) Symbol_map.t;
+  task_symbols : slot Symbol_map.t;
+  task_global_bytes : int;
+  task_arena_bytes : int;
+  task_layout_work : int;
+}
+
+type task_layout = {
+  max_task_global_bytes : int;
+  max_task_layout_work : int;
+  task_state : task_layout_state Atomic.t;
+  task_arena_claimed : bool Atomic.t;
+}
+
+type task_snapshot = { task_layout : task_layout; task_storage : t }
 
 let hard_max_global_bytes = 16 * 1024 * 1024
 let hard_max_arena_bytes = 32 * 1024 * 1024
+let hard_max_task_layout_work = 1_000_000
 let error ?span code message = Error [ { code; message; span } ]
 
 let validate_global_limit ~max_global_bytes =
@@ -276,7 +297,9 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
               entry;
               global_bytes = declared_bytes;
               image = Bytes.to_string image;
+              zero_bytes = None;
               slots;
+              retained_slots = Symbol_map.empty;
             }
     | (source_slot, global, static) :: rest ->
         let symbol = Globals.storage_symbol source_slot in
@@ -609,16 +632,284 @@ let create_prepared ~functions ~initializers ~max_global_bytes ~initialization
   create_internal ~functions ~initializers ~max_global_bytes ~initialization
     ~entry ()
 
+let create_task_layout ?(max_layout_work = hard_max_task_layout_work)
+    ~max_global_bytes () =
+  let ( let* ) = Result.bind in
+  let* () = validate_global_limit ~max_global_bytes in
+  let* () =
+    if max_layout_work <= 0 || max_layout_work > hard_max_task_layout_work then
+      error "HCBACK0001"
+        "native task layout work limit is outside its positive host bound"
+    else Ok ()
+  in
+  Ok
+    {
+      max_task_global_bytes = max_global_bytes;
+      max_task_layout_work = max_layout_work;
+      task_arena_claimed = Atomic.make false;
+      task_state =
+        Atomic.make
+          {
+            task_owner = None;
+            task_slots = Symbol_map.empty;
+            task_symbols = Symbol_map.empty;
+            task_global_bytes = 0;
+            task_arena_bytes = 0;
+            task_layout_work = 0;
+          };
+    }
+
+let claim_task_arena layout =
+  if Atomic.compare_and_set layout.task_arena_claimed false true then Ok ()
+  else Error "native task layout already has its original arena owner"
+
+let create_task_snapshot layout ~initialization ~entry =
+  let ( let* ) = Result.bind in
+  let globals = Initialization.globals initialization in
+  let invalid ?span message = error ?span "HCBACK0003" message in
+  let unsupported ?span message = error ?span "HCBACK0002" message in
+  let resource ?span message = error ?span "HCBACK0001" message in
+  let before = Atomic.get layout.task_state in
+  let* () =
+    if not (Initialization.matches initialization ~globals ~entry) then
+      invalid
+        "native task storage requires its original entry and initialization"
+    else if
+      (not (Globals.is_task_command globals))
+      || Globals.compilation_mode globals <> Sema.Global_resolution.Jit
+    then
+      invalid "native task storage requires an original retained JIT snapshot"
+    else if
+      Option.fold ~none:false
+        ~some:(fun owner -> not (Globals.same_task_storage owner globals))
+        before.task_owner
+    then invalid "native task storage belongs to another original task"
+    else if
+      Globals.statics globals <> []
+      || Initialization.static_regions initialization <> []
+      || Initialization.publications initialization <> []
+      || Option.is_some (Initialization.publication_evidence initialization)
+      || Initialization.prepared_steps initialization <> 0
+    then
+      unsupported
+        "native task fragments do not admit static storage or prepared image \
+         publications"
+    else Ok ()
+  in
+  let bindings = Globals.retained_storage_bindings globals in
+  let declared = Globals.storage_slots globals in
+  let required_work = List.length bindings + List.length declared in
+  let* () =
+    if required_work > layout.max_task_layout_work - before.task_layout_work
+    then
+      resource
+        "native task layout exceeds its cumulative retained-binding work limit"
+    else Ok ()
+  in
+  let* after, visible =
+    List.fold_left
+      (fun checked (reference, storage) ->
+        let* state, visible = checked in
+        let symbol = Globals.storage_symbol storage in
+        let span = span_of_symbol symbol in
+        let* () =
+          if Ir.Retained_global.symbol reference != symbol then
+            invalid ?span
+              "native task reference has another original storage symbol"
+          else if Symbol_map.mem (Symbol.id symbol) visible then
+            invalid ?span
+              "native task snapshot repeats a retained storage identity"
+          else Ok ()
+        in
+        let* state, slot =
+          match Symbol_map.find_opt (Symbol.id symbol) state.task_slots with
+          | Some (candidate, slot) ->
+              if
+                Ir.Retained_global.same candidate reference
+                && Globals.same_storage slot.source_slot storage
+                && slot.symbol == symbol
+                && Sema.Type.equal slot.type_ (Globals.storage_type storage)
+                && Globals.storage_opcode slot.source_slot
+                   = Globals.storage_opcode storage
+              then Ok (state, slot)
+              else
+                invalid ?span
+                  "native task reference replaced its original storage object"
+          | None ->
+              let* () =
+                if
+                  Globals.storage_dimensions storage <> []
+                  || Globals.storage_element_count storage <> 1
+                  || Option.is_some (Globals.storage_frame storage)
+                  || Globals.storage_is_callback storage
+                then
+                  unsupported ?span
+                    "native task storage currently requires scalar integer \
+                     globals"
+                else if
+                  Globals.storage_opcode storage <> Opcode.Ic_imm_i64
+                  || Option.is_some (Globals.storage_initial_bits storage)
+                then
+                  invalid ?span
+                    "native task allocation must retain its original \
+                     uninitialized JIT storage"
+                else Ok ()
+              in
+              let type_ = Globals.storage_type storage in
+              let* scalar =
+                match Scalar.of_type type_ with
+                | Some scalar -> Ok scalar
+                | None ->
+                    unsupported ?span
+                      "native task globals require nonzero public integer \
+                       storage"
+              in
+              let width = Scalar.byte_size scalar in
+              let* () =
+                if
+                  width > layout.max_task_global_bytes - state.task_global_bytes
+                then
+                  resource ?span "native task globals exceed max_global_bytes"
+                else if
+                  width + 1 > hard_max_arena_bytes - state.task_arena_bytes
+                then
+                  resource ?span
+                    "native task data and initialization flags exceed the \
+                     arena bound"
+                else Ok ()
+              in
+              let slot =
+                {
+                  source_slot = storage;
+                  owner = None;
+                  symbol;
+                  type_;
+                  callback = None;
+                  code_owner_offset = None;
+                  scalar;
+                  dimensions = [];
+                  strides = [];
+                  element_count = 1;
+                  extent_bytes = width;
+                  data_offset = state.task_arena_bytes;
+                  flag_offset = state.task_arena_bytes + width;
+                  initially_initialized = false;
+                }
+              in
+              Ok
+                ( {
+                    state with
+                    task_slots =
+                      Symbol_map.add (Symbol.id symbol) (reference, slot)
+                        state.task_slots;
+                    task_symbols =
+                      Symbol_map.add (Symbol.id symbol) slot state.task_symbols;
+                    task_global_bytes = state.task_global_bytes + width;
+                    task_arena_bytes = state.task_arena_bytes + width + 1;
+                  },
+                  slot )
+        in
+        Ok (state, Symbol_map.add (Symbol.id symbol) slot visible))
+      (Ok (before, Symbol_map.empty))
+      bindings
+  in
+  let* () =
+    if
+      List.for_all
+        (fun storage ->
+          match
+            Symbol_map.find_opt
+              (Symbol.id (Globals.storage_symbol storage))
+              visible
+          with
+          | Some slot -> Globals.same_storage storage slot.source_slot
+          | None -> false)
+        declared
+    then Ok ()
+    else
+      invalid "native task fragment has storage outside its retained snapshot"
+  in
+  let after =
+    {
+      after with
+      task_owner = Some globals;
+      task_layout_work = before.task_layout_work + required_work;
+    }
+  in
+  let task_storage =
+    {
+      globals;
+      entry;
+      global_bytes = after.task_global_bytes;
+      image = "";
+      zero_bytes = Some after.task_arena_bytes;
+      slots = after.task_symbols;
+      retained_slots = after.task_slots;
+    }
+  in
+  if Atomic.compare_and_set layout.task_state before after then
+    Ok { task_layout = layout; task_storage }
+  else invalid "native task storage changed during fragment admission"
+
+let task_snapshot_matches_layout snapshot layout =
+  snapshot.task_layout == layout
+
+let task_layout_work layout = (Atomic.get layout.task_state).task_layout_work
+
+let arena_bytes layout =
+  match layout.zero_bytes with
+  | Some count -> count
+  | None -> String.length layout.image
+
+let task_snapshot_arena_image snapshot =
+  String.make (Option.get snapshot.task_storage.zero_bytes) '\000'
+
+let task_snapshot_arena_bytes snapshot = arena_bytes snapshot.task_storage
+let task_snapshot_global_bytes snapshot = snapshot.task_storage.global_bytes
+let task_snapshot_storage snapshot = snapshot.task_storage
+
+let task_snapshot_matches snapshot ~initialization ~entry =
+  let storage = snapshot.task_storage in
+  storage.entry == entry
+  && storage.globals == Initialization.globals initialization
+  && Initialization.matches initialization ~globals:storage.globals ~entry
+
 let globals layout = layout.globals
 let entry layout = layout.entry
 let global_bytes layout = layout.global_bytes
-let image layout = Bytes.to_string (Bytes.of_string layout.image)
+
+let image layout =
+  match layout.zero_bytes with
+  | Some count -> String.make count '\000'
+  | None -> Bytes.to_string (Bytes.of_string layout.image)
+
 let is_empty layout = Symbol_map.is_empty layout.slots
 
 let find_symbol layout symbol =
   match Symbol_map.find_opt (Symbol.id symbol) layout.slots with
-  | Some slot when slot.symbol == symbol -> Some slot
+  | Some slot when slot.symbol == symbol ->
+      if Option.is_none layout.zero_bytes then Some slot
+      else
+        Option.bind (Globals.find_storage layout.globals symbol)
+          (fun original ->
+            if Globals.same_storage original slot.source_slot then Some slot
+            else None)
   | Some _ | None -> None
+
+let find_retained layout reference =
+  match Globals.retained_slot layout.globals reference with
+  | None -> None
+  | Some source ->
+      Option.bind
+        (Symbol_map.find_opt
+           (Symbol.id (Ir.Retained_global.symbol reference))
+           layout.retained_slots)
+        (fun (candidate, slot) ->
+          if
+            Ir.Retained_global.same candidate reference
+            && Globals.same_storage source slot.source_slot
+          then Some slot
+          else None)
 
 let source_slot slot = slot.source_slot
 let symbol slot = slot.symbol

@@ -1,6 +1,12 @@
 type error = { code : string; message : string; span : Common.Span.t option }
 type slot
 type t
+type task_layout
+type task_snapshot
+
+val hard_max_task_layout_work : int
+(** Cumulative retained binding and declared storage visits admitted by one task
+    layout. Map lookup preserves exact identities without nested list scans. *)
 
 val hard_max_global_bytes : int
 val hard_max_arena_bytes : int
@@ -31,9 +37,46 @@ val create_prepared :
     restore their declared-width bytes and per-element initialization flags in
     each image. *)
 
+val create_task_layout :
+  ?max_layout_work:int ->
+  max_global_bytes:int ->
+  unit ->
+  (task_layout, error list) result
+(** Create a bounded append-only scalar layout. Its first original fragment
+    binds the layout to that retained task; later snapshots require the same
+    catalog and exact retained references and storage objects. *)
+
+val claim_task_arena : task_layout -> (unit, string) result
+(** Internal native ownership admission. Each layout has one storage arena for
+    its lifetime; release does not authorize a replacement or a copied arena. *)
+
+val task_layout_work : task_layout -> int
+
+val create_task_snapshot :
+  task_layout ->
+  initialization:Ir.Global_initialization.t ->
+  entry:Ir.X87_stack.t ->
+  (task_snapshot, error list) result
+(** Append previously unseen original scalar globals and their initialization
+    flags without moving earlier offsets. This allocates immutable layout
+    metadata, not runtime values, and grants no source execution authority. *)
+
+val task_snapshot_matches_layout : task_snapshot -> task_layout -> bool
+val task_snapshot_arena_image : task_snapshot -> string
+val task_snapshot_arena_bytes : task_snapshot -> int
+val task_snapshot_global_bytes : task_snapshot -> int
+val task_snapshot_storage : task_snapshot -> t
+
+val task_snapshot_matches :
+  task_snapshot ->
+  initialization:Ir.Global_initialization.t ->
+  entry:Ir.X87_stack.t ->
+  bool
+
 val globals : t -> Ir.Integer_globals.t
 val entry : t -> Ir.X87_stack.t
 val global_bytes : t -> int
+val arena_bytes : t -> int
 
 val image : t -> string
 (** A fresh copy of the sealed initial object bytes and private flags. *)
@@ -43,6 +86,10 @@ val is_empty : t -> bool
 val find_symbol : t -> Sema.Symbol.t -> slot option
 (** Lookup requires the exact symbol object retained by the sealed storage slot.
 *)
+
+val find_retained : t -> Ir.Retained_global.t -> slot option
+(** Resolve only an original reference present in this fragment's exact retained
+    snapshot and bound to the same append-only storage object. *)
 
 val source_slot : slot -> Ir.Integer_globals.storage_slot
 val owns_address : slot -> Ir.Runtime_call_context.owner -> bool

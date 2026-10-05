@@ -1,5 +1,14 @@
 # Reference source map
 
+Native scalar source tasks follow `Compiler/PrsVar.HC:53-107`, which compiles
+and calls each initializer expression before storing its declared-width result.
+`Compiler/CMain.HC:1-32` compiles the original statement and returns its final
+expression. The hosted driver admits each original live request, and separate
+native fragments share one append-only arena. Retained references, destination
+storage and initialization flags keep their original identities. Arena ownership
+and cumulative resource limits are hosted policy; no new TempleOS capture is
+claimed. See [native source tasks](native-source-tasks.md).
+
 Explicit indexed callback dereferences follow the pending-operator stack in
 `Compiler/PrsExp.HC:609-676`, callback selection at lines 761-770 and 867-904,
 and `PrsLib.HC:21-29`. The callback selection removes one pending star before
@@ -42,8 +51,8 @@ Native retained-image lifetime work uses `Compiler/PrsStmt.HC:150-194` as the
 source-owned function-code context and `Kernel/KTask.HC:251-264` for task-owned
 code/data heaps. The hosted API keeps the original sealed image and private
 arena across activations, with OS mappings and unwind registration owned by the
-host bridge. Source-task admission, original JIT parser-time scheduling and
-linking separate images remain open. See
+host bridge. The scalar source-task path adds original JIT parser-time scheduling
+and shared data; broader source-task admission and function linking remain open. See
 [retained native images](native-retained-images.md).
 Closed entries retain their original frameless or RSP spill convention alongside
 callable saved-RBP frames, with separate exact stack and unwind checks.

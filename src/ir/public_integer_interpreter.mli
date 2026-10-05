@@ -1,22 +1,32 @@
-type word_type = I64 | U64
-type word = private { type_ : word_type; bits : int64 }
+type word_type = Integer_interpreter.word_type = I64 | U64
 
-type function_definition = {
+type word = Integer_interpreter.word = private {
+  type_ : word_type;
+  bits : int64;
+}
+
+type function_definition = Integer_interpreter.function_definition = {
   frame : Sema.Function_frame_layout.function_layout;
   body : Function_body.t;
 }
 
-type task_function_source = {
+type task_function_source = Integer_interpreter.task_function_source = {
   source_globals : Integer_globals.t;
   source_runtime_calls : Runtime_call_context.t;
   source_functions : function_definition list;
   source_definition : function_definition;
 }
 
-type termination = Stream_end | Returned of word option
-type error_stage = Configuration | Preflight | Execution
+type termination = Integer_interpreter.termination =
+  | Stream_end
+  | Returned of word option
 
-type error = private {
+type error_stage = Integer_interpreter.error_stage =
+  | Configuration
+  | Preflight
+  | Execution
+
+type error = Integer_interpreter.error = private {
   stage : error_stage;
   code : string;
   message : string;
@@ -31,11 +41,11 @@ type error = private {
   initializer_name : string option;
 }
 
-type t
-type report
-type task_state
-type task_call_start
-type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
+type t = Integer_interpreter.t
+type report = Integer_interpreter.report
+type task_state = Integer_interpreter.task_state
+type task_call_start = Integer_interpreter.task_call_start
+type stream_exe_print = Integer_interpreter.stream_exe_print
 
 val observe_task_function_selection :
   task_state ->
@@ -62,7 +72,7 @@ val capture_task_call_emission :
   task_call_start ->
   (Sema.Function_call_phase.t, string) result
 
-type task_implicit_call_start
+type task_implicit_call_start = Integer_interpreter.task_implicit_call_start
 
 val observe_task_implicit_selection :
   task_state ->
@@ -88,12 +98,11 @@ val capture_task_implicit_emission :
 
 val owns_call_phase : task_state -> Sema.Function_call_phase.t -> bool
 
-type task_stream
-type task_admission
-type initializer_attempt
-type native_program_attempt
-type internal_binding_attempt
-type dimension_attempt
+type task_stream = Integer_interpreter.task_stream
+type task_admission = Integer_interpreter.task_admission
+type initializer_attempt = Integer_interpreter.initializer_attempt
+type internal_binding_attempt = Integer_interpreter.internal_binding_attempt
+type dimension_attempt = Integer_interpreter.dimension_attempt
 
 val prepare_task_closed_dimension :
   task_state ->
@@ -152,13 +161,13 @@ val execute_task_internal_binding :
   Internal_binding_fragment_program.execution ->
   (unit, error list) result
 
-type default_constant
+type default_constant = Integer_interpreter.default_constant
 (** Successful original constant evaluation, registered with its owning task.
     Its actual full word and reached preparation work cannot be supplied by the
     caller. Consumption requires the current original source phase and is
     single-use. Failed evaluations retain work and cannot restart. *)
 
-type default_evaluation =
+type default_evaluation = Integer_interpreter.default_evaluation =
   | Prepared_default of default_constant
   | Scheduled_default of Default_fragment_program.execution
 
@@ -183,7 +192,7 @@ val default_constant_is_consumed : default_constant -> bool
 val consume_default_constant :
   task_state -> default_constant -> (int64, string) result
 
-type default_attempt
+type default_attempt = Integer_interpreter.default_attempt
 
 val begin_task_default :
   task_state ->
@@ -233,36 +242,8 @@ val begin_task_initializer_leaf :
 val initializer_attempt_destination :
   initializer_attempt -> Integer_initializer_layout.entry
 
-val check_native_task_initializer :
-  task_state ->
-  initializer_attempt ->
-  Initializer_fragment_program.execution ->
-  Initializer_fragment_program.t ->
-  (unit, string) result
-
-val claim_native_task_initializer :
-  task_state ->
-  initializer_attempt ->
-  Initializer_fragment_program.execution ->
-  Initializer_fragment_program.t ->
-  (unit, string) result
-
-val complete_native_task_initializer :
-  task_state ->
-  initializer_attempt ->
-  Initializer_fragment_program.execution ->
-  Initializer_fragment_program.t ->
-  (unit, string) result
-(** Metadata-only live initializer admission for a native-authoritative task.
-    The exact current attempt and prepared/lowered fragment must agree. Claim is
-    one-shot and completion advances the original live layout without storing
-    value bytes or initialization flags in interpreter storage. *)
-
 val fail_task_initializer_attempt :
   task_state -> initializer_attempt -> (unit, string) result
-(** Settle only this task's exact current original initializer attempt while it
-    is preparing or executing. Failed, successful, stale and foreign attempts
-    cannot settle again. *)
 
 val complete_task_initializer :
   task_state ->
@@ -279,7 +260,7 @@ val execute_task_initializer :
   Initializer_fragment_program.execution ->
   (unit, error list) result
 
-type task_progress = private {
+type task_progress = Integer_interpreter.task_progress = private {
   executed_steps : int;
   initializer_steps : int;
   global_bytes : int;
@@ -298,7 +279,7 @@ val task_progress : task_state -> task_progress
     it. Snapshots grant no runtime, source or admission authority and do not
     describe a successful whole-invocation outcome. *)
 
-type admitted_publication = private
+type admitted_publication = Integer_interpreter.admitted_publication = private
   | Admitted_declared_global of
       Retained_global.t * Integer_globals.declared_slot
   | Admitted_global of Retained_global.t * Integer_globals.slot
@@ -315,7 +296,6 @@ val create_task_state :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
-  ?native_storage_authority:bool ->
   table:Sema.Symbol_table.t ->
   unit ->
   (task_state, string) result
@@ -468,41 +448,6 @@ val bind_task_source_program :
   (unit, string) result
 (** Internal compiler join. Bind source order to the exact final compilation
     bundle before exposing it. Registration admits no runtime effects. *)
-
-val check_native_task_program :
-  task_state ->
-  runtime_calls:Runtime_call_context.t ->
-  globals:Integer_globals.t ->
-  initialization:Global_initialization.t ->
-  functions:function_definition list ->
-  X87_stack.t ->
-  (unit, string) result
-
-val claim_native_task_program :
-  task_state ->
-  runtime_calls:Runtime_call_context.t ->
-  globals:Integer_globals.t ->
-  initialization:Global_initialization.t ->
-  functions:function_definition list ->
-  X87_stack.t ->
-  (native_program_attempt, string) result
-
-val complete_native_task_program :
-  task_state ->
-  native_program_attempt ->
-  captured:bool ->
-  final_value:(word_type * int64) option ->
-  (unit, string) result
-
-val fail_native_task_program :
-  task_state -> native_program_attempt -> (unit, string) result
-
-val fail_native_task_program_before_entry : task_state -> unit
-(** Native-authoritative source command admission. The pure check validates the
-    exact bound source program and live resume event. Claim commits source order
-    immediately before native entry; completion publishes only the returned word
-    into task-result metadata. No native object bytes are copied into VM arenas.
-*)
 
 val task_owns_snapshot : task_state -> Integer_globals.task_view -> bool
 val task_owns_table : task_state -> Sema.Symbol_table.t -> bool
@@ -719,7 +664,7 @@ val execute_isolated_program_in_task :
     Success reports cumulative instructions/preparation and the actual outer
     result. Active streams and replayed output images reject before effects. *)
 
-type isolated_preparation
+type isolated_preparation = Integer_interpreter.isolated_preparation
 
 val begin_isolated_preparation : task_state -> isolated_preparation
 
@@ -838,7 +783,7 @@ val check_task_suspended_completion :
   Frontend.Parser.completed_sequence ->
   (unit, string) result
 
-type offset_attempt
+type offset_attempt = Integer_interpreter.offset_attempt
 
 val begin_task_offset :
   task_state ->

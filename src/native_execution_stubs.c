@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <sys/personality.h>
+#include <unistd.h>
 #define HOLYC_NATIVE_PLATFORM 2
 #else
 #define HOLYC_NATIVE_PLATFORM 0
@@ -687,6 +688,7 @@ struct native_retained_program {
   atomic_int active;
   int closing;
   int closed_entry;
+  int task_fragment;
 #if HOLYC_NATIVE_PLATFORM == 1
   PRUNTIME_FUNCTION function_table;
   DWORD function_count;
@@ -694,6 +696,101 @@ struct native_retained_program {
 #endif
   char close_error[240];
 };
+
+struct native_task_arena {
+  void *mapping;
+  size_t capacity;
+  size_t used;
+  size_t committed;
+  size_t page_size;
+  atomic_int active;
+  int closing;
+  char close_error[240];
+};
+
+static int native_task_arena_close(struct native_task_arena *arena)
+{
+  arena->closing = 1;
+  arena->close_error[0] = 0;
+  if (arena->mapping == NULL) return 1;
+#if HOLYC_NATIVE_PLATFORM == 1
+  if (!VirtualFree(arena->mapping, 0, MEM_RELEASE)) {
+    snprintf(arena->close_error, sizeof(arena->close_error),
+             "native task arena release failed (OS error %lu)",
+             (unsigned long)GetLastError());
+    return 0;
+  }
+#else
+  if (munmap(arena->mapping, arena->capacity) != 0) {
+    snprintf(arena->close_error, sizeof(arena->close_error),
+             "native task arena release failed (OS error %lu)",
+             (unsigned long)errno);
+    return 0;
+  }
+#endif
+  arena->mapping = NULL;
+  return 1;
+}
+
+static void native_task_arena_finalize(value handle)
+{
+  struct native_task_arena *arena =
+    *((struct native_task_arena **)Data_custom_val(handle));
+  int expected = 0;
+  if (arena == NULL) return;
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1)) return;
+  if (native_task_arena_close(arena)) free(arena);
+  *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+}
+
+static struct custom_operations native_task_arena_operations = {
+  "holyc.native.task-arena.v1",
+  native_task_arena_finalize,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+static struct native_task_arena *native_task_arena_get(value handle)
+{
+  struct native_task_arena *arena;
+  if (!Is_block(handle) || Tag_val(handle) != Custom_tag ||
+      Custom_ops_val(handle) != &native_task_arena_operations)
+    caml_invalid_argument("native task arena has another host resource owner");
+  arena = *((struct native_task_arena **)Data_custom_val(handle));
+  if (arena == NULL)
+    caml_invalid_argument("native task arena has been released");
+  return arena;
+}
+
+static size_t native_task_arena_round_pages(const struct native_task_arena *arena,
+                                            size_t length)
+{
+  size_t pages;
+  if (length == 0) return 0;
+  pages = (length + arena->page_size - 1u) / arena->page_size;
+  return pages * arena->page_size;
+}
+
+static unsigned long native_task_arena_commit(struct native_task_arena *arena,
+                                              size_t required)
+{
+  size_t target = native_task_arena_round_pages(arena, required);
+  if (target <= arena->committed) return 0;
+#if HOLYC_NATIVE_PLATFORM == 1
+  if (VirtualAlloc((char *)arena->mapping + arena->committed,
+                   target - arena->committed, MEM_COMMIT, PAGE_READWRITE) == NULL)
+    return (unsigned long)GetLastError();
+#else
+  if (mprotect(arena->mapping, target, PROT_READ | PROT_WRITE) != 0)
+    return (unsigned long)errno;
+#endif
+  arena->committed = target;
+  return 0;
+}
 
 /* Closed entries use their original RSP spill frame, without a saved RBP.
    Keep this admission separate from the callable unwind-table validator. */
@@ -866,10 +963,10 @@ static void native_retained_creation_error(struct native_retained_program *progr
 }
 
 static void native_retained_map(struct native_retained_program *program,
-                                value code, value functions, value arena_image)
+                                value code, value functions, value arena_image,
+                                size_t arena_length, int map_arena)
 {
   size_t code_length = (size_t)caml_string_length(code);
-  size_t arena_length = (size_t)caml_string_length(arena_image);
   uint64_t (*entry)(uint64_t *);
   if (sizeof(entry) != sizeof(program->mapping))
     caml_failwith("native function pointers do not match this host's address size");
@@ -914,7 +1011,7 @@ static void native_retained_map(struct native_retained_program *program,
     program->function_table[index].UnwindData = (DWORD)unwind_offset;
     unwind_offset += length;
   }
-  if (arena_length != 0) {
+  if (map_arena && arena_length != 0) {
     program->arena = VirtualAlloc(NULL, arena_length, MEM_RESERVE | MEM_COMMIT,
                                   PAGE_READWRITE);
     if (program->arena == NULL)
@@ -947,7 +1044,7 @@ static void native_retained_map(struct native_retained_program *program,
     native_retained_creation_error(program, "code allocation", (unsigned long)errno);
   }
   memcpy(program->mapping, String_val(code), code_length);
-  if (arena_length != 0) {
+  if (map_arena && arena_length != 0) {
     program->arena = mmap(NULL, arena_length, PROT_READ | PROT_WRITE,
                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (program->arena == MAP_FAILED) {
@@ -970,6 +1067,8 @@ static uint64_t native_retained_run(value handle, uint64_t *context, value enter
   uint64_t (*entry)(uint64_t *);
   uint64_t bits;
   uint64_t arena;
+  if (program->task_fragment)
+    caml_invalid_argument("native task fragment requires its shared task arena");
   if (!atomic_compare_exchange_strong(&program->active, &expected, 1))
     caml_invalid_argument("retained native image is already active");
   if (program->closing || program->mapping == NULL) {
@@ -985,6 +1084,56 @@ static uint64_t native_retained_run(value handle, uint64_t *context, value enter
   atomic_store(&program->active, 0);
   if (context[9] != arena)
     caml_failwith("retained native status integrity failure: arena pointer was modified");
+  return bits;
+}
+
+static uint64_t native_retained_run_task(value handle, value arena_handle,
+                                         uintnat required_arena_bytes,
+                                         uint64_t *context, value entered)
+{
+  struct native_retained_program *program = native_retained_get(handle);
+  struct native_task_arena *arena = native_task_arena_get(arena_handle);
+  int program_expected = 0;
+  int arena_expected = 0;
+  uint64_t (*entry)(uint64_t *);
+  uint64_t bits;
+  uint64_t arena_address;
+  int pointer_ok;
+
+  if (!program->task_fragment)
+    caml_invalid_argument("ordinary retained native image cannot use a task arena");
+  if (!atomic_compare_exchange_strong(&program->active, &program_expected, 1))
+    caml_invalid_argument("retained native image is already active");
+  if (program->closing || program->mapping == NULL) {
+    atomic_store(&program->active, 0);
+    caml_invalid_argument("retained native image has been released");
+  }
+  if (!atomic_compare_exchange_strong(&arena->active, &arena_expected, 1)) {
+    atomic_store(&program->active, 0);
+    caml_invalid_argument("native task arena is already active");
+  }
+  if (arena->closing || arena->mapping == NULL) {
+    atomic_store(&arena->active, 0);
+    atomic_store(&program->active, 0);
+    caml_invalid_argument("native task arena has been released");
+  }
+  if ((size_t)required_arena_bytes > arena->used) {
+    atomic_store(&arena->active, 0);
+    atomic_store(&program->active, 0);
+    caml_invalid_argument("native task fragment requires unadmitted task storage");
+  }
+
+  arena_address = (uint64_t)(uintptr_t)arena->mapping;
+  context[9] = arena_address;
+  memcpy(&entry, &program->mapping, sizeof(entry));
+  if (entered != Val_unit)
+    Store_field(entered, 0, Val_true);
+  bits = entry(context);
+  pointer_ok = context[9] == arena_address;
+  atomic_store(&arena->active, 0);
+  atomic_store(&program->active, 0);
+  if (!pointer_ok)
+    caml_failwith("retained native task status integrity failure: arena pointer was modified");
   return bits;
 }
 
@@ -1269,10 +1418,13 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
 static value native_execute_program_output(value code, value functions,
                                             value abi, value limits,
                                             value storage, value retained,
-                                            value consumed, value entered)
+                                            value consumed, value entered,
+                                            value task_arena,
+                                            value required_arena_bytes)
 {
   CAMLparam5(code, functions, abi, limits, storage);
-  CAMLxparam3(retained, consumed, entered);
+  CAMLxparam5(retained, consumed, entered, task_arena,
+              required_arena_bytes);
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -1290,6 +1442,7 @@ static value native_execute_program_output(value code, value functions,
   intnat logical_global_bytes;
   intnat logical_literal_bytes;
   intnat metadata_bytes;
+  intnat task_extent;
   intnat abi_code;
   mlsize_t arena_length;
   mlsize_t code_length;
@@ -1302,6 +1455,7 @@ static value native_execute_program_output(value code, value functions,
   uint64_t remaining_steps;
   uint64_t remaining_output;
   uint64_t remaining_work;
+  int task_storage;
 
   if (!Is_long(abi))
     caml_invalid_argument("native program status ABI is not integral");
@@ -1317,8 +1471,6 @@ static value native_execute_program_output(value code, value functions,
       !Is_long(Field(storage, 2)))
     caml_invalid_argument("native output program storage tuple is malformed");
   arena_image = Field(storage, 3);
-  if (!Is_block(arena_image) || Tag_val(arena_image) != String_tag)
-    caml_invalid_argument("native output program arena image is not a string");
   if (!Is_block(code) || Tag_val(code) != String_tag)
     caml_invalid_argument("native output program code is not a string");
 
@@ -1335,7 +1487,19 @@ static value native_execute_program_output(value code, value functions,
   logical_global_bytes = Long_val(Field(storage, 0));
   logical_literal_bytes = Long_val(Field(storage, 1));
   metadata_bytes = Long_val(Field(storage, 2));
-  arena_length = caml_string_length(arena_image);
+  task_storage = task_arena != Val_unit;
+  if (task_storage) {
+    if (!Is_long(arena_image))
+      caml_invalid_argument("native task fragment arena extent is not integral");
+    task_extent = Long_val(arena_image);
+    if (task_extent < 0 || (uintnat)task_extent > HOLYC_NATIVE_MAX_ARENA_BYTES)
+      caml_invalid_argument("native task fragment arena extent is outside the host bound");
+    arena_length = (mlsize_t)task_extent;
+  } else {
+    if (!Is_block(arena_image) || Tag_val(arena_image) != String_tag)
+      caml_invalid_argument("native output program arena image is not a string");
+    arena_length = caml_string_length(arena_image);
+  }
 
   if (abi_code != HOLYC_NATIVE_PLATFORM)
     caml_invalid_argument("native program status ABI does not match this process");
@@ -1382,6 +1546,12 @@ static value native_execute_program_output(value code, value functions,
     remaining_steps -= consumed_steps;
     remaining_output -= (uint64_t)prior_output;
     remaining_work -= (uint64_t)prior_work;
+  }
+  if (task_storage) {
+    if (retained == Val_unit || consumed == Val_unit || !Is_long(required_arena_bytes))
+      caml_invalid_argument("native task fragment execution state is malformed");
+  } else if (required_arena_bytes != Val_unit) {
+    caml_invalid_argument("ordinary native execution has task arena metadata");
   }
   if (logical_global_bytes < 0 ||
       (uintnat)logical_global_bytes > HOLYC_NATIVE_MAX_GLOBAL_BYTES ||
@@ -1433,7 +1603,15 @@ static value native_execute_program_output(value code, value functions,
     };
 
     if (retained != Val_unit) {
-      (void)native_retained_run(retained, context, entered);
+      if (task_storage) {
+        intnat required = Long_val(required_arena_bytes);
+        if (required < 0 || (uintnat)required != (uintnat)arena_length)
+          caml_invalid_argument("native task fragment arena extent disagrees with its image");
+        (void)native_retained_run_task(retained, task_arena,
+                                       (uintnat)required, context, entered);
+      } else {
+        (void)native_retained_run(retained, context, entered);
+      }
     } else if (arena_length == 0) {
       (void)native_execute_checked_program_image(
         code, functions, abi_code, (uintnat)entry_stack_bytes, context);
@@ -1506,10 +1684,11 @@ CAMLprim value holyc_native_execute_program_output(value code, value functions,
                                                   value storage)
 {
   return native_execute_program_output(code, functions, abi, limits, storage,
-                                        Val_unit, Val_unit, Val_unit);
+                                        Val_unit, Val_unit, Val_unit,
+                                        Val_unit, Val_unit);
 }
 
-CAMLprim value holyc_native_retain_program(value identity)
+static value native_retain_program_identity(value identity, int task_fragment)
 {
   CAMLparam1(identity);
 #if HOLYC_NATIVE_PLATFORM == 0
@@ -1517,7 +1696,7 @@ CAMLprim value holyc_native_retain_program(value identity)
 #else
   CAMLlocal1(handle);
   value code, functions, storage, arena_image;
-  intnat globals, literals, metadata;
+  intnat globals, literals, metadata, task_extent;
   size_t code_length, arena_length;
   unsigned checked_stack = 0;
   int closed_entry = 0;
@@ -1531,14 +1710,24 @@ CAMLprim value holyc_native_retain_program(value identity)
   if (!Is_block(code) || Tag_val(code) != String_tag ||
       !Is_block(storage) || Tag_val(storage) != 0 || Wosize_val(storage) != 4 ||
       !Is_long(Field(storage, 0)) || !Is_long(Field(storage, 1)) ||
-      !Is_long(Field(storage, 2)) ||
-      !Is_block(Field(storage, 3)) || Tag_val(Field(storage, 3)) != String_tag)
+      !Is_long(Field(storage, 2)))
     caml_invalid_argument("retained native image code or storage is malformed");
   if (Long_val(Field(identity, 2)) != HOLYC_NATIVE_PLATFORM)
     caml_invalid_argument("native program status ABI does not match this process");
   code_length = (size_t)caml_string_length(code);
   arena_image = Field(storage, 3);
-  arena_length = (size_t)caml_string_length(arena_image);
+  if (task_fragment) {
+    if (!Is_long(arena_image))
+      caml_invalid_argument("retained native task arena extent is not integral");
+    task_extent = Long_val(arena_image);
+    if (task_extent < 0 || (uintnat)task_extent > HOLYC_NATIVE_MAX_ARENA_BYTES)
+      caml_invalid_argument("retained native task arena extent is outside the host bound");
+    arena_length = (size_t)task_extent;
+  } else {
+    if (!Is_block(arena_image) || Tag_val(arena_image) != String_tag)
+      caml_invalid_argument("retained native image arena is not a string");
+    arena_length = (size_t)caml_string_length(arena_image);
+  }
   if (code_length == 0 || code_length > 16u * 1024u * 1024u)
     caml_invalid_argument("native image length is outside the host allocation bound");
   checked_stack = native_validate_retained_functions(code, functions, &closed_entry);
@@ -1557,21 +1746,181 @@ CAMLprim value holyc_native_retain_program(value identity)
   if (closed_entry && arena_length != 0)
     caml_invalid_argument("retained native closed entry cannot own a data arena");
   handle = caml_alloc_custom_mem(&native_retained_operations, sizeof(program),
-                                  code_length + arena_length);
+                                  code_length + (task_fragment ? 0u : arena_length));
   *((struct native_retained_program **)Data_custom_val(handle)) = NULL;
   program = calloc(1, sizeof(*program));
   if (program == NULL) caml_raise_out_of_memory();
   *((struct native_retained_program **)Data_custom_val(handle)) = program;
   atomic_init(&program->active, 0);
   program->closed_entry = closed_entry;
+  program->task_fragment = task_fragment;
   program->identity = identity;
   caml_register_generational_global_root(&program->identity);
   /* The allocation above can move the original rooted tuple and its children. */
   code = Field(identity, 0);
   functions = Field(identity, 1);
-  arena_image = Field(Field(identity, 4), 3);
-  native_retained_map(program, code, functions, arena_image);
+  storage = Field(identity, 4);
+  arena_image = task_fragment ? Val_unit : Field(storage, 3);
+  native_retained_map(program, code, functions, arena_image, arena_length,
+                      !task_fragment);
   CAMLreturn(handle);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_retain_program(value identity)
+{
+  return native_retain_program_identity(identity, 0);
+}
+
+CAMLprim value holyc_native_retain_task_fragment(value identity)
+{
+  return native_retain_program_identity(identity, 1);
+}
+
+CAMLprim value holyc_native_create_task_arena(value capacity)
+{
+  CAMLparam1(capacity);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  CAMLlocal1(handle);
+  intnat requested;
+  struct native_task_arena *arena;
+  if (!Is_long(capacity))
+    caml_invalid_argument("native task arena capacity is not integral");
+  requested = Long_val(capacity);
+  if (requested <= 0 || (uintnat)requested > HOLYC_NATIVE_MAX_ARENA_BYTES)
+    caml_invalid_argument("native task arena capacity is outside the host bound");
+  handle = caml_alloc_custom_mem(&native_task_arena_operations, sizeof(arena),
+                                  (uintnat)requested);
+  *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+  arena = calloc(1, sizeof(*arena));
+  if (arena == NULL) caml_raise_out_of_memory();
+  *((struct native_task_arena **)Data_custom_val(handle)) = arena;
+  atomic_init(&arena->active, 0);
+  arena->capacity = (size_t)requested;
+#if HOLYC_NATIVE_PLATFORM == 1
+  {
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    arena->page_size = (size_t)info.dwPageSize;
+    if (arena->page_size == 0) {
+      *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+      free(arena);
+      caml_failwith("native task arena has an invalid host page size");
+    }
+    arena->mapping = VirtualAlloc(NULL, arena->capacity, MEM_RESERVE,
+                                  PAGE_NOACCESS);
+    if (arena->mapping == NULL) {
+      DWORD error = GetLastError();
+      *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+      free(arena);
+      native_os_error("task arena reservation", (unsigned long)error);
+    }
+  }
+#else
+  {
+    int flags = personality(0xffffffffUL);
+    long page_size;
+    if (flags == -1) {
+      unsigned long error = (unsigned long)errno;
+      *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+      free(arena);
+      native_os_error("personality query", error);
+    }
+    if ((flags & READ_IMPLIES_EXEC) != 0) {
+      *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+      free(arena);
+      caml_failwith("native task arena requires READ_IMPLIES_EXEC to be disabled");
+    }
+    page_size = sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) {
+      *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+      free(arena);
+      caml_failwith("native task arena has an invalid host page size");
+    }
+    arena->page_size = (size_t)page_size;
+    arena->mapping = mmap(NULL, arena->capacity, PROT_NONE,
+                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (arena->mapping == MAP_FAILED) {
+      unsigned long error = (unsigned long)errno;
+      arena->mapping = NULL;
+      *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+      free(arena);
+      native_os_error("task arena reservation", error);
+    }
+  }
+#endif
+  CAMLreturn(handle);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
+                                             value required_extent)
+{
+  CAMLparam3(handle, expected_used, required_extent);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_task_arena *arena = native_task_arena_get(handle);
+  int expected = 0;
+  intnat expected_prefix;
+  intnat extent;
+  size_t target;
+  unsigned long commit_error;
+  if (!Is_long(expected_used) || !Is_long(required_extent))
+    caml_invalid_argument("native task arena admission is malformed");
+  expected_prefix = Long_val(expected_used);
+  extent = Long_val(required_extent);
+  if (expected_prefix < 0 || extent < 0)
+    caml_invalid_argument("native task arena extent is negative");
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_invalid_argument("native task arena is already active");
+  if (arena->closing || arena->mapping == NULL) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("native task arena has been released");
+  }
+  if ((size_t)expected_prefix != arena->used) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("native task arena admission does not extend its current prefix");
+  }
+  target = (size_t)extent;
+  if (target < arena->used || target > arena->capacity) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("native task arena extent is outside its reserved capacity");
+  }
+  commit_error = native_task_arena_commit(arena, target);
+  if (commit_error != 0) {
+    atomic_store(&arena->active, 0);
+    native_os_error("task arena commit", commit_error);
+  }
+  if (target > arena->used)
+    memset((char *)arena->mapping + arena->used, 0, target - arena->used);
+  arena->used = target;
+  atomic_store(&arena->active, 0);
+  CAMLreturn(Val_long((intnat)target));
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_release_task_arena(value handle)
+{
+  CAMLparam1(handle);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_task_arena *arena = native_task_arena_get(handle);
+  int expected = 0;
+  int success;
+  char message[240];
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_invalid_argument("native task arena is already active");
+  success = native_task_arena_close(arena);
+  memcpy(message, arena->close_error, sizeof(message));
+  atomic_store(&arena->active, 0);
+  if (!success) caml_failwith(message);
 #endif
   CAMLreturn(Val_unit);
 }
@@ -1607,7 +1956,7 @@ CAMLprim value holyc_native_execute_retained_program(value handle, value limits)
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle, Val_unit, Val_unit));
+    Field(identity, 4), handle, Val_unit, Val_unit, Val_unit, Val_unit));
 #endif
   CAMLreturn(Val_unit);
 }
@@ -1628,7 +1977,29 @@ CAMLprim value holyc_native_execute_retained_budget_program(value handle,
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle, consumed, entered));
+    Field(identity, 4), handle, consumed, entered, Val_unit, Val_unit));
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_execute_retained_budget_task_program(
+  value handle, value task, value limits, value consumed, value entered)
+{
+  CAMLparam5(handle, task, limits, consumed, entered);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  CAMLlocal2(identity, arena_handle);
+  struct native_retained_program *program = native_retained_get(handle);
+  if (consumed == Val_unit || !Is_block(task) || Tag_val(task) != 0 ||
+      Wosize_val(task) != 2 || !Is_long(Field(task, 1)))
+    caml_invalid_argument("retained native task execution state is malformed");
+  arena_handle = Field(task, 0);
+  (void)native_task_arena_get(arena_handle);
+  identity = program->identity;
+  CAMLreturn(native_execute_program_output(
+    Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
+    Field(identity, 4), handle, consumed, entered, arena_handle, Field(task, 1)));
 #endif
   CAMLreturn(Val_unit);
 }

@@ -1342,6 +1342,17 @@ let retained_slot globals reference =
           if Retained_global.same candidate reference then Some slot else None)
         view.entries)
 
+let retained_storage_bindings globals =
+  Option.fold ~none:[]
+    ~some:(fun view ->
+      List.map (fun (_, reference, slot) -> (reference, slot)) view.entries)
+    globals.task_view
+
+let same_task_storage left right =
+  match (left.task_view, right.task_view) with
+  | Some left, Some right -> left.catalog == right.catalog
+  | _ -> false
+
 let retained_function_binding globals binding =
   let module Outer = Sema.Outer_environment in
   Option.bind globals.task_view (fun view ->

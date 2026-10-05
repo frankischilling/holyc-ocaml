@@ -1,5 +1,131 @@
 module VM = Ir.Integer_interpreter
 
+module Native_dispatch = struct
+  type word = I64 of int64 | U64 of int64
+  type capture = Unchanged | Captured of word option
+  type entry_state = Offered | Claiming | Entered | Closed
+
+  type initializer_request = {
+    initializer_task : VM.task_state;
+    initializer_attempt : VM.initializer_attempt;
+    initializer_execution : Ir.Initializer_fragment_program.execution;
+    initializer_program_ : Ir.Initializer_fragment_program.t;
+    initializer_domain : Domain.id;
+    initializer_state : entry_state Atomic.t;
+  }
+
+  type command_request = {
+    command_task : VM.task_state;
+    command_program_ : Integer_unit.compiled;
+    command_domain : Domain.id;
+    command_state : entry_state Atomic.t;
+    command_attempt : VM.native_program_attempt option Atomic.t;
+  }
+
+  type t = {
+    execute_initializer :
+      initializer_request -> (unit, Common.Diagnostic.t list) result;
+    execute_command :
+      command_request -> (capture, Common.Diagnostic.t list) result;
+  }
+
+  let initializer_program request = request.initializer_program_
+  let command_program request = request.command_program_
+  let owns_domain expected = Domain.self () = expected
+
+  let check_initializer_request request =
+    if not (owns_domain request.initializer_domain) then
+      Error "native initializer request belongs to another execution domain"
+    else if Atomic.get request.initializer_state <> Offered then
+      Error "native initializer request was already entered or closed"
+    else
+      VM.check_native_task_initializer request.initializer_task
+        request.initializer_attempt request.initializer_execution
+        request.initializer_program_
+
+  let claim_initializer_request request =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    if not (Atomic.compare_and_set request.initializer_state Offered Claiming)
+    then Error "native initializer request was already claimed"
+    else
+      match
+        VM.claim_native_task_initializer request.initializer_task
+          request.initializer_attempt request.initializer_execution
+          request.initializer_program_
+      with
+      | Ok () ->
+          Atomic.set request.initializer_state Entered;
+          Ok ()
+      | Error message ->
+          Atomic.set request.initializer_state Closed;
+          Error message
+
+  let check_command_request request =
+    if not (owns_domain request.command_domain) then
+      Error "native command request belongs to another execution domain"
+    else if Atomic.get request.command_state <> Offered then
+      Error "native command request was already entered or closed"
+    else
+      let program = request.command_program_ in
+      VM.check_native_task_program request.command_task
+        ~runtime_calls:(Integer_unit.runtime_calls program)
+        ~globals:(Integer_unit.globals program)
+        ~initialization:(Integer_unit.initialization program)
+        ~functions:(Integer_unit.functions program)
+        (Integer_unit.entry program)
+
+  let claim_command_request request =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    if not (Atomic.compare_and_set request.command_state Offered Claiming) then
+      Error "native command request was already claimed"
+    else
+      let program = request.command_program_ in
+      match
+        VM.claim_native_task_program request.command_task
+          ~runtime_calls:(Integer_unit.runtime_calls program)
+          ~globals:(Integer_unit.globals program)
+          ~initialization:(Integer_unit.initialization program)
+          ~functions:(Integer_unit.functions program)
+          (Integer_unit.entry program)
+      with
+      | Ok attempt ->
+          Atomic.set request.command_attempt (Some attempt);
+          Atomic.set request.command_state Entered;
+          Ok ()
+      | Error message ->
+          Atomic.set request.command_state Closed;
+          Error message
+
+  let create_initializer ~task ~attempt ~execution ~program =
+    {
+      initializer_task = task;
+      initializer_attempt = attempt;
+      initializer_execution = execution;
+      initializer_program_ = program;
+      initializer_domain = Domain.self ();
+      initializer_state = Atomic.make Offered;
+    }
+
+  let create_command ~task ~program =
+    {
+      command_task = task;
+      command_program_ = program;
+      command_domain = Domain.self ();
+      command_state = Atomic.make Offered;
+      command_attempt = Atomic.make None;
+    }
+
+  let initializer_entered request =
+    Atomic.get request.initializer_state = Entered
+
+  let command_entered request = Atomic.get request.command_state = Entered
+  let command_attempt request = Atomic.get request.command_attempt
+  let close_initializer request = Atomic.set request.initializer_state Closed
+  let close_command request = Atomic.set request.command_state Closed
+end
+
 type stream = VM.task_stream
 
 type progress = {
@@ -14,6 +140,7 @@ type t = {
   state : VM.task_state;
   declarations : Task_declarations.t;
   identity : unit ref;
+  native_dispatch : Native_dispatch.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
 }
 
@@ -21,13 +148,14 @@ and command = {
   owner : unit ref;
   program : Integer_unit.compiled;
   span : Common.Span.t;
+  source_metadata_only : bool;
   mutable frontend_pending : bool;
 }
 
 let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_initializer_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
-    ?max_stream_depth session =
+    ?max_stream_depth ?native_dispatch session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -37,6 +165,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
   VM.create_task_state ?max_steps ?max_initializer_steps ?max_global_bytes
     ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
     ?max_output_work ?max_generated_bytes ?max_stream_depth
+    ~native_storage_authority:(Option.is_some native_dispatch)
     ~table:(Session.semantic_symbols session)
     ()
   |> fun result ->
@@ -50,6 +179,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             state;
             declarations;
             identity = ref ();
+            native_dispatch;
             commands = [];
           }))
 
@@ -58,13 +188,14 @@ let frontend task = task.session
 let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
-    session ~source ~ledger =
+    ?native_dispatch session ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
     VM.create_task_state ?max_steps ?max_initializer_steps ?max_global_bytes
       ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
       ?max_output_work ?max_generated_bytes ?max_stream_depth
+      ~native_storage_authority:(Option.is_some native_dispatch)
       ~table:(Session.semantic_symbols session)
       ()
   in
@@ -76,6 +207,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       state;
       declarations = ledger;
       identity = ref ();
+      native_dispatch;
       commands = [];
     }
 
@@ -364,12 +496,56 @@ let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
       Initializer_fragment_lowering.prepare ~context ~authority
         ~runtime:task.state destination
     in
-    VM.execute_task_initializer ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error
-         (Integer_execution_diagnostics.of_errors
-            ~span:
-              receipt.Frontend.Parser.leaf_initializer.initializer_equals.span)
+    match task.native_dispatch with
+    | None ->
+        VM.execute_task_initializer ~use_active_stream ?stream_exe_print
+          task.state attempt execution
+        |> Result.map_error
+             (Integer_execution_diagnostics.of_errors
+                ~span:
+                  receipt.Frontend.Parser.leaf_initializer.initializer_equals
+                    .span)
+    | Some dispatch ->
+        let module Program = Ir.Initializer_fragment_program in
+        let span =
+          receipt.Frontend.Parser.leaf_initializer.initializer_equals.span
+        in
+        let diagnose result =
+          Result.map_error
+            (fun message -> [ Integer_source.message_diagnostic ~span message ])
+            result
+        in
+        let* program =
+          match Program.execution_code execution with
+          | Program.Scheduled program -> Ok program
+          | Program.Prepared _ ->
+              Initializer_fragment_lowering.lower ~context ~authority
+                destination
+        in
+        let request =
+          Native_dispatch.create_initializer ~task:task.state ~attempt
+            ~execution ~program
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_dispatch.close_initializer request)
+          (fun () ->
+            try
+              match dispatch.execute_initializer request with
+              | Error diagnostics -> Error diagnostics
+              | Ok () when Native_dispatch.initializer_entered request ->
+                  VM.complete_native_task_initializer task.state attempt
+                    execution program
+                  |> diagnose
+              | Ok () ->
+                  Error
+                    [
+                      Integer_source.diagnostic ~span "HCIRVM0026"
+                        "native initializer callback returned without claiming \
+                         its original entry";
+                    ]
+            with exn ->
+              ignore (VM.fail_task_initializer_attempt task.state attempt);
+              raise exn)
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_initializer_attempt task.state attempt)
@@ -581,13 +757,31 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
 
 let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     task event =
+  let native_reject span work =
+    Error
+      [
+        Integer_source.diagnostic ~span "HCRUN0006"
+          ("native task execution does not yet support live " ^ work);
+      ]
+  in
   (match event with
+    | Frontend.Parser.Internal_binding_preparing receipt
+      when Option.is_some task.native_dispatch ->
+        native_reject receipt.binding_ast.location.span "internal bindings"
     | Frontend.Parser.Internal_binding_preparing receipt ->
         execute_runtime_internal_binding ~use_active_stream ?stream_exe_print
           task receipt
     | Frontend.Parser.Aggregate_advanced receipt
+      when Option.is_some task.native_dispatch
+           && Task_declarations.offset_requires_runtime receipt ->
+        native_reject receipt.phase_location.span "runtime aggregate offsets"
+    | Frontend.Parser.Aggregate_advanced receipt
       when Task_declarations.offset_requires_runtime receipt ->
         execute_runtime_offset ~use_active_stream ?stream_exe_print task receipt
+    | Frontend.Parser.Array_dimension_preparing receipt
+      when Option.is_some task.native_dispatch
+           && Task_declarations.dimension_requires_runtime receipt ->
+        native_reject receipt.dimension_opening.span "runtime array dimensions"
     | Frontend.Parser.Array_dimension_preparing receipt
       when Task_declarations.dimension_requires_runtime receipt ->
         execute_runtime_dimension ~use_active_stream ?stream_exe_print task
@@ -603,6 +797,13 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf ~use_active_stream ?stream_exe_print task
           receipt
+    | Frontend.Parser.Callback_default_completed receipt
+      when Option.is_some task.native_dispatch -> (
+        match receipt.callback_default_ast.value with
+        | Frontend.Ast.Expression_default _ ->
+            native_reject receipt.callback_default_ast.location.span
+              "callback expression defaults"
+        | Lastclass_default _ -> Ok ())
     | Frontend.Parser.Callback_default_completed receipt -> (
         match receipt.callback_default_ast.value with
         | Frontend.Ast.Expression_default _ ->
@@ -612,6 +813,13 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Callback_signature_completed header ->
         Task_declarations.complete_callback_defaults_runtime task.declarations
           ~runtime:task.state header
+    | Frontend.Parser.Parameter_default_completed receipt
+      when Option.is_some task.native_dispatch -> (
+        match receipt.default_ast.value with
+        | Frontend.Ast.Expression_default _ ->
+            native_reject receipt.default_ast.location.span
+              "parameter expression defaults"
+        | Frontend.Ast.Lastclass_default _ -> Ok ())
     | Frontend.Parser.Parameter_default_completed receipt -> (
         match receipt.default_ast.value with
         | Frontend.Ast.Expression_default _ ->
@@ -653,8 +861,17 @@ let compiled_units task =
   List.rev_map (fun (_, command) -> command.program) task.commands
 
 let compile_isolated task ~source_command session ~config parsed =
-  Integer_unit.compile_source_in_task_budget ~task:task.state ~source_command
-    session ~config parsed
+  match task.native_dispatch with
+  | None ->
+      Integer_unit.compile_source_in_task_budget ~task:task.state
+        ~source_command session ~config parsed
+  | Some _ ->
+      let span = (Option.get parsed.Frontend.Parser.ast).span in
+      Error
+        [
+          Integer_source.diagnostic ~span "HCIRVM0026"
+            "native source tasks cannot compile isolated interpreter programs";
+        ]
 
 let execute_isolated task program =
   VM.execute_isolated_program_in_task task.state
@@ -688,6 +905,18 @@ let same_syntax (left : Frontend.Ast.module_) (right : Frontend.Ast.module_) =
      && List.length left.items = List.length right.items
      && List.for_all2 same_item left.items right.items
 
+let source_metadata_only (ast : Frontend.Ast.module_) =
+  let open Frontend.Ast in
+  List.for_all
+    (function
+      | Aggregate_forward_declaration _
+      | Aggregate_definition _
+      | Global_variable _
+      | Global_declaration _
+      | Function_prototype _ -> true
+      | Function_definition _ | Top_level_statement _ -> false)
+    ast.items
+
 let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
     =
   match
@@ -717,6 +946,8 @@ let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
           owner = task.identity;
           program = checked.Integer_unit.value;
           span = ast.span;
+          source_metadata_only =
+            Option.is_some declaration_command && source_metadata_only ast;
           frontend_pending = Option.is_none declaration_command;
         }
       in
@@ -774,7 +1005,133 @@ let execute_internal ?(use_active_stream = true) ?stream_exe_print task command
     | Error errors, Error publication_errors ->
         Error (errors @ publication_errors)
 
+let native_word_of_vm (word : VM.word) =
+  match word.type_ with
+  | VM.I64 -> Native_dispatch.I64 word.bits
+  | VM.U64 -> Native_dispatch.U64 word.bits
+
+let native_word_for_vm = function
+  | Native_dispatch.I64 bits -> (VM.I64, bits)
+  | Native_dispatch.U64 bits -> (VM.U64, bits)
+
+let execute_source task command =
+  if task.identity != command.owner then
+    Error
+      [
+        Integer_source.diagnostic ~span:command.span "HCIRVM0026"
+          "compiled command belongs to another task";
+      ]
+  else
+    match task.native_dispatch with
+    | None ->
+        execute_internal task command
+        |> Result.map (fun execution ->
+            Option.map native_word_of_vm (VM.final_value execution))
+    | Some _ when command.frontend_pending ->
+        Error
+          [
+            Integer_source.diagnostic ~span:command.span "HCIRVM0026"
+              "native source dispatch requires an original parser resume \
+               command";
+          ]
+    | Some _ when command.source_metadata_only -> (
+        let program = command.program in
+        let diagnose result =
+          Result.map_error
+            (fun message ->
+              [ Integer_source.message_diagnostic ~span:command.span message ])
+            result
+        in
+        match
+          VM.claim_native_task_program task.state
+            ~runtime_calls:(Integer_unit.runtime_calls program)
+            ~globals:(Integer_unit.globals program)
+            ~initialization:(Integer_unit.initialization program)
+            ~functions:(Integer_unit.functions program)
+            (Integer_unit.entry program)
+        with
+        | Error message ->
+            VM.fail_native_task_program_before_entry task.state;
+            Error
+              [ Integer_source.message_diagnostic ~span:command.span message ]
+        | Ok attempt -> (
+            match
+              VM.complete_native_task_program task.state attempt ~captured:false
+                ~final_value:None
+              |> diagnose
+            with
+            | Ok () -> Ok None
+            | Error diagnostics ->
+                ignore (VM.fail_native_task_program task.state attempt);
+                Error diagnostics))
+    | Some dispatch ->
+        let request =
+          Native_dispatch.create_command ~task:task.state
+            ~program:command.program
+        in
+        let diagnose result =
+          Result.map_error
+            (fun message ->
+              [ Integer_source.message_diagnostic ~span:command.span message ])
+            result
+        in
+        let fail_request () =
+          match Native_dispatch.command_attempt request with
+          | Some attempt ->
+              ignore (VM.fail_native_task_program task.state attempt)
+          | None -> VM.fail_native_task_program_before_entry task.state
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_dispatch.close_command request)
+          (fun () ->
+            try
+              match dispatch.execute_command request with
+              | Error diagnostics ->
+                  fail_request ();
+                  Error diagnostics
+              | Ok capture -> (
+                  let captured, value =
+                    match capture with
+                    | Native_dispatch.Unchanged -> (false, None)
+                    | Native_dispatch.Captured value -> (true, value)
+                  in
+                  match
+                    ( Native_dispatch.command_entered request,
+                      Native_dispatch.command_attempt request )
+                  with
+                  | true, Some attempt -> (
+                      let settled =
+                        VM.complete_native_task_program task.state attempt
+                          ~captured
+                          ~final_value:(Option.map native_word_for_vm value)
+                        |> diagnose
+                      in
+                      match settled with
+                      | Ok () -> Ok value
+                      | Error diagnostics ->
+                          fail_request ();
+                          Error diagnostics)
+                  | _ ->
+                      fail_request ();
+                      Error
+                        [
+                          Integer_source.diagnostic ~span:command.span
+                            "HCIRVM0026"
+                            "native command callback returned without claiming \
+                             its original entry";
+                        ])
+            with exn ->
+              fail_request ();
+              raise exn)
+
 let execute task command = execute_internal task command
+
+let native_final_value task =
+  match task.native_dispatch with
+  | None -> None
+  | Some _ ->
+      let progress = VM.task_progress task.state in
+      Option.map native_word_of_vm progress.final_value
 
 let stream_diagnostics span message =
   let code, detail =
@@ -792,7 +1149,7 @@ let activate_source task ~span =
   Task_declarations.activate_source task.declarations ~runtime:task.state ~span
     ~declaration:(observe_initializer task) ~command:(fun ast ->
       Result.bind (compile_source_ast task ast) (fun command ->
-          execute task command |> Result.map ignore))
+          execute_source task command |> Result.map ignore))
 
 let result task ~sequence =
   VM.task_result task.state ~sequence
@@ -962,8 +1319,8 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
             | Frontend.Parser.Command_resumed completed ->
                 let ast = completed.command_ast in
                 let* command = compile_source_ast task ast in
-                let* execution = execute_command command in
-                final_value := VM.final_value execution;
+                let* value = execute_command command in
+                final_value := value;
                 Ok ()
             | Frontend.Parser.Sequence_completed completed ->
                 sequence := Some completed;
@@ -1070,7 +1427,12 @@ let rec stream_executor ?(allow_stream_exe_print = false) task span =
     else None
   in
   let execute_command command =
-    execute_internal ?stream_exe_print task command
+    match task.native_dispatch with
+    | Some _ -> execute_source task command
+    | None ->
+        execute_internal ?stream_exe_print task command
+        |> Result.map (fun execution ->
+            Option.map native_word_of_vm (VM.final_value execution))
   in
   let commands, completed =
     execution_commands ?stream_exe_print task span ~active ~execute_command
@@ -1125,7 +1487,8 @@ and run_stream_exe_source task ~active ~span contents =
       let* () = active () in
       Ok
         (Option.fold ~none:0L
-           ~some:(fun (word : VM.word) -> word.bits)
+           ~some:(function
+             | Native_dispatch.I64 bits | Native_dispatch.U64 bits -> bits)
            final_value))
 
 and run_input_execution ?suspension ?(use_active_stream = true)
@@ -1154,7 +1517,12 @@ and run_input_execution ?suspension ?(use_active_stream = true)
     else None
   in
   let execute_command command =
-    execute_internal ~use_active_stream ?stream_exe_print task command
+    match task.native_dispatch with
+    | Some _ -> execute_source task command
+    | None ->
+        execute_internal ~use_active_stream ?stream_exe_print task command
+        |> Result.map (fun execution ->
+            Option.map native_word_of_vm (VM.final_value execution))
   in
   let commands, completed =
     execution_commands task

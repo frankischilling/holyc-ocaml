@@ -1,33 +1,6 @@
-type t
-type command
-type stream
-
-module Native_dispatch : sig
-  type word = I64 of int64 | U64 of int64
-  type capture = Unchanged | Captured of word option
-  type initializer_request
-  type command_request
-
-  type t = {
-    execute_initializer :
-      initializer_request -> (unit, Common.Diagnostic.t list) result;
-    execute_command :
-      command_request -> (capture, Common.Diagnostic.t list) result;
-  }
-
-  val initializer_program :
-    initializer_request -> Ir.Initializer_fragment_program.t
-
-  val command_program : command_request -> Integer_unit.compiled
-  val check_initializer_request : initializer_request -> (unit, string) result
-  val claim_initializer_request : initializer_request -> (unit, string) result
-  val check_command_request : command_request -> (unit, string) result
-
-  val claim_command_request : command_request -> (unit, string) result
-  (** Requests exist only during their original parser callback. Checking is
-      pure; claiming consumes the one native-entry capability. Saved, expired,
-      foreign or already-entered requests fail. *)
-end
+type t = Integer_task.t
+type command = Integer_task.command
+type stream = Integer_task.stream
 
 val observe_source_offset :
   t ->
@@ -50,7 +23,7 @@ val result :
   sequence:Frontend.Parser.completed_sequence ->
   (Ir.Integer_interpreter.t, Common.Diagnostic.t list) result
 
-type progress = private {
+type progress = Integer_task.progress = private {
   runtime : Ir.Integer_interpreter.task_progress;
   dimension_work : int;
   switch_work : int;
@@ -100,7 +73,6 @@ val create :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
-  ?native_dispatch:Native_dispatch.t ->
   Session.t ->
   (t, string) result
 (** Limits belong to the task. Preparation is charged during compilation,
@@ -176,7 +148,6 @@ val adopt_source :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
-  ?native_dispatch:Native_dispatch.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->
@@ -197,7 +168,6 @@ val adopt_source_for_activation :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
-  ?native_dispatch:Native_dispatch.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->
@@ -248,17 +218,6 @@ val execute :
 (** Preflight before admitting storage or consuming the receipt. Success and
     reached faults consume it; earlier writes survive a reached fault. Foreign
     commands and replay report HCIRVM0026 without effects. *)
-
-val execute_source :
-  t -> command -> (Native_dispatch.word option, Common.Diagnostic.t list) result
-(** Execute one exact parser-resume command through the task's configured source
-    path. Native dispatch claims its opaque live request immediately before
-    entry and settles only task metadata; ordinary tasks retain interpreter
-    execution. *)
-
-val native_final_value : t -> Native_dispatch.word option
-(** Final word metadata from a successfully reached native source command. This
-    is not an interpreter execution receipt or native runtime counter. *)
 
 val run :
   t ->

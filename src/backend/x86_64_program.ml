@@ -1,4 +1,6 @@
 module Codegen = X86_64_word_codegen
+module Task_dispatch = Driver.Integer_task.Native_dispatch
+module Task_storage = X86_64_global_storage
 
 type word_type = X86_64_expression.word_type = I64 | U64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
@@ -55,7 +57,14 @@ type fault = {
 
 type execution = { executed_steps : int; final_value : word option }
 type outcome = Completed of execution | Fault of fault
-type t = { image : Codegen.program_image }
+type task_layout = Task_storage.task_layout
+
+type t = {
+  image : Codegen.program_image;
+  task_snapshot_ : Task_storage.task_snapshot option;
+  task_check_ : (unit -> (unit, string) result) option;
+  task_claim_ : (unit -> (unit, string) result) option;
+}
 
 let hard_max_stack_bytes = Codegen.hard_max_stack_bytes
 
@@ -80,7 +89,8 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
   Codegen.compile_program ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes verified
   |> Result.map_error project_errors
-  |> Result.map (fun image -> { image })
+  |> Result.map (fun image ->
+      { image; task_snapshot_ = None; task_check_ = None; task_claim_ = None })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ?max_literal_bytes ?parameter_defaults ?global_initializers
@@ -91,7 +101,102 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
     ~initialization ~entry ~functions ()
   |> Result.map_error project_errors
-  |> Result.map (fun image -> { image })
+  |> Result.map (fun image ->
+      { image; task_snapshot_ = None; task_check_ = None; task_claim_ = None })
+
+let project_storage_errors errors =
+  List.map
+    (fun (error : Task_storage.error) ->
+      { code = error.code; message = error.message; span = error.span })
+    errors
+
+let create_task_layout ~max_global_bytes =
+  Task_storage.create_task_layout ~max_global_bytes ()
+  |> Result.map_error project_storage_errors
+
+let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~runtime_calls
+    ~initialization ~entry () =
+  let ( let* ) = Result.bind in
+  let invalid message =
+    Error [ { code = "HCBACK0003"; message; span = None } ]
+  in
+  let* () =
+    match check () with
+    | Ok () -> Ok ()
+    | Error message -> invalid message
+  in
+  let* snapshot =
+    Task_storage.create_task_snapshot layout ~initialization ~entry
+    |> Result.map_error project_storage_errors
+  in
+  let* image =
+    Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
+      ~task_snapshot:snapshot ~max_ir_instructions ~max_code_bytes
+      ~runtime_calls ~initialization ~entry ()
+    |> Result.map_error project_errors
+  in
+  if
+    Codegen.program_global_bytes image
+    <> Task_storage.task_snapshot_global_bytes snapshot
+    || Codegen.program_arena_bytes image
+       <> Task_storage.task_snapshot_arena_bytes snapshot
+  then invalid "native task code disagrees with its original storage snapshot"
+  else
+    Ok
+      {
+        image;
+        task_snapshot_ = Some snapshot;
+        task_check_ = Some check;
+        task_claim_ = Some claim;
+      }
+
+let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Fragment = Ir.Initializer_fragment_program in
+  let program = Task_dispatch.initializer_program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Task_dispatch.check_initializer_request request)
+    ~claim:(fun () -> Task_dispatch.claim_initializer_request request)
+    ~runtime_calls:(Fragment.runtime_calls program)
+    ~initialization:(Fragment.initialization program)
+    ~entry:(Fragment.entry program) ()
+
+let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Unit = Driver.Integer_unit in
+  let program = Task_dispatch.command_program request in
+  if Unit.functions program <> [] then
+    Error
+      [
+        {
+          code = "HCBACK0002";
+          message =
+            "native task fragments do not yet link retained function bodies";
+          span = None;
+        };
+      ]
+  else
+    compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+      ~max_ir_instructions ~max_code_bytes ~layout
+      ~check:(fun () -> Task_dispatch.check_command_request request)
+      ~claim:(fun () -> Task_dispatch.claim_command_request request)
+      ~runtime_calls:(Unit.runtime_calls program)
+      ~initialization:(Unit.initialization program)
+      ~entry:(Unit.entry program) ()
+
+let task_snapshot image = image.task_snapshot_
+
+let check_task_request image =
+  match image.task_check_ with
+  | None -> Ok ()
+  | Some check -> check ()
+
+let check_task_activation image =
+  match image.task_claim_ with
+  | None -> Ok ()
+  | Some claim -> claim ()
 
 let code compiled = Codegen.program_code compiled.image
 let code_bytes compiled = Codegen.program_code_bytes compiled.image
@@ -407,4 +512,5 @@ let literal_bytes compiled = Codegen.program_literal_bytes compiled.image
 let arena_metadata_bytes compiled =
   Codegen.program_arena_metadata_bytes compiled.image
 
+let arena_bytes compiled = Codegen.program_arena_bytes compiled.image
 let global_image compiled = Codegen.program_global_image compiled.image

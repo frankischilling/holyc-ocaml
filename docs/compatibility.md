@@ -1,5 +1,13 @@
 # holyc-ocaml compatibility status
 
+The `host-jit-task` target executes original scalar JIT initializer leaves and
+resumed source commands in one native arena. Exact retained references and
+append-only offsets preserve earlier writes and initialization flags. Actual
+native outcomes supply cumulative steps; the source driver retains metadata
+without an interpreter storage copy. Task arrays, callback/function linking,
+literals, defaults, native `#exe` and AOT task execution remain open under #704.
+See [native source tasks](native-source-tasks.md).
+
 Explicit stars on fully indexed callback cells execute through both runners in
 JIT and AOT modes. Calls, reads, stores and numeric updates reuse the original
 array selection. Grouping under the star, callback members and remaining
@@ -22,8 +30,9 @@ and F64/pointer-returning calls remain unsupported. See
 Retained native images can share cumulative instruction and output allowances.
 Checked faults preserve reached writes, output prefixes and consumed work;
 zero remaining allowances reach the generated guards. This supplies the budget
-primitive for native sessions. Original parser-callback scheduling, persistent
-source admission and linking separate images remain open. See
+primitive for native sessions. Scalar original parser-callback scheduling now
+uses that allowance; broader persistent source admission and function linking
+remain open. See
 [retained native images](native-retained-images.md).
 
 Issue #795 connects primitive type recognition to original symbol selection.

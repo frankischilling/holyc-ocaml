@@ -333,6 +333,18 @@ type task_source_program = {
   source_bodies : function_definition list;
 }
 
+type native_program_attempt_state =
+  | Native_program_entered
+  | Native_program_completed
+  | Native_program_failed
+
+type native_program_attempt = {
+  native_program_catalog : Integer_globals.task_catalog;
+  native_program_source : task_source_program;
+  native_program_admission : task_admission;
+  mutable native_program_state : native_program_attempt_state;
+}
+
 type isolated_preparation = {
   preparation_catalog : Integer_globals.task_catalog;
   mutable preparation_steps : int;
@@ -481,6 +493,7 @@ type task_state = {
   mutable source_execution_failed : bool;
   mutable source_result : (Frontend.Parser.completed_sequence * t) option;
   catalog : Integer_globals.task_catalog;
+  native_storage_authority : bool;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
   mutable literal_arenas : runtime_storage list;
   mutable started : X87.t list;
@@ -504,6 +517,7 @@ type task_state = {
   max_stream_depth : int;
   mutable streams : task_stream list;
   mutable admissions : task_admission list;
+  mutable native_program_attempts : native_program_attempt list;
   mutable source_programs : task_source_program list;
   mutable isolated_programs : task_source_program list;
 }
@@ -512,8 +526,8 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
-    ?(max_generated_bytes = 16 * 1024 * 1024) ?(max_stream_depth = 64) ~table ()
-    =
+    ?(max_generated_bytes = 16 * 1024 * 1024) ?(max_stream_depth = 64)
+    ?(native_storage_authority = false) ~table () =
   if
     List.exists
       (fun limit -> limit <= 0)
@@ -565,6 +579,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         failure_generation = ref ();
         source_result = None;
         catalog = Integer_globals.create_task_catalog ~table;
+        native_storage_authority;
         arenas = [];
         literal_arenas = [];
         started = [];
@@ -589,6 +604,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         max_stream_depth;
         streams = [];
         admissions = [];
+        native_program_attempts = [];
         source_programs = [];
         isolated_programs = [];
       }
@@ -1079,6 +1095,163 @@ let bind_task_source_program task ~runtime_calls ~globals ~initialization
           }
           :: task.source_programs;
         Ok ()
+
+let native_source_program task ~runtime_calls ~globals ~initialization
+    ~functions entry =
+  List.find_opt
+    (fun program ->
+      matches_source_program program ~runtime_calls ~globals ~initialization
+        ~functions entry)
+    task.source_programs
+
+let check_native_task_program task ~runtime_calls ~globals ~initialization
+    ~functions entry =
+  if not task.native_storage_authority then
+    Error "native task entry requires native-authoritative storage"
+  else if not (source_dimensions_ready task) then
+    Error "native task entry requires completed runtime dimensions"
+  else if
+    not
+      (List.for_all
+         (Sema.Source_activation.command_admission task.source_activation)
+         (Integer_globals.source_command_receipts globals))
+  then Error "native source command is outside its original resume event"
+  else if
+    List.exists
+      (fun state ->
+        (match state.initializer_attempt with
+          | None -> false
+          | Some attempt -> attempt.attempt_state <> Successful_initializer)
+        && not
+             (Integer_globals.declared_initializer_failed state.initializer_slot))
+      task.initializers
+    || List.exists
+         (fun attempt ->
+           attempt.default_state = Preparing_initializer
+           || attempt.default_state = Executing_initializer)
+         task.defaults
+    || List.exists
+         (fun attempt ->
+           attempt.dimension_state = Preparing_initializer
+           || attempt.dimension_state = Executing_initializer)
+         task.dimensions
+    || List.exists
+         (fun attempt ->
+           attempt.internal_binding_state = Preparing_initializer
+           || attempt.internal_binding_state = Executing_initializer)
+         task.internal_bindings
+    || List.exists
+         (fun attempt ->
+           attempt.offset_state = Preparing_initializer
+           || attempt.offset_state = Executing_initializer)
+         task.runtime_offsets
+  then Error "native source command cannot interleave active preparation"
+  else if List.exists (fun started -> started == entry) task.started then
+    Error "native source command has already entered this task"
+  else if List.exists (fun _ -> true) functions then
+    Error
+      "native source task function publication requires retained native \
+       function execution support"
+  else if
+    Option.is_none
+      (native_source_program task ~runtime_calls ~globals ~initialization
+         ~functions entry)
+  then Error "native source command lacks its exact bound task program"
+  else Integer_globals.check_task_command task.catalog globals
+
+let claim_native_task_program task ~runtime_calls ~globals ~initialization
+    ~functions entry =
+  let ( let* ) = Result.bind in
+  let* () =
+    check_native_task_program task ~runtime_calls ~globals ~initialization
+      ~functions entry
+  in
+  let source =
+    Option.get
+      (native_source_program task ~runtime_calls ~globals ~initialization
+         ~functions entry)
+  in
+  let admission_publications =
+    Integer_globals.publish_task task.catalog globals
+    |> List.map (function
+      | Integer_globals.Global_publication (reference, slot) ->
+          Admitted_global (reference, slot)
+      | Integer_globals.Declared_publication (reference, slot) ->
+          Admitted_declared_global (reference, slot)
+      | Integer_globals.Function_publication reference ->
+          Admitted_function reference)
+  in
+  let admission =
+    {
+      admission_catalog = task.catalog;
+      admission_globals = globals;
+      admission_entry = entry;
+      admission_publications;
+    }
+  in
+  let attempt =
+    {
+      native_program_catalog = task.catalog;
+      native_program_source = source;
+      native_program_admission = admission;
+      native_program_state = Native_program_entered;
+    }
+  in
+  task.started <- entry :: task.started;
+  task.admissions <- admission :: task.admissions;
+  task.native_program_attempts <- attempt :: task.native_program_attempts;
+  Ok attempt
+
+let owns_active_native_task_program task attempt =
+  let admission = attempt.native_program_admission in
+  attempt.native_program_catalog == task.catalog
+  && admission.admission_catalog == task.catalog
+  && admission.admission_entry == attempt.native_program_source.source_entry
+  && admission.admission_globals == attempt.native_program_source.source_storage
+  && attempt.native_program_state = Native_program_entered
+  && List.exists (fun saved -> saved == admission) task.admissions
+  && List.exists (fun saved -> saved == attempt) task.native_program_attempts
+
+let complete_native_task_program task attempt ~captured ~final_value =
+  if not (owns_active_native_task_program task attempt) then
+    Error "native source command completion is foreign or repeated"
+  else if (not captured) && Option.is_some final_value then
+    Error
+      "native source command cannot publish a value without a reached capture"
+  else
+    let value = Option.map (fun (type_, bits) -> { type_; bits }) final_value in
+    if captured && task.streams = [] then task.outer_value <- value;
+    let receipts =
+      Integer_globals.source_command_receipts
+        attempt.native_program_source.source_storage
+    in
+    List.iter
+      (fun input ->
+        if
+          captured && input.input_result = None
+          && List.exists
+               (fun receipt ->
+                 receipt.Frontend.Parser.command_start.command_context
+                 == input.input_context)
+               receipts
+        then input.input_value <- value)
+      task.inputs;
+    attempt.native_program_state <- Native_program_completed;
+    Ok ()
+
+let fail_native_task_program task attempt =
+  if not (owns_active_native_task_program task attempt) then
+    Error "native source command failure is foreign or already settled"
+  else (
+    attempt.native_program_state <- Native_program_failed;
+    task.source_execution_failed <- true;
+    task.failure_generation <- ref ();
+    Ok ())
+
+let fail_native_task_program_before_entry task =
+  if task.native_storage_authority then (
+    task.source_execution_failed <- true;
+    task.failure_generation <- ref ())
 
 let task_owns_snapshot task view =
   Integer_globals.task_catalog_owns_view task.catalog view
@@ -1750,21 +1923,22 @@ let admit_declared_global task declaration =
   if bytes > task.max_global_bytes - task.global_bytes then
     Error "HCIRVM0016: task global storage exceeds the cumulative byte limit"
   else
-    let storage =
-      {
-        cells = Array.make (Integer_globals.cell_count globals) None;
-        live = true;
-        unknown_message =
-          "hosted execution reached an uninitialized JIT persistent object";
-      }
-    in
     let publication =
       match Integer_globals.publish_declared task.catalog slot with
       | Integer_globals.Declared_publication (reference, slot) ->
           Admitted_declared_global (reference, slot)
       | _ -> assert false
     in
-    task.arenas <- (globals, storage) :: task.arenas;
+    (if not task.native_storage_authority then
+       let storage =
+         {
+           cells = Array.make (Integer_globals.cell_count globals) None;
+           live = true;
+           unknown_message =
+             "hosted execution reached an uninitialized JIT persistent object";
+         }
+       in
+       task.arenas <- (globals, storage) :: task.arenas);
     task.declared_admissions <- publication :: task.declared_admissions;
     task.global_bytes <- task.global_bytes + bytes;
     task.source_promotion_open <- false;
@@ -1957,7 +2131,9 @@ let prepare_isolated_aggregate_offset task ~table ~namespace ~queries progress
       phase
 
 let settle_isolated_aggregate_offsets task ~table offsets =
-  if
+  if task.native_storage_authority then
+    Error "native source tasks cannot settle isolated interpreter preparation"
+  else if
     List.exists
       (fun offset ->
         Sema.Compiler_record.aggregate_offset_table offset != table)
@@ -2365,15 +2541,103 @@ let begin_task_initializer_leaf task ~namespace leaf =
 
 let initializer_attempt_destination attempt = attempt.attempt_destination
 
-let fail_task_initializer_attempt task attempt =
+let native_initializer_matches task attempt execution program expected_state =
+  let module Program = Initializer_fragment_program in
+  let module Destination = Initializer_fragment_destination in
+  let destination = Program.execution_destination execution in
+  let state = attempt.attempt_initializer in
+  let code_matches =
+    match Program.execution_code execution with
+    | Program.Scheduled scheduled -> scheduled == program
+    | Program.Prepared _ ->
+        Program.destination program == destination
+        && Program.authority program == Program.execution_authority execution
+  in
+  task.native_storage_authority
+  && state.initializer_catalog == task.catalog
+  && attempt.attempt_state = expected_state
+  && Option.fold ~none:false ~some:(( == ) attempt) state.initializer_attempt
+  && (Frontend.Parser.initializer_leaf_is_current attempt.attempt_receipt
+     || Sema.Source_activation.initializer_leaf task.source_activation
+          attempt.attempt_receipt)
+  && Destination.layout destination == attempt.attempt_destination
+  && Sema.Initializer_fragment.leaf (Destination.fragment destination)
+     == attempt.attempt_leaf
+  && Sema.Initializer_fragment.authorized_fragment
+       (Program.execution_authority execution)
+     == Destination.fragment destination
+  && Program.destination program == destination
+  && Program.authority program == Program.execution_authority execution
+  && code_matches
+  && Integer_globals.same_storage
+       (Destination.storage destination)
+       (Integer_globals.declared_storage state.initializer_slot)
+  && Integer_globals.owns_task_storage task.catalog
+       (Destination.globals destination)
+  && Integer_globals.is_initializer_fragment (Destination.globals destination)
+  && Program.execution_steps execution
+     = task.initializer_steps - attempt.attempt_preparation_before
+  && Integer_globals.byte_size (Destination.globals destination) = 0
+
+let check_native_task_initializer task attempt execution program =
+  let module Destination = Initializer_fragment_destination in
+  let module Program = Initializer_fragment_program in
+  let destination = Program.execution_destination execution in
   if
-    attempt.attempt_initializer.initializer_catalog != task.catalog
-    || attempt.attempt_state = Successful_initializer
+    not
+      (native_initializer_matches task attempt execution program
+         Preparing_initializer)
+  then
+    Error
+      "native initializer entry has another attempt, source, destination or \
+       preparation"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_initializer task attempt execution program =
+  Result.map
+    (fun () -> attempt.attempt_state <- Executing_initializer)
+    (check_native_task_initializer task attempt execution program)
+
+let complete_native_task_initializer task attempt execution program =
+  if
+    not
+      (native_initializer_matches task attempt execution program
+         Executing_initializer)
+  then
+    Error
+      "native initializer completion has another attempt, source, destination \
+       or entry"
+  else
+    let state = attempt.attempt_initializer in
+    match
+      Integer_globals.record_declared_initializer state.initializer_slot
+        attempt.attempt_destination
+    with
+    | Error message ->
+        attempt.attempt_state <- Failed_initializer;
+        Integer_globals.fail_declared_initializer state.initializer_slot;
+        Error message
+    | Ok () ->
+        state.initializer_cursor <- attempt.attempt_next;
+        attempt.attempt_state <- Successful_initializer;
+        Ok ()
+
+let fail_task_initializer_attempt task attempt =
+  let state = attempt.attempt_initializer in
+  if
+    state.initializer_catalog != task.catalog
+    || (not (List.exists (( == ) state) task.initializers))
+    || (not
+          (Option.fold ~none:false ~some:(( == ) attempt)
+             state.initializer_attempt))
+    || attempt.attempt_state <> Preparing_initializer
+       && attempt.attempt_state <> Executing_initializer
   then Error "initializer failure does not belong to an unfinished task attempt"
   else (
     attempt.attempt_state <- Failed_initializer;
-    Integer_globals.fail_declared_initializer
-      attempt.attempt_initializer.initializer_slot;
+    Integer_globals.fail_declared_initializer state.initializer_slot;
     Ok ())
 
 let complete_task_initializer task ~namespace start source =
@@ -2518,6 +2782,9 @@ let record_task_preparation task ~before ~steps =
   task.initializer_steps <- before + steps
 
 let begin_isolated_preparation task =
+  if task.native_storage_authority then
+    invalid_arg
+      "native source tasks cannot begin isolated interpreter preparation";
   task.source_promotion_open <- false;
   {
     preparation_catalog = task.catalog;
@@ -2527,7 +2794,8 @@ let begin_isolated_preparation task =
 
 let record_isolated_preparation task preparation ~steps =
   if
-    preparation.preparation_catalog != task.catalog
+    task.native_storage_authority
+    || preparation.preparation_catalog != task.catalog
     || preparation.preparation_closed
     || steps < preparation.preparation_steps
     || steps - preparation.preparation_steps
@@ -2544,7 +2812,9 @@ let abort_isolated_preparation task preparation =
 
 let finish_isolated_preparation task preparation ~runtime_calls ~globals
     ~initialization ~functions checked =
-  if
+  if task.native_storage_authority then
+    Error "native source tasks cannot publish isolated interpreter programs"
+  else if
     preparation.preparation_catalog != task.catalog
     || preparation.preparation_closed
   then Error "isolated preparation is foreign or already closed"
@@ -8291,7 +8561,8 @@ let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
   in
   let* () =
     if
-      state.initializer_catalog != task.catalog
+      task.native_storage_authority
+      || state.initializer_catalog != task.catalog
       || attempt.attempt_state <> Preparing_initializer
       || (not
             (Option.fold ~none:false ~some:(( == ) attempt)
@@ -8870,7 +9141,14 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
   let available_frame_bytes = task.max_frame_bytes - task.nested_frame_bytes in
   let available_call_depth = task.max_call_depth - task.nested_call_depth in
   let result =
-    if
+    if task.native_storage_authority then
+      Error
+        [
+          make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
+            "native-authoritative task commands require synchronous native \
+             dispatch";
+        ]
+    else if
       (not (source_dimensions_ready task))
       || (not
             (List.for_all
@@ -8957,7 +9235,10 @@ let execute_isolated_program_in_task task ~runtime_calls ~globals
       [ make_error ~stage:Preflight ~executed_steps:task.steps code message ]
   in
   let result =
-    if
+    if task.native_storage_authority then
+      invalid "HCIRVM0026"
+        "native source tasks cannot execute isolated interpreter programs"
+    else if
       not
         (List.exists
            (fun program ->

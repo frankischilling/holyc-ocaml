@@ -1,5 +1,14 @@
 # holyc-ocaml architecture
 
+`Hosted.Native_source_execution` connects original live JIT source requests to
+the backend through an internal synchronous driver dispatch. The public source
+API accepts source and configuration; it exposes actual native fragment reports.
+`Backend.X86_64_global_storage` appends original scalar data and flags at stable
+offsets in one task layout. The runtime owns one non-executable arena and one
+cumulative allowance for those fragments. Driver admission retains metadata
+without allocating interpreter cells or importing native values. The driver has
+no dependency on the backend. See [native source tasks](docs/native-source-tasks.md).
+
 `Ir.Expression_lowering` emits branch continuations for original integer
 comparison chains used as conditions. `Ir.Block_graph` validates dominance of
 values shared across blocks and supplies definition order for type preparation.

@@ -1,5 +1,9 @@
 # Native integer programs
 
+The separate [`host-jit-task` target](native-source-tasks.md) executes original
+live scalar JIT initializer leaves and resumed commands against one shared
+native arena. The `host-jit` contracts below describe isolated native programs.
+
 Integer comparison chains now run in conditions with the original shared middle
 word and skipped later operands after a false link. Private frame homes preserve
 those words across branches and calls and count toward the existing stack bound.

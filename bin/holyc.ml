@@ -805,7 +805,7 @@ let eval_native_command =
     (source_parser_options
        Term.(const native_expression_file $ instructions $ bytes $ stack_bytes))
 
-let native_program_file ~max_dimension_work ~max_switch_work
+let native_program_file ~source_task ~max_dimension_work ~max_switch_work
     ~max_initializer_steps ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
     ~max_call_depth ~max_output_bytes ~max_output_work ~report_version
     ~max_ir_instructions ~max_code_bytes ~max_stack_bytes ~max_blocks
@@ -824,7 +824,7 @@ let native_program_file ~max_dimension_work ~max_switch_work
     {
       mode;
       conditional_recovery;
-      target = "host-jit";
+      target = (if source_task then "host-jit-task" else "host-jit");
       steps = max_steps;
       frame_bytes = max_frame_bytes;
       call_depth = max_call_depth;
@@ -851,7 +851,14 @@ let native_program_file ~max_dimension_work ~max_switch_work
     Run_report.render_native ~human:(format = Human) ~session ~limits
       ~native_limits
   in
-  let fail code message = render ~command_error:(message, Some code) () in
+  let render_task =
+    Run_report.render_native_task ~human:(format = Human) ~session ~limits
+      ~native_limits
+  in
+  let fail code message =
+    if source_task then render_task ~command_error:(message, Some code) ()
+    else render ~command_error:(message, Some code) ()
+  in
   if report_version <> 2 then (
     print_command_error format ~command:"run"
       "HCRUN0005: host-jit requires --report-version=2";
@@ -912,21 +919,37 @@ let native_program_file ~max_dimension_work ~max_switch_work
                 fail "HCNATIVE0003"
                   (Printf.sprintf "could not read %s: %s" path message)
             | Ok source ->
-                render
-                  ~report:
-                    (Holyc_lib.Native_program.evaluate ~max_ir_instructions
-                       ~max_code_bytes ~max_stack_bytes ~max_blocks
-                       ~max_initializer_steps ~max_default_bytes
-                       ~max_switch_work ~max_dimension_work ~max_frame_bytes
-                       ~max_call_depth ~max_output_bytes ~max_output_work
-                       ~max_active_stack_bytes ~max_global_bytes
-                       ~max_literal_bytes session ~config ~source ~max_steps)
-                  ()))
+                if source_task then
+                  render_task
+                    ~report:
+                      (Holyc_lib.Native_source_execution.evaluate
+                         ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
+                         ~max_blocks ~max_initializer_steps ~max_default_bytes
+                         ~max_switch_work ~max_dimension_work ~max_frame_bytes
+                         ~max_call_depth ~max_output_bytes ~max_output_work
+                         ~max_active_stack_bytes ~max_global_bytes
+                         ~max_literal_bytes session ~config ~source ~max_steps)
+                    ()
+                else
+                  render
+                    ~report:
+                      (Holyc_lib.Native_program.evaluate ~max_ir_instructions
+                         ~max_code_bytes ~max_stack_bytes ~max_blocks
+                         ~max_initializer_steps ~max_default_bytes
+                         ~max_switch_work ~max_dimension_work ~max_frame_bytes
+                         ~max_call_depth ~max_output_bytes ~max_output_work
+                         ~max_active_stack_bytes ~max_global_bytes
+                         ~max_literal_bytes session ~config ~source ~max_steps)
+                    ()))
 
 let run_target_argument =
   Arg.(
     value & opt string "ir"
-    & info [ "target" ] ~docv:"TARGET" ~doc:"Execution target: ir or host-jit.")
+    & info [ "target" ] ~docv:"TARGET"
+        ~doc:
+          "Execution target: ir, host-jit, or host-jit-task. The task target \
+           executes live scalar JIT source fragments with shared native \
+           storage.")
 
 let run_command =
   let report_version =
@@ -1065,9 +1088,9 @@ let run_command =
              native_active_stack
              native_defaults
            ->
-             if target = "host-jit" then
-               native_program_file ~max_dimension_work:dimension_work
-                 ~max_switch_work:switch_work
+             if target = "host-jit" || target = "host-jit-task" then
+               native_program_file ~source_task:(target = "host-jit-task")
+                 ~max_dimension_work:dimension_work ~max_switch_work:switch_work
                  ~max_initializer_steps:initial_steps ~max_global_bytes:globals
                  ~max_literal_bytes:literals ~max_frame_bytes:bytes
                  ~max_call_depth:depth ~max_output_bytes:output_bytes

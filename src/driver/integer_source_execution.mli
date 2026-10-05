@@ -21,6 +21,7 @@ val compile_report :
   ?max_call_depth:int ->
   ?max_output_bytes:int ->
   ?max_output_work:int ->
+  ?native_dispatch:Integer_task.Native_dispatch.t ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->
@@ -45,6 +46,7 @@ val run :
   ?max_call_depth:int ->
   ?max_output_bytes:int ->
   ?max_output_work:int ->
+  ?native_dispatch:Integer_task.Native_dispatch.t ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->
@@ -56,6 +58,11 @@ val outcome :
   ( Ir.Integer_interpreter.t Integer_unit.checked,
     Common.Diagnostic.t list )
   result
+
+val native_final_value : report -> Integer_task.Native_dispatch.word option
+(** Final word returned by the exact native source command on successful native
+    task execution. Runtime work and quota counters remain owned by the native
+    execution report rather than this metadata value. *)
 
 val output_bytes : report -> string
 val output_work : report -> int
