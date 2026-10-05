@@ -27,9 +27,17 @@ type fragment = {
   native_outcome : (Image.outcome, string) Stdlib.result option;
 }
 
+type static_copy = {
+  cell_offset : int;
+  byte_offset : int;
+  byte_count : int;
+  outcome : (unit, string) Stdlib.result;
+}
+
 type report = {
   outcome_ : (result checked, Common.Diagnostic.t list) Stdlib.result;
   fragments_ : fragment list;
+  static_copies_ : static_copy list;
   platform_ : Native.platform;
   executed_steps_ : int;
   preparation_steps_ : int;
@@ -171,6 +179,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       {
         outcome_ = Error diagnostics;
         fragments_ = [];
+        static_copies_ = [];
         platform_;
         executed_steps_ = 0;
         preparation_steps_ = 0;
@@ -182,6 +191,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       }
   | Ok (layout, budget, arena) ->
       let fragments = ref [] in
+      let static_copies = ref [] in
       let emitted_bytes = ref 0 in
       let emitted_ir = ref 0 in
       let cleanup_errors = ref [] in
@@ -294,6 +304,29 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
           |> Result.map_error (fun message ->
               [ Driver.Integer_source.message_diagnostic ~span message ])
         in
+        let native_static_copy request =
+          let module Destination = Ir.Static_initializer_destination in
+          let destination = Task.Native_static_copy.destination request in
+          let byte_count =
+            Option.value ~default:0 (Destination.copy_byte_count destination)
+          in
+          let outcome = Native.copy_task_static arena request in
+          static_copies :=
+            {
+              cell_offset = Destination.cell_offset destination;
+              byte_offset = Destination.byte_offset destination;
+              byte_count;
+              outcome;
+            }
+            :: !static_copies;
+          outcome
+          |> Result.map_error (fun message ->
+              [
+                Driver.Integer_source.message_diagnostic
+                  ~span:(Destination.span destination)
+                  message;
+              ])
+        in
         Fun.protect
           ~finally:(fun () ->
             match Native.release_task_arena arena with
@@ -302,10 +335,11 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
           (fun () ->
             let report =
               Source.run ~native_dispatch ~native_static_allocation
-                ~native_static_initializer ~max_dimension_work ~max_switch_work
-                ~max_initializer_steps ~max_global_bytes ~max_literal_bytes
-                ~max_frame_bytes ~max_call_depth ~max_output_bytes
-                ~max_output_work session ~config ~source ~max_steps
+                ~native_static_initializer ~native_static_copy
+                ~max_dimension_work ~max_switch_work ~max_initializer_steps
+                ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
+                ~max_call_depth ~max_output_bytes ~max_output_work session
+                ~config ~source ~max_steps
             in
             source_report := Some report;
             let* checked = Source.outcome report in
@@ -337,6 +371,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       {
         outcome_;
         fragments_ = List.rev !fragments;
+        static_copies_ = List.rev !static_copies;
         platform_;
         executed_steps_ = progress.executed_steps;
         preparation_steps_ =
@@ -353,6 +388,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
 
 let outcome report = report.outcome_
 let fragments report = report.fragments_
+let static_copies report = report.static_copies_
 let platform report = report.platform_
 let executed_steps report = report.executed_steps_
 let preparation_steps report = report.preparation_steps_

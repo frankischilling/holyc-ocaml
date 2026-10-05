@@ -11,6 +11,7 @@ type t = {
   cell_ : int;
   byte_ : int;
   next_ : Integer_initializer_layout.stream;
+  operation_ : Integer_initializer_layout.operation;
   span_ : Common.Span.t;
 }
 
@@ -22,6 +23,18 @@ let root t = t.root_
 let cell_offset t = t.cell_
 let byte_offset t = t.byte_
 let next t = t.next_
+
+let copy_byte_count t =
+  match t.operation_ with
+  | Integer_initializer_layout.Scalar_store -> None
+  | Copy_bytes bytes -> Some (String.length bytes)
+
+let operation t =
+  match t.operation_ with
+  | Integer_initializer_layout.Scalar_store ->
+      Integer_initializer_layout.Scalar_store
+  | Copy_bytes bytes -> Copy_bytes (Bytes.to_string (Bytes.of_string bytes))
+
 let span t = t.span_
 let storage t = Globals.declared_static_storage t.allocation_
 
@@ -61,32 +74,31 @@ let create ~allocation ~task_view ~cursor typed =
       Error "static initializer replaced its live allocation or checked shape"
     else Ok ()
   in
-  let value = Typed.top_level_root_value root_ in
-  let* () =
-    if
-      Typed.result_array_rank value = 0
-      && (match Typed.result_category value with
-        | Typed.Object_value | Typed.Lvalue -> true
-        | _ -> false)
-      && Option.fold ~none:false
-           ~some:(fun type_ ->
-             Option.is_some (Integer_scalar_storage.of_type type_))
-           (Typed.result_type value)
-    then Ok ()
-    else Error "HCRUN0001: static initializer requires a scalar integer value"
-  in
-  let* next_, (cell_, byte_, operation) =
+  let* next_, (cell_, byte_, operation_) =
     Integer_initializer_layout.prepare_stream cursor
       ~delimiters:receipt.static_leaf_delimiters
       ~value:receipt.static_leaf_value
   in
+  let value = Typed.top_level_root_value root_ in
   let* () =
-    match operation with
-    | Integer_initializer_layout.Scalar_store -> Ok ()
-    | Copy_bytes _ ->
-        Error
-          "HCRUN0006: native static string copies require a separate checked \
-           destination"
+    match operation_ with
+    | Integer_initializer_layout.Copy_bytes _ -> (
+        match Fragment.expression fragment_ with
+        | Frontend.Ast.String_literal _ -> Ok ()
+        | _ -> Error "static byte copy requires its original string leaf")
+    | Scalar_store ->
+        if
+          Typed.result_array_rank value = 0
+          && (match Typed.result_category value with
+            | Typed.Object_value | Typed.Lvalue -> true
+            | _ -> false)
+          && Option.fold ~none:false
+               ~some:(fun type_ ->
+                 Option.is_some (Integer_scalar_storage.of_type type_))
+               (Typed.result_type value)
+        then Ok ()
+        else
+          Error "HCRUN0001: static initializer requires a scalar integer value"
   in
   let* globals_ =
     Globals.static_fragment_context task_view allocation fragment_
@@ -104,5 +116,6 @@ let create ~allocation ~task_view ~cursor typed =
       cell_;
       byte_;
       next_;
+      operation_;
       span_;
     }

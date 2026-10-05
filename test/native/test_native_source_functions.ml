@@ -537,6 +537,111 @@ let retained_static_limits () =
   let word = Option.get (Ir_integer_interpreter.final_value result.value) in
   Alcotest.(check int64) "independent narrow static counter" 43L word.bits
 
+let retained_static_string_copies () =
+  List.iter
+    (fun (expected, text) ->
+      let report = run text in
+      ignore (value expected report);
+      completed report;
+      let copies = Native.static_copies report in
+      Alcotest.(check bool)
+        "real direct native copy completed" true
+        (copies <> []
+        && List.for_all
+             (fun (copy : Native.static_copy) -> Result.is_ok copy.outcome)
+             copies);
+      let copy_work =
+        List.fold_left
+          (fun n (copy : Native.static_copy) -> n + copy.byte_count)
+          0 copies
+      in
+      Alcotest.(check bool)
+        "copied bytes charge the original preparation allowance" true
+        (Native.preparation_steps report
+        >= Native.dimension_work report + copy_work);
+      Alcotest.(check int)
+        "byte copy evaluates no IR instructions" 0
+        (Option.get (Native.source_progress report)).runtime.executed_steps;
+      let session, config, source = inputs text in
+      let interpreted =
+        run_integer_program_report session ~config ~source ~max_steps:100_000
+        |> integer_program_report_outcome
+        |> Result.map_error diagnostics
+        |> checked
+      in
+      Alcotest.(check int64)
+        "independent source execution agrees" expected
+        (Option.get (Ir_integer_interpreter.final_value interpreted.value)).bits)
+    [
+      (66L, "I64 F(){static U8 A[3]=\"AB\";return A[1];}F();");
+      (0L, "I64 F(){static U8 A[3]=\"AB\";return A[2];}F();");
+      (65L, "I64 F(){static U8 A[1]=\"ABC\";return A[0];}F();");
+      (66L, "I64 F(){static I8 A[2]=\"AB\";return A[1];}F();");
+      ( 67L,
+        "I64 F(){static U8 A[2][2]={{A[1][0]=99,66},\"CD\"};return \
+         A[1][0];}F();" );
+      (0L, "I64 F(){static U8 A[1]=\"\";return A[0];}F();");
+      (0L, "I64 F(){static U8 A[3]=\"A\\0B\";return A[1];}F();");
+      (68L, "I64 F(){static U8 A[2][3]={\"AB\",\"CD\"};return A[1][1];}F();");
+      (70L, "I64 F(){static U8 A[2][2]={\"AB\",{69,70}};return A[1][1];}F();");
+      ( 68L,
+        "I64 F(){static U8 A[3]=\"AB\";return ++A[1];}F();U8 Z[2]={20,22};F();"
+      );
+      ( 68L,
+        "I64 F(){static U8 A[3]=\"AB\";return ++A[1];}I64 Old(){return \
+         F();}Old();I64 F(){static U8 A[3]=\"XY\";return ++A[1];}F();Old();" );
+    ];
+  ignore
+    (fault Image.Address_out_of_bounds
+       (run "I64 F(){static U8 A[3]=\"AB\";return A[3];}F();"));
+  ignore (rejection (run "I64 F(){static U8 A[4]=\"AB\";return A[0];}F();"));
+  let malformed = run "I64 F(){static U8 A[3]=\"AB\",;return 0;}" in
+  ignore (rejection malformed);
+  Alcotest.(check int)
+    "earlier direct copy survives later parsing failure" 1
+    (List.length (Native.static_copies malformed));
+  let ordered =
+    run
+      "extern U0 PutChars(U64 ch);I64 Next(){PutChars('I');return 65;}I64 \
+       F(){static U8 A[2][2]={{Next(),66},\"CD\"};static I64 B=A[1][0];return \
+       B;}F();F();"
+  in
+  ignore (value ~output:"I" 67L ordered)
+
+let retained_static_copy_limits () =
+  let text = "I64 F(){static U8 A[2][3]={\"AB\",\"CD\"};return A[1][1];}F();" in
+  let report = run ~max_global_bytes:8 text in
+  ignore (value 68L report);
+  let work = Native.preparation_steps report in
+  ignore (value 68L (run ~max_global_bytes:8 ~max_initializer_steps:work text));
+  let limited = run ~max_initializer_steps:(work - 1) text in
+  diagnostic "HCIRVM0007" limited;
+  Alcotest.(check (list bool))
+    "earlier copy succeeds before later allowance failure" [ true; false ]
+    (List.map
+       (fun (copy : Native.static_copy) -> Result.is_ok copy.outcome)
+       (Native.static_copies limited));
+  Alcotest.(check int)
+    "unentered copy spends no byte allowance"
+    (Native.dimension_work limited + 3)
+    (Native.preparation_steps limited);
+  diagnostic "HCIRVM0016" (run ~max_global_bytes:7 text);
+  let report = run "I64 F(){static U8 A[3]=\"AB\";return A[1];}F();" in
+  let code, ir =
+    List.fold_left
+      (fun (code, ir) (fragment : Native.fragment) ->
+        (code + fragment.image.code_bytes, ir + fragment.image.ir_instructions))
+      (0, 0) (Native.fragments report)
+  in
+  ignore
+    (value 66L
+       (run ~max_code_bytes:code ~max_ir_instructions:ir
+          ~max_steps:(Native.executed_steps report)
+          "I64 F(){static U8 A[3]=\"AB\";return A[1];}F();"));
+  Alcotest.(check int)
+    "direct copy creates no extra expression image" 2
+    (List.length (Native.fragments report))
+
 let retained_output_effect_order () =
   let text =
     "extern U0 PutChars(U64 ch);I64 N=0;I64 Left(){N++;PutChars('L');return \
@@ -728,6 +833,10 @@ let () =
             retained_static_history;
           Alcotest.test_case "native static exact and one-below limits" `Quick
             retained_static_limits;
+          Alcotest.test_case "native static original byte-string copies" `Quick
+            retained_static_string_copies;
+          Alcotest.test_case "native static byte-copy exact allowances" `Quick
+            retained_static_copy_limits;
           Alcotest.test_case "retained ordinary output providers" `Quick
             retained_provider_output;
           Alcotest.test_case "retained output effects and original order" `Quick

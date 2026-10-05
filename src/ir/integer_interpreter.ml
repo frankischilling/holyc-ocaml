@@ -2107,9 +2107,8 @@ let check_native_static_allocation task allocation view =
     require_initializer_namespace task
       (Sema.Compiler_record.static_allocation_namespace source)
 
-let check_native_static_initializer task program =
+let check_native_static_destination task destination =
   let module Destination = Static_initializer_destination in
-  let destination = Static_initializer_program.destination program in
   let allocation = Destination.allocation destination in
   let source = Integer_static_allocation.source allocation in
   let receipt =
@@ -2140,16 +2139,51 @@ let check_native_static_initializer task program =
     require_initializer_namespace task
       (Sema.Compiler_record.static_allocation_namespace source)
 
-let complete_native_static_initializer task program =
+let check_native_static_initializer task program =
+  check_native_static_destination task
+    (Static_initializer_program.destination program)
+
+let complete_native_static_destination task destination =
   let ( let* ) = Result.bind in
-  let* () = check_native_static_initializer task program in
-  let destination = Static_initializer_program.destination program in
+  let* () = check_native_static_destination task destination in
   Integer_static_allocation.record_native_leaf
     (Static_initializer_destination.allocation destination)
     (Sema.Static_initializer_fragment.receipt
        (Static_initializer_destination.fragment destination))
     ~cell_offset:(Static_initializer_destination.cell_offset destination)
     ~byte_offset:(Static_initializer_destination.byte_offset destination)
+    ~operation:(Static_initializer_destination.operation destination)
+
+let complete_native_static_initializer task program =
+  complete_native_static_destination task
+    (Static_initializer_program.destination program)
+
+let check_native_static_copy task destination =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_destination task destination in
+  match Static_initializer_destination.copy_byte_count destination with
+  | None -> Error "native static copy requires an original string-copy leaf"
+  | Some count ->
+      if count > task.max_initializer_steps - task.initializer_steps then
+        Error
+          "HCIRVM0007: the bounded initializer copy work limit was exhausted"
+      else Ok ()
+
+let begin_native_static_copy task destination =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_copy task destination in
+  match Static_initializer_destination.copy_byte_count destination with
+  | None -> assert false
+  | Some count ->
+      task.source_promotion_open <- false;
+      task.initializer_steps <- task.initializer_steps + count;
+      Ok ()
+
+let complete_native_static_copy task destination =
+  match Static_initializer_destination.copy_byte_count destination with
+  | None ->
+      Error "native static copy completion requires an original string leaf"
+  | Some _ -> complete_native_static_destination task destination
 
 let begin_task_default task ~namespace ~publication receipt =
   let ( let* ) = Result.bind in

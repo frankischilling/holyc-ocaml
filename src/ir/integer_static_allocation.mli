@@ -20,6 +20,7 @@ val record_native_leaf :
   Frontend.Parser.static_initializer_preparation ->
   cell_offset:int ->
   byte_offset:int ->
+  operation:Integer_initializer_layout.operation ->
   (unit, string) result
 (** Record the successful original live leaf and its checked destination in the
     initializer stream. The receipt retains no computed value or native address.

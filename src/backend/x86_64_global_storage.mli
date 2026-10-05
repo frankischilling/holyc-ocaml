@@ -4,6 +4,25 @@ type t
 type task_layout
 type task_snapshot
 type static_reservation
+type static_copy
+
+val prepare_static_copy :
+  task_layout ->
+  Driver.Integer_task.Native_static_copy.request ->
+  admitted_arena_bytes:int ->
+  (static_copy, string) result
+
+val check_static_copy :
+  static_copy ->
+  layout:task_layout ->
+  request:Driver.Integer_task.Native_static_copy.request ->
+  (unit, string) result
+
+val static_copy_payload : static_copy -> int * int * int * string
+(** Checked arena prefix, byte destination, first initialization flag and a
+    detached original payload. Flags descend by eight bytes per element. This
+    plan grants no entry or write authority; the host must claim its original
+    live request while holding the exact arena lease. *)
 
 val reserve_static :
   task_layout ->

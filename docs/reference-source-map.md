@@ -23,6 +23,14 @@ frame joins preserve that allocation for historical calls. Hosted source tests
 and `examples/native-source-statics.hc` cover this connection; they add no new
 TempleOS capture.
 
+Native static literal copies follow `Compiler/PrsVar.HC:123-145` and
+`Kernel/KUtils.HC:54-68`. That parser branch directly copies the fixed byte
+count and advances the destination. Its original live receipt authorizes the
+hosted native storage write, without adding an expression opcode. Literal
+length, accessible bounds, flags, single-use ownership and work limits are
+checked before writing. `examples/native-source-static-copies.hc` exercises this
+path across retained calls and later storage growth.
+
 Retained direct native calls follow `Compiler/PrsStmt.HC:62-137` for original
 function records and `PrsStmt.HC:140-207` for body compilation and publication.
 The hosted task admits the exact checked definition, physical frame and call

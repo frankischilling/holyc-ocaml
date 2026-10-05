@@ -12,6 +12,19 @@ module Storage = Holyc_lib__Backend.X86_64_global_storage
 module Image = X86_64_program
 module Runtime = Native_program_execution
 
+type raw_arena
+
+external raw_arena_create : int -> raw_arena = "holyc_native_create_task_arena"
+
+external raw_arena_admit : raw_arena -> int -> int -> (int * string) list -> int
+  = "holyc_native_task_arena_admit"
+
+external raw_static_copy : raw_arena -> int * int * int * string -> int
+  = "holyc_native_task_static_copy"
+
+external raw_arena_release : raw_arena -> unit
+  = "holyc_native_release_task_arena"
+
 type function_bundle = {
   link : Retained.t;
   definition : VM.function_definition;
@@ -1506,6 +1519,207 @@ let native_static_source_authority () =
         (Image.compile_task_static_initializer ~layout
            (Option.get !saved_initializer)))
 
+let native_static_copy_authority () =
+  let module Copy = Task.Native_static_copy in
+  let module Storage = Holyc_lib__Backend.X86_64_global_storage in
+  let module Destination = Holyc_lib__Ir.Static_initializer_destination in
+  let module Layout = Holyc_lib__Ir.Integer_initializer_layout in
+  let session = Session.create () in
+  let layout = Image.create_task_layout ~max_global_bytes:64 |> compiled in
+  let arena =
+    Runtime.create_task_arena ~max_arena_bytes:512 layout |> checked
+  in
+  let foreign_layout =
+    Image.create_task_layout ~max_global_bytes:64 |> compiled
+  in
+  let foreign_arena =
+    Runtime.create_task_arena ~max_arena_bytes:512 foreign_layout |> checked
+  in
+  let released_layout =
+    Image.create_task_layout ~max_global_bytes:64 |> compiled
+  in
+  let released_arena =
+    Runtime.create_task_arena ~max_arena_bytes:512 released_layout |> checked
+  in
+  Runtime.release_task_arena released_arena |> checked;
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let saved = ref None and task_owner = ref None and count = ref 0 in
+  let execute image =
+    let retained = Runtime.retain_task_fragment arena image |> checked in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release retained |> checked)
+      (fun () ->
+        let report = Runtime.execute_retained_budget_report budget retained in
+        (completed report, Runtime.value_captured report))
+  in
+  let dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          ignore
+            (execute
+               (Image.compile_task_initializer ~layout request |> compiled));
+          Ok ());
+      execute_command =
+        (fun request ->
+          let result, captured =
+            execute (Image.compile_task_command ~layout request |> compiled)
+          in
+          Ok
+            (if captured then
+               Dispatch.Captured
+                 (Option.map
+                    (fun (word : Image.word) ->
+                      match word.type_ with
+                      | Image.I64 -> Dispatch.I64 word.bits
+                      | U64 -> Dispatch.U64 word.bits)
+                    result.final_value)
+             else Dispatch.Unchanged));
+    }
+  in
+  let copy request =
+    incr count;
+    saved := Some request;
+    let owner = Option.get !task_owner in
+    let before = (Task.progress owner).runtime.initializer_steps in
+    let steps = (Runtime.budget_progress budget).executed_steps in
+    Copy.check request |> checked;
+    rejected "released arena cannot consume the live byte-copy leaf"
+      (Runtime.copy_task_static released_arena request);
+    rejected "foreign arena cannot write another source's allocation"
+      (Runtime.copy_task_static foreign_arena request);
+    rejected "another domain cannot consume the copy"
+      (Domain.join
+         (Domain.spawn (fun () -> Runtime.copy_task_static arena request)));
+    Copy.check request |> checked;
+    let destination = Copy.destination request in
+    let original =
+      match Destination.operation destination with
+      | Layout.Copy_bytes bytes -> bytes
+      | Scalar_store -> Alcotest.fail "copy operation lost"
+    in
+    Bytes.set (Bytes.unsafe_of_string original) 0 'Z';
+    let fresh =
+      match Destination.operation destination with
+      | Layout.Copy_bytes bytes -> bytes
+      | Scalar_store -> Alcotest.fail "copy operation lost"
+    in
+    Alcotest.(check bool)
+      "observed source payload cannot mutate retained copy bytes" true
+      (fresh.[0] <> 'Z');
+    rejected "checked plan cannot use another admitted extent"
+      (Storage.prepare_static_copy layout request ~admitted_arena_bytes:1);
+    let admitted = 49 in
+    let plan =
+      Storage.prepare_static_copy layout request ~admitted_arena_bytes:admitted
+      |> checked
+    in
+    rejected "copy plan cannot substitute a foreign layout"
+      (Storage.check_static_copy plan ~layout:foreign_layout ~request);
+    let _, _, _, bytes = Storage.static_copy_payload plan in
+    Bytes.set (Bytes.unsafe_of_string bytes) 0 'Z';
+    let _, _, _, fresh = Storage.static_copy_payload plan in
+    Alcotest.(check bool)
+      "copy plan observation cannot mutate retained bytes" true
+      (fresh.[0] <> 'Z');
+    Alcotest.(check int)
+      "rejected copy consumers spend no allowance" before
+      (Task.progress owner).runtime.initializer_steps;
+    Runtime.copy_task_static arena request |> checked;
+    Alcotest.(check int)
+      "entered copy charges its original byte count once" (before + 2)
+      (Task.progress owner).runtime.initializer_steps;
+    Alcotest.(check int)
+      "compiler copy executes no expression instructions" steps
+      (Runtime.budget_progress budget).executed_steps;
+    rejected "entered copy cannot be replayed"
+      (Runtime.copy_task_static arena request);
+    rejected "entered copy invalidates its earlier offered plan"
+      (Storage.check_static_copy plan ~layout ~request);
+    Ok ()
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      Runtime.release_task_arena arena |> checked;
+      Runtime.release_task_arena foreign_arena |> checked)
+    (fun () ->
+      let task =
+        Task.create ~native_dispatch:dispatch
+          ~native_static_allocation:(fun request ->
+            Runtime.allocate_task_static arena request |> checked;
+            Ok ())
+          ~native_static_copy:copy session
+        |> checked
+      in
+      task_owner := Some task;
+      task_succeeds "earlier original global allocation"
+        (task_run session task 80 "I64 X=40;X++;");
+      task_succeeds "original nested direct copy leaves"
+        (task_run session task 81
+           "I64 F(){static U8 A[2][2]={\"AB\",\"CD\"};return ++A[1][0];}");
+      task_succeeds "first original byte-array call"
+        (task_run session task 82 "F();");
+      Gc.full_major ();
+      Gc.compact ();
+      task_succeeds "later allocation preserves original copied storage"
+        (task_run session task 83 "U8 Z[2]={20,22};F();");
+      Alcotest.(check bool)
+        "original copied bytes and mutation survive collection and arena growth"
+        true
+        (Task.native_final_value task = Some (Dispatch.I64 69L));
+      Alcotest.(check int) "original nested copy leaves run once" 2 !count;
+      rejected "expired parser leaf cannot copy into any arena"
+        (Runtime.copy_task_static arena (Option.get !saved)))
+
+let native_static_copy_host_bounds () =
+  let handle = raw_arena_create 40 in
+  let invalid action =
+    match action () with
+    | exception Invalid_argument _ -> ()
+    | _ -> Alcotest.fail "malformed raw static copy changed native storage"
+  in
+  Fun.protect
+    ~finally:(fun () -> raw_arena_release handle)
+    (fun () ->
+      ignore (raw_arena_admit handle 0 40 []);
+      List.iter
+        (fun descriptor ->
+          invalid (fun () -> raw_static_copy handle descriptor))
+        [
+          (39, 0, 32, "AB");
+          (40, -1, 32, "AB");
+          (40, 39, 32, "AB");
+          (40, 0, 40, "AB");
+          (40, 0, 0, "AB");
+          (40, 0, 32, "");
+          (40, 0, 32, String.make 40 'A');
+          (max_int, 0, 32, "AB");
+        ];
+      invalid (fun () -> raw_static_copy handle (Obj.magic 0));
+      Alcotest.(check int)
+        "real original flags remain available after malformed copies" 1
+        (raw_static_copy handle (40, 1, 24, "B"));
+      Alcotest.(check int)
+        "original copy may overwrite earlier initialized elements" 2
+        (raw_static_copy handle (40, 0, 32, "AB"));
+      Alcotest.(check int)
+        "raw storage writes can update initialized bytes" 1
+        (raw_static_copy handle (40, 0, 32, "A"));
+      Alcotest.(check int)
+        "remaining original array elements stay available" 2
+        (raw_static_copy handle (40, 2, 16, "CD"));
+      raw_arena_release handle;
+      invalid (fun () -> raw_static_copy handle (40, 0, 32, "A")));
+  let corrupt = raw_arena_create 40 in
+  Fun.protect
+    ~finally:(fun () -> raw_arena_release corrupt)
+    (fun () ->
+      ignore (raw_arena_admit corrupt 0 40 [ (24, "\002") ]);
+      invalid (fun () -> raw_static_copy corrupt (40, 0, 32, "AB"));
+      Alcotest.(check int)
+        "unaffected flag representations remain valid" 1
+        (raw_static_copy corrupt (40, 0, 32, "A")))
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -1547,5 +1761,10 @@ let () =
           Alcotest.test_case
             "live static allocation, initializer and arena authority" `Quick
             native_static_source_authority;
+          Alcotest.test_case "live static byte-copy source and arena authority"
+            `Quick native_static_copy_authority;
+          Alcotest.test_case
+            "native static byte-copy raw host bounds and flag validation" `Quick
+            native_static_copy_host_bounds;
         ] );
     ]

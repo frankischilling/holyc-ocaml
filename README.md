@@ -14,6 +14,9 @@ Task strings retain their original mutable bytes across fragments;
 Function statics use that same arena and initialize at their original source
 position. `examples/native-source-statics.hc` prints `I` once and returns 43
 after two counter calls.
+Static byte arrays also copy their original literal bytes at declaration;
+`examples/native-source-static-copies.hc` returns 69 after two calls and a later
+array allocation.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
 and remaining native address, dimension and runtime work under #704.
 

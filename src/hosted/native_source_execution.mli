@@ -25,6 +25,16 @@ type fragment = private {
 
 type report
 
+type static_copy = private {
+  cell_offset : int;
+  byte_offset : int;
+  byte_count : int;
+  outcome : (unit, string) Stdlib.result;
+}
+(** Detached observations of the compiler's original direct literal-copy branch.
+    These are native storage writes, without expression IR or code images. The
+    byte count is charged to initializer work on entry. *)
+
 val evaluate :
   ?max_ir_instructions:int ->
   ?max_code_bytes:int ->
@@ -73,12 +83,16 @@ val evaluate :
     fixed-array function statics append their original allocation to that arena.
     Each original initializer leaf executes once during its live parser
     callback; completion joins the same allocation to its declaring frame.
+    Literal byte-array leaves use the compiler's direct-copy branch and charge
+    their checked byte count to the owning initializer allowance. Those native
+    writes appear in [static_copies], with no expression IR or code image.
     Static values are not computed by the interpreter or copied from prepared
     storage. Unsupported task declarations, declaration defaults and AOT mode
     return diagnostics. There is no isolated program or interpreter fallback. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val fragments : report -> fragment list
+val static_copies : report -> static_copy list
 val platform : report -> Runtime.Native_program_execution.platform
 val executed_steps : report -> int
 val preparation_steps : report -> int

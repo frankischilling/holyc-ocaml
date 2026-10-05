@@ -259,6 +259,47 @@ module Native_static_initializer = struct
   let close request = Atomic.set request.phase Closed
 end
 
+module Native_static_copy = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    destination_ : Ir.Static_initializer_destination.t;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  let destination request = request.destination_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error
+        "native static copy belongs to another domain or was already claimed"
+    else VM.check_native_static_copy request.task request.destination_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match VM.begin_native_static_copy request.task request.destination_ with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native static copy was already claimed"
+
+  let create task destination_ =
+    { task; destination_; domain = Domain.self (); phase = Atomic.make Offered }
+
+  let entered request = Atomic.get request.phase = Entered
+  let close request = Atomic.set request.phase Closed
+end
+
 type stream = VM.task_stream
 
 type progress = {
@@ -276,6 +317,7 @@ type t = {
   native_dispatch : Native_dispatch.t option;
   native_static_allocation : Native_static_allocation.t option;
   native_static_initializer : Native_static_initializer.t option;
+  native_static_copy : Native_static_copy.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
 }
 
@@ -291,7 +333,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_initializer_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
     ?max_stream_depth ?native_dispatch ?native_static_allocation
-    ?native_static_initializer session =
+    ?native_static_initializer ?native_static_copy session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -318,6 +360,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             native_dispatch;
             native_static_allocation;
             native_static_initializer;
+            native_static_copy;
             commands = [];
           }))
 
@@ -327,7 +370,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
     ?native_dispatch ?native_static_allocation ?native_static_initializer
-    session ~source ~ledger =
+    ?native_static_copy session ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
@@ -349,6 +392,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       native_dispatch;
       native_static_allocation;
       native_static_initializer;
+      native_static_copy;
       commands = [];
     }
 
@@ -908,7 +952,8 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
   in
   (match event with
     | Frontend.Parser.Static_initializer_preparing receipt
-      when Option.is_some task.native_static_initializer ->
+      when Option.is_some task.native_static_initializer
+           || Option.is_some task.native_static_copy -> (
         let span =
           receipt.static_allocation.allocation_function.function_name.location
             .span
@@ -939,22 +984,52 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
             typed
           |> diagnose
         in
-        let* program = Static_initializer_lowering.lower ~context destination in
-        let request = Native_static_initializer.create task.state program in
-        Fun.protect
-          ~finally:(fun () -> Native_static_initializer.close request)
-          (fun () ->
-            let* () = (Option.get task.native_static_initializer) request in
-            if Native_static_initializer.entered request then
-              VM.complete_native_static_initializer task.state program
-              |> diagnose
-            else
-              Error
-                [
-                  Integer_source.diagnostic ~span "HCIRVM0026"
-                    "native static initializer returned without claiming its \
-                     original entry";
-                ])
+        match Ir.Static_initializer_destination.copy_byte_count destination with
+        | Some _ -> (
+            match task.native_static_copy with
+            | None -> native_reject span "static string copies"
+            | Some copy ->
+                let request =
+                  Native_static_copy.create task.state destination
+                in
+                Fun.protect
+                  ~finally:(fun () -> Native_static_copy.close request)
+                  (fun () ->
+                    let* () = copy request in
+                    if Native_static_copy.entered request then
+                      VM.complete_native_static_copy task.state destination
+                      |> diagnose
+                    else
+                      Error
+                        [
+                          Integer_source.diagnostic ~span "HCIRVM0026"
+                            "native static copy returned without claiming its \
+                             original leaf";
+                        ]))
+        | None -> (
+            match task.native_static_initializer with
+            | None -> native_reject span "static scalar initializers"
+            | Some initialize ->
+                let* program =
+                  Static_initializer_lowering.lower ~context destination
+                in
+                let request =
+                  Native_static_initializer.create task.state program
+                in
+                Fun.protect
+                  ~finally:(fun () -> Native_static_initializer.close request)
+                  (fun () ->
+                    let* () = initialize request in
+                    if Native_static_initializer.entered request then
+                      VM.complete_native_static_initializer task.state program
+                      |> diagnose
+                    else
+                      Error
+                        [
+                          Integer_source.diagnostic ~span "HCIRVM0026"
+                            "native static initializer returned without \
+                             claiming its original entry";
+                        ])))
     | Frontend.Parser.Internal_binding_preparing receipt
       when Option.is_some task.native_dispatch ->
         native_reject receipt.binding_ast.location.span "internal bindings"

@@ -1936,6 +1936,65 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
   CAMLreturn(Val_unit);
 }
 
+CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
+{
+  CAMLparam2(handle, descriptor);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_task_arena *arena = native_task_arena_get(handle);
+  int expected = 0;
+  intnat prefix, data, flag;
+  mlsize_t count;
+  size_t lowest_flag, i;
+  value payload;
+  unsigned char *mapping;
+  if (!Is_block(descriptor) || Tag_val(descriptor) != 0
+      || Wosize_val(descriptor) != 4
+      || !Is_long(Field(descriptor, 0)) || !Is_long(Field(descriptor, 1))
+      || !Is_long(Field(descriptor, 2)) || !Is_block(Field(descriptor, 3))
+      || Tag_val(Field(descriptor, 3)) != String_tag)
+    caml_invalid_argument("native static byte copy descriptor is malformed");
+  prefix = Long_val(Field(descriptor, 0));
+  data = Long_val(Field(descriptor, 1));
+  flag = Long_val(Field(descriptor, 2));
+  payload = Field(descriptor, 3);
+  count = caml_string_length(payload);
+  if (prefix <= 0 || (uintnat)prefix > HOLYC_NATIVE_MAX_ARENA_BYTES
+      || data < 0 || data >= prefix || count == 0
+      || count > (uintnat)(prefix - data)
+      || flag < 0 || flag >= prefix || count - 1 > (uintnat)flag / 8)
+    caml_invalid_argument("native static byte copy leaves its admitted extent");
+  lowest_flag = (size_t)flag - (count - 1) * 8;
+  if (lowest_flag < (size_t)data + count)
+    caml_invalid_argument("native static byte copy overlaps its initialization flags");
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_invalid_argument("native task arena is already active");
+  if (arena->closing || arena->mapping == NULL) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("native task arena has been released");
+  }
+  if ((size_t)prefix != arena->used || arena->used > arena->capacity) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("native static byte copy has another admitted arena prefix");
+  }
+  mapping = arena->mapping;
+  /* Earlier original expressions may already have written these elements.
+     Validate the flag representation without treating initialization as replay. */
+  for (i = 0; i < count; ++i) {
+    if (mapping[(size_t)flag - i * 8] > 1) {
+      atomic_store(&arena->active, 0);
+      caml_invalid_argument("native static byte copy has a malformed initialization flag");
+    }
+  }
+  memcpy(mapping + data, String_val(payload), count);
+  for (i = 0; i < count; ++i) mapping[(size_t)flag - i * 8] = 1;
+  atomic_store(&arena->active, 0);
+  CAMLreturn(Val_long((intnat)count));
+#endif
+  CAMLreturn(Val_unit);
+}
+
 CAMLprim value holyc_native_release_task_arena(value handle)
 {
   CAMLparam1(handle);

@@ -233,6 +233,7 @@ type native_view = {
   final_value : native_word option;
   image : Holyc_lib.X86_64_program.t option;
   fragments : Holyc_lib.Native_source_execution.fragment list option;
+  static_copies : Holyc_lib.Native_source_execution.static_copy list option;
 }
 
 let native_decimal (word : native_word) =
@@ -274,6 +275,21 @@ let native_fragment_json (fragment : Holyc_lib.Native_source_execution.fragment)
       ("function_count", `Int fragment.image.function_count);
     ]
 
+let native_static_copy_json
+    (copy : Holyc_lib.Native_source_execution.static_copy) =
+  `Assoc
+    [
+      ("cell_offset", `Int copy.cell_offset);
+      ("byte_offset", `Int copy.byte_offset);
+      ("byte_count", `Int copy.byte_count);
+      ( "outcome",
+        `String (if Result.is_ok copy.outcome then "success" else "error") );
+      ( "error",
+        match copy.outcome with
+        | Ok () -> `Null
+        | Error s -> `String s );
+    ]
+
 let render_native_view ~human ~session ~limits ~native_limits ?command_error
     ?view () =
   let view =
@@ -293,6 +309,7 @@ let render_native_view ~human ~session ~limits ~native_limits ?command_error
           final_value = None;
           image = None;
           fragments = None;
+          static_copies = None;
         }
   in
   let result = if view.completed then Some () else None in
@@ -397,6 +414,14 @@ let render_native_view ~human ~session ~limits ~native_limits ?command_error
                (native_fragment_json fragment |> Yojson.Safe.to_string))
            fragments)
        view.fragments;
+     Option.iter
+       (fun copies ->
+         List.iteri
+           (fun index copy ->
+             Printf.printf "native-static-copy-%d=%s\n" index
+               (native_static_copy_json copy |> Yojson.Safe.to_string))
+           copies)
+       view.static_copies;
      List.iter
        (fun diagnostic ->
          Holyc_lib.Diagnostic_render.human
@@ -531,7 +556,14 @@ let render_native_view ~human ~session ~limits ~native_limits ?command_error
                      ( "fragments",
                        `List (List.map native_fragment_json fragments) );
                    ])
-                 view.fragments) );
+                 view.fragments
+             @ Option.fold ~none:[]
+                 ~some:(fun copies ->
+                   [
+                     ( "static_copies",
+                       `List (List.map native_static_copy_json copies) );
+                   ])
+                 view.static_copies) );
        ]
      |> Yojson.Safe.pretty_to_string |> print_endline);
   if Option.is_some result then 0 else 1
@@ -567,6 +599,7 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
           image =
             Option.map (fun (result : Native.result) -> result.image) result;
           fragments = None;
+          static_copies = None;
         })
       report
   in
@@ -603,6 +636,7 @@ let render_native_task ~human ~session ~limits ~native_limits ?command_error
                   result.final_value);
           image = None;
           fragments = Some (Native.fragments report);
+          static_copies = Some (Native.static_copies report);
         })
       report
   in

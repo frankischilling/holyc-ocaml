@@ -1554,5 +1554,19 @@ compile; actual execution uses the host ABI. The function CLI tests check the
 counter against public IR, exact and one-below cumulative native limits, and
 once-only output. `examples/native-source-statics.hc` returns 43 and captures `I`.
 No new TempleOS runtime capture is claimed. Unsupported automatic or parameter
-references, partial array leaves, string copies and noninteger statics remain
+references, partial array leaves and noninteger statics remain
 explicit boundaries.
+
+Native static-copy cases compare byte values with independent IR execution for
+truncation, included terminating zeros, empty and embedded-zero strings,
+nested and mixed scalar/copy rows, historical bodies and later arena growth.
+Exact and one-below allowances verify that each original copied byte is charged
+once and that a later rejected copy leaves earlier effects reached. Source
+authority controls reject foreign layouts, released arenas, other domains,
+replay and expired receipts. Deliberate mutation of observed payloads leaves
+the retained bytes intact. Raw host controls reject malformed descriptors,
+invalid extents, overlapping flags and malformed flag representations before
+writing. A later copy may overwrite earlier original element writes; its live
+request enforces single use. Public CLI reports list the direct
+copy separately from the two expression-code fragments for a definition and
+call. These controls add no TempleOS runtime capture.

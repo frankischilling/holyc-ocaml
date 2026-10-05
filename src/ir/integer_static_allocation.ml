@@ -38,7 +38,8 @@ let native_leaf_executed value root =
           | _ -> false)
         value.executed_
 
-let record_native_leaf value receipt ~cell_offset ~byte_offset =
+let record_native_leaf value receipt ~cell_offset ~byte_offset
+    ~operation:expected =
   let ( let* ) = Result.bind in
   if
     (not (Parser.static_initializer_is_current receipt))
@@ -60,10 +61,8 @@ let record_native_leaf value receipt ~cell_offset ~byte_offset =
         ~delimiters:receipt.static_leaf_delimiters
         ~value:receipt.static_leaf_value
     in
-    if
-      cell <> cell_offset || bytes <> byte_offset
-      || operation <> Integer_initializer_layout.Scalar_store
-    then Error "native static completion has another original leaf destination"
+    if cell <> cell_offset || bytes <> byte_offset || operation <> expected then
+      Error "native static completion has another original leaf destination"
     else (
       value.executed_ <- value.executed_ @ [ (receipt, cell, bytes) ];
       value.cursor_ <- next;

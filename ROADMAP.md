@@ -11,6 +11,8 @@ fragments, including retained formats and initializer calls.
 Integer function statics now allocate at the original live declaration and
 execute initializer leaves once in source order. Retained calls share their
 original private storage, including historical bodies after replacement.
+The compiler's direct literal-copy branch now initializes original fixed byte
+array statics under the same task ownership and initializer allowance.
 Persistent executable addresses, task callbacks, runtime dimensions,
 effectful defaults, native `#exe` and AOT task execution remain open. See
 [native source tasks](docs/native-source-tasks.md).

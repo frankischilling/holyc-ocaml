@@ -6,6 +6,8 @@ JIT source and retained direct functions.
 Integer function statics use their original private allocation and live
 initializer requests. Native effects occur before the enclosing body completes;
 later retained calls reuse the same storage without initializer replay.
+Original literal byte-array statics use a live direct-copy request. The task
+charges their fixed copied byte count before writing the native allocation.
 `holyc run --target=host-jit-task` executes each live initializer and resumed
 command in one native arena. Native function source records retain original
 definitions and frames independently of interpreter executable owners.

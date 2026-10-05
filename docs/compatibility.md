@@ -10,8 +10,9 @@ without an interpreter storage copy. Integer function statics append private
 storage during allocation and initialize once at their original live leaves.
 Scalar and fully initialized fixed-array statics retain declared widths,
 per-element initialization flags and historical function ownership.
-Automatic/parameter reads in static initializers, string-copy leaves and partial
-array initialization still reject. Persistent function addresses, task
+Original literal-copy leaves initialize fixed byte-array statics, including
+nested rows and truncated or terminating-zero copies. Automatic/parameter reads
+in static initializers and partial array initialization still reject. Persistent function addresses, task
 callbacks, runtime dimensions, defaults, native `#exe` and AOT task
 execution remain open under #704.
 See [native source tasks](native-source-tasks.md).

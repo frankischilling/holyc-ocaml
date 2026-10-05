@@ -112,6 +112,18 @@ val check_native_static_initializer :
 val complete_native_static_initializer :
   task_state -> Static_initializer_program.t -> (unit, string) result
 
+val check_native_static_copy :
+  task_state -> Static_initializer_destination.t -> (unit, string) result
+
+val begin_native_static_copy :
+  task_state -> Static_initializer_destination.t -> (unit, string) result
+(** Charge the original direct byte-copy leaf against its owning task's
+    initializer allowance before writing native storage. No expression is
+    interpreted and no prepared values are produced. *)
+
+val complete_native_static_copy :
+  task_state -> Static_initializer_destination.t -> (unit, string) result
+
 val prepare_task_closed_dimension :
   task_state ->
   table:Sema.Symbol_table.t ->

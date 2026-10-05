@@ -10,6 +10,13 @@ let lower ~context destination =
       (fun message -> [ Integer_source.message_diagnostic ~span message ])
       result
   in
+  let* () =
+    if Option.is_none (Destination.copy_byte_count destination) then Ok ()
+    else
+      Error
+        "HCRUN0006: direct static string copies require their native copy \
+         consumer" |> diagnose
+  in
   let typed = Destination.typed destination in
   let records = Initializer_fragment_typing.records context in
   let* top_calls =

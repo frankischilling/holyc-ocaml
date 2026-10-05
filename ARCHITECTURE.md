@@ -14,6 +14,11 @@ original allocation callback. Each live initializer request binds the original
 static destination, selected references, checked graph and runtime context.
 Successful native leaves join the completed frame without replaying their
 values. Historical bodies retain the same private arena allocation.
+The original string-copy branch uses a separate live request and a bounded
+native storage copy. It writes only the checked literal byte count and marks
+those elements initialized. The task charges this work before writing; detached
+copy reports retain no source, arena or executable authority. No expression
+opcode or machine-code image is invented for the compiler's direct MemCpy call.
 
 Native task admission also publishes original function source records in
 `Ir.Integer_interpreter`, independently of interpreter executable owners.

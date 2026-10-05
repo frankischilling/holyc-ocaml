@@ -12,9 +12,10 @@ let runtime_calls t = t.runtime_calls_
 
 let create ~destination ~entry ~initialization ~runtime_calls =
   if
-    (not
-       (Global_initialization.matches initialization ~entry
-          ~globals:(Static_initializer_destination.globals destination)))
+    Option.is_some (Static_initializer_destination.copy_byte_count destination)
+    || (not
+          (Global_initialization.matches initialization ~entry
+             ~globals:(Static_initializer_destination.globals destination)))
     || (not
           (Runtime_call_context.matches runtime_calls ~entry
              ~initialization:(Some initialization) ~functions:[]))

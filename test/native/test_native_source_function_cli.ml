@@ -21,10 +21,10 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 5)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 6)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
-     [native-source-literals.hc]"
+     [native-source-literals.hc] [native-source-static-copies.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -242,7 +242,7 @@ let () =
       (limited |> member "output_hex" |> to_string = "")
       "unadmitted literal prints nothing"
   in
-  if Array.length Sys.argv = 5 then literal_checks Sys.argv.(4)
+  if Array.length Sys.argv >= 5 then literal_checks Sys.argv.(4)
   else
     with_file ".hc"
       "extern U0 Print(U8 *fmt,...);I64 Answer(){Print(\"%d;\",42);return \
@@ -294,5 +294,59 @@ let () =
         (final_bits ir = final_bits report
         && ir |> member "output_hex" |> to_string = "49")
         "independent static initializer effects");
+  with_file ".hc" "I64 F(){static U8 A[3]=\"AB\";return A[1];}F();" (fun path ->
+      let report = json_path path in
+      require
+        (final_bits report = "0x0000000000000042")
+        "native static string copy";
+      let copies =
+        report |> member "native" |> member "static_copies" |> to_list
+      in
+      require (List.length copies = 1) "one original direct native byte copy";
+      require
+        (List.hd copies |> member "byte_count" |> to_int = 3)
+        "original fixed count includes terminating zero";
+      require
+        (List.length (fragments report) = 2)
+        "direct copy fabricates no expression image";
+      require
+        (report |> member "compiled_initializer_steps" |> to_int = 4)
+        "one dimension and three copied bytes";
+      List.iter
+        (fun target ->
+          require
+            (final_bits (json_path ~target path) = final_bits report)
+            "independent existing consumers agree")
+        [ "ir"; "host-jit" ];
+      let exact = json_path ~options:[ "--initializer-step-limit=4" ] path in
+      require
+        (final_bits exact = final_bits report)
+        "exact original initializer allowance";
+      let limited =
+        json_path ~status:1 ~options:[ "--initializer-step-limit=3" ] path
+      in
+      require
+        (has_diagnostic "HCIRVM0007" limited)
+        "one-below direct copy allowance";
+      require
+        (limited |> member "native" |> member "static_copies" |> to_list
+       |> List.hd |> member "outcome" |> to_string = "error")
+        "unentered direct copy is reported independently");
+  let retained_copy_checks path =
+    let report = json_path path in
+    require
+      (final_bits report = "0x0000000000000045")
+      "retained original byte-copy mutation";
+    require
+      (report |> member "native" |> member "static_copies" |> to_list
+     |> List.length = 2)
+      "nested direct copies occur once before later storage growth"
+  in
+  if Array.length Sys.argv = 6 then retained_copy_checks Sys.argv.(5)
+  else
+    with_file ".hc"
+      "I64 NextByte(){static U8 Bytes[2][3]={\"AB\",\"CD\"};return \
+       ++Bytes[1][0];}NextByte();U8 Later[2]={20,22};NextByte();"
+      retained_copy_checks;
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

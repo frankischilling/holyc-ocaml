@@ -113,6 +113,19 @@ module Native_static_initializer : sig
     (bool, string) result
 end
 
+module Native_static_copy : sig
+  type request
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  val destination : request -> Ir.Static_initializer_destination.t
+  val check : request -> (unit, string) result
+
+  val claim : request -> (unit, string) result
+  (** Single-use original live byte-copy receipt. Claim charges its exact byte
+      count against the originating task's initializer allowance. Source bytes
+      and destination ownership cannot be supplied by the consumer. *)
+end
+
 type progress = private {
   runtime : Ir.Integer_interpreter.task_progress;
   dimension_work : int;
@@ -166,6 +179,7 @@ val create :
   ?native_dispatch:Native_dispatch.t ->
   ?native_static_allocation:Native_static_allocation.t ->
   ?native_static_initializer:Native_static_initializer.t ->
+  ?native_static_copy:Native_static_copy.t ->
   Session.t ->
   (t, string) result
 (** Limits belong to the task. Preparation is charged during compilation,
@@ -244,6 +258,7 @@ val adopt_source :
   ?native_dispatch:Native_dispatch.t ->
   ?native_static_allocation:Native_static_allocation.t ->
   ?native_static_initializer:Native_static_initializer.t ->
+  ?native_static_copy:Native_static_copy.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->
@@ -267,6 +282,7 @@ val adopt_source_for_activation :
   ?native_dispatch:Native_dispatch.t ->
   ?native_static_allocation:Native_static_allocation.t ->
   ?native_static_initializer:Native_static_initializer.t ->
+  ?native_static_copy:Native_static_copy.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->

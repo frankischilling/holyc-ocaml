@@ -69,6 +69,15 @@ type static_reservation = {
   reservation_request : Driver.Integer_task.Native_static_allocation.request;
 }
 
+type static_copy = {
+  copy_layout : task_layout;
+  copy_state : task_layout_state;
+  copy_request : Driver.Integer_task.Native_static_copy.request;
+  copy_data : int;
+  copy_flag : int;
+  copy_bytes : string;
+}
+
 let hard_max_global_bytes = 16 * 1024 * 1024
 let hard_max_arena_bytes = 32 * 1024 * 1024
 let hard_max_task_layout_work = 1_000_000
@@ -1102,6 +1111,80 @@ let static_reservation_arena_bytes reservation =
 let static_reservation_initializations_since reservation ~arena_prefix_bytes =
   Literals.initializations_since reservation.reservation_state.task_literals
     ~arena_prefix_bytes
+
+let prepare_static_copy layout request ~admitted_arena_bytes =
+  let ( let* ) = Result.bind in
+  let module Request = Driver.Integer_task.Native_static_copy in
+  let module Destination = Ir.Static_initializer_destination in
+  let* () = Request.check request in
+  let destination = Request.destination request in
+  let allocation = Destination.allocation destination in
+  let symbol = Ir.Integer_static_allocation.symbol allocation in
+  let state = Atomic.get layout.task_state in
+  let* () =
+    if
+      state.task_arena_bytes <> admitted_arena_bytes
+      || not
+           (Option.fold ~none:false
+              ~some:(fun owner ->
+                Globals.same_task_storage owner
+                  (Destination.globals destination))
+              state.task_owner)
+    then Error "native static copy requires its original admitted task arena"
+    else Ok ()
+  in
+  let* slot =
+    match Symbol_map.find_opt (Symbol.id symbol) state.task_symbols with
+    | Some slot
+      when slot.symbol == symbol
+           && Option.fold ~none:false ~some:(( == ) allocation)
+                slot.static_source
+           && Globals.same_storage slot.source_slot
+                (Destination.storage destination) -> Ok slot
+    | _ -> Error "native static copy replaced its original private allocation"
+  in
+  let* bytes =
+    match Destination.operation destination with
+    | Layout.Copy_bytes bytes -> Ok bytes
+    | Scalar_store ->
+        Error "native static copy requires its original byte-copy operation"
+  in
+  let cell = Destination.cell_offset destination in
+  let byte = Destination.byte_offset destination in
+  let count = String.length bytes in
+  if
+    Scalar.byte_size slot.scalar <> 1
+    || slot.dimensions = [] || cell < 0 || byte <> cell || count <= 0
+    || cell > slot.element_count
+    || count > slot.element_count - cell
+    || byte > slot.extent_bytes
+    || count > slot.extent_bytes - byte
+  then
+    Error "native static copy leaves its checked accessible byte-array extent"
+  else
+    Ok
+      {
+        copy_layout = layout;
+        copy_state = state;
+        copy_request = request;
+        copy_data = slot.data_offset + byte;
+        copy_flag = slot.flag_offset - (cell * 8);
+        copy_bytes = bytes;
+      }
+
+let check_static_copy copy ~layout ~request =
+  if
+    copy.copy_layout != layout
+    || copy.copy_request != request
+    || Atomic.get layout.task_state != copy.copy_state
+  then Error "native static copy belongs to another request or arena layout"
+  else Driver.Integer_task.Native_static_copy.check request
+
+let static_copy_payload copy =
+  ( copy.copy_state.task_arena_bytes,
+    copy.copy_data,
+    copy.copy_flag,
+    Bytes.to_string (Bytes.of_string copy.copy_bytes) )
 
 let append_task_literals snapshot ~sources ~work =
   let ( let* ) = Result.bind in

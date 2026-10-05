@@ -66,6 +66,15 @@ val allocate_task_static :
     the new zeroed suffix. Existing data and initialization flags remain
     authoritative. This executes no initializer or function entry. *)
 
+val copy_task_static :
+  task_arena ->
+  Driver.Integer_task.Native_static_copy.request ->
+  (unit, string) result
+(** Execute the pinned compiler's direct literal MemCpy branch in the original
+    admitted native byte-array allocation. Exact live source ownership, extent,
+    flags, domain and task allowance are checked before writing. This neither
+    interprets an expression nor seeds storage from a prepared image. *)
+
 val retain_task_fragment :
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->

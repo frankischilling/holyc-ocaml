@@ -73,6 +73,10 @@ external admit_task_arena :
 external release_task_arena_handle : task_arena_handle -> unit
   = "holyc_native_release_task_arena"
 
+external copy_task_static_bytes :
+  task_arena_handle -> int * int * int * string -> int
+  = "holyc_native_task_static_copy"
+
 external execute_retained_budget_task_program :
   retained_handle ->
   task_arena_handle * int ->
@@ -704,6 +708,37 @@ let allocate_task_static arena request =
               Atomic.set arena.admitted_bytes_ observed;
               Ok ())
           with Failure message | Invalid_argument message -> Error message)
+
+let copy_task_static arena request =
+  let module Request = Driver.Integer_task.Native_static_copy in
+  let ( let* ) = Result.bind in
+  let* () =
+    acquire_lease arena.arena_lease_ "native task arena is already active"
+  in
+  Fun.protect
+    ~finally:(fun () -> release_lease arena.arena_lease_)
+    (fun () ->
+      if Atomic.get arena.arena_revoked_ then
+        Error "native task arena has been released"
+      else
+        let* () = Request.check request in
+        let* copy =
+          Task_storage.prepare_static_copy arena.layout_ request
+            ~admitted_arena_bytes:(Atomic.get arena.admitted_bytes_)
+        in
+        let* () =
+          Task_storage.check_static_copy copy ~layout:arena.layout_ ~request
+        in
+        let payload = Task_storage.static_copy_payload copy in
+        let _, _, _, bytes = payload in
+        let* () = Request.claim request in
+        try
+          let observed = copy_task_static_bytes arena.handle_ payload in
+          if observed = String.length bytes then Ok ()
+          else (
+            Atomic.set arena.arena_revoked_ true;
+            Error "native static copy returned an inconsistent byte count")
+        with Failure message | Invalid_argument message -> Error message)
 
 let retain_task_fragment ?max_global_bytes ?max_literal_bytes
     ?max_active_stack_bytes arena image =

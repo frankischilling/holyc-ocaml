@@ -194,11 +194,29 @@ array destinations. Later calls and historical direct-function closures use
 that same private allocation without replaying its initialization. These
 storage records carry no arena address, interpreter cells or initializer values.
 
+The literal-string branch copies the original fixed byte count directly into
+the admitted private allocation. `Compiler/PrsVar.HC:123-145` calls MemCpy
+during parsing; `Kernel/KUtils.HC:54-68` implements its byte copy. The hosted
+consumer checks the original live leaf, task, allocation, stream offset and
+accessible extent, then claims its request and charges the copied bytes before
+writing. The native host validates all destination flags before the first
+write. A copy may overwrite an element written by an earlier initializer
+expression; initialization flags do not substitute for its single-use receipt.
+Nested rows, mixed scalar/copy leaves, truncation and an included
+terminating zero keep their original stream order. A count beyond the literal
+plus terminator remains a hosted rejection. Copy observations use detached
+payloads, so mutating an observation cannot replace the retained source bytes.
+`Native_source_execution.static_copies` and JSON `native.static_copies` report
+these direct writes separately from expression-code fragments. They consume
+initializer work without fabricated expression IR or runtime instruction steps.
+
 `examples/native-source-statics.hc` returns 43 and captures `I` once. The native
 tests cover narrow stores, fixed arrays, independent function owners, historical
 calls, cumulative limits and reached initialization faults. Released arenas,
 foreign sources and domains, and repeated or expired requests are rejected.
-Automatic or parameter references in static initializers, string-copy leaves,
+`examples/native-source-static-copies.hc` returns 69 after a copied byte array
+is mutated across two calls and a later allocation.
+Automatic or parameter references in static initializers,
 partial fixed-array initialization, noninteger static storage and dynamic
 dimensions still return diagnostics. The runtime checks bounds against the
 declared accessible extent, excluding static padding.

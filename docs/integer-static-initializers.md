@@ -11,8 +11,10 @@ callbacks. Calls and earlier global/static reads use the same append-only arena;
 initializer effects occur once before the enclosing function is published.
 `examples/native-source-statics.hc` prints `I` once and returns 43 after two calls.
 This path charges initializer instructions to native runtime work. It does not
-prepare their values through the interpreter. AOT source tasks, string-copy
-leaves, partial array initialization and dynamic bounds remain open.
+prepare their values through the interpreter. Original fixed byte-array literal
+copies execute through the separate direct-copy request and charge each copied
+byte to initializer work. AOT source tasks, partial array initialization and
+dynamic bounds remain open.
 
 A declaration region can materialize [scalar references](integer-pointers.md)
 for fixed pointer arguments. `IC_ADDR` checks authority at its own instruction;
