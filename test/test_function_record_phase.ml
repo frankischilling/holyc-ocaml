@@ -153,6 +153,76 @@ let local_allocation_release () =
   ignore (fixture ~allocate "I64 F(){U8 a;U8 b;}");
   Alcotest.(check int) "both original allocation callbacks reached" 2 !count
 
+let original_static_allocations () =
+  let module R = Semantic_compiler_record in
+  let session = Session.create () in
+  let positions =
+    R.create_compiler_positions ~sources:(Session.sources session)
+  in
+  let originals = ref [] in
+  let allocate table namespace record receipt =
+    Alcotest.(check bool)
+      "unconsumed receipt has no static witness" true
+      (Option.is_none (R.static_allocation positions receipt));
+    let before = N.snapshot record in
+    let foreign = Session.create () in
+    Alcotest.(check bool)
+      "failed foreign capture has no witness" true
+      (Result.is_error
+         (R.record_local_allocation
+            ~table:(Session.semantic_symbols foreign)
+            ~namespace ~dimensions:[] positions record receipt));
+    Alcotest.(check bool)
+      "failed capture preserves the original phase" true
+      (N.snapshot record == before);
+    R.record_local_allocation ~table ~namespace ~dimensions:[] positions record
+      receipt
+    |> checked;
+    match R.static_allocation positions receipt with
+    | None ->
+        Alcotest.(check bool)
+          "automatic locals have no static witness" true
+          (receipt.Parser.allocation_storage = Ast.Automatic_local)
+    | Some original ->
+        Alcotest.(check bool)
+          "original static receipt" true
+          (R.static_allocation_receipt original == receipt);
+        Alcotest.(check bool)
+          "original function publication" true
+          (R.static_allocation_publication original == N.publication before);
+        Alcotest.(check bool)
+          "original namespace" true
+          (R.static_allocation_namespace original == namespace);
+        Alcotest.(check bool)
+          "original table" true
+          (R.static_allocation_owns_table original table);
+        Alcotest.(check bool)
+          "foreign table has no ownership" false
+          (R.static_allocation_owns_table original
+             (Session.semantic_symbols foreign));
+        originals := (record, receipt, original) :: !originals
+  in
+  ignore
+    (fixture ~session ~allocate
+       "I64 F(){I64 X;static I64 A;}I64 G(){static I64 A;}");
+  Alcotest.(check int)
+    "two independent static owners" 2 (List.length !originals);
+  List.iter
+    (fun (_, receipt, original) ->
+      Alcotest.(check bool)
+        "source witness survives callback expiry" true
+        (Option.get (R.static_allocation positions receipt) == original);
+      Alcotest.(check bool)
+        "expired witness does not reactivate allocation" false
+        (Parser.function_local_allocation_is_current receipt);
+      Alcotest.(check bool)
+        "fresh registry cannot reconstruct a source owner" true
+        (Option.is_none
+           (R.static_allocation
+              (R.create_compiler_positions ~sources:(Session.sources session))
+              receipt)))
+    !originals
+
 let original_header_positions () =
   let module R = Semantic_compiler_record in
   List.iter
@@ -1064,6 +1134,8 @@ let tests =
       original_local_allocations;
     Alcotest.test_case "local allocation exceptions release original authority"
       `Quick local_allocation_release;
+    Alcotest.test_case "static allocations retain original source owners" `Quick
+      original_static_allocations;
     Alcotest.test_case "original source activation updates native phases once"
       `Quick activation_replay;
     Alcotest.test_case "bound lifecycle requires separate executable evidence"

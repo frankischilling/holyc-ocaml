@@ -94,6 +94,11 @@ val find_binding_location :
     index. A binding rebuilt around the same symbol does not match. *)
 
 val location_binding : location -> Function_binding_index.binding
+
+val location_local_source : location -> Local_type_resolution.local option
+(** The exact local type evidence consumed by this location. Parameter and
+    synthetic locations have no local source. *)
+
 val location_symbol : location -> Symbol.t
 val location_kind : location -> location_kind
 

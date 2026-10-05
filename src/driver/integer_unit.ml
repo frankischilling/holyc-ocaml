@@ -20,6 +20,7 @@ type compiled = {
   dimension_work_ : int;
   switch_work_ : int;
   functions_ : Ir.Integer_interpreter.function_definition list;
+  static_sources_ : Sema.Static_local_source.t list;
   runtime_calls_ : Ir.Runtime_call_context.t;
   entry_has_calls_ : bool;
 }
@@ -31,6 +32,7 @@ let initializer_preparation compiled = compiled.preparation_
 let dimension_preparation_work compiled = compiled.dimension_work_
 let switch_preparation_work compiled = compiled.switch_work_
 let functions compiled = compiled.functions_
+let static_sources compiled = compiled.static_sources_
 let runtime_calls compiled = compiled.runtime_calls_
 let has_entry_calls compiled = compiled.entry_has_calls_
 
@@ -304,6 +306,70 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ~some:(fun view ->
                 Ir.Integer_globals.with_task_view view globals_)
               task_view
+          in
+          let* static_sources_ =
+            let* allocations =
+              let table = Session.semantic_symbols session in
+              match (declaration_command, source_command) with
+              | Some command, None ->
+                  Task_declarations.static_allocations ~table ~ast command
+              | None, Some command ->
+                  Task_declarations.source_static_allocations ~table ~ast
+                    command
+              | _ -> Ok []
+            in
+            let slots = Ir.Integer_globals.statics globals_ in
+            let* () =
+              if
+                Ir.Integer_globals.compilation_mode globals_
+                = Sema.Global_resolution.Jit
+                && (Option.is_some declaration_command
+                   || Option.is_some source_command)
+                && List.length allocations <> List.length slots
+              then
+                Error
+                  [
+                    Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                      "static locations lack their original live allocations";
+                  ]
+              else Ok ()
+            in
+            List.fold_left
+              (fun checked allocation ->
+                let* sources = checked in
+                match
+                  List.find_map
+                    (fun slot ->
+                      Sema.Static_local_source.bind ~allocation
+                        ~frame:(Ir.Integer_globals.static_frame slot)
+                        ~location:(Ir.Integer_globals.static_location slot)
+                      |> Result.to_option)
+                    slots
+                with
+                | Some source -> Ok (source :: sources)
+                | None ->
+                    let reasons =
+                      List.filter_map
+                        (fun slot ->
+                          match
+                            Sema.Static_local_source.bind ~allocation
+                              ~frame:(Ir.Integer_globals.static_frame slot)
+                              ~location:
+                                (Ir.Integer_globals.static_location slot)
+                          with
+                          | Ok _ -> None
+                          | Error message -> Some message)
+                        slots
+                      |> String.concat "; "
+                    in
+                    Error
+                      [
+                        Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                          ("static allocation has no exact completed frame and \
+                            local source: " ^ reasons);
+                      ])
+              (Ok []) allocations
+            |> Result.map List.rev
           in
           let* globals_ =
             Ir.Integer_globals.with_function_publications
@@ -1181,6 +1247,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     Task_declarations.source_switch_work command
                 | _ -> 0);
               functions_ = definitions;
+              static_sources_;
               runtime_calls_;
               entry_has_calls_ = entry_calls <> [];
             }

@@ -96,12 +96,77 @@ module Position_sources = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
+type aggregate_stamp = { mutable current_stamp : unit ref }
+
+type t = {
+  table : Symbol_table.t;
+  entry : Visibility.entry;
+  symbol : Symbol.t;
+  primitive : Primitive_type.t option;
+  byte_size : int64;
+  internal : bool;
+  runtime_dimensions : runtime_dimension_proposal list;
+  runtime_offsets : aggregate_offset list;
+  aggregate_stamp : (aggregate_stamp * unit ref) option;
+}
+
+type sizeof_owner =
+  | Hash_record of t
+  | Local_record of {
+      table : Symbol_table.t;
+      source : Parser.local_publication;
+      byte_size : int64;
+      internal : bool;
+      runtime_dimensions : runtime_dimension_proposal list;
+      runtime_offsets : aggregate_offset list;
+    }
+
+type sizeof_read = { owner : sizeof_owner; root : Parser.query_root }
+
+type query_role = Query_source.role =
+  | Sizeof_root
+  | Offset_root
+  | Defined_operand
+
+type query_read = {
+  table : Symbol_table.t;
+  receipt : Parser.completed_query;
+  role : query_role;
+  name : string;
+  origin : Symbol.origin;
+  sizeof_read : sizeof_read option;
+}
+
+type dimension_preparation = {
+  dimension_table : Symbol_table.t;
+  dimension_namespace : Declaration_collection.namespace;
+  preparation : Parser.array_dimension_preparation;
+  queries : query_read list;
+  count : int64;
+  work : int;
+  runtime_dependencies : runtime_dimension_proposal list;
+  offset_dependencies : aggregate_offset list;
+}
+
+type declared_dimension = {
+  prepared : dimension_preparation;
+  completed : Parser.completed_array_dimension;
+}
+
 module Local_allocations = Hashtbl.Make (struct
   type t = Parser.function_local_allocation
 
   let equal = ( == )
   let hash receipt = Hashtbl.hash receipt.Parser.allocation_local.local_spelling
 end)
+
+type static_allocation = {
+  static_table : Symbol_table.t;
+  static_namespace : Declaration_collection.namespace;
+  static_publication : Declaration_collection.publication;
+  static_receipt : Parser.function_local_allocation;
+  static_dimensions : declared_dimension list;
+}
 
 type compiler_positions = {
   positions_sources : Common.Source_manager.t;
@@ -112,6 +177,7 @@ type compiler_positions = {
   allocated_sizes :
     (int64 * runtime_dimension_proposal list * aggregate_offset list) option
     Local_allocations.t;
+  static_allocations : static_allocation Local_allocations.t;
 }
 
 let create_compiler_positions ~sources =
@@ -120,11 +186,21 @@ let create_compiler_positions ~sources =
     positions = Position_sources.create 32;
     allocations = Local_allocations.create 32;
     allocated_sizes = Local_allocations.create 32;
+    static_allocations = Local_allocations.create 32;
   }
 
 let compiler_positions_own_sources positions sources =
   positions.positions_sources == sources
 
+let static_allocation positions receipt =
+  Local_allocations.find_opt positions.static_allocations receipt
+
+let static_allocation_owns_table value table = value.static_table == table
+let static_allocation_table value = value.static_table
+let static_allocation_namespace value = value.static_namespace
+let static_allocation_publication value = value.static_publication
+let static_allocation_receipt value = value.static_receipt
+let static_allocation_dimensions value = value.static_dimensions
 let compiler_position_value position = position.position_value
 let compiler_position_dependencies position = position.position_dependencies
 
@@ -185,63 +261,6 @@ let record_function_position positions record receipt =
                  position_dependencies;
                })
              (native_size positions value)))
-
-type aggregate_stamp = { mutable current_stamp : unit ref }
-
-type t = {
-  table : Symbol_table.t;
-  entry : Visibility.entry;
-  symbol : Symbol.t;
-  primitive : Primitive_type.t option;
-  byte_size : int64;
-  internal : bool;
-  runtime_dimensions : runtime_dimension_proposal list;
-  runtime_offsets : aggregate_offset list;
-  aggregate_stamp : (aggregate_stamp * unit ref) option;
-}
-
-type sizeof_owner =
-  | Hash_record of t
-  | Local_record of {
-      table : Symbol_table.t;
-      source : Parser.local_publication;
-      byte_size : int64;
-      internal : bool;
-      runtime_dimensions : runtime_dimension_proposal list;
-      runtime_offsets : aggregate_offset list;
-    }
-
-type sizeof_read = { owner : sizeof_owner; root : Parser.query_root }
-
-type query_role = Query_source.role =
-  | Sizeof_root
-  | Offset_root
-  | Defined_operand
-
-type query_read = {
-  table : Symbol_table.t;
-  receipt : Parser.completed_query;
-  role : query_role;
-  name : string;
-  origin : Symbol.origin;
-  sizeof_read : sizeof_read option;
-}
-
-type dimension_preparation = {
-  dimension_table : Symbol_table.t;
-  dimension_namespace : Declaration_collection.namespace;
-  preparation : Parser.array_dimension_preparation;
-  queries : query_read list;
-  count : int64;
-  work : int;
-  runtime_dependencies : runtime_dimension_proposal list;
-  offset_dependencies : aggregate_offset list;
-}
-
-type declared_dimension = {
-  prepared : dimension_preparation;
-  completed : Parser.completed_array_dimension;
-}
 
 type extent_evaluation =
   | Prepared_extent of declared_dimension
@@ -476,6 +495,15 @@ let record_local_allocation ~table ~namespace ~dimensions positions record
     in
     let* () = Function_record_phase.observe_local_allocation record receipt in
     Local_allocations.add positions.allocations receipt allocation;
+    if receipt.allocation_storage = Ast.Static_local then
+      Local_allocations.add positions.static_allocations receipt
+        {
+          static_table = table;
+          static_namespace = namespace;
+          static_publication = Function_record_phase.publication snapshot;
+          static_receipt = receipt;
+          static_dimensions = dimensions;
+        };
     Ok ()
 
 let seed_primitive ~table ~entry ~symbol ~primitive =

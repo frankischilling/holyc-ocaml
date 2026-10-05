@@ -186,6 +186,7 @@ type command = {
     * Sema.Function_collection.collected_function
     * Sema.Function_type_resolution.resolved_function)
     list;
+  static_allocations : Sema.Compiler_record.static_allocation list;
   implicit_outputs : selected_implicit_output list;
   source_callback_defaults : Ir.Prepared_callback_default.t list;
   native_source_callback_defaults : Ir.Prepared_callback_default.t list;
@@ -272,6 +273,7 @@ type t = {
   mutable prepared_internal_bindings : Sema.Prepared_internal_binding.t list;
   mutable static_preparations : Parser.static_initializer_preparation list;
   mutable static_completions : Parser.completed_static_initializer list;
+  mutable static_allocations_rev : Sema.Compiler_record.static_allocation list;
   mutable native_initializer_attempts : Sema.Initializer_source.leaf list;
   storage_boundaries : storage_boundary Names.t;
   mutable last_storage_global : Sema.Symbol.t option;
@@ -412,6 +414,7 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   prepared_internal_bindings = [];
                   static_preparations = [];
                   static_completions = [];
+                  static_allocations_rev = [];
                   storage_boundaries = Names.create 16;
                   last_storage_global = None;
                   session;
@@ -2655,7 +2658,13 @@ let observe ?offset_runtime ledger event =
                   Sema.Compiler_record.record_local_allocation
                     ~table:ledger.table ~namespace:ledger.namespace ~dimensions
                     ledger.compiler_positions record receipt
-                  |> checked span)
+                  |> checked span;
+                  Option.iter
+                    (fun allocation ->
+                      ledger.static_allocations_rev <-
+                        allocation :: ledger.static_allocations_rev)
+                    (Sema.Compiler_record.static_allocation
+                       ledger.compiler_positions receipt))
                 state.native_record
           | _ -> fail span "local allocation belongs to another declaration")
       | Parser.Static_initializer_preparing receipt ->
@@ -3360,6 +3369,15 @@ let seal ledger (ast : Ast.module_) =
                         else None)
                       ledger.implicit_outputs;
                 namespace = ledger.namespace;
+                static_allocations =
+                  List.rev ledger.static_allocations_rev
+                  |> List.filter (fun allocation ->
+                      List.exists
+                        (fun assigned ->
+                          assigned.publication
+                          == Sema.Compiler_record.static_allocation_publication
+                               allocation)
+                        !claimed);
                 selected_aggregate_types =
                   Type_specifiers.copy ledger.selected_aggregate_types;
                 function_headers =
@@ -5078,6 +5096,14 @@ let collection ~table ~ast (command : command) =
         fail ast.Ast.span
           "task declaration seal belongs to another table or source AST";
       command.declarations)
+
+let static_allocations ~table ~ast (command : command) =
+  Result.map
+    (fun _ -> command.static_allocations)
+    (collection ~table ~ast command)
+
+let source_static_allocations ~table ~ast (Source_command command) =
+  static_allocations ~table ~ast command
 
 let reference_for ~table ~ast (command : command) (identifier : Ast.identifier)
     =

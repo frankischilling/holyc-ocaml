@@ -141,6 +141,7 @@ type aggregate_offset
 type runtime_aggregate_offset
 type compiler_position
 type compiler_positions
+type static_allocation
 
 val create_compiler_positions :
   sources:Common.Source_manager.t -> compiler_positions
@@ -173,6 +174,29 @@ val record_local_allocation :
     original owner, order and runtime dependencies. Unsupported layouts are
     recorded as unavailable; neither a byte size nor executable authority can be
     supplied by a caller. *)
+
+val static_allocation :
+  compiler_positions ->
+  Frontend.Parser.function_local_allocation ->
+  static_allocation option
+(** Read the original static allocation retained by a successful live
+    [record_local_allocation]. Automatic locals, copied receipts and failed
+    observations have no witness. A remembered witness describes source
+    ownership; it grants no storage or initializer execution authority. *)
+
+val static_allocation_owns_table : static_allocation -> Symbol_table.t -> bool
+val static_allocation_table : static_allocation -> Symbol_table.t
+
+val static_allocation_namespace :
+  static_allocation -> Declaration_collection.namespace
+
+val static_allocation_publication :
+  static_allocation -> Declaration_collection.publication
+
+val static_allocation_receipt :
+  static_allocation -> Frontend.Parser.function_local_allocation
+
+val static_allocation_dimensions : static_allocation -> declared_dimension list
 
 val record_function_position :
   compiler_positions ->

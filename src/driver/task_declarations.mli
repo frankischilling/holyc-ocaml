@@ -700,6 +700,21 @@ val native_static_initializer_fragment :
   Frontend.Parser.static_initializer_preparation ->
   (Sema.Static_initializer_fragment.t, Common.Diagnostic.t list) result
 
+val static_allocations :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  (Sema.Compiler_record.static_allocation list, Common.Diagnostic.t list) result
+
+val source_static_allocations :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Sema.Compiler_record.static_allocation list, Common.Diagnostic.t list) result
+(** Original live JIT static allocations in this exact sealed command, in source
+    order. These source witnesses contain no prepared values or native storage
+    authority. AOT and callback-free parsing retain no such witnesses. *)
+
 val begin_runtime_internal_binding :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

@@ -1524,3 +1524,10 @@ reject changed ranges, allocations, unwind headers, status prologues and data
 arenas before mapping. The suite runs through `@native-tests` on Windows and
 Linux. Native JIT parser-callback scheduling and linking separate images remain
 open.
+
+Static allocation tests retain successful live JIT receipts through callback
+expiry and reject foreign tables and fresh registries. Sealed source tests join
+scalar and array allocations to their completed frames, distinguish same-name
+locals in different functions, and reject foreign frames, locations and source
+views. These checks cover source ownership; native source-task statics remain
+unsupported.

@@ -51,6 +51,12 @@ val initializer_preparation : compiled -> Integer_initializers.t
 val dimension_preparation_work : compiled -> int
 val switch_preparation_work : compiled -> int
 val functions : compiled -> Ir.Integer_interpreter.function_definition list
+
+val static_sources : compiled -> Sema.Static_local_source.t list
+(** Original live JIT static allocations joined to their exact completed
+    frame/local evidence. These are source witnesses, not native storage or
+    initialization permissions. *)
+
 val runtime_calls : compiled -> Ir.Runtime_call_context.t
 val has_entry_calls : compiled -> bool
 val human : compiled -> string

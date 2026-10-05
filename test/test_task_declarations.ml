@@ -3050,8 +3050,89 @@ let implicit_selection_ownership () =
     (D.observe_implicit_output ledger receipt);
   ignore (resolve statement |> checked)
 
+let original_static_frame_sources () =
+  let module Unit = Holyc_lib__Driver.Integer_unit in
+  let module Source = Holyc_lib__Sema.Static_local_source in
+  let module Frame = Semantic_function_frame_layout in
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"original-statics.hc"
+      ~contents:
+        "I64 F(){static I64 A=41;static U8 B[2]={1,2};return 42;}I64 \
+         G(){static I64 A;return 42;}"
+  in
+  let ledger = D.create_source session ~source |> checked in
+  let output, events = parse_source session ledger source in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal_source ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let allocations = D.source_static_allocations ~table ~ast command |> expect in
+  Alcotest.(check int)
+    "three original static allocations" 3 (List.length allocations);
+  let receipts =
+    List.filter_map
+      (function
+        | Parser.Function_local_allocated receipt -> Some receipt
+        | _ -> None)
+      events
+  in
+  Alcotest.(check bool)
+    "source allocation order is retained" true
+    (List.for_all2
+       (fun allocation receipt ->
+         Extent.static_allocation_receipt allocation == receipt)
+       allocations receipts);
+  reject "static source seal rejects rebuilt AST"
+    (D.source_static_allocations ~table
+       ~ast:(copy_module ast ast.items)
+       command);
+  reject "static source seal rejects foreign table"
+    (D.source_static_allocations
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~ast command);
+  let compiled =
+    Unit.compile_source_output ~source_command:command
+      ~max_initializer_steps:200 session ~config:(config ()) output
+    |> expect
+    |> fun value -> value.Unit.value
+  in
+  let bound = Unit.static_sources compiled in
+  Alcotest.(check int) "three source/frame joins" 3 (List.length bound);
+  List.iter2
+    (fun allocation owner ->
+      Alcotest.(check bool)
+        "join retains original allocation" true
+        (Source.allocation owner == allocation);
+      let frame = Source.frame owner and location = Source.location owner in
+      Alcotest.(check bool)
+        "static location has no automatic frame slot" true
+        (Option.is_none (Frame.location_frame_slot location));
+      Alcotest.(check bool)
+        "exact checked local is retained" true
+        (Option.is_some (Frame.location_local_source location));
+      List.iter
+        (fun other ->
+          if other != owner then
+            reject "another original local cannot borrow this allocation"
+              (Source.bind ~allocation ~frame:(Source.frame other)
+                 ~location:(Source.location other)))
+        bound;
+      List.iter
+        (fun other ->
+          if Source.frame other != frame then
+            reject "exact location cannot borrow another function frame"
+              (Source.bind ~allocation ~frame:(Source.frame other) ~location))
+        bound)
+    allocations bound;
+  Alcotest.(check (list int64))
+    "original array dimensions remain checked" [ 2L ]
+    (Extent.static_allocation_dimensions (List.nth allocations 1)
+    |> List.map Extent.dimension_count)
+
 let tests =
   [
+    Alcotest.test_case "static allocations join exact original completed frames"
+      `Quick original_static_frame_sources;
     Alcotest.test_case
       "global extents retain exact publication and record ownership" `Quick
       global_extent_ownership;

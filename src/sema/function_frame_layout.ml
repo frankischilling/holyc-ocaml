@@ -20,6 +20,7 @@ type frame_slot = { displacement : int64; size : int64 }
 
 type location = {
   binding : Function_binding_index.binding;
+  local_source : Local_type_resolution.local option;
   symbol : Symbol.t;
   kind : location_kind;
   type_reference : Type_reference.t option;
@@ -109,6 +110,7 @@ let function_item_index (function_ : function_layout) = function_.item_index
 let function_locations (function_ : function_layout) = function_.locations
 let function_frame_size (function_ : function_layout) = function_.frame_size
 let location_binding (location : location) = location.binding
+let location_local_source (location : location) = location.local_source
 let location_symbol (location : location) = location.symbol
 let location_kind (location : location) = location.kind
 let location_callback_pointer (location : location) = location.callback_pointer
@@ -625,6 +627,7 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                   (fun displacement ->
                     {
                       binding;
+                      local_source = None;
                       symbol;
                       kind = Named_parameter;
                       type_reference = Some type_reference;
@@ -736,6 +739,7 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                 (fun displacement ->
                   {
                     binding;
+                    local_source = None;
                     symbol;
                     kind = expected_kind;
                     type_reference = None;
@@ -848,6 +852,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                       Ok
                         ( {
                             binding;
+                            local_source = Some local;
                             symbol;
                             kind;
                             type_reference = Some type_reference;
@@ -873,6 +878,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                         in
                         ( {
                             binding;
+                            local_source = Some local;
                             symbol;
                             kind;
                             type_reference = Some type_reference;

@@ -169,6 +169,14 @@ retained direct functions and their original literals. Runtime-dependent
 dimensions, task callback storage, function statics, declaration defaults, native `#exe`,
 persistent executable addresses and AOT source-task execution remain separate
 work under #704.
+The compiler now retains each successful live JIT static allocation, including
+its original function publication, table, namespace and checked dimensions.
+The sealed command keeps these witnesses in source order. Compilation joins
+them to the declaring frame and exact checked local location; foreign owners
+and substituted dimensions fail that join. These records carry no prepared
+values or native execution permission. Native task statics still need arena
+admission and original live initializer execution before the storage guard can
+be removed.
 StreamPrint and StreamExePrint keep their separate generated-source and
 outer-context authority requirements.
 The existing `host-jit` target keeps
