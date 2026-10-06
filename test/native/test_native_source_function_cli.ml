@@ -21,13 +21,14 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 12)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 13)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
      [native-source-defaults.hc] [native-source-extern-slots.hc] \
      [native-source-callback-words.hc] [native-source-slot-addresses.hc] \
-     [native-source-callback-updates.hc] [native-source-anonymous-defaults.hc]"
+     [native-source-callback-updates.hc] [native-source-anonymous-defaults.hc] \
+     [native-source-static-callbacks.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -702,5 +703,38 @@ let () =
             (has_diagnostic "HCPARSE0137" (json_path ~target ~status:1 path))
             "pinned automatic callback initializer rejection")
         [ "ir"; "host-jit-task"; "host-jit" ]);
+  let static_callback_checks path =
+    let native = json_path path in
+    require
+      (final_bits native = "0x000000000000002a")
+      "original static callback allocation and saved header";
+    require
+      (native |> member "prepared_default_bytes" |> to_int = 8)
+      "static callback header prepares once";
+    require
+      (final_bits (json_path ~target:"ir" path) = final_bits native)
+      "independent IR static callback history";
+    require
+      (has_diagnostic "HCRUN0006" (json_path ~target:"host-jit" ~status:1 path))
+      "isolated reference-default boundary";
+    require
+      (has_diagnostic "HCIRVM0016"
+         (json_path ~status:1 ~options:[ "--global-byte-limit=23" ] path))
+      "static callback data counts toward the cumulative quota";
+    require
+      (final_bits (json_path ~options:[ "--global-byte-limit=24" ] path)
+      = final_bits native)
+      "exact static callback data quota"
+  in
+  if Array.length Sys.argv >= 13 then static_callback_checks Sys.argv.(12)
+  else
+    with_file ".hc"
+      "I64 Counter=40;I64 Seed(){return ++Counter;}I64 Answer(I64 \
+       value){return value+1;}I64 Remember(I64 initialize){static I64 \
+       (*saved)(I64 \
+       value=Seed())[2];if(initialize){saved[0]=&Answer;saved[1]=saved[0];saved[0]=0;}return \
+       saved[1]();}Remember(1);Counter=100;I64 Answer(I64 value){return \
+       17;}Remember(0);"
+      static_callback_checks;
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

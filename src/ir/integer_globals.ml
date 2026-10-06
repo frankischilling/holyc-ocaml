@@ -517,7 +517,8 @@ let storage_type = function
   | Static slot -> Integer_statics.type_ slot
 
 let storage_callback_pointer = function
-  | Declared_static _ -> None
+  | Declared_static allocation ->
+      Integer_static_allocation.callback_pointer allocation
   | Global slot -> (
       let global =
         Records.classified_record_source slot.record
@@ -531,13 +532,12 @@ let storage_callback_pointer = function
   | Static slot -> Integer_statics.callback_pointer slot
 
 let storage_is_callback = function
-  | Declared_static _ -> false
   | Declared slot ->
       (Sema.Compiler_record.declared_global_source slot.declaration)
         .Frontend.Parser.global_function_pointer
       |> Option.fold ~none:false ~some:(fun pointer ->
           List.length pointer.Frontend.Ast.indirection_layers = 1)
-  | (Global _ | Static _) as storage ->
+  | (Global _ | Static _ | Declared_static _) as storage ->
       Option.is_some (storage_callback_pointer storage)
 
 let global_callback_storage globals pointer =

@@ -39,11 +39,13 @@ val static_reservation_arena_bytes : static_reservation -> int
 
 val static_reservation_initializations_since :
   static_reservation -> arena_prefix_bytes:int -> (int * string) list
-(** Original live private allocation, with padded data and inaccessible padding
-    separate from the checked object extent. No entry graph, address or initial
-    values are fabricated. Pending static storage grants no function address
-    access. The host must still claim its live request before arena admission.
-*)
+(** Original live private integer or one-star callback allocation, with padded
+    data and inaccessible padding separate from the checked object extent.
+    Callback cells retain their original anonymous header and reserve a private
+    eight-byte owner lane per element in addition to initialization flags. No
+    entry graph, address or initial values are fabricated. Pending static
+    storage grants no function address access. The host must still claim its
+    live request before arena admission. *)
 
 val hard_max_task_layout_work : int
 (** Cumulative retained binding and declared storage visits admitted by one task

@@ -1,17 +1,26 @@
 type t
 
 val create :
+  ?callback:
+    Frontend.Parser.completed_callback_signature
+    * Sema.Function_type_resolution.function_pointer ->
+  ?selected_aggregate:Sema.Function_type_resolution.selected_aggregate_resolver ->
   table:Sema.Symbol_table.t ->
   header:Sema.Function_collection.collected_function ->
   Sema.Compiler_record.static_allocation ->
   (t, string) result
-(** Retain the original live allocation, checked integer shape and exact symbol
-    already inserted in the declaring partial header. This contains no initial
-    values, interpreter cells, native address or execution permission. *)
+(** Retain the original live allocation, checked integer or one-star callback
+    shape, anonymous header and exact symbol already inserted in the declaring
+    partial header. This contains no initial values, interpreter cells, native
+    address or execution permission. *)
 
 val source : t -> Sema.Compiler_record.static_allocation
 val symbol : t -> Sema.Symbol.t
 val type_ : t -> Sema.Type.t
+
+val callback_pointer :
+  t -> Sema.Function_type_resolution.function_pointer option
+
 val shape : t -> Integer_storage_shape.t
 val cursor : t -> Integer_initializer_layout.stream
 

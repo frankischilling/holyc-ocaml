@@ -1009,7 +1009,8 @@
   ../../examples/native-source-callback-words.hc
   ../../examples/native-source-slot-addresses.hc
   ../../examples/native-source-callback-updates.hc
-  ../../examples/native-source-anonymous-defaults.hc)
+  ../../examples/native-source-anonymous-defaults.hc
+  ../../examples/native-source-static-callbacks.hc)
  (action
   (run
    %{exe:test_native_source_function_cli.exe}
@@ -1023,7 +1024,8 @@
    %{dep:../../examples/native-source-callback-words.hc}
    %{dep:../../examples/native-source-slot-addresses.hc}
    %{dep:../../examples/native-source-callback-updates.hc}
-   %{dep:../../examples/native-source-anonymous-defaults.hc})))
+   %{dep:../../examples/native-source-anonymous-defaults.hc}
+   %{dep:../../examples/native-source-static-callbacks.hc})))
 
 (executable
  (name test_native_source_literals)
@@ -1069,6 +1071,16 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_source_anonymous_defaults.exe})))
+
+(executable
+ (name test_native_source_static_callbacks)
+ (modules test_native_source_static_callbacks)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_static_callbacks.exe})))
 
 (executable
  (name test_native_source_slot_addresses)

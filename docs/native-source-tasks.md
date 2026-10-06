@@ -180,6 +180,21 @@ bytes; a four-element array occupies 96, including eight bytes per element for
 initialization flags. Only the data extent counts against `max_global_bytes`.
 All appended data, flags and owner lanes count against the arena bound.
 
+Function-owned static callback cells and fixed arrays use the same native word
+and owner lanes. Their live allocation retains the original partial-header
+symbol, anonymous signature and checked dimensions. Function completion joins
+that allocation to the exact original frame and location without allocating or
+charging again. Return metadata stays separate from physical `RT_PTR` storage.
+JIT elements remain unknown until a reached assignment initializes them.
+
+`examples/native-source-static-callbacks.hc` saves a declaration-time default
+once, copies the original executable owner between static array elements and
+returns 42 after later counter writes and a same-name function replacement.
+Calls retain the selected static cell's header and saved default across
+activations. Numeric writes clear only the written element's owner. Static
+callback initializers still require their separate original parser connection;
+declaration followed by assignment does not implement that initializer path.
+
 `examples/native-source-callback-words.hc` copies an original array word into a
 callback cell, updates numeric cells and forwards the saved word through a named
 function's callback parameter. It returns 42 through nine actual native fragments.
@@ -354,10 +369,10 @@ source admission, lowering, instruction selection and report validation remain
 in OCaml.
 
 This source-task path supports integer globals, fixed integer arrays,
-integer function statics, retained direct and joined JIT extern calls, and their
-original literals, numeric and owned callback storage, and named or anonymous
-integer and one-star callback defaults. Runtime-dependent dimensions, wider callback defaults,
-streaming static callback allocations,
+integer and one-star callback function statics, retained direct and joined JIT
+extern calls, their original literals, numeric and owned callback storage, and
+named or anonymous integer and one-star callback defaults. Runtime-dependent
+dimensions, wider callback defaults, direct static callback initializers,
 hosted-provider callback entries, native `#exe` and AOT source-task execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.
@@ -369,7 +384,7 @@ and substituted dimensions fail that join. These records carry no prepared
 values or native execution permission. Native task collection inserts each
 static's original symbol in the partial function scope during allocation and
 reuses that symbol at completion. Its private task record retains the checked
-integer shape without publishing a global name. The task charges the padded
+integer or callback shape without publishing a global name. The task charges the padded
 extent at declaration; the completed frame joins the same storage owner without
 charging it again. Identifier receipts also retain the exact local publication
 selected when their token was produced.
@@ -409,7 +424,7 @@ foreign sources and domains, and repeated or expired requests are rejected.
 `examples/native-source-static-copies.hc` returns 69 after a copied byte array
 is mutated across two calls and a later allocation.
 Automatic or parameter references in static initializers,
-partial fixed-array initialization, noninteger static storage and dynamic
+partial fixed-array initialization, ordinary pointer/F64/aggregate statics and dynamic
 dimensions still return diagnostics. The runtime checks bounds against the
 declared accessible extent, excluding static padding.
 StreamPrint and StreamExePrint keep their separate generated-source and

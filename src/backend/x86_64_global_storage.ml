@@ -1045,6 +1045,9 @@ let create_task_snapshot ?(functions = []) layout ~initialization ~entry =
                      slot with
                      source_slot = Globals.static_storage static;
                      owner = Some definition.body;
+                     callback =
+                       Globals.storage_callback_pointer
+                         (Globals.static_storage static);
                    }
                    symbols)
           | _ ->
@@ -1126,6 +1129,20 @@ let reserve_static layout request =
           then resource "native static data and flags exceed the arena bound"
           else Ok (padded + (elements * flag_width))
         in
+        let callback =
+          Ir.Integer_static_allocation.callback_pointer allocation
+        in
+        let* arena_bytes, code_owner_offset =
+          if Option.is_none callback then Ok (arena_bytes, None)
+          else if
+            elements
+            > (hard_max_arena_bytes - before.task_arena_bytes - arena_bytes) / 8
+          then resource "native static callback owners exceed the arena bound"
+          else
+            Ok
+              ( arena_bytes + (elements * 8),
+                Some (before.task_arena_bytes + arena_bytes) )
+        in
         let slot =
           {
             source_slot = Globals.declared_static_storage allocation;
@@ -1133,8 +1150,8 @@ let reserve_static layout request =
             static_source = Some allocation;
             symbol;
             type_ = Ir.Integer_static_allocation.type_ allocation;
-            callback = None;
-            code_owner_offset = None;
+            callback;
+            code_owner_offset;
             scalar;
             dimensions;
             strides = Shape.strides shape;

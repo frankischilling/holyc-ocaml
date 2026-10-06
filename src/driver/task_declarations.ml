@@ -3718,8 +3718,15 @@ let declare_native_static_symbol ledger ~runtime receipt =
         |> checked span
       in
       let storage =
-        Ir.Integer_static_allocation.create ~table:ledger.table ~header:partial
-          allocation
+        let callback =
+          match receipt.allocation_local.local_source with
+          | Parser.Local_variable source ->
+              declared_callback_for ledger span source.local_function_pointer
+          | _ -> None
+        in
+        Ir.Integer_static_allocation.create ?callback
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          ~table:ledger.table ~header:partial allocation
         |> checked span
       in
       if Ir.Integer_static_allocation.symbol storage != symbol then

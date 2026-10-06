@@ -100,8 +100,11 @@ val evaluate :
     words or original callback values in the same original header. Calls require
     those exact saved objects and completed native receipts. Each word charges
     eight [default_bytes]; actual expression work consumes both the shared
-    native allowance and remaining initializer steps. Streaming static callback
-    allocations, string, ordinary object-pointer and F64 defaults remain
+    native allowance and remaining initializer steps. Static one-star callback
+    cells and fixed arrays retain their original live allocation and completed
+    frame, physical RT_PTR shape, anonymous signature and private owner lanes.
+    Their defaults execute once at the original header. Direct static callback
+    initializers, string, ordinary object-pointer and F64 defaults remain
     unsupported. Unsupported task declarations and AOT mode return diagnostics.
     There is no isolated program or interpreter fallback. *)
 

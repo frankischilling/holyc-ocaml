@@ -1543,7 +1543,8 @@ let native_static_source_authority () =
       task_succeeds "original native global prefix"
         (task_run session task 71 "I64 X=40;X++;");
       task_succeeds "live private allocation and initializer"
-        (task_run session task 72 "I64 F(){static I64 A=X,B=A+A;return ++A;}");
+        (task_run session task 72
+           "I64 F(){static I64 A=X,B=A+A;static I64 (*p)();p=1;return A+=p;}");
       task_succeeds "first retained static call"
         (task_run session task 73 "F();");
       Gc.full_major ();
@@ -1554,7 +1555,8 @@ let native_static_source_authority () =
         "native static and previous global writes survive arena growth" true
         (Task.native_final_value task = Some (Dispatch.I64 43L));
       Alcotest.(check int)
-        "each static allocation is offered once" 2 !allocation_count;
+        "each integer and callback allocation is offered once" 3
+        !allocation_count;
       Alcotest.(check int)
         "each static initializer is offered once" 2 !initializer_count;
       rejected "expired allocation cannot reserve another arena"

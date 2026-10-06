@@ -86,6 +86,14 @@ execution. Each allocation retains its declaring function and later completed
 frame. Narrow storage uses its accessible extent for bounds checks and its
 eight-byte padded extent for the cumulative allocation allowance.
 
+One-star callback statics also retain their original live allocation, anonymous
+header and physical eight-byte elements. Assignment copies both the numeric
+word and its private executable owner. Anonymous defaults execute once while
+parsing the header; later calls use that saved value. Scalar and fixed-array
+cells preserve writes across activations and historical function bodies. Direct
+static callback initializer recovery remains separate from this allocation
+and assignment path.
+
 Nonconstant AOT statics with globals-on-data-heap still require their separate
 compile-time phase. The normal JIT/AOT declaration paths are documented in
 [static initializers](integer-static-initializers.md). Parameter reads cannot

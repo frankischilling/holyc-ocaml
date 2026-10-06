@@ -1,5 +1,17 @@
 # Testing holyc-ocaml
 
+`test/native/test_native_source_static_callbacks.ml` checks live function-owned
+callback allocation, scalar and fixed-array copies, saved anonymous defaults,
+declaration effects, historical bodies, recursion and reached faults against
+independent IR execution. Private arena controls compile both host ABIs and
+execute the host ABI with exactly seventeen bytes for a scalar or 48 for a
+two-element array. One fewer byte rejects allocation before entry. Logical
+storage, saved payload, code, IR and execution limits have separate controls.
+The source-authority suite checks callback allocations across collection,
+foreign and released arenas, cross-domain requests, replay and expiration.
+The source-function CLI suite also runs
+`examples/native-source-static-callbacks.hc`.
+
 `test/native/test_native_source_functions.ml` checks original native function
 declarations and direct calls, including initializer calls, argument order,
 automatic frames, recursion, integer widths, historical definitions and globals.

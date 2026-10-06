@@ -1835,3 +1835,18 @@ for an omitted argument. The hosted source driver carries the original receipt
 through a native expression image to the same saved header. Source tests cover
 live storage, retained calls and historical omissions; hosted quotas and
 single-use checks add no new TempleOS runtime capture.
+
+Live native static callback allocation follows `Compiler/PrsVar.HC:350-357`
+and `534-589`. `PrsType` keeps the anonymous function metadata while selecting
+physical `RT_PTR` storage. The static branch allocates and pads that storage
+during body parsing, independently of callback return metadata. The hosted
+allocator retains the original anonymous header, partial-function symbol and
+checked dimensions; completion joins its exact frame and static location.
+`Compiler/PrsExp.HC:776-784` supplies the function-owned static address.
+Assignments and calls use the existing native callback owner lanes and saved
+anonymous defaults. Fixed-array data, flags and owner lanes have separate
+quota checks. `PrsVar.HC:215-244` is the distinct static initializer consumer,
+which still needs its original callback connection. The automatic declarator
+replay and `Grid.HC` restriction do not forbid that static branch. These source
+and hosted execution checks add no TempleOS runtime capture or exported ABI
+proof.

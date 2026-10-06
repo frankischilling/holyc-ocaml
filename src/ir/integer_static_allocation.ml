@@ -7,6 +7,10 @@ type t = {
   source_ : Record.static_allocation;
   symbol_ : Sema.Symbol.t;
   type_ : Sema.Type.t;
+  callback_ :
+    (Parser.completed_callback_signature
+    * Sema.Function_type_resolution.function_pointer)
+    option;
   shape_ : Shape.t;
   mutable cursor_ : Integer_initializer_layout.stream;
   mutable executed_ : (Parser.static_initializer_preparation * int * int) list;
@@ -15,6 +19,7 @@ type t = {
 let source value = value.source_
 let symbol value = value.symbol_
 let type_ value = value.type_
+let callback_pointer value = Option.map snd value.callback_
 let shape value = value.shape_
 let cursor value = value.cursor_
 
@@ -101,7 +106,10 @@ let owns_table value table =
 
 let ( let* ) = Result.bind
 
-let create ~table ~header source_ =
+let create ?callback
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~header source_ =
   let receipt = Record.static_allocation_receipt source_ in
   let* () =
     if
@@ -118,13 +126,48 @@ let create ~table ~header source_ =
     | Some symbol when Sema.Symbol_table.owns_symbol table symbol -> Ok symbol
     | _ -> Error "static storage lacks its original partial-header symbol"
   in
-  let* type_ =
+  let* type_, callback_, shape_type =
     match receipt.allocation_local.local_source with
     | Parser.Local_variable local
       when local.local_pointer_layers = []
-           && Option.is_none local.local_function_pointer ->
-        Sema.Source_type_reference.builtin local.local_type_specifier []
-        |> Result.map Sema.Type_reference.resolved_type
+           && Option.is_none local.local_function_pointer
+           && Option.is_none callback ->
+        let* reference =
+          Sema.Source_type_reference.builtin local.local_type_specifier []
+        in
+        let type_ = Sema.Type_reference.resolved_type reference in
+        Ok (type_, None, type_)
+    | Parser.Local_variable local -> (
+        let module Headers = Sema.Function_type_resolution in
+        match (local.local_function_pointer, callback) with
+        | Some original, Some (completed, pointer)
+          when List.length original.Frontend.Ast.indirection_layers = 1
+               && completed.Parser.callback_pointer == original
+               && completed.callback_signature_publication.callback_command
+                  == receipt.allocation_local.local_command
+               && Option.fold ~none:false ~some:(( == ) original)
+                    (Headers.function_pointer_source pointer) ->
+            let* reference =
+              Sema.Source_type_reference.callback_storage ~header:completed
+                original
+            in
+            let* () =
+              Headers.validate_source_callback_types ~table
+                ~namespace:(Record.static_allocation_namespace source_)
+                ~selected_aggregate pointer
+            in
+            let* shape_type =
+              Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
+                ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+            in
+            Ok
+              ( Sema.Type_reference.resolved_type reference,
+                Some (completed, pointer),
+                shape_type )
+        | _ ->
+            Error
+              "HCRUN0001: retained static storage requires an original integer \
+               object or one-star callback header")
     | _ -> Error "HCRUN0001: retained static storage requires integer objects"
   in
   let dimensions =
@@ -132,7 +175,7 @@ let create ~table ~header source_ =
     |> List.map Record.dimension_count
   in
   let* shape_ =
-    Shape.create ~type_ ~dimensions
+    Shape.create ~type_:shape_type ~dimensions
     |> Result.map_error (function
       | Shape.Unsupported_type ->
           "HCRUN0001: retained static storage requires nonzero integer types"
@@ -144,6 +187,7 @@ let create ~table ~header source_ =
       source_;
       symbol_;
       type_;
+      callback_;
       shape_;
       cursor_ = Integer_initializer_layout.begin_stream shape_;
       executed_ = [];
@@ -153,11 +197,28 @@ let check_completed value completed =
   let module Source = Sema.Static_local_source in
   let module Frame = Sema.Function_frame_layout in
   let location = Source.location completed in
+  let same_callback =
+    match (value.callback_, Frame.location_callback_pointer location) with
+    | None, None -> true
+    | Some (header, original), Some pointer ->
+        let module Headers = Sema.Function_type_resolution in
+        Option.fold ~none:false
+          ~some:(( == ) header.Parser.callback_pointer)
+          (Headers.function_pointer_source original)
+        && Option.fold ~none:false
+             ~some:(( == ) header.callback_pointer)
+             (Headers.function_pointer_source pointer)
+    | _ -> false
+  in
   if
     Source.allocation completed != value.source_
     || Frame.location_symbol location != value.symbol_
+    || (not same_callback)
     || (not
-          (Sema.Type.equal value.type_ (Frame.location_checked_type location)))
+          (Result.fold
+             ~ok:(Sema.Type.equal value.type_)
+             ~error:(fun _ -> false)
+             (Frame.location_storage_type location)))
     || List.map Frame.dimension_value (Frame.location_dimensions location)
        <> Shape.dimensions value.shape_
   then

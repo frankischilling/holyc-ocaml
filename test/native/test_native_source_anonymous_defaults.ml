@@ -113,7 +113,7 @@ let header_shapes () =
     "I64 Seed(){return 40;}I64 F(I64 n){return n+2;}I64 Run(){static I64 \
      (*p)(I64 n=Seed());p=&F;return p();}Run();"
   in
-  diagnostic "HCRUN0001" (run static)
+  agrees 42L static
 
 let defaults_call_callbacks () =
   List.iter (agrees 42L)

@@ -13490,3 +13490,20 @@ execution = "Defaults execute once before body completion, including on unused f
 verification = "Independent source/IR cases cover effects, unused functions, explicit arguments, multiple defaults, recursion, historical headers, narrow words and original global/static initializer consumers. Fault and parse-failure tests preserve reached output and stop later publication. Exact and one-below quotas bound native steps, preparation, code, IR and payload. Both private ABIs compile; host execution rejects cross-domain claims, replay, expired requests, repeated work receipts and forged equal-source/equal-bit saved objects. Public CLI verifies native default fragments and saved bytes."
 verification_boundary = "Capability and mapping ownership, graph seals and quotas are hosted policy. This source audit and host execution add no TempleOS runtime capture, exported ABI, object/BIN loader, bootstrap or full-compiler acceptance."
 excluded = ["pointer and callback-valued named defaults", "string and lastclass defaults", "F64 and aggregate defaults", "anonymous callback defaults", "general extern-slot native dispatch", "persistent executable addresses and task callbacks", "runtime-dependent dimensions", "native #exe", "AOT source tasks", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-STATIC-CALLBACK-ALLOCATION"
+description = "Live function-owned callback cells and fixed arrays retain their original allocation in the native JIT task."
+sources = ["Compiler/PrsVar.HC:350-357 anonymous signature and physical RT_PTR storage", "Compiler/PrsVar.HC:534-589 original static allocation and padding", "Compiler/PrsExp.HC:776-784 original static address", "Compiler/PrsVar.HC:629-656 saved anonymous defaults"]
+implementation = ["src/driver/task_declarations.ml", "src/ir/integer_static_allocation.ml", "src/ir/integer_globals.ml", "src/backend/x86_64_global_storage.ml"]
+tests = ["test/native/test_native_source_static_callbacks.ml", "test/native/test_native_source_anonymous_defaults.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-static-callbacks.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-statics.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The original live allocation, partial-header symbol, namespace, completed anonymous header and physical source declarator govern admission. Completion joins the exact original checked static frame and location without allocating or charging again."
+storage = "Each element has eight source-visible RT_PTR bytes, an independent initialization flag and eight private executable-owner bytes. Return metadata does not change that physical shape. Logical data and private arena allowances remain separate; JIT elements stay unknown until a reached write."
+execution = "Original assignments preserve numeric bits and callback owners through scalar and fixed-array copies. Saved anonymous defaults execute once during header parsing. Calls preserve callee capture, reverse arguments, original defaults and historical bodies across activations, later declarations and collection."
+verification = "Independent IR comparisons cover cells, arrays, return metadata, header effects, saved owners, history and recursion. Native faults retain initialization, bounds, ownership and reached target order. Both private ABIs compile; the host ABI executes with exact and one-below arena, logical storage, payload, code, IR and work controls. Original request tests cover foreign and released arenas, cross-domain use, replay and expiration."
+verification_boundary = "Unknown-value, ownership and bounds guards are hosted policy. This connection adds no TempleOS runtime capture, exported HolyC ABI, actual-loader, bootstrap or full-compiler evidence."
+excluded = ["direct static callback initializers", "callback members", "F64 and aggregate callback invocation", "runtime-dependent dimensions", "AOT source tasks", "native #exe", "full compiler and release"]
