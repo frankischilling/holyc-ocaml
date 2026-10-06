@@ -1720,6 +1720,165 @@ let native_static_copy_host_bounds () =
         "unaffected flag representations remain valid" 1
         (raw_static_copy corrupt (40, 0, 32, "A")))
 
+let native_default_source_authority () =
+  let module Request = Task.Native_default in
+  let module Program = Holyc_lib__Ir.Default_fragment_program in
+  let module Destination = Holyc_lib__Ir.Default_fragment_destination in
+  let module Prepared = Holyc_lib__Ir.Prepared_parameter_default in
+  let module Calls = Holyc_lib__Ir.Runtime_call_context in
+  let module Graph = Holyc_lib__Ir.Block_graph in
+  let module Sequence = Holyc_lib__Ir.Instruction_sequence in
+  let session, config, source =
+    inputs
+      "I64 Seed(){return 41;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
+       n=A()){return n+1;}B();"
+  in
+  let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
+  let arena = Runtime.create_task_arena ~max_arena_bytes:16 layout |> checked in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
+  let saved = ref [] and executions = ref 0 and checked_saved = ref false in
+  let execute image =
+    let retained = Runtime.retain_task_fragment arena image |> checked in
+    Fun.protect
+      ~finally:(fun () -> Runtime.release retained |> checked)
+      (fun () ->
+        let report = Runtime.execute_retained_budget_report budget retained in
+        (report, completed report))
+  in
+  let native_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun _ -> Alcotest.fail "default probe reached an initializer");
+      execute_command =
+        (fun request ->
+          let report, result =
+            execute (Image.compile_task_command ~layout request |> compiled)
+          in
+          Ok
+            (if Runtime.value_captured report then
+               Dispatch.Captured
+                 (Option.map
+                    (fun (word : Image.word) ->
+                      match word.type_ with
+                      | Image.I64 -> Dispatch.I64 word.bits
+                      | U64 -> Dispatch.U64 word.bits)
+                    result.final_value)
+             else Dispatch.Unchanged));
+    }
+  in
+  let native_default request =
+    incr executions;
+    Request.check request |> checked;
+    rejected "offered default cannot report native work"
+      (Request.record_steps request 1);
+    List.iter
+      (fun prior ->
+        rejected "earlier default request expires before the next header"
+          (Request.check prior))
+      !saved;
+    saved := request :: !saved;
+    rejected "foreign domain cannot consume default source"
+      (Domain.join (Domain.spawn (fun () -> Request.claim request)));
+    rejected "code rejection keeps original default retryable"
+      (Image.compile_task_default ~max_code_bytes:1 ~layout request);
+    Request.check request |> checked;
+    let program = Request.program request in
+    let globals = Destination.globals (Program.destination program) in
+    Graph.blocks (Holyc_lib__Ir.X87_stack.graph (Program.entry program))
+    |> List.iter (fun block ->
+        Sequence.instructions (Graph.instructions block)
+        |> List.iter (fun instruction ->
+            let id = (Sequence.description instruction).instruction_id in
+            match
+              Calls.find_start
+                (Program.runtime_calls program)
+                ~owner:Calls.Entry id
+            with
+            | None -> ()
+            | Some call ->
+                List.iter
+                  (fun argument ->
+                    match Calls.argument_prepared_default argument with
+                    | None -> ()
+                    | Some prepared ->
+                        let header = Calls.header call in
+                        let parameter =
+                          List.nth
+                            (header
+                           |> Holyc_lib__Sema.Function_type_resolution
+                              .function_signature
+                           |> Holyc_lib__Sema.Function_type_resolution
+                              .signature_parameters)
+                            (Prepared.receipt prepared).default_parameter_index
+                        in
+                        Request.parameter_default request ~globals ~header
+                          ~parameter prepared
+                        |> checked;
+                        let copy =
+                          Prepared.create
+                            ~publication:(Prepared.publication prepared)
+                            ~header:(Prepared.header prepared)
+                            ~receipt:(Prepared.receipt prepared)
+                            ~bits:(Prepared.bits prepared)
+                          |> checked
+                        in
+                        rejected
+                          "equal bits and original source cannot substitute a \
+                           new saved object"
+                          (Request.parameter_default request ~globals ~header
+                             ~parameter copy);
+                        checked_saved := true)
+                  (Calls.arguments call)));
+    List.iter
+      (fun status_abi ->
+        ignore
+          (Image.compile_task_default ~status_abi ~layout request |> compiled))
+      [ Image.Windows_x64; Image.System_v_x64 ];
+    Gc.full_major ();
+    let image =
+      Image.compile_task_default ~status_abi:(host_status_abi ()) ~layout
+        request
+      |> compiled
+    in
+    let before = (Runtime.budget_progress budget).executed_steps in
+    let report, result = execute image in
+    Request.record_steps request
+      ((Runtime.budget_progress budget).executed_steps - before)
+    |> checked;
+    rejected "native default work cannot replay"
+      (Request.record_steps request 1);
+    rejected "entered default cannot claim twice" (Request.claim request);
+    rejected "entered default image cannot compile again"
+      (Image.compile_task_default ~layout request);
+    Alcotest.(check bool)
+      "default captured its original native word" true
+      (Runtime.value_captured report);
+    Ok (Option.get result.final_value).bits
+  in
+  Fun.protect
+    ~finally:(fun () -> Runtime.release_task_arena arena |> checked)
+    (fun () ->
+      let report =
+        Source.run ~native_dispatch ~native_default session ~config ~source
+          ~max_steps:100_000
+      in
+      Source.outcome report |> Result.map_error describe |> checked |> ignore;
+      Alcotest.(check int)
+        "each original header default executes once" 2 !executions;
+      Alcotest.(check bool)
+        "later native default consumes prior original saved value" true
+        !checked_saved;
+      Alcotest.(check bool)
+        "saved default reaches later native caller" true
+        (Source.native_final_value report = Some (Dispatch.I64 42L));
+      List.iter
+        (fun request ->
+          rejected "closed source request has no default compilation authority"
+            (Request.check request);
+          rejected "closed source cannot report work"
+            (Request.record_steps request 0))
+        !saved)
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -1766,5 +1925,8 @@ let () =
           Alcotest.test_case
             "native static byte-copy raw host bounds and flag validation" `Quick
             native_static_copy_host_bounds;
+          Alcotest.test_case
+            "original native defaults, saved words, both ABIs and lifetime"
+            `Quick native_default_source_authority;
         ] );
     ]

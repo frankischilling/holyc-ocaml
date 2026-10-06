@@ -91,6 +91,34 @@ unresolved call form may bind only to that same body's checked definition and
 declaration ancestry. General unresolved extern calls and later slot replacement
 remain outside this direct-call path.
 
+Named integer parameter defaults execute once at the original live header
+callback. `examples/native-source-defaults.hc` saves 41 from `Seed()`, returns
+42 from `Answer()`, changes the source counter and returns 42 again. Each
+omitted argument loads the saved full word from its original header. Explicit
+arguments and unused functions still require the declaration-time default to
+execute. Historical callers retain their selected original header and saved
+value after same-name replacement.
+
+The default expression has its own real native image, reported as `default` in
+`native.fragments`. Its original parser receipt, typed root, namespace and
+checked call graph remain joined through execution and header completion.
+Every selected/source header and original call header in the retained closure
+must use its exact published saved object and completed native execution.
+Equal bits, copied saved objects and another source snapshot grant no authority.
+Closed preparation and interpreter execution do not supply these native values.
+
+Defaults can read and update admitted integer storage and call retained integer
+functions, including functions with earlier saved defaults. Actual expression
+instructions consume both the shared native step allowance and the remaining
+initializer allowance. Each successfully captured default retains eight bytes,
+reported by `Native_source_execution.default_bytes` and JSON
+`prepared_default_bytes`, under `max_default_bytes`. Code, output, frame and
+call-depth limits keep their existing cumulative or per-activation meanings.
+Reached faults preserve earlier native writes, output and work; later defaults
+and body publication stop. Named pointer, callback-valued, string, F64 and
+aggregate defaults, anonymous callback defaults and `lastclass` remain separate
+work. The isolated `host-jit` target keeps its closed-default restriction.
+
 The task publishes function source records when its original declaration
 request claims admission. Rejection before that claim leaves the registry
 unchanged. An admitted declaration keeps its source after a later reached fault. Each
@@ -166,7 +194,8 @@ in OCaml.
 
 This source-task path supports integer globals, fixed integer arrays,
 integer function statics, and retained direct functions and their original
-literals. Runtime-dependent dimensions, task callback storage, declaration defaults, native `#exe`,
+literals and named integer defaults. Runtime-dependent dimensions, task callback
+storage, wider and anonymous defaults, native `#exe`,
 persistent executable addresses and AOT source-task execution remain separate
 work under #704.
 The compiler retains each successful live JIT static allocation, including
@@ -251,3 +280,10 @@ this source-task connection adds no native oracle observation.
 pointer producer. `OptPass789A.HC:296-304` addresses that object's generated
 storage. The shared task arena preserves the original mutable bytes under the
 hosted ownership and lifetime rules described above.
+
+`Compiler/PrsVar.HC:629-656` compiles and calls the original default expression,
+keeps its full returned word in the parameter member, and marks the default
+available. `Compiler/PrsExp.HC:455-469` uses that saved word when an argument is
+omitted. The native task connection preserves this timing and original header;
+its private capability checks and quotas are hosted policy. It adds no new
+TempleOS runtime capture.

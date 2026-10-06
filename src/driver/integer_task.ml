@@ -126,6 +126,13 @@ module Native_dispatch = struct
     VM.task_native_provider_available request.command_task ~runtime_calls ~owner
       call
 
+  let initializer_parameter_default request ~globals ~header ~parameter prepared
+      =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    VM.task_native_parameter_default request.initializer_task ~globals ~header
+      ~parameter prepared
+
   let create_initializer ~task ~attempt ~execution ~program =
     {
       initializer_task = task;
@@ -135,6 +142,12 @@ module Native_dispatch = struct
       initializer_domain = Domain.self ();
       initializer_state = Atomic.make Offered;
     }
+
+  let command_parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    VM.task_native_parameter_default request.command_task ~globals ~header
+      ~parameter prepared
 
   let create_command ~task ~program =
     {
@@ -252,8 +265,91 @@ module Native_static_initializer = struct
     let* () = check request in
     VM.task_native_provider_available request.task ~runtime_calls ~owner call
 
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
   let create task program_ =
     { task; program_; domain = Domain.self (); phase = Atomic.make Offered }
+
+  let entered request = Atomic.get request.phase = Entered
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_default = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.default_attempt;
+    program_ : Ir.Default_fragment_program.t;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t = request -> (int64, Common.Diagnostic.t list) result
+
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then Error "native default belongs to another domain or was already claimed"
+    else
+      VM.check_native_task_default request.task request.attempt request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_default request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native default was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native default lacks its admitted original callee"
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let initializer_remaining request =
+    VM.task_initializer_limit request.task
+    - VM.task_initializer_steps request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native default work requires its entered original request"
+    else VM.record_native_default_steps request.task request.attempt steps
+
+  let create task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
 
   let entered request = Atomic.get request.phase = Entered
   let close request = Atomic.set request.phase Closed
@@ -318,6 +414,7 @@ type t = {
   native_static_allocation : Native_static_allocation.t option;
   native_static_initializer : Native_static_initializer.t option;
   native_static_copy : Native_static_copy.t option;
+  native_default : Native_default.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
 }
 
@@ -333,7 +430,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_initializer_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
     ?max_stream_depth ?native_dispatch ?native_static_allocation
-    ?native_static_initializer ?native_static_copy session =
+    ?native_static_initializer ?native_static_copy ?native_default session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -361,6 +458,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             native_static_allocation;
             native_static_initializer;
             native_static_copy;
+            native_default;
             commands = [];
           }))
 
@@ -370,7 +468,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
     ?native_dispatch ?native_static_allocation ?native_static_initializer
-    ?native_static_copy session ~source ~ledger =
+    ?native_static_copy ?native_default session ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
@@ -393,6 +491,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       native_static_allocation;
       native_static_initializer;
       native_static_copy;
+      native_default;
       commands = [];
     }
 
@@ -754,13 +853,41 @@ let execute_parameter_default ?(use_active_stream = true) ?stream_exe_print task
       |> Result.map_error (fun message ->
           [ Integer_source.message_diagnostic ~span message ])
     in
-    let* execution =
-      Default_fragment_lowering.prepare ~context ~authority ~runtime:task.state
-        destination
-    in
-    VM.execute_task_default ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    match task.native_default with
+    | Some evaluate ->
+        let* program =
+          Default_fragment_lowering.lower_native ~context ~authority destination
+        in
+        let request = Native_default.create task.state attempt program in
+        Fun.protect
+          ~finally:(fun () -> Native_default.close request)
+          (fun () ->
+            let* bits = evaluate request in
+            if Native_default.entered request then
+              VM.complete_native_task_default task.state attempt program bits
+              |> Result.map_error (fun message ->
+                  [ Integer_source.message_diagnostic ~span message ])
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native default returned without claiming its original \
+                     expression";
+                ])
+    | None when Option.is_some task.native_dispatch ->
+        Error
+          [
+            Integer_source.diagnostic ~span "HCRUN0006"
+              "native task parameter defaults require a native consumer";
+          ]
+    | None ->
+        let* execution =
+          Default_fragment_lowering.prepare ~context ~authority
+            ~runtime:task.state destination
+        in
+        VM.execute_task_default ~use_active_stream ?stream_exe_print task.state
+          attempt execution
+        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_default task.state attempt)
@@ -1108,13 +1235,6 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Callback_signature_completed header ->
         Task_declarations.complete_callback_defaults_runtime task.declarations
           ~runtime:task.state header
-    | Frontend.Parser.Parameter_default_completed receipt
-      when Option.is_some task.native_dispatch -> (
-        match receipt.default_ast.value with
-        | Frontend.Ast.Expression_default _ ->
-            native_reject receipt.default_ast.location.span
-              "parameter expression defaults"
-        | Frontend.Ast.Lastclass_default _ -> Ok ())
     | Frontend.Parser.Parameter_default_completed receipt -> (
         match receipt.default_ast.value with
         | Frontend.Ast.Expression_default _ ->

@@ -9,6 +9,16 @@ cumulative allowance for those fragments. Driver admission retains metadata
 without allocating interpreter cells or importing native values. The driver has
 no dependency on the backend. See [native source tasks](docs/native-source-tasks.md).
 
+Named integer defaults lower their original typed expression directly to a
+native fragment. The live request binds the task, original attempt, graph and
+execution domain. A claimed entry captures its native word and work once;
+original header completion publishes that exact saved object. Each caller
+seals saved-default requirements across its historical function closure and
+original call headers. The task catalog verifies native completion, physical
+saved-object identity and source receipt before backend admission. The host
+limits default steps without resetting the shared native allowance and counts
+each saved word as eight separate payload bytes.
+
 Private function statics append data and initialization flags during their
 original allocation callback. Each live initializer request binds the original
 static destination, selected references, checked graph and runtime context.

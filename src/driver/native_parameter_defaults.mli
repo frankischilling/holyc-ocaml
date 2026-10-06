@@ -52,3 +52,26 @@ val admits_callback :
   pointer:Sema.Function_type_resolution.function_pointer ->
   parameter:Sema.Function_type_resolution.parameter ->
   bool
+
+val create_task :
+  globals:Ir.Integer_globals.t ->
+  runtime_calls:Ir.Runtime_call_context.t ->
+  initialization:Ir.Global_initialization.t ->
+  entry:Ir.X87_stack.t ->
+  functions:Ir.Integer_interpreter.function_definition list ->
+  sources:
+    (Ir.Integer_globals.t
+    * Ir.Integer_interpreter.function_definition
+    * Ir.Runtime_call_context.t)
+    list ->
+  available:
+    (globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result) ->
+  (t, string) result
+(** Seal saved defaults for the exact retained callable closure. Every original
+    selected/source header must be covered by its own task snapshot and
+    completed native declaration-time execution. Anonymous callback defaults
+    still reject. *)

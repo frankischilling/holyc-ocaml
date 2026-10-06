@@ -17,6 +17,11 @@ opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --mode=ao
 Both preprocessing modes use their original source identities and produce a
 hosted native image. AOT mode here does not write an object or TempleOS BIN.
 
+The separate JIT [native source-task path](native-source-tasks.md) executes
+named integer defaults containing live storage reads, updates and retained
+calls. It uses original native expression fragments and saved-header receipts.
+The closed-default rules below describe the isolated `host-jit` target.
+
 ## Supported domain
 
 Defaults belong to fixed I8/U8/I16/U16/I32/U32/I64/U64 parameters on the source-defined

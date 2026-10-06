@@ -7,7 +7,7 @@ module Native = Runtime.Native_program_execution
 type word = { type_ : Image.word_type; bits : int64 }
 type result = { final_value : word option }
 type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
-type fragment_kind = Initializer | Command
+type fragment_kind = Initializer | Default | Command
 
 type image = {
   status_abi : Image.status_abi;
@@ -41,6 +41,7 @@ type report = {
   platform_ : Native.platform;
   executed_steps_ : int;
   preparation_steps_ : int;
+  default_bytes_ : int;
   dimension_work_ : int;
   switch_work_ : int;
   output_bytes_ : string;
@@ -183,6 +184,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
         platform_;
         executed_steps_ = 0;
         preparation_steps_ = 0;
+        default_bytes_ = 0;
         dimension_work_ = 0;
         switch_work_ = 0;
         output_bytes_ = "";
@@ -192,6 +194,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
   | Ok (layout, budget, arena) ->
       let fragments = ref [] in
       let static_copies = ref [] in
+      let default_bytes = ref 0 in
       let emitted_bytes = ref 0 in
       let emitted_ir = ref 0 in
       let cleanup_errors = ref [] in
@@ -221,7 +224,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
           emitted_ir := !emitted_ir + Image.ir_instructions image;
           Ok image
       in
-      let execute kind image =
+      let execute ?max_activation_steps kind image =
         let metadata = describe_image image in
         match
           Native.retain_task_fragment ~max_global_bytes ~max_literal_bytes
@@ -240,9 +243,9 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   | Ok () -> ()
                   | Error message -> release_error := Some message)
                 (fun () ->
-                  Native.execute_retained_budget_report ~max_frame_bytes
-                    ~max_call_depth ~max_active_stack_bytes ~max_global_bytes
-                    ~max_literal_bytes budget retained)
+                  Native.execute_retained_budget_report ?max_activation_steps
+                    ~max_frame_bytes ~max_call_depth ~max_active_stack_bytes
+                    ~max_global_bytes ~max_literal_bytes budget retained)
             in
             let native_outcome = Native.outcome execution in
             fragments :=
@@ -299,6 +302,57 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
           in
           execute Initializer image |> Result.map ignore
         in
+        let native_default request =
+          let module Request = Task.Native_default in
+          let span =
+            Request.program request |> Ir.Default_fragment_program.destination
+            |> Ir.Default_fragment_destination.span
+          in
+          let allowance = Request.initializer_remaining request in
+          if max_default_bytes - !default_bytes < 8 then
+            Error
+              [
+                diagnostic ~span "HCIRVM0011"
+                  "native saved-default payload exceeds max_default_bytes";
+              ]
+          else if allowance <= 0 then
+            Error
+              [
+                diagnostic ~span "HCIRVM0007"
+                  "the task default preparation step limit was exhausted";
+              ]
+          else
+            let* image =
+              remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                  Image.compile_task_default ?status_abi ~max_stack_bytes
+                    ~max_blocks ~max_ir_instructions ~max_code_bytes ~layout
+                    request)
+            in
+            let before = (Native.budget_progress budget).executed_steps in
+            let outcome =
+              execute ~max_activation_steps:allowance Default image
+            in
+            let steps =
+              (Native.budget_progress budget).executed_steps - before
+            in
+            let* () =
+              (if steps = 0 && Result.is_error outcome then Ok ()
+               else Request.record_steps request steps)
+              |> Result.map_error (fun message ->
+                  [ Driver.Integer_source.message_diagnostic ~span message ])
+            in
+            let* completed, captured = outcome in
+            match (captured, completed.final_value) with
+            | true, Some word ->
+                default_bytes := !default_bytes + 8;
+                Ok word.bits
+            | _ ->
+                Error
+                  [
+                    diagnostic ~span "HCIRVM0026"
+                      "native default produced no captured expression word";
+                  ]
+        in
         let native_static_allocation request =
           Native.allocate_task_static arena request
           |> Result.map_error (fun message ->
@@ -335,7 +389,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
           (fun () ->
             let report =
               Source.run ~native_dispatch ~native_static_allocation
-                ~native_static_initializer ~native_static_copy
+                ~native_static_initializer ~native_static_copy ~native_default
                 ~max_dimension_work ~max_switch_work ~max_initializer_steps
                 ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
                 ~max_call_depth ~max_output_bytes ~max_output_work session
@@ -377,6 +431,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
         preparation_steps_ =
           Option.bind !source_report Source.preparation_work
           |> Option.value ~default:0;
+        default_bytes_ = !default_bytes;
         dimension_work_ =
           Option.fold ~none:0 ~some:Source.dimension_work !source_report;
         switch_work_ =
@@ -392,6 +447,7 @@ let static_copies report = report.static_copies_
 let platform report = report.platform_
 let executed_steps report = report.executed_steps_
 let preparation_steps report = report.preparation_steps_
+let default_bytes report = report.default_bytes_
 let dimension_work report = report.dimension_work_
 let switch_work report = report.switch_work_
 let output_bytes report = report.output_bytes_

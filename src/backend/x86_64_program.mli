@@ -153,6 +153,16 @@ val compile_task_initializer :
 (** Compile the original live integer initializer leaf against the task's stable
     storage layout. The image retains its exact one-shot source-entry token. *)
 
+val compile_task_default :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_default.request ->
+  (t, error list) result
+
 val compile_task_command :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->

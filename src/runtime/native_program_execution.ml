@@ -917,10 +917,13 @@ let append_capture captured chunks =
     in
     append (copy_string captured) chunks
 
-let execute_retained_budget_report ?max_frame_bytes ?max_call_depth
-    ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes budget retained
-    =
-  if not (Atomic.compare_and_set budget.active_ false true) then
+let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
+    ?max_call_depth ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
+    budget retained =
+  if
+    Option.fold ~none:false ~some:(fun limit -> limit <= 0) max_activation_steps
+  then error_report "native activation step allowance must be positive"
+  else if not (Atomic.compare_and_set budget.active_ false true) then
     error_report "retained native budget is already active"
   else
     Fun.protect
@@ -949,7 +952,12 @@ let execute_retained_budget_report ?max_frame_bytes ?max_call_depth
                     ~consumed:(state.steps_, state.bytes_, state.work_)
                     ~entered ?task_binding ?max_frame_bytes ?max_call_depth
                     ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
-                    ~max_steps:budget.max_steps_
+                    ~max_steps:
+                      (match max_activation_steps with
+                      | None -> budget.max_steps_
+                      | Some limit ->
+                          state.steps_
+                          + min limit (budget.max_steps_ - state.steps_))
                     ~max_output_bytes:budget.max_output_bytes_
                     ~max_output_work:budget.max_output_work_ retained.image_
                 in

@@ -137,7 +137,7 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
     ?native_dispatch ?native_static_allocation ?native_static_initializer
-    ?native_static_copy session ~config ~source =
+    ?native_static_copy ?native_default session ~config ~source =
   let limits =
     {
       steps = max_steps;
@@ -228,8 +228,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       ~max_generated_bytes:
                         (Frontend.Preprocessor.Config.max_generated_bytes config)
                       ?native_dispatch ?native_static_allocation
-                      ?native_static_initializer ?native_static_copy session
-                      ~source ~ledger
+                      ?native_static_initializer ?native_static_copy
+                      ?native_default session ~source ~ledger
             in
             let* retained =
               create ()
@@ -452,13 +452,13 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?native_dispatch
     ?native_static_allocation ?native_static_initializer ?native_static_copy
-    session ~config ~source ~max_steps =
+    ?native_default session ~config ~source ~max_steps =
   let compilation =
     compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
       ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
       ?max_output_bytes ?max_output_work ?native_dispatch
       ?native_static_allocation ?native_static_initializer ?native_static_copy
-      ~max_steps session ~config ~source
+      ?native_default ~max_steps session ~config ~source
   in
   let span = Integer_source.source_span source in
   let program_ =

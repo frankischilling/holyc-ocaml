@@ -1827,3 +1827,11 @@ fault effects, foreign frames and exact runtime limits. Grouping around the
 complete canceled expression is supported; a grouped operand or a remaining
 second star still needs a real dereference. These source and hosted execution
 checks add no TempleOS oracle capture or exported ABI proof.
+
+Native task named integer defaults follow `Compiler/PrsVar.HC:629-656`:
+`LexExpression2Bin` and `Call` run during parsing, then retain the full word in
+`dft_val` and set `MLF_DFT_AVAILABLE`. `PrsExp.HC:455-469` emits that saved word
+for an omitted argument. The hosted source driver carries the original receipt
+through a native expression image to the same saved header. Source tests cover
+live storage, retained calls and historical omissions; hosted quotas and
+single-use checks add no new TempleOS runtime capture.

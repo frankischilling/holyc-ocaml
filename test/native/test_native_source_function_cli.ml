@@ -21,10 +21,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 6)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 7)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
-     [native-source-literals.hc] [native-source-static-copies.hc]"
+     [native-source-literals.hc] [native-source-static-copies.hc] \
+     [native-source-defaults.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -342,11 +343,79 @@ let () =
      |> List.length = 2)
       "nested direct copies occur once before later storage growth"
   in
-  if Array.length Sys.argv = 6 then retained_copy_checks Sys.argv.(5)
+  if Array.length Sys.argv >= 6 then retained_copy_checks Sys.argv.(5)
   else
     with_file ".hc"
       "I64 NextByte(){static U8 Bytes[2][3]={\"AB\",\"CD\"};return \
        ++Bytes[1][0];}NextByte();U8 Later[2]={20,22};NextByte();"
       retained_copy_checks;
+  let default_checks path =
+    let report = json_path path in
+    require
+      (final_bits report = "0x000000000000002a")
+      "native saved live default result";
+    require
+      (report |> member "prepared_default_bytes" |> to_int = 8)
+      "original saved word payload";
+    require
+      (final_bits (json_path ~options:[ "--default-byte-limit=8" ] path)
+      = final_bits report)
+      "exact saved word allowance";
+    let payload_limited =
+      json_path ~status:1 ~options:[ "--default-byte-limit=7" ] path
+    in
+    require
+      (has_diagnostic "HCIRVM0011" payload_limited)
+      "one-below saved word allowance";
+    require
+      (payload_limited |> member "prepared_default_bytes" |> to_int = 0)
+      "unexecuted default retains no word";
+    let defaults =
+      List.filter
+        (fun image -> image |> member "kind" |> to_string = "default")
+        (fragments report)
+    in
+    require
+      (List.length defaults = 1)
+      "one original default expression execution";
+    require
+      (List.hd defaults |> member "outcome" |> to_string = "success")
+      "actual native default completion";
+    require
+      (final_bits (json_path ~target:"ir" path) = final_bits report)
+      "independent IR saved default";
+    let isolated = json_path ~status:1 ~target:"host-jit" path in
+    require
+      (has_diagnostic "HCRUN0006" isolated)
+      "existing isolated live default boundary";
+    let work = report |> member "compiled_initializer_steps" |> to_int in
+    require
+      (final_bits
+         (json_path
+            ~options:[ "--initializer-step-limit=" ^ string_of_int work ]
+            path)
+      = final_bits report)
+      "exact native default preparation allowance";
+    let limited =
+      json_path ~status:1
+        ~options:[ "--initializer-step-limit=" ^ string_of_int (work - 1) ]
+        path
+    in
+    require
+      (has_diagnostic "HCIRVM0007" limited)
+      "native default preparation quota";
+    require
+      (last_fragment limited |> member "kind" |> to_string = "default")
+      "quota occurs in original native default";
+    require
+      (last_fragment limited |> member "outcome" |> to_string = "fault")
+      "quota reaches native default code"
+  in
+  if Array.length Sys.argv = 7 then default_checks Sys.argv.(6)
+  else
+    with_file ".hc"
+      "I64 Counter=40;I64 Seed(){return ++Counter;}I64 Answer(I64 \
+       value=Seed()){return value+1;}Answer();Counter=100;Answer();"
+      default_checks;
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

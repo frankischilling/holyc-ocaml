@@ -1,7 +1,7 @@
 type word = private { type_ : Backend.X86_64_program.word_type; bits : int64 }
 type result = private { final_value : word option }
 type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
-type fragment_kind = Initializer | Command
+type fragment_kind = Initializer | Default | Command
 
 type image = private {
   status_abi : Backend.X86_64_program.status_abi;
@@ -87,8 +87,14 @@ val evaluate :
     their checked byte count to the owning initializer allowance. Those native
     writes appear in [static_copies], with no expression IR or code image.
     Static values are not computed by the interpreter or copied from prepared
-    storage. Unsupported task declarations, declaration defaults and AOT mode
-    return diagnostics. There is no isolated program or interpreter fallback. *)
+    storage. Named integer parameter defaults execute once in their original
+    native expression fragment and retain full words in the original header.
+    Calls require those exact saved objects and completed native receipts. Each
+    word charges eight [default_bytes]; actual expression work consumes both the
+    shared native allowance and remaining initializer steps. Anonymous callback,
+    string, pointer and F64 defaults remain unsupported. Unsupported task
+    declarations and AOT mode return diagnostics. There is no isolated program
+    or interpreter fallback. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val fragments : report -> fragment list
@@ -96,6 +102,7 @@ val static_copies : report -> static_copy list
 val platform : report -> Runtime.Native_program_execution.platform
 val executed_steps : report -> int
 val preparation_steps : report -> int
+val default_bytes : report -> int
 val dimension_work : report -> int
 val switch_work : report -> int
 val output_bytes : report -> string

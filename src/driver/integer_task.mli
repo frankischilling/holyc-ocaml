@@ -46,6 +46,22 @@ module Native_dispatch : sig
       is still offered. Foreign contexts, domains and entered or expired
       requests reject. A joined source body disables provider fallback. *)
 
+  val initializer_parameter_default :
+    initializer_request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val command_parameter_default :
+    command_request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
   val claim_command_request : command_request -> (unit, string) result
 
   val command_function_source :
@@ -111,6 +127,50 @@ module Native_static_initializer : sig
     owner:Ir.Runtime_call_context.owner ->
     Ir.Runtime_call_context.call ->
     (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+end
+
+module Native_default : sig
+  type request
+  type t = request -> (int64, Common.Diagnostic.t list) result
+
+  val program : request -> Ir.Default_fragment_program.t
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val initializer_remaining : request -> int
+  (** Inspect original saved objects only while offered. Entry claims once in
+      the originating domain; native work can be recorded once after entry. The
+      request expires when its synchronous source callback returns. *)
+
+  val record_steps : request -> int -> (unit, string) result
 end
 
 module Native_static_copy : sig
@@ -180,6 +240,7 @@ val create :
   ?native_static_allocation:Native_static_allocation.t ->
   ?native_static_initializer:Native_static_initializer.t ->
   ?native_static_copy:Native_static_copy.t ->
+  ?native_default:Native_default.t ->
   Session.t ->
   (t, string) result
 (** Limits belong to the task. Preparation is charged during compilation,
@@ -259,6 +320,7 @@ val adopt_source :
   ?native_static_allocation:Native_static_allocation.t ->
   ?native_static_initializer:Native_static_initializer.t ->
   ?native_static_copy:Native_static_copy.t ->
+  ?native_default:Native_default.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->
@@ -283,6 +345,7 @@ val adopt_source_for_activation :
   ?native_static_allocation:Native_static_allocation.t ->
   ?native_static_initializer:Native_static_initializer.t ->
   ?native_static_copy:Native_static_copy.t ->
+  ?native_default:Native_default.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->

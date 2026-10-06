@@ -13,8 +13,13 @@ per-element initialization flags and historical function ownership.
 Original literal-copy leaves initialize fixed byte-array statics, including
 nested rows and truncated or terminating-zero copies. Automatic/parameter reads
 in static initializers and partial array initialization still reject. Persistent function addresses, task
-callbacks, runtime dimensions, defaults, native `#exe` and AOT task
+callbacks, runtime dimensions, wider and anonymous defaults, native `#exe` and AOT task
 execution remain open under #704.
+Named integer defaults execute once at their original header callback through
+a real native expression image. Storage effects and retained calls produce the
+saved full word; later calls require its original published object and completed
+native receipt. Actual work shares the native and initializer allowances, and
+each captured word consumes eight saved-default bytes.
 See [native source tasks](native-source-tasks.md).
 
 Retained task functions use their original source context for Print and PutChars.

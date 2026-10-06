@@ -158,6 +158,7 @@ val budget_output_bytes : budget -> string
     budget state. *)
 
 val execute_retained_budget_report :
+  ?max_activation_steps:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
   ?max_active_stack_bytes:int ->
@@ -166,16 +167,18 @@ val execute_retained_budget_report :
   budget ->
   retained ->
   report
-(** Execute an original retained entry using this allowance's remaining
-    instruction, output-byte and output-work limits. Zero remaining allowances
-    reach the generated guards: exhausted output does not prevent quiet code,
-    while exhausted steps stop before the first source instruction. A checked
-    completion or fault reports cumulative executed steps, with output and work
-    for this activation. Both consume the original shared allowance and preserve
-    reached native writes. Preflight and rejected native admission consume
-    nothing. The host marks entry only after acquiring the original image's
-    activation guard and checking its lifetime. Once native entry begins, an
-    unverified host/status failure revokes the allowance.
+(** An optional positive [max_activation_steps] further limits this activation
+    without resetting or increasing the shared allowance. Execute an original
+    retained entry using this allowance's remaining instruction, output-byte and
+    output-work limits. Zero remaining allowances reach the generated guards:
+    exhausted output does not prevent quiet code, while exhausted steps stop
+    before the first source instruction. A checked completion or fault reports
+    cumulative executed steps, with output and work for this activation. Both
+    consume the original shared allowance and preserve reached native writes.
+    Preflight and rejected native admission consume nothing. The host marks
+    entry only after acquiring the original image's activation guard and
+    checking its lifetime. Once native entry begins, an unverified host/status
+    failure revokes the allowance.
 
     Concurrent use of one allowance rejects overlap. Ordinary retained images
     may share an allowance while keeping independent private arenas. Task

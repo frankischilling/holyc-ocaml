@@ -129,6 +129,12 @@ val compile_task_fragment :
     owner:Ir.Runtime_call_context.owner ->
     Ir.Runtime_call_context.call ->
     (bool, string) result) ->
+  retained_parameter_default:
+    (globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result) ->
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   functions:Ir.Integer_interpreter.function_definition list ->

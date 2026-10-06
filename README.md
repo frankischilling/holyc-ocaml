@@ -17,6 +17,9 @@ after two counter calls.
 Static byte arrays also copy their original literal bytes at declaration;
 `examples/native-source-static-copies.hc` returns 69 after two calls and a later
 array allocation.
+Named integer defaults execute their original expressions once during header
+parsing. `examples/native-source-defaults.hc` returns 42 again after its source
+counter changes; omitted arguments reuse the original saved word.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
 and remaining native address, dimension and runtime work under #704.
 

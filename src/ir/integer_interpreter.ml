@@ -383,6 +383,9 @@ type default_attempt = {
   default_preparation_before : int;
   mutable default_state : initializer_attempt_state;
   mutable default_bits : int64 option;
+  mutable default_native : bool;
+  mutable default_native_program : Default_fragment_program.t option;
+  mutable default_native_work : int option;
 }
 
 type default_constant = {
@@ -2233,6 +2236,9 @@ let begin_task_default task ~namespace ~publication receipt =
         default_preparation_before = task.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
+        default_native = false;
+        default_native_program = None;
+        default_native_work = None;
       }
     in
     task.defaults <- attempt :: task.defaults;
@@ -2261,6 +2267,118 @@ let task_default_bits task receipt =
       then attempt.default_bits
       else None)
     task.defaults
+
+let check_native_task_default task attempt program =
+  let module Program = Default_fragment_program in
+  let module Destination = Default_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.default_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.defaults))
+    || attempt.default_state <> Preparing_initializer
+    || (not
+          (Sema.Default_fragment.current_source
+             ~activation:task.source_activation attempt.default_source))
+    || (not
+          (Sema.Default_fragment.same_source attempt.default_source
+             (Sema.Default_fragment.source fragment)))
+    || Sema.Default_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_default_fragment
+             (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.initializer_steps <> attempt.default_preparation_before
+  then
+    Error
+      "native default requires its original live task, attempt and expression"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_default task attempt program =
+  Result.map
+    (fun () ->
+      attempt.default_state <- Executing_initializer;
+      attempt.default_native_program <- Some program)
+    (check_native_task_default task attempt program)
+
+let record_native_default_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.default_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.defaults))
+    || attempt.default_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.default_native_work
+    || Option.is_none attempt.default_native_program
+    || steps > task.max_initializer_steps - task.initializer_steps
+  then
+    Error "native default work has another task, attempt or exhausted allowance"
+  else (
+    task.initializer_steps <- task.initializer_steps + steps;
+    attempt.default_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_default task attempt program bits =
+  let destination = Default_fragment_program.destination program in
+  if
+    (not task.native_storage_authority)
+    || attempt.default_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.defaults))
+    || attempt.default_state <> Executing_initializer
+    || Option.is_none attempt.default_native_work
+    || (not
+          (Option.fold ~none:false ~some:(( == ) program)
+             attempt.default_native_program))
+    || (not
+          (Sema.Default_fragment.current_source
+             ~activation:task.source_activation attempt.default_source))
+    || not
+         (Sema.Default_fragment.same_source attempt.default_source
+            (Sema.Default_fragment.source
+               (Default_fragment_destination.fragment destination)))
+  then Error "native default completion has another task or expired expression"
+  else (
+    attempt.default_bits <- Some bits;
+    attempt.default_native <- true;
+    attempt.default_state <- Successful_initializer;
+    Ok ())
+
+let task_native_parameter_default task ~globals ~header ~parameter prepared =
+  if
+    (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog globals))
+    || (not
+          (Integer_globals.task_catalog_contains_parameter_default task.catalog
+             prepared))
+    || (not (Prepared_parameter_default.matches prepared ~header ~parameter))
+    || (not
+          (Option.fold ~none:false ~some:(( == ) prepared)
+             (Integer_globals.prepared_parameter_default globals ~header
+                ~parameter)))
+    || not
+         (List.exists
+            (fun attempt ->
+              attempt.default_native
+              && attempt.default_state = Successful_initializer
+              && (match attempt.default_source with
+                | Named (publication, receipt) ->
+                    publication
+                    == Prepared_parameter_default.publication prepared
+                    && receipt == Prepared_parameter_default.receipt prepared
+                | Callback _ -> false)
+              && attempt.default_bits
+                 = Some (Prepared_parameter_default.bits prepared))
+            task.defaults)
+  then Error "native saved default lacks its exact completed source execution"
+  else Ok ()
 
 let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
   let module Record = Sema.Compiler_record in
@@ -9779,6 +9897,9 @@ let begin_task_callback_default task ~namespace receipt =
         default_preparation_before = task.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
+        default_native = false;
+        default_native_program = None;
+        default_native_work = None;
       }
     in
     task.defaults <- attempt :: task.defaults;

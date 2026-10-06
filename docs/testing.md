@@ -1570,3 +1570,15 @@ writing. A later copy may overwrite earlier original element writes; its live
 request enforces single use. Public CLI reports list the direct
 copy separately from the two expression-code fragments for a definition and
 call. These controls add no TempleOS runtime capture.
+
+Native task defaults compare saved values with independent IR execution for
+once-only effects, unused functions, explicit arguments, multiple defaults,
+recursive calls, narrow values and historical headers. Defaults called from
+original global and static initializer leaves use the same completion proof.
+Provider and arithmetic faults retain reached output and stop later default
+publication. Exact and one-below step, initializer, code, IR and saved-word
+allowances exercise real native guards. Authority tests compile both private
+ABIs and execute the host ABI; they reject cross-domain claims, expired or
+replayed requests, repeated work receipts and copied saved objects with equal
+source and bits. Public CLI reports distinguish native default images and
+saved payload bytes. These tests add no TempleOS runtime capture.

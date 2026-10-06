@@ -8684,8 +8684,8 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                       }
               with Rejected error -> Error [ error ])))
 
-let compile_callable_internal ?task_snapshot ?retained_function_source
-    ?retained_provider_available ?status_abi
+let compile_callable_internal ?task_snapshot ?retained_parameter_default
+    ?retained_function_source ?retained_provider_available ?status_abi
     ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?parameter_defaults ?global_initializers ~max_ir_instructions
@@ -8879,6 +8879,24 @@ let compile_callable_internal ?task_snapshot ?retained_function_source
           ( Some snapshot,
             Global_storage.task_snapshot_storage snapshot,
             Global_storage.task_snapshot_literals snapshot )
+  in
+  let* parameter_defaults =
+    match (task_snapshot, retained_parameter_default) with
+    | Some _, Some available ->
+        Defaults.create_task ~globals ~runtime_calls ~initialization ~entry
+          ~functions
+          ~sources:
+            (List.map
+               (fun (source : callable_function_source) ->
+                 ( source.source_globals,
+                   source.source_definition,
+                   source.source_runtime_calls ))
+               callable_sources)
+          ~available
+        |> Result.map Option.some
+        |> Result.map_error (fun message ->
+            [ { code = "HCBACK0002"; message; span = None } ])
+    | _ -> Ok parameter_defaults
   in
   let global_arena_bytes = Global_storage.arena_bytes global_storage in
   let global_image =
@@ -9452,10 +9470,11 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
 
 let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
     ~task_snapshot ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~retained_function_source ~retained_provider_available ~initialization
-    ~entry ~functions () =
-  compile_callable_internal ~task_snapshot ~retained_function_source
-    ~retained_provider_available ?status_abi ?max_stack_bytes ?max_blocks
+    ~retained_function_source ~retained_provider_available
+    ~retained_parameter_default ~initialization ~entry ~functions () =
+  compile_callable_internal ~task_snapshot ~retained_parameter_default
+    ~retained_function_source ~retained_provider_available ?status_abi
+    ?max_stack_bytes ?max_blocks
     ~max_global_bytes:Global_storage.hard_max_global_bytes ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
 

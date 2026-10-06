@@ -3,6 +3,66 @@ module Lower = Ir.Integer_program_lowering
 module Typed = Sema.Function_call_expression_result
 module Program = Ir.Default_fragment_program
 
+let lower_native ~context ~authority destination =
+  let ( let* ) = Result.bind in
+  let span = Destination.span destination in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* () =
+    if
+      Expression_facts.contains_string_literal
+        (Sema.Default_fragment.expression (Destination.fragment destination))
+    then
+      diagnose
+        (Error
+           "HCRUN0006: native task defaults containing strings require owned \
+            storage")
+    else Ok ()
+  in
+  let typed = Destination.typed destination in
+  let records = Initializer_fragment_typing.records context in
+  let* top_calls =
+    List.fold_right
+      (fun call result ->
+        let* call =
+          Sema.Top_level_function_call_target_classification.classify ~records
+            call
+          |> Result.map_error
+               Sema.Top_level_function_call_target_classification
+               .error_to_string
+          |> diagnose
+        in
+        let* rest = result in
+        Ok (call :: rest))
+      (Typed.top_level_direct_calls typed)
+      (Ok [])
+  in
+  let globals = Destination.globals destination in
+  let* lowered =
+    Lower.lower_complete ~globals ~records ~top_calls ~span
+      [
+        Lower.Expression
+          (Typed.top_level_root_value (Destination.root destination));
+      ]
+  in
+  let entry = Lower.graph lowered in
+  let* initialization =
+    Ir.Global_initialization.create ~span ~globals ~entry []
+  in
+  let* runtime_calls =
+    Ir.Runtime_call_context.create ~records
+      ~function_sources:(Initializer_fragment_typing.function_sources context)
+      ~top_level:typed ~initialization ~entry
+      ~entry_calls:(Lower.runtime_calls lowered)
+      ~functions:[]
+  in
+  Program.create ~authority ~destination ~lowered ~entry ~initialization
+    ~runtime_calls
+  |> diagnose
+
 let prepare ~context ~authority ~runtime destination =
   let ( let* ) = Result.bind in
   let module VM = Ir.Integer_interpreter in

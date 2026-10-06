@@ -22,12 +22,14 @@ let inputs text =
   (session, config, source)
 
 let run ?(max_steps = 100_000) ?max_ir_instructions ?max_code_bytes
-    ?max_initializer_steps ?max_global_bytes ?max_frame_bytes ?max_call_depth
-    ?max_active_stack_bytes ?max_output_bytes ?max_output_work text =
+    ?max_initializer_steps ?max_default_bytes ?max_global_bytes ?max_frame_bytes
+    ?max_call_depth ?max_active_stack_bytes ?max_output_bytes ?max_output_work
+    text =
   let session, config, source = inputs text in
   Native.evaluate ?max_ir_instructions ?max_code_bytes ?max_initializer_steps
-    ?max_global_bytes ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
-    ?max_output_bytes ?max_output_work session ~config ~source ~max_steps
+    ?max_default_bytes ?max_global_bytes ?max_frame_bytes ?max_call_depth
+    ?max_active_stack_bytes ?max_output_bytes ?max_output_work session ~config
+    ~source ~max_steps
 
 let value ?(output = "") expected report =
   let result =
@@ -325,7 +327,7 @@ let unsupported_persistent_function_storage () =
       "extern I64 Missing(); I64 F(){return Missing();} F();";
       "extern I64 Later(); I64 F(){return Later();} I64 Later(){return 42;} \
        F();";
-      "I64 F(I64 n=42){return n;} F();";
+      "I64 F(F64 n=42.0){return 42;} F();";
       "I64 F(){return 42;} I64 (*p)()=&F; p();";
       "I64 F(){1.0;return 42;} F();";
     ]
@@ -792,6 +794,141 @@ let retained_provider_compilation_limits () =
       ("HCBACK0001", run ~max_ir_instructions:(ir - 1) text);
     ]
 
+let retained_live_defaults () =
+  List.iter
+    (fun (expected, text) ->
+      let report = run text in
+      ignore (value expected report);
+      completed report;
+      Alcotest.(check int)
+        "default execution runs no interpreted instructions" 0
+        (Option.get (Native.source_progress report)).runtime.executed_steps;
+      let defaults =
+        List.filter
+          (fun (fragment : Native.fragment) -> fragment.kind = Native.Default)
+          (Native.fragments report)
+      in
+      Alcotest.(check bool)
+        "original default enters a real native image" true (defaults <> []);
+      let session, config, source = inputs text in
+      let ir =
+        run_integer_program_report session ~config ~source ~max_steps:100_000
+      in
+      let result =
+        integer_program_report_outcome ir
+        |> Result.map_error diagnostics
+        |> checked
+      in
+      Alcotest.(check int64)
+        "independent IR saved-default result" expected
+        (Option.get (Ir_integer_interpreter.final_value result.value)).bits)
+    [
+      (42L, "I64 Seed(){return 41;}I64 F(I64 n=Seed()){return n+1;}F();");
+      ( 123L,
+        "I64 N=40;I64 Seed(){return ++N;}I64 F(I64 n=Seed()){return n;}I64 \
+         A=F();F()+A+N;" );
+      (2L, "I64 N=0;I64 F(I64 n=++N){return n;}F(99);F();F()+N;");
+      (1L, "I64 N=0;I64 F(I64 n=++N){return n;}N;");
+      ( 42L,
+        "I64 N=40;I64 A(I64 n=++N){return n;}I64 B(I64 n=A()){return n+1;}B();"
+      );
+      ( 45L,
+        "I64 N=40;I64 F(I64 n=++N){return n;}I64 Old(){return F();}I64 N=1;I64 \
+         F(I64 n=++N){return n;}Old()+F()+N;" );
+      (255L, "I64 F(U8 n=511){return n;}F();");
+      (-1L, "I64 F(I8 n=511){return n;}F();");
+      (2L, "I64 N=0;I64 F(I64 n=++N){if(n<=0)return 0;return F(n-1)+1;}F()+N;");
+      (42L, "I64 Seed(){return 40;}I64 F(I64 n=Seed()){return n+2;}I64 A=F();A;");
+      ( 42L,
+        "I64 Seed(){return 40;}I64 F(I64 n=Seed()){return n+2;}I64 G(){static \
+         I64 A=F();return A;}G();" );
+      (42L, "I64 Seed(){return 40;}I64 F(I64 a=Seed(),I64 b=2){return a+b;}F();");
+    ]
+
+let retained_default_effects_and_faults () =
+  let prefix =
+    "extern U0 PutChars(U64 ch);I64 Seed(){PutChars('A');return 41;}"
+  in
+  let text =
+    prefix ^ "I64 F(I64 n=Seed()){return n+1;}PutChars('P');F();F();"
+  in
+  let report = run text in
+  ignore (value ~output:"AP" 42L report);
+  completed report;
+  let steps = Native.executed_steps report in
+  ignore (value ~output:"AP" 42L (run ~max_steps:steps text));
+  let broken =
+    run
+      "extern U0 PutChars(U64 ch);I64 Seed(){PutChars('A');return 1/0;}I64 \
+       F(I64 n=Seed()){return n;}PutChars('Z');F();"
+  in
+  ignore (fault Image.Division_by_zero broken);
+  Alcotest.(check string)
+    "fault preserves declaration-time output" "A"
+    (Native.output_bytes broken);
+  Alcotest.(check bool)
+    "fault belongs to original default expression" true
+    ((List.hd (List.rev (Native.fragments broken))).kind = Native.Default);
+  let parsed = run (prefix ^ "I64 F(I64 n=Seed()){") in
+  ignore (rejection parsed);
+  Alcotest.(check string)
+    "later parse failure preserves original default effects" "A"
+    (Native.output_bytes parsed);
+  let report =
+    run ~max_output_bytes:1
+      (prefix ^ "I64 F(I64 a=Seed(),I64 b=Seed()){return a+b;}F();")
+  in
+  ignore (fault Image.Output_limit_exceeded report);
+  Alcotest.(check string)
+    "second default shares output allowance" "A"
+    (Native.output_bytes report)
+
+let retained_default_limits () =
+  let text =
+    "I64 N=40;I64 Seed(){return ++N;}I64 F(I64 a=Seed(),I64 b=2){return \
+     a+b;}F();"
+  in
+  let report = run text in
+  ignore (value 43L report);
+  let preparation = Native.preparation_steps report in
+  Alcotest.(check int)
+    "each default retains one full word" 16
+    (Native.default_bytes report);
+  ignore (value 43L (run ~max_default_bytes:16 text));
+  let payload_limited = run ~max_default_bytes:15 text in
+  diagnostic "HCIRVM0011" payload_limited;
+  Alcotest.(check int)
+    "earlier saved word remains after quota rejection" 8
+    (Native.default_bytes payload_limited);
+  let code, ir =
+    List.fold_left
+      (fun (code, ir) (fragment : Native.fragment) ->
+        (code + fragment.image.code_bytes, ir + fragment.image.ir_instructions))
+      (0, 0) (Native.fragments report)
+  in
+  ignore
+    (value 43L
+       (run ~max_initializer_steps:preparation
+          ~max_steps:(Native.executed_steps report)
+          ~max_code_bytes:code ~max_ir_instructions:ir text));
+  let stopped = run ~max_initializer_steps:(preparation - 1) text in
+  ignore (fault Image.Step_limit_exceeded stopped);
+  Alcotest.(check int)
+    "default quota stops at exact preparation count" (preparation - 1)
+    (Native.preparation_steps stopped);
+  Alcotest.(check bool)
+    "default quota is a real reached native fault" true
+    ((List.hd (List.rev (Native.fragments stopped))).kind = Native.Default);
+  List.iter
+    (fun (code, report) -> diagnostic code report)
+    [
+      ("HCBACK0005", run ~max_code_bytes:(code - 1) text);
+      ("HCBACK0001", run ~max_ir_instructions:(ir - 1) text);
+      ("HCIRVM0007", run ~max_steps:(Native.executed_steps report - 1) text);
+    ];
+  Gc.full_major ();
+  ignore (value 43L (run text))
+
 let () =
   Alcotest.run "Native source functions"
     [
@@ -849,5 +986,12 @@ let () =
             `Quick retained_provider_history;
           Alcotest.test_case "provider closures and cumulative compile limits"
             `Quick retained_provider_compilation_limits;
+          Alcotest.test_case "live declaration defaults and saved header calls"
+            `Quick retained_live_defaults;
+          Alcotest.test_case "native default effects and reached faults" `Quick
+            retained_default_effects_and_faults;
+          Alcotest.test_case
+            "native default exact preparation and execution limits" `Quick
+            retained_default_limits;
         ] );
     ]

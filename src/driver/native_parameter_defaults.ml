@@ -419,3 +419,134 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
       requirements;
       callback_requirements;
     }
+
+let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
+    ~sources ~available =
+  let ( let* ) = Result.bind in
+  let bodies =
+    List.map
+      (fun (definition : Integer_interpreter.function_definition) ->
+        definition.body)
+      functions
+  in
+  let* () =
+    if
+      Integer_globals.is_task_command globals
+      && Global_initialization.matches initialization ~globals ~entry
+      && Runtime_call_context.matches runtime_calls ~entry
+           ~initialization:(Some initialization) ~functions:bodies
+    then Ok ()
+    else Error "native saved-default proof has another original task bundle"
+  in
+  let* () =
+    if
+      requires_callback_proof ~globals ~functions
+      || List.exists
+           (fun (source_globals, definition, _) ->
+             requires_callback_proof ~globals:source_globals
+               ~functions:[ definition ])
+           sources
+    then
+      Error
+        "native task callback defaults require their original native execution"
+    else Ok ()
+  in
+  let add_header source_globals requirements header =
+    let parameters =
+      header |> Headers.function_signature |> Headers.signature_parameters
+    in
+    let prepared =
+      List.filter_map
+        (fun parameter ->
+          Integer_globals.prepared_parameter_default source_globals ~header
+            ~parameter)
+        parameters
+    in
+    let* requirements =
+      add_requirements source_globals prepared requirements header
+    in
+    let* () =
+      List.fold_left
+        (fun result parameter ->
+          let* () = result in
+          match
+            Integer_globals.prepared_parameter_default source_globals ~header
+              ~parameter
+          with
+          | None -> Ok ()
+          | Some value ->
+              available ~globals:source_globals ~header ~parameter value)
+        (Ok ()) parameters
+    in
+    Ok requirements
+  in
+  let* requirements =
+    List.fold_left
+      (fun result (source_globals, definition, _) ->
+        let* requirements = result in
+        let* declaration =
+          match
+            Function.definition_declaration definition.Integer_interpreter.body
+          with
+          | Some declaration -> Ok declaration
+          | None ->
+              Error
+                "native saved defaults require original function definitions"
+        in
+        let* requirements =
+          add_header source_globals requirements
+            (Sema.Function_resolution.resolved_declaration_header declaration)
+        in
+        add_header source_globals requirements
+          (declaration |> Sema.Function_resolution.resolved_declaration_site
+         |> Sema.Function_resolution.declaration_site_function))
+      (Ok []) sources
+  in
+  let graphs =
+    (globals, runtime_calls, Runtime_call_context.Entry, X87_stack.graph entry)
+    :: List.map
+         (fun (source_globals, definition, calls) ->
+           ( source_globals,
+             calls,
+             Runtime_call_context.Function definition.Integer_interpreter.body,
+             Function.body definition.body ))
+         sources
+  in
+  let* requirements =
+    List.fold_left
+      (fun result (source_globals, calls, owner, graph) ->
+        let* requirements = result in
+        if not (Runtime_call_context.matches_graph calls ~owner graph) then
+          Error "native saved defaults require the original sealed call graph"
+        else
+          List.fold_left
+            (fun result block ->
+              List.fold_left
+                (fun result instruction ->
+                  let* requirements = result in
+                  let id =
+                    (Ir.Instruction_sequence.description instruction)
+                      .instruction_id
+                  in
+                  match Runtime_call_context.find_start calls ~owner id with
+                  | None -> Ok requirements
+                  | Some call ->
+                      add_header source_globals requirements
+                        (Runtime_call_context.header call))
+                result
+                (Ir.Instruction_sequence.instructions
+                   (Ir.Block_graph.instructions block)))
+            (Ok requirements)
+            (Ir.Block_graph.blocks graph))
+      (Ok requirements) graphs
+  in
+  Ok
+    {
+      globals;
+      runtime_calls;
+      initialization;
+      entry;
+      functions = bodies;
+      requirements;
+      callback_requirements = [];
+    }

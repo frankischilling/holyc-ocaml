@@ -223,6 +223,36 @@ val begin_task_default :
 
 val fail_task_default : task_state -> default_attempt -> (unit, string) result
 
+val check_native_task_default :
+  task_state ->
+  default_attempt ->
+  Default_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_default :
+  task_state ->
+  default_attempt ->
+  Default_fragment_program.t ->
+  (unit, string) result
+
+val complete_native_task_default :
+  task_state ->
+  default_attempt ->
+  Default_fragment_program.t ->
+  int64 ->
+  (unit, string) result
+
+val record_native_default_steps :
+  task_state -> default_attempt -> int -> (unit, string) result
+
+val task_native_parameter_default :
+  task_state ->
+  globals:Integer_globals.t ->
+  header:Sema.Function_type_resolution.resolved_function ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  Prepared_parameter_default.t ->
+  (unit, string) result
+
 val task_default_bits :
   task_state -> Frontend.Parser.completed_parameter_default -> int64 option
 

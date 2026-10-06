@@ -1,3 +1,9 @@
+val lower_native :
+  context:Initializer_fragment_typing.context ->
+  authority:Sema.Default_fragment.authority ->
+  Ir.Default_fragment_destination.t ->
+  (Ir.Default_fragment_program.t, Common.Diagnostic.t list) result
+
 val prepare :
   context:Initializer_fragment_typing.context ->
   authority:Sema.Default_fragment.authority ->

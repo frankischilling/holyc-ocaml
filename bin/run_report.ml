@@ -263,6 +263,7 @@ let native_fragment_json (fragment : Holyc_lib.Native_source_execution.fragment)
         `String
           (match fragment.kind with
           | Initializer -> "initializer"
+          | Default -> "default"
           | Command -> "command") );
       ("outcome", `String outcome);
       ("executed_steps", steps);
@@ -625,7 +626,7 @@ let render_native_task ~human ~session ~limits ~native_limits ?command_error
           preparation_steps = Native.preparation_steps report;
           switch_work = Native.switch_work report;
           dimension_work = Native.dimension_work report;
-          default_bytes = 0;
+          default_bytes = Native.default_bytes report;
           bytes = Native.output_bytes report;
           work = Native.output_work report;
           final_value =

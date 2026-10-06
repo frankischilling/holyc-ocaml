@@ -13,8 +13,11 @@ execute initializer leaves once in source order. Retained calls share their
 original private storage, including historical bodies after replacement.
 The compiler's direct literal-copy branch now initializes original fixed byte
 array statics under the same task ownership and initializer allowance.
+Named integer defaults now execute once at their original live header callback,
+including storage effects and calls to retained functions. Later and historical
+calls require the exact original saved word and native completion receipt.
 Persistent executable addresses, task callbacks, runtime dimensions,
-effectful defaults, native `#exe` and AOT task execution remain open. See
+wider and anonymous defaults, native `#exe` and AOT task execution remain open. See
 [native source tasks](docs/native-source-tasks.md).
 
 Issue #797 adds [conditional integer chains](docs/conditional-comparison-chains.md)
