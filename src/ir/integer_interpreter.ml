@@ -3084,6 +3084,104 @@ let task_native_function_source task link =
     exact_native_function_source task link
   else None
 
+type native_slot_binding = {
+  slot_task : task_state;
+  slot_generation : (Retained_function.t * task_function_source) list;
+  slot_root_calls : Runtime.t;
+  slot_calls : Runtime.t;
+  slot_owner : Runtime.owner;
+  slot_call : Runtime.call;
+  slot_globals : Integer_globals.t;
+  slot_source : task_function_source option;
+}
+
+let native_slot_binding_matches binding ~root_runtime_calls ~runtime_calls
+    ~owner ~globals call =
+  binding.slot_root_calls == root_runtime_calls
+  && binding.slot_generation == binding.slot_task.native_function_sources
+  && binding.slot_calls == runtime_calls
+  && binding.slot_call == call
+  && Integer_globals.same_task_storage binding.slot_globals globals
+  &&
+  match (binding.slot_owner, owner) with
+  | Runtime.Entry, Runtime.Entry -> true
+  | Runtime.Function original, Runtime.Function body -> original == body
+  | _ -> false
+
+let native_slot_binding_source binding = binding.slot_source
+
+let task_native_slot_binding task ~root_runtime_calls ~root_globals
+    ~runtime_calls ~owner call =
+  let original_owner =
+    runtime_calls == root_runtime_calls
+    || List.exists
+         (fun (_, source) ->
+           source.source_runtime_calls == runtime_calls
+           &&
+           match owner with
+           | Runtime.Function body -> source.source_definition.body == body
+           | Runtime.Entry -> false)
+         task.native_function_sources
+  in
+  if not original_owner then
+    Error "native extern slot has no original source request or admitted owner"
+  else if
+    (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog root_globals))
+    || not
+         (Option.is_some
+            (Runtime.original_function_addresses runtime_calls ~owner)
+         && Option.fold ~none:false ~some:(( == ) call)
+              (Runtime.find_start runtime_calls ~owner (Runtime.first call)))
+  then Error "native extern slot is not its original sealed call occurrence"
+  else
+    match Runtime.retained_function call with
+    | Some link
+      when Runtime.call_opcode call = Opcode.Ic_call_indirect2
+           && Retained_function.symbol link == Runtime.symbol call
+           && (Integer_globals.task_catalog_contains_function task.catalog link
+              || runtime_calls == root_runtime_calls
+                 && List.exists
+                      (Retained_function.same link)
+                      (Integer_globals.function_publications root_globals)) ->
+        let module Records = Sema.Function_record_classification in
+        let access =
+          link |> Retained_function.metadata
+          |> Sema.Outer_environment.function_classified_declaration
+          |> Records.classified_declaration_record |> Records.call_access
+        in
+        if access <> Records.Jit_extern_address_slot_call then
+          Error
+            "native extern slot lacks its original JIT address-slot declaration"
+        else
+          let source =
+            List.find_map
+              (fun (_, source) ->
+                let body = source.source_definition.body in
+                if
+                  Function.callable_symbol body == Runtime.symbol call
+                  && Option.fold ~none:false
+                       ~some:(fun later ->
+                         Sema.Function_resolution.is_joined_successor
+                           ~earlier:(Runtime.declaration call) ~later)
+                       (Function.definition_declaration body)
+                then Some source
+                else None)
+              task.native_function_sources
+          in
+          Ok
+            {
+              slot_task = task;
+              slot_generation = task.native_function_sources;
+              slot_root_calls = root_runtime_calls;
+              slot_calls = runtime_calls;
+              slot_owner = owner;
+              slot_call = call;
+              slot_globals = root_globals;
+              slot_source = source;
+            }
+    | _ -> Error "native extern slot lacks its original task publication"
+
 let task_native_provider_available task ~runtime_calls ~owner call =
   let original_owner =
     List.exists

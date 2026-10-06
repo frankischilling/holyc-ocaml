@@ -1004,7 +1004,8 @@
   ../../examples/native-source-output.hc
   ../../examples/native-source-literals.hc
   ../../examples/native-source-static-copies.hc
-  ../../examples/native-source-defaults.hc)
+  ../../examples/native-source-defaults.hc
+  ../../examples/native-source-extern-slots.hc)
  (action
   (run
    %{exe:test_native_source_function_cli.exe}
@@ -1013,7 +1014,8 @@
    %{dep:../../examples/native-source-output.hc}
    %{dep:../../examples/native-source-literals.hc}
    %{dep:../../examples/native-source-static-copies.hc}
-   %{dep:../../examples/native-source-defaults.hc})))
+   %{dep:../../examples/native-source-defaults.hc}
+   %{dep:../../examples/native-source-extern-slots.hc})))
 
 (executable
  (name test_native_source_literals)

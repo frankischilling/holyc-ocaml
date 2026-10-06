@@ -35,6 +35,8 @@ type fault_kind =
   | Callback_unowned_address
   | Callback_signature_mismatch
   | Code_comparison_invalid_word
+  | Extern_signature_mismatch
+  | Undefined_extern
   | Callback_update_owned_address
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
@@ -120,8 +122,8 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~runtime_calls
-    ~retained_function_source ~retained_provider_available
-    ~retained_parameter_default ~initialization ~entry ~functions () =
+    ~retained_function_source ~retained_slot_binding ~retained_parameter_default
+    ~initialization ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -138,7 +140,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
   let* image =
     Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
       ~task_snapshot:snapshot ~max_ir_instructions ~max_code_bytes
-      ~runtime_calls ~retained_function_source ~retained_provider_available
+      ~runtime_calls ~retained_function_source ~retained_slot_binding
       ~retained_parameter_default ~initialization ~entry ~functions ()
     |> Result.map_error project_errors
   in
@@ -171,8 +173,7 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~runtime_calls:(Fragment.runtime_calls program)
     ~retained_function_source:
       (Task_dispatch.initializer_function_source request)
-    ~retained_provider_available:
-      (Task_dispatch.initializer_provider_available request)
+    ~retained_slot_binding:(Task_dispatch.initializer_slot_binding request)
     ~retained_parameter_default:
       (Task_dispatch.initializer_parameter_default request)
     ~initialization:(Fragment.initialization program)
@@ -189,7 +190,7 @@ let compile_task_static_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~claim:(fun () -> Request.claim request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
-    ~retained_provider_available:(Request.provider_available request)
+    ~retained_slot_binding:(Request.slot_binding request)
     ~retained_parameter_default:(Request.parameter_default request)
     ~initialization:(Program.initialization program)
     ~entry:(Program.entry program) ~functions:[] ()
@@ -205,7 +206,7 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
     ~claim:(fun () -> Request.claim request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
-    ~retained_provider_available:(Request.provider_available request)
+    ~retained_slot_binding:(Request.slot_binding request)
     ~retained_parameter_default:(Request.parameter_default request)
     ~initialization:(Program.initialization program)
     ~entry:(Program.entry program) ~functions:[] ()
@@ -220,8 +221,7 @@ let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
     ~claim:(fun () -> Task_dispatch.claim_command_request request)
     ~runtime_calls:(Unit.runtime_calls program)
     ~retained_function_source:(Task_dispatch.command_function_source request)
-    ~retained_provider_available:
-      (Task_dispatch.command_provider_available request)
+    ~retained_slot_binding:(Task_dispatch.command_slot_binding request)
     ~retained_parameter_default:
       (Task_dispatch.command_parameter_default request)
     ~initialization:(Unit.initialization program)
@@ -535,6 +535,22 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       "native callback-update fault did not consume its \
                        instruction"
                   else make_fault Callback_update_owned_address None
+                else if kind = 23L then
+                  if not candidate.undefined_extern_site then
+                    Error
+                      "native undefined-extern status names another call site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native undefined-extern fault did not consume its call"
+                  else make_fault Undefined_extern None
+                else if kind = 24L then
+                  if not candidate.extern_signature_site then
+                    Error
+                      "native extern-signature status names another call site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native extern-signature fault did not consume its call"
+                  else make_fault Extern_signature_mismatch None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =

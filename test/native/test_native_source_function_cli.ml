@@ -21,11 +21,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 7)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 8)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
-     [native-source-defaults.hc]"
+     [native-source-defaults.hc] [native-source-extern-slots.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -411,11 +411,69 @@ let () =
       (last_fragment limited |> member "outcome" |> to_string = "fault")
       "quota reaches native default code"
   in
-  if Array.length Sys.argv = 7 then default_checks Sys.argv.(6)
+  if Array.length Sys.argv >= 7 then default_checks Sys.argv.(6)
   else
     with_file ".hc"
       "I64 Counter=40;I64 Seed(){return ++Counter;}I64 Answer(I64 \
        value=Seed()){return value+1;}Answer();Counter=100;Answer();"
       default_checks;
+  let extern_checks path =
+    let report = json_path path in
+    require
+      (final_bits report = "0x000000000000002a")
+      "original joined slot and saved default";
+    require
+      (final_bits (json_path ~target:"ir" path) = final_bits report)
+      "independent original slot history";
+    require
+      (has_diagnostic "HCRUN0001" (json_path ~status:1 ~target:"host-jit" path))
+      "existing isolated declaration boundary";
+    let steps = report |> member "executed_steps" |> to_int in
+    require
+      (final_bits
+         (json_path ~options:[ "--step-limit=" ^ string_of_int steps ] path)
+      = final_bits report)
+      "exact native slot allowance";
+    require
+      (has_diagnostic "HCIRVM0007"
+         (json_path ~status:1
+            ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+            path))
+      "one-below native slot allowance"
+  in
+  if Array.length Sys.argv = 8 then extern_checks Sys.argv.(7)
+  else
+    with_file ".hc"
+      "extern I64 Answer(I64 n=41);I64 Old(){return Answer();}I64 Answer(I64 \
+       n){return n+1;}I64 Answer(I64 n){return 100;}Old();"
+      extern_checks;
+  List.iter
+    (fun (code, text) ->
+      with_file ".hc" text (fun path ->
+          let report = json_path ~status:1 path in
+          require (has_diagnostic code report) "reached native slot fault";
+          require
+            (report |> member "output_hex" |> to_string = "4241")
+            "right-to-left output before slot fault";
+          require
+            (last_fragment report |> member "outcome" |> to_string = "fault")
+            "original slot failure executes native instructions";
+          let oracle = json_path ~status:1 ~target:"ir" path in
+          require
+            (has_diagnostic code oracle
+            && oracle |> member "output_hex" |> to_string = "4241")
+            "independent IR slot fault effects"))
+    [
+      ( "HCIRVM0030",
+        "extern I64 Answer(I64 a,I64 b);extern U0 PutChars(U64 ch);I64 \
+         A(){PutChars('A');return 1;}I64 B(){PutChars('B');return 2;}I64 \
+         Old(){return Answer(A(),B());}Old();I64 Answer(I64 a,I64 b){return \
+         42;}" );
+      ( "HCIRVM0014",
+        "extern I64 Answer(I64 a,I64 b);extern U0 PutChars(U64 ch);I64 \
+         A(){PutChars('A');return 1;}I64 B(){PutChars('B');return 2;}I64 \
+         Old(){return Answer(A(),B());}I64 Answer(U8 a,I64 b){return \
+         42;}Old();" );
+    ];
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

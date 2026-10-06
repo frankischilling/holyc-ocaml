@@ -69,6 +69,18 @@ module Native_dispatch = struct
     | None ->
         Error "native initializer request has no exact admitted function source"
 
+  let initializer_slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    let program = request.initializer_program_ in
+    VM.task_native_slot_binding request.initializer_task
+      ~root_runtime_calls:
+        (Ir.Initializer_fragment_program.runtime_calls program)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Initializer_fragment_program.initialization program))
+      ~runtime_calls ~owner call
+
   let initializer_provider_available request ~runtime_calls ~owner call =
     let ( let* ) = Result.bind in
     let* () = check_initializer_request request in
@@ -119,6 +131,15 @@ module Native_dispatch = struct
     | Some source -> Ok source
     | None ->
         Error "native command request has no exact admitted function source"
+
+  let command_slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    let program = request.command_program_ in
+    VM.task_native_slot_binding request.command_task
+      ~root_runtime_calls:(Integer_unit.runtime_calls program)
+      ~root_globals:(Integer_unit.globals program)
+      ~runtime_calls ~owner call
 
   let command_provider_available request ~runtime_calls ~owner call =
     let ( let* ) = Result.bind in
@@ -260,6 +281,17 @@ module Native_static_initializer = struct
     | None ->
         Error "native static initializer lacks its admitted original callee"
 
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Static_initializer_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Static_initializer_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
   let provider_available request ~runtime_calls ~owner call =
     let ( let* ) = Result.bind in
     let* () = check request in
@@ -321,6 +353,17 @@ module Native_default = struct
     match VM.task_native_function_source request.task link with
     | Some source -> Ok source
     | None -> Error "native default lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Default_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Default_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner call
 
   let provider_available request ~runtime_calls ~owner call =
     let ( let* ) = Result.bind in

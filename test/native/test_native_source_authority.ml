@@ -1879,11 +1879,199 @@ let native_default_source_authority () =
             (Request.record_steps request 0))
         !saved)
 
+let native_extern_slot_authority () =
+  let module Calls = Holyc_lib__Ir.Runtime_call_context in
+  let module Graph = Holyc_lib__Ir.Block_graph in
+  let module Sequence = Holyc_lib__Ir.Instruction_sequence in
+  let call bundle =
+    Graph.blocks (Body.body bundle.definition.body)
+    |> List.concat_map (fun block ->
+        Sequence.instructions (Graph.instructions block))
+    |> List.find_map (fun instruction ->
+        Calls.find_start bundle.runtime_calls
+          ~owner:(Calls.Function bundle.definition.body)
+          (Sequence.description instruction).instruction_id)
+    |> Option.get
+  in
+  let foreign = ref None in
+  let foreign_session = Session.create () in
+  let foreign_dispatch : Dispatch.t =
+    {
+      execute_initializer = (fun _ -> Alcotest.fail "foreign slot initializer");
+      execute_command =
+        (fun request ->
+          foreign := Some (command_function_bundle request);
+          Dispatch.claim_command_request request |> checked;
+          Ok Dispatch.Unchanged);
+    }
+  in
+  let foreign_task =
+    Task.create ~native_dispatch:foreign_dispatch foreign_session |> checked
+  in
+  task_succeeds "foreign extern slot declaration"
+    (task_run foreign_session foreign_task 90 "extern I64 Answer();");
+  task_succeeds "foreign extern caller"
+    (task_run foreign_session foreign_task 91 "I64 Old(){return Answer();}");
+  let foreign = Option.get !foreign in
+  let original = ref None
+  and joined = ref None
+  and earlier_binding = ref None
+  and saved_request = ref None in
+  let index = ref 0 in
+  let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
+  let slot get bundle =
+    get ~runtime_calls:bundle.runtime_calls
+      ~owner:(Calls.Function bundle.definition.body) (call bundle)
+  in
+  let inspect get bundle =
+    let binding = slot get bundle |> checked in
+    check_function_bundle "original joined slot source" (Option.get !joined)
+      (VM.native_slot_binding_source binding |> Option.get);
+    binding
+  in
+  let native_dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun request ->
+          let bundle = Option.get !original in
+          ignore (inspect (Dispatch.initializer_slot_binding request) bundle);
+          compile_initializer_both_abis layout request;
+          Dispatch.claim_initializer_request request |> checked;
+          rejected "entered initializer has no slot resolution authority"
+            (slot (Dispatch.initializer_slot_binding request) bundle);
+          Ok ());
+      execute_command =
+        (fun request ->
+          incr index;
+          let program = Dispatch.command_program request in
+          let root_calls = Unit.runtime_calls program in
+          (match !index with
+          | 1 ->
+              let bundle = command_function_bundle request in
+              original := Some bundle;
+              let binding =
+                slot (Dispatch.command_slot_binding request) bundle |> checked
+              in
+              Alcotest.(check bool)
+                "unresolved body is legal before its declaration claim" true
+                (Option.is_none (VM.native_slot_binding_source binding));
+              earlier_binding := Some binding;
+              let image =
+                Image.compile_task_command ~layout request |> compiled
+              in
+              let authentic = ref 0 in
+              for site = 1 to Image.ir_instructions image do
+                match
+                  Image.decode_runtime_status image ~max_steps:100_000 ~kind:23L
+                    ~site:(Int64.of_int site) ~executed_steps:1L ~value_site:0L
+                    ~bits:0L
+                with
+                | Ok (Image.Fault { kind = Image.Undefined_extern; _ }) ->
+                    incr authentic;
+                    rejected "undefined slot cannot claim zero executed work"
+                      (Image.decode_runtime_status image ~max_steps:100_000
+                         ~kind:23L ~site:(Int64.of_int site) ~executed_steps:0L
+                         ~value_site:0L ~bits:0L)
+                | Error _ -> ()
+                | _ -> Alcotest.fail "unexpected undefined-slot decoder result"
+              done;
+              Alcotest.(check int)
+                "only original undefined call site authenticates kind 23" 1
+                !authentic
+          | 2 -> joined := Some (command_function_bundle request)
+          | 3 -> ()
+          | 4 ->
+              saved_request := Some request;
+              let bundle = Option.get !original in
+              let get = Dispatch.command_slot_binding request in
+              let binding = inspect get bundle in
+              Alcotest.(check bool)
+                "current request and source generation match" true
+                (VM.native_slot_binding_matches binding
+                   ~root_runtime_calls:root_calls
+                   ~runtime_calls:bundle.runtime_calls
+                   ~owner:(Calls.Function bundle.definition.body)
+                   ~globals:bundle.globals (call bundle));
+              Alcotest.(check bool)
+                "prior request cannot supply the later joined slot" false
+                (VM.native_slot_binding_matches
+                   (Option.get !earlier_binding)
+                   ~root_runtime_calls:root_calls
+                   ~runtime_calls:bundle.runtime_calls
+                   ~owner:(Calls.Function bundle.definition.body)
+                   ~globals:bundle.globals (call bundle));
+              rejected "equal source from another task has no slot authority"
+                (slot get foreign);
+              rejected "foreign call cannot borrow original context"
+                (get ~runtime_calls:bundle.runtime_calls
+                   ~owner:(Calls.Function bundle.definition.body) (call foreign));
+              rejected "entry cannot replace original function slot ownership"
+                (get ~runtime_calls:bundle.runtime_calls ~owner:Calls.Entry
+                   (call bundle));
+              rejected "foreign domain cannot resolve the live extern slot"
+                (Domain.join (Domain.spawn (fun () -> slot get bundle)));
+              rejected "failed compilation does not consume the offered request"
+                (Image.compile_task_command ~max_ir_instructions:1 ~layout
+                   request);
+              Dispatch.check_command_request request |> checked;
+              ignore (inspect get bundle);
+              let image =
+                Image.compile_task_command ~layout request |> compiled
+              in
+              Alcotest.(check int)
+                "original caller and joined body exclude same-name replacement"
+                2
+                (Image.function_count image);
+              for site = 1 to Image.ir_instructions image do
+                rejected
+                  "resolved slot cannot claim undefined or signature-fault \
+                   status"
+                  (Image.decode_runtime_status image ~max_steps:100_000
+                     ~kind:23L ~site:(Int64.of_int site) ~executed_steps:1L
+                     ~value_site:0L ~bits:0L);
+                rejected "matched slot cannot claim mismatched-signature status"
+                  (Image.decode_runtime_status image ~max_steps:100_000
+                     ~kind:24L ~site:(Int64.of_int site) ~executed_steps:1L
+                     ~value_site:0L ~bits:0L)
+              done
+          | _ -> Alcotest.fail "unexpected extern-slot command");
+          compile_command_both_abis layout request;
+          Dispatch.claim_command_request request |> checked;
+          rejected "entered command revokes slot metadata authority"
+            (slot
+               (Dispatch.command_slot_binding request)
+               (Option.get !original));
+          Ok Dispatch.Unchanged);
+    }
+  in
+  let session = Session.create () in
+  let task = Task.create ~native_dispatch session |> checked in
+  task_succeeds "original slot declaration"
+    (task_run session task 92 "extern I64 Answer();");
+  task_succeeds "original uncalled slot body"
+    (task_run session task 93 "I64 Old(){return Answer();}");
+  task_succeeds "original joined slot body"
+    (task_run session task 94 "I64 Answer(){return 42;}");
+  task_succeeds "unrelated same-name replacement"
+    (task_run session task 95 "I64 Answer(){return 100;}");
+  Gc.full_major ();
+  task_succeeds "original retained slot caller"
+    (task_run session task 96 "Old();");
+  rejected "closed source callback cannot resolve a retained slot"
+    (slot
+       (Dispatch.command_slot_binding (Option.get !saved_request))
+       (Option.get !original));
+  task_succeeds "original slot in a native initializer"
+    (task_run session task 97 "I64 A=Old();")
+
 let () =
   Alcotest.run "Native source authority"
     [
       ( "original source",
         [
+          Alcotest.test_case
+            "original extern slots, both ABIs, status and lifetime" `Quick
+            native_extern_slot_authority;
           Alcotest.test_case "foreign owners, budgets, replay and collection"
             `Quick foreign_owners_and_budget;
           Alcotest.test_case "bounded original layout admission" `Quick

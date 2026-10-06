@@ -75,9 +75,9 @@ authority. Logical literal bytes and private metadata remain separately bounded.
 
 The provider call must retain its original sealed occurrence, admitted function
 context and extern link. A source function named Print or PutChars remains an
-ordinary function. If an originally unresolved provider slot acquires a joined
-source body, compilation rejects fallback to the earlier provider. Executing
-that replacement needs the remaining native extern-slot consumer.
+ordinary function. When its original extern slot acquires a joined source body,
+the native call executes that body. Another function with the same spelling
+does not replace the original slot or disable its provider.
 
 Ordinary output survives later faults and source fragments. Print publishes a
 complete draft, so a format, output-byte or work fault adds no partial bytes.
@@ -88,8 +88,41 @@ Print calls across fragments can exhaust the cumulative code limit.
 
 Self-recursion uses the original current body and physical frame. Its JIT
 unresolved call form may bind only to that same body's checked definition and
-declaration ancestry. General unresolved extern calls and later slot replacement
-remain outside this direct-call path.
+declaration ancestry. Named JIT extern calls retain the original address-slot
+identity and selected caller header:
+
+```c
+extern I64 Answer(I64 value=41);
+I64 Old(){return Answer();}
+I64 Answer(I64 value){return value+1;}
+I64 Answer(I64 value){return 100;}
+Old();
+```
+
+This is `examples/native-source-extern-slots.hc`. `Old()` uses its saved default
+and the body joined to its original slot, returning 42 after the later separate
+same-name definition. The source resolver requires the original task publication,
+physical call occurrence, sealed owner context and joined declaration ancestry.
+Its opaque proof belongs to the current source request and native publication
+generation. Equal names, copied contexts, foreign tasks and stale proofs cannot
+select a body.
+
+An unresolved slot is legal in an uncalled function. If execution reaches that
+call before installation, native instructions report `HCIRVM0030` after its
+arguments have run. An incompatible joined signature likewise produces the
+existing hosted `HCIRVM0014` guard at the call, preserving argument effects.
+That signature guard is hosted policy: the pinned compiler warns about header
+mismatches. Integer and U0 bodies, supported scalar pointers and integer word
+tails retain the original caller's defaults, argument order and cleanup.
+
+Unlike a callback call, a named extern slot does not capture its target before
+arguments. The transient native image stages its selected body address at the
+call instruction and makes the indirect call there. Source publication cannot
+change during these supported ordinary native fragments; changes between parser
+callbacks affect the next fragment. This path grants no persistent executable
+address. Joined bodies are charged as part of the bounded caller closure, with
+cycles and shared dependencies included once per image. Initializer and named
+default fragments use the same source resolver.
 
 Named integer parameter defaults execute once at the original live header
 callback. `examples/native-source-defaults.hc` saves 41 from `Seed()`, returns
@@ -193,8 +226,8 @@ source admission, lowering, instruction selection and report validation remain
 in OCaml.
 
 This source-task path supports integer globals, fixed integer arrays,
-integer function statics, and retained direct functions and their original
-literals and named integer defaults. Runtime-dependent dimensions, task callback
+integer function statics, retained direct and joined JIT extern calls, and their
+original literals and named integer defaults. Runtime-dependent dimensions, task callback
 storage, wider and anonymous defaults, native `#exe`,
 persistent executable addresses and AOT source-task execution remain separate
 work under #704.
@@ -287,3 +320,9 @@ available. `Compiler/PrsExp.HC:455-469` uses that saved word when an argument is
 omitted. The native task connection preserves this timing and original header;
 its private capability checks and quotas are hosted policy. It adds no new
 TempleOS runtime capture.
+
+`OptPass789A.HC:345-357` emits the named address-slot call after argument
+instructions; `PrsExp.HC:553-571` distinguishes it from the callback capture
+before arguments. `CExcept.HC:98-102` supplies the reached UndefinedExtern
+placeholder. The native source path preserves the corresponding call timing
+and reports its fault through the existing hosted diagnostic contract.

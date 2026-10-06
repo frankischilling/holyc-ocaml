@@ -602,6 +602,33 @@ val task_native_function_source :
     task claim. This carries no executable owner or address authority and never
     follows a later joined definition. *)
 
+type native_slot_binding
+
+val task_native_slot_binding :
+  task_state ->
+  root_runtime_calls:Runtime_call_context.t ->
+  root_globals:Integer_globals.t ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  Runtime_call_context.call ->
+  (native_slot_binding, string) result
+(** Resolve an original JIT extern address slot from this task's admitted native
+    source publications. An absent body is a reached undefined-extern fault, not
+    a compilation failure. This grants no executable address or entry authority.
+*)
+
+val native_slot_binding_matches :
+  native_slot_binding ->
+  root_runtime_calls:Runtime_call_context.t ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  globals:Integer_globals.t ->
+  Runtime_call_context.call ->
+  bool
+
+val native_slot_binding_source :
+  native_slot_binding -> task_function_source option
+
 val task_native_provider_available :
   task_state ->
   runtime_calls:Runtime_call_context.t ->

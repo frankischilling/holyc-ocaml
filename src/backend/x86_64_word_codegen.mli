@@ -30,6 +30,8 @@ type program_site = {
   value_type : word_type option;
   call_site : bool;
   callback_call_site : bool;
+  undefined_extern_site : bool;
+  extern_signature_site : bool;
   code_comparison_site : bool;
   code_update_site : bool;
   uninitialized_read_site : bool;
@@ -124,11 +126,11 @@ val compile_task_fragment :
   retained_function_source:
     (Ir.Retained_function.t ->
     (Ir.Integer_interpreter.task_function_source, string) result) ->
-  retained_provider_available:
+  retained_slot_binding:
     (runtime_calls:Ir.Runtime_call_context.t ->
     owner:Ir.Runtime_call_context.owner ->
     Ir.Runtime_call_context.call ->
-    (bool, string) result) ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result) ->
   retained_parameter_default:
     (globals:Ir.Integer_globals.t ->
     header:Sema.Function_type_resolution.resolved_function ->
@@ -141,11 +143,15 @@ val compile_task_fragment :
   unit ->
   (program_image, error list) result
 (** Compile an original task fragment against its append-only storage snapshot.
-    Exact retained direct-function links may re-link their original checked body
-    and transitive fixed-call closure into this transient image. Each historical
-    body keeps its own sealed runtime-call context and task-storage provenance;
-    no executable address or callback ownership survives the fragment. Source
-    activation authority remains a separate requirement of the sealed image. *)
+    Exact retained direct-function links and original joined JIT extern slots
+    may link their checked body and transitive closure into this transient
+    image. Unresolved slots and incompatible joined signatures fault at their
+    original reached call instruction after arguments. Slot proofs require this
+    original root request, occurrence, owner, storage and native source
+    generation. Each historical body keeps its own sealed runtime-call context
+    and task-storage provenance; no executable address or callback ownership
+    survives the fragment. Source activation authority remains a separate
+    requirement of the sealed image. *)
 
 val program_code : program_image -> string
 val program_code_bytes : program_image -> int

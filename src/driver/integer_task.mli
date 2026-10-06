@@ -29,12 +29,26 @@ module Native_dispatch : sig
 
   val check_command_request : command_request -> (unit, string) result
 
+  val initializer_slot_binding :
+    initializer_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
   val initializer_provider_available :
     initializer_request ->
     runtime_calls:Ir.Runtime_call_context.t ->
     owner:Ir.Runtime_call_context.owner ->
     Ir.Runtime_call_context.call ->
     (bool, string) result
+
+  val command_slot_binding :
+    command_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
 
   val command_provider_available :
     command_request ->
@@ -121,6 +135,13 @@ module Native_static_initializer : sig
     Ir.Retained_function.t ->
     (Ir.Integer_interpreter.task_function_source, string) result
 
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
   val provider_available :
     request ->
     runtime_calls:Ir.Runtime_call_context.t ->
@@ -149,6 +170,13 @@ module Native_default : sig
     request ->
     Ir.Retained_function.t ->
     (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
 
   val provider_available :
     request ->

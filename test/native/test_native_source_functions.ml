@@ -325,8 +325,6 @@ let unsupported_persistent_function_storage () =
     (fun text -> ignore (rejection (run text)))
     [
       "extern I64 Missing(); I64 F(){return Missing();} F();";
-      "extern I64 Later(); I64 F(){return Later();} I64 Later(){return 42;} \
-       F();";
       "I64 F(F64 n=42.0){return 42;} F();";
       "I64 F(){return 42;} I64 (*p)()=&F; p();";
       "I64 F(){1.0;return 42;} F();";
@@ -752,15 +750,10 @@ let retained_provider_history () =
      PutChars(U64 ch){A++;}F();"
   in
   let report = run text in
-  diagnostic "HCBACK0002" report;
-  Alcotest.(check bool)
-    "replacement reaches the joined-provider guard" true
-    (rejection report
-    |> List.exists (fun (error : Diagnostic.t) ->
-        String.starts_with ~prefix:"retained native provider has a joined"
-          error.message));
+  ignore (value 42L report);
+  completed report;
   Alcotest.(check string)
-    "a joined source executable cannot fall back to its older provider" ""
+    "the joined body supplies the original provider slot" ""
     (Native.output_bytes report)
 
 let retained_provider_compilation_limits () =
@@ -929,11 +922,152 @@ let retained_default_limits () =
   Gc.full_major ();
   ignore (value 43L (run text))
 
+let retained_extern_slots () =
+  List.iter
+    (fun text ->
+      let report = run text in
+      ignore (value 42L report);
+      completed report;
+      Alcotest.(check int)
+        "slot code executes no VM instructions" 0
+        (Option.get (Native.source_progress report)).runtime.executed_steps;
+      let session, config, source = inputs text in
+      let oracle =
+        run_integer_program_report session ~config ~source ~max_steps:100_000
+      in
+      let result =
+        integer_program_report_outcome oracle
+        |> Result.map_error diagnostics
+        |> checked
+      in
+      Alcotest.(check int64)
+        "independent original slot result" 42L
+        (Option.get (Ir_integer_interpreter.final_value result.value)).bits)
+    [
+      "extern I64 Answer();I64 Old(){return Answer();}I64 Answer(){return \
+       42;}Old();";
+      "extern I64 Missing();I64 Old(){return Missing();}42;";
+      "extern I64 Answer();I64 Old(I64 n){if(n)return Answer();return \
+       42;}Old(0);I64 Answer(){return 42;}Old(1);";
+      "extern I64 Answer(I64 n=41);I64 Old(){return Answer();}I64 Answer(I64 \
+       n){return n+1;}I64 Answer(I64 n){return 100;}Old();";
+      "extern I64 Answer(I64 n,...);I64 Old(){return Answer(1,20,21);}I64 \
+       Answer(I64 n,...){return n+argv[0]+argv[1];}Old();";
+      "extern I8 Answer(U8 n);I64 Old(){return Answer(298);}I8 Answer(U8 \
+       n){return n;}Old();";
+      "extern U64 Answer(U64 n);I64 Old(){return \
+       Answer(0xffffffffffffffff);}U64 Answer(U64 n){return n+43;}Old();";
+      "extern I64 Answer();I64 Left(){return Answer();}I64 Right(){return \
+       Answer();}I64 Answer(){return 21;}Left()+Right();";
+      "extern I64 Answer(I64 n);I64 Old(I64 n){return Answer(n);}I64 \
+       Answer(I64 n){if(n)return Old(n-1);return 42;}Old(3);";
+      "extern U0 Answer();I64 A=41;U0 Old(){Answer();}U0 Answer(){A++;}Old();A;";
+      "extern I64 Answer(U8 *p);I64 Old(){U8 A[2];A[0]=41;A[1]=1;return \
+       Answer(A);}I64 Answer(U8 *p){return p[0]+p[1];}Old();";
+      "extern U0 Print(U8 *fmt,...);I64 A=40;I64 \
+       Old(){Print(\"unused\",1,2);return A;}U0 Print(U8 \
+       *fmt,...){A+=argc;}Old();";
+      "extern I64 Answer();I64 Old(){return Answer();}I64 Answer(){return \
+       41;}I64 A=Old();A+1;";
+      "extern I64 Answer();I64 Old(){return Answer();}I64 Answer(){return \
+       41;}I64 F(I64 n=Old()){return n+1;}F();";
+      "extern I64 Answer();I64 Old(){return Answer();}I64 Answer(){return \
+       41;}I64 F(){static I64 A=Old();return ++A;}F();";
+    ];
+  Gc.full_major ();
+  ignore
+    (value 42L
+       (run
+          "extern I64 Answer();I64 Old(){return Answer();}I64 Answer(){return \
+           42;}Old();"))
+
+let retained_extern_faults () =
+  List.iter
+    (fun (kind, code, text) ->
+      let report = run text in
+      diagnostic code report;
+      let native_fault = fault kind report in
+      Alcotest.(check (option string))
+        "original caller owns the fault" (Some "Old") native_fault.function_name;
+      Alcotest.(check string)
+        "arguments precede slot failure in reverse order" "BA"
+        (Native.output_bytes report);
+      Alcotest.(check int)
+        "no interpreter fallback for slot failure" 0
+        (Option.get (Native.source_progress report)).runtime.executed_steps;
+      let session, config, source = inputs text in
+      let oracle =
+        run_integer_program_report session ~config ~source ~max_steps:100_000
+      in
+      Alcotest.(check bool)
+        "independent IR slot diagnostic" true
+        (match integer_program_report_outcome oracle with
+        | Error errors ->
+            List.exists (fun (error : Diagnostic.t) -> error.code = code) errors
+        | Ok _ -> false);
+      Alcotest.(check string)
+        "independent IR preserves argument output" "BA"
+        (integer_program_report_output_bytes oracle);
+      diagnostic code (run ~max_steps:(Native.executed_steps report) text);
+      diagnostic "HCIRVM0007"
+        (run ~max_steps:(Native.executed_steps report - 1) text))
+    [
+      ( Image.Undefined_extern,
+        "HCIRVM0030",
+        "extern I64 Answer(I64 a,I64 b);extern U0 PutChars(U64 ch);I64 \
+         A(){PutChars('A');return 1;}I64 B(){PutChars('B');return 2;}I64 \
+         Old(){return Answer(A(),B());}Old();I64 Answer(I64 a,I64 b){return \
+         42;}" );
+      ( Image.Extern_signature_mismatch,
+        "HCIRVM0014",
+        "extern I64 Answer(I64 a,I64 b);extern U0 PutChars(U64 ch);I64 \
+         A(){PutChars('A');return 1;}I64 B(){PutChars('B');return 2;}I64 \
+         Old(){return Answer(A(),B());}I64 Answer(U8 a,I64 b){return \
+         42;}Old();" );
+    ]
+
+let retained_extern_limits () =
+  let text =
+    "extern I64 Answer(I64 n);I64 Old(I64 n){return Answer(n);}I64 Answer(I64 \
+     n){if(n)return Old(n-1);return 42;}Old(3);"
+  in
+  let report = run text in
+  ignore (value 42L report);
+  let code, ir =
+    List.fold_left
+      (fun (code, ir) (fragment : Native.fragment) ->
+        (code + fragment.image.code_bytes, ir + fragment.image.ir_instructions))
+      (0, 0) (Native.fragments report)
+  in
+  ignore
+    (value 42L
+       (run ~max_code_bytes:code ~max_ir_instructions:ir
+          ~max_steps:(Native.executed_steps report)
+          text));
+  ignore (value 42L (run ~max_frame_bytes:64 ~max_call_depth:8 text));
+  ignore (fault Image.Frame_limit_exceeded (run ~max_frame_bytes:63 text));
+  ignore (fault Image.Call_depth_exceeded (run ~max_call_depth:7 text));
+  diagnostic "HCBACK0005" (run ~max_code_bytes:(code - 1) text);
+  diagnostic "HCBACK0001" (run ~max_ir_instructions:(ir - 1) text);
+  ignore (fault Image.Call_depth_exceeded (run ~max_call_depth:1 text));
+  ignore (fault Image.Frame_limit_exceeded (run ~max_frame_bytes:8 text));
+  Alcotest.(check int)
+    "cyclic source closure is bounded and deduplicated" 2
+    (List.hd (List.rev (Native.fragments report))).image.function_count
+
 let () =
   Alcotest.run "Native source functions"
     [
       ( "retained source",
         [
+          Alcotest.test_case "original joined extern slots and saved headers"
+            `Quick retained_extern_slots;
+          Alcotest.test_case
+            "reached extern faults and original argument effects" `Quick
+            retained_extern_faults;
+          Alcotest.test_case
+            "cyclic extern closures and cumulative native limits" `Quick
+            retained_extern_limits;
           Alcotest.test_case "original definition and direct call" `Quick
             original_definition_and_call;
           Alcotest.test_case "direct forms and automatic frames" `Quick

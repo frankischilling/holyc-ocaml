@@ -266,6 +266,7 @@ type direct_call = {
   argument_stage_slots : int array;
   argument_owner_stages : int option array;
   result_stage_slot : int option;
+  named_slot_stage : int option;
 }
 
 type indirect_call = {
@@ -363,6 +364,8 @@ type operation =
       * fault_site option
   | Call_start
   | Call_capture of value * int
+  | Extern_signature_fault
+  | Undefined_extern_call
   | Direct_call of direct_call
   | Indirect_call of indirect_call
   | Put_chars of int
@@ -2999,6 +3002,14 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
                  registers.(scratch) ));
           owners.(scratch) <- None;
           release_through position
+      | Extern_signature_fault ->
+          emit_branch Unconditional
+            (fault_label 24 (Option.get instruction.site));
+          release_through position
+      | Undefined_extern_call ->
+          emit_branch Unconditional
+            (fault_label 23 (Option.get instruction.site));
+          release_through position
       | Direct_call _ | Indirect_call _ ->
           spill_all_registers instruction.span;
           let emit_target ?captured_stage call =
@@ -3076,7 +3087,19 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
             emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
             emit (Encoder.Store_context (64, Encoder.Rax));
             (match captured_stage with
-            | None -> planned := Planned_call call.callee_index :: !planned
+            | None -> (
+                match call.named_slot_stage with
+                | None -> planned := Planned_call call.callee_index :: !planned
+                | Some stage ->
+                    planned :=
+                      Planned_function_address (Encoder.Rax, call.callee_index)
+                      :: !planned;
+                    emit
+                      (Encoder.Store_stack
+                         (staged_stack_slot instruction.span stage, Encoder.Rax));
+                    emit
+                      (Encoder.Call_stack
+                         (staged_stack_slot instruction.span stage)))
             | Some stage ->
                 emit
                   (Encoder.Call_stack (staged_stack_slot instruction.span stage)));
@@ -3480,6 +3503,8 @@ type program_site = {
   value_type : word_type option;
   call_site : bool;
   callback_call_site : bool;
+  undefined_extern_site : bool;
+  extern_signature_site : bool;
   code_comparison_site : bool;
   code_update_site : bool;
   uninitialized_read_site : bool;
@@ -3780,6 +3805,8 @@ let preflight_program graph =
                 arithmetic;
                 value_type;
                 call_site = false;
+                extern_signature_site = false;
+                undefined_extern_site = false;
                 callback_call_site = false;
                 code_comparison_site = false;
                 code_update_site = false;
@@ -3949,6 +3976,8 @@ type callable_call_phase =
 
 type callable_target =
   | Source_function of int
+  | Mismatched_extern of int
+  | Undefined_extern of int
   | Put_chars_provider
   | Print_provider
 
@@ -4798,10 +4827,11 @@ let validate_callable_returns graph return_kind =
       done
 
 let preflight_callable_graph ~runtime_calls ~source_globals
-    ~allow_retained_functions ~parameter_defaults ~functions ~code_edges
-    ~indirect_code_edges ~arena_code_cells ~global_storage ~literal_storage
-    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t) ~variadic
-    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~allow_retained_functions ~slot_root_runtime_calls ~slot_bindings
+    ~parameter_defaults ~functions ~code_edges ~indirect_code_edges
+    ~arena_code_cells ~global_storage ~literal_storage ~runtime_owner ~owner
+    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
+    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -5319,6 +5349,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         argument_owner_stages =
                           Array.copy scope.argument_owner_stages;
                         result_stage_slot = scope.result_stage;
+                        named_slot_stage = None;
                       } )
                   in
                   scope.phase <- Needs_cleanup;
@@ -5483,228 +5514,341 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               then
                 unsupported description
                   "native calls do not admit retained source functions";
+              let slot_binding =
+                List.find_opt
+                  (fun binding ->
+                    Ir.Integer_interpreter.native_slot_binding_matches binding
+                      ~root_runtime_calls:slot_root_runtime_calls ~runtime_calls
+                      ~owner:runtime_owner ~globals:source_globals call)
+                  slot_bindings
+              in
+              let slot_source =
+                Option.bind slot_binding
+                  Ir.Integer_interpreter.native_slot_binding_source
+              in
+              let slot_index =
+                Option.map
+                  (fun source ->
+                    let index = ref None in
+                    Array.iteri
+                      (fun i info ->
+                        if
+                          info.definition.body
+                          == source.Ir.Integer_interpreter.source_definition
+                               .body
+                          && info.definition.frame
+                             == source.source_definition.frame
+                          && info.runtime_calls == source.source_runtime_calls
+                        then index := Some i)
+                      functions;
+                    match !index with
+                    | Some i -> i
+                    | None ->
+                        malformed description
+                          "native extern slot body is absent from its original \
+                           source closure")
+                  slot_source
+              in
+              let slot_fixed =
+                Runtime.header call |> Headers.function_signature
+                |> Headers.signature_parameters
+                |> List.map (fun parameter ->
+                    Headers.parameter_type_reference parameter
+                    |> Sema.Type_reference.resolved_type)
+                |> Array.of_list
+              in
+              let slot_matches =
+                Option.fold ~none:true
+                  ~some:(fun index ->
+                    let callee = functions.(index) in
+                    let module F = Generated.Function_flags.Stored in
+                    let flags = Function.stored_flags callee.definition.body in
+                    let callee_pop =
+                      (F.is_set ~mask:flags F.Ret1
+                      || F.is_set ~mask:flags F.Argument_pop)
+                      && not (F.is_set ~mask:flags F.No_argument_pop)
+                    in
+                    Type.equal (Runtime.return_type call)
+                      (Function.return_type callee.definition.body)
+                    && (Runtime.cleanup_opcode call
+                       =
+                       if callee_pop then Opcode.Ic_add_rsp1
+                       else Opcode.Ic_add_rsp)
+                    && Option.is_some callee.variadic
+                       = Option.is_some (Runtime.variadic_count call)
+                    && Array.length slot_fixed
+                       = Array.length callee.parameter_types
+                    && Array.for_all2 Type.equal slot_fixed
+                         callee.parameter_types)
+                  slot_index
+              in
+              let provider =
+                if Option.is_some slot_index then None
+                else Runtime.provider call
+              in
               let target, parameter_types, return_kind, activation_bytes =
-                match Runtime.provider call with
-                | Some Runtime.Put_chars ->
-                    if
-                      Runtime.call_opcode call <> Opcode.Ic_call_indirect2
-                      && Runtime.call_opcode call <> Opcode.Ic_call_extern
-                      || Option.is_some (Runtime.variadic_count call)
-                    then
-                      malformed description
-                        "native PutChars requires its original fixed extern \
-                         call";
-                    if
-                      Array.exists
-                        (fun info ->
-                          Symbol.name
-                            (Function.callable_symbol info.definition.body)
-                          = Symbol.name (Runtime.symbol call))
-                        functions
-                    then
-                      unsupported description
-                        "native PutChars provider calls cannot coexist with a \
-                         source body for that name; joined extern publication \
-                         requires retained source execution";
-                    let argument =
-                      match Runtime.arguments call with
-                      | [ argument ]
-                        when Runtime.argument_role argument = Runtime.Fixed 0 ->
-                          argument
-                      | _ ->
-                          malformed description
-                            "native PutChars requires its one original argument"
-                    in
-                    let parameter_type =
-                      Runtime.argument_target_type argument
-                    in
-                    let scalar =
-                      checked_scalar ~allow_public:true description
-                        parameter_type
-                    in
-                    if scalar.byte_size <> 8 || scalar.word_type <> U64 then
-                      malformed description
-                        "native PutChars argument must retain its U64 slot";
-                    let return_kind =
-                      source_return_kind ?span:description.span
-                        (Runtime.return_type call)
-                    in
-                    if return_kind <> Callable_void_return then
-                      malformed description "native PutChars must complete U0";
-                    (Put_chars_provider, [| parameter_type |], return_kind, 8)
-                | Some Runtime.Print ->
-                    let count =
-                      match Runtime.variadic_count call with
-                      | Some count
-                        when count >= 0L
-                             && count <= Int64.of_int ((max_stack_bytes / 8) - 2)
-                        -> Int64.to_int count
-                      | Some _ ->
-                          reject ?span:description.span "HCBACK0004"
-                            "native Print argument staging exceeds the private \
-                             frame limit"
-                      | None ->
-                          malformed description
-                            "native Print requires its original variadic count"
-                    in
-                    if
-                      Runtime.call_opcode call <> Opcode.Ic_call_indirect2
-                      && Runtime.call_opcode call <> Opcode.Ic_call_extern
-                    then
-                      malformed description
-                        "native Print requires its original extern call opcode";
-                    if
-                      Array.exists
-                        (fun info ->
-                          Symbol.name
-                            (Function.callable_symbol info.definition.body)
-                          = Symbol.name (Runtime.symbol call))
-                        functions
-                    then
-                      unsupported description
-                        "native Print provider calls cannot coexist with a \
-                         source body for that name; joined extern publication \
-                         requires retained source execution";
-                    let arguments = Runtime.arguments call in
-                    if List.length arguments <> count + 2 then
-                      malformed description
-                        "native Print argument count is inconsistent";
-                    let parameter_types =
-                      Array.make (count + 2) (Runtime.return_type call)
-                    in
-                    let present = Array.make (count + 2) false in
-                    List.iter
-                      (fun argument ->
-                        match
-                          call_argument_index ~fixed_count:1
-                            ~variadic_count:(Runtime.variadic_count call)
-                            (Runtime.argument_role argument)
-                        with
-                        | Some index
-                          when index >= 0
-                               && index < count + 2
-                               && not present.(index) ->
-                            let type_ = Runtime.argument_target_type argument in
-                            present.(index) <- true;
-                            parameter_types.(index) <- type_;
-                            if index = 0 then
-                              let pointee, _ =
-                                checked_reference description type_
-                              in
-                              match Type.base pointee with
-                              | Type.Primitive (_, Primitive.U8) -> ()
-                              | _ ->
-                                  malformed description
-                                    "native Print format must retain its U8 \
-                                     pointer type"
-                            else if index = 1 then (
-                              let scalar = checked_scalar description type_ in
-                              if
-                                scalar.byte_size <> 8 || scalar.word_type <> I64
-                              then
-                                malformed description
-                                  "native Print count must retain internal I64")
-                            else if Type.pointer_depth type_ = 0 then
-                              ignore
-                                (checked_scalar ~allow_public:true description
-                                   type_)
-                            else ignore (checked_reference description type_)
+                if
+                  Option.is_some slot_binding
+                  && (Option.is_none slot_index || not slot_matches)
+                  && Option.is_none provider
+                then (
+                  let fixed = slot_fixed in
+                  Array.iter
+                    (fun type_ ->
+                      if Type.pointer_depth type_ = 0 then
+                        ignore
+                          (checked_scalar ~allow_public:true description type_)
+                      else ignore (checked_reference description type_))
+                    fixed;
+                  let arguments =
+                    callable_argument_types description ~max_stack_bytes ~fixed
+                      ~variadic_count:(Runtime.variadic_count call)
+                      (Runtime.arguments call)
+                  in
+                  ( (if slot_matches then Undefined_extern (Array.length fixed)
+                     else Mismatched_extern (Array.length fixed)),
+                    arguments,
+                    source_return_kind ?span:description.span
+                      (Runtime.return_type call),
+                    0 ))
+                else
+                  match provider with
+                  | Some Runtime.Put_chars ->
+                      if
+                        Runtime.call_opcode call <> Opcode.Ic_call_indirect2
+                        && Runtime.call_opcode call <> Opcode.Ic_call_extern
+                        || Option.is_some (Runtime.variadic_count call)
+                      then
+                        malformed description
+                          "native PutChars requires its original fixed extern \
+                           call";
+                      if
+                        Option.is_none slot_binding
+                        && Array.exists
+                             (fun info ->
+                               Symbol.name
+                                 (Function.callable_symbol info.definition.body)
+                               = Symbol.name (Runtime.symbol call))
+                             functions
+                      then
+                        unsupported description
+                          "native PutChars provider calls cannot coexist with \
+                           a source body for that name; joined extern \
+                           publication requires retained source execution";
+                      let argument =
+                        match Runtime.arguments call with
+                        | [ argument ]
+                          when Runtime.argument_role argument = Runtime.Fixed 0
+                          -> argument
                         | _ ->
                             malformed description
-                              "native Print argument role is duplicated or \
-                               outside its captured tail")
-                      arguments;
-                    if not (Array.for_all Fun.id present) then
-                      malformed description
-                        "native Print is missing an argument slot";
-                    let return_kind =
-                      source_return_kind ?span:description.span
-                        (Runtime.return_type call)
-                    in
-                    if return_kind <> Callable_void_return then
-                      malformed description "native Print must complete U0";
-                    ( Print_provider,
-                      parameter_types,
-                      return_kind,
-                      (count + 2) * 8 )
-                | Some _ ->
-                    unsupported description
-                      "native calls do not admit this runtime provider"
-                | None ->
-                    let task_self_call =
-                      allow_retained_functions
-                      && Runtime.call_opcode call = Opcode.Ic_call_indirect2
-                      && Array.exists
-                           (fun info ->
-                             callable_self_call_matches_definition
-                               ~runtime_owner call info.definition)
-                           functions
-                    in
-                    if
-                      Runtime.call_opcode call <> Opcode.Ic_call
-                      && not task_self_call
-                    then
+                              "native PutChars requires its one original \
+                               argument"
+                      in
+                      let parameter_type =
+                        Runtime.argument_target_type argument
+                      in
+                      let scalar =
+                        checked_scalar ~allow_public:true description
+                          parameter_type
+                      in
+                      if scalar.byte_size <> 8 || scalar.word_type <> U64 then
+                        malformed description
+                          "native PutChars argument must retain its U64 slot";
+                      let return_kind =
+                        source_return_kind ?span:description.span
+                          (Runtime.return_type call)
+                      in
+                      if return_kind <> Callable_void_return then
+                        malformed description "native PutChars must complete U0";
+                      (Put_chars_provider, [| parameter_type |], return_kind, 8)
+                  | Some Runtime.Print ->
+                      let count =
+                        match Runtime.variadic_count call with
+                        | Some count
+                          when count >= 0L
+                               && count
+                                  <= Int64.of_int ((max_stack_bytes / 8) - 2) ->
+                            Int64.to_int count
+                        | Some _ ->
+                            reject ?span:description.span "HCBACK0004"
+                              "native Print argument staging exceeds the \
+                               private frame limit"
+                        | None ->
+                            malformed description
+                              "native Print requires its original variadic \
+                               count"
+                      in
+                      if
+                        Runtime.call_opcode call <> Opcode.Ic_call_indirect2
+                        && Runtime.call_opcode call <> Opcode.Ic_call_extern
+                      then
+                        malformed description
+                          "native Print requires its original extern call \
+                           opcode";
+                      if
+                        Option.is_none slot_binding
+                        && Array.exists
+                             (fun info ->
+                               Symbol.name
+                                 (Function.callable_symbol info.definition.body)
+                               = Symbol.name (Runtime.symbol call))
+                             functions
+                      then
+                        unsupported description
+                          "native Print provider calls cannot coexist with a \
+                           source body for that name; joined extern \
+                           publication requires retained source execution";
+                      let arguments = Runtime.arguments call in
+                      if List.length arguments <> count + 2 then
+                        malformed description
+                          "native Print argument count is inconsistent";
+                      let parameter_types =
+                        Array.make (count + 2) (Runtime.return_type call)
+                      in
+                      let present = Array.make (count + 2) false in
+                      List.iter
+                        (fun argument ->
+                          match
+                            call_argument_index ~fixed_count:1
+                              ~variadic_count:(Runtime.variadic_count call)
+                              (Runtime.argument_role argument)
+                          with
+                          | Some index
+                            when index >= 0
+                                 && index < count + 2
+                                 && not present.(index) ->
+                              let type_ =
+                                Runtime.argument_target_type argument
+                              in
+                              present.(index) <- true;
+                              parameter_types.(index) <- type_;
+                              if index = 0 then
+                                let pointee, _ =
+                                  checked_reference description type_
+                                in
+                                match Type.base pointee with
+                                | Type.Primitive (_, Primitive.U8) -> ()
+                                | _ ->
+                                    malformed description
+                                      "native Print format must retain its U8 \
+                                       pointer type"
+                              else if index = 1 then (
+                                let scalar = checked_scalar description type_ in
+                                if
+                                  scalar.byte_size <> 8
+                                  || scalar.word_type <> I64
+                                then
+                                  malformed description
+                                    "native Print count must retain internal \
+                                     I64")
+                              else if Type.pointer_depth type_ = 0 then
+                                ignore
+                                  (checked_scalar ~allow_public:true description
+                                     type_)
+                              else ignore (checked_reference description type_)
+                          | _ ->
+                              malformed description
+                                "native Print argument role is duplicated or \
+                                 outside its captured tail")
+                        arguments;
+                      if not (Array.for_all Fun.id present) then
+                        malformed description
+                          "native Print is missing an argument slot";
+                      let return_kind =
+                        source_return_kind ?span:description.span
+                          (Runtime.return_type call)
+                      in
+                      if return_kind <> Callable_void_return then
+                        malformed description "native Print must complete U0";
+                      ( Print_provider,
+                        parameter_types,
+                        return_kind,
+                        (count + 2) * 8 )
+                  | Some _ ->
                       unsupported description
-                        "native callable programs require fixed direct source \
-                         calls or the checked PutChars provider";
-                    let callee_index =
-                      match
-                        callable_callee_index
-                          ~allow_task_self_call:allow_retained_functions
-                          ~runtime_owner functions call
-                      with
-                      | Some index -> index
-                      | None ->
-                          malformed description
-                            "direct call has no exact callable source \
-                             definition"
-                    in
-                    let callee = functions.(callee_index) in
-                    Option.iter
-                      (fun link ->
-                        if
-                          not
-                            (retained_link_matches_definition link
-                               callee.definition
-                            || allow_retained_functions
-                               && callable_self_call_matches_definition
-                                    ~runtime_owner call callee.definition)
-                        then
-                          malformed description
-                            "retained direct call selected another source \
-                             body, frame or declaration")
-                      (Runtime.retained_function call);
-                    if
-                      not
-                        (Type.equal (Runtime.return_type call)
-                           (Function.return_type callee.definition.body))
-                    then
-                      malformed description
-                        "direct call return type disagrees with its source \
-                         definition";
-                    if
-                      Option.is_some callee.variadic
-                      <> Option.is_some (Runtime.variadic_count call)
-                    then
-                      malformed description
-                        "direct call variadic shape disagrees with its \
-                         original body";
-                    ( Source_function callee_index,
-                      callable_argument_types description ~max_stack_bytes
-                        ~fixed:callee.parameter_types
-                        ~variadic_count:(Runtime.variadic_count call)
-                        (Runtime.arguments call),
-                      callee.return_kind,
-                      callee.activation_bytes
-                      + 8
-                        * Option.fold ~none:0 ~some:Int64.to_int
-                            (Runtime.variadic_count call) )
+                        "native calls do not admit this runtime provider"
+                  | None ->
+                      let task_self_call =
+                        allow_retained_functions
+                        && Runtime.call_opcode call = Opcode.Ic_call_indirect2
+                        && Array.exists
+                             (fun info ->
+                               callable_self_call_matches_definition
+                                 ~runtime_owner call info.definition)
+                             functions
+                      in
+                      if
+                        Runtime.call_opcode call <> Opcode.Ic_call
+                        && (not task_self_call) && Option.is_none slot_index
+                      then
+                        unsupported description
+                          "native callable programs require fixed direct \
+                           source calls or the checked PutChars provider";
+                      let callee_index =
+                        match
+                          match slot_index with
+                          | Some index -> Some index
+                          | None ->
+                              callable_callee_index
+                                ~allow_task_self_call:allow_retained_functions
+                                ~runtime_owner functions call
+                        with
+                        | Some index -> index
+                        | None ->
+                            malformed description
+                              "direct call has no exact callable source \
+                               definition"
+                      in
+                      let callee = functions.(callee_index) in
+                      Option.iter
+                        (fun link ->
+                          if
+                            not
+                              (Option.is_some slot_index
+                              || retained_link_matches_definition link
+                                   callee.definition
+                              || allow_retained_functions
+                                 && callable_self_call_matches_definition
+                                      ~runtime_owner call callee.definition)
+                          then
+                            malformed description
+                              "retained direct call selected another source \
+                               body, frame or declaration")
+                        (Runtime.retained_function call);
+                      if
+                        not
+                          (Type.equal (Runtime.return_type call)
+                             (Function.return_type callee.definition.body))
+                      then
+                        malformed description
+                          "direct call return type disagrees with its source \
+                           definition";
+                      if
+                        Option.is_some callee.variadic
+                        <> Option.is_some (Runtime.variadic_count call)
+                      then
+                        malformed description
+                          "direct call variadic shape disagrees with its \
+                           original body";
+                      ( Source_function callee_index,
+                        callable_argument_types description ~max_stack_bytes
+                          ~fixed:callee.parameter_types
+                          ~variadic_count:(Runtime.variadic_count call)
+                          (Runtime.arguments call),
+                        callee.return_kind,
+                        callee.activation_bytes
+                        + 8
+                          * Option.fold ~none:0 ~some:Int64.to_int
+                              (Runtime.variadic_count call) )
               in
               let parameter_count = Array.length parameter_types in
               let fixed_count =
                 match target with
                 | Source_function index ->
                     Array.length functions.(index).parameter_types
+                | Undefined_extern fixed_count | Mismatched_extern fixed_count
+                  -> fixed_count
                 | Put_chars_provider | Print_provider -> 1
               in
               let variadic_count = Runtime.variadic_count call in
@@ -5715,8 +5859,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         if position < fixed_count then
                           functions.(index).parameter_callbacks.(position)
                         else None)
-                | Put_chars_provider | Print_provider ->
-                    Array.make parameter_count None
+                | Undefined_extern _
+                | Mismatched_extern _
+                | Put_chars_provider
+                | Print_provider -> Array.make parameter_count None
               in
               let arguments = Runtime.arguments call in
               if List.length arguments <> parameter_count then
@@ -5773,6 +5919,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               let scratch_count =
                 if target = Print_provider then
                   Print_codegen.scratch_slots (parameter_count - 2)
+                else if Option.is_some slot_index && slot_matches then 1
                 else 0
               in
               if scratch_count > (max_stack_bytes / 8) - scratch_stage then
@@ -5978,7 +6125,23 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             argument_owner_stages =
                               Array.copy scope.argument_owner_stages;
                             result_stage_slot = scope.result_stage;
+                            named_slot_stage =
+                              (if
+                                 List.exists
+                                   (fun binding ->
+                                     Ir.Integer_interpreter
+                                     .native_slot_binding_matches binding
+                                       ~root_runtime_calls:
+                                         slot_root_runtime_calls ~runtime_calls
+                                       ~owner:runtime_owner
+                                       ~globals:source_globals
+                                       (Option.get scope.call))
+                                   slot_bindings
+                               then Some scope.scratch_stage
+                               else None);
                           }
+                    | Undefined_extern _ -> Undefined_extern_call
+                    | Mismatched_extern _ -> Extern_signature_fault
                     | Put_chars_provider -> Put_chars scope.argument_stages.(0)
                     | Print_provider ->
                         let tail_types =
@@ -7742,8 +7905,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                   let callee_index =
                                     match scope.target with
                                     | Source_function index -> index
-                                    | Put_chars_provider | Print_provider ->
-                                        assert false
+                                    | Undefined_extern _
+                                    | Mismatched_extern _
+                                    | Put_chars_provider
+                                    | Print_provider -> assert false
                                   in
                                   code_edges :=
                                     ( destination functions.(callee_index),
@@ -7823,8 +7988,20 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             value_type;
             call_site =
               (match operation with
-              | Direct_call _ | Indirect_call _ | Put_chars _ | Print_output _
-                -> true
+              | Extern_signature_fault
+              | Undefined_extern_call
+              | Direct_call _
+              | Indirect_call _
+              | Put_chars _
+              | Print_output _ -> true
+              | _ -> false);
+            extern_signature_site =
+              (match operation with
+              | Extern_signature_fault -> true
+              | _ -> false);
+            undefined_extern_site =
+              (match operation with
+              | Undefined_extern_call -> true
               | _ -> false);
             callback_call_site =
               (match operation with
@@ -8101,7 +8278,9 @@ let callable_definition_matches_call
 
 let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
     ~runtime_calls ~entry ~functions ~retained_function_source
-    ~retained_provider_available =
+    ~retained_slot_binding =
+  let slot_bindings = ref [] in
+  let root_runtime_calls = runtime_calls in
   let queue = Queue.create () in
   let collected_rev = ref [] in
   let admitted_blocks = ref 0 in
@@ -8338,42 +8517,91 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
                     "native task direct call is absent from its original \
                      sealed runtime context"
               | Some call -> (
-                  match Runtime.provider call with
-                  | Some (Runtime.Print | Runtime.Put_chars) when historical
-                    -> (
+                  let self_call =
+                    Runtime.call_opcode call = Opcode.Ic_call_indirect2
+                    && Option.is_some
+                         (exact_self_call ~owner ~source_functions call)
+                  in
+                  if
+                    Runtime.call_opcode call = Opcode.Ic_call_indirect2
+                    && not self_call
+                  then (
+                    let binding =
                       match
-                        retained_provider_available ~runtime_calls ~owner call
+                        retained_slot_binding ~runtime_calls ~owner call
                       with
-                      | Ok true -> ()
-                      | Ok false ->
-                          reject ?span:raw.span "HCBACK0002"
-                            "retained native provider has a joined source \
-                             body; unresolved extern-slot dispatch remains \
-                             unsupported"
+                      | Ok binding -> binding
                       | Error message ->
-                          reject ?span:raw.span "HCBACK0003" message)
-                  | Some _ when historical ->
-                      reject ?span:raw.span "HCBACK0002"
-                        "retained native task functions currently require \
-                         fixed direct integer or U0 calls"
-                  | Some _ -> ()
-                  | None ->
-                      let self_call =
-                        Runtime.call_opcode call = Opcode.Ic_call_indirect2
-                        && Option.is_some
-                             (exact_self_call ~owner ~source_functions call)
-                      in
-                      if
-                        Runtime.call_opcode call <> Opcode.Ic_call
-                        && not self_call
-                      then
-                        reject ?span:raw.span "HCBACK0002"
-                          "retained native task function closure requires \
-                           fixed direct calls";
-                      if not self_call then
+                          reject ?span:raw.span "HCBACK0003" message
+                    in
+                    if
+                      not
+                        (Ir.Integer_interpreter.native_slot_binding_matches
+                           binding ~root_runtime_calls ~runtime_calls ~owner
+                           ~globals:source_globals call)
+                    then
+                      reject ?span:raw.span "HCBACK0003"
+                        "native extern slot resolver returned another original \
+                         call";
+                    slot_bindings := binding :: !slot_bindings;
+                    Option.iter
+                      (fun (source :
+                             Ir.Integer_interpreter.task_function_source) ->
+                        if
+                          not
+                            (Ir.Integer_globals.same_task_storage globals
+                               source.source_globals)
+                        then
+                          reject ?span:raw.span "HCBACK0003"
+                            "native extern slot body belongs to another task";
+                        let definition = source.source_definition in
+                        if
+                          (not
+                             (Function.definition_matches_frame definition.body
+                                definition.frame))
+                          || not
+                               (List.exists
+                                  (fun (candidate :
+                                         Ir.Integer_interpreter
+                                         .function_definition) ->
+                                    candidate.body == definition.body
+                                    && candidate.frame == definition.frame)
+                                  source.source_functions)
+                        then
+                          reject ?span:raw.span "HCBACK0003"
+                            "native extern slot body has another original \
+                             source bundle";
                         add
-                          (source_for_call ~runtime_calls ~source_globals
-                             ~source_functions ~historical call))))
+                          {
+                            source_definition = definition;
+                            source_runtime_calls = source.source_runtime_calls;
+                            source_globals = source.source_globals;
+                            source_functions = source.source_functions;
+                            source_historical = true;
+                          })
+                      (Ir.Integer_interpreter.native_slot_binding_source binding))
+                  else
+                    match Runtime.provider call with
+                    | Some _
+                      when historical
+                           && Runtime.provider call <> Some Runtime.Print
+                           && Runtime.provider call <> Some Runtime.Put_chars ->
+                        reject ?span:raw.span "HCBACK0002"
+                          "retained native task functions currently require \
+                           fixed direct integer or U0 calls"
+                    | Some _ -> ()
+                    | None ->
+                        if
+                          Runtime.call_opcode call <> Opcode.Ic_call
+                          && not self_call
+                        then
+                          reject ?span:raw.span "HCBACK0002"
+                            "retained native task function closure requires \
+                             original direct or extern-slot calls";
+                        if not self_call then
+                          add
+                            (source_for_call ~runtime_calls ~source_globals
+                               ~source_functions ~historical call))))
       (Graph.blocks graph)
   in
   scan ~runtime_calls ~source_globals:globals ~source_functions:functions
@@ -8387,7 +8615,7 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
       ~historical:source.source_historical ~owner:(Runtime.Function body)
       (Ir.X87_stack.graph (Function.x87 body))
   done;
-  List.rev !collected_rev
+  (List.rev !collected_rev, List.rev !slot_bindings)
 
 let validate_switch_code_floor ~max_code_bytes ~label block_groups =
   let used = ref 0 in
@@ -8685,7 +8913,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
               with Rejected error -> Error [ error ])))
 
 let compile_callable_internal ?task_snapshot ?retained_parameter_default
-    ?retained_function_source ?retained_provider_available ?status_abi
+    ?retained_function_source ?retained_slot_binding ?status_abi
     ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?parameter_defaults ?global_initializers ~max_ir_instructions
@@ -8725,7 +8953,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         definition.body)
       functions
   in
-  let* callable_sources =
+  let* callable_sources, slot_bindings =
     match task_snapshot with
     | Some _ -> (
         if
@@ -8745,7 +8973,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               };
             ]
         else
-          match (retained_function_source, retained_provider_available) with
+          match (retained_function_source, retained_slot_binding) with
           | None, _ | _, None ->
               Error
                 [
@@ -8757,25 +8985,26 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                     span = None;
                   };
                 ]
-          | Some retained_function_source, Some retained_provider_available -> (
+          | Some retained_function_source, Some retained_slot_binding -> (
               try
                 Ok
                   (collect_task_callable_sources ~max_ir_instructions
                      ~max_blocks ~globals ~runtime_calls ~entry ~functions
-                     ~retained_function_source ~retained_provider_available)
+                     ~retained_function_source ~retained_slot_binding)
               with Rejected error -> Error [ error ]))
     | None ->
         Ok
-          (List.map
-             (fun definition ->
-               {
-                 source_definition = definition;
-                 source_runtime_calls = runtime_calls;
-                 source_globals = globals;
-                 source_functions = functions;
-                 source_historical = false;
-               })
-             functions)
+          ( List.map
+              (fun definition ->
+                {
+                  source_definition = definition;
+                  source_runtime_calls = runtime_calls;
+                  source_globals = globals;
+                  source_functions = functions;
+                  source_historical = false;
+                })
+              functions,
+            [] )
   in
   let function_graphs =
     List.map
@@ -9023,6 +9252,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       let entry_prepared =
         preflight_callable_graph ~runtime_calls ~source_globals:globals
           ~allow_retained_functions:(Option.is_some task_snapshot)
+          ~slot_root_runtime_calls:runtime_calls ~slot_bindings
           ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
           ~functions:function_infos ~global_storage ~literal_storage
           ~runtime_owner:Runtime.Entry ~owner:Entry_owner
@@ -9036,6 +9266,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             preflight_callable_graph ~runtime_calls:info.runtime_calls
               ~source_globals:info.source_globals
               ~allow_retained_functions:(Option.is_some task_snapshot)
+              ~slot_root_runtime_calls:runtime_calls ~slot_bindings
               ~parameter_defaults ~code_edges ~indirect_code_edges
               ~arena_code_cells ~functions:function_infos ~global_storage
               ~literal_storage ~runtime_owner:(Runtime.Function body)
@@ -9470,10 +9701,10 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
 
 let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
     ~task_snapshot ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~retained_function_source ~retained_provider_available
-    ~retained_parameter_default ~initialization ~entry ~functions () =
+    ~retained_function_source ~retained_slot_binding ~retained_parameter_default
+    ~initialization ~entry ~functions () =
   compile_callable_internal ~task_snapshot ~retained_parameter_default
-    ~retained_function_source ~retained_provider_available ?status_abi
+    ~retained_function_source ~retained_slot_binding ?status_abi
     ?max_stack_bytes ?max_blocks
     ~max_global_bytes:Global_storage.hard_max_global_bytes ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()

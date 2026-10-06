@@ -31,6 +31,8 @@ type fault_kind =
   | Callback_unowned_address
   | Callback_signature_mismatch
   | Code_comparison_invalid_word
+  | Extern_signature_mismatch
+  | Undefined_extern
   | Callback_update_owned_address
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
