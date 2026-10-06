@@ -321,12 +321,17 @@ let transitive_closure_limits () =
     (List.length (Native.fragments limited))
 
 let unsupported_persistent_function_storage () =
+  let report = run "I64 F(){return 42;} I64 (*p)()=&F; p();" in
+  ignore (value 42L report);
+  completed report;
+  Alcotest.(check int)
+    "saved executable callback enters no VM instructions" 0
+    (Option.get (Native.source_progress report)).runtime.executed_steps;
   List.iter
     (fun text -> ignore (rejection (run text)))
     [
       "extern I64 Missing(); I64 F(){return Missing();} F();";
       "I64 F(F64 n=42.0){return 42;} F();";
-      "I64 F(){return 42;} I64 (*p)()=&F; p();";
       "I64 F(){1.0;return 42;} F();";
     ]
 

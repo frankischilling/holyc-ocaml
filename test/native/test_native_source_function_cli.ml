@@ -546,9 +546,27 @@ let () =
         "extern U0 PutChars(U64 ch);I64 (*p)(I64 a,I64 b)=0;I64 Mark(I64 \
          n){PutChars(n);p=42;return n;}p(Mark(65),Mark(66));" );
     ];
-  with_file ".hc" "I64 F(){return 42;}I64 (*p)()=&F;p();" (fun path ->
+  List.iter
+    (fun text ->
+      with_file ".hc" text (fun path ->
+          let report = json_path path in
+          require
+            (final_bits report = "0x000000000000002a")
+            "persistent original native callback executes";
+          require
+            (final_bits (json_path ~target:"ir" path) = final_bits report)
+            "original IR callback value"))
+    [
+      "I64 F(){return 42;}I64 (*p)()=&F;p();";
+      "I64 F(){return 42;}I64 (*p)()=&F;I64 F(){return 17;}p();";
+      "I64 F(){return 42;}I64 (*p)()[2]={0,&F};I64 Call(I64 (*q)()){return \
+       q();}Call(p[1]);";
+    ];
+  with_file ".hc"
+    "I64 F(){return 42;}I64 Call(I64 (*q)()=&F){return q();}Call();"
+    (fun path ->
       require
-        (has_diagnostic "HCBACK0002" (json_path ~status:1 path))
-        "task code addresses require persistent executable ownership");
+        (has_diagnostic "HCRUN0001" (json_path ~status:1 path))
+        "owned callback parameter defaults remain a separate required gate");
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

@@ -1038,3 +1038,13 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_source_callback_words.exe})))
+
+(executable
+ (name test_native_source_callbacks)
+ (modules test_native_source_callbacks)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_callbacks.exe})))

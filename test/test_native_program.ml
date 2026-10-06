@@ -180,6 +180,7 @@ let kind_name = function
   | Program.Code_comparison_invalid_word -> "code-comparison-invalid-word"
   | Program.Extern_signature_mismatch -> "extern-signature-mismatch"
   | Program.Undefined_extern -> "undefined-extern"
+  | Program.Callback_owned_word_escape -> "callback-owned-word-escape"
   | Program.Callback_update_owned_address -> "callback-update-owned-address"
   | Program.Pointer_difference_object_mismatch ->
       "pointer-difference-object-mismatch"

@@ -203,10 +203,45 @@ Numeric callback words have zero executable owners. A reached indirect call
 captures its original cell before reverse argument evaluation, preserves those
 argument effects and reports `HCIRVM0024` from the native call site. Uncalled
 numeric callbacks do not fault. Uninitialized cells and indexed bounds retain
-their existing native checks. Task collection rejects every original `&Function`
-producer with `HCBACK0002` before entry because its image would otherwise be
-released while the stored code address remained. This storage connection adds
-no persistent executable entry or exported ABI.
+their existing native checks.
+
+Original JIT immediate `&Function` producers now create native executable owners.
+`examples/native-source-callbacks.hc` saves an original body, copies its callback
+through an array and calls it after an unrelated same-name definition. It returns
+42. Globals, arrays, automatic cells and fixed callback parameters copy both the
+native address and its private owner. Integer and U0 bodies, scalar pointer
+parameters and supported integer word tails use the existing private call ABI.
+Global, static and named integer-default consumers can call these owners.
+
+Each owner reserves sixteen private arena bytes: one canonical entry address and
+one current body target. Its eight-byte native leaf entry jumps through the target
+cell without changing the stack or arguments. The first entry mapping stays live
+until arena release. Later fragments compile the same original body and its
+closure, then bind that leaf to the current native body after the live source
+request is claimed. The captured callback address is called directly; faults and
+quotas belong to the current body's original source sites. The leaf bytes charge
+the cumulative code allowance and carry separate Windows unwind ranges. Source
+function counts exclude those private leaves. Retained code remains within the
+host mapping bound; canonical and current mappings stay rooted and leased during
+entry. Public fragment release revokes that entry while its owned leaf remains
+mapped. Arena release closes the remaining mappings.
+
+A dynamic owner survives loads, copies, captures and full-word views. A bare owned
+expression explicitly clears an earlier captured result. Its negative private
+site marker identifies the reached original discard and carries zero bits; an
+unexecuted branch or an implicit declaration leaves the earlier result intact. An owned word returned or passed as an
+ordinary integer faults at the reached native site; numeric callback words still
+preserve all sixty-four bits. Owned updates and comparisons with a nonzero numeric
+word retain their existing native faults. This implements a private hosted entry,
+not the exported HolyC ABI.
+
+Owned callback parameter defaults and live anonymous expression defaults remain
+required work. JIT extern-slot address expressions, including a function's own
+slot address, still need their original two-producer address receipts connected.
+F64 and aggregate callback execution, member cells and the exported ABI remain
+outside this supported native slice. Static callback leaves and joined extern
+calls are tested natively; the isolated IR path still rejects some of these
+source-session consumers. No new TempleOS native oracle capture is claimed.
 
 `Native_source_execution.evaluate` accepts the original session, preprocessor
 configuration and source. An internal synchronous dispatch connects source
@@ -219,8 +254,8 @@ cumulative initializer allowance; `dimension_work` also reports their reached
 node visits. The separate dimension limit applies to ordinary source compilation.
 Native steps come from actual native outcomes. Reports retain detached image
 metadata and each checked
-completion or fault, without keeping executable images or closed source tasks
-alive. The JSON `native.fragments` array records their source order, cumulative
+completion or fault. Executable owners keep their required mappings until the
+source arena closes; reported fragments carry metadata rather than live entries. The JSON `native.fragments` array records their source order, cumulative
 native work, storage sizes and compiled function counts; `native.image` is null because
 the source task has separate fragments.
 
@@ -262,11 +297,12 @@ in OCaml.
 
 This source-task path supports integer globals, fixed integer arrays,
 integer function statics, retained direct and joined JIT extern calls, and their
-original literals, numeric callback storage and named integer defaults, including
-integer words saved for named callback parameters. Runtime-dependent dimensions,
-executable task callback targets, wider and anonymous defaults, native `#exe`,
-persistent executable addresses and AOT source-task execution remain separate
-work under #704.
+original literals, numeric and owned callback storage, and named integer defaults,
+including integer words saved for named callback parameters. Runtime-dependent
+dimensions, wider and owned callback defaults, live anonymous expression defaults,
+JIT extern-slot address expressions, native `#exe` and AOT source-task execution
+remain required work under #704. Full callback domains and the exported ABI remain
+required under #801 and the broader compiler acceptance scope.
 The compiler retains each successful live JIT static allocation, including
 its original function publication, table, namespace and checked dimensions.
 The sealed command keeps these witnesses in source order. Compilation joins

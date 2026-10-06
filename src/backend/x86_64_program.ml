@@ -37,6 +37,7 @@ type fault_kind =
   | Code_comparison_invalid_word
   | Extern_signature_mismatch
   | Undefined_extern
+  | Callback_owned_word_escape
   | Callback_update_owned_address
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
@@ -304,6 +305,19 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
         if Int64.equal value_site 0L then
           if Int64.equal bits 0L then Ok None
           else Error "native program status has bits without a value site"
+        else if Int64.compare value_site 0L < 0 then
+          match site_by_value compiled (Int64.neg value_site) with
+          | Error _ as error -> error
+          | Ok candidate ->
+              if
+                candidate.owner = Codegen.Entry_owner
+                && candidate.no_value_capture_site && Int64.equal bits 0L
+                && executed_steps_int > 0
+              then Ok None
+              else
+                Error
+                  "native empty-result capture has another original discard \
+                   site"
         else
           match site_by_value compiled value_site with
           | Error _ as error -> error
@@ -551,6 +565,14 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                     Error
                       "native extern-signature fault did not consume its call"
                   else make_fault Extern_signature_mismatch None
+                else if kind = 25L then
+                  if
+                    (not candidate.code_word_escape_site)
+                    || executed_steps_int < 1
+                  then
+                    Error
+                      "native code-word escape fault names another reached site"
+                  else make_fault Callback_owned_word_escape None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =
@@ -571,3 +593,6 @@ let arena_metadata_bytes compiled =
 
 let arena_bytes compiled = Codegen.program_arena_bytes compiled.image
 let global_image compiled = Codegen.program_global_image compiled.image
+
+let code_owner_bindings compiled =
+  Codegen.program_code_owner_bindings compiled.image

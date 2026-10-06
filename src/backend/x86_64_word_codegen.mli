@@ -34,6 +34,8 @@ type program_site = {
   extern_signature_site : bool;
   code_comparison_site : bool;
   code_update_site : bool;
+  code_word_escape_site : bool;
+  no_value_capture_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -184,3 +186,6 @@ val program_task_snapshot :
   program_image -> X86_64_global_storage.task_snapshot option
 
 val hard_max_global_bytes : int
+
+val program_code_owner_bindings :
+  program_image -> (int * int * int * int * int) list

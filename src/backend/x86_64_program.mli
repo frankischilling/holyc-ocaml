@@ -33,6 +33,7 @@ type fault_kind =
   | Code_comparison_invalid_word
   | Extern_signature_mismatch
   | Undefined_extern
+  | Callback_owned_word_escape
   | Callback_update_owned_address
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
@@ -267,3 +268,5 @@ val global_image : t -> string
 (** Fresh copy of the private initial data and per-object initialization flags.
     Each native invocation allocates its own non-executable arena from this
     image. *)
+
+val code_owner_bindings : t -> (int * int * int * int * int) list

@@ -43,7 +43,12 @@ external retain_program :
   retained_handle = "holyc_native_retain_program"
 
 external retain_task_fragment_program :
-  string * (int * int * string) array * int * int * (int * int * int * int) ->
+  string
+  * (int * int * string) array
+  * int
+  * int
+  * (int * int * int * int)
+  * (int * int * int * int * int) array ->
   retained_handle = "holyc_native_retain_task_fragment"
 
 external release_program : retained_handle -> unit
@@ -86,6 +91,9 @@ external execute_retained_budget_task_program :
   (int64 * int64 * int64 * int64 * int64) * string * int
   = "holyc_native_execute_retained_budget_task_program"
 
+external bind_task_entries : retained_handle -> task_arena_handle * int -> bool
+  = "holyc_native_bind_task_entries"
+
 type task_arena = {
   layout_ : Task_storage.task_layout;
   handle_ : task_arena_handle;
@@ -95,6 +103,7 @@ type task_arena = {
   arena_lease_ : bool Atomic.t;
   arena_revoked_ : bool Atomic.t;
   arena_released_ : bool Atomic.t;
+  code_mappings_ : (retained_handle * Image.t * bool) list Atomic.t;
 }
 
 type task_execution_binding = {
@@ -231,7 +240,10 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
       else if function_count > 100_000 then
         error_report
           "native program image exceeds the callable function-count bound"
-      else if List.length unwind_functions <> function_count + 1 then
+      else if
+        List.length unwind_functions
+        <> function_count + 1 + List.length (Image.code_owner_bindings image)
+      then
         error_report
           "native program image has inconsistent unwind function metadata"
       else
@@ -263,7 +275,10 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
         else if arena_bytes > hard_max_arena_bytes then
           error_report
             "native program private arena exceeds the hard host byte bound"
-        else if global_bytes = 0 && literal_bytes = 0 && arena_bytes <> 0 then
+        else if
+          global_bytes = 0 && literal_bytes = 0 && arena_bytes <> 0
+          && Image.code_owner_bindings image = []
+        then
           error_report
             "native program without persistent data has a nonempty private \
              arena image"
@@ -291,7 +306,7 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                 let activation =
                   match task_binding with
                   | None -> Ok ()
-                  | Some binding ->
+                  | Some binding -> (
                       let required_arena_bytes =
                         binding.task_required_arena_bytes_
                       in
@@ -306,7 +321,50 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                           bind_task_budget binding.task_arena_
                             binding.task_budget_identity_
                         in
-                        Image.check_task_activation image
+                        let* () = Image.check_task_activation image in
+                        if Image.code_owner_bindings image = [] then Ok ()
+                        else
+                          match retained with
+                          | None ->
+                              Error
+                                "native task entries require their retained \
+                                 mapped image"
+                          | Some handle ->
+                              let prior =
+                                Atomic.get binding.task_arena_.code_mappings_
+                              in
+                              let canonical_bytes =
+                                List.fold_left
+                                  (fun size (_, image, canonical) ->
+                                    if canonical then
+                                      size + Image.code_bytes image
+                                    else size)
+                                  0 prior
+                              in
+                              if
+                                Image.code_bytes image
+                                > 16_777_216 - canonical_bytes
+                              then
+                                Error
+                                  "persistent native code exceeds the host \
+                                   mapping bound"
+                              else
+                                let canonical =
+                                  bind_task_entries handle
+                                    ( binding.task_arena_.handle_,
+                                      required_arena_bytes )
+                                in
+                                let keep, retire =
+                                  List.partition
+                                    (fun (_, _, canonical) -> canonical)
+                                    prior
+                                in
+                                Atomic.set binding.task_arena_.code_mappings_
+                                  ((handle, image, canonical) :: keep);
+                                List.iter
+                                  (fun (handle, _, _) -> release_program handle)
+                                  retire;
+                                Ok ())
                 in
                 match activation with
                 | Error message -> error_report message
@@ -475,6 +533,7 @@ let retained_identity_prefix ?(max_global_bytes = 1_048_576)
     || Image.function_count image > 100_000
     || List.length (Image.windows_unwind_functions image)
        <> Image.function_count image + 1
+          + List.length (Image.code_owner_bindings image)
   then Error "retained native image has inconsistent callable metadata"
   else
     match abi_code with
@@ -522,8 +581,8 @@ let retained_task_identity ?max_global_bytes ?max_literal_bytes
         functions,
         abi_code,
         entry_stack_bytes,
-        (global_bytes, literal_bytes, metadata_bytes, Image.arena_bytes image)
-      ))
+        (global_bytes, literal_bytes, metadata_bytes, Image.arena_bytes image),
+        Array.of_list (Image.code_owner_bindings image) ))
     (retained_identity_prefix ?max_global_bytes ?max_literal_bytes
        ?max_active_stack_bytes image)
 
@@ -588,6 +647,7 @@ let create_task_arena ?(max_arena_bytes = hard_max_arena_bytes) layout =
                   arena_lease_ = Atomic.make false;
                   arena_revoked_ = Atomic.make false;
                   arena_released_ = Atomic.make false;
+                  code_mappings_ = Atomic.make [];
                 }
           | Error message ->
               let release_error =
@@ -618,6 +678,10 @@ let release_task_arena arena =
             else
               try
                 release_task_arena_handle arena.handle_;
+                List.iter
+                  (fun (handle, _, _) -> release_program handle)
+                  (Atomic.get arena.code_mappings_);
+                Atomic.set arena.code_mappings_ [];
                 Atomic.set arena.arena_revoked_ true;
                 Atomic.set arena.arena_released_ true;
                 Ok ()
@@ -806,7 +870,13 @@ let release retained =
             if Atomic.get retained.released_ then Ok ()
             else
               try
-                release_program retained.handle_;
+                (match retained.storage_ with
+                | Shared_task_storage { arena; _ }
+                  when List.exists
+                         (fun (handle, _, _) -> handle == retained.handle_)
+                         (Atomic.get arena.code_mappings_) -> ()
+                | Private_storage | Shared_task_storage _ ->
+                    release_program retained.handle_);
                 Atomic.set retained.revoked_ true;
                 Atomic.set retained.released_ true;
                 Ok ()

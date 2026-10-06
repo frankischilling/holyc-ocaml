@@ -53,7 +53,9 @@ val create_task_arena :
     second owner fails, including after the original arena has been released. *)
 
 val release_task_arena : task_arena -> (unit, string) result
-(** Release the task storage mapping. Successful release is idempotent. Active
+(** Close the arena and all canonical/current code mappings retained by its
+    original executable owners. Active code and arena leases reject release.
+    Release the task storage mapping. Successful release is idempotent. Active
     native entry or admission rejects release, and a released arena cannot admit
     or execute another fragment. Unreachable handles have a native finalizer. *)
 

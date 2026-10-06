@@ -110,6 +110,25 @@ val create_task_snapshot :
     bound. This allocates layout metadata, not runtime values, and grants no
     source entry or executable ownership. *)
 
+type code_owner
+
+val task_code_owners : task_snapshot -> code_owner list
+val code_owner_link : code_owner -> Ir.Retained_function.t
+
+val code_owner_definition :
+  code_owner -> Ir.Integer_interpreter.function_definition
+
+val code_owner_id : code_owner -> int
+val code_owner_address : code_owner -> int
+val code_owner_target : code_owner -> int
+
+val append_task_code_owners :
+  task_snapshot ->
+  (Ir.Retained_function.t * Ir.Integer_interpreter.function_definition) list ->
+  (task_snapshot, error list) result
+(** Reserve immutable original-body identities and two private native address
+    cells per owner. No runtime address or executable authority is published. *)
+
 val task_snapshot_matches_layout : task_snapshot -> task_layout -> bool
 val task_snapshot_arena_image : task_snapshot -> string
 val task_snapshot_arena_bytes : task_snapshot -> int

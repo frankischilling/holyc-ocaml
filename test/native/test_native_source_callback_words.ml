@@ -193,16 +193,7 @@ let uninitialized_bounds_and_ownership_gate () =
       "I64 (*p)()[2];p[0]=42;p[1]();";
     ];
   fault Image.Address_out_of_bounds (run "I64 (*p)()[2]={42,0};p[2];");
-  List.iter
-    (fun text ->
-      let report = run text in
-      diagnostic "HCBACK0002" report;
-      List.iter
-        (fun (fragment : Native.fragment) ->
-          match fragment.native_outcome with
-          | Some (Ok (Image.Completed _)) -> ()
-          | _ -> Alcotest.fail "address rejection attempted transient entry")
-        (Native.fragments report))
+  List.iter (agrees 42L)
     [
       "I64 F(){return 42;}I64 (*p)()=&F;p();";
       "I64 F(){return 42;}I64 G(){I64 (*p)();p=&F;return 42;}G();";

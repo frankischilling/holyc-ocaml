@@ -39,6 +39,14 @@ type t = {
   retained_slots : (Ir.Retained_global.t * slot) Symbol_map.t;
 }
 
+type code_owner = {
+  owner_link : Ir.Retained_function.t;
+  owner_definition : Ir.Integer_interpreter.function_definition;
+  owner_id : int;
+  owner_address : int;
+  owner_target : int;
+}
+
 type task_layout_state = {
   task_owner : Globals.t option;
   task_slots : (Ir.Retained_global.t * slot) Symbol_map.t;
@@ -47,6 +55,7 @@ type task_layout_state = {
   task_arena_bytes : int;
   task_layout_work : int;
   task_literals : Literals.t;
+  task_code_owners : code_owner list;
 }
 
 type task_layout = {
@@ -686,6 +695,7 @@ let create_task_layout ?(max_layout_work = hard_max_task_layout_work)
             task_arena_bytes = 0;
             task_layout_work = 0;
             task_literals = Literals.empty;
+            task_code_owners = [];
           };
     }
 
@@ -1265,6 +1275,82 @@ let append_task_literals snapshot ~sources ~work =
   if Atomic.compare_and_set layout.task_state before after then
     Ok { snapshot with task_storage; task_state_snapshot = after }
   else error "HCBACK0003" "native task storage changed during literal admission"
+
+let task_code_owners snapshot = snapshot.task_state_snapshot.task_code_owners
+let code_owner_link owner = owner.owner_link
+let code_owner_definition owner = owner.owner_definition
+let code_owner_id owner = owner.owner_id
+let code_owner_address owner = owner.owner_address
+let code_owner_target owner = owner.owner_target
+
+let append_task_code_owners snapshot sources =
+  let ( let* ) = Result.bind in
+  let layout = snapshot.task_layout in
+  let before = snapshot.task_state_snapshot in
+  let* () =
+    if Atomic.get layout.task_state != before then
+      error "HCBACK0003" "native code owner snapshot precedes current admission"
+    else Ok ()
+  in
+  let* after =
+    List.fold_left
+      (fun checked
+           (link, (definition : Ir.Integer_interpreter.function_definition)) ->
+        let* state = checked in
+        match
+          List.find_opt
+            (fun owner -> owner.owner_definition.body == definition.body)
+            state.task_code_owners
+        with
+        | Some owner ->
+            if
+              owner.owner_definition.frame == definition.frame
+              && Ir.Retained_function.same owner.owner_link link
+            then Ok state
+            else
+              error "HCBACK0003"
+                "native code owner has another original body or frame"
+        | None ->
+            if List.length state.task_code_owners >= 100_000 then
+              error "HCBACK0001"
+                "native task code owners exceed the host identity bound"
+            else if state.task_arena_bytes > hard_max_arena_bytes - 16 then
+              error "HCBACK0001" "native code owner cells exceed the task arena"
+            else if state.task_layout_work = layout.max_task_layout_work then
+              error "HCBACK0001"
+                "native code owners exceed cumulative layout work"
+            else
+              let owner =
+                {
+                  owner_link = link;
+                  owner_definition = definition;
+                  owner_id = List.length state.task_code_owners + 1;
+                  owner_address = state.task_arena_bytes;
+                  owner_target = state.task_arena_bytes + 8;
+                }
+              in
+              Ok
+                {
+                  state with
+                  task_code_owners = state.task_code_owners @ [ owner ];
+                  task_arena_bytes = state.task_arena_bytes + 16;
+                  task_layout_work = state.task_layout_work + 1;
+                })
+      (Ok before) sources
+  in
+  if after == before || Atomic.compare_and_set layout.task_state before after
+  then
+    Ok
+      {
+        snapshot with
+        task_state_snapshot = after;
+        task_storage =
+          {
+            snapshot.task_storage with
+            zero_bytes = Some after.task_arena_bytes;
+          };
+      }
+  else error "HCBACK0003" "native code ownership changed during admission"
 
 let task_snapshot_matches_layout snapshot layout =
   snapshot.task_layout == layout

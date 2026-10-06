@@ -65,6 +65,7 @@ let status_kind = function
   | Program.Code_comparison_invalid_word -> 21L
   | Program.Extern_signature_mismatch -> 24L
   | Program.Undefined_extern -> 23L
+  | Program.Callback_owned_word_escape -> 25L
   | Program.Callback_update_owned_address -> 22L
 
 let check_fault_site label (expected : Program.fault) (actual : Program.fault) =

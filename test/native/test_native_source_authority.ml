@@ -306,8 +306,9 @@ let actual_source ?max_layout_work ~adversarial () =
     !saved;
   (report, Storage.task_layout_work layout, Runtime.budget_progress budget)
 
-let array_source ?(max_arena_bytes = 41) ?(max_global_bytes = 24)
-    ?(text = "I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;") () =
+let array_source ?(both_abis = false) ?(max_arena_bytes = 41)
+    ?(max_global_bytes = 24) ?(text = "I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;") ()
+    =
   let session, config, source = inputs text in
   let compilation_errors errors =
     List.map
@@ -351,6 +352,7 @@ let array_source ?(max_arena_bytes = 41) ?(max_global_bytes = 24)
     {
       execute_initializer =
         (fun request ->
+          if both_abis then compile_initializer_both_abis layout request;
           match Image.compile_task_initializer ~layout request with
           | Error errors -> Error (compilation_errors errors)
           | Ok image -> (
@@ -359,6 +361,7 @@ let array_source ?(max_arena_bytes = 41) ?(max_global_bytes = 24)
               | Error message -> Error (native_error message)));
       execute_command =
         (fun request ->
+          if both_abis then compile_command_both_abis layout request;
           match Image.compile_task_command ~layout request with
           | Error errors -> Error (compilation_errors errors)
           | Ok image -> (
@@ -2106,6 +2109,188 @@ let native_extern_slot_authority () =
   task_succeeds "original slot in a native initializer"
     (task_run session task 97 "I64 A=Old();")
 
+type raw_code
+
+external raw_code_retain : Obj.t -> raw_code
+  = "holyc_native_retain_task_fragment"
+
+external raw_code_release : raw_code -> unit = "holyc_native_release_program"
+
+external raw_code_bind : raw_code -> Obj.t -> bool
+  = "holyc_native_bind_task_entries"
+
+let callback_host_entry_bounds () =
+  let session, config, source =
+    inputs "I64 F(){return 42;}I64 (*p)()=&F;p();"
+  in
+  let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
+  let observed = ref false in
+  let dispatch : Dispatch.t =
+    {
+      execute_command =
+        (fun request ->
+          Dispatch.claim_command_request request |> checked;
+          Ok Dispatch.Unchanged);
+      execute_initializer =
+        (fun request ->
+          let image =
+            Image.compile_task_initializer ~layout request |> compiled
+          in
+          let abi =
+            match Image.status_abi image with
+            | Image.Windows_x64 -> 1
+            | System_v_x64 -> 2
+          in
+          let functions =
+            Array.of_list (Image.windows_unwind_functions image)
+          in
+          let bindings = Array.of_list (Image.code_owner_bindings image) in
+          Alcotest.(check int)
+            "one original owner has one mapped leaf" 1 (Array.length bindings);
+          Alcotest.(check int)
+            "private leaf is additional to source function count"
+            (Image.function_count image + 2)
+            (Array.length functions);
+          let identity code functions bindings =
+            Obj.repr
+              ( code,
+                functions,
+                abi,
+                Image.entry_stack_bytes image,
+                ( Image.global_bytes image,
+                  Image.literal_bytes image,
+                  Image.arena_metadata_bytes image,
+                  Image.arena_bytes image ),
+                bindings )
+          in
+          let reject label call =
+            let refused =
+              try
+                ignore (call ());
+                false
+              with Invalid_argument _ -> true
+            in
+            Alcotest.(check bool) label true refused
+          in
+          let owner, address, target, body, leaf = bindings.(0) in
+          List.iter
+            (fun binding ->
+              reject "malformed owner cannot allocate a mapping" (fun () ->
+                  raw_code_retain
+                    (identity (Image.code image) functions [| binding |])))
+            [
+              (0, address, target, body, leaf);
+              (owner, address, target + 1, body, leaf);
+              (owner, address, target, 0, leaf);
+              (owner, address, target, body, 0);
+              (owner, address, target, leaf, leaf);
+              (owner, -1, target, body, leaf);
+            ];
+          reject "missing owners cannot admit leaf mappings" (fun () ->
+              raw_code_retain (identity (Image.code image) functions [||]));
+          let altered = Bytes.of_string (Image.code image) in
+          let begin_, _, _ = functions.(leaf) in
+          Bytes.set altered begin_ '\xcc';
+          reject "another entry opcode is not the sealed arena jump" (fun () ->
+              raw_code_retain
+                (identity (Bytes.to_string altered) functions bindings));
+          let arena = raw_arena_create 33 in
+          let code =
+            raw_code_retain (identity (Image.code image) functions bindings)
+          in
+          Fun.protect
+            ~finally:(fun () ->
+              raw_arena_release arena;
+              raw_code_release code)
+            (fun () ->
+              ignore (raw_arena_admit arena 0 33 []);
+              List.iter
+                (fun descriptor ->
+                  reject "wrong native owner binding has no publication"
+                    (fun () -> raw_code_bind code descriptor))
+                [
+                  Obj.repr ();
+                  Obj.repr (arena, -1);
+                  Obj.repr (arena, 32);
+                  Obj.repr (arena, 34);
+                ];
+              Alcotest.(check bool)
+                "first exact live mapping becomes canonical" true
+                (raw_code_bind code (Obj.repr (arena, 33)));
+              Alcotest.(check bool)
+                "same mapping cannot replace the canonical entry" false
+                (raw_code_bind code (Obj.repr (arena, 33)));
+              let clone =
+                raw_code_retain (identity (Image.code image) functions bindings)
+              in
+              Fun.protect
+                ~finally:(fun () -> raw_code_release clone)
+                (fun () ->
+                  Gc.full_major ();
+                  Gc.compact ();
+                  Alcotest.(check bool)
+                    "later body mapping preserves the first executable entry"
+                    false
+                    (raw_code_bind clone (Obj.repr (arena, 33)));
+                  raw_code_release code;
+                  reject
+                    "released canonical mapping cannot be substituted by a \
+                     later body" (fun () ->
+                      raw_code_bind clone (Obj.repr (arena, 33))));
+              raw_arena_release arena;
+              reject "released arena has no live native entry publication"
+                (fun () -> raw_code_bind code (Obj.repr (arena, 33))));
+          Image.check_task_request image |> checked;
+          observed := true;
+          Error
+            [
+              Diagnostic.make ~code:"HCRUN0004" ~severity:Diagnostic.Error
+                ~message:
+                  "host entry boundary probe stops before actual initializer \
+                   entry"
+                ~primary:(Driver.Integer_source.source_span source)
+                ();
+            ]);
+    }
+  in
+  ignore
+    (Source.run ~native_dispatch:dispatch session ~config ~source
+       ~max_steps:100_000);
+  Alcotest.(check bool)
+    "original native address initializer reached boundary controls" true
+    !observed
+
+let callback_executable_storage_authority () =
+  let text = "I64 F(){return 42;}I64 (*p)()=&F;I64 (*q)()=p;p=0;q();q();" in
+  let report, extents, _, budget =
+    array_source ~both_abis:true ~text ~max_global_bytes:16 ~max_arena_bytes:50
+      ()
+  in
+  Source.outcome report |> Result.map_error describe |> checked |> ignore;
+  Alcotest.(check bool)
+    "original code survives released entries and parser callbacks" true
+    (Source.native_final_value report = Some (Dispatch.I64 42L));
+  Alcotest.(check (list (pair int int)))
+    "stable code cells and copied owners retain native extent"
+    [ (0, 0); (8, 33); (16, 50); (16, 50); (16, 50); (16, 50) ]
+    extents;
+  Alcotest.(check bool)
+    "callback bodies consume actual cumulative native instructions" true
+    (budget.executed_steps > 0);
+  let short, extents, _, budget =
+    array_source ~text:"I64 F(){return 42;}I64 (*p)()=&F;p();"
+      ~max_global_bytes:8 ~max_arena_bytes:32 ()
+  in
+  rejected
+    "one-byte-short executable-owner arena stops before address publication"
+    (Source.outcome short);
+  Alcotest.(check (list (pair int int)))
+    "rejected owner includes both native entry cells"
+    [ (0, 0); (8, 33) ]
+    extents;
+  Alcotest.(check int)
+    "only the earlier definition command entered" 1 budget.executed_steps
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -2124,6 +2309,12 @@ let () =
             `Quick array_layout_and_capacity;
           Alcotest.test_case "fixed array task fragments compile for both ABIs"
             `Quick (fun () -> array_abi_compilation ());
+          Alcotest.test_case
+            "original native owner host mappings, bounds and expiry" `Quick
+            callback_host_entry_bounds;
+          Alcotest.test_case
+            "persistent native code ownership, exact arena and expiry" `Quick
+            callback_executable_storage_authority;
           Alcotest.test_case
             "callback word private owners, exact arena, both ABIs and expiry"
             `Quick callback_word_storage_authority;

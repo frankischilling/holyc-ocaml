@@ -505,7 +505,8 @@ static unsigned native_validate_program_unwind(value unwind)
 
 static mlsize_t native_validate_program_functions(value functions,
                                                   mlsize_t code_length,
-                                                  unsigned *entry_allocation)
+                                                  unsigned *entry_allocation,
+                                                  value code, int task_leaves)
 {
   mlsize_t count;
   mlsize_t index;
@@ -537,10 +538,22 @@ static mlsize_t native_validate_program_functions(value functions,
         (index != 0 && (uintnat)begin != previous_end))
       caml_invalid_argument("native program function ranges are not ordered and contiguous");
     {
-      const unsigned allocation =
-        native_validate_program_unwind(Field(entry, 2));
-      if (index == 0)
-        *entry_allocation = allocation;
+      value unwind = Field(entry, 2);
+      if (task_leaves && index != 0 && Is_block(unwind) && Tag_val(unwind) == String_tag &&
+          caml_string_length(unwind) == 4 &&
+          memcmp(String_val(unwind), "\001\000\000\000", 4) == 0) {
+        const unsigned char *leaf = (const unsigned char *)String_val(code) + begin;
+        uint32_t target;
+        if (end - begin != 8 || leaf[0] != 0x90 || leaf[1] != 0x41 ||
+            leaf[2] != 0xff || leaf[3] != 0xa1)
+          caml_invalid_argument("native leaf entry is not the sealed task jump");
+        memcpy(&target, leaf + 4, 4);
+        if (target > HOLYC_NATIVE_MAX_ARENA_BYTES - 8)
+          caml_invalid_argument("native leaf target cell exceeds the task bound");
+      } else {
+        const unsigned allocation = native_validate_program_unwind(unwind);
+        if (index == 0) *entry_allocation = allocation;
+      }
     }
     previous_end = (uintnat)end;
   }
@@ -557,7 +570,7 @@ static uint64_t native_execute_checked_program_image(value code, value functions
   const mlsize_t length = caml_string_length(code);
   unsigned entry_allocation = 0;
   const mlsize_t function_count = native_validate_program_functions(
-    functions, length, &entry_allocation);
+    functions, length, &entry_allocation, code, 0);
 
   if (abi_code != HOLYC_NATIVE_PLATFORM)
     caml_invalid_argument("native program status ABI does not match this process");
@@ -620,7 +633,7 @@ static uint64_t native_execute_checked_program_storage_image(
   const mlsize_t length = caml_string_length(code);
   unsigned entry_allocation = 0;
   const mlsize_t function_count = native_validate_program_functions(
-    functions, length, &entry_allocation);
+    functions, length, &entry_allocation, code, 0);
 
   if (abi_code != HOLYC_NATIVE_PLATFORM)
     caml_invalid_argument("native program status ABI does not match this process");
@@ -686,6 +699,7 @@ struct native_retained_program {
   void *arena;
   size_t arena_length;
   atomic_int active;
+  atomic_int task_readers;
   int closing;
   int closed_entry;
   int task_fragment;
@@ -697,12 +711,21 @@ struct native_retained_program {
   char close_error[240];
 };
 
+struct native_task_code_owner {
+  size_t address, target;
+  uint64_t canonical, current_target;
+  struct native_retained_program *program, *current_program;
+  value canonical_handle, current_handle;
+};
+
 struct native_task_arena {
   void *mapping;
   size_t capacity;
   size_t used;
   size_t committed;
   size_t page_size;
+  struct native_task_code_owner **owners;
+  size_t owner_capacity;
   atomic_int active;
   int closing;
   char close_error[240];
@@ -729,6 +752,17 @@ static int native_task_arena_close(struct native_task_arena *arena)
   }
 #endif
   arena->mapping = NULL;
+  for (size_t index = 0; index < arena->owner_capacity; ++index) {
+    struct native_task_code_owner *owner = arena->owners[index];
+    if (owner != NULL) {
+      caml_remove_generational_global_root(&owner->canonical_handle);
+      caml_remove_generational_global_root(&owner->current_handle);
+      free(owner);
+    }
+  }
+  free(arena->owners);
+  arena->owners = NULL;
+  arena->owner_capacity = 0;
   return 1;
 }
 
@@ -795,7 +829,7 @@ static unsigned long native_task_arena_commit(struct native_task_arena *arena,
 /* Closed entries use their original RSP spill frame, without a saved RBP.
    Keep this admission separate from the callable unwind-table validator. */
 static unsigned native_validate_retained_functions(value code, value functions,
-                                                    int *closed_entry)
+                                                    int *closed_entry, int task_leaves)
 {
   const mlsize_t code_length = caml_string_length(code);
   unsigned allocation = 0;
@@ -852,12 +886,17 @@ static unsigned native_validate_retained_functions(value code, value functions,
       }
     }
   }
-  (void)native_validate_program_functions(functions, code_length, &allocation);
+  (void)native_validate_program_functions(functions, code_length, &allocation, code, task_leaves);
   return allocation + 16u;
 }
 
 static int native_retained_close(struct native_retained_program *program)
 {
+  if (atomic_load(&program->task_readers) != 0) {
+    snprintf(program->close_error, sizeof(program->close_error),
+             "native code has active task borrowers");
+    return 0;
+  }
   /* Even a partial release revokes entry: its arena or unwind registration
      may already be gone. Remaining OS resources are retained only for retry. */
   program->closing = 1;
@@ -1087,6 +1126,27 @@ static uint64_t native_retained_run(value handle, uint64_t *context, value enter
   return bits;
 }
 
+static int native_task_borrow_code(struct native_retained_program *code,
+                                   struct native_retained_program *entry)
+{
+  int expected = 0;
+  if (code == entry) return 1;
+  if (!atomic_compare_exchange_strong(&code->active, &expected, 1)) return 0;
+  if (code->closing || code->mapping == NULL) {
+    atomic_store(&code->active, 0);
+    return 0;
+  }
+  atomic_fetch_add(&code->task_readers, 1);
+  atomic_store(&code->active, 0);
+  return 1;
+}
+
+static void native_task_return_code(struct native_retained_program *code,
+                                    struct native_retained_program *entry)
+{
+  if (code != entry) atomic_fetch_sub(&code->task_readers, 1);
+}
+
 static uint64_t native_retained_run_task(value handle, value arena_handle,
                                          uintnat required_arena_bytes,
                                          uint64_t *context, value entered)
@@ -1123,6 +1183,31 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
     caml_invalid_argument("native task fragment requires unadmitted task storage");
   }
 
+  size_t borrowed = 0;
+  for (; borrowed < arena->owner_capacity; ++borrowed) {
+    struct native_task_code_owner *owner = arena->owners[borrowed];
+    if (owner == NULL || owner->canonical == 0) continue;
+    uint64_t address, target;
+    memcpy(&address, (char *)arena->mapping + owner->address, 8);
+    memcpy(&target, (char *)arena->mapping + owner->target, 8);
+    if (address != owner->canonical || target != owner->current_target ||
+        !native_task_borrow_code(owner->program, program)) break;
+    if (!native_task_borrow_code(owner->current_program, program)) {
+      native_task_return_code(owner->program, program);
+      break;
+    }
+  }
+  if (borrowed != arena->owner_capacity) {
+    for (size_t index = 0; index < borrowed; ++index) {
+      struct native_task_code_owner *owner = arena->owners[index];
+      if (owner != NULL && owner->canonical != 0) {
+        native_task_return_code(owner->program, program);
+        native_task_return_code(owner->current_program, program);
+      }
+    }
+    atomic_store(&arena->active, 0); atomic_store(&program->active, 0);
+    caml_invalid_argument("native task code owner is corrupt, released or active");
+  }
   arena_address = (uint64_t)(uintptr_t)arena->mapping;
   context[9] = arena_address;
   memcpy(&entry, &program->mapping, sizeof(entry));
@@ -1130,6 +1215,13 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
     Store_field(entered, 0, Val_true);
   bits = entry(context);
   pointer_ok = context[9] == arena_address;
+  for (size_t index = 0; index < borrowed; ++index) {
+    struct native_task_code_owner *owner = arena->owners[index];
+    if (owner != NULL && owner->canonical != 0) {
+      native_task_return_code(owner->program, program);
+      native_task_return_code(owner->current_program, program);
+    }
+  }
   atomic_store(&arena->active, 0);
   atomic_store(&program->active, 0);
   if (!pointer_ok)
@@ -1568,7 +1660,7 @@ static value native_execute_program_output(value code, value functions,
                                (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
     caml_invalid_argument("native output program arena image is inconsistent with data and metadata");
   if (logical_global_bytes == 0 && logical_literal_bytes == 0 &&
-      metadata_bytes != 0)
+      metadata_bytes != 0 && !task_storage)
     caml_invalid_argument("native output program private metadata has no persistent data");
 
   /* Validate the sealed code and unwind table before reserving the capture
@@ -1577,14 +1669,14 @@ static value native_execute_program_output(value code, value functions,
   if (retained != Val_unit) {
     int closed_entry = 0;
     unsigned checked_stack =
-      native_validate_retained_functions(code, functions, &closed_entry);
+      native_validate_retained_functions(code, functions, &closed_entry, task_storage);
     if ((uintnat)entry_stack_bytes != checked_stack)
       caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
     if (closed_entry && arena_length != 0)
       caml_invalid_argument("retained native closed entry cannot own a data arena");
   } else {
     (void)native_validate_program_functions(functions, code_length,
-                                            &entry_allocation);
+                                            &entry_allocation, code, 0);
     if ((uintnat)entry_stack_bytes != (uintnat)entry_allocation + 16u)
       caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
   }
@@ -1688,6 +1780,58 @@ CAMLprim value holyc_native_execute_program_output(value code, value functions,
                                         Val_unit, Val_unit);
 }
 
+#if HOLYC_NATIVE_PLATFORM != 0
+static size_t native_validate_task_bindings(value identity, size_t prefix)
+{
+  value bindings = Field(identity, 5), functions = Field(identity, 1);
+  mlsize_t count, index, function_count;
+  size_t maximum = 0, previous_id = 0, previous_end = 0;
+  if (!Is_block(bindings) || Tag_val(bindings) != 0)
+    caml_invalid_argument("native task entry bindings are not an array");
+  count = Wosize_val(bindings);
+  function_count = Wosize_val(functions);
+  if (count > HOLYC_NATIVE_MAX_FUNCTIONS || count >= function_count)
+    caml_invalid_argument("native task entry binding count exceeds its function table");
+  for (index = 0; index < function_count - count; ++index)
+    if (caml_string_length(Field(Field(functions, index), 2)) == 4)
+      caml_invalid_argument("native task function table has an unowned leaf entry");
+  for (index = 0; index < count; ++index) {
+    value binding = Field(bindings, index), range;
+    intnat id, address, target, body, leaf;
+    const unsigned char *encoded;
+    uint32_t displacement;
+    unsigned field;
+    if (!Is_block(binding) || Tag_val(binding) != 0 || Wosize_val(binding) != 5)
+      caml_invalid_argument("native task entry binding is malformed");
+    for (field = 0; field < 5; ++field)
+      if (!Is_long(Field(binding, field)))
+        caml_invalid_argument("native task entry binding field is not integral");
+    id = Long_val(Field(binding, 0)); address = Long_val(Field(binding, 1));
+    target = Long_val(Field(binding, 2)); body = Long_val(Field(binding, 3));
+    leaf = Long_val(Field(binding, 4));
+    if (id <= 0 || (uintnat)id > HOLYC_NATIVE_MAX_FUNCTIONS || (size_t)id <= previous_id ||
+        address < 0 || (size_t)address < previous_end || target != address + 8 ||
+        (size_t)target > prefix || prefix - (size_t)target < 8 ||
+        body <= 0 || (uintnat)body >= function_count - count ||
+        leaf != (intnat)(function_count - count + index))
+      caml_invalid_argument("native task entry binding leaves its original ranges");
+    range = Field(functions, leaf);
+    if (Long_val(Field(range, 1)) - Long_val(Field(range, 0)) != 8 ||
+        caml_string_length(Field(range, 2)) != 4 ||
+        memcmp(String_val(Field(range, 2)), "\001\000\000\000", 4) != 0)
+      caml_invalid_argument("native task entry has another leaf unwind range");
+    encoded = (const unsigned char *)String_val(Field(identity, 0)) + Long_val(Field(range, 0));
+    memcpy(&displacement, encoded + 4, 4);
+    if (displacement != (uint32_t)target || encoded[0] != 0x90 || encoded[1] != 0x41 ||
+        encoded[2] != 0xff || encoded[3] != 0xa1)
+      caml_invalid_argument("native task entry jump has another target cell");
+    previous_id = maximum = (size_t)id;
+    previous_end = (size_t)target + 8;
+  }
+  return maximum;
+}
+#endif
+
 static value native_retain_program_identity(value identity, int task_fragment)
 {
   CAMLparam1(identity);
@@ -1701,7 +1845,7 @@ static value native_retain_program_identity(value identity, int task_fragment)
   unsigned checked_stack = 0;
   int closed_entry = 0;
   struct native_retained_program *program;
-  if (!Is_block(identity) || Tag_val(identity) != 0 || Wosize_val(identity) != 5 ||
+  if (!Is_block(identity) || Tag_val(identity) != 0 || (Wosize_val(identity) != 5 && !(task_fragment && Wosize_val(identity) == 6)) ||
       !Is_long(Field(identity, 2)) || !Is_long(Field(identity, 3)))
     caml_invalid_argument("retained native image identity is malformed");
   code = Field(identity, 0);
@@ -1730,7 +1874,7 @@ static value native_retain_program_identity(value identity, int task_fragment)
   }
   if (code_length == 0 || code_length > 16u * 1024u * 1024u)
     caml_invalid_argument("native image length is outside the host allocation bound");
-  checked_stack = native_validate_retained_functions(code, functions, &closed_entry);
+  checked_stack = native_validate_retained_functions(code, functions, &closed_entry, task_fragment);
   if (Long_val(Field(identity, 3)) != (intnat)checked_stack)
     caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
   globals = Long_val(Field(storage, 0));
@@ -1741,8 +1885,18 @@ static value native_retain_program_identity(value identity, int task_fragment)
       metadata < 0 || (uintnat)metadata > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata ||
-      (globals == 0 && literals == 0 && metadata != 0))
+      (globals == 0 && literals == 0 && metadata != 0 && Wosize_val(identity) != 6))
     caml_invalid_argument("retained native arena image is inconsistent with data and metadata");
+  if (Wosize_val(identity) != 6) {
+    for (mlsize_t index = 0; index < Wosize_val(functions); ++index)
+      if (caml_string_length(Field(Field(functions, index), 2)) == 4)
+        caml_invalid_argument("native leaf entries require original task owner bindings");
+  }
+  if (Wosize_val(identity) == 6) {
+    size_t maximum = native_validate_task_bindings(identity, arena_length);
+    if (globals == 0 && literals == 0 && metadata != 0 && maximum == 0)
+      caml_invalid_argument("retained task metadata has no original code owner");
+  }
   if (closed_entry && arena_length != 0)
     caml_invalid_argument("retained native closed entry cannot own a data arena");
   handle = caml_alloc_custom_mem(&native_retained_operations, sizeof(program),
@@ -1752,6 +1906,7 @@ static value native_retain_program_identity(value identity, int task_fragment)
   if (program == NULL) caml_raise_out_of_memory();
   *((struct native_retained_program **)Data_custom_val(handle)) = program;
   atomic_init(&program->active, 0);
+  atomic_init(&program->task_readers, 0);
   program->closed_entry = closed_entry;
   program->task_fragment = task_fragment;
   program->identity = identity;
@@ -1993,6 +2148,111 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
   CAMLreturn(Val_long((intnat)count));
 #endif
   CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
+{
+  CAMLparam2(retained, descriptor);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_retained_program *program = native_retained_get(retained);
+  struct native_task_arena *arena;
+  value bindings, functions;
+  mlsize_t count, index;
+  size_t prefix, maximum = 0;
+  int expected = 0, canonical = 0;
+  if (!Is_block(descriptor) || Tag_val(descriptor) != 0 || Wosize_val(descriptor) != 2 ||
+      !Is_long(Field(descriptor, 1)) || Long_val(Field(descriptor, 1)) < 0)
+    caml_invalid_argument("native task entry binding descriptor is malformed");
+  arena = native_task_arena_get(Field(descriptor, 0));
+  prefix = (size_t)Long_val(Field(descriptor, 1));
+  if (!program->task_fragment || Wosize_val(program->identity) != 6 ||
+      prefix != (size_t)Long_val(Field(Field(program->identity, 4), 3)))
+    caml_invalid_argument("native task entries have another retained arena extent");
+  bindings = Field(program->identity, 5);
+  functions = Field(program->identity, 1);
+  maximum = native_validate_task_bindings(program->identity, prefix);
+  count = Wosize_val(bindings);
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_invalid_argument("native task arena is already active");
+  expected = 0;
+  if (!atomic_compare_exchange_strong(&program->active, &expected, 1)) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("retained native image is already active");
+  }
+#define ENTRY_FAIL(message) do { atomic_store(&program->active, 0); atomic_store(&arena->active, 0); caml_invalid_argument(message); } while (0)
+  if (arena->closing || arena->mapping == NULL || program->closing || program->mapping == NULL)
+    ENTRY_FAIL("native task entry binding has a released resource");
+  if (prefix != arena->used || arena->used > arena->capacity)
+    ENTRY_FAIL("native task entry binding has another admitted prefix");
+  if (maximum >= arena->owner_capacity) {
+    size_t capacity = maximum + 1;
+    struct native_task_code_owner **owners = realloc(arena->owners, capacity * sizeof(*owners));
+    if (owners == NULL) {
+      atomic_store(&program->active, 0); atomic_store(&arena->active, 0);
+      caml_raise_out_of_memory();
+    }
+    memset(owners + arena->owner_capacity, 0, (capacity - arena->owner_capacity) * sizeof(*owners));
+    arena->owners = owners; arena->owner_capacity = capacity;
+  }
+  for (index = 0; index < count; ++index) {
+    size_t id = (size_t)Long_val(Field(Field(bindings, index), 0));
+    if (arena->owners[id] == NULL) {
+      struct native_task_code_owner *owner = calloc(1, sizeof(*owner));
+      if (owner == NULL) {
+        atomic_store(&program->active, 0); atomic_store(&arena->active, 0);
+        caml_raise_out_of_memory();
+      }
+      owner->canonical_handle = Val_unit; owner->current_handle = Val_unit;
+      caml_register_generational_global_root(&owner->canonical_handle);
+      caml_register_generational_global_root(&owner->current_handle);
+      arena->owners[id] = owner;
+    }
+  }
+  /* Validate every old cell before publishing any mapping or target. */
+  for (index = 0; index < count; ++index) {
+    value binding = Field(bindings, index);
+    struct native_task_code_owner *owner = arena->owners[Long_val(Field(binding, 0))];
+    uint64_t address, current_target;
+    size_t cell = (size_t)Long_val(Field(binding, 1));
+    memcpy(&address, (char *)arena->mapping + cell, 8);
+    memcpy(&current_target, (char *)arena->mapping + Long_val(Field(binding, 2)), 8);
+    if (owner->canonical == 0) {
+      uint64_t target;
+      memcpy(&target, (char *)arena->mapping + Long_val(Field(binding, 2)), 8);
+      if (address != 0 || target != 0) ENTRY_FAIL("unpublished native task owner cells are not empty");
+    } else if (owner->address != cell || owner->target != (size_t)Long_val(Field(binding, 2)) ||
+               address != owner->canonical || current_target != owner->current_target ||
+               owner->program->closing || owner->program->mapping == NULL ||
+               owner->current_program->closing || owner->current_program->mapping == NULL)
+      ENTRY_FAIL("native task owner differs from its original mapped entry");
+  }
+  for (index = 0; index < count; ++index) {
+    value binding = Field(bindings, index);
+    struct native_task_code_owner *owner = arena->owners[Long_val(Field(binding, 0))];
+    value body_range = Field(functions, Long_val(Field(binding, 3)));
+    value leaf_range = Field(functions, Long_val(Field(binding, 4)));
+    uint64_t target = (uint64_t)(uintptr_t)((char *)program->mapping + Long_val(Field(body_range, 0)));
+    if (owner->canonical == 0) {
+      owner->address = (size_t)Long_val(Field(binding, 1));
+      owner->target = (size_t)Long_val(Field(binding, 2));
+      owner->canonical = (uint64_t)(uintptr_t)((char *)program->mapping + Long_val(Field(leaf_range, 0)));
+      owner->program = program;
+      caml_modify_generational_global_root(&owner->canonical_handle, retained);
+      memcpy((char *)arena->mapping + owner->address, &owner->canonical, 8);
+      canonical = 1;
+    }
+    memcpy((char *)arena->mapping + owner->target, &target, 8);
+    owner->current_target = target;
+    owner->current_program = program;
+    caml_modify_generational_global_root(&owner->current_handle, retained);
+  }
+  atomic_store(&program->active, 0); atomic_store(&arena->active, 0);
+#undef ENTRY_FAIL
+  CAMLreturn(Val_bool(canonical));
+#endif
+  CAMLreturn(Val_false);
 }
 
 CAMLprim value holyc_native_release_task_arena(value handle)

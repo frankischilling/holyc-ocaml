@@ -981,6 +981,9 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
            signature" )
     | Image.Undefined_extern ->
         ("HCIRVM0030", "the reached extern slot has no installed source body")
+    | Image.Callback_owned_word_escape ->
+        ( "HCIRVM0024",
+          "opaque function address cannot escape as an integer word" )
     | Image.Callback_update_owned_address ->
         ("HCIRVM0024", "opaque function address has no numeric callback update")
     | Image.Pointer_difference_object_mismatch ->

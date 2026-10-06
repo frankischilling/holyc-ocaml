@@ -167,7 +167,9 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
         min Native.hard_max_arena_bytes (65 * max_literal_bytes)
       in
       global_bound
-      + min (Native.hard_max_arena_bytes - global_bound) literal_bound
+      + min
+          (Native.hard_max_arena_bytes - global_bound)
+          (literal_bound + min 1_600_000 (16 * max_ir_instructions))
     in
     let* arena =
       Native.create_task_arena ~max_arena_bytes layout

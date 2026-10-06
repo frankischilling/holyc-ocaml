@@ -1136,8 +1136,19 @@ let store_reference_scalar span base scalar source =
     Encoder.Store_indirect_narrow
       (base, narrow_frame_width ?span scalar.byte_size, source)
 
-let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
-    ~reserved_registers ~supply ~mode prepared =
+let allocate_body ?callable_frame ?(shared_values = [])
+    ?(function_code_owners = [||]) ~max_stack_bytes ~reserved_registers ~supply
+    ~mode prepared =
+  let function_owner index =
+    if index < Array.length function_code_owners then
+      function_code_owners.(index)
+    else None
+  in
+  let function_owner_word index =
+    match function_owner index with
+    | None -> Int64.of_int (index + 1)
+    | Some owner -> Int64.of_int (Global_storage.code_owner_id owner)
+  in
   let registers = Array.of_list Encoder.registers in
   let register_index expected =
     let rec find index =
@@ -1741,6 +1752,35 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
               (Encoder.Load_frame
                  (target, encoder_frame_slot instruction.span offset))
       in
+      let emit_function_address target index =
+        match function_owner index with
+        | None ->
+            planned := Planned_function_address (target, index) :: !planned
+        | Some owner ->
+            emit
+              (Encoder.Load_arena
+                 ( target,
+                   encoder_arena_slot instruction.span
+                     (Global_storage.code_owner_address owner) ))
+      in
+      let require_numeric_owner value =
+        if Option.is_some value.code_owner_offset then (
+          let invalid = fresh_label supply in
+          fault_blocks :=
+            {
+              label = invalid;
+              kind_value = 25;
+              site_value = Option.get instruction.site;
+            }
+            :: !fault_blocks;
+          let scratch =
+            acquire_empty instruction.span ~protected:[] ~excluded:[]
+          in
+          load_owner registers.(scratch) value;
+          emit (Encoder.Test registers.(scratch));
+          emit_branch Not_equal invalid;
+          owners.(scratch) <- None)
+      in
       let publish_indexed_owner input result =
         (* RCX still holds the checked byte offset. Callback elements and their
            private owners are both eight bytes wide. Frame metadata grows
@@ -1808,9 +1848,7 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
             acquire_destination instruction.span position ~protected:[]
               ~excluded:[]
           in
-          planned :=
-            Planned_function_address (registers.(destination), callee_index)
-            :: !planned;
+          emit_function_address registers.(destination) callee_index;
           assign position destination result
       | Apply_unary (unary, input, result) ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
@@ -3160,11 +3198,10 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
                          staged_stack_slot instruction.span
                            (indirect.captured_stage + 1) ));
                   emit
-                    (Encoder.Mov_imm64 (Encoder.Rdx, Int64.of_int (index + 1)));
+                    (Encoder.Mov_imm64 (Encoder.Rdx, function_owner_word index));
                   emit (Encoder.Cmp (Encoder.Rcx, Encoder.Rdx));
                   emit_branch Not_equal next;
-                  planned :=
-                    Planned_function_address (Encoder.Rcx, index) :: !planned;
+                  emit_function_address Encoder.Rcx index;
                   emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
                   emit_branch Equal label;
                   mark next)
@@ -3194,6 +3231,7 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
           assign position destination result
       | Call_end_void -> release_through position
       | Return_value input ->
+          require_numeric_owner input;
           let inputs, _ = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
           if registers.(source) <> Encoder.Rax then (
@@ -3223,8 +3261,28 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
               let site = Option.get instruction.site in
               let inputs, _ = ensure_inputs instruction.span [ input ] in
               let source = List.hd inputs in
-              emit (Encoder.Store_context (40, registers.(source)));
-              emit (Encoder.Store_context_imm (32, site));
+              (match input.code_owner_offset with
+              | None ->
+                  emit (Encoder.Store_context (40, registers.(source)));
+                  emit (Encoder.Store_context_imm (32, site))
+              | Some _ ->
+                  let owned = fresh_label supply
+                  and complete = fresh_label supply in
+                  let scratch =
+                    acquire_empty instruction.span ~protected:inputs
+                      ~excluded:[]
+                  in
+                  load_owner registers.(scratch) input;
+                  emit (Encoder.Test registers.(scratch));
+                  emit_branch Not_equal owned;
+                  emit (Encoder.Store_context (40, registers.(source)));
+                  emit (Encoder.Store_context_imm (32, site));
+                  emit_branch Unconditional complete;
+                  mark owned;
+                  emit (Encoder.Store_context_imm (40, 0));
+                  emit (Encoder.Store_context_imm (32, -site));
+                  mark complete;
+                  owners.(scratch) <- None);
               release_through position
           | Callable_control { is_entry = false; _ } -> release_through position
           )
@@ -3235,7 +3293,8 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
                 "native expression contains no-value discard"
           | Program_control _ | Callable_control { is_entry = true; _ } ->
               emit (Encoder.Store_context_imm (40, 0));
-              emit (Encoder.Store_context_imm (32, 0));
+              emit
+                (Encoder.Store_context_imm (32, -Option.get instruction.site));
               release_through position
           | Callable_control { is_entry = false; _ } -> release_through position
           )
@@ -3338,7 +3397,7 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
       (match instruction.operation with
       | Load_function_address (result, index) ->
           publish_owner result (fun target ->
-              emit (Encoder.Mov_imm64 (target, Int64.of_int (index + 1))))
+              emit (Encoder.Mov_imm64 (target, function_owner_word index)))
       | Load_code_frame (_, offset, result) ->
           publish_owner result (fun target ->
               emit
@@ -3367,6 +3426,7 @@ let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
       | _ -> ());
       Option.iter
         (fun (value, stage, owner_stage) ->
+          if Option.is_none owner_stage then require_numeric_owner value;
           let inputs, _ = ensure_inputs instruction.span [ value ] in
           let source = List.hd inputs in
           emit
@@ -3507,6 +3567,8 @@ type program_site = {
   extern_signature_site : bool;
   code_comparison_site : bool;
   code_update_site : bool;
+  code_word_escape_site : bool;
+  no_value_capture_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -3535,6 +3597,7 @@ type program_image = {
   global_image : string;
   task_zero_bytes : int option;
   task_snapshot : Global_storage.task_snapshot option;
+  code_owner_bindings : (int * int * int * int * int) list;
   has_output : bool;
   sites : program_site list;
 }
@@ -3810,6 +3873,13 @@ let preflight_program graph =
                 callback_call_site = false;
                 code_comparison_site = false;
                 code_update_site = false;
+                no_value_capture_site =
+                  (match operation with
+                  | Discard_void -> true
+                  | Discard_value (input, _) ->
+                      Option.is_some input.code_owner_offset
+                  | _ -> false);
+                code_word_escape_site = false;
                 uninitialized_read_site = false;
                 index_scale_site = false;
                 index_addition_site = false;
@@ -4121,7 +4191,9 @@ let callable_callback_arguments description (callback : Runtime.callback_call)
               Some pointer
       in
       if Option.is_none pointer then
-        ignore (checked_scalar ~allow_public:true description type_);
+        if Type.pointer_depth type_ <> 0 then
+          ignore (checked_reference description type_)
+        else ignore (checked_scalar ~allow_public:true description type_);
       pointer)
     argument_types
 
@@ -4827,11 +4899,12 @@ let validate_callable_returns graph return_kind =
       done
 
 let preflight_callable_graph ~runtime_calls ~source_globals
-    ~allow_retained_functions ~task_callback_words_only ~slot_root_runtime_calls
-    ~slot_bindings ~parameter_defaults ~functions ~code_edges
-    ~indirect_code_edges ~arena_code_cells ~global_storage ~literal_storage
-    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t) ~variadic
-    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~allow_retained_functions ~task_dynamic_code_words ~task_owned_targets
+    ~slot_root_runtime_calls ~slot_bindings ~parameter_defaults ~functions
+    ~code_edges ~indirect_code_edges ~arena_code_cells ~global_storage
+    ~literal_storage ~runtime_owner ~owner
+    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
+    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -4853,19 +4926,23 @@ let preflight_callable_graph ~runtime_calls ~source_globals
      original code from numeric bits through callback cells and parameters. *)
   let code_values = ref Value_map.empty in
   let zero_values = ref Value_set.empty in
-  let numeric_code_values = ref Value_set.empty in
+  let word_code_values = ref Value_set.empty in
   let code_cells =
     Int_map.filter_map
       (fun _ (slot : callable_slot) -> slot.owned_targets)
       frame_slots
   in
+  Int_map.iter
+    (fun _ targets ->
+      targets := List.sort_uniq Int.compare (!targets @ task_owned_targets))
+    code_cells;
   let code_source value = Value_map.find_opt value.value_id !code_values in
   let arena_targets slot =
     let offset = Global_storage.data_offset slot in
     match Int_map.find_opt offset !arena_code_cells with
     | Some targets -> targets
     | None ->
-        let targets = ref [] in
+        let targets = ref task_owned_targets in
         arena_code_cells := Int_map.add offset targets !arena_code_cells;
         targets
   in
@@ -4879,8 +4956,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     code_values := Value_map.add value.value_id targets !code_values
   in
   let is_zero value = Value_set.mem value.value_id !zero_values in
-  let is_numeric_code value =
-    Value_set.mem value.value_id !numeric_code_values
+  let has_code_word_view value =
+    Value_set.mem value.value_id !word_code_values
   in
   let callbacks =
     match
@@ -5006,11 +5083,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
         (Computation.forward target_type)
     in
     mark_code value targets;
-    (* Task collection rejects every original function-address producer before
-       entry. All admitted callback stores therefore have zero executable
-       owners; their native loads retain the complete numeric word. *)
-    if task_callback_words_only then
-      numeric_code_values := Value_set.add value.value_id !numeric_code_values;
+    (* Task cells may hold numeric words or executable owners. Admission of a
+       word-shaped consumer does not erase the dynamic owner; native return,
+       discard and ordinary argument paths inspect it at the reached site. *)
+    if task_dynamic_code_words then
+      word_code_values := Value_set.add value.value_id !word_code_values;
     (operation value, None)
   in
   let store_code description position result target_type input_id targets
@@ -5030,8 +5107,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
         (Computation.forward target_type)
     in
     mark_code value source;
-    if Option.is_none (code_source input) || is_numeric_code input then
-      numeric_code_values := Value_set.add value.value_id !numeric_code_values;
+    if Option.is_none (code_source input) || has_code_word_view input then
+      word_code_values := Value_set.add value.value_id !word_code_values;
     if is_zero input then
       zero_values := Value_set.add value.value_id !zero_values;
     (operation input value, None)
@@ -5064,7 +5141,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     let value =
       define values description position result numeric_type numeric_type
     in
-    numeric_code_values := Value_set.add value.value_id !numeric_code_values;
+    word_code_values := Value_set.add value.value_id !word_code_values;
     let arithmetic_site =
       match update with
       | Update_division operation ->
@@ -5144,12 +5221,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                      Ic_set_rax;
                    ]))
           && not
-               (task_callback_words_only
+               (task_dynamic_code_words
                && description.opcode = Opcode.Ic_return_val
                && List.for_all
                     (fun id ->
                       match Value_map.find_opt id !values with
-                      | Some value -> is_numeric_code value
+                      | Some value -> has_code_word_view value
                       | None -> false)
                     description.operands)
         then
@@ -5174,7 +5251,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     (fun input ->
                       if
                         Option.is_none (code_source input)
-                        && not (is_numeric_code input)
+                        && not (has_code_word_view input)
                       then
                         ignore
                           (checked_scalar ~allow_public:true description
@@ -5215,9 +5292,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       (Computation.declared target_type)
                   in
                   mark_code value (Option.get (code_source input));
-                  if is_numeric_code input then
-                    numeric_code_values :=
-                      Value_set.add value.value_id !numeric_code_values;
+                  if has_code_word_view input then
+                    word_code_values :=
+                      Value_set.add value.value_id !word_code_values;
                   (Apply_word_view (input, value), None)
               | _ ->
                   unsupported description
@@ -6381,17 +6458,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 Option.get
                   (Runtime.original_function_address function_addresses raw)
               in
-              let body =
-                match Runtime.function_address_body receipt with
-                | Some body -> body
-                | None ->
-                    unsupported description
-                      "native function address has no original local body"
-              in
               let callee_index =
                 match
                   Array.find_index
-                    (fun function_ -> function_.definition.body == body)
+                    (fun function_ ->
+                      retained_link_matches_definition
+                        (Runtime.function_address_link receipt)
+                        function_.definition)
                     functions
                 with
                 | Some index -> index
@@ -6451,8 +6524,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     define values description position result target_type
                       word_type
                   in
-                  numeric_code_values :=
-                    Value_set.add value.value_id !numeric_code_values;
+                  word_code_values :=
+                    Value_set.add value.value_id !word_code_values;
                   (Load_immediate (value, bits), None)
               | _ ->
                   malformed description "invalid saved callback-word argument")
@@ -7605,7 +7678,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         operand values description position operand_id
                       in
                       if Option.is_some (code_source input) then
-                        if task_callback_words_only && is_numeric_code input
+                        if task_dynamic_code_words && has_code_word_view input
                         then
                           ( Discard_value (input, I64),
                             if is_entry then Some I64 else None )
@@ -7685,7 +7758,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       unsupported description
                         "U0 source functions cannot return a word value"
                   | Callable_word_return _ ->
-                      if not (task_callback_words_only && is_numeric_code input)
+                      if
+                        not (task_dynamic_code_words && has_code_word_view input)
                       then
                         ignore
                           (checked_scalar ~allow_public:true description
@@ -7890,7 +7964,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         then (
                           if
                             Option.is_none (code_source value)
-                            && not (is_numeric_code value)
+                            && not (has_code_word_view value)
                           then
                             ignore
                               (checked_scalar ~allow_public:true raw
@@ -7937,11 +8011,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             (code_source value))
                         else if
                           Option.is_some (code_source value)
-                          && not (is_numeric_code value)
+                          && not (has_code_word_view value)
                         then
                           unsupported raw
                             "native code values require a callback parameter"
-                        else if is_numeric_code value then
+                        else if has_code_word_view value then
                           ignore
                             (checked_scalar ~allow_public:true raw
                                (Runtime.argument_target_type argument))
@@ -8031,6 +8105,21 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               (match operation with
               | Apply_code_comparison _ -> true
               | _ -> false);
+            no_value_capture_site =
+              (match operation with
+              | Discard_void -> true
+              | Discard_value (input, _) ->
+                  Option.is_some input.code_owner_offset
+              | _ -> false);
+            code_word_escape_site =
+              (match operation with
+                | Return_value input -> Option.is_some input.code_owner_offset
+                | _ -> false)
+              || Option.fold ~none:false
+                   ~some:(fun (value, _, owner_stage) ->
+                     Option.is_none owner_stage
+                     && Option.is_some value.code_owner_offset)
+                   push_stage;
             code_update_site =
               (match operation with
               | Update_callback_value _ -> true
@@ -8298,8 +8387,9 @@ let callable_definition_matches_call
 
 let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
     ~runtime_calls ~entry ~functions ~retained_function_source
-    ~retained_slot_binding =
+    ~retained_slot_binding ~prior_code_owners =
   let slot_bindings = ref [] in
+  let code_owners = ref [] in
   let root_runtime_calls = runtime_calls in
   let queue = Queue.create () in
   let collected_rev = ref [] in
@@ -8398,6 +8488,22 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
         reject "HCBACK0003"
           ("retained native task function source resolution failed: " ^ message)
   in
+  let own_source link source =
+    add source;
+    if
+      not
+        (List.exists
+           (fun (candidate, _) -> Ir.Retained_function.same candidate link)
+           !code_owners)
+    then code_owners := (link, source.source_definition) :: !code_owners
+  in
+  List.iter
+    (fun owner ->
+      let link = Global_storage.code_owner_link owner in
+      match retained_function_source link with
+      | Ok source -> own_source link (validate_resolved link source)
+      | Error _ -> ())
+    prior_code_owners;
   let source_for_call ~runtime_calls ~source_globals ~source_functions
       ~historical call =
     match Runtime.retained_function call with
@@ -8496,11 +8602,27 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
                        "retained native task functions do not yet admit \
                         historical static storage")
                  source_storage);
-            if Option.is_some (Runtime.original_function_address addresses raw)
-            then
-              reject ?span:raw.span "HCBACK0002"
-                "native task function addresses require persistent executable \
-                 ownership";
+            Option.iter
+              (fun receipt ->
+                let link = Runtime.function_address_link receipt in
+                let source =
+                  match
+                    List.find_opt
+                      (retained_link_matches_definition link)
+                      source_functions
+                  with
+                  | Some definition ->
+                      {
+                        source_definition = definition;
+                        source_runtime_calls = runtime_calls;
+                        source_globals;
+                        source_functions;
+                        source_historical = historical;
+                      }
+                  | None -> resolve_retained link
+                in
+                own_source link source)
+              (Runtime.original_function_address addresses raw);
             if raw.opcode = Opcode.Ic_call_start then
               match
                 Runtime.find_start runtime_calls ~owner raw.instruction_id
@@ -8612,7 +8734,7 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
       ~historical:source.source_historical ~owner:(Runtime.Function body)
       (Ir.X87_stack.graph (Function.x87 body))
   done;
-  (List.rev !collected_rev, List.rev !slot_bindings)
+  (List.rev !collected_rev, List.rev !slot_bindings, List.rev !code_owners)
 
 let validate_switch_code_floor ~max_code_bytes ~label block_groups =
   let used = ref 0 in
@@ -8904,6 +9026,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         global_image = "";
                         task_zero_bytes = None;
                         task_snapshot = None;
+                        code_owner_bindings = [];
                         has_output = false;
                         sites;
                       }
@@ -8950,9 +9073,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         definition.body)
       functions
   in
-  let* callable_sources, slot_bindings =
+  let* callable_sources, slot_bindings, code_owner_sources =
     match task_snapshot with
-    | Some _ -> (
+    | Some snapshot -> (
         if
           not
             (Runtime.matches runtime_calls ~entry
@@ -8987,7 +9110,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 Ok
                   (collect_task_callable_sources ~max_ir_instructions
                      ~max_blocks ~globals ~runtime_calls ~entry ~functions
-                     ~retained_function_source ~retained_slot_binding)
+                     ~retained_function_source ~retained_slot_binding
+                     ~prior_code_owners:
+                       (Global_storage.task_code_owners snapshot))
               with Rejected error -> Error [ error ]))
     | None ->
         Ok
@@ -9001,6 +9126,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   source_historical = false;
                 })
               functions,
+            [],
             [] )
   in
   let function_graphs =
@@ -9055,6 +9181,16 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         in
         Ok (None, global_storage, literals)
     | Some snapshot ->
+        let* snapshot =
+          Global_storage.append_task_code_owners snapshot code_owner_sources
+          |> Result.map_error
+               (List.map (fun (error : Global_storage.error) ->
+                    {
+                      code = error.code;
+                      message = error.message;
+                      span = error.span;
+                    }))
+        in
         let candidates =
           (Runtime.Entry, entry_graph, runtime_calls)
           :: List.map
@@ -9130,7 +9266,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
     else Global_storage.image global_storage
   in
   let has_storage =
-    (not (Global_storage.is_empty global_storage))
+    global_arena_bytes <> 0
+    || (not (Global_storage.is_empty global_storage))
     || not (Literal_storage.is_empty literal_storage)
   in
   let entry_has_calls =
@@ -9242,6 +9379,24 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 ~maximum_variadic_count:!maximum_variadic_count)
         |> Array.of_list
       in
+      let function_code_owners =
+        Array.map
+          (fun info ->
+            Option.bind task_snapshot (fun snapshot ->
+                List.find_opt
+                  (fun owner ->
+                    (Global_storage.code_owner_definition owner).body
+                    == info.definition.body)
+                  (Global_storage.task_code_owners snapshot)))
+          function_infos
+      in
+      let task_owned_targets =
+        Array.to_list
+          (Array.mapi
+             (fun index owner -> Option.map (fun _ -> index) owner)
+             function_code_owners)
+        |> List.filter_map Fun.id
+      in
       let next_site = ref 0 in
       let code_edges = ref [] in
       let indirect_code_edges = ref [] in
@@ -9249,11 +9404,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       let entry_prepared =
         preflight_callable_graph ~runtime_calls ~source_globals:globals
           ~allow_retained_functions:(Option.is_some task_snapshot)
-          ~task_callback_words_only:(Option.is_some task_snapshot)
-          ~slot_root_runtime_calls:runtime_calls ~slot_bindings
-          ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
-          ~functions:function_infos ~global_storage ~literal_storage
-          ~runtime_owner:Runtime.Entry ~owner:Entry_owner
+          ~task_dynamic_code_words:(Option.is_some task_snapshot)
+          ~task_owned_targets ~slot_root_runtime_calls:runtime_calls
+          ~slot_bindings ~parameter_defaults ~code_edges ~indirect_code_edges
+          ~arena_code_cells ~functions:function_infos ~global_storage
+          ~literal_storage ~runtime_owner:Runtime.Entry ~owner:Entry_owner
           ~frame_slots:Int_map.empty ~variadic:None ~expected_return:None
           ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
       in
@@ -9264,13 +9419,13 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             preflight_callable_graph ~runtime_calls:info.runtime_calls
               ~source_globals:info.source_globals
               ~allow_retained_functions:(Option.is_some task_snapshot)
-              ~task_callback_words_only:(Option.is_some task_snapshot)
-              ~slot_root_runtime_calls:runtime_calls ~slot_bindings
-              ~parameter_defaults ~code_edges ~indirect_code_edges
-              ~arena_code_cells ~functions:function_infos ~global_storage
-              ~literal_storage ~runtime_owner:(Runtime.Function body)
-              ~owner:info.owner ~frame_slots:info.frame_slots
-              ~variadic:info.variadic
+              ~task_dynamic_code_words:(Option.is_some task_snapshot)
+              ~task_owned_targets ~slot_root_runtime_calls:runtime_calls
+              ~slot_bindings ~parameter_defaults ~code_edges
+              ~indirect_code_edges ~arena_code_cells ~functions:function_infos
+              ~global_storage ~literal_storage
+              ~runtime_owner:(Runtime.Function body) ~owner:info.owner
+              ~frame_slots:info.frame_slots ~variadic:info.variadic
               ~expected_return:(Some (Function.return_type body))
               ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes
               ~next_site
@@ -9377,6 +9532,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             in
             let allocation =
               allocate_body ~shared_values:prepared.callable_shared_values
+                ~function_code_owners
                 ~callable_frame:{ rbp_bytes; fixed_stack_slots }
                 ~max_stack_bytes
                 ~reserved_registers:
@@ -9617,6 +9773,42 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   "native callable function has no resolved start offset")
           function_labels
       in
+      let code_owner_bindings =
+        Array.to_list
+          (Array.mapi
+             (fun index owner ->
+               Option.map
+                 (fun owner ->
+                   ( Global_storage.code_owner_id owner,
+                     Global_storage.code_owner_address owner,
+                     Global_storage.code_owner_target owner,
+                     index + 1 ))
+                 owner)
+             function_code_owners)
+        |> List.filter_map Fun.id
+        |> List.sort (fun (left, _, _, _) (right, _, _, _) ->
+            Int.compare left right)
+        |> List.mapi (fun leaf (id, address, target, body) ->
+            (id, address, target, body, Array.length function_infos + 1 + leaf))
+      in
+      if
+        Array.length function_infos + List.length code_owner_bindings >= 100_000
+      then
+        reject "HCBACK0001"
+          "native source bodies and private entries exceed the unwind table \
+           bound";
+      let leaf_bytes = Bytes.create (8 * List.length code_owner_bindings) in
+      List.iteri
+        (fun index (_, _, target, _, _) ->
+          let offset = index * 8 in
+          Bytes.set leaf_bytes offset '\x90';
+          Bytes.set leaf_bytes (offset + 1) '\x41';
+          Bytes.set leaf_bytes (offset + 2) '\xff';
+          Bytes.set leaf_bytes (offset + 3) '\xa1';
+          Bytes.set_int32_le leaf_bytes (offset + 4) (Int32.of_int target))
+        code_owner_bindings;
+      if Bytes.length leaf_bytes > max_code_bytes - code_size then
+        reject "HCBACK0005" "native stable entries exceed max_code_bytes";
       let unwind_functions =
         let entry_end =
           if Array.length function_starts = 0 then code_size
@@ -9638,7 +9830,15 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                  (begin_offset, end_offset, Bytes.copy body.body_unwind))
                functions_allocated)
         in
-        entry_record :: named
+        let leaves =
+          List.mapi
+            (fun index _ ->
+              ( code_size + (8 * index),
+                code_size + (8 * (index + 1)),
+                Bytes.of_string "\001\000\000\000" ))
+            code_owner_bindings
+        in
+        (entry_record :: named) @ leaves
       in
       match Encoder.encode_all ~max_code_bytes instructions with
       | Error message -> reject "HCBACK0005" message
@@ -9658,9 +9858,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           in
           Ok
             {
-              encoded = Bytes.of_string encoded;
+              encoded = Bytes.cat (Bytes.of_string encoded) leaf_bytes;
               ir_count;
-              machine_count;
+              machine_count = machine_count + List.length code_owner_bindings;
               peak = max (if has_storage then 6 else 5) peak;
               frame_size;
               unwind_info = Bytes.copy entry_allocated.body_unwind;
@@ -9684,6 +9884,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               task_zero_bytes =
                 Option.map (fun _ -> global_arena_bytes) task_snapshot;
               task_snapshot;
+              code_owner_bindings;
               has_output = List.exists (fun site -> site.output_site) sites;
               sites;
             }
@@ -9772,3 +9973,6 @@ let program_global_image (compiled : program_image) =
   | None -> Bytes.to_string (Bytes.of_string compiled.global_image)
 
 let program_task_snapshot (compiled : program_image) = compiled.task_snapshot
+
+let program_code_owner_bindings (compiled : program_image) =
+  compiled.code_owner_bindings
