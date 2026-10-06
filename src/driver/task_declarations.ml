@@ -3457,8 +3457,8 @@ let seal ledger (ast : Ast.module_) =
                              && receipt
                                 == Ir.Prepared_parameter_default.receipt value
                              && !bits
-                                = Some
-                                    (Ir.Prepared_parameter_default.bits value))
+                                = Ir.Prepared_parameter_default.word_bits value
+                             && Option.is_some !bits)
                            ledger.source_default_attempts)
                     ledger.prepared_source_defaults;
                 table = ledger.table;

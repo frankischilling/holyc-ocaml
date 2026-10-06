@@ -22,7 +22,11 @@ let native_fields () =
         match Native_program_execution.execute ~max_steps:count program with
         | Ok
             (X86_64_program.Completed
-               { final_value = Some word; executed_steps }) ->
+               {
+                 final_value = Some word;
+                 executed_steps;
+                 captured_callback = None;
+               }) ->
             Alcotest.(check int64) "native program bits" expected word.bits;
             Alcotest.(check int)
               "native program exact work" count executed_steps

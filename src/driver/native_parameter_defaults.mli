@@ -73,5 +73,7 @@ val create_task :
   (t, string) result
 (** Seal saved defaults for the exact retained callable closure. Every original
     selected/source header must be covered by its own task snapshot and
-    completed native declaration-time execution. Anonymous callback defaults
-    still reject. *)
+    completed native declaration-time execution. Numeric words and owned
+    callback identities require the exact published saved object; equal values
+    and copied objects grant no authority. Anonymous callback defaults still
+    reject. *)

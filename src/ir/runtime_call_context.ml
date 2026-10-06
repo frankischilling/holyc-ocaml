@@ -1232,6 +1232,21 @@ type expected_argument = {
   expected_count : int64 option;
 }
 
+let require_saved_default_payload expected (item : Seq.description) =
+  Option.iter
+    (fun prepared ->
+      if Option.is_some (Prepared_parameter_default.callback_source prepared)
+      then
+        require ?span:item.span
+          (item.opcode = Opcode.Ic_imm_i64
+          && item.operands = [] && item.flags = 0x2000L
+          &&
+          match item.payload with
+          | Some (Seq.Saved_parameter_default original) -> original == prepared
+          | _ -> false)
+          "saved callback argument lost its original prepared object")
+    expected.expected_default
+
 let rec producer_origin result =
   (* Expression_lowering emits operator origins for operations. Transparent
      grouping and unary plus reuse their operand's producer; array
@@ -1385,7 +1400,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
               expected_source = Prepared_parameter_default.type_ prepared;
               expected_target = parameter_type parameter;
               expected_origin = span;
-              expected_count = Some (Prepared_parameter_default.bits prepared);
+              expected_count = Prepared_parameter_default.word_bits prepared;
               expected_callback_default = None;
               expected_default = Some prepared;
             })
@@ -2233,6 +2248,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                      && item.flags = push_flag)
                      "callback hidden count changed")
                  expected.expected_count;
+               require_saved_default_payload expected item;
                pending.cb_pushes <-
                  {
                    role = expected.expected_role;
@@ -2283,6 +2299,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                          "hidden variadic count is not its canonical checked \
                           immediate")
                      expected.expected_count;
+                   require_saved_default_payload expected item;
                    pending.pushes <-
                      {
                        role = expected.expected_role;
@@ -2791,89 +2808,147 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
         List.concat_map (fun (_, items, _) -> items) graph.original_blocks
         |> List.fold_left
              (fun addresses (instruction : Seq.description) ->
-               let candidates =
-                 List.filter
-                   (fun source ->
+               let saved =
+                 match instruction.payload with
+                 | Some (Seq.Saved_parameter_default prepared) -> (
+                     let arguments =
+                       Instructions.bindings graph.calls
+                       |> List.concat_map (fun (_, call) -> call.arguments_)
+                     in
+                     require ?span:instruction.span
+                       (List.exists
+                          (fun argument ->
+                            Seq.Instruction_id.equal argument.producer
+                              instruction.instruction_id
+                            && Option.fold ~none:false ~some:(( == ) prepared)
+                                 argument.prepared_default)
+                          arguments)
+                       "saved callback producer has no exact original call \
+                        argument";
                      match
-                       ( Typed.result_category source,
-                         Typed.result_function_declaration source,
-                         Typed.result_function_address_path source,
-                         instruction.payload )
+                       Prepared_parameter_default.callback_source prepared
                      with
-                     | ( Typed.Address_value,
-                         Some declaration,
-                         Some path,
-                         Some (Seq.Symbol symbol) )
-                       when symbol
-                            == Functions.resolved_declaration_identity_symbol
-                                 declaration
-                            && (match
-                                  Resolution.argument_expression_kind
-                                    (Typed.result_source source)
-                                with
-                              | Resolution.Prefix_expression prefix
-                                when Resolution.prefix_operator prefix
-                                     = Resolution.Address_of ->
-                                  instruction.span
-                                  = origin_span
-                                      (Resolution.prefix_operator_origin prefix)
-                              | _ -> false)
-                            && instruction.operands = []
-                            && Option.is_some instruction.result
-                            && Int64.logand instruction.flags
-                                 (Int64.lognot 0x2000L)
-                               = 0L -> (
-                         (path = Resolution.Jit_immediate
-                          && instruction.opcode = Opcode.Ic_imm_i64
-                         || path = Resolution.Aot_absolute
-                            && instruction.opcode = Opcode.Ic_abs_addr)
-                         &&
-                         match Typed.result_type source with
-                         | Some type_ -> (
-                             instruction.target_type = Some type_
-                             && Type.pointer_depth type_ = 0
-                             &&
-                             match Type.base type_ with
-                             | Type.Primitive
-                                 (Type.Internal_storage, Sema.Primitive_type.I64)
-                               -> true
-                             | _ -> false)
-                         | None -> false)
-                     | _ -> false)
-                   sources
+                     | None ->
+                         fail ?span:instruction.span
+                           "saved callback producer contains an ordinary word"
+                     | Some (link, source) ->
+                         let declaration =
+                           Retained_function.metadata link
+                           |> Sema.Outer_environment.function_declaration
+                         in
+                         let body =
+                           List.find_map
+                             (fun (body, _) ->
+                               if
+                                 Option.fold ~none:false
+                                   ~some:(fun original ->
+                                     original == declaration)
+                                   (Function_body.definition_declaration body)
+                               then Some body
+                               else None)
+                             functions
+                         in
+                         Some
+                           {
+                             address_instruction = instruction;
+                             address_source = source;
+                             address_declaration = declaration;
+                             address_link = link;
+                             address_body = body;
+                           })
+                 | _ -> None
                in
-               match candidates with
-               | [ source ] -> (
-                   let declaration =
-                     Typed.result_function_declaration source |> Option.get
+               match saved with
+               | Some address ->
+                   Instructions.add instruction.instruction_id address addresses
+               | None -> (
+                   let candidates =
+                     List.filter
+                       (fun source ->
+                         match
+                           ( Typed.result_category source,
+                             Typed.result_function_declaration source,
+                             Typed.result_function_address_path source,
+                             instruction.payload )
+                         with
+                         | ( Typed.Address_value,
+                             Some declaration,
+                             Some path,
+                             Some (Seq.Symbol symbol) )
+                           when symbol
+                                == Functions
+                                   .resolved_declaration_identity_symbol
+                                     declaration
+                                && (match
+                                      Resolution.argument_expression_kind
+                                        (Typed.result_source source)
+                                    with
+                                  | Resolution.Prefix_expression prefix
+                                    when Resolution.prefix_operator prefix
+                                         = Resolution.Address_of ->
+                                      instruction.span
+                                      = origin_span
+                                          (Resolution.prefix_operator_origin
+                                             prefix)
+                                  | _ -> false)
+                                && instruction.operands = []
+                                && Option.is_some instruction.result
+                                && Int64.logand instruction.flags
+                                     (Int64.lognot 0x2000L)
+                                   = 0L -> (
+                             (path = Resolution.Jit_immediate
+                              && instruction.opcode = Opcode.Ic_imm_i64
+                             || path = Resolution.Aot_absolute
+                                && instruction.opcode = Opcode.Ic_abs_addr)
+                             &&
+                             match Typed.result_type source with
+                             | Some type_ -> (
+                                 instruction.target_type = Some type_
+                                 && Type.pointer_depth type_ = 0
+                                 &&
+                                 match Type.base type_ with
+                                 | Type.Primitive
+                                     ( Type.Internal_storage,
+                                       Sema.Primitive_type.I64 ) -> true
+                                 | _ -> false)
+                             | None -> false)
+                         | _ -> false)
+                       sources
                    in
-                   match function_link declaration with
-                   | None -> addresses
-                   | Some link ->
-                       let body =
-                         List.find_map
-                           (fun (body, _) ->
-                             if
-                               Option.fold ~none:false
-                                 ~some:(fun original -> original == declaration)
-                                 (Function_body.definition_declaration body)
-                             then Some body
-                             else None)
-                           functions
+                   match candidates with
+                   | [ source ] -> (
+                       let declaration =
+                         Typed.result_function_declaration source |> Option.get
                        in
-                       Instructions.add instruction.instruction_id
-                         {
-                           address_instruction = instruction;
-                           address_source = source;
-                           address_declaration = declaration;
-                           address_link = link;
-                           address_body = body;
-                         }
-                         addresses)
-               | [] -> addresses
-               | _ ->
-                   fail ?span:instruction.span
-                     "function address has ambiguous original source ownership")
+                       match function_link declaration with
+                       | None -> addresses
+                       | Some link ->
+                           let body =
+                             List.find_map
+                               (fun (body, _) ->
+                                 if
+                                   Option.fold ~none:false
+                                     ~some:(fun original ->
+                                       original == declaration)
+                                     (Function_body.definition_declaration body)
+                                 then Some body
+                                 else None)
+                               functions
+                           in
+                           Instructions.add instruction.instruction_id
+                             {
+                               address_instruction = instruction;
+                               address_source = source;
+                               address_declaration = declaration;
+                               address_link = link;
+                               address_body = body;
+                             }
+                             addresses)
+                   | [] -> addresses
+                   | _ ->
+                       fail ?span:instruction.span
+                         "function address has ambiguous original source \
+                          ownership"))
              Instructions.empty
       in
       { graph with function_addresses = addresses }

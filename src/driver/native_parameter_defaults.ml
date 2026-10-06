@@ -164,9 +164,9 @@ let execution_matches prepared execution =
   && Default_fragment_destination.fragment destination == fragment
   && execution_type_matches fragment (Prepared.type_ prepared) destination
   && Program.default_constant_is_consumed execution
-  && Int64.equal
-       (Program.default_constant_bits execution)
-       (Prepared.bits prepared)
+  && Option.fold ~none:false
+       ~some:(Int64.equal (Program.default_constant_bits execution))
+       (Prepared.word_bits prepared)
 
 let callback_execution_matches prepared execution =
   let authority = Program.default_constant_authority execution in

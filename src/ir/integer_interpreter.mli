@@ -239,7 +239,7 @@ val complete_native_task_default :
   task_state ->
   default_attempt ->
   Default_fragment_program.t ->
-  int64 ->
+  Saved_parameter_value.t ->
   (unit, string) result
 
 val record_native_default_steps :

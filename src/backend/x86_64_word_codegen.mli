@@ -36,6 +36,7 @@ type program_site = {
   code_update_site : bool;
   code_word_escape_site : bool;
   no_value_capture_site : bool;
+  callback_capture_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -121,6 +122,7 @@ val compile_task_fragment :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
+  ?capture_callback_default:bool ->
   task_snapshot:X86_64_global_storage.task_snapshot ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
@@ -151,9 +153,11 @@ val compile_task_fragment :
     original reached call instruction after arguments. Slot proofs require this
     original root request, occurrence, owner, storage and native source
     generation. Each historical body keeps its own sealed runtime-call context
-    and task-storage provenance; no executable address or callback ownership
-    survives the fragment. Source activation authority remains a separate
-    requirement of the sealed image. *)
+    and task-storage provenance. Original callback owners retain their canonical
+    native leaf in the task arena and bind it to the current image's copy of the
+    same body. A callback default capture checks its live address against that
+    leaf before reporting the selected owner. Source activation authority
+    remains a separate requirement of the sealed image. *)
 
 val program_code : program_image -> string
 val program_code_bytes : program_image -> int

@@ -124,10 +124,10 @@ address. Joined bodies are charged as part of the bounded caller closure, with
 cycles and shared dependencies included once per image. Initializer and named
 default fragments use the same source resolver.
 
-Named integer parameter defaults execute once at the original live header
+Named integer and one-star callback parameter defaults execute once at the original live header
 callback. `examples/native-source-defaults.hc` saves 41 from `Seed()`, returns
 42 from `Answer()`, changes the source counter and returns 42 again. Each
-omitted argument loads the saved full word from its original header. Explicit
+omitted argument loads the saved value from its original header. Explicit
 arguments and unused functions still require the declaration-time default to
 execute. Historical callers retain their selected original header and saved
 value after same-name replacement.
@@ -140,15 +140,15 @@ must use its exact published saved object and completed native execution.
 Equal bits, copied saved objects and another source snapshot grant no authority.
 Closed preparation and interpreter execution do not supply these native values.
 
-Defaults can read and update admitted integer storage and call retained integer
-functions, including functions with earlier saved defaults. Actual expression
+Defaults can read and update admitted integer or callback storage and call retained
+integer functions, including functions with earlier saved defaults. Actual expression
 instructions consume both the shared native step allowance and the remaining
 initializer allowance. Each successfully captured default retains eight bytes,
 reported by `Native_source_execution.default_bytes` and JSON
 `prepared_default_bytes`, under `max_default_bytes`. Code, output, frame and
 call-depth limits keep their existing cumulative or per-activation meanings.
 Reached faults preserve earlier native writes, output and work; later defaults
-and body publication stop. Named pointer, callback-valued, string, F64 and
+and body publication stop. Named scalar-pointer, string, F64 and
 aggregate defaults, anonymous callback defaults and `lastclass` remain separate
 work. The isolated `host-jit` target keeps its closed-default restriction.
 
@@ -170,8 +170,8 @@ those fragment lifetimes.
 
 The collector checks IR and block limits before admitting each body to its work
 queue. These source records contain no executable address. The host releases
-each fragment's code after execution. Executable callback targets across source
-events still require persistent native code owners.
+each fragment's public entry after execution. The task arena keeps canonical
+callback entries and the native mappings they need across source events.
 
 One-star callback globals and fixed arrays now keep their numeric words in the
 shared task arena. Each cell has eight data bytes, an independent initialization
@@ -211,7 +211,7 @@ through an array and calls it after an unrelated same-name definition. It return
 42. Globals, arrays, automatic cells and fixed callback parameters copy both the
 native address and its private owner. Integer and U0 bodies, scalar pointer
 parameters and supported integer word tails use the existing private call ABI.
-Global, static and named integer-default consumers can call these owners.
+Global, static and named parameter-default consumers can call these owners.
 
 Each owner reserves sixteen private arena bytes: one canonical entry address and
 one current body target. Its eight-byte native leaf entry jumps through the target
@@ -229,14 +229,31 @@ mapped. Arena release closes the remaining mappings.
 A dynamic owner survives loads, copies, captures and full-word views. A bare owned
 expression explicitly clears an earlier captured result. Its negative private
 site marker identifies the reached original discard and carries zero bits; an
-unexecuted branch or an implicit declaration leaves the earlier result intact. An owned word returned or passed as an
-ordinary integer faults at the reached native site; numeric callback words still
+unexecuted branch or an implicit declaration leaves the earlier result intact.
+An owned word returned or passed as an ordinary integer faults at the reached
+native site; numeric callback words still
 preserve all sixty-four bits. Owned updates and comparisons with a nonzero numeric
 word retain their existing native faults. This implements a private hosted entry,
 not the exported HolyC ABI.
 
-Owned callback parameter defaults and live anonymous expression defaults remain
-required work. JIT extern-slot address expressions, including a function's own
+`examples/native-source-owned-defaults.hc` saves the original selected callback
+for a named parameter, replaces the global cell and still returns 42. Immediate
+`&Function` values, bare callback cells, fixed-array elements and assignment
+effects retain the owner selected during the original header's execution.
+Omitted arguments materialize that saved owner; explicit arguments and unused
+functions still execute the default once. Historical callers preserve their
+original saved header after same-name replacement. Owned default captures leave
+an earlier command result intact.
+
+The native default image compares the live callback PC with its owner's canonical
+entry before returning checked source metadata. The saved eight-byte payload
+retains the original expression and function identity. It grants no entry
+permission; later call images require the original completed native default and
+the retained body, then materialize the owner's canonical entry. Private owner
+cells charge the arena allowance rather than logical global storage.
+
+Live anonymous expression defaults remain required work. JIT extern-slot address
+expressions, including a function's own
 slot address, still need their original two-producer address receipts connected.
 F64 and aggregate callback execution, member cells and the exported ABI remain
 outside this supported native slice. Static callback leaves and joined extern
@@ -297,9 +314,9 @@ in OCaml.
 
 This source-task path supports integer globals, fixed integer arrays,
 integer function statics, retained direct and joined JIT extern calls, and their
-original literals, numeric and owned callback storage, and named integer defaults,
-including integer words saved for named callback parameters. Runtime-dependent
-dimensions, wider and owned callback defaults, live anonymous expression defaults,
+original literals, numeric and owned callback storage, and named integer or
+one-star callback defaults. Runtime-dependent dimensions, wider callback defaults,
+live anonymous expression defaults,
 JIT extern-slot address expressions, native `#exe` and AOT source-task execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.

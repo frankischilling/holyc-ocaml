@@ -70,6 +70,7 @@ type t = {
   termination_ : termination;
   executed_steps_ : int;
   final_value_ : word option;
+  final_callback_ : Runtime.function_address option;
   compiled_initializer_steps_ : int;
 }
 
@@ -383,6 +384,7 @@ type default_attempt = {
   default_preparation_before : int;
   mutable default_state : initializer_attempt_state;
   mutable default_bits : int64 option;
+  mutable default_value : Saved_parameter_value.t option;
   mutable default_native : bool;
   mutable default_native_program : Default_fragment_program.t option;
   mutable default_native_work : int option;
@@ -739,6 +741,7 @@ let observe_task_source_event task event =
               executed_steps_ = task.steps;
               compiled_initializer_steps_ = task.initializer_steps;
               final_value_ = task.outer_value;
+              final_callback_ = None;
             }
           in
           task.source_result <- Some (sequence, result);
@@ -2236,6 +2239,7 @@ let begin_task_default task ~namespace ~publication receipt =
         default_preparation_before = task.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
+        default_value = None;
         default_native = false;
         default_native_program = None;
         default_native_work = None;
@@ -2326,7 +2330,7 @@ let record_native_default_steps task attempt steps =
     attempt.default_native_work <- Some steps;
     Ok ())
 
-let complete_native_task_default task attempt program bits =
+let complete_native_task_default task attempt program value =
   let destination = Default_fragment_program.destination program in
   if
     (not task.native_storage_authority)
@@ -2345,8 +2349,23 @@ let complete_native_task_default task attempt program bits =
             (Sema.Default_fragment.source
                (Default_fragment_destination.fragment destination)))
   then Error "native default completion has another task or expired expression"
+  else if
+    Option.fold ~none:false
+      ~some:(fun (link, source) ->
+        (not (Default_fragment_destination.is_callback destination))
+        || source
+           != Sema.Function_call_expression_result.top_level_root_value
+                (Default_fragment_destination.root destination)
+        || (not
+              (Integer_globals.task_catalog_contains_function task.catalog link))
+        || Option.is_none (exact_native_function_source task link))
+      (Saved_parameter_value.callback_source value)
+  then
+    Error
+      "native callback default lost its original expression or admitted body"
   else (
-    attempt.default_bits <- Some bits;
+    attempt.default_value <- Some value;
+    attempt.default_bits <- Saved_parameter_value.word_bits value;
     attempt.default_native <- true;
     attempt.default_state <- Successful_initializer;
     Ok ())
@@ -2374,8 +2393,11 @@ let task_native_parameter_default task ~globals ~header ~parameter prepared =
                     == Prepared_parameter_default.publication prepared
                     && receipt == Prepared_parameter_default.receipt prepared
                 | Callback _ -> false)
-              && attempt.default_bits
-                 = Some (Prepared_parameter_default.bits prepared))
+              && Option.fold ~none:false
+                   ~some:(fun value ->
+                     Saved_parameter_value.same value
+                       (Prepared_parameter_default.value prepared))
+                   attempt.default_value)
             task.defaults)
   then Error "native saved default lacks its exact completed source execution"
   else Ok ()
@@ -2750,7 +2772,7 @@ let complete_task_defaults task ~namespace header =
           with
           | Some attempt
             when attempt.default_state = Successful_initializer
-                 && Option.is_some attempt.default_bits -> Ok attempt
+                 && Option.is_some attempt.default_value -> Ok attempt
           | _ ->
               Error
                 "function header requires each successful original default \
@@ -2762,8 +2784,8 @@ let complete_task_defaults task ~namespace header =
           | Callback _ -> assert false
         in
         let* value =
-          Prepared_parameter_default.create ~publication ~header ~receipt
-            ~bits:(Option.get attempt.default_bits)
+          Prepared_parameter_default.create_value ~publication ~header ~receipt
+            ~value:(Option.get attempt.default_value)
         in
         collect (value :: rev) rest
   in
@@ -6691,7 +6713,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let depth = ref 0 in
   let live_frame_bytes = ref !program.initial_frame_bytes in
   let final_value = ref None in
+  let final_callback = ref None in
   let capture value =
+    final_callback := None;
     final_value := value;
     Option.iter (fun observe -> observe value) on_capture
   in
@@ -8192,8 +8216,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                               (runtime_error ~instruction block !steps code
                                  message))))
           | Discard operand ->
+              let runtime_value = require_value block instruction operand in
               let value =
-                Option.bind (require_value block instruction operand) (function
+                Option.bind runtime_value (function
                   | Runtime_word word -> Some word
                   | Runtime_code _
                   | Runtime_pointer _
@@ -8205,7 +8230,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 && (not !program.is_function)
                 && Option.is_none !active_initializer
                 && Option.is_none !failed
-              then capture value
+              then (
+                capture value;
+                final_callback :=
+                  Option.bind runtime_value (function
+                    | Runtime_code code -> Some code.code_address
+                    | _ -> None))
           | Discard_void value_id -> (
               match Value_map.find_opt value_id !values with
               | Some Runtime_void ->
@@ -8357,6 +8387,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
           termination_ = termination;
           executed_steps_ = !steps;
           final_value_ = !final_value;
+          final_callback_ = !final_callback;
           compiled_initializer_steps_ =
             Option.fold ~none:0 ~some:Global_initialization.prepared_steps
               initialization;
@@ -9271,6 +9302,7 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
     match evaluation with
     | Prepared_default result ->
         consume_default_constant task result
+        |> Result.map Saved_parameter_value.word
         |> Result.map_error (fun message ->
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
@@ -9299,17 +9331,30 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
               ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
-          match result.final_value_ with
-          | Some word -> Ok word.bits
-          | None ->
+          match (result.final_value_, result.final_callback_) with
+          | Some word, None -> Ok (Saved_parameter_value.word word.bits)
+          | None, Some address when Destination.is_callback destination ->
+              Saved_parameter_value.callback
+                ~source:
+                  (Sema.Function_call_expression_result.top_level_root_value
+                     (Destination.root destination))
+                ~link:(Runtime.function_address_link address)
+              |> Result.map_error (fun message ->
+                  [
+                    make_error ~stage:Execution ~span
+                      ~executed_steps:result.executed_steps_ "HCIRVM0026"
+                      message;
+                  ])
+          | _ ->
               invalid "default evaluation produced no checked parameter value")
   in
   match outcome with
   | Error errors ->
       ignore (fail_task_default task attempt);
       Error errors
-  | Ok bits ->
-      attempt.default_bits <- Some bits;
+  | Ok value ->
+      attempt.default_value <- Some value;
+      attempt.default_bits <- Saved_parameter_value.word_bits value;
       attempt.default_state <- Successful_initializer;
       Ok ()
 
@@ -9995,6 +10040,7 @@ let begin_task_callback_default task ~namespace receipt =
         default_preparation_before = task.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
+        default_value = None;
         default_native = false;
         default_native_program = None;
         default_native_work = None;

@@ -56,7 +56,15 @@ type fault = private {
           derived from the sealed image, not from runtime status fields. *)
 }
 
-type execution = private { executed_steps : int; final_value : word option }
+type execution = private {
+  executed_steps : int;
+  final_value : word option;
+  captured_callback : Ir.Saved_parameter_value.t option;
+      (** Only an original callback parameter's default image can return this
+          checked owner capture. It carries source identity, not a machine PC;
+          [final_value] is [None] for that capture. *)
+}
+
 type outcome = Completed of execution | Fault of fault
 type t
 type task_layout = X86_64_global_storage.task_layout
@@ -245,17 +253,20 @@ val decode_runtime_status :
   value_site:int64 ->
   bits:int64 ->
   (outcome, string) result
-(** Validate the status projection from the private execution context.
-    [value_site] is the dense one-based site of the last reached entry
-    IC_END_EXP; its checked metadata supplies the result type. Zero value-site
-    requires zero bits. Clean completion is kind/site zero with at least one
-    executed IR instruction. Step-limit faults require an executed count exactly
-    equal to [max_steps]; arithmetic, call-quota, uninitialized-read,
-    index-scale, index-addition, address-bounds, callback and output faults must
-    name a matching checked dense site and consume their faulting instruction.
-    Output calls cannot report a physical callee-stack fault because they are
-    inlined. The native bridge validates the three restored callable quota words
-    before invoking this decoder. *)
+(** Validate the status projection from the private execution context. A
+    positive [value_site] is the dense one-based site of the last reached entry
+    IC_END_EXP; its checked metadata supplies the result type. Negative markers
+    retain the original no-value discard or callback-default capture site. A
+    callback capture additionally requires its original default destination and
+    a known owner from that image's task snapshot. Zero value-site requires zero
+    bits. Clean completion is kind/site zero with at least one executed IR
+    instruction. Step-limit faults require an executed count exactly equal to
+    [max_steps]; arithmetic, call-quota, uninitialized-read, index-scale,
+    index-addition, address-bounds, callback and output faults must name a
+    matching checked dense site and consume their faulting instruction. Output
+    calls cannot report a physical callee-stack fault because they are inlined.
+    The native bridge validates the three restored callable quota words before
+    invoking this decoder. *)
 
 val validate_global_limit : max_global_bytes:int -> (unit, error list) result
 val validate_literal_limit : max_literal_bytes:int -> (unit, error list) result

@@ -1765,7 +1765,7 @@ let native_static_copy_host_bounds () =
         "unaffected flag representations remain valid" 1
         (raw_static_copy corrupt (40, 0, 32, "A")))
 
-let native_default_source_authority () =
+let native_default_source_authority_case text () =
   let module Request = Task.Native_default in
   let module Program = Holyc_lib__Ir.Default_fragment_program in
   let module Destination = Holyc_lib__Ir.Default_fragment_destination in
@@ -1773,11 +1773,7 @@ let native_default_source_authority () =
   let module Calls = Holyc_lib__Ir.Runtime_call_context in
   let module Graph = Holyc_lib__Ir.Block_graph in
   let module Sequence = Holyc_lib__Ir.Instruction_sequence in
-  let session, config, source =
-    inputs
-      "I64 Seed(){return 41;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
-       n=A()){return n+1;}B();"
-  in
+  let session, config, source = inputs text in
   let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
   let arena = Runtime.create_task_arena ~max_arena_bytes:16 layout |> checked in
   let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
@@ -1796,9 +1792,11 @@ let native_default_source_authority () =
         (fun _ -> Alcotest.fail "default probe reached an initializer");
       execute_command =
         (fun request ->
-          let report, result =
-            execute (Image.compile_task_command ~layout request |> compiled)
-          in
+          let image = Image.compile_task_command ~layout request |> compiled in
+          rejected "ordinary command cannot report a callback default capture"
+            (Image.decode_runtime_status image ~max_steps:100_000 ~kind:0L
+               ~site:0L ~executed_steps:1L ~value_site:(-100_001L) ~bits:1L);
+          let report, result = execute image in
           Ok
             (if Runtime.value_captured report then
                Dispatch.Captured
@@ -1860,16 +1858,16 @@ let native_default_source_authority () =
                           ~parameter prepared
                         |> checked;
                         let copy =
-                          Prepared.create
+                          Prepared.create_value
                             ~publication:(Prepared.publication prepared)
                             ~header:(Prepared.header prepared)
                             ~receipt:(Prepared.receipt prepared)
-                            ~bits:(Prepared.bits prepared)
+                            ~value:(Prepared.value prepared)
                           |> checked
                         in
                         rejected
-                          "equal bits and original source cannot substitute a \
-                           new saved object"
+                          "equal saved value and original source cannot \
+                           substitute a new saved object"
                           (Request.parameter_default request ~globals ~header
                              ~parameter copy);
                         checked_saved := true)
@@ -1885,6 +1883,17 @@ let native_default_source_authority () =
         request
       |> compiled
     in
+    for site = 1 to Image.ir_instructions image do
+      rejected
+        "callback capture rejects zero or unknown native owner at every site"
+        (Image.decode_runtime_status image ~max_steps:100_000 ~kind:0L ~site:0L
+           ~executed_steps:1L
+           ~value_site:(Int64.of_int (-100_000 - site))
+           ~bits:0L)
+    done;
+    rejected "callback capture requires an executed original instruction"
+      (Image.decode_runtime_status image ~max_steps:100_000 ~kind:0L ~site:0L
+         ~executed_steps:0L ~value_site:(-100_001L) ~bits:1L);
     let before = (Runtime.budget_progress budget).executed_steps in
     let report, result = execute image in
     Request.record_steps request
@@ -1898,7 +1907,11 @@ let native_default_source_authority () =
     Alcotest.(check bool)
       "default captured its original native word" true
       (Runtime.value_captured report);
-    Ok (Option.get result.final_value).bits
+    match (result.final_value, result.captured_callback) with
+    | Some word, None -> Ok (Holyc_lib__Ir.Saved_parameter_value.word word.bits)
+    | None, Some value -> Ok value
+    | _ ->
+        Alcotest.fail "native default did not capture one original saved value"
   in
   Fun.protect
     ~finally:(fun () -> Runtime.release_task_arena arena |> checked)
@@ -1923,6 +1936,18 @@ let native_default_source_authority () =
           rejected "closed source cannot report work"
             (Request.record_steps request 0))
         !saved)
+
+let native_default_source_authority () =
+  native_default_source_authority_case
+    "I64 Seed(){return 41;}I64 A(I64 n=Seed()){return n;}I64 B(I64 \
+     n=A()){return n+1;}B();"
+    ()
+
+let native_owned_default_source_authority () =
+  native_default_source_authority_case
+    "I64 Seed(){return 42;}I64 A(I64 (*q)()=&Seed){return q();}I64 B(I64 \
+     n=A()){return n;}B();"
+    ()
 
 let native_extern_slot_authority () =
   let module Calls = Holyc_lib__Ir.Runtime_call_context in
@@ -2352,5 +2377,8 @@ let () =
           Alcotest.test_case
             "original native defaults, saved words, both ABIs and lifetime"
             `Quick native_default_source_authority;
+          Alcotest.test_case
+            "original owned defaults, saved identity, both ABIs and expiry"
+            `Quick native_owned_default_source_authority;
         ] );
     ]

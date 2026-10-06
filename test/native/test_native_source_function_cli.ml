@@ -565,8 +565,35 @@ let () =
   with_file ".hc"
     "I64 F(){return 42;}I64 Call(I64 (*q)()=&F){return q();}Call();"
     (fun path ->
+      let native = json_path path in
       require
-        (has_diagnostic "HCRUN0001" (json_path ~status:1 path))
-        "owned callback parameter defaults remain a separate required gate");
+        (final_bits native = "0x000000000000002a")
+        "owned callback default selects its original native body";
+      require
+        (final_bits (json_path ~target:"ir" path) = final_bits native)
+        "original IR and native owned default agree";
+      require
+        (has_diagnostic "HCRUN0006"
+           (json_path ~target:"host-jit" ~status:1 path))
+        "isolated JIT retains its reference-bearing default restriction");
+  List.iter
+    (fun text ->
+      with_file ".hc" text (fun path ->
+          let native = json_path path in
+          require
+            (final_bits native = "0x000000000000002a")
+            "original saved callback default history or effects changed";
+          require
+            (final_bits (json_path ~target:"ir" path) = final_bits native)
+            "saved callback default IR comparison changed"))
+    [
+      "I64 F(){return 42;}I64 G(){return 17;}I64 (*p)()=&F;I64 Call(I64 \
+       (*q)()=p){return q();}p=&G;Call();";
+      "I64 F(){return 42;}I64 G(){return 17;}I64 (*p)()=&G;I64 Unused(I64 \
+       (*q)()=(p=&F)){return q();}p();";
+      "I64 F(){return 42;}I64 G(){return 17;}I64 Call(I64 (*q)()=&F){return \
+       q();}I64 Old(){return Call();}I64 Call(I64 (*q)()=&G){return \
+       q();}Old();";
+    ];
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

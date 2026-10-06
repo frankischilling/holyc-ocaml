@@ -160,7 +160,9 @@ end
 
 module Native_default : sig
   type request
-  type t = request -> (int64, Common.Diagnostic.t list) result
+
+  type t =
+    request -> (Ir.Saved_parameter_value.t, Common.Diagnostic.t list) result
 
   val program : request -> Ir.Default_fragment_program.t
   val check : request -> (unit, string) result

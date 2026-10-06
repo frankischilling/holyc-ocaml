@@ -6,16 +6,19 @@ type t = {
   receipt : Frontend.Parser.completed_parameter_default;
   source : Frontend.Ast.function_parameter;
   type_ : Sema.Type.t;
-  bits : int64;
+  value : Saved_parameter_value.t;
 }
 
-let bits value = value.bits
+let value value = value.value
+let bits value = Option.get (Saved_parameter_value.word_bits value.value)
+let word_bits value = Saved_parameter_value.word_bits value.value
+let callback_source value = Saved_parameter_value.callback_source value.value
 let type_ value = value.type_
 let receipt value = value.receipt
 let publication value = value.publication
 let header value = value.header
 
-let create ~publication ~header ~receipt ~bits =
+let create_value ~publication ~header ~receipt ~value =
   let ( let* ) = Result.bind in
   let* source =
     match
@@ -55,7 +58,18 @@ let create ~publication ~header ~receipt ~bits =
           source.pointer_layers
         |> Result.map Sema.Type_reference.resolved_type
   in
-  Ok { publication; header; receipt; source; type_; bits }
+  let* () =
+    if
+      Option.is_some (Saved_parameter_value.callback_source value)
+      && Option.is_none source.function_pointer
+    then Error "owned saved default requires its original callback parameter"
+    else Ok ()
+  in
+  Ok { publication; header; receipt; source; type_; value }
+
+let create ~publication ~header ~receipt ~bits =
+  create_value ~publication ~header ~receipt
+    ~value:(Saved_parameter_value.word bits)
 
 let matches value ~header ~parameter =
   (match Headers.function_provisional_call header with

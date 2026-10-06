@@ -19,6 +19,10 @@ let span value = value.span_
 let symbol_opt value = Fragment.symbol_opt value.fragment_
 let symbol value = Option.get (symbol_opt value)
 
+let is_callback value =
+  let _, _, pointer = Fragment.parameter_parts value.fragment_ in
+  Option.is_some pointer
+
 let create_with_globals globals typed =
   let ( let* ) = Result.bind in
   let* root_ =
@@ -56,6 +60,11 @@ let create_with_globals globals typed =
   let value = Typed.top_level_root_value root_ in
   let* () =
     if
+      Option.is_some function_pointer
+      && (Saved_parameter_value.accepts_callback_expression value
+         || Typed.result_is_numeric_callback value)
+    then Ok ()
+    else if
       Option.is_some (Integer_scalar_storage.of_type type_)
       && Typed.result_array_rank value = 0
       && (match Typed.result_category value with

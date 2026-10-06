@@ -321,7 +321,8 @@ module Native_default = struct
     phase : phase Atomic.t;
   }
 
-  type t = request -> (int64, Common.Diagnostic.t list) result
+  type t =
+    request -> (Ir.Saved_parameter_value.t, Common.Diagnostic.t list) result
 
   let program request = request.program_
 

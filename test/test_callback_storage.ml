@@ -1633,13 +1633,20 @@ let callback_defaults_keep_original_header_and_limits () =
            (Test_integer_globals.run ~mode
               "class Box {I64 n;};I64 Check(Box (*p)()=0){return p==0;}Check();"))
           .code;
-      Alcotest.(check string)
-        "owned-code defaults need their original value receipt"
-        (if mode = Preprocessor.Jit then "HCRUN0001" else "HCRUN0006")
-        (Test_integer_functions.first_error
-           (Test_integer_globals.run ~mode
-              "I64 A(){return 42;}I64 Apply(I64 (*p)()=&A){return p();}Apply();"))
-          .code)
+      let source =
+        "I64 A(){return 42;}I64 Apply(I64 (*p)()=&A){return p();}Apply();"
+      in
+      if mode = Preprocessor.Jit then
+        ignore
+          (Test_integer_globals.run ~mode source
+          |> Test_integer_functions.expect 42L)
+      else
+        Alcotest.(check string)
+          "AOT owned-code defaults still need source-session admission"
+          "HCRUN0006"
+          (Test_integer_functions.first_error
+             (Test_integer_globals.run ~mode source))
+            .code)
     modes
 
 let callback_default_words_have_no_executable_authority () =

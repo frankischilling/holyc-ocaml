@@ -132,7 +132,10 @@ val original_function_addresses : t -> owner:owner -> function_addresses option
 (** Collect source-owned resolved function-address producers after checking the
     complete original graph. JIT immediates and AOT absolute producers retain
     the exact declaration, registered publication and original body when local.
-    Unresolved extern slots do not acquire executable authority here. *)
+    Saved callback arguments retain their original default expression and
+    selected function through the exact prepared object and sealed call
+    argument. Unresolved extern slots do not acquire executable authority here.
+*)
 
 val original_function_address :
   function_addresses ->

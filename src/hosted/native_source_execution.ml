@@ -344,10 +344,15 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   [ Driver.Integer_source.message_diagnostic ~span message ])
             in
             let* completed, captured = outcome in
-            match (captured, completed.final_value) with
-            | true, Some word ->
+            match
+              (captured, completed.final_value, completed.captured_callback)
+            with
+            | true, None, Some value ->
                 default_bytes := !default_bytes + 8;
-                Ok word.bits
+                Ok value
+            | true, Some word, None ->
+                default_bytes := !default_bytes + 8;
+                Ok (Ir.Saved_parameter_value.word word.bits)
             | _ ->
                 Error
                   [

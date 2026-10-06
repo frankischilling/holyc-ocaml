@@ -39,6 +39,7 @@ type payload =
   | Symbol of Sema.Symbol.t
   | Callback of Sema.Function_type_resolution.function_pointer
   | Retained_global of Retained_global.t
+  | Saved_parameter_default of Prepared_parameter_default.t
   | Block of Block_id.t
   | Block_targets of Block_id.t list
 

@@ -46,6 +46,7 @@ type payload =
   | Symbol of Sema.Symbol.t
   | Callback of Sema.Function_type_resolution.function_pointer
   | Retained_global of Retained_global.t
+  | Saved_parameter_default of Prepared_parameter_default.t
   | Block of Block_id.t
   | Block_targets of Block_id.t list
 
@@ -301,6 +302,13 @@ let add_payload buffer = function
            (Sema.Function_type_resolution.signature_parameters signature))
         (Option.is_some
            (Sema.Function_type_resolution.signature_variadic_origin signature))
+  | Saved_parameter_default prepared -> (
+      match Prepared_parameter_default.callback_source prepared with
+      | Some (link, _) ->
+          Buffer.add_string buffer " saved-callback:";
+          add_escaped_bytes buffer
+            (Sema.Symbol.name (Retained_function.symbol link))
+      | None -> Buffer.add_string buffer " invalid-saved-callback")
   | Block block -> Printf.bprintf buffer " block:^b%d" (Block_id.to_int block)
   | Block_targets blocks ->
       Buffer.add_string buffer " blocks:[";

@@ -382,6 +382,7 @@ type operation =
   | Return_value of value
   | Return
   | Discard_value of value * word_type
+  | Discard_callback_default of value
   | Discard_void
   | Jump_to of Sequence.Block_id.t
   | Branch_zero of value * Sequence.Block_id.t
@@ -3252,6 +3253,56 @@ let allocate_body ?callable_frame ?(shared_values = [])
           | Program_control _ | Callable_control { is_entry = true; _ } ->
               reject ?span:instruction.span "HCBACK0003"
                 "native program contains expression return")
+      | Discard_callback_default input -> (
+          match mode with
+          | Callable_control { is_entry = true; _ } ->
+              let site = Option.get instruction.site in
+              let invalid = fault_label 25 site in
+              let complete = fresh_label supply
+              and numeric = fresh_label supply in
+              let inputs, _ = ensure_inputs instruction.span [ input ] in
+              let source = List.hd inputs in
+              let tag =
+                acquire_empty instruction.span ~protected:inputs ~excluded:[]
+              in
+              load_owner registers.(tag) input;
+              let target =
+                acquire_empty instruction.span ~protected:(tag :: inputs)
+                  ~excluded:[]
+              in
+              emit (Encoder.Test registers.(tag));
+              emit_branch Equal numeric;
+              Array.iteri
+                (fun index owner ->
+                  Option.iter
+                    (fun _ ->
+                      let next = fresh_label supply in
+                      emit
+                        (Encoder.Mov_imm64
+                           (registers.(target), function_owner_word index));
+                      emit (Encoder.Cmp (registers.(tag), registers.(target)));
+                      emit_branch Not_equal next;
+                      emit_function_address registers.(target) index;
+                      emit
+                        (Encoder.Cmp (registers.(source), registers.(target)));
+                      emit_branch Not_equal invalid;
+                      emit (Encoder.Store_context (40, registers.(tag)));
+                      emit (Encoder.Store_context_imm (32, -(100_000 + site)));
+                      emit_branch Unconditional complete;
+                      mark next)
+                    owner)
+                function_code_owners;
+              emit_branch Unconditional invalid;
+              mark numeric;
+              emit (Encoder.Store_context (40, registers.(source)));
+              emit (Encoder.Store_context_imm (32, site));
+              mark complete;
+              owners.(tag) <- None;
+              owners.(target) <- None;
+              release_through position
+          | _ ->
+              reject ?span:instruction.span "HCBACK0003"
+                "owned default capture requires its task entry")
       | Discard_value (input, _) -> (
           match mode with
           | Expression_control _ ->
@@ -3569,6 +3620,7 @@ type program_site = {
   code_update_site : bool;
   code_word_escape_site : bool;
   no_value_capture_site : bool;
+  callback_capture_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -3880,6 +3932,7 @@ let preflight_program graph =
                       Option.is_some input.code_owner_offset
                   | _ -> false);
                 code_word_escape_site = false;
+                callback_capture_site = false;
                 uninitialized_read_site = false;
                 index_scale_site = false;
                 index_addition_site = false;
@@ -4900,9 +4953,9 @@ let validate_callable_returns graph return_kind =
 
 let preflight_callable_graph ~runtime_calls ~source_globals
     ~allow_retained_functions ~task_dynamic_code_words ~task_owned_targets
-    ~slot_root_runtime_calls ~slot_bindings ~parameter_defaults ~functions
-    ~code_edges ~indirect_code_edges ~arena_code_cells ~global_storage
-    ~literal_storage ~runtime_owner ~owner
+    ~capture_callback_default ~slot_root_runtime_calls ~slot_bindings
+    ~parameter_defaults ~functions ~code_edges ~indirect_code_edges
+    ~arena_code_cells ~global_storage ~literal_storage ~runtime_owner ~owner
     ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
     ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
@@ -7678,7 +7731,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         operand values description position operand_id
                       in
                       if Option.is_some (code_source input) then
-                        if task_dynamic_code_words && has_code_word_view input
+                        if is_entry && capture_callback_default then
+                          (Discard_callback_default input, Some I64)
+                        else if
+                          task_dynamic_code_words && has_code_word_view input
                         then
                           ( Discard_value (input, I64),
                             if is_entry then Some I64 else None )
@@ -7892,10 +7948,20 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                 if
                                   raw.opcode <> Opcode.Ic_imm_i64
                                   || raw.operands <> [] || raw.flags <> 0x2000L
-                                  || raw.payload
-                                     <> Some
-                                          (Sequence.Integer
-                                             (Prepared_default.bits prepared))
+                                  || (not
+                                        (match
+                                           ( Prepared_default.word_bits prepared,
+                                             raw.payload )
+                                         with
+                                        | ( Some bits,
+                                            Some (Sequence.Integer actual) ) ->
+                                            Int64.equal bits actual
+                                        | ( None,
+                                            Some
+                                              (Sequence.Saved_parameter_default
+                                                 original) ) ->
+                                            original == prepared
+                                        | _ -> false))
                                   || not
                                        (Option.fold ~none:false
                                           ~some:
@@ -8105,6 +8171,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               (match operation with
               | Apply_code_comparison _ -> true
               | _ -> false);
+            callback_capture_site =
+              (match operation with
+              | Discard_callback_default _ -> true
+              | _ -> false);
             no_value_capture_site =
               (match operation with
               | Discard_void -> true
@@ -8114,6 +8184,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             code_word_escape_site =
               (match operation with
                 | Return_value input -> Option.is_some input.code_owner_offset
+                | Discard_callback_default _ -> true
                 | _ -> false)
               || Option.fold ~none:false
                    ~some:(fun (value, _, owner_stage) ->
@@ -9033,11 +9104,12 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
               with Rejected error -> Error [ error ])))
 
 let compile_callable_internal ?task_snapshot ?retained_parameter_default
-    ?retained_function_source ?retained_slot_binding ?status_abi
-    ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
-    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
-    ?parameter_defaults ?global_initializers ~max_ir_instructions
-    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
+    ?(capture_callback_default = false) ?retained_function_source
+    ?retained_slot_binding ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
+    ?(max_blocks = 4096) ?(max_global_bytes = 1_048_576)
+    ?(max_literal_bytes = 1_048_576) ?parameter_defaults ?global_initializers
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
+    ~functions () =
   let globals = Ir.Global_initialization.globals initialization in
   let ( let* ) = Result.bind in
   let* () =
@@ -9405,10 +9477,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         preflight_callable_graph ~runtime_calls ~source_globals:globals
           ~allow_retained_functions:(Option.is_some task_snapshot)
           ~task_dynamic_code_words:(Option.is_some task_snapshot)
-          ~task_owned_targets ~slot_root_runtime_calls:runtime_calls
-          ~slot_bindings ~parameter_defaults ~code_edges ~indirect_code_edges
-          ~arena_code_cells ~functions:function_infos ~global_storage
-          ~literal_storage ~runtime_owner:Runtime.Entry ~owner:Entry_owner
+          ~task_owned_targets ~capture_callback_default
+          ~slot_root_runtime_calls:runtime_calls ~slot_bindings
+          ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
+          ~functions:function_infos ~global_storage ~literal_storage
+          ~runtime_owner:Runtime.Entry ~owner:Entry_owner
           ~frame_slots:Int_map.empty ~variadic:None ~expected_return:None
           ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
       in
@@ -9420,12 +9493,13 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ~source_globals:info.source_globals
               ~allow_retained_functions:(Option.is_some task_snapshot)
               ~task_dynamic_code_words:(Option.is_some task_snapshot)
-              ~task_owned_targets ~slot_root_runtime_calls:runtime_calls
-              ~slot_bindings ~parameter_defaults ~code_edges
-              ~indirect_code_edges ~arena_code_cells ~functions:function_infos
-              ~global_storage ~literal_storage
-              ~runtime_owner:(Runtime.Function body) ~owner:info.owner
-              ~frame_slots:info.frame_slots ~variadic:info.variadic
+              ~task_owned_targets ~capture_callback_default:false
+              ~slot_root_runtime_calls:runtime_calls ~slot_bindings
+              ~parameter_defaults ~code_edges ~indirect_code_edges
+              ~arena_code_cells ~functions:function_infos ~global_storage
+              ~literal_storage ~runtime_owner:(Runtime.Function body)
+              ~owner:info.owner ~frame_slots:info.frame_slots
+              ~variadic:info.variadic
               ~expected_return:(Some (Function.return_type body))
               ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes
               ~next_site
@@ -9900,12 +9974,13 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ~initialization ~entry ~functions ()
 
 let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
-    ~task_snapshot ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~retained_function_source ~retained_slot_binding ~retained_parameter_default
-    ~initialization ~entry ~functions () =
+    ?capture_callback_default ~task_snapshot ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~retained_function_source
+    ~retained_slot_binding ~retained_parameter_default ~initialization ~entry
+    ~functions () =
   compile_callable_internal ~task_snapshot ~retained_parameter_default
-    ~retained_function_source ~retained_slot_binding ?status_abi
-    ?max_stack_bytes ?max_blocks
+    ?capture_callback_default ~retained_function_source ~retained_slot_binding
+    ?status_abi ?max_stack_bytes ?max_blocks
     ~max_global_bytes:Global_storage.hard_max_global_bytes ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
 
