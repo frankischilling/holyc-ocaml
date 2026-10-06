@@ -965,7 +965,8 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                              Option.is_some
                                (Integer_scalar_storage.of_type type_)
                              || Option.is_some callback
-                                && Typed.result_is_callback_storage value
+                                && (Typed.result_is_callback_storage value
+                                   || Typed.result_is_numeric_callback value)
                          | _ -> false)
                   then
                     fail "HCRUN0001"

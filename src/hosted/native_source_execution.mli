@@ -67,6 +67,13 @@ val evaluate :
     Fragment observations retain detached image metadata after code and arena
     release.
 
+    One-star callback cells and fixed arrays retain numeric words with separate
+    zero executable-owner lanes. Automatic callback storage, fixed callback
+    parameters and saved integer defaults use the same native ownership path.
+    Reached numeric calls preserve reverse argument effects before the native
+    unowned-target fault. Original function-address producers reject before
+    entry; persistent executable callback targets require separate code owners.
+
     Named direct functions retain their original admitted source body, frame,
     call context and global references. Each caller fragment compiles its exact
     direct-call closure, including historical definitions. The task retains no

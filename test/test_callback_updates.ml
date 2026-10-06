@@ -230,8 +230,38 @@ let exact_update_work () =
         (F.first_error (G.run ~mode ~max_steps:(steps - 1) source)).code)
     modes
 
+let original_numeric_initializer_leaves () =
+  List.iter
+    (fun source ->
+      let session = Session.create () in
+      let source =
+        Session.add_source session ~path:"callback-update-initializer.hc"
+          ~contents:source
+      in
+      let config =
+        Preprocessor.Config.create ~compilation_mode:Preprocessor.Jit ()
+        |> Test_declaration_collection.checked
+      in
+      let report =
+        run_integer_program_report session ~config ~source ~max_steps:10_000
+      in
+      let result =
+        integer_program_report_outcome report |> Test_integer_program.checked
+      in
+      let word = Option.get (VM.final_value result.value) in
+      Alcotest.(check int64)
+        "original callback update initializer retains its complete word" 42L
+        word.bits)
+    [
+      "I64 (*p)()=34;I64 (*q)()=++p;q;";
+      "I64 (*p)()=42;I64 (*q)()=p--;q;";
+      "I64 (*p)()[2]={0,34};I64 (*q)()=++p[1];q;";
+    ]
+
 let tests =
   [
+    Alcotest.test_case "original numeric callback initializer leaves" `Quick
+      original_numeric_initializer_leaves;
     Alcotest.test_case "numeric callback storage shapes" `Quick
       numeric_storage_shapes;
     Alcotest.test_case "stride and signed compound semantics" `Quick

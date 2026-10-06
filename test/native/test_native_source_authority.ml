@@ -306,8 +306,9 @@ let actual_source ?max_layout_work ~adversarial () =
     !saved;
   (report, Storage.task_layout_work layout, Runtime.budget_progress budget)
 
-let array_source ?(max_arena_bytes = 41) () =
-  let session, config, source = inputs "I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;" in
+let array_source ?(max_arena_bytes = 41) ?(max_global_bytes = 24)
+    ?(text = "I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;") () =
+  let session, config, source = inputs text in
   let compilation_errors errors =
     List.map
       (fun (error : Image.error) ->
@@ -324,7 +325,7 @@ let array_source ?(max_arena_bytes = 41) () =
         ();
     ]
   in
-  let layout = Image.create_task_layout ~max_global_bytes:24 |> compiled in
+  let layout = Image.create_task_layout ~max_global_bytes |> compiled in
   let arena = Runtime.create_task_arena ~max_arena_bytes layout |> checked in
   let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
   let observed = ref [] and saved = ref [] in
@@ -415,8 +416,9 @@ let array_layout_and_capacity () =
   Alcotest.(check int)
     "rejected scalar suffix still charges its admitted layout visit" 4 work
 
-let array_abi_compilation () =
-  let session, config, source = inputs "I64 A[2]={41,1};" in
+let array_abi_compilation ?(text = "I64 A[2]={41,1};") ?(global_bytes = 16)
+    ?(arena_bytes = 32) () =
+  let session, config, source = inputs text in
   let reached = ref false in
   let stop () =
     Error
@@ -434,7 +436,8 @@ let array_abi_compilation () =
           List.iter
             (fun abi ->
               let layout =
-                Image.create_task_layout ~max_global_bytes:16 |> compiled
+                Image.create_task_layout ~max_global_bytes:global_bytes
+                |> compiled
               in
               let image =
                 Image.compile_task_initializer ~status_abi:abi ~layout request
@@ -444,9 +447,10 @@ let array_abi_compilation () =
                 "array task keeps requested status ABI" true
                 (Image.status_abi image = abi);
               Alcotest.(check int)
-                "array ABI logical bytes" 16 (Image.global_bytes image);
+                "array ABI logical bytes" global_bytes
+                (Image.global_bytes image);
               Alcotest.(check int)
-                "array ABI arena bytes" 32 (Image.arena_bytes image))
+                "array ABI arena bytes" arena_bytes (Image.arena_bytes image))
             [ Image.Windows_x64; Image.System_v_x64 ];
           reached := true;
           stop ());
@@ -458,6 +462,44 @@ let array_abi_compilation () =
     (Source.run ~native_dispatch session ~config ~source ~max_steps:100_000);
   Alcotest.(check bool)
     "array ABI probe reached its original leaf" true !reached
+
+let callback_word_storage_authority () =
+  List.iter
+    (fun (text, logical, arena_bytes, fragments) ->
+      let report, extents, _, budget =
+        array_source ~text ~max_global_bytes:logical
+          ~max_arena_bytes:arena_bytes ()
+      in
+      Source.outcome report |> Result.map_error describe |> checked |> ignore;
+      Alcotest.(check bool)
+        "original callback word survives released fragment mappings" true
+        (Source.native_final_value report = Some (Dispatch.I64 42L));
+      Alcotest.(check (list (pair int int)))
+        "callback data, initialization and owner lanes retain their offsets"
+        (List.init fragments (fun _ -> (logical, arena_bytes)))
+        extents;
+      Alcotest.(check bool)
+        "callback words use actual cumulative native work" true
+        (budget.executed_steps > 0);
+      let short, extents, _, budget =
+        array_source ~text ~max_global_bytes:logical
+          ~max_arena_bytes:(arena_bytes - 1) ()
+      in
+      rejected "one-byte-short callback arena stops before original entry"
+        (Source.outcome short);
+      Alcotest.(check (list (pair int int)))
+        "the rejected callback extent includes all private owners"
+        [ (logical, arena_bytes) ]
+        extents;
+      Alcotest.(check int)
+        "short callback arena executes no native instructions" 0
+        budget.executed_steps;
+      array_abi_compilation ~text ~global_bytes:logical ~arena_bytes ())
+    [
+      ("I64 (*p)()=34;++p;p;", 8, 17, 3);
+      ("I64 (*p)()[2]={34,0};++p[0];p[0];", 16, 48, 4);
+      ("I64 (*p)()[2][2]={{0,0},{0,34}};++p[1][1];p[1][1];", 32, 96, 6);
+    ]
 
 let foreign_array_source_layout () =
   let create_layout () =
@@ -2081,7 +2123,10 @@ let () =
           Alcotest.test_case "fixed array layout, flags and exact capacity"
             `Quick array_layout_and_capacity;
           Alcotest.test_case "fixed array task fragments compile for both ABIs"
-            `Quick array_abi_compilation;
+            `Quick (fun () -> array_abi_compilation ());
+          Alcotest.test_case
+            "callback word private owners, exact arena, both ABIs and expiry"
+            `Quick callback_word_storage_authority;
           Alcotest.test_case "fixed array foreign and expired source authority"
             `Quick foreign_array_source_layout;
           Alcotest.test_case

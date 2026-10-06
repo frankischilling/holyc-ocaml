@@ -21,11 +21,12 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 8)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 9)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
-     [native-source-defaults.hc] [native-source-extern-slots.hc]"
+     [native-source-defaults.hc] [native-source-extern-slots.hc] \
+     [native-source-callback-words.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -441,7 +442,7 @@ let () =
             path))
       "one-below native slot allowance"
   in
-  if Array.length Sys.argv = 8 then extern_checks Sys.argv.(7)
+  if Array.length Sys.argv >= 8 then extern_checks Sys.argv.(7)
   else
     with_file ".hc"
       "extern I64 Answer(I64 n=41);I64 Old(){return Answer();}I64 Answer(I64 \
@@ -475,5 +476,79 @@ let () =
          Old(){return Answer(A(),B());}I64 Answer(U8 a,I64 b){return \
          42;}Old();" );
     ];
+  let callback_word_checks path =
+    let report = json_path path in
+    require
+      (final_bits report = "0x000000000000002a")
+      "original numeric callback storage and forwarding";
+    require
+      (final_bits (json_path ~target:"ir" path) = final_bits report)
+      "independent original callback words";
+    require
+      (List.map
+         (fun fragment -> fragment |> member "global_arena_bytes" |> to_int)
+         (fragments report)
+      = [ 96; 96; 96; 96; 113; 113; 113; 113; 113 ])
+      "persistent callback data, flags and owner lanes";
+    let steps = report |> member "executed_steps" |> to_int in
+    require
+      (final_bits
+         (json_path ~options:[ "--step-limit=" ^ string_of_int steps ] path)
+      = final_bits report)
+      "exact native callback word work";
+    require
+      (has_diagnostic "HCIRVM0007"
+         (json_path ~status:1
+            ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+            path))
+      "one-below native callback word work";
+    require
+      (final_bits (json_path ~options:[ "--global-byte-limit=40" ] path)
+      = final_bits report)
+      "exact callback logical byte allowance";
+    require
+      (has_diagnostic "HCIRVM0016"
+         (json_path ~status:1 ~options:[ "--global-byte-limit=39" ] path))
+      "private owners do not replace the logical byte quota";
+    require
+      (has_diagnostic "HCRUN0006" (json_path ~status:1 ~target:"host-jit" path))
+      "isolated callback initializer source boundary"
+  in
+  if Array.length Sys.argv >= 9 then callback_word_checks Sys.argv.(8)
+  else
+    with_file ".hc"
+      "I64 (*words)()[2][2]={{0,34},{50,0}};I64 \
+       (*saved)()=words[0][1];++saved;words[1][0]--;I64 Read(I64 \
+       (*value)()){return value;}Read(saved);"
+      callback_word_checks;
+  List.iter
+    (fun (output, text) ->
+      with_file ".hc" text (fun path ->
+          List.iter
+            (fun target ->
+              let report = json_path ~status:1 ~target path in
+              require
+                (has_diagnostic "HCIRVM0024" report)
+                "numeric bits grant no executable target";
+              require
+                (report |> member "output_hex" |> to_string = output)
+                "original callback argument effects precede owning fault";
+              if target = "host-jit-task" then
+                require
+                  (last_fragment report |> member "outcome" |> to_string
+                 = "fault")
+                  "numeric callback rejection executes original native code")
+            [ "ir"; "host-jit-task" ]))
+    [
+      ("", "I64 (*p)()=42;p();");
+      ("", "I64 (*p)()[2]={0xffffffffffffffff,0};p[0]();");
+      ( "4241",
+        "extern U0 PutChars(U64 ch);I64 (*p)(I64 a,I64 b)=0;I64 Mark(I64 \
+         n){PutChars(n);p=42;return n;}p(Mark(65),Mark(66));" );
+    ];
+  with_file ".hc" "I64 F(){return 42;}I64 (*p)()=&F;p();" (fun path ->
+      require
+        (has_diagnostic "HCBACK0002" (json_path ~status:1 path))
+        "task code addresses require persistent executable ownership");
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

@@ -170,8 +170,43 @@ those fragment lifetimes.
 
 The collector checks IR and block limits before admitting each body to its work
 queue. These source records contain no executable address. The host releases
-each fragment's code after execution; stored function addresses and callbacks across
-source events still require their own persistent native code owners.
+each fragment's code after execution. Executable callback targets across source
+events still require persistent native code owners.
+
+One-star callback globals and fixed arrays now keep their numeric words in the
+shared task arena. Each cell has eight data bytes, an independent initialization
+flag and an eight-byte executable-owner lane. A scalar occupies seventeen arena
+bytes; a four-element array occupies 96, including eight bytes per element for
+initialization flags. Only the data extent counts against `max_global_bytes`.
+All appended data, flags and owner lanes count against the arena bound.
+
+`examples/native-source-callback-words.hc` copies an original array word into a
+callback cell, updates numeric cells and forwards the saved word through a named
+function's callback parameter. It returns 42 through nine actual native fragments.
+Automatic cells, indexed arrays, fixed callback parameters and saved integer
+defaults use the existing native word and owner lanes. Callback return metadata,
+including F64 or pointer return metadata, does not change their eight-byte
+`RT_PTR` storage. These numeric operations do not execute an F64 callback body.
+Prefix and postfix increment/decrement move a one-star callback by eight bytes.
+The full 64-bit word survives a bare expression or supported integer return.
+An original callback update can also supply a later callback initializer leaf.
+
+Declaration completion keeps the original storage object while completing its
+anonymous header. Each task snapshot refreshes that header only when its source
+object is physically the same. Earlier offsets and words remain in place;
+an unrelated later declaration cannot retarget an older function's storage.
+Original named callback parameters can save an integer expression's returned
+word, including an effectful retained integer call, through the same original
+native default receipt and eight-byte payload allowance.
+
+Numeric callback words have zero executable owners. A reached indirect call
+captures its original cell before reverse argument evaluation, preserves those
+argument effects and reports `HCIRVM0024` from the native call site. Uncalled
+numeric callbacks do not fault. Uninitialized cells and indexed bounds retain
+their existing native checks. Task collection rejects every original `&Function`
+producer with `HCBACK0002` before entry because its image would otherwise be
+released while the stored code address remained. This storage connection adds
+no persistent executable entry or exported ABI.
 
 `Native_source_execution.evaluate` accepts the original session, preprocessor
 configuration and source. An internal synchronous dispatch connects source
@@ -227,8 +262,9 @@ in OCaml.
 
 This source-task path supports integer globals, fixed integer arrays,
 integer function statics, retained direct and joined JIT extern calls, and their
-original literals and named integer defaults. Runtime-dependent dimensions, task callback
-storage, wider and anonymous defaults, native `#exe`,
+original literals, numeric callback storage and named integer defaults, including
+integer words saved for named callback parameters. Runtime-dependent dimensions,
+executable task callback targets, wider and anonymous defaults, native `#exe`,
 persistent executable addresses and AOT source-task execution remain separate
 work under #704.
 The compiler retains each successful live JIT static allocation, including

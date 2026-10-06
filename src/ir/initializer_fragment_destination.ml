@@ -85,7 +85,9 @@ let create ~task_view ~reference ~slot ~layout typed =
                 ~some:(fun type_ ->
                   Option.is_some (Integer_scalar_storage.of_type type_))
                 (Typed.result_type value)
-             || (callback && Typed.result_is_callback_storage value))
+             || callback
+                && (Typed.result_is_callback_storage value
+                   || Typed.result_is_numeric_callback value))
         then Ok ()
         else
           Error

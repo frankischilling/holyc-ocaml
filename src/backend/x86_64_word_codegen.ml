@@ -4827,11 +4827,11 @@ let validate_callable_returns graph return_kind =
       done
 
 let preflight_callable_graph ~runtime_calls ~source_globals
-    ~allow_retained_functions ~slot_root_runtime_calls ~slot_bindings
-    ~parameter_defaults ~functions ~code_edges ~indirect_code_edges
-    ~arena_code_cells ~global_storage ~literal_storage ~runtime_owner ~owner
-    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
-    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~allow_retained_functions ~task_callback_words_only ~slot_root_runtime_calls
+    ~slot_bindings ~parameter_defaults ~functions ~code_edges
+    ~indirect_code_edges ~arena_code_cells ~global_storage ~literal_storage
+    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t) ~variadic
+    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -5006,6 +5006,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
         (Computation.forward target_type)
     in
     mark_code value targets;
+    (* Task collection rejects every original function-address producer before
+       entry. All admitted callback stores therefore have zero executable
+       owners; their native loads retain the complete numeric word. *)
+    if task_callback_words_only then
+      numeric_code_values := Value_set.add value.value_id !numeric_code_values;
     (operation value, None)
   in
   let store_code description position result target_type input_id targets
@@ -5128,16 +5133,25 @@ let preflight_callable_graph ~runtime_calls ~source_globals
           List.exists
             (fun id -> Value_map.mem id !code_values)
             description.operands
+          && (not
+                (List.mem description.opcode
+                   [
+                     Opcode.Ic_assign;
+                     Ic_equ_equ;
+                     Ic_not_equ;
+                     Ic_holyc_typecast;
+                     Ic_end_exp;
+                     Ic_set_rax;
+                   ]))
           && not
-               (List.mem description.opcode
-                  [
-                    Opcode.Ic_assign;
-                    Ic_equ_equ;
-                    Ic_not_equ;
-                    Ic_holyc_typecast;
-                    Ic_end_exp;
-                    Ic_set_rax;
-                  ])
+               (task_callback_words_only
+               && description.opcode = Opcode.Ic_return_val
+               && List.for_all
+                    (fun id ->
+                      match Value_map.find_opt id !values with
+                      | Some value -> is_numeric_code value
+                      | None -> false)
+                    description.operands)
         then
           unsupported description
             "native owned code values require callback storage, equality or a \
@@ -7591,7 +7605,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         operand values description position operand_id
                       in
                       if Option.is_some (code_source input) then
-                        (Discard_void, None)
+                        if task_callback_words_only && is_numeric_code input
+                        then
+                          ( Discard_value (input, I64),
+                            if is_entry then Some I64 else None )
+                        else (Discard_void, None)
                       else if Type.pointer_depth input.declared_type <> 0 then (
                         ignore
                           (checked_reference description input.declared_type);
@@ -7667,9 +7685,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       unsupported description
                         "U0 source functions cannot return a word value"
                   | Callable_word_return _ ->
-                      ignore
-                        (checked_scalar ~allow_public:true description
-                           input.declared_type);
+                      if not (task_callback_words_only && is_numeric_code input)
+                      then
+                        ignore
+                          (checked_scalar ~allow_public:true description
+                             input.declared_type);
                       (Return_value input, None))
               | _ ->
                   malformed description
@@ -8310,16 +8330,6 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
   let add source =
     let definition = source.source_definition in
     let body = definition.body in
-    if
-      source.source_historical
-      && List.exists
-           (fun location ->
-             Option.is_some (Frame.location_callback_pointer location))
-           (Frame.function_locations definition.frame)
-    then
-      reject ?span:(Function.span body) "HCBACK0002"
-        "retained native task functions do not yet admit cross-event callback \
-         storage";
     match find_body body with
     | Some prior ->
         if
@@ -8432,86 +8442,73 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
   let scan ~runtime_calls ~source_globals ~source_functions ~historical ~owner
       graph =
     let addresses =
-      if historical then
-        match Runtime.original_function_addresses runtime_calls ~owner with
-        | Some addresses -> Some addresses
-        | None ->
-            reject "HCBACK0003"
-              "retained native task function address context is not its \
-               original sealed graph"
-      else None
+      match Runtime.original_function_addresses runtime_calls ~owner with
+      | Some addresses -> addresses
+      | None ->
+          reject "HCBACK0003"
+            "native task function address context is not its original sealed \
+             graph"
     in
-    (if historical then
-       match Runtime.original_callback_calls runtime_calls ~owner with
-       | Some [] -> ()
-       | Some _ ->
-           reject "HCBACK0002"
-             "retained native task functions do not yet admit cross-event \
-              callbacks"
-       | None ->
-           reject "HCBACK0003"
-             "retained native task callback context is not its original sealed \
-              graph");
+    (match Runtime.original_callback_calls runtime_calls ~owner with
+    | Some _ -> ()
+    | None ->
+        reject "HCBACK0003"
+          "native task callback context is not its original sealed graph");
     List.iter
       (fun block ->
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
             let raw = Sequence.description instruction in
-            if historical then (
-              let source_storage =
-                match raw.payload with
-                | Some (Sequence.Symbol symbol) ->
-                    Ir.Integer_globals.find_storage source_globals symbol
-                | Some (Sequence.Retained_global reference) ->
-                    Ir.Integer_globals.retained_slot source_globals reference
-                | _ -> None
-              in
-              Option.iter
-                (fun storage ->
-                  let original_static =
-                    match
-                      ( owner,
-                        Ir.Integer_globals.find_static source_globals
-                          (Ir.Integer_globals.storage_symbol storage) )
-                    with
-                    | Runtime.Function body, Some slot ->
-                        Option.is_some
-                          (Ir.Integer_globals.static_source_allocation slot)
-                        && Function.definition_matches_frame body
-                             (Ir.Integer_globals.static_frame slot)
-                        && Ir.Integer_globals.same_task_storage globals
-                             source_globals
-                        && List.for_all
-                             (Ir.Integer_globals.static_root_executed slot)
-                             (Ir.Integer_globals.static_initializers slot)
-                    | _ -> false
-                  in
-                  if
-                    Option.is_some (Ir.Integer_globals.storage_frame storage)
-                    && not original_static
-                  then
-                    reject ?span:raw.span "HCBACK0002"
-                      "retained native task functions do not yet admit \
-                       historical static storage"
-                  else if Ir.Integer_globals.storage_is_callback storage then
-                    reject ?span:raw.span "HCBACK0002"
-                      "retained native task functions do not yet admit \
-                       historical callback storage")
-                source_storage;
-              Option.iter
-                (fun addresses ->
-                  if
-                    Option.is_some
-                      (Runtime.original_function_address addresses raw)
-                  then
-                    reject ?span:raw.span "HCBACK0002"
-                      "retained native task functions do not expose stable \
-                       cross-event function addresses")
-                addresses);
+            (if historical then
+               let source_storage =
+                 match raw.payload with
+                 | Some (Sequence.Symbol symbol) ->
+                     Ir.Integer_globals.find_storage source_globals symbol
+                 | Some (Sequence.Retained_global reference) ->
+                     Ir.Integer_globals.retained_slot source_globals reference
+                 | _ -> None
+               in
+               Option.iter
+                 (fun storage ->
+                   let original_static =
+                     match
+                       ( owner,
+                         Ir.Integer_globals.find_static source_globals
+                           (Ir.Integer_globals.storage_symbol storage) )
+                     with
+                     | Runtime.Function body, Some slot ->
+                         Option.is_some
+                           (Ir.Integer_globals.static_source_allocation slot)
+                         && Function.definition_matches_frame body
+                              (Ir.Integer_globals.static_frame slot)
+                         && Ir.Integer_globals.same_task_storage globals
+                              source_globals
+                         && List.for_all
+                              (Ir.Integer_globals.static_root_executed slot)
+                              (Ir.Integer_globals.static_initializers slot)
+                     | _ -> false
+                   in
+                   if
+                     Option.is_some (Ir.Integer_globals.storage_frame storage)
+                     && not original_static
+                   then
+                     reject ?span:raw.span "HCBACK0002"
+                       "retained native task functions do not yet admit \
+                        historical static storage")
+                 source_storage);
+            if Option.is_some (Runtime.original_function_address addresses raw)
+            then
+              reject ?span:raw.span "HCBACK0002"
+                "native task function addresses require persistent executable \
+                 ownership";
             if raw.opcode = Opcode.Ic_call_start then
               match
                 Runtime.find_start runtime_calls ~owner raw.instruction_id
               with
+              | None
+                when Option.is_some
+                       (Runtime.find_callback_start runtime_calls ~owner
+                          raw.instruction_id) -> ()
               | None ->
                   reject ?span:raw.span "HCBACK0003"
                     "native task direct call is absent from its original \
@@ -9252,6 +9249,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       let entry_prepared =
         preflight_callable_graph ~runtime_calls ~source_globals:globals
           ~allow_retained_functions:(Option.is_some task_snapshot)
+          ~task_callback_words_only:(Option.is_some task_snapshot)
           ~slot_root_runtime_calls:runtime_calls ~slot_bindings
           ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
           ~functions:function_infos ~global_storage ~literal_storage
@@ -9266,6 +9264,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             preflight_callable_graph ~runtime_calls:info.runtime_calls
               ~source_globals:info.source_globals
               ~allow_retained_functions:(Option.is_some task_snapshot)
+              ~task_callback_words_only:(Option.is_some task_snapshot)
               ~slot_root_runtime_calls:runtime_calls ~slot_bindings
               ~parameter_defaults ~code_edges ~indirect_code_edges
               ~arena_code_cells ~functions:function_infos ~global_storage

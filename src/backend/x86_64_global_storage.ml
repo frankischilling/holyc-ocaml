@@ -95,6 +95,26 @@ let span_of_symbol symbol =
   | Symbol.Source_location location -> Some location.span
   | Symbol.Pinned_source _ | Symbol.Synthesized _ -> None
 
+let storage_shape_type ?span storage =
+  let type_ = Globals.storage_type storage in
+  match Globals.storage_callback_pointer storage with
+  | None -> Ok type_
+  | Some pointer ->
+      let module Headers = Sema.Function_type_resolution in
+      if
+        List.length (Headers.function_pointer_indirection_origins pointer) <> 1
+        || not
+             (Sema.Type.equal type_
+                (Headers.function_pointer_storage_type pointer |> Result.get_ok))
+      then
+        error ?span "HCBACK0003"
+          "native callback storage requires its original one-star header"
+      else
+        Ok
+          (Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
+             ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+          |> Result.get_ok)
+
 let write_word image ~offset ~width bits =
   for byte = 0 to width - 1 do
     Bytes.set image (offset + byte)
@@ -330,29 +350,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let storage = source_slot in
         let type_ = Globals.storage_type source_slot in
         let callback = Globals.storage_callback_pointer source_slot in
-        let* shape_type =
-          match callback with
-          | None -> Ok type_
-          | Some pointer ->
-              let module Headers = Sema.Function_type_resolution in
-              if
-                List.length
-                  (Headers.function_pointer_indirection_origins pointer)
-                <> 1
-                || not
-                     (Sema.Type.equal type_
-                        (Headers.function_pointer_storage_type pointer
-                        |> Result.get_ok))
-              then
-                invalid ?span
-                  "native callback storage requires its original one-star \
-                   header"
-              else
-                Ok
-                  (Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
-                     ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
-                  |> Result.get_ok)
-        in
+        let* shape_type = storage_shape_type ?span source_slot in
         let dimensions = Globals.storage_dimensions storage in
         let* shape =
           match Shape.create ~type_:shape_type ~dimensions with
@@ -753,19 +751,45 @@ let append_task_globals layout ~globals =
                 && Sema.Type.equal slot.type_ (Globals.storage_type storage)
                 && Globals.storage_opcode slot.source_slot
                    = Globals.storage_opcode storage
-              then Ok (state, slot)
+              then
+                let callback = Globals.storage_callback_pointer storage in
+                let same_origin =
+                  match (slot.callback, callback) with
+                  | None, None -> true
+                  | Some earlier, Some later -> (
+                      let module Headers = Sema.Function_type_resolution in
+                      match
+                        ( Headers.function_pointer_source earlier,
+                          Headers.function_pointer_source later )
+                      with
+                      | Some earlier, Some later -> earlier == later
+                      | _ -> earlier == later)
+                  | _ -> false
+                in
+                if not same_origin then
+                  invalid ?span
+                    "native task callback replaced its original source header"
+                else
+                  let slot = { slot with callback } in
+                  Ok
+                    ( {
+                        state with
+                        task_slots =
+                          Symbol_map.add (Symbol.id symbol) (candidate, slot)
+                            state.task_slots;
+                        task_symbols =
+                          Symbol_map.add (Symbol.id symbol) slot
+                            state.task_symbols;
+                      },
+                      slot )
               else
                 invalid ?span
                   "native task reference replaced its original storage object"
           | None ->
               let* () =
-                if
-                  Option.is_some (Globals.storage_frame storage)
-                  || Globals.storage_is_callback storage
-                then
+                if Option.is_some (Globals.storage_frame storage) then
                   unsupported ?span
-                    "native task storage requires integer globals without \
-                     callback or frame ownership"
+                    "native task storage requires original global ownership"
                 else if
                   Globals.storage_opcode storage <> Opcode.Ic_imm_i64
                   || Option.is_some (Globals.storage_initial_bits storage)
@@ -777,9 +801,11 @@ let append_task_globals layout ~globals =
                 else Ok ()
               in
               let type_ = Globals.storage_type storage in
+              let callback = Globals.storage_callback_pointer storage in
+              let* shape_type = storage_shape_type ?span storage in
               let dimensions = Globals.storage_dimensions storage in
               let* shape =
-                match Shape.create ~type_ ~dimensions with
+                match Shape.create ~type_:shape_type ~dimensions with
                 | Ok shape -> Ok shape
                 | Error Shape.Unsupported_type ->
                     unsupported ?span
@@ -810,7 +836,7 @@ let append_task_globals layout ~globals =
                   resource ?span "native task globals exceed max_global_bytes"
                 else Ok ()
               in
-              let* arena_bytes, flag_offset =
+              let* data_and_flags_bytes, flag_offset =
                 if is_array then
                   if
                     extent_bytes > hard_max_arena_bytes - state.task_arena_bytes
@@ -841,6 +867,21 @@ let append_task_globals layout ~globals =
                      arena bound"
                 else Ok (width + 1, state.task_arena_bytes + width)
               in
+              let* arena_bytes, code_owner_offset =
+                if Option.is_none callback then Ok (data_and_flags_bytes, None)
+                else if
+                  element_count
+                  > (hard_max_arena_bytes - state.task_arena_bytes
+                   - data_and_flags_bytes)
+                    / 8
+                then
+                  resource ?span
+                    "native task callback owners exceed the arena bound"
+                else
+                  Ok
+                    ( data_and_flags_bytes + (element_count * 8),
+                      Some (state.task_arena_bytes + data_and_flags_bytes) )
+              in
               let slot =
                 {
                   source_slot = storage;
@@ -848,8 +889,8 @@ let append_task_globals layout ~globals =
                   static_source = None;
                   symbol;
                   type_;
-                  callback = None;
-                  code_owner_offset = None;
+                  callback;
+                  code_owner_offset;
                   scalar;
                   dimensions;
                   strides;

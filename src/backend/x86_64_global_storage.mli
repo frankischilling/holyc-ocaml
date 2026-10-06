@@ -100,12 +100,15 @@ val create_task_snapshot :
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   (task_snapshot, error list) result
-(** Append previously unseen original scalar globals or fixed integer arrays and
-    their initialization flags without moving earlier offsets. Arrays retain the
-    original checked dimensions, strides and full object extent, with one
-    reversed eight-byte initialization flag per element. This allocates
-    immutable layout metadata, not runtime values, and grants no source
-    execution authority. *)
+(** Append original scalar globals, fixed integer arrays and one-star callback
+    word storage without moving earlier offsets. Arrays retain their checked
+    dimensions, strides and extent, with one reversed eight-byte initialization
+    flag per element. Callback cells also reserve one eight-byte
+    executable-owner lane per element. Header completion may refresh the
+    callback pointer only within the same physical original source object. Data
+    extent charges the logical limit; flags and owner lanes charge the arena
+    bound. This allocates layout metadata, not runtime values, and grants no
+    source entry or executable ownership. *)
 
 val task_snapshot_matches_layout : task_snapshot -> task_layout -> bool
 val task_snapshot_arena_image : task_snapshot -> string
