@@ -18,8 +18,10 @@ Both preprocessing modes use their original source identities and produce a
 hosted native image. AOT mode here does not write an object or TempleOS BIN.
 
 The separate JIT [native source-task path](native-source-tasks.md) executes
-named integer defaults containing live storage reads, updates and retained
-calls. It uses original native expression fragments and saved-header receipts.
+named and anonymous integer defaults containing live storage reads, updates and
+retained calls. One-star callback parameters can also save original owned values.
+It uses original native expression fragments and saved-header receipts. See
+[live anonymous defaults](native-anonymous-defaults.md).
 The closed-default rules below describe the isolated `host-jit` target.
 
 ## Supported domain

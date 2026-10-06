@@ -155,8 +155,7 @@ let source_consumers_and_shapes () =
     (run
        "extern I64 Next();I64 F(){return Next();}I64 (*p)()=&F;I64 \
         Next(){return 42;}p();");
-  diagnostic "HCRUN0006"
-    (run "I64 F(I64 x){return x+1;}I64 (*p)(I64 x=41)=&F;p();");
+  agrees 42L "I64 F(I64 x){return x+1;}I64 (*p)(I64 x=41)=&F;p();";
   agrees 3L "I64 F(...){return argc;}I64 (*p)(...)=&F;p(9);p(1,2,3);";
   agrees 42L
     "I64 F(){return 42;}I64 Apply(I64 (*q)()){return q();}I64 (*p)(I64 \

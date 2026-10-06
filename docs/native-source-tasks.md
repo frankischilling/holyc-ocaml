@@ -124,7 +124,7 @@ address. Joined bodies are charged as part of the bounded caller closure, with
 cycles and shared dependencies included once per image. Initializer and named
 default fragments use the same source resolver.
 
-Named integer and one-star callback parameter defaults execute once at the original live header
+Named and anonymous integer and one-star callback parameter defaults execute once at the original live header
 callback. `examples/native-source-defaults.hc` saves 41 from `Seed()`, returns
 42 from `Answer()`, changes the source counter and returns 42 again. Each
 omitted argument loads the saved value from its original header. Explicit
@@ -149,7 +149,7 @@ reported by `Native_source_execution.default_bytes` and JSON
 call-depth limits keep their existing cumulative or per-activation meanings.
 Reached faults preserve earlier native writes, output and work; later defaults
 and body publication stop. Named scalar-pointer, string, F64 and
-aggregate defaults, anonymous callback defaults and `lastclass` remain separate
+aggregate defaults and `lastclass` remain separate
 work. The isolated `host-jit` target keeps its closed-default restriction.
 
 The task publishes function source records when its original declaration
@@ -279,7 +279,12 @@ The IR consumer preserves the same declaration-time capture and source-position
 rules. Hosted output-provider callback addresses still require their own checked
 entries and receive a diagnostic rather than an unresolved capture.
 
-Live anonymous expression defaults remain required work. Direct automatic
+Live anonymous expression defaults and nested saved callback owners use the
+same native completion path. See [anonymous defaults](native-anonymous-defaults.md)
+and `examples/native-source-anonymous-defaults.hc`. Callback calls inside defaults
+retain their original typed sources; integer static initializers can consume
+these saved arguments. Static callback allocations in the streaming native task
+still require their separate connection. Direct automatic
 callback initializers remain rejected at the pinned `Grid.HC` restriction.
 
 Numeric callback words can supply all ten compound update operators for integer
@@ -350,9 +355,9 @@ in OCaml.
 
 This source-task path supports integer globals, fixed integer arrays,
 integer function statics, retained direct and joined JIT extern calls, and their
-original literals, numeric and owned callback storage, and named integer or
-one-star callback defaults. Runtime-dependent dimensions, wider callback defaults,
-live anonymous expression defaults,
+original literals, numeric and owned callback storage, and named or anonymous
+integer and one-star callback defaults. Runtime-dependent dimensions, wider callback defaults,
+streaming static callback allocations,
 hosted-provider callback entries, native `#exe` and AOT source-task execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.

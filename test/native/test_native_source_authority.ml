@@ -1765,17 +1765,24 @@ let native_static_copy_host_bounds () =
         "unaffected flag representations remain valid" 1
         (raw_static_copy corrupt (40, 0, 32, "A")))
 
-let native_default_source_authority_case text () =
+let native_default_source_authority_case ?(callback_saved = false) text () =
   let module Request = Task.Native_default in
   let module Program = Holyc_lib__Ir.Default_fragment_program in
   let module Destination = Holyc_lib__Ir.Default_fragment_destination in
   let module Prepared = Holyc_lib__Ir.Prepared_parameter_default in
+  let module Callback = Holyc_lib__Ir.Prepared_callback_default in
+  let module Headers = Holyc_lib__Sema.Function_type_resolution in
   let module Calls = Holyc_lib__Ir.Runtime_call_context in
   let module Graph = Holyc_lib__Ir.Block_graph in
   let module Sequence = Holyc_lib__Ir.Instruction_sequence in
   let session, config, source = inputs text in
   let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
-  let arena = Runtime.create_task_arena ~max_arena_bytes:16 layout |> checked in
+  let arena =
+    Runtime.create_task_arena
+      ~max_arena_bytes:(if callback_saved then 128 else 16)
+      layout
+    |> checked
+  in
   let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
   let saved = ref [] and executions = ref 0 and checked_saved = ref false in
   let execute image =
@@ -1872,6 +1879,83 @@ let native_default_source_authority_case text () =
                              ~parameter copy);
                         checked_saved := true)
                   (Calls.arguments call)));
+    let seen = ref [] in
+    let rec inspect_callbacks globals calls owner graph =
+      let callbacks =
+        Calls.original_callback_calls calls ~owner |> Option.get
+      in
+      List.iter
+        (fun (call : Calls.callback_call) ->
+          List.iter
+            (fun argument ->
+              match Calls.argument_prepared_callback_default argument with
+              | None -> ()
+              | Some prepared ->
+                  let pointer = call.callback_pointer in
+                  let parameter =
+                    pointer |> Headers.function_pointer_signature
+                    |> Headers.signature_parameters
+                    |> fun parameters ->
+                    List.nth parameters
+                      (Callback.receipt prepared).callback_default_index
+                  in
+                  Request.callback_default request ~globals ~pointer ~parameter
+                    prepared
+                  |> checked;
+                  rejected
+                    "foreign domain cannot inspect saved anonymous defaults"
+                    (Domain.join
+                       (Domain.spawn (fun () ->
+                            Request.callback_default request ~globals ~pointer
+                              ~parameter prepared)));
+                  List.iter
+                    (fun value ->
+                      let copy =
+                        Callback.create_value
+                          ~namespace:(Callback.namespace prepared)
+                          ~header:(Callback.header prepared)
+                          ~receipt:(Callback.receipt prepared)
+                          ~value
+                        |> checked
+                      in
+                      rejected
+                        "copied or changed anonymous value is not the \
+                         completed saved object"
+                        (Request.callback_default request ~globals ~pointer
+                           ~parameter copy))
+                    [
+                      Callback.value prepared;
+                      Holyc_lib__Ir.Saved_parameter_value.word 17L;
+                    ];
+                  checked_saved := true)
+            call.callback_arguments)
+        callbacks;
+      Graph.blocks graph
+      |> List.iter (fun block ->
+          Sequence.instructions (Graph.instructions block)
+          |> List.iter (fun instruction ->
+              let id = (Sequence.description instruction).instruction_id in
+              match Calls.find_start calls ~owner id with
+              | None -> ()
+              | Some call ->
+                  Option.iter
+                    (fun link ->
+                      let source =
+                        Request.function_source request link |> checked
+                      in
+                      let body = source.source_definition.body in
+                      if not (List.exists (( == ) body) !seen) then (
+                        seen := body :: !seen;
+                        inspect_callbacks source.source_globals
+                          source.source_runtime_calls (Calls.Function body)
+                          (Body.body body)))
+                    (Calls.retained_function call)))
+    in
+    if callback_saved then
+      inspect_callbacks globals
+        (Program.runtime_calls program)
+        Calls.Entry
+        (Holyc_lib__Ir.X87_stack.graph (Program.entry program));
     List.iter
       (fun status_abi ->
         ignore
@@ -1947,6 +2031,19 @@ let native_owned_default_source_authority () =
   native_default_source_authority_case
     "I64 Seed(){return 42;}I64 A(I64 (*q)()=&Seed){return q();}I64 B(I64 \
      n=A()){return n;}B();"
+    ()
+
+let native_anonymous_default_source_authority () =
+  native_default_source_authority_case ~callback_saved:true
+    "I64 Seed(){return 40;}I64 F(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 \
+     n=Seed());p=&F;return p();}I64 Answer(I64 n=Run()){return n;}Answer();"
+    ()
+
+let native_nested_default_source_authority () =
+  native_default_source_authority_case ~callback_saved:true
+    "I64 Seed(){return 42;}I64 F(I64 (*q)()){return q();}I64 Run(){I64 \
+     (*p)(I64 (*q)()=&Seed);p=&F;return p();}I64 Answer(I64 n=Run()){return \
+     n;}Answer();"
     ()
 
 let native_extern_slot_authority () =
@@ -2546,5 +2643,11 @@ let () =
           Alcotest.test_case
             "original owned defaults, saved identity, both ABIs and expiry"
             `Quick native_owned_default_source_authority;
+          Alcotest.test_case
+            "anonymous defaults, saved identity, both ABIs and expiry" `Quick
+            native_anonymous_default_source_authority;
+          Alcotest.test_case
+            "nested anonymous owners and exact completed receipts" `Quick
+            native_nested_default_source_authority;
         ] );
     ]

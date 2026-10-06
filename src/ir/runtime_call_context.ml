@@ -1288,7 +1288,19 @@ let require_saved_default_payload expected (item : Seq.description) =
           | Some (Seq.Saved_parameter_default original) -> original == prepared
           | _ -> false)
           "saved callback argument lost its original prepared object")
-    expected.expected_default
+    expected.expected_default;
+  Option.iter
+    (fun prepared ->
+      if Option.is_none (Prepared_callback_default.word_bits prepared) then
+        require ?span:item.span
+          (item.opcode = Opcode.Ic_imm_i64
+          && item.operands = [] && item.flags = 0x2000L
+          &&
+          match item.payload with
+          | Some (Seq.Saved_callback_default original) -> original == prepared
+          | _ -> false)
+          "saved anonymous callback argument lost its original prepared object")
+    expected.expected_callback_default
 
 let rec producer_origin result =
   (* Expression_lowering emits operator origins for operations. Transparent
@@ -1433,7 +1445,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
               expected_source = Prepared_callback_default.type_ prepared;
               expected_target = parameter_type parameter;
               expected_origin = span;
-              expected_count = Some (Prepared_callback_default.bits prepared);
+              expected_count = Prepared_callback_default.word_bits prepared;
               expected_callback_default = Some prepared;
               expected_default = None;
             }
@@ -2658,6 +2670,88 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
             (Typed.function_implicit_outputs source)
       | Top_level_call _ | Top_level_output _ -> false
     in
+    let static_source_root ?span description =
+      let region, frame =
+        match entry_region ?span description with
+        | Some region -> (
+            match Global_initialization.storage_frame region with
+            | Some frame -> (region, frame)
+            | None ->
+                fail ?span
+                  "function-scope entry call cannot belong to a global \
+                   initializer")
+        | None ->
+            fail ?span
+              "function-scope entry call has no checked static-initializer \
+               owner"
+      in
+      let source =
+        source_function ?span (Sema.Function_frame_layout.function_symbol frame)
+      in
+      let static =
+        Global_initialization.static_regions initialization
+        |> List.find_opt (fun static ->
+            let bounds = Global_initialization.describe_static static in
+            Seq.Instruction_id.equal bounds.first
+              (Global_initialization.storage_first region)
+            && Seq.Instruction_id.equal bounds.last
+                 (Global_initialization.storage_last region))
+      in
+      let root =
+        match static with
+        | Some static -> Global_initialization.static_root static
+        | None ->
+            fail ?span "static-initializer region has no exact source root"
+      in
+      require ?span
+        (List.exists (( == ) root) (Typed.function_initializers source))
+        "static-initializer root is foreign to its typed function";
+      (source, root)
+    in
+    let function_callback_subtree_contains source selected root =
+      let callbacks =
+        Typed.function_calls source
+        |> List.filter_map (function
+          | Typed.Indirect_call_result call ->
+              Some (Callback_source.Function call)
+          | _ -> None)
+      in
+      let rec visit = function
+        | [] -> false
+        | value :: rest ->
+            if Callback_source.matches_result selected value then true
+            else
+              let direct_arguments =
+                match Typed.result_call_resolution value with
+                | Some (Resolution.Direct_call resolution) ->
+                    Typed.function_calls source
+                    |> List.find_map (function
+                      | Typed.Direct_call_result call
+                        when direct_resolution call == resolution ->
+                          Some
+                            (List.filter_map
+                               (fun fixed -> provided (Typed.fixed_path fixed))
+                               (Typed.direct_fixed_results call)
+                            @ Typed.direct_variadic_results call)
+                      | _ -> None)
+                    |> Option.value ~default:[]
+                | _ -> []
+              in
+              let callback_arguments =
+                callbacks
+                |> List.find_opt (fun call ->
+                    Callback_source.matches_result call value)
+                |> Option.fold ~none:[] ~some:(fun call ->
+                    Option.to_list (Callback_source.callee call)
+                    @ List.filter_map snd (Callback_source.fixed_arguments call)
+                    @ Callback_source.variadic_arguments call)
+              in
+              visit
+                (expression_children value @ direct_arguments
+               @ callback_arguments @ rest)
+      in
+      visit [ root ]
+    in
     let validate_source owner description span =
       match (owner, description.source) with
       | Function body, source ->
@@ -2666,6 +2760,16 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                (source_function ?span (Function_body.symbol body))
                source)
             "runtime call source is not owned by this exact typed function body"
+      | Entry, (Callback_call (Callback_source.Function _ as call) as source) ->
+          let function_source, root = static_source_root ?span description in
+          require ?span
+            (function_member function_source source)
+            "entry callback belongs to another static-initializer function";
+          require ?span
+            (function_callback_subtree_contains function_source call
+               (Typed.initializer_value root))
+            "entry callback is absent from its exact static-initializer \
+             expression"
       | Entry, Callback_call call -> (
           require ?span
             (Callback_source.top_level_member call top_level)
@@ -2711,47 +2815,10 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
       | Entry, Function_output _ ->
           fail ?span "function output statement cannot authorize a module entry"
       | Entry, (Function_call target as source) ->
-          let region, frame =
-            match entry_region ?span description with
-            | Some region -> (
-                match Global_initialization.storage_frame region with
-                | Some frame -> (region, frame)
-                | None ->
-                    fail ?span
-                      "function-scope entry call cannot belong to a global \
-                       initializer")
-            | None ->
-                fail ?span
-                  "function-scope entry call has no checked static-initializer \
-                   owner"
-          in
-          let function_source =
-            source_function ?span
-              (Sema.Function_frame_layout.function_symbol frame)
-          in
+          let function_source, root = static_source_root ?span description in
           require ?span
             (function_member function_source source)
             "entry call belongs to another static-initializer function";
-          let static =
-            Global_initialization.static_regions initialization
-            |> List.find_opt (fun static ->
-                let bounds = Global_initialization.describe_static static in
-                Seq.Instruction_id.equal bounds.first
-                  (Global_initialization.storage_first region)
-                && Seq.Instruction_id.equal bounds.last
-                     (Global_initialization.storage_last region))
-          in
-          let root =
-            match static with
-            | Some static -> Global_initialization.static_root static
-            | None ->
-                fail ?span "static-initializer region has no exact source root"
-          in
-          require ?span
-            (List.exists
-               (fun actual -> actual == root)
-               (Typed.function_initializers function_source))
-            "static-initializer root is foreign to its typed function";
           require ?span
             (function_subtree_contains function_source
                (Sema.Function_call_target_classification.source target)
@@ -3014,13 +3081,46 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
       let slots =
         List.fold_left seal_slot_block Instructions.empty graph.original_blocks
       in
+      let saved_address instruction value =
+        match Saved_parameter_value.callback_source value with
+        | None
+          when Option.is_some
+                 (Saved_parameter_value.undefined_callback_source value) -> None
+        | None ->
+            fail ?span:instruction.Seq.span
+              "saved callback producer contains an ordinary word"
+        | Some (link, source) ->
+            let declaration =
+              Retained_function.metadata link
+              |> Sema.Outer_environment.function_declaration
+            in
+            let body =
+              List.find_map
+                (fun (body, _) ->
+                  if
+                    Option.fold ~none:false
+                      ~some:(fun original -> original == declaration)
+                      (Function_body.definition_declaration body)
+                  then Some body
+                  else None)
+                functions
+            in
+            Some
+              {
+                address_instruction = instruction;
+                address_source = source;
+                address_declaration = declaration;
+                address_link = link;
+                address_body = body;
+              }
+      in
       let addresses =
         List.concat_map (fun (_, items, _) -> items) graph.original_blocks
         |> List.fold_left
              (fun addresses (instruction : Seq.description) ->
                let saved =
                  match instruction.payload with
-                 | Some (Seq.Saved_parameter_default prepared) -> (
+                 | Some (Seq.Saved_parameter_default prepared) ->
                      let arguments =
                        Instructions.bindings graph.calls
                        |> List.concat_map (fun (_, call) -> call.arguments_)
@@ -3035,41 +3135,26 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                           arguments)
                        "saved callback producer has no exact original call \
                         argument";
-                     match
-                       Prepared_parameter_default.callback_source prepared
-                     with
-                     | None
-                       when Option.is_some
-                              (Prepared_parameter_default
-                               .undefined_callback_source prepared) -> None
-                     | None ->
-                         fail ?span:instruction.span
-                           "saved callback producer contains an ordinary word"
-                     | Some (link, source) ->
-                         let declaration =
-                           Retained_function.metadata link
-                           |> Sema.Outer_environment.function_declaration
-                         in
-                         let body =
-                           List.find_map
-                             (fun (body, _) ->
-                               if
-                                 Option.fold ~none:false
-                                   ~some:(fun original ->
-                                     original == declaration)
-                                   (Function_body.definition_declaration body)
-                               then Some body
-                               else None)
-                             functions
-                         in
-                         Some
-                           {
-                             address_instruction = instruction;
-                             address_source = source;
-                             address_declaration = declaration;
-                             address_link = link;
-                             address_body = body;
-                           })
+                     saved_address instruction
+                       (Prepared_parameter_default.value prepared)
+                 | Some (Seq.Saved_callback_default prepared) ->
+                     let arguments =
+                       Instructions.bindings graph.callback_calls
+                       |> List.concat_map (fun (_, call) ->
+                           call.callback_arguments)
+                     in
+                     require ?span:instruction.span
+                       (List.exists
+                          (fun argument ->
+                            Seq.Instruction_id.equal argument.producer
+                              instruction.instruction_id
+                            && Option.fold ~none:false ~some:(( == ) prepared)
+                                 argument.prepared_callback_default)
+                          arguments)
+                       "saved anonymous callback producer has no original call \
+                        argument";
+                     saved_address instruction
+                       (Prepared_callback_default.value prepared)
                  | _ -> None
                in
                match saved with

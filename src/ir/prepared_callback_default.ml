@@ -6,16 +6,23 @@ type t = {
   receipt : Frontend.Parser.completed_callback_default;
   source : Frontend.Ast.function_parameter;
   type_ : Sema.Type.t;
-  bits : int64;
+  value : Saved_parameter_value.t;
 }
 
-let bits v = v.bits
+let value v = v.value
+let bits v = Option.get (Saved_parameter_value.word_bits v.value)
+let word_bits v = Saved_parameter_value.word_bits v.value
+let callback_source v = Saved_parameter_value.callback_source v.value
+
+let undefined_callback_source v =
+  Saved_parameter_value.undefined_callback_source v.value
+
 let type_ v = v.type_
 let receipt v = v.receipt
 let namespace v = v.namespace
 let header v = v.header
 
-let create ~namespace ~header ~receipt ~bits =
+let create_value ~namespace ~header ~receipt ~value =
   let ( let* ) = Result.bind in
   let* source =
     match
@@ -53,7 +60,19 @@ let create ~namespace ~header ~receipt ~bits =
           source.pointer_layers
         |> Result.map Sema.Type_reference.resolved_type
   in
-  Ok { namespace; header; receipt; source; type_; bits }
+  let* () =
+    if
+      Option.is_none (Saved_parameter_value.word_bits value)
+      && Option.is_none source.function_pointer
+    then
+      Error "owned anonymous default requires its original callback parameter"
+    else Ok ()
+  in
+  Ok { namespace; header; receipt; source; type_; value }
+
+let create ~namespace ~header ~receipt ~bits =
+  create_value ~namespace ~header ~receipt
+    ~value:(Saved_parameter_value.word bits)
 
 let matches value ~pointer ~parameter =
   Option.fold ~none:false

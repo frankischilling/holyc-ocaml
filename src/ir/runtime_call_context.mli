@@ -73,19 +73,20 @@ val create :
     Declaration snapshots, complete call scopes, pushed argument producers,
     hidden counts and implicit statement discards are checked before
     publication. Entry callback records must belong to the exact top-level batch
-    and an executable root subtree; function and initializer sources cannot
-    supply that authority. Scheduled initializer calls must belong to that exact
-    checked initializer expression, including nested argument expressions;
-    implicit output statements cannot belong to initializer regions. Matching
-    spellings or table-local symbol IDs do not establish ownership. Pointer
-    scale/add/subtract, difference size/division and comparison instructions and
-    canonical constant shifts, integer AND and AND/SHR updates and their
-    original transitive producers are also sealed; replacing them with
-    type-compatible records does not retain source authority. A numeric producer
-    cannot be rewritten into a pointer comparison/difference or an unsealed
-    canonical constant shift. The complete original graph layout, control edges
-    and instruction records are retained as well. Changed comparisons, branches
-    and copies cannot acquire that checked source context. *)
+    and an executable root subtree, or to the original typed function and exact
+    static-initializer expression in its sealed entry region. Scheduled
+    initializer calls must belong to that exact checked initializer expression,
+    including nested argument expressions; implicit output statements cannot
+    belong to initializer regions. Matching spellings or table-local symbol IDs
+    do not establish ownership. Pointer scale/add/subtract, difference
+    size/division and comparison instructions and canonical constant shifts,
+    integer AND and AND/SHR updates and their original transitive producers are
+    also sealed; replacing them with type-compatible records does not retain
+    source authority. A numeric producer cannot be rewritten into a pointer
+    comparison/difference or an unsealed canonical constant shift. The complete
+    original graph layout, control edges and instruction records are retained as
+    well. Changed comparisons, branches and copies cannot acquire that checked
+    source context. *)
 
 val matches :
   t ->

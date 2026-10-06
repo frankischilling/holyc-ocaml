@@ -1140,6 +1140,9 @@ let prepared_parameter_default globals ~header ~parameter =
 let task_catalog_contains_parameter_default (catalog : task_catalog) prepared =
   List.exists (( == ) prepared) catalog.defaults
 
+let task_catalog_contains_callback_default (catalog : task_catalog) prepared =
+  List.exists (( == ) prepared) catalog.callback_defaults
+
 let check_task_namespace catalog namespace =
   if Option.is_some catalog.namespace then
     Error "task declaration namespace is already bound"

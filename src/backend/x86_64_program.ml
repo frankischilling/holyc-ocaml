@@ -143,7 +143,8 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim
     ~runtime_calls ~retained_function_source ~retained_slot_binding
     ~retained_slot_address_binding ~retained_slot_address_refresh
-    ~retained_parameter_default ~initialization ~entry ~functions () =
+    ~retained_parameter_default ~retained_callback_default ~initialization
+    ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -163,7 +164,8 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
       ~task_snapshot:snapshot ~max_ir_instructions ~max_code_bytes
       ~runtime_calls ~retained_function_source ~retained_slot_binding
       ~retained_slot_address_binding ~retained_slot_address_refresh
-      ~retained_parameter_default ~initialization ~entry ~functions ()
+      ~retained_parameter_default ~retained_callback_default ~initialization
+      ~entry ~functions ()
     |> Result.map_error project_errors
   in
   let snapshot = Option.get (Codegen.program_task_snapshot image) in
@@ -203,6 +205,8 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
       (Task_dispatch.initializer_slot_address_refresh request)
     ~retained_parameter_default:
       (Task_dispatch.initializer_parameter_default request)
+    ~retained_callback_default:
+      (Task_dispatch.initializer_callback_default request)
     ~initialization:(Fragment.initialization program)
     ~entry:(Fragment.entry program) ~functions:[] ()
 
@@ -221,6 +225,7 @@ let compile_task_static_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~retained_slot_address_binding:(Request.slot_address_binding request)
     ~retained_slot_address_refresh:(Request.slot_address_refresh request)
     ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
     ~initialization:(Program.initialization program)
     ~entry:(Program.entry program) ~functions:[] ()
 
@@ -245,6 +250,7 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
     ~retained_slot_address_binding:(Request.slot_address_binding request)
     ~retained_slot_address_refresh:(Request.slot_address_refresh request)
     ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
     ~initialization:(Program.initialization program)
     ~entry:(Program.entry program) ~functions:[] ()
 
@@ -265,6 +271,7 @@ let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
       (Task_dispatch.command_slot_address_refresh request)
     ~retained_parameter_default:
       (Task_dispatch.command_parameter_default request)
+    ~retained_callback_default:(Task_dispatch.command_callback_default request)
     ~initialization:(Unit.initialization program)
     ~entry:(Unit.entry program) ~functions:(Unit.functions program) ()
 

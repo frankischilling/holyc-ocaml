@@ -40,6 +40,7 @@ type payload =
   | Callback of Sema.Function_type_resolution.function_pointer
   | Retained_global of Retained_global.t
   | Saved_parameter_default of Prepared_parameter_default.t
+  | Saved_callback_default of Prepared_callback_default.t
   | Block of Block_id.t
   | Block_targets of Block_id.t list
 

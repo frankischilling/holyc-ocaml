@@ -69,10 +69,11 @@ val evaluate :
 
     One-star callback cells and fixed arrays retain numeric words with separate
     zero executable-owner lanes. Automatic callback storage, fixed callback
-    parameters and saved integer defaults use the same native ownership path.
-    Reached numeric calls preserve reverse argument effects before the native
-    unowned-target fault. Original function-address producers reject before
-    entry; persistent executable callback targets require separate code owners.
+    parameters and saved integer or callback defaults use the same native
+    ownership path. Reached numeric calls preserve reverse argument effects
+    before the native unowned-target fault. Original function-address producers
+    retain canonical native entries with separate executable owners and source
+    lifetime checks.
 
     Named direct functions retain their original admitted source body, frame,
     call context and global references. Each caller fragment compiles its exact
@@ -94,14 +95,15 @@ val evaluate :
     their checked byte count to the owning initializer allowance. Those native
     writes appear in [static_copies], with no expression IR or code image.
     Static values are not computed by the interpreter or copied from prepared
-    storage. Named integer parameter defaults execute once in their original
-    native expression fragment and retain full words in the original header.
-    Calls require those exact saved objects and completed native receipts. Each
-    word charges eight [default_bytes]; actual expression work consumes both the
-    shared native allowance and remaining initializer steps. Anonymous callback,
-    string, pointer and F64 defaults remain unsupported. Unsupported task
-    declarations and AOT mode return diagnostics. There is no isolated program
-    or interpreter fallback. *)
+    storage. Named and anonymous integer or one-star callback parameter defaults
+    execute once in their original native expression fragment and retain full
+    words or original callback values in the same original header. Calls require
+    those exact saved objects and completed native receipts. Each word charges
+    eight [default_bytes]; actual expression work consumes both the shared
+    native allowance and remaining initializer steps. Streaming static callback
+    allocations, string, ordinary object-pointer and F64 defaults remain
+    unsupported. Unsupported task declarations and AOT mode return diagnostics.
+    There is no isolated program or interpreter fallback. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val fragments : report -> fragment list

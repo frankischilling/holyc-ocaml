@@ -253,6 +253,14 @@ val task_native_parameter_default :
   Prepared_parameter_default.t ->
   (unit, string) result
 
+val task_native_callback_default :
+  task_state ->
+  globals:Integer_globals.t ->
+  pointer:Sema.Function_type_resolution.function_pointer ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  Prepared_callback_default.t ->
+  (unit, string) result
+
 val task_default_bits :
   task_state -> Frontend.Parser.completed_parameter_default -> int64 option
 

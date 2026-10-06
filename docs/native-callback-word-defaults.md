@@ -60,7 +60,12 @@ materialization, reverse arguments and indirect cleanup, at TempleOS commit
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`. Private executable ownership enforces
 the hosted runtime contract. This adds no TempleOS capture or exported ABI proof.
 
-Effectful, owned-code, string, `lastclass`, floating-value and ordinary
+The separate JIT [native source-task path](native-anonymous-defaults.md) executes
+live named and anonymous expression defaults and captures original callback
+owners at their headers. Its successful native receipts do not extend the
+isolated closed-default proof described above.
+
+String, `lastclass`, floating-value and ordinary
 object-pointer defaults remain unfinished, as do multistar consumers, member
-storage, JIT owned-code/effectful callback initializers and callback updates, ordinary owned-code storage/returns,
-replacement/linking, general floating/aggregate execution and the full compiler.
+storage, streaming static callback allocation/initialization, general
+floating/aggregate execution and the full compiler.

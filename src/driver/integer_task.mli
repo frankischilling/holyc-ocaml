@@ -100,6 +100,22 @@ module Native_dispatch : sig
     Ir.Prepared_parameter_default.t ->
     (unit, string) result
 
+  val initializer_callback_default :
+    initializer_request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+
+  val command_callback_default :
+    command_request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+
   val claim_command_request : command_request -> (unit, string) result
 
   val command_function_source :
@@ -192,6 +208,14 @@ module Native_static_initializer : sig
     parameter:Sema.Function_type_resolution.parameter ->
     Ir.Prepared_parameter_default.t ->
     (unit, string) result
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
 end
 
 module Native_default : sig
@@ -244,6 +268,14 @@ module Native_default : sig
     (unit, string) result
 
   val initializer_remaining : request -> int
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
   (** Inspect original saved objects only while offered. Entry claims once in
       the originating domain; native work can be recorded once after entry. The
       request expires when its synchronous source callback returns. *)

@@ -21,13 +21,13 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 11)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 12)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
      [native-source-defaults.hc] [native-source-extern-slots.hc] \
      [native-source-callback-words.hc] [native-source-slot-addresses.hc] \
-     [native-source-callback-updates.hc]"
+     [native-source-callback-updates.hc] [native-source-anonymous-defaults.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -651,6 +651,49 @@ let () =
        *pointer=&total;local+=amount;total+=amount;values[1]+=amount;*pointer+=amount;return \
        local+values[1]+total;}I64 (*amount)()[2]={0,7};Accumulate(amount[1]);"
       update_checks;
+  let anonymous_checks path =
+    let native = json_path path in
+    require
+      (final_bits native = "0x000000000000002a")
+      "original anonymous numeric and owned defaults";
+    require
+      (native |> member "prepared_default_bytes" |> to_int = 16)
+      "both original anonymous parameters retain their saved payload";
+    require
+      (final_bits (json_path ~target:"ir" path) = final_bits native)
+      "independent IR anonymous saved history";
+    require
+      (has_diagnostic "HCRUN0006" (json_path ~target:"host-jit" ~status:1 path))
+      "isolated reference-bearing anonymous default boundary";
+    require
+      (has_diagnostic "HCIRVM0011"
+         (json_path ~status:1 ~options:[ "--default-byte-limit=15" ] path))
+      "one fewer anonymous saved payload byte"
+  in
+  if Array.length Sys.argv >= 12 then anonymous_checks Sys.argv.(11)
+  else
+    with_file ".hc"
+      "I64 Counter=40;I64 Seed(){return ++Counter;}I64 Answer(I64 n){return \
+       n+1;}I64 (*answer)(I64 n=Seed())=&Answer;I64 F(){return 42;}I64 \
+       Call(I64 (*q)()){return q();}I64 (*invoke)(I64 \
+       (*q)()=&F)=&Call;Counter=100;I64 F(){return 17;}answer();invoke();"
+      anonymous_checks;
+  List.iter
+    (fun (code, text) ->
+      with_file ".hc" text (fun path ->
+          List.iter
+            (fun target ->
+              require
+                (has_diagnostic code (json_path ~target ~status:1 path))
+                "anonymous original saved target fault")
+            [ "ir"; "host-jit-task" ]))
+    [
+      ( "HCIRVM0030",
+        "extern I64 F();I64 Call(I64 (*q)()){return q();}I64 (*p)(I64 \
+         (*q)()=&F)=&Call;I64 F(){return 42;}p();" );
+      ( "HCIRVM0024",
+        "I64 Call(I64 (*q)()){return q();}I64 (*p)(I64 (*q)()=42)=&Call;p();" );
+    ];
   with_file ".hc"
     "I64 F(){return 42;}I64 Run(){I64 (*p)()=&F;return p();}Run();" (fun path ->
       List.iter

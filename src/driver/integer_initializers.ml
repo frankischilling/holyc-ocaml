@@ -136,10 +136,10 @@ let value_instructions graph =
 
 let prepare_internal ?fragment ?default ?default_execution ?internal_binding
     ?dimension ?offset ?native_global ?native_static ?(already_prepared = [])
-    ?(statics_prepared = []) ?(function_calls = []) ?(top_callback_calls = [])
-    ?(allow_zero_budget = false) ?(retained_function_source = fun _ -> None)
-    ?(on_progress = fun _ -> ()) ~max_steps ~span ~globals ~top_calls ~functions
-    () =
+    ?(statics_prepared = []) ?(function_calls = []) ?(callback_calls = [])
+    ?(top_callback_calls = []) ?(allow_zero_budget = false)
+    ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
+    ~max_steps ~span ~globals ~top_calls ~functions () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -483,7 +483,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
           | Some Layout.Scalar_store | None ->
               let* value_lowered =
                 Ir.Integer_program_lowering.lower_complete ?frame ~globals
-                  ~top_calls ~function_calls ~top_callback_calls ~span:at
+                  ~top_calls ~function_calls ~callback_calls ~top_callback_calls
+                  ~span:at
                   [ Ir.Integer_program_lowering.Expression value ]
                 |> Result.map_error (fun errors ->
                     match root_ with
@@ -1564,8 +1565,9 @@ let native_load_roots prepared =
     prepared.items_
 
 let prepare ?native_preparations ?native_static_preparations ?function_calls
-    ?top_callback_calls ?allow_zero_budget ?retained_function_source
-    ?on_progress ~max_steps ~span ~globals ~top_calls ~functions () =
+    ?callback_calls ?top_callback_calls ?allow_zero_budget
+    ?retained_function_source ?on_progress ~max_steps ~span ~globals ~top_calls
+    ~functions () =
   let evidence = Option.value native_preparations ~default:[] in
   let static_evidence = Option.value native_static_preparations ~default:[] in
   let* imported_steps =
@@ -1623,8 +1625,8 @@ let prepare ?native_preparations ?native_static_preparations ?function_calls
   in
   let* prepared =
     prepare_internal ~already_prepared ~statics_prepared ?function_calls
-      ?top_callback_calls ~allow_zero_budget ?retained_function_source
-      ?on_progress
+      ?callback_calls ?top_callback_calls ~allow_zero_budget
+      ?retained_function_source ?on_progress
       ~max_steps:(max_steps - imported_steps)
       ~span ~globals ~top_calls ~functions ()
   in
@@ -1672,12 +1674,12 @@ let prepare_fragment ?top_callback_calls ?retained_function_source ?on_progress
       fragment_steps_ = prepared.steps;
     }
 
-let prepare_default ?retained_function_source ?on_progress ~runtime ~authority
-    ~max_steps ~top_calls destination =
+let prepare_default ?top_callback_calls ?retained_function_source ?on_progress
+    ~runtime ~authority ~max_steps ~top_calls destination =
   let* prepared =
     prepare_internal ~default:destination
       ~default_execution:(runtime, authority) ~allow_zero_budget:true
-      ?retained_function_source ?on_progress ~max_steps
+      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
       ~span:(Default.span destination)
       ~globals:(Default.globals destination)
       ~top_calls ~functions:[] ()

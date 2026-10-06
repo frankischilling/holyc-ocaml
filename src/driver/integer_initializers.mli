@@ -5,6 +5,7 @@ type default_preparation =
   | Scheduled_default
 
 val prepare_default :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->
@@ -108,6 +109,7 @@ val prepare :
   ?native_preparations:native_preparation list ->
   ?native_static_preparations:native_static_preparation list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
+  ?callback_calls:Sema.Function_call_expression_result.indirect_call list ->
   ?top_callback_calls:Ir.Callback_source.t list ->
   ?allow_zero_budget:bool ->
   ?retained_function_source:

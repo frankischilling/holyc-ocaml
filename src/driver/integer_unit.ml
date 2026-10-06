@@ -857,6 +857,14 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                      .error_to_string)
           in
           let all_function_calls = ref [] in
+          let callback_calls =
+            Integer_source.functions prepared
+            |> Typed.functions
+            |> List.concat_map Typed.function_calls
+            |> List.filter_map (function
+              | Typed.Indirect_call_result call -> Some call
+              | _ -> None)
+          in
           let function_contexts = ref [] in
           let* definitions =
             ast.items
@@ -1079,6 +1087,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 (allow_zero_initializer_budget || Option.is_some task_view)
               ?on_progress:initializer_progress
               ~function_calls:(List.rev !all_function_calls)
+              ~callback_calls
               ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
               ~span:ast.span ~globals:globals_ ~top_calls ~functions:definitions
               ()
@@ -1212,7 +1221,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             Lower.lower_complete ~globals:globals_ ~records ~top_calls
               ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
               ~function_calls:(List.rev !all_function_calls)
-              ~span:ast.span statements
+              ~callback_calls ~span:ast.span statements
           in
           let entry_ = Lower.graph lowered_entry in
           let regions = Lower.initializer_regions lowered_entry in

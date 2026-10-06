@@ -6817,6 +6817,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                  | Some (Sequence.Saved_parameter_default prepared) ->
                      Option.is_some
                        (Prepared_default.undefined_callback_source prepared)
+                 | Some (Sequence.Saved_callback_default prepared) ->
+                     Option.is_some
+                       (Prepared_callback_default.undefined_callback_source
+                          prepared)
                  | _ -> false -> (
               if
                 not
@@ -8311,11 +8315,19 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             if
                               raw.opcode <> Opcode.Ic_imm_i64
                               || raw.operands <> [] || raw.flags <> 0x2000L
-                              || raw.payload
-                                 <> Some
-                                      (Sequence.Integer
-                                         (Prepared_callback_default.bits
-                                            prepared))
+                              || (not
+                                    (match
+                                       ( Prepared_callback_default.word_bits
+                                           prepared,
+                                         raw.payload )
+                                     with
+                                    | Some bits, Some (Sequence.Integer actual)
+                                      -> Int64.equal bits actual
+                                    | ( None,
+                                        Some
+                                          (Sequence.Saved_callback_default
+                                             original) ) -> original == prepared
+                                    | _ -> false))
                               || not
                                    (Option.fold ~none:false
                                       ~some:
@@ -9514,9 +9526,9 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
               with Rejected error -> Error [ error ])))
 
 let compile_callable_internal ?task_snapshot ?retained_parameter_default
-    ?(capture_callback_default = false) ?retained_function_source
-    ?retained_slot_binding ?retained_slot_address_binding
-    ?retained_slot_address_refresh ?status_abi
+    ?retained_callback_default ?(capture_callback_default = false)
+    ?retained_function_source ?retained_slot_binding
+    ?retained_slot_address_binding ?retained_slot_address_refresh ?status_abi
     ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?parameter_defaults ?global_initializers ~max_ir_instructions
@@ -9753,8 +9765,10 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             Global_storage.task_snapshot_literals snapshot )
   in
   let* parameter_defaults =
-    match (task_snapshot, retained_parameter_default) with
-    | Some _, Some available ->
+    match
+      (task_snapshot, retained_parameter_default, retained_callback_default)
+    with
+    | Some _, Some available, Some available_callback ->
         Defaults.create_task ~globals ~runtime_calls ~initialization ~entry
           ~functions
           ~sources:
@@ -9764,11 +9778,22 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                    source.source_definition,
                    source.source_runtime_calls ))
                callable_sources)
-          ~available
+          ~available ~available_callback
         |> Result.map Option.some
         |> Result.map_error (fun message ->
             [ { code = "HCBACK0002"; message; span = None } ])
-    | _ -> Ok parameter_defaults
+    | Some _, _, _ ->
+        Error
+          [
+            {
+              code = "HCBACK0002";
+              message =
+                "native task defaults require both original saved-default \
+                 consumers";
+              span = None;
+            };
+          ]
+    | None, _, _ -> Ok parameter_defaults
   in
   let global_arena_bytes = Global_storage.arena_bytes global_storage in
   let global_image =
@@ -10523,10 +10548,11 @@ let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
     ?capture_callback_default ~task_snapshot ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~retained_function_source
     ~retained_slot_binding ~retained_parameter_default
-    ~retained_slot_address_binding ~retained_slot_address_refresh
-    ~initialization ~entry ~functions () =
+    ~retained_callback_default ~retained_slot_address_binding
+    ~retained_slot_address_refresh ~initialization ~entry ~functions () =
   compile_callable_internal ~task_snapshot ~retained_parameter_default
-    ?capture_callback_default ~retained_function_source ~retained_slot_binding
+    ~retained_callback_default ?capture_callback_default
+    ~retained_function_source ~retained_slot_binding
     ~retained_slot_address_binding ~retained_slot_address_refresh ?status_abi
     ?max_stack_bytes ?max_blocks
     ~max_global_bytes:Global_storage.hard_max_global_bytes ~max_ir_instructions

@@ -47,6 +47,7 @@ type payload =
   | Callback of Sema.Function_type_resolution.function_pointer
   | Retained_global of Retained_global.t
   | Saved_parameter_default of Prepared_parameter_default.t
+  | Saved_callback_default of Prepared_callback_default.t
   | Block of Block_id.t
   | Block_targets of Block_id.t list
 
@@ -309,6 +310,13 @@ let add_payload buffer = function
           add_escaped_bytes buffer
             (Sema.Symbol.name (Retained_function.symbol link))
       | None -> Buffer.add_string buffer " invalid-saved-callback")
+  | Saved_callback_default prepared -> (
+      match Prepared_callback_default.callback_source prepared with
+      | Some (link, _) ->
+          Buffer.add_string buffer " saved-anonymous-callback:";
+          add_escaped_bytes buffer
+            (Sema.Symbol.name (Retained_function.symbol link))
+      | None -> Buffer.add_string buffer " unresolved-saved-anonymous-callback")
   | Block block -> Printf.bprintf buffer " block:^b%d" (Block_id.to_int block)
   | Block_targets blocks ->
       Buffer.add_string buffer " blocks:[";

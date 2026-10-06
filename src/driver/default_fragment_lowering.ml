@@ -42,7 +42,9 @@ let lower_native ~context ~authority destination =
   in
   let globals = Destination.globals destination in
   let* lowered =
-    Lower.lower_complete ~globals ~records ~top_calls ~span
+    Lower.lower_complete ~globals ~records ~top_calls
+      ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
+      ~span
       [
         Lower.Expression
           (Typed.top_level_root_value (Destination.root destination));
@@ -103,6 +105,7 @@ let prepare ~context ~authority ~runtime destination =
   let before = VM.task_initializer_steps runtime in
   let* classification, steps =
     Integer_initializers.prepare_default ~runtime ~authority
+      ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
       ~retained_function_source:(VM.task_function_source runtime)
       ~on_progress:(fun steps ->
         VM.record_task_preparation runtime ~before ~steps)
@@ -116,7 +119,9 @@ let prepare ~context ~authority ~runtime destination =
     | Scheduled_default ->
         let globals = Destination.globals destination in
         let* lowered =
-          Lower.lower_complete ~globals ~records ~top_calls ~span
+          Lower.lower_complete ~globals ~records ~top_calls
+            ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
+            ~span
             [
               Lower.Expression
                 (Typed.top_level_root_value (Destination.root destination));

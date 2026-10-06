@@ -2026,12 +2026,16 @@ let anonymous_default_limits_and_boundaries () =
         (Result.is_error
            (Test_integer_globals.run ~mode
               "I64 Run(){I64 (*p)(F64 n=1.5);return 42;}42;"));
-      Alcotest.(check bool)
-        "owned-code defaults cannot become numeric bits" true
-        (Result.is_error
-           (Test_integer_globals.run ~mode
-              "I64 A(){return 42;}I64 Run(){I64 (*p)(I64 (*f)()=&A);return \
-               42;}42;"));
+      let owned =
+        Test_integer_globals.run ~mode
+          "I64 A(){return 42;}I64 Run(){I64 (*p)(I64 (*f)()=&A);return 42;}42;"
+      in
+      (match mode with
+      | Preprocessor.Jit -> owned |> Test_integer_functions.expect 42L |> ignore
+      | Aot ->
+          Alcotest.(check string)
+            "AOT owned defaults require relocation authority" "HCRUN0006"
+            (Test_integer_functions.first_error owned).code);
       Alcotest.(check bool)
         "ordinary $$ needs instruction-address authority" true
         (Result.is_error
@@ -2134,7 +2138,7 @@ let ordinary_position_defaults_retain_instruction_addresses () =
         ])
     modes
 
-let anonymous_defaults_require_original_producers () =
+let anonymous_default_producer_case ~owned () =
   let module C = Ir_runtime_call_context in
   let module P = Ir_prepared_callback_default in
   let module VM = Ir_integer_interpreter in
@@ -2143,8 +2147,13 @@ let anonymous_defaults_require_original_producers () =
   List.iter
     (fun mode ->
       let source =
-        "I64 Check(I64 (*inner)()){return inner==0;}I64 Run(){I64 (*p)(I64 \
-         (*inner)()=0);p=&Check;return p();}Run();"
+        if owned then
+          "I64 Inner(){return 42;}I64 Check(I64 (*inner)()){return \
+           inner();}I64 Run(){I64 (*p)(I64 (*inner)()=&Inner);p=&Check;return \
+           p();}Run();"
+        else
+          "I64 Check(I64 (*inner)()){return inner==0;}I64 Run(){I64 (*p)(I64 \
+           (*inner)()=0);p=&Check;return p();}Run();"
       in
       let compiled =
         match mode with
@@ -2182,7 +2191,13 @@ let anonymous_defaults_require_original_producers () =
         |> List.find_map C.argument_prepared_callback_default
         |> Option.get
       in
-      Alcotest.(check int64) "saved anonymous member word" 0L (P.bits prepared);
+      Alcotest.(check (option int64))
+        "saved anonymous member word"
+        (if owned then None else Some 0L)
+        (P.word_bits prepared);
+      Alcotest.(check bool)
+        "original saved callback source" owned
+        (Option.is_some (P.callback_source prepared));
       let header = P.header prepared in
       let pointer = callback.callback_pointer in
       Alcotest.(check bool)
@@ -2263,6 +2278,133 @@ let anonymous_defaults_require_original_producers () =
             (List.for_all
                (fun (e : VM.error) ->
                  e.stage = VM.Preflight && e.executed_steps = 0)
+               errors))
+    (if owned then [ Preprocessor.Jit ] else modes)
+
+let anonymous_defaults_require_original_producers () =
+  anonymous_default_producer_case ~owned:false ()
+
+let anonymous_owned_defaults_require_original_producers () =
+  anonymous_default_producer_case ~owned:true ()
+
+let anonymous_nested_defaults_execute () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun text ->
+          Test_integer_globals.run ~mode text
+          |> Test_integer_functions.expect 42L
+          |> ignore)
+        [
+          "I64 F(){return 42;}I64 Call(I64 (*q)()){return q();}I64 (*p)(I64 \
+           (*q)()=&F)=&Call;p();";
+          "I64 F(){return 42;}I64 Call(I64 (*q)()){return q();}I64 Run(){I64 \
+           (*p)(I64 (*q)()=&F);p=&Call;return p();}Run();";
+          "I64 F(){return 42;}I64 G(){return 17;}I64 (*q)()=&F;I64 Call(I64 \
+           (*r)()){return r();}I64 (*p)(I64 (*r)()=q)=&Call;q=&G;p();";
+          "I64 F(){return 42;}I64 (*seed)()=&F;I64 Id(I64 n){return n;}I64 \
+           (*p)(I64 n=seed())=&Id;p();";
+          "I64 F(){return 42;}I64 (*seed)()[2]={0,&F};I64 Id(I64 \
+           n=seed[1]()){return n;}Id();";
+        ])
+    [ Preprocessor.Jit ];
+  Alcotest.(check string)
+    "AOT anonymous references require relocation authority" "HCRUN0006"
+    (Test_integer_functions.first_error
+       (Test_integer_globals.run ~mode:Preprocessor.Aot
+          "I64 F(){return 42;}I64 Call(I64 (*q)()){return q();}I64 (*p)(I64 \
+           (*q)()=&F)=&Call;p();"))
+      .code;
+  let text =
+    "extern I64 F();I64 Call(I64 (*q)()){return q();}I64 (*p)(I64 \
+     (*q)()=&F)=&Call;I64 F(){return 42;}p();"
+  in
+  Alcotest.(check string)
+    "anonymous saved placeholder retains original history" "HCIRVM0030"
+    (Test_integer_functions.first_error
+       (Test_integer_globals.run ~mode:Preprocessor.Jit text))
+      .code
+
+let static_initializer_callback_requires_original_graph () =
+  let module C = Ir_runtime_call_context in
+  let module VM = Ir_integer_interpreter in
+  let module Graph = Ir_block_graph in
+  let module Seq = Ir_instruction_sequence in
+  List.iter
+    (fun mode ->
+      let text =
+        "I64 F(I64 n){return n;}I64 (*p)(I64 n=42)=&F;I64 Run(){static I64 \
+         n=p();return n;}Run();"
+      in
+      let compiled =
+        match mode with
+        | Preprocessor.Aot -> Test_integer_globals.compile ~mode text
+        | Jit ->
+            let session, config, source =
+              Test_integer_functions.inputs ~mode text
+            in
+            let report =
+              compile_integer_program_report session ~config ~source
+            in
+            integer_program_compilation_result report
+            |> Test_integer_functions.checked |> ignore;
+            integer_program_compilation_units report
+            |> List.find (fun unit_ ->
+                C.original_callback_calls
+                  (integer_program_runtime_calls unit_)
+                  ~owner:C.Entry
+                |> Option.fold ~none:false
+                     ~some:
+                       (List.exists (fun (call : C.callback_call) ->
+                            match call.callback_source with
+                            | Holyc_lib__Ir.Callback_source.Function _ -> true
+                            | _ -> false)))
+      in
+      let context = integer_program_runtime_calls compiled in
+      let entry = integer_program_entry compiled in
+      let callbacks =
+        C.original_callback_calls context ~owner:C.Entry |> Option.get
+      in
+      let call = List.hd callbacks in
+      (match call.callback_source with
+      | Holyc_lib__Ir.Callback_source.Function _ -> ()
+      | _ -> Alcotest.fail "static callback lost its original function source");
+      let rec find = function
+        | [] -> None
+        | instruction :: rest as cell ->
+            if Seq.description instruction == call.callback_load then Some cell
+            else find rest
+      in
+      let cell =
+        Ir_x87_stack.graph entry |> Graph.blocks
+        |> List.find_map (fun block ->
+            Graph.instructions block |> Seq.instructions |> find)
+        |> Option.get
+      in
+      Obj.set_field (Obj.repr cell) 0
+        (Obj.repr
+           {
+             call.callback_load with
+             Seq.operands = List.map Fun.id call.callback_load.operands;
+           });
+      Alcotest.(check bool)
+        "copied static callback loses entire entry authority" true
+        (Option.is_none (C.original_callback_calls context ~owner:C.Entry));
+      match
+        VM.execute_program
+          ~globals:(integer_program_globals compiled)
+          ~initialization:(integer_program_initialization compiled)
+          ~functions:(integer_program_functions compiled)
+          ~runtime_calls:context ~max_steps:10000 ~max_frame_bytes:1024
+          ~max_call_depth:16 entry
+      with
+      | Ok _ -> Alcotest.fail "copied static callback executed"
+      | Error errors ->
+          Alcotest.(check bool)
+            "changed static graph fails before execution" true
+            (List.for_all
+               (fun (error : VM.error) ->
+                 error.stage = VM.Preflight && error.executed_steps = 0)
                errors))
     modes
 
@@ -2940,6 +3082,15 @@ let tests =
     Alcotest.test_case
       "anonymous defaults require exact original producer ownership" `Quick
       anonymous_defaults_require_original_producers;
+    Alcotest.test_case
+      "anonymous nested defaults retain original callback owners" `Quick
+      anonymous_nested_defaults_execute;
+    Alcotest.test_case
+      "anonymous owned defaults require physical original producers" `Quick
+      anonymous_owned_defaults_require_original_producers;
+    Alcotest.test_case
+      "static initializer callbacks require their original entry graph" `Quick
+      static_initializer_callback_requires_original_graph;
     Alcotest.test_case
       "callback parameter defaults materialize original word storage" `Quick
       callback_parameter_defaults_execute;

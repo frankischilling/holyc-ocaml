@@ -2419,6 +2419,38 @@ let task_native_parameter_default task ~globals ~header ~parameter prepared =
   then Error "native saved default lacks its exact completed source execution"
   else Ok ()
 
+let task_native_callback_default task ~globals ~pointer ~parameter prepared =
+  if
+    (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog globals))
+    || (not
+          (Integer_globals.task_catalog_contains_callback_default task.catalog
+             prepared))
+    || (not (Prepared_callback_default.matches prepared ~pointer ~parameter))
+    || (not
+          (Option.fold ~none:false ~some:(( == ) prepared)
+             (Integer_globals.prepared_callback_default globals ~pointer
+                ~parameter)))
+    || not
+         (List.exists
+            (fun attempt ->
+              attempt.default_native
+              && attempt.default_state = Successful_initializer
+              && (match attempt.default_source with
+                | Callback (namespace, receipt) ->
+                    namespace == Prepared_callback_default.namespace prepared
+                    && receipt == Prepared_callback_default.receipt prepared
+                | Named _ -> false)
+              && Option.fold ~none:false
+                   ~some:(fun value ->
+                     Saved_parameter_value.same value
+                       (Prepared_callback_default.value prepared))
+                   attempt.default_value)
+            task.defaults)
+  then
+    Error "native anonymous default lacks its exact completed source execution"
+  else Ok ()
+
 let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
   let module Record = Sema.Compiler_record in
   let invalid message = (Error message, 0) in
@@ -6542,6 +6574,11 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                              && Option.is_some
                                   (Prepared_parameter_default
                                    .undefined_callback_source prepared)
+                         | Some (Sequence.Saved_callback_default prepared) ->
+                             is_default description
+                             && Option.is_some
+                                  (Prepared_callback_default
+                                   .undefined_callback_source prepared)
                          | _ -> false ->
                       call_instruction description
                         (Undefined_function_address
@@ -10452,7 +10489,7 @@ let complete_task_callback_defaults task ~namespace header =
           match receipt.Frontend.Parser.callback_default_ast.value with
           | Frontend.Ast.Lastclass_default _ -> collect rev rest
           | Expression_default _ ->
-              let* bits =
+              let* saved =
                 match
                   List.find_opt
                     (fun a ->
@@ -10461,16 +10498,16 @@ let complete_task_callback_defaults task ~namespace header =
                       && a.default_state = Successful_initializer)
                     task.defaults
                 with
-                | Some a when Option.is_some a.default_bits ->
-                    Ok (Option.get a.default_bits)
+                | Some a when Option.is_some a.default_value ->
+                    Ok (Option.get a.default_value)
                 | _ ->
                     Error
                       "anonymous signature requires every successful original \
                        default"
               in
               let* value =
-                Prepared_callback_default.create ~namespace ~header ~receipt
-                  ~bits
+                Prepared_callback_default.create_value ~namespace ~header
+                  ~receipt ~value:saved
               in
               collect (value :: rev) rest)
     in

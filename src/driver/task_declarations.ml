@@ -3431,7 +3431,7 @@ let seal ledger (ast : Ast.module_) =
                              && receipt
                                 == Ir.Prepared_callback_default.receipt value
                              && !bits
-                                = Some (Ir.Prepared_callback_default.bits value))
+                                = Ir.Prepared_callback_default.word_bits value)
                            ledger.source_callback_attempts)
                     ledger.prepared_source_callback_defaults;
                 source_defaults =

@@ -141,6 +141,12 @@ val compile_task_fragment :
     parameter:Sema.Function_type_resolution.parameter ->
     Ir.Prepared_parameter_default.t ->
     (unit, string) result) ->
+  retained_callback_default:
+    (globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result) ->
   retained_slot_address_binding:
     (runtime_calls:Ir.Runtime_call_context.t ->
     owner:Ir.Runtime_call_context.owner ->

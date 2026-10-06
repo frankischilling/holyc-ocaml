@@ -476,7 +476,9 @@ let lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
                 ~target_type:(Some (Prepared_callback_default.type_ prepared))
                 ~payload:
                   (Some
-                     (Sequence.Integer (Prepared_callback_default.bits prepared)))
+                     (match Prepared_callback_default.word_bits prepared with
+                     | Some bits -> Sequence.Integer bits
+                     | None -> Sequence.Saved_callback_default prepared))
                 ~span ~result:{ Sequence.value_id } ~flags:push_result_flag ()
             in
             loop (item :: rev_descriptions) next_instruction_id next_value_id

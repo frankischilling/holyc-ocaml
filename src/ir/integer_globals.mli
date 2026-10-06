@@ -157,6 +157,9 @@ val task_catalog_owns_view : task_catalog -> task_view -> bool
 val task_catalog_contains_parameter_default :
   task_catalog -> Prepared_parameter_default.t -> bool
 
+val task_catalog_contains_callback_default :
+  task_catalog -> Prepared_callback_default.t -> bool
+
 val task_global_binding :
   task_view -> Retained_global.t -> Sema.Outer_environment.binding option
 

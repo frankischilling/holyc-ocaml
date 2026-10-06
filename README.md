@@ -26,6 +26,10 @@ replacement; its saved default keeps the earlier unresolved entry.
 Numeric callback words can supply compound operands for locals, globals, array
 elements and references. `examples/native-source-callback-updates.hc` exercises
 all four destinations and returns 42 in IR and native source-task execution.
+Live anonymous callback defaults also save original numeric values and function
+owners at their headers. The [anonymous-default example](examples/native-source-anonymous-defaults.hc)
+returns 42 after later storage and body replacement. See
+[anonymous defaults](docs/native-anonymous-defaults.md) for execution and limits.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
 and remaining native address, dimension and runtime work under #704.
 

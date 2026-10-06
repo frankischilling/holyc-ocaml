@@ -196,6 +196,13 @@ module Native_dispatch = struct
     VM.task_native_parameter_default request.initializer_task ~globals ~header
       ~parameter prepared
 
+  let initializer_callback_default request ~globals ~pointer ~parameter prepared
+      =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    VM.task_native_callback_default request.initializer_task ~globals ~pointer
+      ~parameter prepared
+
   let create_initializer ~task ~attempt ~execution ~program =
     {
       initializer_task = task;
@@ -210,6 +217,12 @@ module Native_dispatch = struct
     let ( let* ) = Result.bind in
     let* () = check_command_request request in
     VM.task_native_parameter_default request.command_task ~globals ~header
+      ~parameter prepared
+
+  let command_callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    VM.task_native_callback_default request.command_task ~globals ~pointer
       ~parameter prepared
 
   let create_command ~task ~program =
@@ -367,6 +380,12 @@ module Native_static_initializer = struct
     VM.task_native_parameter_default request.task ~globals ~header ~parameter
       prepared
 
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
   let create task program_ =
     { task; program_; domain = Domain.self (); phase = Atomic.make Offered }
 
@@ -461,6 +480,12 @@ module Native_default = struct
     let ( let* ) = Result.bind in
     let* () = check request in
     VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
       prepared
 
   let initializer_remaining request =
@@ -966,6 +991,46 @@ let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
   | Ok () -> ());
   outcome
 
+let execute_default_destination ~use_active_stream ?stream_exe_print task
+    ~attempt ~context ~authority destination =
+  let ( let* ) = Result.bind in
+  let span = Ir.Default_fragment_destination.span destination in
+  match task.native_default with
+  | Some evaluate ->
+      let* program =
+        Default_fragment_lowering.lower_native ~context ~authority destination
+      in
+      let request = Native_default.create task.state attempt program in
+      Fun.protect
+        ~finally:(fun () -> Native_default.close request)
+        (fun () ->
+          let* value = evaluate request in
+          if Native_default.entered request then
+            VM.complete_native_task_default task.state attempt program value
+            |> Result.map_error (fun message ->
+                [ Integer_source.message_diagnostic ~span message ])
+          else
+            Error
+              [
+                Integer_source.diagnostic ~span "HCIRVM0026"
+                  "native default returned without claiming its original \
+                   expression";
+              ])
+  | None when Option.is_some task.native_dispatch ->
+      Error
+        [
+          Integer_source.diagnostic ~span "HCRUN0006"
+            "native task defaults require a native consumer";
+        ]
+  | None ->
+      let* execution =
+        Default_fragment_lowering.prepare ~context ~authority
+          ~runtime:task.state destination
+      in
+      VM.execute_task_default ~use_active_stream ?stream_exe_print task.state
+        attempt execution
+      |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+
 let execute_parameter_default ?(use_active_stream = true) ?stream_exe_print task
     receipt =
   let ( let* ) = Result.bind in
@@ -983,41 +1048,8 @@ let execute_parameter_default ?(use_active_stream = true) ?stream_exe_print task
       |> Result.map_error (fun message ->
           [ Integer_source.message_diagnostic ~span message ])
     in
-    match task.native_default with
-    | Some evaluate ->
-        let* program =
-          Default_fragment_lowering.lower_native ~context ~authority destination
-        in
-        let request = Native_default.create task.state attempt program in
-        Fun.protect
-          ~finally:(fun () -> Native_default.close request)
-          (fun () ->
-            let* bits = evaluate request in
-            if Native_default.entered request then
-              VM.complete_native_task_default task.state attempt program bits
-              |> Result.map_error (fun message ->
-                  [ Integer_source.message_diagnostic ~span message ])
-            else
-              Error
-                [
-                  Integer_source.diagnostic ~span "HCIRVM0026"
-                    "native default returned without claiming its original \
-                     expression";
-                ])
-    | None when Option.is_some task.native_dispatch ->
-        Error
-          [
-            Integer_source.diagnostic ~span "HCRUN0006"
-              "native task parameter defaults require a native consumer";
-          ]
-    | None ->
-        let* execution =
-          Default_fragment_lowering.prepare ~context ~authority
-            ~runtime:task.state destination
-        in
-        VM.execute_task_default ~use_active_stream ?stream_exe_print task.state
-          attempt execution
-        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    execute_default_destination ~use_active_stream ?stream_exe_print task
+      ~attempt ~context ~authority destination
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_default task.state attempt)
@@ -1041,13 +1073,8 @@ let execute_callback_default ?(use_active_stream = true) ?stream_exe_print task
       |> Result.map_error (fun message ->
           [ Integer_source.message_diagnostic ~span message ])
     in
-    let* execution =
-      Default_fragment_lowering.prepare ~context ~authority ~runtime:task.state
-        destination
-    in
-    VM.execute_task_default ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    execute_default_destination ~use_active_stream ?stream_exe_print task
+      ~attempt ~context ~authority destination
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_default task.state attempt)
@@ -1349,13 +1376,6 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf ~use_active_stream ?stream_exe_print task
           receipt
-    | Frontend.Parser.Callback_default_completed receipt
-      when Option.is_some task.native_dispatch -> (
-        match receipt.callback_default_ast.value with
-        | Frontend.Ast.Expression_default _ ->
-            native_reject receipt.callback_default_ast.location.span
-              "callback expression defaults"
-        | Lastclass_default _ -> Ok ())
     | Frontend.Parser.Callback_default_completed receipt -> (
         match receipt.callback_default_ast.value with
         | Frontend.Ast.Expression_default _ ->

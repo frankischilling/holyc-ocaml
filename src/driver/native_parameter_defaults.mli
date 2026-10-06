@@ -70,10 +70,16 @@ val create_task :
     parameter:Sema.Function_type_resolution.parameter ->
     Ir.Prepared_parameter_default.t ->
     (unit, string) result) ->
+  available_callback:
+    (globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result) ->
   (t, string) result
 (** Seal saved defaults for the exact retained callable closure. Every original
     selected/source header must be covered by its own task snapshot and
     completed native declaration-time execution. Numeric words and owned
     callback identities require the exact published saved object; equal values
-    and copied objects grant no authority. Anonymous callback defaults still
-    reject. *)
+    and copied objects grant no authority. Anonymous defaults require their
+    original completed native execution through the same task. *)

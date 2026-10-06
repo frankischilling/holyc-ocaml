@@ -183,9 +183,9 @@ let callback_execution_matches prepared execution =
        (Prepared_callback.type_ prepared)
        destination
   && Program.default_constant_is_consumed execution
-  && Int64.equal
-       (Program.default_constant_bits execution)
-       (Prepared_callback.bits prepared)
+  && Option.fold ~none:false
+       ~some:(Int64.equal (Program.default_constant_bits execution))
+       (Prepared_callback.word_bits prepared)
 
 let callback_pointers globals functions =
   let pointers = ref [] in
@@ -248,6 +248,14 @@ let add_callback_requirements globals prepared requirements pointer =
             if not (List.exists (( == ) value) prepared) then
               Error
                 "native callback default is outside its supplied source proof"
+            else if
+              List.exists
+                (fun requirement ->
+                  requirement.pointer == pointer
+                  && requirement.callback_parameter == parameter
+                  && requirement.callback_prepared == value)
+                requirements
+            then Ok requirements
             else
               Ok
                 ({
@@ -421,7 +429,7 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
     }
 
 let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
-    ~sources ~available =
+    ~sources ~available ~available_callback =
   let ( let* ) = Result.bind in
   let bodies =
     List.map
@@ -437,19 +445,6 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
            ~initialization:(Some initialization) ~functions:bodies
     then Ok ()
     else Error "native saved-default proof has another original task bundle"
-  in
-  let* () =
-    if
-      requires_callback_proof ~globals ~functions
-      || List.exists
-           (fun (source_globals, definition, _) ->
-             requires_callback_proof ~globals:source_globals
-               ~functions:[ definition ])
-           sources
-    then
-      Error
-        "native task callback defaults require their original native execution"
-    else Ok ()
   in
   let add_header source_globals requirements header =
     let parameters =
@@ -540,6 +535,70 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
             (Ir.Block_graph.blocks graph))
       (Ok requirements) graphs
   in
+  let add_pointer source_globals requirements pointer =
+    let parameters =
+      pointer |> Headers.function_pointer_signature
+      |> Headers.signature_parameters
+    in
+    let prepared =
+      List.filter_map
+        (fun parameter ->
+          Integer_globals.prepared_callback_default source_globals ~pointer
+            ~parameter)
+        parameters
+    in
+    let* requirements =
+      add_callback_requirements source_globals prepared requirements pointer
+    in
+    let* () =
+      List.fold_left
+        (fun result parameter ->
+          let* () = result in
+          match
+            Integer_globals.prepared_callback_default source_globals ~pointer
+              ~parameter
+          with
+          | None -> Ok ()
+          | Some prepared ->
+              available_callback ~globals:source_globals ~pointer ~parameter
+                prepared)
+        (Ok ()) parameters
+    in
+    Ok requirements
+  in
+  let* callback_requirements =
+    List.fold_left
+      (fun result (source_globals, definitions) ->
+        List.fold_left
+          (fun result pointer ->
+            let* requirements = result in
+            add_pointer source_globals requirements pointer)
+          result
+          (callback_pointers source_globals definitions))
+      (Ok [])
+      ((globals, functions)
+      :: List.map
+           (fun (source_globals, definition, _) ->
+             (source_globals, [ definition ]))
+           sources)
+  in
+  let* callback_requirements =
+    List.fold_left
+      (fun result (source_globals, calls, owner, _) ->
+        let* requirements = result in
+        let* callbacks =
+          match Runtime_call_context.original_callback_calls calls ~owner with
+          | Some callbacks -> Ok callbacks
+          | None ->
+              Error "native callback defaults require their original call graph"
+        in
+        List.fold_left
+          (fun result (callback : Runtime_call_context.callback_call) ->
+            let* requirements = result in
+            add_pointer source_globals requirements callback.callback_pointer)
+          (Ok requirements) callbacks)
+      (Ok callback_requirements) graphs
+  in
   Ok
     {
       globals;
@@ -548,5 +607,5 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
       entry;
       functions = bodies;
       requirements;
-      callback_requirements = [];
+      callback_requirements;
     }
