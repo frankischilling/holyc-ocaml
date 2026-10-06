@@ -59,6 +59,7 @@ val function_completed_header :
   collected_function -> Frontend.Parser.completed_function_header option
 
 val declare_static :
+  ?activation:Source_activation.t ->
   table:Symbol_table.t ->
   collected_function ->
   Compiler_record.static_allocation ->

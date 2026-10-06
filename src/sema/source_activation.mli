@@ -102,6 +102,15 @@ val parameter_default :
   t option -> Frontend.Parser.completed_parameter_default -> bool
 
 val declaration : t option -> Frontend.Parser.declaration_event -> bool
+
+val static_allocation :
+  t option -> Frontend.Parser.function_local_allocation -> bool
+
+val static_initializer :
+  t option -> Frontend.Parser.static_initializer_preparation -> bool
+
+(* Only the exact active original static event can authorize journal replay.
+    Copied receipts, inactive journals and consumed events grant no authority. *)
 val reference : t option -> Frontend.Parser.reference_selection -> bool
 val finished : t option -> bool
 val owns_context : t option -> Frontend.Parser.command_context -> bool

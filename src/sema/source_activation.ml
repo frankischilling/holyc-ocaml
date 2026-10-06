@@ -469,6 +469,18 @@ let declaration activation receipt =
     | Declaration original -> original == receipt
     | _ -> false)
 
+let static_allocation activation receipt =
+  allows activation (function
+    | Declaration (Parser.Function_local_allocated original) ->
+        original == receipt
+    | _ -> false)
+
+let static_initializer activation receipt =
+  allows activation (function
+    | Declaration (Parser.Static_initializer_preparing original) ->
+        original == receipt
+    | _ -> false)
+
 let dimension_preparing activation receipt =
   allows activation (function
     | Declaration (Parser.Array_dimension_preparing original) ->

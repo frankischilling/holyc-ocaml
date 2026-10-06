@@ -21,14 +21,15 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 13)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 14)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
      [native-source-defaults.hc] [native-source-extern-slots.hc] \
      [native-source-callback-words.hc] [native-source-slot-addresses.hc] \
      [native-source-callback-updates.hc] [native-source-anonymous-defaults.hc] \
-     [native-source-static-callbacks.hc]"
+     [native-source-static-callbacks.hc] \
+     [native-source-static-callback-initializers.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -63,10 +64,11 @@ let invoke expected arguments =
                stdout stderr);
           (stdout, stderr)))
 
-let json_path ?(status = 0) ?(target = "host-jit-task") ?(options = []) path =
+let json_path ?(status = 0) ?(target = "host-jit-task") ?(mode = "jit")
+    ?(options = []) path =
   let stdout, stderr =
     invoke status
-      ([ "run"; "--target=" ^ target; "--mode=jit"; "--format=json" ]
+      ([ "run"; "--target=" ^ target; "--mode=" ^ mode; "--format=json" ]
       @ options @ [ path ])
   in
   require (stderr = "") ("JSON CLI wrote stderr: " ^ stderr);
@@ -736,5 +738,55 @@ let () =
        saved[1]();}Remember(1);Counter=100;I64 Answer(I64 value){return \
        17;}Remember(0);"
       static_callback_checks;
+  let static_initializer_checks path =
+    List.iter
+      (fun target ->
+        require
+          (final_bits (json_path ~target path) = "0x000000000000002a")
+          "original static leaf owner, call and saved default";
+        require
+          (final_bits
+             (json_path ~target ~options:[ "--global-byte-limit=32" ] path)
+          = "0x000000000000002a")
+          "original static cells are charged once";
+        require
+          (has_diagnostic "HCIRVM0016"
+             (json_path ~target ~status:1
+                ~options:[ "--global-byte-limit=31" ]
+                path))
+          "one fewer original static data byte")
+      [ "ir"; "host-jit-task" ]
+  in
+  if Array.length Sys.argv >= 14 then static_initializer_checks Sys.argv.(13)
+  else
+    with_file ".hc"
+      "I64 Counter=40;I64 Seed(){return ++Counter;}I64 Answer(I64 \
+       value){return value+1;}I64 Remember(){static I64(*saved)(I64 \
+       value=Seed())[3]={&Answer,saved[0],saved[0]()};return \
+       saved[1]();}Counter=100;I64 Answer(I64 value){return 17;}Remember();"
+      static_initializer_checks;
+  List.iter
+    (fun (code, text) ->
+      with_file ".hc" text (fun path ->
+          List.iter
+            (fun target ->
+              require
+                (has_diagnostic code (json_path ~target ~status:1 path))
+                "static initializer preserves original reached fault")
+            [ "ir"; "host-jit-task" ]))
+    [
+      ("HCIRVM0030", "I64 Run(){static I64(*p)()=&Run;return p();}Run();");
+      ("HCIRVM0012", "I64 Run(){static I64(*p)()=p;return 42;}Run();");
+    ];
+  with_file ".hc"
+    "I64 Run(){static F64(*p)()[2]={0x800000000000002a,42};return \
+     (p[0]==0x800000000000002a)*(p[1]==42)*42;}Run();" (fun path ->
+      List.iter
+        (fun mode ->
+          require
+            (final_bits (json_path ~target:"host-jit" ~mode path)
+            = "0x000000000000002a")
+            "closed native static callback initializer")
+        [ "jit"; "aot" ]);
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

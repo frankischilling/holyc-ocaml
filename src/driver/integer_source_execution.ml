@@ -353,6 +353,17 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                     | _ -> Task_declarations.observe ledger event
                   in
                   match (is_jit, !task, event) with
+                  | true, None, Parser.Function_local_allocated receipt
+                    when receipt.allocation_storage = Frontend.Ast.Static_local
+                         && Option.is_some receipt.allocation_initializer_equals
+                         &&
+                         match receipt.allocation_local.local_source with
+                         | Parser.Local_variable source ->
+                             Option.is_some source.local_function_pointer
+                         | _ -> false ->
+                      ensure_task
+                        receipt.allocation_function.function_name.location.span
+                      |> Result.map ignore
                   | true, Some task, _ -> Task.observe_initializer task event
                   | true, None, Parser.Callback_default_completed receipt -> (
                       match receipt.callback_default_ast.value with

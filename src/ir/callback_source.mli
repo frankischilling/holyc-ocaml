@@ -3,6 +3,8 @@ type t =
   | Global of
       Sema.Function_call_expression_result.top_level_global_callback_call
   | Outer of Sema.Function_call_expression_result.top_level_outer_callback_call
+  | Static of
+      Sema.Function_call_expression_result.top_level_static_callback_call
   | Indexed_global of
       Sema.Function_call_expression_result
       .top_level_indexed_global_callback_call

@@ -510,6 +510,7 @@ type task_state = {
   catalog : Integer_globals.task_catalog;
   native_storage_authority : bool;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
+  mutable static_attempts : Frontend.Parser.static_initializer_preparation list;
   mutable literal_arenas : runtime_storage list;
   mutable started : X87.t list;
   mutable functions : retained_executable list;
@@ -598,6 +599,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         catalog = Integer_globals.create_task_catalog ~table;
         native_storage_authority;
         arenas = [];
+        static_attempts = [];
         literal_arenas = [];
         started = [];
         functions = [];
@@ -2081,9 +2083,8 @@ let admit_declared_global task declaration =
 let admit_static_allocation task allocation =
   let ( let* ) = Result.bind in
   let* () =
-    if not task.native_storage_authority then
-      Error "private source static admission requires native task storage"
-    else Integer_globals.check_static_allocation task.catalog allocation
+    Integer_globals.check_static_allocation ?activation:task.source_activation
+      task.catalog allocation
   in
   let* bytes =
     match
@@ -2097,7 +2098,26 @@ let admit_static_allocation task allocation =
     Error "HCIRVM0016: task static storage exceeds the cumulative byte limit"
   else
     let* () =
-      Integer_globals.publish_static_allocation task.catalog allocation
+      Integer_globals.publish_static_allocation
+        ?activation:task.source_activation task.catalog allocation
+    in
+    let* () =
+      if task.native_storage_authority then Ok ()
+      else
+        let* view = Integer_globals.snapshot_task task.catalog in
+        let* globals =
+          Integer_globals.static_allocation_context view allocation
+        in
+        let storage =
+          {
+            cells = Array.make (Integer_globals.cell_count globals) None;
+            live = true;
+            unknown_message =
+              "hosted execution reached an uninitialized JIT persistent object";
+          }
+        in
+        task.arenas <- (globals, storage) :: task.arenas;
+        Ok ()
     in
     task.global_bytes <- task.global_bytes + bytes;
     task.source_promotion_open <- false;
@@ -2123,7 +2143,7 @@ let check_native_static_allocation task allocation view =
     require_initializer_namespace task
       (Sema.Compiler_record.static_allocation_namespace source)
 
-let check_native_static_destination task destination =
+let check_static_destination task destination =
   let module Destination = Static_initializer_destination in
   let allocation = Destination.allocation destination in
   let source = Integer_static_allocation.source allocation in
@@ -2131,11 +2151,13 @@ let check_native_static_destination task destination =
     Sema.Static_initializer_fragment.receipt (Destination.fragment destination)
   in
   if
-    (not task.native_storage_authority)
+    (not
+       (Integer_globals.owns_task_storage task.catalog
+          (Destination.globals destination)))
     || (not
-          (Integer_globals.owns_task_storage task.catalog
-             (Destination.globals destination)))
-    || (not (Frontend.Parser.static_initializer_is_current receipt))
+          (Frontend.Parser.static_initializer_is_current receipt
+          || Sema.Source_activation.static_initializer task.source_activation
+               receipt))
     || receipt.static_allocation
        != Sema.Compiler_record.static_allocation_receipt source
     || (not
@@ -2154,6 +2176,16 @@ let check_native_static_destination task destination =
   else
     require_initializer_namespace task
       (Sema.Compiler_record.static_allocation_namespace source)
+
+let check_native_static_destination task destination =
+  if
+    (not task.native_storage_authority)
+    || not
+         (Frontend.Parser.static_initializer_is_current
+            (Sema.Static_initializer_fragment.receipt
+               (Static_initializer_destination.fragment destination)))
+  then Error "native static initializer requires native task storage"
+  else check_static_destination task destination
 
 let check_native_static_initializer task program =
   check_native_static_destination task
@@ -5670,7 +5702,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 | Some _ -> local
                 | None ->
                     Option.bind globals (fun globals ->
-                        Integer_globals.global_callback_storage globals
+                        Integer_globals.persistent_callback_storage globals
                           callback.callback_pointer
                         |> Option.map Integer_globals.storage_symbol)
               in
@@ -6435,7 +6467,29 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   match (frame, description.operands) with
                   | None, [ address ] -> (
                       let owns slot =
-                        Option.is_none (Integer_globals.storage_frame slot)
+                        (match Integer_globals.storage_frame slot with
+                          | None -> true
+                          | Some frame ->
+                              Option.fold ~none:false
+                                ~some:(fun initialization ->
+                                  Global_initialization.storage_regions
+                                    initialization
+                                  |> List.exists (fun region ->
+                                      Option.fold ~none:false
+                                        ~some:(( == ) frame)
+                                        (Global_initialization.storage_frame
+                                           region)
+                                      && Instruction_id.compare
+                                           description.instruction_id
+                                           (Global_initialization.storage_first
+                                              region)
+                                         >= 0
+                                      && Instruction_id.compare
+                                           description.instruction_id
+                                           (Global_initialization.storage_last
+                                              region)
+                                         <= 0))
+                                initialization)
                         && Option.fold ~none:false
                              ~some:(( == ) callback.callback_pointer)
                              (Integer_globals.storage_callback_pointer slot)
@@ -6443,7 +6497,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                              ~some:(fun globals ->
                                Option.fold ~none:false
                                  ~some:(Integer_globals.same_storage slot)
-                                 (Integer_globals.global_callback_storage
+                                 (Integer_globals.persistent_callback_storage
                                     globals callback.callback_pointer))
                              globals
                       in
@@ -6495,7 +6549,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                                          ~some:
                                            (Integer_globals.same_storage slot)
                                          (Integer_globals
-                                          .global_callback_storage globals
+                                          .persistent_callback_storage globals
                                             callback.callback_pointer))
                                      globals)
                              && Integer_globals.storage_dimensions slot = [] ->
@@ -6531,8 +6585,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                                                (Integer_globals.same_storage
                                                   slot)
                                              (Integer_globals
-                                              .global_callback_storage globals
-                                                header))
+                                              .persistent_callback_storage
+                                                globals header))
                                          globals)
                                  && Integer_globals.storage_dimensions slot
                                     <> []
@@ -9482,6 +9536,104 @@ let execute_program_with_output ?task ?isolated_budget
         task.steps <- task.steps + (steps - !accounted_steps))
       accounting;
     outcome
+
+let begin_interpreted_static task destination =
+  let ( let* ) = Result.bind in
+  let receipt =
+    Sema.Static_initializer_fragment.receipt
+      (Static_initializer_destination.fragment destination)
+  in
+  let* () =
+    if task.native_storage_authority then
+      Error
+        "interpreted static initialization requires interpreter task storage"
+    else if List.exists (( == ) receipt) task.static_attempts then
+      Error "static initializer has already been attempted"
+    else check_static_destination task destination
+  in
+  task.static_attempts <- receipt :: task.static_attempts;
+  task.source_promotion_open <- false;
+  Ok ()
+
+let record_interpreted_static task destination =
+  let module Destination = Static_initializer_destination in
+  Integer_static_allocation.record_native_leaf
+    ?activation:task.source_activation
+    (Destination.allocation destination)
+    (Sema.Static_initializer_fragment.receipt
+       (Destination.fragment destination))
+    ~cell_offset:(Destination.cell_offset destination)
+    ~byte_offset:(Destination.byte_offset destination)
+    ~operation:(Destination.operation destination)
+
+let execute_task_static_initializer ?(use_active_stream = true)
+    ?stream_exe_print task program =
+  let module Program = Static_initializer_program in
+  let module Destination = Static_initializer_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.destination program in
+  let span = Destination.span destination in
+  let diagnose result =
+    Result.map_error
+      (fun message ->
+        [
+          make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+            message;
+        ])
+      result
+  in
+  let* () = begin_interpreted_static task destination |> diagnose in
+  let* _ =
+    execute_program_with_output ~task ~initializer_mode:true ~use_active_stream
+      ?stream_exe_print
+      ~runtime_calls:(Program.runtime_calls program)
+      ~output:task.output
+      ~globals:(Destination.globals destination)
+      ~initialization:(Program.initialization program)
+      ~max_global_bytes:task.max_global_bytes
+      ~max_literal_bytes:task.max_literal_bytes
+      ~max_steps:(task.max_steps - task.steps)
+      ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
+      ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+      ~functions:[] (Program.entry program)
+  in
+  record_interpreted_static task destination |> diagnose
+
+let execute_task_static_copy task destination =
+  let module Destination = Static_initializer_destination in
+  let ( let* ) = Result.bind in
+  let* () = begin_interpreted_static task destination in
+  let* bytes =
+    match Destination.operation destination with
+    | Integer_initializer_layout.Copy_bytes bytes -> Ok bytes
+    | Scalar_store -> Error "static copy requires an original byte-copy leaf"
+  in
+  if String.length bytes > task.max_initializer_steps - task.initializer_steps
+  then Error "HCIRVM0007: the bounded initializer copy work limit was exhausted"
+  else
+    let slot = Destination.storage destination in
+    let* storage =
+      match
+        List.find_map
+          (fun (owner, storage) ->
+            match
+              Integer_globals.find_allocated_storage owner
+                (Integer_globals.storage_symbol slot)
+            with
+            | Some expected when Integer_globals.same_storage expected slot ->
+                Some storage
+            | _ -> None)
+          task.arenas
+      with
+      | Some storage when storage.live -> Ok storage
+      | _ -> Error "static copy destination has no original live storage"
+    in
+    task.initializer_steps <- task.initializer_steps + String.length bytes;
+    publish_array_payload ~slot
+      ~cell_offset:(Destination.cell_offset destination)
+      (Integer_array_initializers.Bytes bytes) (fun cell word ->
+        storage.cells.(cell) <- Some (Runtime_word word));
+    record_interpreted_static task destination
 
 let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
     attempt execution =

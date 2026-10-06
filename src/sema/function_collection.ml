@@ -59,7 +59,8 @@ let static_symbol (function_ : collected_function) allocation =
       if original == allocation then Some symbol else None)
     function_.source_statics
 
-let declare_static ~table (function_ : collected_function) allocation =
+let declare_static ?activation ~table (function_ : collected_function)
+    allocation =
   let module Record = Compiler_record in
   let module Parser = Frontend.Parser in
   let receipt = Record.static_allocation_receipt allocation in
@@ -70,7 +71,9 @@ let declare_static ~table (function_ : collected_function) allocation =
       function_.completed_header
   in
   if
-    (not (Parser.function_local_allocation_is_current receipt))
+    (not
+       (Parser.function_local_allocation_is_current receipt
+       || Source_activation.static_allocation activation receipt))
     || (not (Record.static_allocation_owns_table allocation table))
     || (not valid_header) || function_.header_reused
     || function_.symbol

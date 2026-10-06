@@ -78,7 +78,7 @@ type fragment_kind =
   | Internal_binding_context
   | Dimension_context
   | Offset_context
-  | Static_allocation_context
+  | Static_allocation_context of Integer_static_allocation.t
   | Static_initializer_context of Sema.Static_initializer_fragment.t
 
 type t = {
@@ -472,7 +472,10 @@ let storage_slots globals =
   @ List.map static_storage globals.statics_
 
 let allocated_storage_slots globals =
-  storage_slots globals
+  (match globals.fragment_kind_ with
+    | Some (Static_allocation_context allocation) ->
+        [ Declared_static allocation ]
+    | _ -> storage_slots globals)
   |> List.filter (function
     | Global slot -> Option.is_none slot.declared_owner
     | Static slot -> Option.is_none (Integer_statics.source_allocation slot)
@@ -489,7 +492,10 @@ let storage_strides slot = Shape.strides (storage_shape slot)
 let storage_dimensions slot = Shape.dimensions (storage_shape slot)
 
 let cell_count globals =
-  globals.global_cell_count_
+  (match globals.fragment_kind_ with
+    | Some (Static_allocation_context allocation) ->
+        Shape.element_count (Integer_static_allocation.shape allocation)
+    | _ -> globals.global_cell_count_)
   + List.fold_left
       (fun total slot ->
         total + Shape.element_count (Integer_statics.shape slot))
@@ -552,6 +558,19 @@ let global_callback_storage globals pointer =
       Option.fold ~none:false ~some:(( == ) pointer)
         (storage_callback_pointer slot))
     slots
+
+let persistent_callback_storage globals pointer =
+  match global_callback_storage globals pointer with
+  | Some _ as storage -> storage
+  | None ->
+      List.map static_storage globals.statics_
+      @ Option.fold ~none:[]
+          ~some:(fun view ->
+            List.map declared_static_storage view.private_statics)
+          globals.task_view
+      |> List.find_opt (fun storage ->
+          Option.fold ~none:false ~some:(( == ) pointer)
+            (storage_callback_pointer storage))
 
 let callback_callee_pop globals pointer =
   let module H = Sema.Function_type_resolution in
@@ -693,9 +712,9 @@ let find_storage globals symbol =
       )
 
 let find_allocated_storage globals symbol =
-  match find_storage globals symbol with
-  | Some (Global slot) when Option.is_some slot.declared_owner -> None
-  | result -> result
+  List.find_opt
+    (fun slot -> storage_symbol slot == symbol)
+    (allocated_storage_slots globals)
 
 let create_impl ?layout ?initializers ~span:unit_span records =
   let ( let* ) = Result.bind in
@@ -1058,7 +1077,7 @@ let call_command_is_admitted catalog start =
 let task_catalog_owns_namespace catalog namespace =
   Option.fold ~none:false ~some:(( == ) namespace) catalog.namespace
 
-let check_static_allocation (catalog : task_catalog) allocation =
+let check_static_allocation ?activation (catalog : task_catalog) allocation =
   let module Allocation = Integer_static_allocation in
   let module Record = Sema.Compiler_record in
   let source = Allocation.source allocation in
@@ -1079,7 +1098,9 @@ let check_static_allocation (catalog : task_catalog) allocation =
       catalog.published
   in
   if
-    (not (Frontend.Parser.function_local_allocation_is_current receipt))
+    (not
+       (Frontend.Parser.function_local_allocation_is_current receipt
+       || Sema.Source_activation.static_allocation activation receipt))
     || (not (Allocation.owns_table allocation catalog.table))
     || (not
           (task_catalog_owns_namespace catalog
@@ -1097,11 +1118,11 @@ let check_static_allocation (catalog : task_catalog) allocation =
     Sema.Task_command_order.check_function_publication catalog.source_order
       ~admitted:catalog.admitted_commands receipt.allocation_function
 
-let publish_static_allocation (catalog : task_catalog) allocation =
+let publish_static_allocation ?activation (catalog : task_catalog) allocation =
   Result.map
     (fun () ->
       catalog.private_statics <- catalog.private_statics @ [ allocation ])
-    (check_static_allocation catalog allocation)
+    (check_static_allocation ?activation catalog allocation)
 
 let publish_parameter_defaults catalog ~namespace defaults =
   if
@@ -1420,7 +1441,7 @@ let static_allocation_context view allocation =
       {
         source_callback_defaults = [];
         source_defaults = [];
-        fragment_kind_ = Some Static_allocation_context;
+        fragment_kind_ = Some (Static_allocation_context allocation);
         declared_slots_ = [];
         slots_ = [];
         symbols = Symbols.empty;

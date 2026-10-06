@@ -1607,3 +1607,17 @@ call limits include the new guards. Each successful fragment executes natively,
 with zero interpreter instructions recorded by source admission. The CLI suite
 also preserves `HCPARSE0137` for direct automatic callback initializers on all
 three JIT targets, following the pinned `Grid.HC` restriction.
+
+
+Static callback initializer tests consume original scalar and fixed-array leaves
+in independent IR and native executions. They cover full physical words across
+return metadata, owner copies, earlier-element calls, anonymous defaults,
+unused declarations and historical bodies. Self-address and extern captures
+retain the placeholder visible before body installation. Reached uninitialized,
+unowned and cleared-owner calls preserve their actual faults. Exact and one-below
+logical storage, default payload, code, IR, preparation and runtime allowances
+exercise cumulative bounds. Source authority tests compile both private ABIs
+and reject a missing anonymous header, foreign arenas and domains, replay and
+expired requests. The maintained CLI example also runs through the independent
+IR target; closed numeric static callback leaves run through isolated native
+JIT and AOT execution. These checks add no TempleOS runtime capture.

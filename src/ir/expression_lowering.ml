@@ -4868,6 +4868,9 @@ let lower_static_initializer ~globals ?root ?lower_call ?optimize_shifts
       lower_store_initializer
         ~frame:(Integer_globals.static_frame slot)
         ~globals ?lower_call ?optimize_shifts ?optimize_division ~lower_address
+        ~callback:
+          (Integer_globals.storage_is_callback
+             (Integer_globals.static_storage slot))
         ~target_type:(Semantic_result.initializer_target_type root)
         ~span ~instruction_id ~value_id
         (Semantic_result.initializer_value root)
@@ -4892,6 +4895,8 @@ let lower_static_fragment_initializer ?lower_call ?optimize_shifts
   lower_store_initializer
     ~globals:(Destination.globals destination)
     ?lower_call ?optimize_shifts ?optimize_division ~lower_address
+    ~callback:
+      (Integer_globals.storage_is_callback (Destination.storage destination))
     ~target_type:
       (Integer_globals.storage_type (Destination.storage destination))
     ~span:(Some (Destination.span destination))

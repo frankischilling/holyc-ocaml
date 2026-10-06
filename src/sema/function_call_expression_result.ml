@@ -139,6 +139,17 @@ type top_level_global_callback_call = {
   top_level_global_callback_result_id : Id.t;
 }
 
+type top_level_static_callback_call = {
+  top_level_static_callback_source : Top_level_expression_tree.call;
+  top_level_static_callback_reference : Static_reference.t;
+  top_level_static_callback_callee_result : expression_result;
+  top_level_static_callback_callable : Function_call_resolution.callable;
+  top_level_static_callback_fixed_results : top_level_fixed_result list;
+  top_level_static_callback_variadic_results : expression_result list;
+  top_level_static_callback_variadic_count : int64;
+  top_level_static_callback_result_id : Id.t;
+}
+
 type top_level_outer_callback_call = {
   top_level_outer_callback_source : Top_level_expression_tree.call;
   top_level_outer_callback_occurrence :
@@ -315,6 +326,7 @@ type top_level_t = {
   top_level_direct_calls : top_level_direct_call list;
   top_level_global_callback_calls : top_level_global_callback_call list;
   top_level_outer_callback_calls : top_level_outer_callback_call list;
+  top_level_static_callback_calls : top_level_static_callback_call list;
   top_level_indexed_global_callback_calls :
     top_level_indexed_global_callback_call list;
   top_level_member_callback_calls : top_level_member_callback_call list;
@@ -334,6 +346,7 @@ type build_state = {
   top_level_direct_calls_rev : top_level_direct_call list;
   top_level_global_callback_calls_rev : top_level_global_callback_call list;
   top_level_outer_callback_calls_rev : top_level_outer_callback_call list;
+  top_level_static_callback_calls_rev : top_level_static_callback_call list;
   top_level_indexed_global_callback_calls_rev :
     top_level_indexed_global_callback_call list;
   top_level_member_callback_calls_rev : top_level_member_callback_call list;
@@ -374,6 +387,33 @@ let top_level_global_callback_calls result =
 
 let top_level_outer_callback_calls result =
   result.top_level_outer_callback_calls
+
+let top_level_static_callback_calls result =
+  result.top_level_static_callback_calls
+
+let top_level_static_callback_source call =
+  call.top_level_static_callback_source
+
+let top_level_static_callback_reference call =
+  call.top_level_static_callback_reference
+
+let top_level_static_callback_callee_result call =
+  call.top_level_static_callback_callee_result
+
+let top_level_static_callback_callable call =
+  call.top_level_static_callback_callable
+
+let top_level_static_callback_fixed_results call =
+  call.top_level_static_callback_fixed_results
+
+let top_level_static_callback_variadic_results call =
+  call.top_level_static_callback_variadic_results
+
+let top_level_static_callback_variadic_count call =
+  call.top_level_static_callback_variadic_count
+
+let top_level_static_callback_result_id call =
+  call.top_level_static_callback_result_id
 
 let top_level_indexed_global_callback_calls result =
   result.top_level_indexed_global_callback_calls
@@ -2166,15 +2206,28 @@ let rec type_expression table members policies ~before_item_index ~context
                       in
                       let category =
                         if array_rank > 0 then Array_value
+                        else if
+                          Option.is_some
+                            (Static_reference.callback_pointer reference)
+                        then
+                          match context with
+                          | Value_context -> Callback_value
+                          | Lvalue_context -> Lvalue
                         else
                           match context with
                           | Value_context -> Object_value
                           | Lvalue_context -> Lvalue
                       in
                       finish ~source_type:(Some source_type) ~array_rank
+                        ?callback_pointer:
+                          (Static_reference.callback_pointer reference)
                         ~array_address:(array_rank > 0)
                         ~top_level_outer_occurrence:occurrence category
-                        (if array_rank > 0 then Integer_result
+                        (if
+                           array_rank > 0
+                           || Option.is_some
+                                (Static_reference.callback_pointer reference)
+                         then Integer_result
                          else
                            forwarded_class policies ~before_item_index
                              source_type)
@@ -3331,11 +3384,10 @@ and type_top_level_call table members policies ~before_item_index
                "top-level call callee is absent from its identifier batch")
       | Some leaf -> (
           match Top_level_identifier_resolution.leaf_resolution leaf with
-          | Top_level_identifier_resolution.Static_value _ ->
-              Ok
-                (make_result ~intrinsic_conversion state ~id ~source
-                   ~source_type:None ~category:Unavailable
-                   ~result_class:Unresolved_actual_class)
+          | Top_level_identifier_resolution.Static_value reference ->
+              type_top_level_static_callback_call table members policies
+                ~before_item_index ~intrinsic_conversion state id source call
+                reference
           | Top_level_identifier_resolution.Module_value
               (Top_level_identifier_resolution.Direct_function_value
                  { declaration; _ }) ->
@@ -3597,6 +3649,79 @@ and type_top_level_global_callback_call table members policies
                          ~result_class:
                            (forwarded_class policies ~before_item_index
                               source_type)))))
+
+and type_top_level_static_callback_call table members policies
+    ~before_item_index ~intrinsic_conversion state id source call reference =
+  let ( let* ) = Result.bind in
+  let source_call = Top_level_expression_tree.call_source call in
+  let origin = Function_call_resolution.call_origin source_call in
+  let invalid message = Error (invalid_top_level_input ~origin message) in
+  let* pointer, return_type =
+    match
+      ( Static_reference.callback_pointer reference,
+        Static_reference.return_reference reference )
+    with
+    | Some pointer, Some return_type -> Ok (pointer, return_type)
+    | _ ->
+        invalid
+          "static call lacks its original callback return class and header"
+  in
+  let* callee_result, state =
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
+      (Top_level_expression_tree.call_callee_expression call)
+  in
+  let* () =
+    if
+      callee_result.array_rank = 0
+      && result_is_callback_storage callee_result
+      && Option.fold ~none:false ~some:(( == ) pointer)
+           callee_result.callback_pointer
+    then Ok ()
+    else invalid "static callback call lost its original fully indexed callee"
+  in
+  let callable =
+    Function_call_resolution.make_callable ~return_type
+      ~function_pointer:pointer
+  in
+  let* fixed_arguments, variadic_arguments, variadic_count =
+    Function_call_resolution.bind_indirect_arguments source_call callable
+    |> Result.map_error (fun error ->
+        invalid_top_level_input ~origin
+          (Function_call_resolution.error_message error))
+  in
+  let* fixed_results, variadic_results, state =
+    type_top_level_bound_arguments table members policies ~before_item_index
+      ~origin state fixed_arguments variadic_arguments
+  in
+  let source_type = Type_reference.resolved_type return_type in
+  let* source_type = known_type table source_type in
+  let category =
+    if Type.pointer_depth source_type > 0 then Address_value else Object_value
+  in
+  let callback_call =
+    {
+      top_level_static_callback_source = call;
+      top_level_static_callback_reference = reference;
+      top_level_static_callback_callee_result = callee_result;
+      top_level_static_callback_callable = callable;
+      top_level_static_callback_fixed_results = fixed_results;
+      top_level_static_callback_variadic_results = variadic_results;
+      top_level_static_callback_variadic_count = variadic_count;
+      top_level_static_callback_result_id = id;
+    }
+  in
+  let state =
+    {
+      state with
+      top_level_static_callback_calls_rev =
+        callback_call :: state.top_level_static_callback_calls_rev;
+    }
+  in
+  Ok
+    (make_result ~intrinsic_conversion ~callback_call_pointer:pointer state ~id
+       ~source ~source_type:(Some source_type) ~category
+       ~result_class:(forwarded_class policies ~before_item_index source_type))
 
 and type_top_level_outer_callback_call table members policies =
  fun ~before_item_index ~intrinsic_conversion state id source call occurrence
@@ -4494,12 +4619,21 @@ let type_return table members policies ~before_item_index ~declared_type state
                       state ))))
 
 let type_initializer table members policies ~before_item_index state source =
+  let local = Function_call_resolution.initializer_local source in
   let target_type =
-    source |> Function_call_resolution.initializer_local
-    |> Local_type_resolution.local_type_reference
-    |> Type_reference.resolved_type
+    match Local_type_resolution.local_declarator_kind local with
+    | Local_type_resolution.Object ->
+        Ok
+          (local |> Local_type_resolution.local_type_reference
+         |> Type_reference.resolved_type)
+    | Local_type_resolution.Function_pointer pointer ->
+        Function_type_resolution.function_pointer_storage_type pointer
   in
-  match known_type table target_type with
+  match
+    Result.bind
+      (Result.map_error (fun message -> invalid_input message) target_type)
+      (known_type table)
+  with
   | Error _ as error -> error
   | Ok initializer_target_type -> (
       match
@@ -4741,6 +4875,7 @@ let analyze ~table ~members ?outer policies =
                  top_level_direct_calls_rev = [];
                  top_level_global_callback_calls_rev = [];
                  top_level_outer_callback_calls_rev = [];
+                 top_level_static_callback_calls_rev = [];
                  top_level_indexed_global_callback_calls_rev = [];
                  top_level_member_callback_calls_rev = [];
                }
@@ -4891,6 +5026,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
              top_level_direct_calls_rev = [];
              top_level_global_callback_calls_rev = [];
              top_level_outer_callback_calls_rev = [];
+             top_level_static_callback_calls_rev = [];
              top_level_indexed_global_callback_calls_rev = [];
              top_level_member_callback_calls_rev = [];
            }
@@ -4935,6 +5071,8 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
                     (top_level_outer_callback_call_index left)
                     (top_level_outer_callback_call_index right))
                 state.top_level_outer_callback_calls_rev;
+            top_level_static_callback_calls =
+              List.rev state.top_level_static_callback_calls_rev;
             top_level_indexed_global_callback_calls =
               List.sort
                 (fun left right ->

@@ -1845,8 +1845,18 @@ checked dimensions; completion joins its exact frame and static location.
 `Compiler/PrsExp.HC:776-784` supplies the function-owned static address.
 Assignments and calls use the existing native callback owner lanes and saved
 anonymous defaults. Fixed-array data, flags and owner lanes have separate
-quota checks. `PrsVar.HC:215-244` is the distinct static initializer consumer,
-which still needs its original callback connection. The automatic declarator
-replay and `Grid.HC` restriction do not forbid that static branch. These source
-and hosted execution checks add no TempleOS runtime capture or exported ABI
-proof.
+quota checks. `PrsVar.HC:215-244` passes that physical class and the original
+dimensions into static initialization; `PrsVar.HC:53-107,123-212` executes each
+scalar leaf and traverses fixed arrays. The original static callback connection
+retains the anonymous header, source allocation, leaf and selected occurrence.
+Later leaves can copy or call earlier initialized elements. IR and native tasks
+consume the original live JIT leaves in their own storage, then join successful
+receipts to completed function roots without replay.
+
+`PrsExp.HC:621-654` reads an unresolved function's `exe_addr` slot.
+`PrsStmt.HC:95-114,181-191` installs UndefinedExtern before the header and the
+compiled body after parsing. A static self-address therefore captures the
+placeholder before its own body is installed. The automatic declarator replay
+at `PrsVar.HC:607-612` and `Demo/Graphics/Grid.HC:13` retain their separate
+restriction. These source and hosted execution checks add no TempleOS runtime
+capture or exported ABI proof.

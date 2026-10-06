@@ -694,6 +694,12 @@ val finish_runtime_offset :
   Frontend.Parser.aggregate_phase ->
   (unit, Common.Diagnostic.t list) result
 
+val declare_static_symbol :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.function_local_allocation ->
+  (Ir.Integer_static_allocation.t, Common.Diagnostic.t list) result
+
 val declare_native_static_symbol :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
@@ -705,6 +711,15 @@ val native_static_initializer_fragment :
   runtime:Ir.Integer_interpreter.task_state ->
   Frontend.Parser.static_initializer_preparation ->
   (Sema.Static_initializer_fragment.t, Common.Diagnostic.t list) result
+
+val task_static_fragment :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( Ir.Integer_static_allocation.t * Sema.Static_initializer_fragment.t,
+    Common.Diagnostic.t list )
+  result
 
 val native_task_static_fragment :
   t ->

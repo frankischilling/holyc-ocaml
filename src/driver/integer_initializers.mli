@@ -81,6 +81,17 @@ val native_complete : span:Common.Span.t -> t -> bool
 
 type fragment_preparation
 
+val check_static_fragment :
+  ?retained_function_source:
+    (Ir.Retained_function.t ->
+    Ir.Integer_interpreter.task_function_source option) ->
+  top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  top_callback_calls:Ir.Callback_source.t list ->
+  Ir.Static_initializer_destination.t ->
+  (unit, Common.Diagnostic.t list) result
+(** Apply the original initializer optimizer, transitive call and update guards
+    to a live static leaf without preparing or executing a value. *)
+
 val prepare_fragment :
   ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:

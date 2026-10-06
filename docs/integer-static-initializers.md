@@ -16,6 +16,19 @@ copies execute through the separate direct-copy request and charge each copied
 byte to initializer work. AOT source tasks, partial array initialization and
 dynamic bounds remain open.
 
+One-star callback scalar and fixed-array leaves follow the same original JIT
+allocation and initializer stream. Their physical destination is eight-byte
+`RT_PTR` storage, independent of callback return metadata. Owned addresses,
+copies and earlier-element calls keep their original header and executable
+owner. Numeric initialization preserves the full word. IR consumes these live
+source events in its own unknown cells; native tasks execute machine code with
+separate owner lanes. Completion reuses the original storage and successful
+receipts. `examples/native-source-static-callback-initializers.hc` returns 42.
+An address of the containing function captured during JIT initialization saves
+UndefinedExtern before body installation. A later call reaches that captured
+fault. Automatic callback declaration initialization remains rejected by the
+pinned parser path.
+
 A declaration region can materialize [scalar references](integer-pointers.md)
 for fixed pointer arguments. `IC_ADDR` checks authority at its own instruction;
 canonical metadata cannot be borrowed after the region ends. Explicit references

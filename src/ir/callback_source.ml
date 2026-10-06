@@ -6,6 +6,7 @@ type t =
   | Function of Typed.indirect_call
   | Global of Typed.top_level_global_callback_call
   | Outer of Typed.top_level_outer_callback_call
+  | Static of Typed.top_level_static_callback_call
   | Indexed_global of Typed.top_level_indexed_global_callback_call
 
 let function_resolution call =
@@ -16,6 +17,7 @@ let top_source = function
   | Function _ -> None
   | Global call -> Some (Typed.top_level_global_callback_source call)
   | Outer call -> Some (Typed.top_level_outer_callback_source call)
+  | Static call -> Some (Typed.top_level_static_callback_source call)
   | Indexed_global call ->
       Some (Typed.top_level_indexed_global_callback_source call)
 
@@ -23,6 +25,7 @@ let callable = function
   | Function call -> Resolution.indirect_callable (function_resolution call)
   | Global call -> Typed.top_level_global_callback_callable call
   | Outer call -> Typed.top_level_outer_callback_callable call
+  | Static call -> Typed.top_level_static_callback_callable call
   | Indexed_global call -> Typed.top_level_indexed_global_callback_callable call
 
 let origin = function
@@ -37,6 +40,7 @@ let callee = function
   | Function call -> Typed.indirect_callee_result call
   | Global call -> Some (Typed.top_level_global_callback_callee_result call)
   | Outer call -> Typed.top_level_outer_callback_callee_result call
+  | Static call -> Some (Typed.top_level_static_callback_callee_result call)
   | Indexed_global call ->
       Some (Typed.top_level_indexed_global_callback_callee_result call)
 
@@ -68,6 +72,8 @@ let fixed_arguments = function
   | Global call ->
       top_fixed (Typed.top_level_global_callback_fixed_results call)
   | Outer call -> top_fixed (Typed.top_level_outer_callback_fixed_results call)
+  | Static call ->
+      top_fixed (Typed.top_level_static_callback_fixed_results call)
   | Indexed_global call ->
       top_fixed (Typed.top_level_indexed_global_callback_fixed_results call)
 
@@ -75,6 +81,7 @@ let variadic_arguments = function
   | Function call -> Typed.indirect_variadic_results call
   | Global call -> Typed.top_level_global_callback_variadic_results call
   | Outer call -> Typed.top_level_outer_callback_variadic_results call
+  | Static call -> Typed.top_level_static_callback_variadic_results call
   | Indexed_global call ->
       Typed.top_level_indexed_global_callback_variadic_results call
 
@@ -90,6 +97,7 @@ let matches_result source result =
         match source with
         | Global call -> Typed.top_level_global_callback_result_id call
         | Outer call -> Typed.top_level_outer_callback_result_id call
+        | Static call -> Typed.top_level_static_callback_result_id call
         | Indexed_global call ->
             Typed.top_level_indexed_global_callback_result_id call
         | Function _ -> assert false
@@ -109,7 +117,7 @@ let function_member source function_ =
           | Typed.Indirect_call_result expected -> actual == expected
           | _ -> false)
         (Typed.function_calls function_)
-  | Global _ | Outer _ | Indexed_global _ -> false
+  | Global _ | Outer _ | Static _ | Indexed_global _ -> false
 
 let top_level_member source top_level =
   match source with
@@ -120,6 +128,9 @@ let top_level_member source top_level =
   | Outer actual ->
       List.exists (( == ) actual)
         (Typed.top_level_outer_callback_calls top_level)
+  | Static actual ->
+      List.exists (( == ) actual)
+        (Typed.top_level_static_callback_calls top_level)
   | Indexed_global actual ->
       List.exists (( == ) actual)
         (Typed.top_level_indexed_global_callback_calls top_level)
@@ -131,6 +142,9 @@ let top_level_calls top_level =
   @ List.map
       (fun call -> Outer call)
       (Typed.top_level_outer_callback_calls top_level)
+  @ List.map
+      (fun call -> Static call)
+      (Typed.top_level_static_callback_calls top_level)
   @ List.map
       (fun call -> Indexed_global call)
       (Typed.top_level_indexed_global_callback_calls top_level)

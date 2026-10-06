@@ -1,6 +1,7 @@
 type t
 
 val create :
+  ?activation:Sema.Source_activation.t ->
   ?callback:
     Frontend.Parser.completed_callback_signature
     * Sema.Function_type_resolution.function_pointer ->
@@ -18,6 +19,14 @@ val source : t -> Sema.Compiler_record.static_allocation
 val symbol : t -> Sema.Symbol.t
 val type_ : t -> Sema.Type.t
 
+val callback_source :
+  t ->
+  (Frontend.Parser.completed_callback_signature
+  * Sema.Function_type_resolution.function_pointer)
+  option
+(** Original anonymous header and checked callback metadata, without executable
+    ownership or permission. *)
+
 val callback_pointer :
   t -> Sema.Function_type_resolution.function_pointer option
 
@@ -25,6 +34,7 @@ val shape : t -> Integer_storage_shape.t
 val cursor : t -> Integer_initializer_layout.stream
 
 val record_native_leaf :
+  ?activation:Sema.Source_activation.t ->
   t ->
   Frontend.Parser.static_initializer_preparation ->
   cell_offset:int ->

@@ -91,8 +91,13 @@ header and physical eight-byte elements. Assignment copies both the numeric
 word and its private executable owner. Anonymous defaults execute once while
 parsing the header; later calls use that saved value. Scalar and fixed-array
 cells preserve writes across activations and historical function bodies. Direct
-static callback initializer recovery remains separate from this allocation
-and assignment path.
+scalar and fixed-array callback initializers retain that same physical storage
+and anonymous header. Original live JIT leaves execute once before the body is
+installed; later leaves can copy or call an earlier initialized element.
+Numeric leaves keep their complete word independently of return metadata.
+The completed function joins the original allocation and successful leaf
+receipts without replay. Automatic callback declaration initializers retain the
+pinned parser rejection.
 
 Nonconstant AOT statics with globals-on-data-heap still require their separate
 compile-time phase. The normal JIT/AOT declaration paths are documented in

@@ -447,6 +447,7 @@ type function_local_allocation = {
   allocation_function : function_publication;
   allocation_local : local_publication;
   allocation_storage : Ast.local_storage;
+  allocation_initializer_equals : Ast.location option;
   allocation_predecessor : function_local_allocation option;
   allocation_activity : function_position_activity;
 }
@@ -7615,6 +7616,10 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                       allocation_function;
                       allocation_local = List.hd cursor.local_publications;
                       allocation_storage = storage;
+                      allocation_initializer_equals =
+                        (if equals_item.token.kind = Token_kind.Punctuation '='
+                         then Some (token_location equals_item.token)
+                         else None);
                       allocation_predecessor =
                         List.nth_opt cursor.local_allocations 0;
                       allocation_activity = ref true;
@@ -7632,7 +7637,10 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
               let parsed_initializer =
                 if equals_item.token.kind <> Token_kind.Punctuation '=' then
                   Some (None, [])
-                else if Option.is_some function_pointer then
+                else if
+                  storage = Ast.Automatic_local
+                  && Option.is_some function_pointer
+                then
                   local_declaration_failure cursor ~boundary equals_item
                     ~code:"HCPARSE0137"
                     ~message:
@@ -7644,7 +7652,11 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                 else if storage = Ast.Static_local then
                   let allocation = List.nth_opt cursor.local_allocations 0 in
                   let equals_item = take cursor in
-                  let equals = token_location equals_item.token in
+                  let equals =
+                    Option.bind allocation (fun receipt ->
+                        receipt.allocation_initializer_equals)
+                    |> Option.value ~default:(token_location equals_item.token)
+                  in
                   let static_live =
                     match (cursor.declaration, allocation) with
                     | Some _, Some static_allocation ->

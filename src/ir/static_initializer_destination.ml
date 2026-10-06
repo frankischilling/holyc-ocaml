@@ -59,17 +59,28 @@ let create ~allocation ~task_view ~cursor typed =
   in
   let receipt = Fragment.receipt fragment_ in
   let source = Integer_static_allocation.source allocation in
+  let same_callback =
+    match
+      ( Integer_static_allocation.callback_source allocation,
+        Fragment.callback_source fragment_ )
+    with
+    | None, None -> true
+    | Some (header, pointer), Some (original, checked) ->
+        header == original && pointer == checked
+    | _ -> false
+  in
   let* () =
     if
       receipt.static_allocation
       != Sema.Compiler_record.static_allocation_receipt source
+      || (not same_callback)
       || (not
             (Sema.Type.equal (Fragment.type_ fragment_)
                (Integer_static_allocation.type_ allocation)))
       || Fragment.dimensions fragment_
          <> Integer_storage_shape.dimensions
               (Integer_static_allocation.shape allocation)
-      || not (Frontend.Parser.static_initializer_is_current receipt)
+      || not (Fragment.is_current fragment_)
     then
       Error "static initializer replaced its live allocation or checked shape"
     else Ok ()
@@ -87,15 +98,24 @@ let create ~allocation ~task_view ~cursor typed =
         | Frontend.Ast.String_literal _ -> Ok ()
         | _ -> Error "static byte copy requires its original string leaf")
     | Scalar_store ->
+        let callback = Option.is_some (Fragment.callback_source fragment_) in
         if
           Typed.result_array_rank value = 0
           && (match Typed.result_category value with
             | Typed.Object_value | Typed.Lvalue -> true
+            | Typed.Address_value ->
+                callback
+                && Option.is_some (Typed.result_function_declaration value)
+            | Typed.Callback_value ->
+                callback && Typed.result_is_callback_storage value
             | _ -> false)
-          && Option.fold ~none:false
-               ~some:(fun type_ ->
-                 Option.is_some (Integer_scalar_storage.of_type type_))
-               (Typed.result_type value)
+          && (Option.fold ~none:false
+                ~some:(fun type_ ->
+                  Option.is_some (Integer_scalar_storage.of_type type_))
+                (Typed.result_type value)
+             || callback
+                && (Typed.result_is_callback_storage value
+                   || Typed.result_is_numeric_callback value))
         then Ok ()
         else
           Error "HCRUN0001: static initializer requires a scalar integer value"

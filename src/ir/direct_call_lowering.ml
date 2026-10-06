@@ -1030,7 +1030,8 @@ let lower_callback ?frame ?globals ?lower_call ?optimize_shifts
   let original_global_cell =
     Option.fold ~none:false
       ~some:(fun globals ->
-        Option.is_some (Integer_globals.global_callback_storage globals pointer))
+        Option.is_some
+          (Integer_globals.persistent_callback_storage globals pointer))
       globals
   in
   let fixed = Callback_source.fixed_arguments call in

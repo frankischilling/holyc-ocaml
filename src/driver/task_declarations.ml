@@ -3683,7 +3683,7 @@ let native_initializer_fragment ledger ~runtime receipt =
       in
       authority)
 
-let declare_native_static_symbol ledger ~runtime receipt =
+let declare_static_symbol ledger ~runtime receipt =
   protect (fun () ->
       let publication = receipt.Parser.allocation_function in
       let span = publication.function_name.location.span in
@@ -3692,7 +3692,9 @@ let declare_native_static_symbol ledger ~runtime receipt =
           (Option.fold ~none:false ~some:(( == ) runtime)
              (ledger_runtime ledger))
       then fail span "static symbol belongs to another task runtime";
-      validate_command ledger publication.function_header;
+      if
+        not (Sema.Source_activation.static_allocation ledger.activation receipt)
+      then validate_command ledger publication.function_header;
       if receipt.allocation_storage <> Ast.Static_local then
         fail span "native static symbol requires original static storage";
       let allocation =
@@ -3713,8 +3715,8 @@ let declare_native_static_symbol ledger ~runtime receipt =
         | _ -> fail span "native static symbol has another function owner"
       in
       let symbol =
-        Sema.Function_collection.declare_static ~table:ledger.table partial
-          allocation
+        Sema.Function_collection.declare_static ?activation:ledger.activation
+          ~table:ledger.table partial allocation
         |> checked span
       in
       let storage =
@@ -3724,7 +3726,8 @@ let declare_native_static_symbol ledger ~runtime receipt =
               declared_callback_for ledger span source.local_function_pointer
           | _ -> None
         in
-        Ir.Integer_static_allocation.create ?callback
+        Ir.Integer_static_allocation.create ?activation:ledger.activation
+          ?callback
           ~selected_aggregate:(selected_aggregate_for ledger)
           ~table:ledger.table ~header:partial allocation
         |> checked span
@@ -3733,6 +3736,8 @@ let declare_native_static_symbol ledger ~runtime receipt =
         fail span "private static storage substituted its original symbol";
       VM.admit_static_allocation runtime storage |> checked span;
       storage)
+
+let declare_native_static_symbol = declare_static_symbol
 
 let native_static_initializer_fragment ledger ~runtime
     (receipt : Parser.static_initializer_preparation) =
@@ -3797,6 +3802,12 @@ let native_static_initializer_fragment ledger ~runtime
                 fail span "native static initializer lacks its original query")
       in
       let fragment =
+        let callback =
+          match receipt.static_allocation.allocation_local.local_source with
+          | Parser.Local_variable source ->
+              declared_callback_for ledger span source.local_function_pointer
+          | _ -> None
+        in
         let dimensions =
           match receipt.static_allocation.allocation_local.local_source with
           | Parser.Local_variable source ->
@@ -3804,9 +3815,11 @@ let native_static_initializer_fragment ledger ~runtime
               |> List.map Sema.Compiler_record.dimension_count
           | _ -> []
         in
-        Sema.Static_initializer_fragment.create ~table:ledger.table
-          ~namespace:ledger.namespace ~publication:assigned.publication ~receipt
-          ~dimensions ~environment ~queries
+        Sema.Static_initializer_fragment.create ?callback
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          ~table:ledger.table ~namespace:ledger.namespace
+          ~publication:assigned.publication ~receipt ~dimensions ~environment
+          ~queries ()
         |> function
         | Error message when String.starts_with ~prefix:"HCRUN0001: " message ->
             fail ~code:"HCRUN0001" span
@@ -3916,7 +3929,7 @@ let selected_fragment_transcript ?resolve_local ledger ~task_view ~span
   in
   (environment, references, queries)
 
-let native_task_static_fragment ledger ~runtime ~task_view receipt =
+let task_static_fragment ledger ~runtime ~task_view receipt =
   protect (fun () ->
       let publication = receipt.Parser.static_allocation.allocation_function in
       let span = publication.function_name.location.span in
@@ -3926,7 +3939,10 @@ let native_task_static_fragment ledger ~runtime ~task_view receipt =
           fail span
             "native static initializer requires its original task authority");
       if
-        (not (Parser.static_initializer_is_current receipt))
+        (not
+           (Parser.static_initializer_is_current receipt
+           || Sema.Source_activation.static_initializer ledger.activation
+                receipt))
         || (not
               (Option.fold ~none:false ~some:(( == ) runtime)
                  (ledger_runtime ledger)))
@@ -3937,7 +3953,10 @@ let native_task_static_fragment ledger ~runtime ~task_view receipt =
         fail span
           "native task static initializer is foreign, unobserved or already \
            attempted";
-      validate_command ledger publication.function_header;
+      if
+        not
+          (Sema.Source_activation.static_initializer ledger.activation receipt)
+      then validate_command ledger publication.function_header;
       let allocation =
         match
           List.find_opt
@@ -3993,8 +4012,10 @@ let native_task_static_fragment ledger ~runtime ~task_view receipt =
         in
         let reference =
           Sema.Static_reference.create ~table:ledger.table ~header
+            ?callback:(Ir.Integer_static_allocation.callback_source storage)
+            ~selected_aggregate:(selected_aggregate_for ledger)
             ~allocation:(Ir.Integer_static_allocation.source storage)
-            ~selection:original.selection
+            ~selection:original.selection ()
           |> checked span
         in
         Sema.Reference_selection.static_local ~table:ledger.table
@@ -4006,16 +4027,22 @@ let native_task_static_fragment ledger ~runtime ~task_view receipt =
           expression
       in
       let fragment =
-        Sema.Static_initializer_fragment.create_selected ~table:ledger.table
-          ~namespace:ledger.namespace ~publication:assigned.publication ~receipt
+        Sema.Static_initializer_fragment.create_selected
+          ?activation:ledger.activation
+          ?callback:(Ir.Integer_static_allocation.callback_source allocation)
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          ~table:ledger.table ~namespace:ledger.namespace
+          ~publication:assigned.publication ~receipt
           ~dimensions:
             (Ir.Integer_storage_shape.dimensions
                (Ir.Integer_static_allocation.shape allocation))
-          ~environment ~references ~queries
+          ~environment ~references ~queries ()
         |> checked span
       in
       ledger.native_static_attempts <- receipt :: ledger.native_static_attempts;
       (allocation, fragment))
+
+let native_task_static_fragment = task_static_fragment
 
 let initializer_fragment ledger ~runtime ~task_view
     (receipt : Parser.completed_initializer_leaf) =

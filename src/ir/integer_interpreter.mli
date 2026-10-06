@@ -97,8 +97,22 @@ type dimension_attempt
 
 val admit_static_allocation :
   task_state -> Integer_static_allocation.t -> (unit, string) result
-(** Charge one original live private static declaration in its native task. This
-    retains metadata only and creates no interpreter value cells. *)
+(** Charge one original live private static declaration. Interpreter tasks
+    allocate unknown cells; native tasks retain metadata without shadow values.
+*)
+
+val execute_task_static_initializer :
+  ?use_active_stream:bool ->
+  ?stream_exe_print:stream_exe_print ->
+  task_state ->
+  Static_initializer_program.t ->
+  (unit, error list) result
+
+val execute_task_static_copy :
+  task_state -> Static_initializer_destination.t -> (unit, string) result
+(** Consume each original live leaf once in interpreter storage. Foreign,
+    expired, replayed and native-authoritative requests are rejected before
+    execution. Failed attempts remain consumed. *)
 
 val check_native_static_allocation :
   task_state ->

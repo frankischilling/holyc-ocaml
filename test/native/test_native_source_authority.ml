@@ -1455,6 +1455,7 @@ let native_static_source_authority () =
     let references = Fragment.references fragment in
     let create references =
       Fragment.create_selected ~references
+        ?callback:(Fragment.callback_source fragment)
         ~table:(Session.semantic_symbols session)
         ~namespace:(Fragment.namespace fragment)
         ~publication:(Fragment.publication fragment)
@@ -1462,8 +1463,44 @@ let native_static_source_authority () =
         ~dimensions:(Fragment.dimensions fragment)
         ~environment:(Fragment.environment fragment)
         ~queries:(Fragment.queries fragment)
+        ()
     in
     create references |> checked |> ignore;
+    let module VM = Holyc_lib__Ir.Integer_interpreter in
+    let foreign_ir =
+      VM.create_task_state ~table:(Session.semantic_symbols session) ()
+      |> checked
+    in
+    (match
+       VM.execute_task_static_initializer foreign_ir
+         (Initializer.program request)
+     with
+    | Ok () ->
+        Alcotest.fail "native initializer borrowed interpreter task storage"
+    | Error errors ->
+        Alcotest.(check bool)
+          "foreign interpreter task rejects before entry" true
+          (List.for_all
+             (fun (error : VM.error) ->
+               error.code = "HCIRVM0026" && error.stage = VM.Preflight
+               && error.executed_steps = 0)
+             errors));
+    Alcotest.(check int)
+      "foreign interpreter publishes no values" 0
+      (VM.task_progress foreign_ir).executed_steps;
+    (match Fragment.callback_source fragment with
+    | None -> ()
+    | Some _ ->
+        rejected "callback initializer requires its original anonymous header"
+          (Fragment.create_selected ~references
+             ~table:(Session.semantic_symbols session)
+             ~namespace:(Fragment.namespace fragment)
+             ~publication:(Fragment.publication fragment)
+             ~receipt:(Fragment.receipt fragment)
+             ~dimensions:(Fragment.dimensions fragment)
+             ~environment:(Fragment.environment fragment)
+             ~queries:(Fragment.queries fragment)
+             ()));
     (match references with
     | [ first; (second_identifier, _) ] ->
         rejected
@@ -1488,7 +1525,7 @@ let native_static_source_authority () =
         in
         Alcotest.(check int)
           "both ABIs reuse padded static and global bytes"
-          (if !initializer_count = 1 then 16 else 24)
+          (8 * (!initializer_count + 1))
           (Image.global_bytes image))
       [ Image.Windows_x64; Image.System_v_x64 ];
     ignore
@@ -1544,7 +1581,7 @@ let native_static_source_authority () =
         (task_run session task 71 "I64 X=40;X++;");
       task_succeeds "live private allocation and initializer"
         (task_run session task 72
-           "I64 F(){static I64 A=X,B=A+A;static I64 (*p)();p=1;return A+=p;}");
+           "I64 F(){static I64 A=X,B=A+A;static I64 (*p)()=1;return A+=p;}");
       task_succeeds "first retained static call"
         (task_run session task 73 "F();");
       Gc.full_major ();
@@ -1558,7 +1595,7 @@ let native_static_source_authority () =
         "each integer and callback allocation is offered once" 3
         !allocation_count;
       Alcotest.(check int)
-        "each static initializer is offered once" 2 !initializer_count;
+        "each static initializer is offered once" 3 !initializer_count;
       rejected "expired allocation cannot reserve another arena"
         (Runtime.allocate_task_static foreign_arena
            (Option.get !saved_allocation));

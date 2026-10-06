@@ -2708,7 +2708,7 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
         "static-initializer root is foreign to its typed function";
       (source, root)
     in
-    let function_callback_subtree_contains source selected root =
+    let function_expression_subtree source root =
       let callbacks =
         Typed.function_calls source
         |> List.filter_map (function
@@ -2716,10 +2716,10 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
               Some (Callback_source.Function call)
           | _ -> None)
       in
-      let rec visit = function
-        | [] -> false
+      let rec visit seen = function
+        | [] -> List.rev seen
         | value :: rest ->
-            if Callback_source.matches_result selected value then true
+            if List.exists (( == ) value) seen then visit seen rest
             else
               let direct_arguments =
                 match Typed.result_call_resolution value with
@@ -2746,11 +2746,15 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                     @ List.filter_map snd (Callback_source.fixed_arguments call)
                     @ Callback_source.variadic_arguments call)
               in
-              visit
+              visit (value :: seen)
                 (expression_children value @ direct_arguments
                @ callback_arguments @ rest)
       in
-      visit [ root ]
+      visit [] [ root ]
+    in
+    let function_callback_subtree_contains source selected root =
+      function_expression_subtree source root
+      |> List.exists (Callback_source.matches_result selected)
     in
     let validate_source owner description span =
       match (owner, description.source) with
@@ -2907,6 +2911,28 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
               |> fun original -> original == declaration)
     in
     let seal_addresses graph =
+      let static_sources =
+        match graph.owner with
+        | Function _ -> []
+        | Entry ->
+            Global_initialization.static_regions initialization
+            |> List.map (fun region ->
+                let slot = Global_initialization.static_slot region in
+                let frame = Integer_globals.static_frame slot in
+                let source =
+                  source_function
+                    (Sema.Function_frame_layout.function_symbol frame)
+                in
+                let root = Global_initialization.static_root region in
+                require
+                  (List.exists (( == ) root)
+                     (Typed.function_initializers source))
+                  "static address root is foreign to its exact typed function";
+                ( Global_initialization.describe_static region,
+                  Typed.function_item_index source,
+                  function_expression_subtree source
+                    (Typed.initializer_value root) ))
+      in
       let sources =
         match graph.owner with
         | Entry -> Typed.top_level_all_results top_level
@@ -2914,6 +2940,20 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
             source_function ?span:(Function_body.span body)
               (Function_body.symbol body)
             |> Typed.function_all_results
+      in
+      let sources_for_instruction (instruction : Seq.description) =
+        sources
+        @ (static_sources
+          |> List.concat_map (fun (bounds, _, values) ->
+              if
+                Seq.Instruction_id.compare instruction.instruction_id
+                  bounds.Global_initialization.first
+                >= 0
+                && Seq.Instruction_id.compare instruction.instruction_id
+                     bounds.last
+                   <= 0
+              then values
+              else []))
       in
       let original_instructions =
         List.concat_map (fun (_, items, _) -> items) graph.original_blocks
@@ -2942,7 +2982,7 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                     && instruction.span
                        = origin_span (Resolution.prefix_operator_origin prefix)
                 | _ -> false)
-              sources
+              (sources_for_instruction instruction)
         | _ -> []
       in
       let seal_slot_block slots (_, items, _) =
@@ -3016,19 +3056,37 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                       slot_address_item_index =
                         (match graph.owner with
                         | Function _ -> None
-                        | Entry ->
+                        | Entry -> (
                             let module Tree = Sema.Top_level_expression_tree in
-                            Tree.statements (Typed.top_level_source top_level)
-                            |> List.find_map (fun statement ->
-                                if
-                                  Tree.statement_owns_expression statement
-                                    (Typed.result_source source)
-                                then
-                                  Some
-                                    (Sema.Top_level_outer_expression_binding
-                                     .statement_item_index
-                                       (Tree.statement_source statement))
-                                else None));
+                            let top_level_index =
+                              Tree.statements (Typed.top_level_source top_level)
+                              |> List.find_map (fun statement ->
+                                  if
+                                    Tree.statement_owns_expression statement
+                                      (Typed.result_source source)
+                                  then
+                                    Some
+                                      (Sema.Top_level_outer_expression_binding
+                                       .statement_item_index
+                                         (Tree.statement_source statement))
+                                  else None)
+                            in
+                            match top_level_index with
+                            | Some _ -> top_level_index
+                            | None ->
+                                static_sources
+                                |> List.find_map (fun (bounds, index, values) ->
+                                    if
+                                      Seq.Instruction_id.compare
+                                        cursor.instruction_id
+                                        bounds.Global_initialization.first
+                                      >= 0
+                                      && Seq.Instruction_id.compare
+                                           cursor.instruction_id bounds.last
+                                         <= 0
+                                      && List.exists (( == ) source) values
+                                    then Some index
+                                    else None)));
                       slot_address_provider =
                         (let classified =
                            match function_link declaration with
@@ -3212,7 +3270,7 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                                  | _ -> false)
                              | None -> false)
                          | _ -> false)
-                       sources
+                       (sources_for_instruction instruction)
                    in
                    match candidates with
                    | [ source ] -> (

@@ -1235,9 +1235,7 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
       ]
   in
   (match event with
-    | Frontend.Parser.Static_initializer_preparing receipt
-      when Option.is_some task.native_static_initializer
-           || Option.is_some task.native_static_copy -> (
+    | Frontend.Parser.Static_initializer_preparing receipt -> (
         let span =
           receipt.static_allocation.allocation_function.function_name.location
             .span
@@ -1249,7 +1247,7 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
         in
         let* task_view = VM.task_snapshot task.state |> diagnose in
         let* allocation, fragment =
-          Task_declarations.native_task_static_fragment task.declarations
+          Task_declarations.task_static_fragment task.declarations
             ~runtime:task.state ~task_view receipt
         in
         let* context =
@@ -1269,6 +1267,8 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
           |> diagnose
         in
         match Ir.Static_initializer_destination.copy_byte_count destination with
+        | Some _ when Option.is_none task.native_dispatch ->
+            VM.execute_task_static_copy task.state destination |> diagnose
         | Some _ -> (
             match task.native_static_copy with
             | None -> native_reject span "static string copies"
@@ -1290,6 +1290,14 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
                             "native static copy returned without claiming its \
                              original leaf";
                         ]))
+        | None when Option.is_none task.native_dispatch ->
+            let* program =
+              Static_initializer_lowering.lower ~runtime:task.state ~context
+                destination
+            in
+            VM.execute_task_static_initializer ~use_active_stream
+              ?stream_exe_print task.state program
+            |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
         | None -> (
             match task.native_static_initializer with
             | None -> native_reject span "static scalar initializers"
@@ -1336,10 +1344,9 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
         execute_runtime_dimension ~use_active_stream ?stream_exe_print task
           receipt
     | Frontend.Parser.Function_local_allocated receipt
-      when Option.is_some task.native_dispatch
-           && receipt.allocation_storage = Frontend.Ast.Static_local -> (
+      when receipt.allocation_storage = Frontend.Ast.Static_local -> (
         let* allocation =
-          Task_declarations.declare_native_static_symbol task.declarations
+          Task_declarations.declare_static_symbol task.declarations
             ~runtime:task.state receipt
         in
         match task.native_static_allocation with

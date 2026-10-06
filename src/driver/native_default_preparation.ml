@@ -144,9 +144,15 @@ let prepare_global_destination value declaration receipt =
   Ok destination
 
 let prepare_static_destination value fragment receipt =
+  let* type_ =
+    match Sema.Static_initializer_fragment.callback_source fragment with
+    | None -> Ok (Sema.Static_initializer_fragment.type_ fragment)
+    | Some _ ->
+        Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
+          ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+  in
   let* shape =
-    storage_shape
-      ~type_:(Sema.Static_initializer_fragment.type_ fragment)
+    storage_shape ~type_
       ~dimensions:(Sema.Static_initializer_fragment.dimensions fragment)
   in
   let* stream =

@@ -19,6 +19,7 @@ type t = {
 let source value = value.source_
 let symbol value = value.symbol_
 let type_ value = value.type_
+let callback_source value = value.callback_
 let callback_pointer value = Option.map snd value.callback_
 let shape value = value.shape_
 let cursor value = value.cursor_
@@ -43,11 +44,13 @@ let native_leaf_executed value root =
           | _ -> false)
         value.executed_
 
-let record_native_leaf value receipt ~cell_offset ~byte_offset
+let record_native_leaf ?activation value receipt ~cell_offset ~byte_offset
     ~operation:expected =
   let ( let* ) = Result.bind in
   if
-    (not (Parser.static_initializer_is_current receipt))
+    (not
+       (Parser.static_initializer_is_current receipt
+       || Sema.Source_activation.static_initializer activation receipt))
     || receipt.Parser.static_allocation
        != Sema.Compiler_record.static_allocation_receipt value.source_
     || List.exists (fun (original, _, _) -> original == receipt) value.executed_
@@ -106,14 +109,16 @@ let owns_table value table =
 
 let ( let* ) = Result.bind
 
-let create ?callback
+let create ?activation ?callback
     ?(selected_aggregate :
         Sema.Function_type_resolution.selected_aggregate_resolver =
       fun _ -> None) ~table ~header source_ =
   let receipt = Record.static_allocation_receipt source_ in
   let* () =
     if
-      (not (Parser.function_local_allocation_is_current receipt))
+      (not
+         (Parser.function_local_allocation_is_current receipt
+         || Sema.Source_activation.static_allocation activation receipt))
       || (not (Record.static_allocation_owns_table source_ table))
       || Collection.function_symbol header
          != Sema.Declaration_collection.publication_symbol

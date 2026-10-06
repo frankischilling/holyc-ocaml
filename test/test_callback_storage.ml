@@ -933,7 +933,8 @@ let callback_array_unsupported_shapes () =
                    (Test_integer_globals.run ~mode source))
                   .code)
             [
-              ("I64 Run(){@I64 (*p)()[2]=0;return 42;}Run();", "HCPARSE0137");
+              ( "I64 Run(){@I64 (*p)()[2]=0;return 42;}Run();",
+                if storage = "" then "HCPARSE0137" else "HCRUN0006" );
               ( "I64 Run(){@I64 (**p)()[2];return 42;}Run();",
                 if storage = "" then "HCIRVM0011" else "HCRUN0001" );
               ("I64 Run(){@I64 (*p)()[2][3];return p[1]();}Run();", "HCSEMA0039");
@@ -1664,7 +1665,6 @@ let static_callback_limits_and_boundaries () =
                (Test_integer_globals.run ~mode text))
               .code)
         [
-          ("I64 Run(){static I64 (*p)()=0;return 42;}Run();", "HCPARSE0137");
           ("I64 Run(){static I64 (**p)()[2];return 42;}Run();", "HCRUN0001");
           ("I64 Run(){static I64 (**p)();return 42;}Run();", "HCRUN0001");
         ])
@@ -1675,6 +1675,29 @@ let static_callback_limits_and_boundaries () =
         (*p)();if(set)p=&A;return p();}Run(1);I64 A(){return \
         2;}Run(0)*100+A();"
     |> Test_integer_functions.expect 102L)
+
+let static_callback_initializers_execute () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, expected) ->
+          Test_integer_globals.run ~mode text
+          |> Test_integer_functions.expect expected
+          |> ignore)
+        [
+          ( "I64 F(){return 42;}I64 Run(){static I64(*p)()=&F;return p();}Run();",
+            42L );
+          ( "I64 F(){return 42;}I64 Run(){static \
+             I64(*p)()[2]={&F,p[0]};p[0]=0;return p[1]();}Run();",
+            42L );
+          ( "I64 F(){return 42;}I64 Run(){static \
+             I64(*p)()[2]={&F,p[0]()};return p[1];}Run();",
+            42L );
+          ( "I64 Run(){static U8(*p)()=0x800000000000002a;return p;}Run();",
+            0x800000000000002aL );
+          ("I64 Run(){static F64(*p)()[2]={0,42};return p[1];}Run();", 42L);
+        ])
+    modes
 
 let callback_parameter_defaults_execute () =
   List.iter
@@ -2333,33 +2356,10 @@ let static_initializer_callback_requires_original_graph () =
   List.iter
     (fun mode ->
       let text =
-        "I64 F(I64 n){return n;}I64 (*p)(I64 n=42)=&F;I64 Run(){static I64 \
-         n=p();return n;}Run();"
+        "I64 F(I64 n){return n;}I64 (*p)(I64 n)=&F;I64 Run(){static I64 \
+         n=p(42);return n;}Run();"
       in
-      let compiled =
-        match mode with
-        | Preprocessor.Aot -> Test_integer_globals.compile ~mode text
-        | Jit ->
-            let session, config, source =
-              Test_integer_functions.inputs ~mode text
-            in
-            let report =
-              compile_integer_program_report session ~config ~source
-            in
-            integer_program_compilation_result report
-            |> Test_integer_functions.checked |> ignore;
-            integer_program_compilation_units report
-            |> List.find (fun unit_ ->
-                C.original_callback_calls
-                  (integer_program_runtime_calls unit_)
-                  ~owner:C.Entry
-                |> Option.fold ~none:false
-                     ~some:
-                       (List.exists (fun (call : C.callback_call) ->
-                            match call.callback_source with
-                            | Holyc_lib__Ir.Callback_source.Function _ -> true
-                            | _ -> false)))
-      in
+      let compiled = Test_integer_globals.compile ~mode text in
       let context = integer_program_runtime_calls compiled in
       let entry = integer_program_entry compiled in
       let callbacks =
@@ -3091,6 +3091,9 @@ let tests =
     Alcotest.test_case
       "static initializer callbacks require their original entry graph" `Quick
       static_initializer_callback_requires_original_graph;
+    Alcotest.test_case
+      "static callback initializer leaves use physical words and owners" `Quick
+      static_callback_initializers_execute;
     Alcotest.test_case
       "callback parameter defaults materialize original word storage" `Quick
       callback_parameter_defaults_execute;

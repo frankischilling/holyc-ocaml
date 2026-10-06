@@ -185,15 +185,28 @@ and owner lanes. Their live allocation retains the original partial-header
 symbol, anonymous signature and checked dimensions. Function completion joins
 that allocation to the exact original frame and location without allocating or
 charging again. Return metadata stays separate from physical `RT_PTR` storage.
-JIT elements remain unknown until a reached assignment initializes them.
+JIT elements remain unknown until their original initializer leaf or a reached
+assignment initializes them.
 
 `examples/native-source-static-callbacks.hc` saves a declaration-time default
 once, copies the original executable owner between static array elements and
 returns 42 after later counter writes and a same-name function replacement.
 Calls retain the selected static cell's header and saved default across
 activations. Numeric writes clear only the written element's owner. Static
-callback initializers still require their separate original parser connection;
-declaration followed by assignment does not implement that initializer path.
+callback initializers use the same original allocation and anonymous header.
+Each scalar leaf executes during parsing, before the containing body is
+installed. Copies preserve the original executable owner; numeric leaves have
+no executable owner. A later array leaf can read or call an earlier initialized
+element. Its callee retains the selected static header and saved default.
+
+`examples/native-source-static-callback-initializers.hc` initializes three
+elements with an owned address, a copy and an earlier-element call. It returns
+42 after a counter write and replacement of the named target. IR consumes the
+same original live JIT events in interpreter cells. Native tasks execute each
+leaf in machine code and allocate no interpreter shadow values. Completed
+functions join the original cells and successful leaf receipts without charging
+or initializing them again. A self-address captured before body installation
+keeps UndefinedExtern even after the body is installed.
 
 `examples/native-source-callback-words.hc` copies an original array word into a
 callback cell, updates numeric cells and forwards the saved word through a named
@@ -372,7 +385,7 @@ This source-task path supports integer globals, fixed integer arrays,
 integer and one-star callback function statics, retained direct and joined JIT
 extern calls, their original literals, numeric and owned callback storage, and
 named or anonymous integer and one-star callback defaults. Runtime-dependent
-dimensions, wider callback defaults, direct static callback initializers,
+dimensions, wider callback defaults,
 hosted-provider callback entries, native `#exe` and AOT source-task execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.

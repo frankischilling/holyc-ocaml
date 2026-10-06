@@ -201,10 +201,16 @@ val declared_static_storage : Integer_static_allocation.t -> storage_slot
 val static_source_allocation : static_slot -> Integer_static_allocation.t option
 
 val check_static_allocation :
-  task_catalog -> Integer_static_allocation.t -> (unit, string) result
+  ?activation:Sema.Source_activation.t ->
+  task_catalog ->
+  Integer_static_allocation.t ->
+  (unit, string) result
 
 val publish_static_allocation :
-  task_catalog -> Integer_static_allocation.t -> (unit, string) result
+  ?activation:Sema.Source_activation.t ->
+  task_catalog ->
+  Integer_static_allocation.t ->
+  (unit, string) result
 (** Retain private storage under its original live task function header. This
     does not publish a global name or allocate execution values. *)
 
@@ -322,6 +328,12 @@ val global_callback_storage :
   t -> Sema.Function_type_resolution.function_pointer -> storage_slot option
 (** Find the completed global storage owning this exact callback header,
     including retained task bindings. *)
+
+val persistent_callback_storage :
+  t -> Sema.Function_type_resolution.function_pointer -> storage_slot option
+(** Find an exact global, completed static or live private static callback
+    header in this source snapshot. The caller still checks its scope and
+    original initializer or body authority. *)
 
 val callback_callee_pop :
   t -> Sema.Function_type_resolution.function_pointer -> bool

@@ -174,7 +174,7 @@ let prepare_static_reference ~globals result =
               || Result.result_origin result <> origin
               || (not
                     (Sema.Type.equal
-                       (Sema.Static_reference.type_ reference)
+                       (Sema.Static_reference.storage_type reference)
                        (Integer_globals.storage_type slot)))
               || Sema.Static_reference.dimensions reference
                  <> Integer_globals.storage_dimensions slot
@@ -182,11 +182,15 @@ let prepare_static_reference ~globals result =
                     (Option.fold ~none:false
                        ~some:
                          (Sema.Type.equal (Integer_globals.storage_type slot))
-                       (Result.result_type result)))
+                       (Result.result_storage_type result)))
               || Result.result_array_rank result
                  <> List.length (Integer_globals.storage_dimensions slot)
               || Result.result_is_array_address result
                  <> (Result.result_array_rank result > 0)
+              || not
+                   (Option.equal ( == )
+                      (Result.result_callback_pointer result)
+                      (Sema.Static_reference.callback_pointer reference))
             then
               invalid
                 "static reference substituted its original type, occurrence or \
@@ -607,8 +611,7 @@ let prepare_static_initializer ~globals slot root =
       in
       match
         ( Result.initializer_source root |> Source.initializer_origin,
-          Type.pointer_to
-            (Sema.Function_frame_layout.location_checked_type location) )
+          Type.pointer_to (Integer_globals.storage_type storage) )
       with
       | Sema.Symbol.Source_location location, Ok address_type ->
           Ok

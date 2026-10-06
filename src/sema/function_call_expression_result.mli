@@ -43,6 +43,7 @@ type outer_callback_call
 type top_level_direct_call
 type top_level_global_callback_call
 type top_level_outer_callback_call
+type top_level_static_callback_call
 type top_level_indexed_global_callback_call
 type top_level_member_callback_call
 type direct_call
@@ -82,6 +83,33 @@ type t
 type top_level_root_result
 type top_level_statement_result
 type top_level_t
+
+val top_level_static_callback_calls :
+  top_level_t -> top_level_static_callback_call list
+
+val top_level_static_callback_source :
+  top_level_static_callback_call -> Top_level_expression_tree.call
+
+val top_level_static_callback_reference :
+  top_level_static_callback_call -> Static_reference.t
+
+val top_level_static_callback_callee_result :
+  top_level_static_callback_call -> expression_result
+
+val top_level_static_callback_callable :
+  top_level_static_callback_call -> Function_call_resolution.callable
+
+val top_level_static_callback_fixed_results :
+  top_level_static_callback_call -> top_level_fixed_result list
+
+val top_level_static_callback_variadic_results :
+  top_level_static_callback_call -> expression_result list
+
+val top_level_static_callback_variadic_count :
+  top_level_static_callback_call -> int64
+
+val top_level_static_callback_result_id : top_level_static_callback_call -> Id.t
+
 type error_kind = Invalid_input of string
 type error
 

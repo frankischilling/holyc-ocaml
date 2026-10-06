@@ -268,13 +268,6 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                         remaining
                     in
                     let* () =
-                      if Option.is_some callback && owned <> [] then
-                        invalid ~at ~code:"HCRUN0001"
-                          "static callback initializers require their own \
-                           saved word or executable preparation"
-                      else Ok ()
-                    in
-                    let* () =
                       List.fold_left
                         (fun checked root ->
                           let* () = checked in

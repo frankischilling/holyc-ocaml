@@ -138,8 +138,9 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
     ?dimension ?offset ?native_global ?native_static ?(already_prepared = [])
     ?(statics_prepared = []) ?(function_calls = []) ?(callback_calls = [])
     ?(top_callback_calls = []) ?(allow_zero_budget = false)
-    ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
-    ~max_steps ~span ~globals ~top_calls ~functions () =
+    ?(check_only = false) ?(retained_function_source = fun _ -> None)
+    ?(on_progress = fun _ -> ()) ~max_steps ~span ~globals ~top_calls ~functions
+    () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -914,7 +915,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 invalid ~at ~notes "HCRUN0006"
                   "nonconstant AOT static initialization with \
                    globals-on-data-heap requires a separate compile-time phase"
-              else if not constant then
+              else if check_only || not constant then
                 collect total updates
                   ({
                      root_;
@@ -996,6 +997,23 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   rest)
     in
     collect 0 [] [] work
+
+let check_static_fragment ?retained_function_source ~top_calls
+    ~top_callback_calls destination =
+  let module D = Ir.Static_initializer_destination in
+  prepare_internal
+    ~native_static:
+      ( D.fragment destination,
+        D.root destination,
+        {
+          cell_offset = D.cell_offset destination;
+          byte_offset = D.byte_offset destination;
+          operation = D.operation destination;
+        } )
+    ~check_only:true ?retained_function_source ~top_callback_calls ~max_steps:1
+    ~span:(D.span destination) ~globals:(D.globals destination) ~top_calls
+    ~functions:[] ()
+  |> Result.map ignore
 
 let native_leaf value =
   match value.native_source with
@@ -1209,7 +1227,8 @@ let prepare_native_static ~fragment ~typed ~cell_offset ~byte_offset ~operation
       match operation with
       | Layout.Scalar_store ->
           if
-            scalar (Fragment.type_ fragment)
+            (scalar (Fragment.type_ fragment)
+            || Option.is_some (Fragment.callback_source fragment))
             && Typed.result_array_rank value = 0
             && Option.fold ~none:false ~some:scalar (Typed.result_type value)
           then Ok ()

@@ -427,6 +427,7 @@ type function_local_allocation = private {
   allocation_function : function_publication;
   allocation_local : local_publication;
   allocation_storage : Ast.local_storage;
+  allocation_initializer_equals : Ast.location option;
   allocation_predecessor : function_local_allocation option;
   allocation_activity : function_position_activity;
 }

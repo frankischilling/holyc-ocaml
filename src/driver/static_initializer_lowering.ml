@@ -2,7 +2,7 @@ module Destination = Ir.Static_initializer_destination
 module Lower = Ir.Integer_program_lowering
 module Typed = Sema.Function_call_expression_result
 
-let lower ~context destination =
+let lower ?runtime ~context destination =
   let ( let* ) = Result.bind in
   let span = Destination.span destination in
   let diagnose result =
@@ -36,6 +36,17 @@ let lower ~context destination =
       (Ok [])
   in
   let* lowered =
+    let* () =
+      Option.fold ~none:(Ok ())
+        ~some:(fun runtime ->
+          Integer_initializers.check_static_fragment
+            ~retained_function_source:
+              (Ir.Integer_interpreter.task_function_source runtime)
+            ~top_calls
+            ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
+            destination)
+        runtime
+    in
     Lower.lower_complete
       ~globals:(Destination.globals destination)
       ~records ~top_calls

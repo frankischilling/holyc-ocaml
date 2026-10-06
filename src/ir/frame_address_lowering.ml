@@ -409,9 +409,10 @@ let prepare_initializer ~frame initial =
                    ~some:(fun checked -> checked == reference)
                    (Frame.location_type_reference location)))
           || (not
-                (Type.equal
-                   (Frame.location_checked_type location)
-                   (Result.initializer_target_type initial)))
+                (Stdlib.Result.fold
+                   ~ok:(Type.equal (Result.initializer_target_type initial))
+                   ~error:(fun _ -> false)
+                   (Frame.location_storage_type location)))
           || Result.result_source (Result.initializer_value initial)
              != Source.initializer_expression source
         then
