@@ -1582,3 +1582,16 @@ ABIs and execute the host ABI; they reject cross-domain claims, expired or
 replayed requests, repeated work receipts and copied saved objects with equal
 source and bits. Public CLI reports distinguish native default images and
 saved payload bytes. These tests add no TempleOS runtime capture.
+
+`test/native/test_native_source_callback_updates.ml` exercises numeric callback
+right operands through five native test groups. Independent IR comparisons cover
+all ten compound operators on integer locals, globals, indexed elements,
+references and callback destinations, including callback scaling, narrow signed
+and unsigned conversions, fixed parameters and callback arrays. Actual native
+outcomes cover owned right operands, left initialization and bounds priority,
+owned callback left cells, index effects, division and remainder faults, skipped
+updates and collection. Exact and one-below code, IR, runtime, frame and recursive
+call limits include the new guards. Each successful fragment executes natively,
+with zero interpreter instructions recorded by source admission. The CLI suite
+also preserves `HCPARSE0137` for direct automatic callback initializers on all
+three JIT targets, following the pinned `Grid.HC` restriction.

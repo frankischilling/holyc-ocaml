@@ -1767,7 +1767,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
                    encoder_arena_slot instruction.span
                      (Global_storage.code_owner_address owner) ))
       in
-      let require_numeric_owner value =
+      let require_numeric_owner ?(protected = []) value =
         if Option.is_some value.code_owner_offset then (
           let invalid = fresh_label supply in
           fault_blocks :=
@@ -1778,7 +1778,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             }
             :: !fault_blocks;
           let scratch =
-            acquire_empty instruction.span ~protected:[] ~excluded:[]
+            acquire_empty instruction.span ~protected ~excluded:[]
           in
           load_owner registers.(scratch) value;
           emit (Encoder.Test registers.(scratch));
@@ -1899,6 +1899,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Unary (unary, registers.(destination)));
           assign position destination result
       | Apply_binary (binary, left, right, result) ->
+          require_numeric_owner left;
+          require_numeric_owner right;
           let inputs, protected =
             ensure_inputs instruction.span [ left; right ]
           in
@@ -2495,6 +2497,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             access.initialized_flag_offset;
           emit (load_frame_scalar instruction.span Encoder.Rax access);
           if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
           (match input with
           | Some input -> copy_value_to instruction.span input rcx
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
@@ -2582,6 +2585,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit_branch Not_equal owned;
           emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
           if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
           (match input with
           | Some input -> copy_value_to instruction.span input rcx
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 8L)));
@@ -2613,6 +2617,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit_branch Equal uninitialized;
           emit (load_arena_scalar instruction.span Encoder.Rax access);
           if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
           (match input with
           | Some input -> copy_value_to instruction.span input rcx
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
@@ -2651,6 +2656,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
                scalar);
           if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
           (match input with
           | Some input -> copy_value_to instruction.span input rcx
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
@@ -2696,6 +2702,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
                access.scalar);
           if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
           (match input with
           | Some input -> copy_value_to instruction.span input rcx
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
@@ -5151,6 +5158,16 @@ let preflight_callable_graph ~runtime_calls ~source_globals
   let has_code_word_view value =
     Value_set.mem value.value_id !word_code_values
   in
+  let check_update_operand description input =
+    match code_source input with
+    | Some _ when has_code_word_view input -> ()
+    | Some _ ->
+        unsupported description
+          "numeric updates require an original callback word view"
+    | None ->
+        ignore
+          (checked_scalar ~allow_public:true description input.declared_type)
+  in
   let callbacks =
     match
       Runtime.original_callback_calls runtime_calls ~owner:runtime_owner
@@ -5316,8 +5333,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
       match (expects_operand, operands) with
       | true, [ input_id ] ->
           let input = operand values description position input_id in
-          ignore
-            (checked_scalar ~allow_public:true description input.declared_type);
+          check_update_operand description input;
           Some input
       | false, [] -> None
       | _ -> malformed description "invalid callback update operands"
@@ -5412,6 +5428,24 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                      Ic_end_exp;
                      Ic_set_rax;
                    ]))
+          && (not
+                (Option.fold ~none:false
+                   ~some:(fun (_, _, expects_operand) -> expects_operand)
+                   (callable_frame_update description.opcode I64)
+                && List.for_all
+                     (fun id ->
+                       (not (Value_map.mem id !code_values))
+                       || Option.fold ~none:false ~some:has_code_word_view
+                            (Value_map.find_opt id !values))
+                     description.operands))
+          && (not
+                (description.opcode = Opcode.Ic_mul
+                && List.for_all
+                     (fun id ->
+                       (not (Value_map.mem id !code_values))
+                       || Option.fold ~none:false ~some:has_code_word_view
+                            (Value_map.find_opt id !values))
+                     description.operands))
           && not
                (task_dynamic_code_words
                && description.opcode = Opcode.Ic_return_val
@@ -5427,6 +5461,44 @@ let preflight_callable_graph ~runtime_calls ~source_globals
              full-word view";
         let operation, value_type =
           match description.opcode with
+          | Opcode.Ic_mul
+            when List.exists
+                   (fun id -> Value_map.mem id !code_values)
+                   description.operands -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | [ left_id; right_id ], Some result, Some target_type, None ->
+                  let left = operand values description position left_id
+                  and right = operand values description position right_id in
+                  List.iter (check_update_operand description) [ left; right ];
+                  ignore
+                    (checked_word ~allow_public:true description target_type);
+                  let numeric_input input =
+                    if Type.pointer_depth input.computation_type = 0 then input
+                    else
+                      {
+                        input with
+                        computation_type =
+                          Type.make_primitive ~form:Type.Internal_storage
+                            ~primitive:Primitive.I64 ~pointer_depth:0
+                          |> Result.get_ok;
+                      }
+                  in
+                  require_type ~allow_public:true description
+                    (promoted_type description (numeric_input left)
+                       (numeric_input right))
+                    target_type;
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Apply_binary (Encoder.Imul, left, right, value), None)
+              | _ ->
+                  malformed description "invalid callback word multiplication")
           | (Opcode.Ic_equ_equ | Opcode.Ic_not_equ)
             when List.exists
                    (fun id -> Value_map.mem id !code_values)
@@ -7649,9 +7721,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             let input =
                               operand values description position input_id
                             in
-                            ignore
-                              (checked_scalar ~allow_public:true description
-                                 input.declared_type);
+                            check_update_operand description input;
                             Some input
                         | false, [] -> None
                         | _ ->
@@ -7706,9 +7776,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             let input =
                               operand values description position input_id
                             in
-                            ignore
-                              (checked_scalar ~allow_public:true description
-                                 input.declared_type);
+                            check_update_operand description input;
                             Some input
                         | false, [] -> None
                         | _ ->
@@ -7760,9 +7828,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             let input =
                               operand values description position input_id
                             in
-                            ignore
-                              (checked_scalar ~allow_public:true description
-                                 input.declared_type);
+                            check_update_operand description input;
                             Some input
                         | false, [] -> None
                         | _ ->
@@ -7833,9 +7899,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             let input =
                               operand values description position input_id
                             in
-                            ignore
-                              (checked_scalar ~allow_public:true description
-                                 input.declared_type);
+                            check_update_operand description input;
                             Some input
                         | false, [] -> None
                         | _ ->
@@ -8430,6 +8494,18 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               (match operation with
                 | Return_value input -> Option.is_some input.code_owner_offset
                 | Discard_callback_default _ -> true
+                | Apply_binary (_, left, right, _) ->
+                    Option.is_some left.code_owner_offset
+                    || Option.is_some right.code_owner_offset
+                | Update_frame_value (_, _, input, _, _, _, _)
+                | Update_arena_value (_, _, input, _, _, _, _)
+                | Update_reference_value (_, _, input, _, _, _, _)
+                | Update_indexed_object_value (_, _, input, _, _, _, _)
+                | Update_callback_value (_, _, input, _, _, _) ->
+                    Option.fold ~none:false
+                      ~some:(fun input ->
+                        Option.is_some input.code_owner_offset)
+                      input
                 | _ -> false)
               || Option.fold ~none:false
                    ~some:(fun (value, _, owner_stage) ->

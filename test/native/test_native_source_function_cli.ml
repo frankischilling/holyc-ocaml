@@ -21,12 +21,13 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 10)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 11)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
      [native-source-defaults.hc] [native-source-extern-slots.hc] \
-     [native-source-callback-words.hc] [native-source-slot-addresses.hc]"
+     [native-source-callback-words.hc] [native-source-slot-addresses.hc] \
+     [native-source-callback-updates.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -634,5 +635,29 @@ let () =
       "extern I64 F();I64 Call(I64 (*p)()=&F){return p();}I64 F(){return \
        42;}Call();";
     ];
+  let update_checks path =
+    List.iter
+      (fun target ->
+        require
+          (final_bits (json_path ~target path) = "0x000000000000002a")
+          "numeric callback operands update original scalar storage")
+      [ "host-jit-task"; "ir" ]
+  in
+  if Array.length Sys.argv >= 11 then update_checks Sys.argv.(10)
+  else
+    with_file ".hc"
+      "I64 total=0;I64 values[2]={0,0};I64 Accumulate(I64 (*amount)()){U8 \
+       local=14;I64 \
+       *pointer=&total;local+=amount;total+=amount;values[1]+=amount;*pointer+=amount;return \
+       local+values[1]+total;}I64 (*amount)()[2]={0,7};Accumulate(amount[1]);"
+      update_checks;
+  with_file ".hc"
+    "I64 F(){return 42;}I64 Run(){I64 (*p)()=&F;return p();}Run();" (fun path ->
+      List.iter
+        (fun target ->
+          require
+            (has_diagnostic "HCPARSE0137" (json_path ~target ~status:1 path))
+            "pinned automatic callback initializer rejection")
+        [ "ir"; "host-jit-task"; "host-jit" ]);
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

@@ -67,9 +67,19 @@ status 22 is accepted only at an original callback-update site with consumed
 work. An arbitrary numeric result never acquires the private owner needed for
 native invocation.
 
-Callback-valued right operands retain the existing native arithmetic admission
-boundary. Member storage, remaining dereferences, multistar callback consumers,
-arithmetic on owned function addresses, live native task linking, and general
+Native source-task execution accepts numeric callback-valued right operands for
+all ten compound operators on ordinary integer locals, globals, fully indexed
+elements, references and supported callback cells. The original checked word view
+must survive lowering. Narrow and unsigned ordinary destinations retain their
+conversion and division rules; callback destinations retain their RT_PTR scaling.
+The reached native guard rejects an owned right operand after checking and reading
+the left cell. Initialization, bounds and an owned callback left cell retain
+their earlier fault priority. `examples/native-source-callback-updates.hc` returns
+42 through native source-task and IR execution. The isolated native path still
+rejects this callback-operand shape with `HCBACK0002`.
+
+Member storage, remaining dereferences, multistar callback consumers,
+arithmetic on owned function addresses, wider native task linking, and general
 `F64` or aggregate execution remain unfinished under issues #801, #704 and #688.
 
 `examples/callback-updates.hc` returns 42 through both runners and source modes.

@@ -23,6 +23,9 @@ counter changes; omitted arguments reuse the original saved word.
 JIT function-slot addresses preserve capture timing and the original record.
 `examples/native-source-slot-addresses.hc` returns 42 after a same-name
 replacement; its saved default keeps the earlier unresolved entry.
+Numeric callback words can supply compound operands for locals, globals, array
+elements and references. `examples/native-source-callback-updates.hc` exercises
+all four destinations and returns 42 in IR and native source-task execution.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
 and remaining native address, dimension and runtime work under #704.
 

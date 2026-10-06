@@ -279,8 +279,18 @@ The IR consumer preserves the same declaration-time capture and source-position
 rules. Hosted output-provider callback addresses still require their own checked
 entries and receive a diagnostic rather than an unresolved capture.
 
-Live anonymous expression defaults and direct automatic callback initializers
-remain required work.
+Live anonymous expression defaults remain required work. Direct automatic
+callback initializers remain rejected at the pinned `Grid.HC` restriction.
+
+Numeric callback words can supply all ten compound update operators for integer
+locals, globals, indexed elements and references. Narrow and unsigned destinations
+keep their original conversions. Callback return metadata does not change the
+stored word. The original callback word view must be retained through lowering;
+an executable owner still faults at the reached update after the original left
+initialization and bounds checks. Code, IR, runtime, frame and call-depth limits
+include these guards. `examples/native-source-callback-updates.hc` exercises all
+four scalar destinations and returns 42 in IR and native source-task execution.
+
 F64 and aggregate callback execution, member cells and the exported ABI remain
 outside this supported native slice. Static callback leaves and joined extern
 calls are tested natively; the isolated IR path still rejects some of these
@@ -342,7 +352,7 @@ This source-task path supports integer globals, fixed integer arrays,
 integer function statics, retained direct and joined JIT extern calls, and their
 original literals, numeric and owned callback storage, and named integer or
 one-star callback defaults. Runtime-dependent dimensions, wider callback defaults,
-live anonymous expression defaults, direct automatic callback initializers,
+live anonymous expression defaults,
 hosted-provider callback entries, native `#exe` and AOT source-task execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.
