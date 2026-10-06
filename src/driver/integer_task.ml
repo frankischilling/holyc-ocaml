@@ -81,6 +81,30 @@ module Native_dispatch = struct
            (Ir.Initializer_fragment_program.initialization program))
       ~runtime_calls ~owner call
 
+  let initializer_slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    let program = request.initializer_program_ in
+    VM.task_native_slot_address_binding request.initializer_task
+      ~root_runtime_calls:
+        (Ir.Initializer_fragment_program.runtime_calls program)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Initializer_fragment_program.initialization program))
+      ~runtime_calls ~owner address
+
+  let initializer_slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    let program = request.initializer_program_ in
+    VM.refresh_native_slot_address_binding request.initializer_task
+      ~root_runtime_calls:
+        (Ir.Initializer_fragment_program.runtime_calls program)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Initializer_fragment_program.initialization program))
+      binding
+
   let initializer_provider_available request ~runtime_calls ~owner call =
     let ( let* ) = Result.bind in
     let* () = check_initializer_request request in
@@ -140,6 +164,24 @@ module Native_dispatch = struct
       ~root_runtime_calls:(Integer_unit.runtime_calls program)
       ~root_globals:(Integer_unit.globals program)
       ~runtime_calls ~owner call
+
+  let command_slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    let program = request.command_program_ in
+    VM.task_native_slot_address_binding request.command_task
+      ~root_runtime_calls:(Integer_unit.runtime_calls program)
+      ~root_globals:(Integer_unit.globals program)
+      ~runtime_calls ~owner address
+
+  let command_slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    let program = request.command_program_ in
+    VM.refresh_native_slot_address_binding request.command_task
+      ~root_runtime_calls:(Integer_unit.runtime_calls program)
+      ~root_globals:(Integer_unit.globals program)
+      binding
 
   let command_provider_available request ~runtime_calls ~owner call =
     let ( let* ) = Result.bind in
@@ -292,6 +334,28 @@ module Native_static_initializer = struct
            (Ir.Static_initializer_program.initialization request.program_))
       ~runtime_calls ~owner call
 
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Static_initializer_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Static_initializer_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Static_initializer_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Static_initializer_program.initialization request.program_))
+      binding
+
   let provider_available request ~runtime_calls ~owner call =
     let ( let* ) = Result.bind in
     let* () = check request in
@@ -365,6 +429,28 @@ module Native_default = struct
         (Ir.Global_initialization.globals
            (Ir.Default_fragment_program.initialization request.program_))
       ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Default_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Default_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Default_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Default_fragment_program.initialization request.program_))
+      binding
 
   let provider_available request ~runtime_calls ~owner call =
     let ( let* ) = Result.bind in

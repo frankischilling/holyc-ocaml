@@ -2316,6 +2316,169 @@ let callback_executable_storage_authority () =
   Alcotest.(check int)
     "only the earlier definition command entered" 1 budget.executed_steps
 
+let slot_address_host_bounds () =
+  let session, config, source = inputs "extern I64 F();I64 (*p)()=&F;" in
+  let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
+  let observed = ref false in
+  let expired = ref None in
+  let dispatch : Dispatch.t =
+    {
+      execute_command =
+        (fun request ->
+          Dispatch.claim_command_request request |> checked;
+          Ok Dispatch.Unchanged);
+      execute_initializer =
+        (fun request ->
+          let image =
+            Image.compile_task_initializer ~layout request |> compiled
+          in
+          let program = Dispatch.initializer_program request in
+          let calls =
+            Holyc_lib__Ir.Initializer_fragment_program.runtime_calls program
+          in
+          let graph =
+            Holyc_lib__Ir.Initializer_fragment_program.entry program
+            |> Holyc_lib__Ir.X87_stack.graph
+          in
+          let addresses =
+            Holyc_lib__Ir.Runtime_call_context.original_function_slot_addresses
+              calls ~owner:Holyc_lib__Ir.Runtime_call_context.Entry
+            |> Option.get
+          in
+          let receipt =
+            Holyc_lib__Ir.Block_graph.blocks graph
+            |> List.concat_map (fun block ->
+                Holyc_lib__Ir.Block_graph.instructions block
+                |> Holyc_lib__Ir.Instruction_sequence.instructions)
+            |> List.find_map (fun instruction ->
+                Holyc_lib__Ir.Runtime_call_context
+                .original_function_slot_address addresses
+                  (Holyc_lib__Ir.Instruction_sequence.description instruction))
+            |> Option.get
+          in
+          let bind =
+            Dispatch.initializer_slot_address_binding request
+              ~runtime_calls:calls
+              ~owner:Holyc_lib__Ir.Runtime_call_context.Entry
+          in
+          let binding = bind receipt |> checked in
+          Alcotest.(check bool)
+            "unresolved slot has no fabricated source body" true
+            (Option.is_none (VM.native_slot_address_binding_source binding));
+          rejected "copied receipt grants no slot authority"
+            (bind (Obj.obj (Obj.dup (Obj.repr receipt))));
+          expired := Some (fun () -> bind receipt);
+          let functions =
+            Array.of_list (Image.windows_unwind_functions image)
+          in
+          let bindings = Array.of_list (Image.code_owner_bindings image) in
+          let slots = Array.of_list (Image.function_slot_bindings image) in
+          Alcotest.(check int)
+            "real shared private entry" 1
+            (Image.private_function_count image);
+          Alcotest.(check int)
+            "placeholder has no source function" 0
+            (Image.function_count image);
+          Alcotest.(check int)
+            "one original logical slot" 1 (Array.length slots);
+          let abi =
+            match Image.status_abi image with
+            | Image.Windows_x64 -> 1
+            | System_v_x64 -> 2
+          in
+          let extent = Image.arena_bytes image in
+          let identity slots =
+            Obj.repr
+              ( Image.code image,
+                functions,
+                abi,
+                Image.entry_stack_bytes image,
+                ( Image.global_bytes image,
+                  Image.literal_bytes image,
+                  Image.arena_metadata_bytes image,
+                  extent ),
+                bindings,
+                slots )
+          in
+          let reject label call =
+            Alcotest.(check bool)
+              label true
+              (try
+                 ignore (call ());
+                 false
+               with Invalid_argument _ -> true)
+          in
+          let address, id = slots.(0) in
+          let _, owner_address, _, _, _ = bindings.(0) in
+          List.iter
+            (fun slots ->
+              reject "malformed or foreign native slot has no mapping"
+                (fun () -> raw_code_retain (identity slots)))
+            [
+              Obj.repr 0;
+              Obj.repr [| 0 |];
+              Obj.repr [| (address, "owner") |];
+              Obj.repr [| (-1, id) |];
+              Obj.repr [| (extent - 15, id) |];
+              Obj.repr [| (address, 0) |];
+              Obj.repr [| (address, id + 1) |];
+              Obj.repr [| (owner_address, id) |];
+              Obj.repr [| (address, id); (address, id) |];
+            ];
+          let code = raw_code_retain (identity (Obj.repr slots)) in
+          let arena = raw_arena_create extent in
+          Fun.protect
+            ~finally:(fun () ->
+              raw_code_release code;
+              raw_arena_release arena)
+            (fun () ->
+              ignore (raw_arena_admit arena 0 extent []);
+              Alcotest.(check bool)
+                "original entry and slot bind once" true
+                (raw_code_bind code (Obj.repr (arena, extent)));
+              let clone = raw_code_retain (identity (Obj.repr slots)) in
+              Fun.protect
+                ~finally:(fun () -> raw_code_release clone)
+                (fun () ->
+                  Gc.full_major ();
+                  Gc.compact ();
+                  Alcotest.(check bool)
+                    "refresh keeps original canonical placeholder" false
+                    (raw_code_bind clone (Obj.repr (arena, extent)));
+                  raw_code_release code;
+                  reject "released original slot entry cannot be replaced"
+                    (fun () -> raw_code_bind clone (Obj.repr (arena, extent)))));
+          let broken = raw_arena_create extent in
+          let code = raw_code_retain (identity (Obj.repr slots)) in
+          Fun.protect
+            ~finally:(fun () ->
+              raw_code_release code;
+              raw_arena_release broken)
+            (fun () ->
+              ignore
+                (raw_arena_admit broken 0 extent
+                   [ (address, String.make 15 '\255') ]);
+              reject "corrupt old slot is rejected before publication"
+                (fun () -> raw_code_bind code (Obj.repr (broken, extent))));
+          Image.check_task_request image |> checked;
+          observed := true;
+          Error
+            [
+              Diagnostic.make ~code:"HCRUN0004" ~severity:Diagnostic.Error
+                ~message:
+                  "original slot boundary probe stops before initializer entry"
+                ~primary:(Driver.Integer_source.source_span source)
+                ();
+            ]);
+    }
+  in
+  ignore
+    (Source.run ~native_dispatch:dispatch session ~config ~source
+       ~max_steps:100_000);
+  Alcotest.(check bool) "actual source slot request observed" true !observed;
+  rejected "closed original request cannot grant slot authority"
+    ((Option.get !expired) ())
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -2337,6 +2500,9 @@ let () =
           Alcotest.test_case
             "original native owner host mappings, bounds and expiry" `Quick
             callback_host_entry_bounds;
+          Alcotest.test_case
+            "original slot receipts, native bindings and expiry" `Quick
+            slot_address_host_bounds;
           Alcotest.test_case
             "persistent native code ownership, exact arena and expiry" `Quick
             callback_executable_storage_authority;

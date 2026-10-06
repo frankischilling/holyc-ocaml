@@ -1385,6 +1385,11 @@ let expression_nodes statements =
   in
   List.mapi (fun index source -> { index; source }) expressions
 
+let statement_owns_expression statement expression =
+  List.exists
+    (fun node -> node.source == expression)
+    (expression_nodes [ statement ])
+
 let validate_fragment_identifiers (statement : statement) =
   match
     ( statement.source |> Top_level_outer_expression_binding.statement_source

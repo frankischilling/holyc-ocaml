@@ -142,6 +142,7 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim
     ~runtime_calls ~retained_function_source ~retained_slot_binding
+    ~retained_slot_address_binding ~retained_slot_address_refresh
     ~retained_parameter_default ~initialization ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
@@ -161,6 +162,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
       ~capture_callback_default:(Option.is_some callback_default)
       ~task_snapshot:snapshot ~max_ir_instructions ~max_code_bytes
       ~runtime_calls ~retained_function_source ~retained_slot_binding
+      ~retained_slot_address_binding ~retained_slot_address_refresh
       ~retained_parameter_default ~initialization ~entry ~functions ()
     |> Result.map_error project_errors
   in
@@ -195,6 +197,10 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~retained_function_source:
       (Task_dispatch.initializer_function_source request)
     ~retained_slot_binding:(Task_dispatch.initializer_slot_binding request)
+    ~retained_slot_address_binding:
+      (Task_dispatch.initializer_slot_address_binding request)
+    ~retained_slot_address_refresh:
+      (Task_dispatch.initializer_slot_address_refresh request)
     ~retained_parameter_default:
       (Task_dispatch.initializer_parameter_default request)
     ~initialization:(Fragment.initialization program)
@@ -212,6 +218,8 @@ let compile_task_static_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
     ~retained_parameter_default:(Request.parameter_default request)
     ~initialization:(Program.initialization program)
     ~entry:(Program.entry program) ~functions:[] ()
@@ -234,6 +242,8 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
     ~retained_parameter_default:(Request.parameter_default request)
     ~initialization:(Program.initialization program)
     ~entry:(Program.entry program) ~functions:[] ()
@@ -249,6 +259,10 @@ let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
     ~runtime_calls:(Unit.runtime_calls program)
     ~retained_function_source:(Task_dispatch.command_function_source request)
     ~retained_slot_binding:(Task_dispatch.command_slot_binding request)
+    ~retained_slot_address_binding:
+      (Task_dispatch.command_slot_address_binding request)
+    ~retained_slot_address_refresh:
+      (Task_dispatch.command_slot_address_refresh request)
     ~retained_parameter_default:
       (Task_dispatch.command_parameter_default request)
     ~initialization:(Unit.initialization program)
@@ -361,10 +375,29 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                           captured_callback := Some value;
                           Ok None
                       | Error _ as error -> error)
-                  | None ->
-                      Error
-                        "native default capture has an unknown original code \
-                         owner")
+                  | None -> (
+                      match Task_storage.task_undefined_code_owner snapshot with
+                      | Some owner
+                        when Int64.equal bits
+                               (Int64.of_int
+                                  (Task_storage.undefined_code_owner_id owner))
+                        -> (
+                          match
+                            Ir.Saved_parameter_value.undefined_callback
+                              ~source:
+                                (Sema.Function_call_expression_result
+                                 .top_level_root_value
+                                   (Ir.Default_fragment_destination.root
+                                      destination))
+                          with
+                          | Ok value ->
+                              captured_callback := Some value;
+                              Ok None
+                          | Error _ as error -> error)
+                      | _ ->
+                          Error
+                            "native default capture has an unknown original \
+                             code owner"))
               | Ok _ ->
                   Error "native default capture has another original entry site"
               | Error _ as error -> error)
@@ -667,3 +700,9 @@ let global_image compiled = Codegen.program_global_image compiled.image
 
 let code_owner_bindings compiled =
   Codegen.program_code_owner_bindings compiled.image
+
+let private_function_count compiled =
+  Codegen.program_private_function_count compiled.image
+
+let function_slot_bindings compiled =
+  Codegen.program_function_slot_bindings compiled.image

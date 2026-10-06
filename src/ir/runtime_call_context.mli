@@ -153,6 +153,40 @@ val function_address_declaration :
 val function_address_link : function_address -> Retained_function.t
 val function_address_body : function_address -> Function_body.t option
 
+type function_slot_address
+type function_slot_addresses
+
+val original_function_slot_addresses :
+  t -> owner:owner -> function_slot_addresses option
+
+val original_function_slot_address :
+  function_slot_addresses ->
+  Instruction_sequence.description ->
+  function_slot_address option
+(** Select the complete original JIT IMM-slot/DEREF pair. Both original
+    instructions select the same receipt; copied instructions, incomplete pairs
+    and another graph do not. This receipt grants no native entry or
+    body-installation authority. *)
+
+val function_slot_address_cursor :
+  function_slot_address -> Instruction_sequence.description
+
+val function_slot_address_load :
+  function_slot_address -> Instruction_sequence.description
+
+val function_slot_address_source :
+  function_slot_address ->
+  Sema.Function_call_expression_result.expression_result
+
+val function_slot_address_declaration :
+  function_slot_address -> Sema.Function_resolution.resolved_declaration
+
+val function_slot_address_link :
+  function_slot_address -> Retained_function.t option
+
+val function_slot_address_item_index : function_slot_address -> int option
+val function_slot_address_provider : function_slot_address -> provider option
+
 type pointer_difference_divisions
 
 val original_pointer_difference_divisions :

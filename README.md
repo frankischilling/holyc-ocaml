@@ -20,6 +20,9 @@ array allocation.
 Named integer defaults execute their original expressions once during header
 parsing. `examples/native-source-defaults.hc` returns 42 again after its source
 counter changes; omitted arguments reuse the original saved word.
+JIT function-slot addresses preserve capture timing and the original record.
+`examples/native-source-slot-addresses.hc` returns 42 after a same-name
+replacement; its saved default keeps the earlier unresolved entry.
 See [native source tasks](docs/native-source-tasks.md) for the supported boundary
 and remaining native address, dimension and runtime work under #704.
 

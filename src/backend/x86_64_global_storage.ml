@@ -47,6 +47,19 @@ type code_owner = {
   owner_target : int;
 }
 
+type undefined_code_owner = {
+  undefined_id : int;
+  undefined_address : int;
+  undefined_target : int;
+}
+
+type function_slot = {
+  function_symbol : Symbol.t;
+  function_binding : Ir.Integer_interpreter.native_slot_address_binding;
+  function_address : int;
+  function_owner_offset : int;
+}
+
 type task_layout_state = {
   task_owner : Globals.t option;
   task_slots : (Ir.Retained_global.t * slot) Symbol_map.t;
@@ -56,6 +69,9 @@ type task_layout_state = {
   task_layout_work : int;
   task_literals : Literals.t;
   task_code_owners : code_owner list;
+  task_next_code_owner : int;
+  task_undefined_code_owner : undefined_code_owner option;
+  task_function_slots : function_slot Symbol_map.t;
 }
 
 type task_layout = {
@@ -696,6 +712,9 @@ let create_task_layout ?(max_layout_work = hard_max_task_layout_work)
             task_layout_work = 0;
             task_literals = Literals.empty;
             task_code_owners = [];
+            task_next_code_owner = 1;
+            task_undefined_code_owner = None;
+            task_function_slots = Symbol_map.empty;
           };
     }
 
@@ -1311,7 +1330,7 @@ let append_task_code_owners snapshot sources =
               error "HCBACK0003"
                 "native code owner has another original body or frame"
         | None ->
-            if List.length state.task_code_owners >= 100_000 then
+            if state.task_next_code_owner > 100_000 then
               error "HCBACK0001"
                 "native task code owners exceed the host identity bound"
             else if state.task_arena_bytes > hard_max_arena_bytes - 16 then
@@ -1324,7 +1343,7 @@ let append_task_code_owners snapshot sources =
                 {
                   owner_link = link;
                   owner_definition = definition;
-                  owner_id = List.length state.task_code_owners + 1;
+                  owner_id = state.task_next_code_owner;
                   owner_address = state.task_arena_bytes;
                   owner_target = state.task_arena_bytes + 8;
                 }
@@ -1333,6 +1352,7 @@ let append_task_code_owners snapshot sources =
                 {
                   state with
                   task_code_owners = state.task_code_owners @ [ owner ];
+                  task_next_code_owner = state.task_next_code_owner + 1;
                   task_arena_bytes = state.task_arena_bytes + 16;
                   task_layout_work = state.task_layout_work + 1;
                 })
@@ -1351,6 +1371,133 @@ let append_task_code_owners snapshot sources =
           };
       }
   else error "HCBACK0003" "native code ownership changed during admission"
+
+let task_undefined_code_owner snapshot =
+  snapshot.task_state_snapshot.task_undefined_code_owner
+
+let undefined_code_owner_id owner = owner.undefined_id
+let undefined_code_owner_address owner = owner.undefined_address
+let undefined_code_owner_target owner = owner.undefined_target
+
+let task_function_slots snapshot =
+  Symbol_map.bindings snapshot.task_state_snapshot.task_function_slots
+  |> List.map snd
+
+let function_slot_binding slot = slot.function_binding
+let function_slot_address slot = slot.function_address
+let function_slot_owner_offset slot = slot.function_owner_offset
+
+let find_function_slot snapshot receipt =
+  let declaration =
+    Ir.Runtime_call_context.function_slot_address_declaration receipt
+  in
+  let symbol =
+    Sema.Function_resolution.resolved_declaration_identity_symbol declaration
+  in
+  match
+    Symbol_map.find_opt (Symbol.id symbol)
+      snapshot.task_state_snapshot.task_function_slots
+  with
+  | Some slot when slot.function_symbol == symbol -> Some slot
+  | Some _ | None -> None
+
+let append_task_function_slots snapshot bindings =
+  let ( let* ) = Result.bind in
+  let layout = snapshot.task_layout in
+  let before = snapshot.task_state_snapshot in
+  let reserve state =
+    if state.task_arena_bytes > hard_max_arena_bytes - 16 then
+      error "HCBACK0001" "native function slots exceed the task arena"
+    else if state.task_layout_work = layout.max_task_layout_work then
+      error "HCBACK0001" "native function slots exceed cumulative layout work"
+    else
+      Ok
+        {
+          state with
+          task_arena_bytes = state.task_arena_bytes + 16;
+          task_layout_work = state.task_layout_work + 1;
+        }
+  in
+  let* () =
+    if Atomic.get layout.task_state != before then
+      error "HCBACK0003"
+        "native function slot snapshot precedes current admission"
+    else Ok ()
+  in
+  let* state =
+    if bindings = [] || Option.is_some before.task_undefined_code_owner then
+      Ok before
+    else if before.task_next_code_owner > 100_000 then
+      error "HCBACK0001"
+        "native undefined entry exceeds the host identity bound"
+    else
+      let* after = reserve before in
+      Ok
+        {
+          after with
+          task_next_code_owner = before.task_next_code_owner + 1;
+          task_undefined_code_owner =
+            Some
+              {
+                undefined_id = before.task_next_code_owner;
+                undefined_address = before.task_arena_bytes;
+                undefined_target = before.task_arena_bytes + 8;
+              };
+        }
+  in
+  let* after =
+    List.fold_left
+      (fun checked binding ->
+        let* state = checked in
+        let receipt =
+          Ir.Integer_interpreter.native_slot_address_binding_receipt binding
+        in
+        let declaration =
+          Ir.Runtime_call_context.function_slot_address_declaration receipt
+        in
+        let symbol =
+          Sema.Function_resolution.resolved_declaration_identity_symbol
+            declaration
+        in
+        match
+          Symbol_map.find_opt (Symbol.id symbol) state.task_function_slots
+        with
+        | Some slot when slot.function_symbol == symbol -> Ok state
+        | Some _ ->
+            error "HCBACK0003"
+              "native function slot has another original symbol"
+        | None ->
+            let* after = reserve state in
+            let slot =
+              {
+                function_symbol = symbol;
+                function_binding = binding;
+                function_address = state.task_arena_bytes;
+                function_owner_offset = state.task_arena_bytes + 8;
+              }
+            in
+            Ok
+              {
+                after with
+                task_function_slots =
+                  Symbol_map.add (Symbol.id symbol) slot
+                    state.task_function_slots;
+              })
+      (Ok state) bindings
+  in
+  if after == before || Atomic.compare_and_set layout.task_state before after
+  then
+    Ok
+      {
+        snapshot with
+        task_state_snapshot = after;
+        task_storage =
+          {
+            snapshot.task_storage with
+            zero_bytes = Some after.task_arena_bytes;
+          };
+      }
+  else error "HCBACK0003" "native function slots changed during admission"
 
 let task_snapshot_matches_layout snapshot layout =
   snapshot.task_layout == layout

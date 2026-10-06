@@ -281,3 +281,5 @@ val global_image : t -> string
     image. *)
 
 val code_owner_bindings : t -> (int * int * int * int * int) list
+val private_function_count : t -> int
+val function_slot_bindings : t -> (int * int) list

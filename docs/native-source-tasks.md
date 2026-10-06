@@ -252,9 +252,35 @@ permission; later call images require the original completed native default and
 the retained body, then materialize the owner's canonical entry. Private owner
 cells charge the arena allowance rather than logical global storage.
 
-Live anonymous expression defaults remain required work. JIT extern-slot address
-expressions, including a function's own
-slot address, still need their original two-producer address receipts connected.
+Original JIT extern-slot addresses retain their complete `IMM_I64` and `DEREF`
+pair. The first instruction addresses a private logical function slot; the second
+reads its current native entry and captures its owner. Self-addresses inside a
+body can call that body, including recursion. A retained function that selects an
+extern can capture the original joined body after installation. A later unrelated
+same-name definition has a different slot and cannot retarget that capture.
+
+`examples/native-source-slot-addresses.hc` returns 42. `Read` selects the first
+Answer record and reads its installed body when called. `Same` saves the shared
+UndefinedExtern entry during its original header, before Answer has a body. Its
+later comparison returns zero because the saved entry differs from the installed
+Answer entry. Copies, fixed-array elements and saved defaults retain the captured
+owner. Installing a body changes subsequent slot reads; it does not rewrite an
+earlier capture. Calling an unresolved capture reports the reached UndefinedExtern
+fault after its arguments finish, even if that body has since been installed.
+
+Each logical slot appends sixteen private arena bytes for its PC and owner. The
+task also keeps one shared unresolved entry, with its canonical and current target
+cells, a real framed native fault stub and a separate unwind range. These private
+entries consume code, arena and physical stack allowances, without increasing the
+source function count. The bridge checks every slot range and owner before
+publishing its cells. Original graph receipts, task ownership and the current body
+generation still govern source selection; names and numeric bits grant no entry.
+The IR consumer preserves the same declaration-time capture and source-position
+rules. Hosted output-provider callback addresses still require their own checked
+entries and receive a diagnostic rather than an unresolved capture.
+
+Live anonymous expression defaults and direct automatic callback initializers
+remain required work.
 F64 and aggregate callback execution, member cells and the exported ABI remain
 outside this supported native slice. Static callback leaves and joined extern
 calls are tested natively; the isolated IR path still rejects some of these
@@ -316,8 +342,8 @@ This source-task path supports integer globals, fixed integer arrays,
 integer function statics, retained direct and joined JIT extern calls, and their
 original literals, numeric and owned callback storage, and named integer or
 one-star callback defaults. Runtime-dependent dimensions, wider callback defaults,
-live anonymous expression defaults,
-JIT extern-slot address expressions, native `#exe` and AOT source-task execution
+live anonymous expression defaults, direct automatic callback initializers,
+hosted-provider callback entries, native `#exe` and AOT source-task execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.
 The compiler retains each successful live JIT static allocation, including
@@ -415,3 +441,10 @@ instructions; `PrsExp.HC:553-571` distinguishes it from the callback capture
 before arguments. `CExcept.HC:98-102` supplies the reached UndefinedExtern
 placeholder. The native source path preserves the corresponding call timing
 and reports its fault through the existing hosted diagnostic contract.
+
+`PrsExp.HC:621-654` lowers `&Function` through the mutable `exe_addr` slot
+while `Cf_EXTERN` is set. `PrsStmt.HC:95-114` installs UndefinedExtern before
+parsing a new JIT header, and `PrsStmt.HC:181-191` installs the compiled body.
+The slot-address consumer keeps those original producers and capture timing.
+Its private ownership cells, host fault stub and resource guards are hosted
+policy, with no new TempleOS oracle capture.

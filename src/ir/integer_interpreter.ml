@@ -66,11 +66,15 @@ type error = {
   initializer_name : string option;
 }
 
+type callback_capture =
+  | Captured_body of Retained_function.t
+  | Captured_undefined
+
 type t = {
   termination_ : termination;
   executed_steps_ : int;
   final_value_ : word option;
-  final_callback_ : Runtime.function_address option;
+  final_callback_ : callback_capture option;
   compiled_initializer_steps_ : int;
 }
 
@@ -158,6 +162,8 @@ type storage_location =
 type runtime_value =
   | Runtime_word of word
   | Runtime_code of runtime_code
+  | Runtime_undefined_code of word_type
+  | Runtime_function_slot_cursor of Runtime.function_slot_address
   | Runtime_pointer of runtime_address
   | Runtime_offset of int64
   | Runtime_void
@@ -231,6 +237,10 @@ and prepared_operation =
       * bool
   | Immediate of Value_id.t * word
   | Function_address of Value_id.t * Runtime.function_address
+  | Function_slot_cursor of Value_id.t * Runtime.function_slot_address
+  | Function_slot_load of
+      Value_id.t * Value_id.t * Runtime.function_slot_address
+  | Undefined_function_address of Value_id.t
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Constant_shift of
       binary_operation * prepared_operand * int64 * Value_id.t * word_type
@@ -304,7 +314,7 @@ and retained_executable = {
 
 and runtime_code = {
   code_type : word_type;
-  code_address : Runtime.function_address;
+  code_link : Retained_function.t;
   code_callee : callee;
   code_program : prepared;
   code_owner : executable_owner;
@@ -2360,6 +2370,13 @@ let complete_native_task_default task attempt program value =
               (Integer_globals.task_catalog_contains_function task.catalog link))
         || Option.is_none (exact_native_function_source task link))
       (Saved_parameter_value.callback_source value)
+    || Option.fold ~none:false
+         ~some:(fun source ->
+           (not (Default_fragment_destination.is_callback destination))
+           || source
+              != Sema.Function_call_expression_result.top_level_root_value
+                   (Default_fragment_destination.root destination))
+         (Saved_parameter_value.undefined_callback_source value)
   then
     Error
       "native callback default lost its original expression or admitted body"
@@ -3203,6 +3220,167 @@ let task_native_slot_binding task ~root_runtime_calls ~root_globals
               slot_source = source;
             }
     | _ -> Error "native extern slot lacks its original task publication"
+
+type native_slot_address_binding = {
+  address_slot_task : task_state;
+  address_slot_generation : (Retained_function.t * task_function_source) list;
+  address_slot_root_calls : Runtime.t;
+  address_slot_calls : Runtime.t;
+  address_slot_owner : Runtime.owner;
+  address_slot_receipt : Runtime.function_slot_address;
+  address_slot_globals : Integer_globals.t;
+  address_slot_source : (Retained_function.t * task_function_source) option;
+  address_slot_local_owner : Function_body.t option;
+}
+
+let native_slot_address_binding_matches binding ~root_runtime_calls
+    ~runtime_calls ~owner ~globals receipt =
+  binding.address_slot_root_calls == root_runtime_calls
+  && binding.address_slot_generation
+     == binding.address_slot_task.native_function_sources
+  && binding.address_slot_calls == runtime_calls
+  && binding.address_slot_receipt == receipt
+  && Integer_globals.same_task_storage binding.address_slot_globals globals
+  &&
+  match (binding.address_slot_owner, owner) with
+  | Runtime.Entry, Runtime.Entry -> true
+  | Runtime.Function original, Runtime.Function body -> original == body
+  | _ -> false
+
+let native_slot_address_binding_source binding = binding.address_slot_source
+
+let native_slot_address_binding_local_owner binding =
+  binding.address_slot_local_owner
+
+let native_slot_address_binding_receipt binding = binding.address_slot_receipt
+
+let native_slot_address_binding_runtime_calls binding =
+  binding.address_slot_calls
+
+let native_slot_address_binding_owner binding = binding.address_slot_owner
+let native_slot_address_binding_globals binding = binding.address_slot_globals
+
+let refresh_native_slot_address_binding task ~root_runtime_calls ~root_globals
+    binding =
+  let module Functions = Sema.Function_resolution in
+  let selected =
+    Runtime.function_slot_address_declaration binding.address_slot_receipt
+  in
+  let symbol = Functions.resolved_declaration_identity_symbol selected in
+  if
+    binding.address_slot_task != task
+    || (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog root_globals))
+    || (not
+          (Integer_globals.same_task_storage binding.address_slot_globals
+             root_globals))
+    || not
+         (Option.fold ~none:false
+            ~some:(( == ) binding.address_slot_receipt)
+            (Option.bind
+               (Runtime.original_function_slot_addresses
+                  binding.address_slot_calls ~owner:binding.address_slot_owner)
+               (fun addresses ->
+                 Runtime.original_function_slot_address addresses
+                   (Runtime.function_slot_address_cursor
+                      binding.address_slot_receipt))))
+  then Error "native function slot refresh belongs to another original task"
+  else
+    let source =
+      List.find_opt
+        (fun (_, source) ->
+          Function.callable_symbol source.source_definition.body == symbol
+          && Option.fold ~none:false
+               ~some:(fun later ->
+                 later == selected
+                 || Functions.is_joined_successor ~earlier:selected ~later)
+               (Function.definition_declaration source.source_definition.body))
+        task.native_function_sources
+    in
+    Ok
+      {
+        binding with
+        address_slot_root_calls = root_runtime_calls;
+        address_slot_generation = task.native_function_sources;
+        address_slot_source = source;
+        address_slot_local_owner = None;
+      }
+
+let task_native_slot_address_binding task ~root_runtime_calls ~root_globals
+    ~runtime_calls ~owner receipt =
+  let module Functions = Sema.Function_resolution in
+  let original_owner =
+    runtime_calls == root_runtime_calls
+    || List.exists
+         (fun (_, source) ->
+           source.source_runtime_calls == runtime_calls
+           &&
+           match owner with
+           | Runtime.Function body -> source.source_definition.body == body
+           | Runtime.Entry -> false)
+         task.native_function_sources
+  in
+  let original_receipt =
+    Option.bind (Runtime.original_function_slot_addresses runtime_calls ~owner)
+      (fun slots ->
+        Runtime.original_function_slot_address slots
+          (Runtime.function_slot_address_cursor receipt))
+  in
+  let selected = Runtime.function_slot_address_declaration receipt in
+  let symbol = Functions.resolved_declaration_identity_symbol selected in
+  let matches_body body =
+    Function.callable_symbol body == symbol
+    && Option.fold ~none:false
+         ~some:(fun later ->
+           later == selected
+           || Functions.is_joined_successor ~earlier:selected ~later)
+         (Function.definition_declaration body)
+  in
+  let local_owner =
+    match owner with
+    | Runtime.Function body
+      when runtime_calls == root_runtime_calls && matches_body body -> Some body
+    | Runtime.Entry | Runtime.Function _ -> None
+  in
+  let publication =
+    Option.fold
+      ~none:(Option.is_some local_owner)
+      ~some:(fun link ->
+        Integer_globals.task_catalog_contains_function task.catalog link
+        || runtime_calls == root_runtime_calls
+           && List.exists
+                (Retained_function.same link)
+                (Integer_globals.function_publications root_globals))
+      (Runtime.function_slot_address_link receipt)
+  in
+  if
+    (not original_owner)
+    || (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog root_globals))
+    || (not (Option.fold ~none:false ~some:(( == ) receipt) original_receipt))
+    || not publication
+  then
+    Error
+      "native function slot address has no exact source request or publication"
+  else
+    let source =
+      List.find_opt
+        (fun (_, source) -> matches_body source.source_definition.body)
+        task.native_function_sources
+    in
+    Ok
+      {
+        address_slot_task = task;
+        address_slot_generation = task.native_function_sources;
+        address_slot_root_calls = root_runtime_calls;
+        address_slot_calls = runtime_calls;
+        address_slot_owner = owner;
+        address_slot_receipt = receipt;
+        address_slot_globals = root_globals;
+        address_slot_source = source;
+        address_slot_local_owner =
+          (if Option.is_some source then None else local_owner);
+      }
 
 let task_native_provider_available task ~runtime_calls ~owner call =
   let original_owner =
@@ -4145,7 +4323,8 @@ let indexed_address frame types (description : Sequence.description) =
   | _ -> Unsupported
 
 let declared_types ?frame ?globals ?literals ?initialization
-    ?(allow_calls = false) ?(is_default = fun _ -> false) ~types block =
+    ?(allow_calls = false) ?(is_default = fun _ -> false)
+    ?(is_function_slot = fun _ -> false) ~types block =
   let memory_enabled =
     Option.is_some frame || Option.is_some globals || Option.is_some literals
   in
@@ -4235,7 +4414,7 @@ let declared_types ?frame ?globals ?literals ?initialization
                | None -> (
                    match description.target_type with
                    | Some type_ -> (
-                       if callback_value then
+                       if callback_value || is_function_slot description then
                          Supported
                            ( I64,
                              type_,
@@ -5255,6 +5434,14 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     Option.bind function_addresses (fun addresses ->
         Runtime.original_function_address addresses description)
   in
+  let function_slot_addresses =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_function_slot_addresses context ~owner:runtime_owner)
+  in
+  let original_function_slot_address description =
+    Option.bind function_slot_addresses (fun addresses ->
+        Runtime.original_function_slot_address addresses description)
+  in
   let defaults =
     Option.bind runtime_calls (fun context ->
         Runtime.original_prepared_defaults context ~owner:runtime_owner)
@@ -5292,7 +5479,10 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     List.fold_left
       (fun types block ->
         declared_types ?frame ?globals ?literals ?initialization
-          ~allow_calls:(Option.is_some callees) ~is_default ~types block)
+          ~allow_calls:(Option.is_some callees) ~is_default
+          ~is_function_slot:(fun description ->
+            Option.is_some (original_function_slot_address description))
+          ~types block)
       Value_map.empty
       (Graph.definition_order graph)
   in
@@ -6329,50 +6519,82 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                         (call_error description
                            "callback load has no original frame address"))
               | None -> (
-                  match original_function_address description with
-                  | Some address ->
-                      let declaration =
-                        Runtime.function_address_declaration address
-                      in
-                      let local =
-                        Option.fold ~none:false
-                          ~some:(fun callees ->
+                  match original_function_slot_address description with
+                  | Some receipt
+                    when Runtime.function_slot_address_cursor receipt
+                         == description ->
+                      call_instruction description
+                        (Function_slot_cursor
+                           ((Option.get description.result).value_id, receipt))
+                  | Some receipt ->
+                      call_instruction description
+                        (Function_slot_load
+                           ( (Option.get description.result).value_id,
+                             (Option.get
+                                (Runtime.function_slot_address_cursor receipt)
+                                  .result)
+                               .value_id,
+                             receipt ))
+                  | None
+                    when match description.payload with
+                         | Some (Sequence.Saved_parameter_default prepared) ->
+                             is_default description
+                             && Option.is_some
+                                  (Prepared_parameter_default
+                                   .undefined_callback_source prepared)
+                         | _ -> false ->
+                      call_instruction description
+                        (Undefined_function_address
+                           (Option.get description.result).value_id)
+                  | None -> (
+                      match original_function_address description with
+                      | Some address ->
+                          let declaration =
+                            Runtime.function_address_declaration address
+                          in
+                          let local =
+                            Option.fold ~none:false
+                              ~some:(fun callees ->
+                                List.exists
+                                  (fun callee ->
+                                    Option.fold ~none:false
+                                      ~some:(fun original ->
+                                        original == declaration)
+                                      callee.callee_definition)
+                                  callees)
+                              callees
+                          in
+                          let retained =
                             List.exists
-                              (fun callee ->
-                                Option.fold ~none:false
-                                  ~some:(fun original ->
-                                    original == declaration)
-                                  callee.callee_definition)
-                              callees)
-                          callees
-                      in
-                      let retained =
-                        List.exists
-                          (fun executable ->
-                            Retained_function.same executable.function_link
-                              (Runtime.function_address_link address)
-                            && Option.fold ~none:false
-                                 ~some:(fun original -> original == declaration)
-                                 executable.function_callee.callee_definition)
-                          retained_functions
-                      in
-                      if local || retained then
-                        call_instruction description
-                          (Function_address
-                             ((Option.get description.result).value_id, address))
-                      else
-                        Error
-                          (call_error description
-                             "function address has no original prepared \
-                              executable body")
-                  | None ->
-                      if Option.is_some callees then
-                        prepare_call ~original_default:(is_default description)
-                          checked_description
-                      else
-                        prepare_instruction ?frame ?globals ?literals
-                          ?initialization block_index types block_id description
-                  )
+                              (fun executable ->
+                                Retained_function.same executable.function_link
+                                  (Runtime.function_address_link address)
+                                && Option.fold ~none:false
+                                     ~some:(fun original ->
+                                       original == declaration)
+                                     executable.function_callee
+                                       .callee_definition)
+                              retained_functions
+                          in
+                          if local || retained then
+                            call_instruction description
+                              (Function_address
+                                 ( (Option.get description.result).value_id,
+                                   address ))
+                          else
+                            Error
+                              (call_error description
+                                 "function address has no original prepared \
+                                  executable body")
+                      | None ->
+                          if Option.is_some callees then
+                            prepare_call
+                              ~original_default:(is_default description)
+                              checked_description
+                          else
+                            prepare_instruction ?frame ?globals ?literals
+                              ?initialization block_index types block_id
+                              description))
             with
             | Ok prepared ->
                 let control_transfer =
@@ -6593,10 +6815,10 @@ let publish_array_payload ~slot ~cell_offset payload write =
 
 let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     ?(max_frame_bytes = Int.max_int) ?(max_call_depth = Int.max_int)
-    ?(capture_last = false) ?on_capture ?initialization ?(global_words = [||])
-    ?literal_image ?output ?stream_output ?generation_output ?stream_exe_print
-    ?admit ?(retained_regions = []) ?(retained_functions = []) ~max_steps
-    program =
+    ?(capture_last = false) ?on_capture ?initialization ?globals
+    ?(global_words = [||]) ?literal_image ?output ?stream_output
+    ?generation_output ?stream_exe_print ?admit ?(retained_regions = [])
+    ?(retained_functions = []) ~max_steps program =
   let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
@@ -6734,7 +6956,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         Some
           (if computation then { word with type_ = operand.computation_type }
            else word)
-    | Some (Runtime_code _) ->
+    | Some (Runtime_code _ | Runtime_undefined_code _) ->
         failed :=
           Some
             (runtime_error ~instruction block !steps "HCIRVM0024"
@@ -6811,6 +7033,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         match Value_map.find_opt operand.value_id !values with
         | Some (Runtime_code code) when code.code_type = operand.expected_type
           -> Some (Runtime_code code)
+        | Some (Runtime_undefined_code type_) when type_ = operand.expected_type
+          -> Some (Runtime_undefined_code type_)
         | _ ->
             Option.map
               (fun word -> Runtime_word word)
@@ -6821,7 +7045,11 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
           (require_pointer block instruction operand)
   in
   let coerce_value expected = function
-    | Runtime_offset _ | Runtime_void -> None
+    | Runtime_offset _ | Runtime_void | Runtime_function_slot_cursor _ -> None
+    | Runtime_undefined_code _ -> (
+        match expected with
+        | Stored_word type_ -> Some (Runtime_undefined_code type_)
+        | Stored_narrow _ | Stored_pointer _ -> None)
     | Runtime_code code -> (
         match expected with
         | Stored_word code_type -> Some (Runtime_code { code with code_type })
@@ -7195,7 +7423,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     variadic (Output.Word word.bits :: rev) rest
                 | Runtime_pointer address :: rest ->
                     variadic (Output.Pointer address :: rev) rest
-                | (Runtime_code _ | Runtime_offset _ | Runtime_void) :: _ ->
+                | ( Runtime_code _
+                  | Runtime_undefined_code _
+                  | Runtime_function_slot_cursor _
+                  | Runtime_offset _
+                  | Runtime_void )
+                  :: _ ->
                     error "HCIRVM0008"
                       "prepared variadic output argument is invalid"
               in
@@ -7628,9 +7861,17 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   | Callback_call _ ->
                       failed :=
                         Some
-                          (runtime_error ~instruction block !steps "HCIRVM0024"
-                             "the reached callback has no owned executable \
-                              address")
+                          (match scope.callback_value with
+                          | Some (Runtime_undefined_code _) ->
+                              runtime_error ~instruction block !steps
+                                "HCIRVM0030"
+                                "the reached captured function address is \
+                                 UndefinedExtern"
+                          | _ ->
+                              runtime_error ~instruction block !steps
+                                "HCIRVM0024"
+                                "the reached callback has no owned executable \
+                                 address")
                   | Extern_call (site, parameter_types) ->
                       if Option.is_some (Runtime.provider site) then
                         match
@@ -7915,7 +8156,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                             Some
                               (runtime_error ~instruction block !steps
                                  "HCIRVM0012" storage.unknown_message)
-                      | Some (Runtime_code _) when callback ->
+                      | Some (Runtime_code _ | Runtime_undefined_code _)
+                        when callback ->
                           failed :=
                             Some
                               (runtime_error ~instruction block !steps
@@ -7924,6 +8166,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                   callback update")
                       | Some
                           ( Runtime_code _
+                          | Runtime_undefined_code _
+                          | Runtime_function_slot_cursor _
                           | Runtime_pointer _
                           | Runtime_offset _
                           | Runtime_void ) ->
@@ -7965,6 +8209,117 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                   !values))))
           | Immediate (result, word) ->
               values := Value_map.add result (Runtime_word word) !values
+          | Undefined_function_address result ->
+              values :=
+                Value_map.add result (Runtime_undefined_code I64) !values
+          | Function_slot_cursor (result, receipt) ->
+              values :=
+                Value_map.add result (Runtime_function_slot_cursor receipt)
+                  !values
+          | Function_slot_load (result, cursor, receipt) -> (
+              match Value_map.find_opt cursor !values with
+              | Some (Runtime_function_slot_cursor original)
+                when original == receipt ->
+                  let selected =
+                    Runtime.function_slot_address_declaration receipt
+                  in
+                  let symbol =
+                    Sema.Function_resolution
+                    .resolved_declaration_identity_symbol selected
+                  in
+                  let matches callee =
+                    callee.callee_symbol == symbol
+                    && Option.fold ~none:false
+                         ~some:(fun declaration ->
+                           declaration == selected
+                           || Sema.Function_resolution.is_joined_successor
+                                ~earlier:selected ~later:declaration)
+                         callee.callee_definition
+                  in
+                  let retained =
+                    List.find_opt
+                      (fun executable -> matches executable.function_callee)
+                      retained_functions
+                  in
+                  let executable =
+                    match retained with
+                    | Some executable ->
+                        Some
+                          ( executable.function_callee,
+                            executable.function_program,
+                            executable.function_owner,
+                            executable.function_link )
+                    | None ->
+                        Option.bind
+                          (Array.to_list entry_owner.owner_callees
+                          |> List.find_opt (fun (callee, candidate) ->
+                              matches callee
+                              && (candidate == !program
+                                 || Option.fold ~none:false
+                                      ~some:(fun item ->
+                                        Option.fold ~none:false
+                                          ~some:(fun declaration ->
+                                            Sema.Function_type_resolution
+                                            .function_item_index
+                                              (Sema.Function_resolution
+                                               .resolved_declaration_header
+                                                 declaration)
+                                            < item)
+                                          callee.callee_definition)
+                                      (match
+                                         Runtime
+                                         .function_slot_address_item_index
+                                           receipt
+                                       with
+                                      | Some _ as item -> item
+                                      | None -> !publication_item))))
+                          (fun (callee, program) ->
+                            Option.map
+                              (fun link -> (callee, program, entry_owner, link))
+                              (Option.bind globals (fun globals ->
+                                   List.find_opt
+                                     (fun link ->
+                                       Option.fold ~none:false
+                                         ~some:(fun declaration ->
+                                           declaration
+                                           == Sema.Outer_environment
+                                              .function_declaration
+                                                (Retained_function.metadata link))
+                                         callee.callee_definition)
+                                     (Integer_globals.function_publications
+                                        globals))))
+                  in
+                  let value =
+                    match executable with
+                    | None ->
+                        if
+                          Option.is_some
+                            (Runtime.function_slot_address_provider receipt)
+                        then
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0024"
+                                 "hosted provider callback address has no \
+                                  original checked executable entry");
+                        Runtime_undefined_code I64
+                    | Some (code_callee, code_program, code_owner, code_link) ->
+                        Runtime_code
+                          {
+                            code_type = I64;
+                            code_link;
+                            code_callee;
+                            code_program;
+                            code_owner;
+                          }
+                  in
+                  values := Value_map.add result value !values
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0024"
+                         "function slot dereference lost its original private \
+                          cursor"))
           | Function_address (result, address) -> (
               let declaration = Runtime.function_address_declaration address in
               let local =
@@ -8000,7 +8355,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       (Runtime_code
                          {
                            code_type = I64;
-                           code_address = address;
+                           code_link = Runtime.function_address_link address;
                            code_callee;
                            code_program;
                            code_owner;
@@ -8058,8 +8413,15 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Value_map.add result
                       (Runtime_code { code with code_type = result_type })
                       !values
-              | Some (Runtime_pointer _ | Runtime_offset _ | Runtime_void) ->
-                  assert false)
+              | Some (Runtime_undefined_code _) ->
+                  values :=
+                    Value_map.add result (Runtime_undefined_code result_type)
+                      !values
+              | Some
+                  ( Runtime_pointer _
+                  | Runtime_offset _
+                  | Runtime_void
+                  | Runtime_function_slot_cursor _ ) -> assert false)
           | Subtract_pointers (left, right, result) -> (
               match require_pointer block instruction left with
               | None -> ()
@@ -8146,7 +8508,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                    ( Value_map.find_opt left.value_id !values,
                      Value_map.find_opt right.value_id !values )
                  with
-                 | Some (Runtime_code _), _ | _, Some (Runtime_code _) -> true
+                 | Some (Runtime_code _ | Runtime_undefined_code _), _
+                 | _, Some (Runtime_code _ | Runtime_undefined_code _) -> true
                  | _ -> false -> (
               let operands =
                 Option.bind
@@ -8163,15 +8526,19 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     match (left, right) with
                     | Runtime_code left, Runtime_code right ->
                         Some
-                          (Retained_function.same
-                             (Runtime.function_address_link left.code_address)
-                             (Runtime.function_address_link right.code_address)
+                          (Retained_function.same left.code_link right.code_link
                           && left.code_program == right.code_program
                           && left.code_callee == right.code_callee
                           && left.code_owner == right.code_owner)
                     | Runtime_code _, Runtime_word { bits = 0L; _ }
                     | Runtime_word { bits = 0L; _ }, Runtime_code _ ->
                         Some false
+                    | Runtime_undefined_code _, Runtime_undefined_code _ ->
+                        Some true
+                    | ( Runtime_undefined_code _,
+                        (Runtime_code _ | Runtime_word { bits = 0L; _ }) )
+                    | ( (Runtime_code _ | Runtime_word { bits = 0L; _ }),
+                        Runtime_undefined_code _ ) -> Some false
                     | _ -> None
                   in
                   match equal with
@@ -8221,6 +8588,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 Option.bind runtime_value (function
                   | Runtime_word word -> Some word
                   | Runtime_code _
+                  | Runtime_undefined_code _
+                  | Runtime_function_slot_cursor _
                   | Runtime_pointer _
                   | Runtime_offset _
                   | Runtime_void -> None)
@@ -8234,7 +8603,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 capture value;
                 final_callback :=
                   Option.bind runtime_value (function
-                    | Runtime_code code -> Some code.code_address
+                    | Runtime_code code -> Some (Captured_body code.code_link)
+                    | Runtime_undefined_code _ -> Some Captured_undefined
                     | _ -> None))
           | Discard_void value_id -> (
               match Value_map.find_opt value_id !values with
@@ -9047,7 +9417,7 @@ let execute_program_with_output ?task ?isolated_budget
                     globals)
             else None)
       in
-      execute_prepared ~callees:programs
+      execute_prepared ?globals ~callees:programs
         ~aot_linked:
           (Option.fold ~none:false
              ~some:(fun context ->
@@ -9333,12 +9703,25 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
           in
           match (result.final_value_, result.final_callback_) with
           | Some word, None -> Ok (Saved_parameter_value.word word.bits)
-          | None, Some address when Destination.is_callback destination ->
+          | None, Some (Captured_body link)
+            when Destination.is_callback destination ->
               Saved_parameter_value.callback
                 ~source:
                   (Sema.Function_call_expression_result.top_level_root_value
                      (Destination.root destination))
-                ~link:(Runtime.function_address_link address)
+                ~link
+              |> Result.map_error (fun message ->
+                  [
+                    make_error ~stage:Execution ~span
+                      ~executed_steps:result.executed_steps_ "HCIRVM0026"
+                      message;
+                  ])
+          | None, Some Captured_undefined
+            when Destination.is_callback destination ->
+              Saved_parameter_value.undefined_callback
+                ~source:
+                  (Sema.Function_call_expression_result.top_level_root_value
+                     (Destination.root destination))
               |> Result.map_error (fun message ->
                   [
                     make_error ~stage:Execution ~span

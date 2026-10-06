@@ -119,6 +119,16 @@ type function_address = {
   address_body : Function_body.t option;
 }
 
+type function_slot_address = {
+  slot_address_instruction : Seq.description;
+  slot_load_instruction : Seq.description;
+  slot_address_source : Typed.expression_result;
+  slot_address_declaration : Functions.resolved_declaration;
+  slot_address_link : Retained_function.t option;
+  slot_address_item_index : int option;
+  slot_address_provider : provider option;
+}
+
 type graph_context = {
   owner : owner;
   original_entry : Seq.Block_id.t;
@@ -132,6 +142,7 @@ type graph_context = {
   intrinsic_instructions : intrinsic Instructions.t;
   intrinsic_ends : intrinsic Instructions.t;
   function_addresses : function_address Instructions.t;
+  function_slot_addresses : function_slot_address Instructions.t;
 }
 
 type t = {
@@ -355,6 +366,32 @@ let function_address_source address = address.address_source
 let function_address_declaration address = address.address_declaration
 let function_address_link address = address.address_link
 let function_address_body address = address.address_body
+
+type function_slot_addresses = function_slot_address Instructions.t
+
+let original_function_slot_addresses context ~owner =
+  if source_producers_match context then
+    Option.map
+      (fun graph -> graph.function_slot_addresses)
+      (find_graph context owner)
+  else None
+
+let original_function_slot_address addresses description =
+  Option.bind (Instructions.find_opt description.Seq.instruction_id addresses)
+    (fun address ->
+      if
+        address.slot_address_instruction == description
+        || address.slot_load_instruction == description
+      then Some address
+      else None)
+
+let function_slot_address_cursor address = address.slot_address_instruction
+let function_slot_address_load address = address.slot_load_instruction
+let function_slot_address_source address = address.slot_address_source
+let function_slot_address_declaration address = address.slot_address_declaration
+let function_slot_address_link address = address.slot_address_link
+let function_slot_address_item_index address = address.slot_address_item_index
+let function_slot_address_provider address = address.slot_address_provider
 
 type pointer_difference_divisions = Seq.description Instructions.t
 
@@ -1153,7 +1190,8 @@ let selected_cleanup record =
   then Opcode.Ic_add_rsp1
   else Opcode.Ic_add_rsp
 
-let approved_provider shape =
+let approved_provider_record ~record ~declaration ~symbol ~result_type
+    ~parameters ~count_type =
   let primitive type_ depth value =
     Type.pointer_depth type_ = depth
     &&
@@ -1162,44 +1200,50 @@ let approved_provider shape =
     | _ -> false
   in
   let module Flags = Sema.Function_flag.Stored in
-  let flags = Records.stored_flag_mask shape.selected_record in
+  let flags = Records.stored_flag_mask record in
   let parameter =
-    match shape.fixed with
-    | [ (parameter, _) ] -> Some parameter
+    match parameters with
+    | [ parameter ] -> Some parameter
     | _ -> None
   in
   let ordinary =
-    Records.is_extern shape.selected_record
-    && (not (Records.is_internal shape.selected_record))
-    && Records.import_name shape.selected_record = None
-    && shape.selected_declaration |> Functions.resolved_declaration_site
+    Records.is_extern record
+    && (not (Records.is_internal record))
+    && Records.import_name record = None
+    && declaration |> Functions.resolved_declaration_site
        |> Functions.declaration_site_kind = Functions.Extern
   in
-  match (ordinary, Sema.Symbol.name shape.selected_symbol, parameter) with
+  match (ordinary, Sema.Symbol.name symbol, parameter) with
   | true, (("Print" | "StreamPrint") as name), Some parameter
-    when primitive shape.result_type 0 Sema.Primitive_type.U0
+    when primitive result_type 0 Sema.Primitive_type.U0
          && Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
          && primitive (parameter_type parameter) 1 Sema.Primitive_type.U8
-         && Option.is_some shape.count_type
+         && Option.is_some count_type
          && Int64.equal flags (Flags.to_mask Flags.Variadic) ->
       Some (if name = "Print" then Print else Stream_print)
   | true, "StreamExePrint", Some parameter
-    when primitive shape.result_type 0 Sema.Primitive_type.I64
+    when primitive result_type 0 Sema.Primitive_type.I64
          && Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
          && primitive (parameter_type parameter) 1 Sema.Primitive_type.U8
-         && Option.is_some shape.count_type
+         && Option.is_some count_type
          && Int64.equal flags (Flags.to_mask Flags.Variadic) ->
       Some Stream_exe_print
   | true, "PutChars", Some parameter
-    when primitive shape.result_type 0 Sema.Primitive_type.U0
+    when primitive result_type 0 Sema.Primitive_type.U0
          && Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
          && primitive (parameter_type parameter) 0 Sema.Primitive_type.U64
-         && Option.is_none shape.count_type
+         && Option.is_none count_type
          && Int64.equal flags (Flags.to_mask Flags.Ret1) -> Some Put_chars
   | _ -> None
+
+let approved_provider shape =
+  approved_provider_record ~record:shape.selected_record
+    ~declaration:shape.selected_declaration ~symbol:shape.selected_symbol
+    ~result_type:shape.result_type ~parameters:(List.map fst shape.fixed)
+    ~count_type:shape.count_type
 
 let approved_intrinsic shape opcode =
   Option.fold ~none:false
@@ -1235,8 +1279,7 @@ type expected_argument = {
 let require_saved_default_payload expected (item : Seq.description) =
   Option.iter
     (fun prepared ->
-      if Option.is_some (Prepared_parameter_default.callback_source prepared)
-      then
+      if Option.is_none (Prepared_parameter_default.word_bits prepared) then
         require ?span:item.span
           (item.opcode = Opcode.Ic_imm_i64
           && item.operands = [] && item.flags = 0x2000L
@@ -2422,6 +2465,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
     intrinsic_instructions = !intrinsic_instructions;
     intrinsic_ends = !intrinsic_ends;
     function_addresses = Instructions.empty;
+    function_slot_addresses = Instructions.empty;
   }
 
 let create ~records ~function_sources ~top_level ~initialization ~entry
@@ -2804,6 +2848,172 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
               (Function_body.symbol body)
             |> Typed.function_all_results
       in
+      let original_instructions =
+        List.concat_map (fun (_, items, _) -> items) graph.original_blocks
+      in
+      let slot_sources (instruction : Seq.description) =
+        match (instruction.opcode, instruction.payload) with
+        | Opcode.Ic_imm_i64, Some (Seq.Symbol symbol) ->
+            List.filter
+              (fun source ->
+                match
+                  ( Typed.result_category source,
+                    Typed.result_function_declaration source,
+                    Typed.result_function_address_path source,
+                    Resolution.argument_expression_kind
+                      (Typed.result_source source) )
+                with
+                | ( Typed.Address_value,
+                    Some declaration,
+                    Some Resolution.Jit_extern_slot,
+                    Resolution.Prefix_expression prefix )
+                  when Resolution.prefix_operator prefix = Resolution.Address_of
+                  ->
+                    symbol
+                    == Functions.resolved_declaration_identity_symbol
+                         declaration
+                    && instruction.span
+                       = origin_span (Resolution.prefix_operator_origin prefix)
+                | _ -> false)
+              sources
+        | _ -> []
+      in
+      let seal_slot_block slots (_, items, _) =
+        let rec loop slots = function
+          | [] -> slots
+          | cursor :: rest -> (
+              match slot_sources cursor with
+              | [] -> loop slots rest
+              | [ source ] ->
+                  let declaration =
+                    Option.get (Typed.result_function_declaration source)
+                  in
+                  let valid_type =
+                    match Typed.result_type source with
+                    | Some type_ ->
+                        Type.pointer_depth type_ = 0
+                        && (match Type.base type_ with
+                          | Type.Primitive
+                              (Type.Internal_storage, Sema.Primitive_type.I64)
+                            -> true
+                          | _ -> false)
+                        && cursor.target_type = Some type_
+                    | None -> false
+                  in
+                  require ?span:cursor.span
+                    (valid_type && cursor.operands = [] && cursor.flags = 0L
+                    && Option.is_some cursor.result
+                    && Functions.declaration_site_state
+                         (Functions.resolved_declaration_site declaration)
+                       = Functions.Unresolved_extern)
+                    "JIT function slot lost its original address producer";
+                  let load, remaining =
+                    match rest with
+                    | load :: remaining -> (load, remaining)
+                    | [] ->
+                        fail ?span:cursor.span
+                          "JIT function slot requires its complete original \
+                           dereference"
+                  in
+                  let cursor_value = (Option.get cursor.result).value_id in
+                  require ?span:load.span
+                    (load.opcode = Opcode.Ic_deref
+                    && load.operands = [ cursor_value ]
+                    && load.target_type = cursor.target_type
+                    && load.span = cursor.span
+                    && Option.is_none load.payload
+                    && Option.is_some load.result
+                    && (Option.get load.result).value_id <> cursor_value
+                    && Int64.logand load.flags (Int64.lognot 0x2000L) = 0L)
+                    "JIT function slot lost its original paired dereference";
+                  let users =
+                    List.filter
+                      (fun (item : Seq.description) ->
+                        List.exists
+                          (Seq.Value_id.equal cursor_value)
+                          item.operands)
+                      original_instructions
+                  in
+                  require ?span:cursor.span
+                    (match users with
+                    | [ original ] -> original == load
+                    | _ -> false)
+                    "JIT function slot cursor escapes its original dereference";
+                  let receipt =
+                    {
+                      slot_address_instruction = cursor;
+                      slot_load_instruction = load;
+                      slot_address_source = source;
+                      slot_address_declaration = declaration;
+                      slot_address_link = function_link declaration;
+                      slot_address_item_index =
+                        (match graph.owner with
+                        | Function _ -> None
+                        | Entry ->
+                            let module Tree = Sema.Top_level_expression_tree in
+                            Tree.statements (Typed.top_level_source top_level)
+                            |> List.find_map (fun statement ->
+                                if
+                                  Tree.statement_owns_expression statement
+                                    (Typed.result_source source)
+                                then
+                                  Some
+                                    (Sema.Top_level_outer_expression_binding
+                                     .statement_item_index
+                                       (Tree.statement_source statement))
+                                else None));
+                      slot_address_provider =
+                        (let classified =
+                           match function_link declaration with
+                           | Some link ->
+                               Some
+                                 (Sema.Outer_environment
+                                  .function_classified_declaration
+                                    (Retained_function.metadata link))
+                           | None ->
+                               List.find_opt
+                                 (fun classified ->
+                                   Records.classified_declaration_source
+                                     classified
+                                   == declaration)
+                                 (Records.declarations records)
+                         in
+                         Option.bind classified (fun classified ->
+                             let header =
+                               Functions.resolved_declaration_header declaration
+                             in
+                             approved_provider_record
+                               ~record:
+                                 (Records.classified_declaration_record
+                                    classified)
+                               ~declaration
+                               ~symbol:
+                                 (Functions.resolved_declaration_identity_symbol
+                                    declaration)
+                               ~result_type:
+                                 (Sema.Type_reference.resolved_type
+                                    (Headers.function_return_type header))
+                               ~parameters:
+                                 (Headers.signature_parameters
+                                    (Headers.function_signature header))
+                               ~count_type:
+                                 (Headers.function_variadic_count_type header)));
+                    }
+                  in
+                  let slots =
+                    Instructions.add cursor.instruction_id receipt slots
+                    |> Instructions.add load.instruction_id receipt
+                  in
+                  loop slots remaining
+              | _ ->
+                  fail ?span:cursor.span
+                    "JIT function slot has ambiguous original source ownership")
+        in
+        loop slots items
+      in
+      let slots =
+        List.fold_left seal_slot_block Instructions.empty graph.original_blocks
+      in
       let addresses =
         List.concat_map (fun (_, items, _) -> items) graph.original_blocks
         |> List.fold_left
@@ -2828,6 +3038,10 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                      match
                        Prepared_parameter_default.callback_source prepared
                      with
+                     | None
+                       when Option.is_some
+                              (Prepared_parameter_default
+                               .undefined_callback_source prepared) -> None
                      | None ->
                          fail ?span:instruction.span
                            "saved callback producer contains an ordinary word"
@@ -2951,7 +3165,11 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                           ownership"))
              Instructions.empty
       in
-      { graph with function_addresses = addresses }
+      {
+        graph with
+        function_addresses = addresses;
+        function_slot_addresses = slots;
+      }
     in
     let graphs = List.map seal_addresses graphs in
     Ok

@@ -629,6 +629,58 @@ val native_slot_binding_matches :
 val native_slot_binding_source :
   native_slot_binding -> task_function_source option
 
+type native_slot_address_binding
+
+val task_native_slot_address_binding :
+  task_state ->
+  root_runtime_calls:Runtime_call_context.t ->
+  root_globals:Integer_globals.t ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  Runtime_call_context.function_slot_address ->
+  (native_slot_address_binding, string) result
+
+val native_slot_address_binding_matches :
+  native_slot_address_binding ->
+  root_runtime_calls:Runtime_call_context.t ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  globals:Integer_globals.t ->
+  Runtime_call_context.function_slot_address ->
+  bool
+
+val native_slot_address_binding_source :
+  native_slot_address_binding ->
+  (Retained_function.t * task_function_source) option
+
+val native_slot_address_binding_local_owner :
+  native_slot_address_binding -> Function_body.t option
+(** A current request's own original body can install its slot when that request
+    claims admission. Other bodies must already be in the native publication
+    generation. Neither a source receipt nor this binding grants native entry
+    permission. *)
+
+val native_slot_address_binding_receipt :
+  native_slot_address_binding -> Runtime_call_context.function_slot_address
+
+val native_slot_address_binding_runtime_calls :
+  native_slot_address_binding -> Runtime_call_context.t
+
+val native_slot_address_binding_owner :
+  native_slot_address_binding -> Runtime_call_context.owner
+
+val native_slot_address_binding_globals :
+  native_slot_address_binding -> Integer_globals.t
+
+val refresh_native_slot_address_binding :
+  task_state ->
+  root_runtime_calls:Runtime_call_context.t ->
+  root_globals:Integer_globals.t ->
+  native_slot_address_binding ->
+  (native_slot_address_binding, string) result
+(** Refresh an already admitted logical slot through the same original task's
+    native body generation. The stored source identity never changes. *)
+
 val task_native_provider_available :
   task_state ->
   runtime_calls:Runtime_call_context.t ->

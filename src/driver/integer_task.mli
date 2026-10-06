@@ -36,6 +36,18 @@ module Native_dispatch : sig
     Ir.Runtime_call_context.call ->
     (Ir.Integer_interpreter.native_slot_binding, string) result
 
+  val initializer_slot_address_binding :
+    initializer_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val initializer_slot_address_refresh :
+    initializer_request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
   val initializer_provider_available :
     initializer_request ->
     runtime_calls:Ir.Runtime_call_context.t ->
@@ -49,6 +61,18 @@ module Native_dispatch : sig
     owner:Ir.Runtime_call_context.owner ->
     Ir.Runtime_call_context.call ->
     (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val command_slot_address_binding :
+    command_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val command_slot_address_refresh :
+    command_request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
 
   val command_provider_available :
     command_request ->
@@ -142,6 +166,18 @@ module Native_static_initializer : sig
     Ir.Runtime_call_context.call ->
     (Ir.Integer_interpreter.native_slot_binding, string) result
 
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
   val provider_available :
     request ->
     runtime_calls:Ir.Runtime_call_context.t ->
@@ -179,6 +215,18 @@ module Native_default : sig
     owner:Ir.Runtime_call_context.owner ->
     Ir.Runtime_call_context.call ->
     (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
 
   val provider_available :
     request ->

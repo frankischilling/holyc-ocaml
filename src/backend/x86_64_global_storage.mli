@@ -130,6 +130,37 @@ val append_task_code_owners :
     cells per owner. No runtime address or executable authority is published. *)
 
 val task_snapshot_matches_layout : task_snapshot -> task_layout -> bool
+
+type undefined_code_owner
+
+val task_undefined_code_owner : task_snapshot -> undefined_code_owner option
+val undefined_code_owner_id : undefined_code_owner -> int
+val undefined_code_owner_address : undefined_code_owner -> int
+val undefined_code_owner_target : undefined_code_owner -> int
+
+type function_slot
+
+val task_function_slots : task_snapshot -> function_slot list
+
+val function_slot_binding :
+  function_slot -> Ir.Integer_interpreter.native_slot_address_binding
+
+val function_slot_address : function_slot -> int
+val function_slot_owner_offset : function_slot -> int
+
+val find_function_slot :
+  task_snapshot ->
+  Ir.Runtime_call_context.function_slot_address ->
+  function_slot option
+
+val append_task_function_slots :
+  task_snapshot ->
+  Ir.Integer_interpreter.native_slot_address_binding list ->
+  (task_snapshot, error list) result
+(** Reserve private mutable logical function slots from original task bindings.
+    The shared undefined entry and source slot words charge the arena and layout
+    limits. Allocation supplies no machine address or new source admission. *)
+
 val task_snapshot_arena_image : task_snapshot -> string
 val task_snapshot_arena_bytes : task_snapshot -> int
 val task_snapshot_global_bytes : task_snapshot -> int

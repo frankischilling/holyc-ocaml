@@ -156,6 +156,10 @@ val all_switch_cases : t -> switch_case list
 val all_expression_nodes : t -> expression_node list
 val statement_source : statement -> Top_level_outer_expression_binding.statement
 val statement_roots : statement -> root list
+
+val statement_owns_expression :
+  statement -> Function_call_resolution.argument_expression -> bool
+
 val statement_calls : statement -> call list
 val statement_switch_cases : statement -> switch_case list
 val root_index : root -> int

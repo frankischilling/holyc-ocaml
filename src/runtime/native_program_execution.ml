@@ -48,7 +48,8 @@ external retain_task_fragment_program :
   * int
   * int
   * (int * int * int * int)
-  * (int * int * int * int * int) array ->
+  * (int * int * int * int * int) array
+  * (int * int) array ->
   retained_handle = "holyc_native_retain_task_fragment"
 
 external release_program : retained_handle -> unit
@@ -242,7 +243,9 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
           "native program image exceeds the callable function-count bound"
       else if
         List.length unwind_functions
-        <> function_count + 1 + List.length (Image.code_owner_bindings image)
+        <> function_count + 1
+           + Image.private_function_count image
+           + List.length (Image.code_owner_bindings image)
       then
         error_report
           "native program image has inconsistent unwind function metadata"
@@ -533,6 +536,7 @@ let retained_identity_prefix ?(max_global_bytes = 1_048_576)
     || Image.function_count image > 100_000
     || List.length (Image.windows_unwind_functions image)
        <> Image.function_count image + 1
+          + Image.private_function_count image
           + List.length (Image.code_owner_bindings image)
   then Error "retained native image has inconsistent callable metadata"
   else
@@ -582,7 +586,8 @@ let retained_task_identity ?max_global_bytes ?max_literal_bytes
         abi_code,
         entry_stack_bytes,
         (global_bytes, literal_bytes, metadata_bytes, Image.arena_bytes image),
-        Array.of_list (Image.code_owner_bindings image) ))
+        Array.of_list (Image.code_owner_bindings image),
+        Array.of_list (Image.function_slot_bindings image) ))
     (retained_identity_prefix ?max_global_bytes ?max_literal_bytes
        ?max_active_stack_bytes image)
 

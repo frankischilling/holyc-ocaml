@@ -1085,6 +1085,134 @@ let function_address_receipts () =
         "two original body and two original entry addresses" 4 !count)
     modes
 
+let function_slot_address_receipts () =
+  let module C = Ir_runtime_call_context in
+  let module Seq = Ir_instruction_sequence in
+  let module Graph = Ir_block_graph in
+  let source =
+    "extern I64 Target();I64 Caller(){return \
+     &Target==&Target;}Caller();&Target==&Target;"
+  in
+  let compiled = Test_integer_globals.compile ~mode:Preprocessor.Jit source in
+  let foreign = Test_integer_globals.compile ~mode:Preprocessor.Jit source in
+  let context = integer_program_runtime_calls compiled in
+  let owners =
+    (C.Entry, integer_program_entry compiled)
+    :: List.map
+         (fun definition ->
+           ( C.Function definition.Ir_integer_interpreter.body,
+             Ir_function_body.x87 definition.body ))
+         (integer_program_functions compiled)
+  in
+  let count = ref 0 in
+  List.iter
+    (fun (owner, graph) ->
+      let slots =
+        C.original_function_slot_addresses context ~owner |> Option.get
+      in
+      let addresses =
+        C.original_function_addresses context ~owner |> Option.get
+      in
+      let foreign_slots =
+        C.original_function_slot_addresses
+          (integer_program_runtime_calls foreign)
+          ~owner
+      in
+      Ir_x87_stack.graph graph |> Graph.blocks
+      |> List.iter (fun block ->
+          Graph.instructions block |> Seq.instructions
+          |> List.iter (fun instruction ->
+              let description = Seq.description instruction in
+              match C.original_function_slot_address slots description with
+              | None -> ()
+              | Some receipt ->
+                  incr count;
+                  let cursor = C.function_slot_address_cursor receipt in
+                  let load = C.function_slot_address_load receipt in
+                  Alcotest.(check bool)
+                    "both producers select the same complete pair" true
+                    (Option.get (C.original_function_slot_address slots cursor)
+                    == Option.get (C.original_function_slot_address slots load)
+                    );
+                  Alcotest.(check bool)
+                    "slot metadata grants no immediate executable owner" true
+                    (Option.is_none
+                       (C.original_function_address addresses description));
+                  Alcotest.(check bool)
+                    "the original slot declaration is retained" true
+                    (Option.get
+                       (R.result_function_declaration
+                          (C.function_slot_address_source receipt))
+                    == C.function_slot_address_declaration receipt);
+                  Alcotest.(check bool)
+                    "slot link keeps its original publication" true
+                    (Option.fold ~none:false
+                       ~some:(fun link ->
+                         Holyc_lib__Ir.Retained_function.metadata link
+                         |> Holyc_lib__Sema.Outer_environment
+                            .function_declaration
+                         |> fun declaration ->
+                         declaration
+                         == C.function_slot_address_declaration receipt)
+                       (C.function_slot_address_link receipt));
+                  Alcotest.(check bool)
+                    "load consumes only the original cursor" true
+                    (load.operands = [ (Option.get cursor.result).value_id ]);
+                  let copy =
+                    {
+                      description with
+                      Seq.operands = List.map Fun.id description.operands;
+                    }
+                  in
+                  Alcotest.(check bool)
+                    "copied producer cannot select a slot receipt" true
+                    (Option.is_none
+                       (C.original_function_slot_address slots copy));
+                  Alcotest.(check bool)
+                    "foreign graph cannot select a slot receipt" true
+                    (Option.is_none
+                       (Option.bind foreign_slots (fun slots ->
+                            C.original_function_slot_address slots description))))))
+    owners;
+  Alcotest.(check int) "four complete original slot pairs" 8 !count
+
+let function_slot_address_graph_ownership () =
+  let module C = Ir_runtime_call_context in
+  let module Seq = Ir_instruction_sequence in
+  let module Graph = Ir_block_graph in
+  let compiled =
+    Test_integer_globals.compile ~mode:Preprocessor.Jit
+      "extern I64 Target();&Target==&Target;"
+  in
+  let context = integer_program_runtime_calls compiled in
+  let slots =
+    C.original_function_slot_addresses context ~owner:C.Entry |> Option.get
+  in
+  let cell =
+    integer_program_entry compiled
+    |> Ir_x87_stack.graph |> Graph.blocks
+    |> List.find_map (fun block ->
+        let rec find = function
+          | [] -> None
+          | instruction :: rest as cell ->
+              if
+                Option.is_some
+                  (C.original_function_slot_address slots
+                     (Seq.description instruction))
+              then Some cell
+              else find rest
+        in
+        Graph.instructions block |> Seq.instructions |> find)
+    |> Option.get
+  in
+  let original = Seq.description (List.hd cell) in
+  Obj.set_field (Obj.repr cell) 0
+    (Obj.repr
+       { original with Seq.operands = List.map Fun.id original.operands });
+  Alcotest.(check bool)
+    "copied cursor invalidates the complete slot graph" true
+    (Option.is_none (C.original_function_slot_addresses context ~owner:C.Entry))
+
 let function_address_graph_ownership () =
   let module G = Test_integer_globals in
   let module VM = Ir_integer_interpreter in
@@ -2864,6 +2992,10 @@ let tests =
       `Quick scalar_callback_storage_execution;
     Alcotest.test_case "function address receipts retain original owners" `Quick
       function_address_receipts;
+    Alcotest.test_case "function slot receipts retain both original producers"
+      `Quick function_slot_address_receipts;
+    Alcotest.test_case "function slot graphs reject copied producers" `Quick
+      function_slot_address_graph_ownership;
     Alcotest.test_case
       "function address graphs reject copied and missing authority" `Quick
       function_address_graph_ownership;

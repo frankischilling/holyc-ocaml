@@ -19,3 +19,12 @@ val callback_source :
   option
 
 val same : t -> t -> bool
+
+val undefined_callback :
+  source:Sema.Function_call_expression_result.expression_result ->
+  (t, string) result
+
+val undefined_callback_source :
+  t -> Sema.Function_call_expression_result.expression_result option
+(** Original declaration-time placeholder capture. It has no body link, machine
+    PC, or permission to execute a source function. *)

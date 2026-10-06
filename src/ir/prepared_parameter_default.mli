@@ -26,6 +26,9 @@ val callback_source :
   (Retained_function.t * Sema.Function_call_expression_result.expression_result)
   option
 
+val undefined_callback_source :
+  t -> Sema.Function_call_expression_result.expression_result option
+
 val type_ : t -> Sema.Type.t
 (** The original parameter's storage class. For a one-star callback this is
     internal RT_PTR with pointer depth one, independently of its return class.

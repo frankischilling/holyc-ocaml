@@ -288,6 +288,9 @@ type callback_access =
 type operation =
   | Load_immediate of value * int64
   | Load_function_address of value * int
+  | Load_function_slot_cursor of value * Global_storage.function_slot
+  | Load_function_slot of value * Global_storage.function_slot * value
+  | Load_undefined_function_address of value
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
   | Apply_shift of Encoder.shift * value * value * value
@@ -1138,8 +1141,8 @@ let store_reference_scalar span base scalar source =
       (base, narrow_frame_width ?span scalar.byte_size, source)
 
 let allocate_body ?callable_frame ?(shared_values = [])
-    ?(function_code_owners = [||]) ~max_stack_bytes ~reserved_registers ~supply
-    ~mode prepared =
+    ?(function_code_owners = [||]) ?undefined_code_owner ~max_stack_bytes
+    ~reserved_registers ~supply ~mode prepared =
   let function_owner index =
     if index < Array.length function_code_owners then
       function_code_owners.(index)
@@ -1850,6 +1853,39 @@ let allocate_body ?callable_frame ?(shared_values = [])
               ~excluded:[]
           in
           emit_function_address registers.(destination) callee_index;
+          assign position destination result
+      | Load_function_slot_cursor (result, slot) ->
+          let destination =
+            acquire_destination instruction.span position ~protected:[]
+              ~excluded:[]
+          in
+          emit
+            (Encoder.Address_arena
+               ( registers.(destination),
+                 encoder_arena_slot instruction.span
+                   (Global_storage.function_slot_address slot) ));
+          assign position destination result
+      | Load_function_slot (cursor, _, result) ->
+          let inputs, protected = ensure_inputs instruction.span [ cursor ] in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
+          emit
+            (Encoder.Load_indirect
+               (registers.(destination), registers.(List.hd inputs), 0));
+          assign position destination result
+      | Load_undefined_function_address result ->
+          let destination =
+            acquire_destination instruction.span position ~protected:[]
+              ~excluded:[]
+          in
+          let owner = Option.get undefined_code_owner in
+          emit
+            (Encoder.Load_arena
+               ( registers.(destination),
+                 encoder_arena_slot instruction.span
+                   (Global_storage.undefined_code_owner_address owner) ));
           assign position destination result
       | Apply_unary (unary, input, result) ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
@@ -3207,6 +3243,59 @@ let allocate_body ?callable_frame ?(shared_values = [])
                   emit_branch Equal label;
                   mark next)
                 targets;
+              Option.iter
+                (fun owner ->
+                  let next = fresh_label supply in
+                  emit
+                    (Encoder.Load_stack
+                       ( Encoder.Rcx,
+                         staged_stack_slot instruction.span
+                           (indirect.captured_stage + 1) ));
+                  emit
+                    (Encoder.Mov_imm64
+                       ( Encoder.Rdx,
+                         Int64.of_int
+                           (Global_storage.undefined_code_owner_id owner) ));
+                  emit (Encoder.Cmp (Encoder.Rcx, Encoder.Rdx));
+                  emit_branch Not_equal next;
+                  emit
+                    (Encoder.Load_arena
+                       ( Encoder.Rcx,
+                         encoder_arena_slot instruction.span
+                           (Global_storage.undefined_code_owner_address owner)
+                       ));
+                  emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+                  emit_branch Not_equal invalid;
+                  let stack_fault = fault_label 6 site in
+                  emit (Encoder.Load_context (Encoder.Rcx, 64));
+                  emit (Encoder.Mov_imm64 (Encoder.Rdx, 16L));
+                  emit (Encoder.Cmp (Encoder.Rcx, Encoder.Rdx));
+                  emit (Encoder.Setcc (Encoder.B, Encoder.R8));
+                  emit (Encoder.Movzx8 (Encoder.R8, Encoder.R8));
+                  emit (Encoder.Test Encoder.R8);
+                  emit_branch Not_equal stack_fault;
+                  emit (Encoder.Binary (Encoder.Sub, Encoder.Rcx, Encoder.Rdx));
+                  emit (Encoder.Store_context (64, Encoder.Rcx));
+                  emit (Encoder.Store_context_imm (8, site));
+                  emit
+                    (Encoder.Call_stack
+                       (staged_stack_slot instruction.span
+                          indirect.captured_stage));
+                  emit (Encoder.Load_context (Encoder.Rcx, 64));
+                  emit (Encoder.Mov_imm64 (Encoder.Rdx, 16L));
+                  emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rdx));
+                  emit (Encoder.Store_context (64, Encoder.Rcx));
+                  let epilogue =
+                    match mode with
+                    | Callable_control { epilogue_label; _ } -> epilogue_label
+                    | _ ->
+                        reject "HCBACK0003"
+                          "native undefined callback lacks its original \
+                           callable entry"
+                  in
+                  emit_branch Unconditional epilogue;
+                  mark next)
+                undefined_code_owner;
               emit_branch Unconditional invalid;
               List.iter
                 (fun (index, label) ->
@@ -3292,6 +3381,29 @@ let allocate_body ?callable_frame ?(shared_values = [])
                       mark next)
                     owner)
                 function_code_owners;
+              Option.iter
+                (fun owner ->
+                  let next = fresh_label supply in
+                  emit
+                    (Encoder.Mov_imm64
+                       ( registers.(target),
+                         Int64.of_int
+                           (Global_storage.undefined_code_owner_id owner) ));
+                  emit (Encoder.Cmp (registers.(tag), registers.(target)));
+                  emit_branch Not_equal next;
+                  emit
+                    (Encoder.Load_arena
+                       ( registers.(target),
+                         encoder_arena_slot instruction.span
+                           (Global_storage.undefined_code_owner_address owner)
+                       ));
+                  emit (Encoder.Cmp (registers.(source), registers.(target)));
+                  emit_branch Not_equal invalid;
+                  emit (Encoder.Store_context (40, registers.(tag)));
+                  emit (Encoder.Store_context_imm (32, -(100_000 + site)));
+                  emit_branch Unconditional complete;
+                  mark next)
+                undefined_code_owner;
               emit_branch Unconditional invalid;
               mark numeric;
               emit (Encoder.Store_context (40, registers.(source)));
@@ -3449,6 +3561,21 @@ let allocate_body ?callable_frame ?(shared_values = [])
       | Load_function_address (result, index) ->
           publish_owner result (fun target ->
               emit (Encoder.Mov_imm64 (target, function_owner_word index)))
+      | Load_function_slot (_, slot, result) ->
+          publish_owner result (fun target ->
+              emit
+                (Encoder.Load_arena
+                   ( target,
+                     encoder_arena_slot instruction.span
+                       (Global_storage.function_slot_owner_offset slot) )))
+      | Load_undefined_function_address result ->
+          publish_owner result (fun target ->
+              emit
+                (Encoder.Mov_imm64
+                   ( target,
+                     Int64.of_int
+                       (Global_storage.undefined_code_owner_id
+                          (Option.get undefined_code_owner)) )))
       | Load_code_frame (_, offset, result) ->
           publish_owner result (fun target ->
               emit
@@ -3642,6 +3769,7 @@ type program_image = {
   status_abi : status_abi;
   block_count : int;
   function_count : int;
+  private_function_count : int;
   entry_stack_bytes : int;
   global_bytes : int;
   literal_bytes : int;
@@ -3650,6 +3778,7 @@ type program_image = {
   task_zero_bytes : int option;
   task_snapshot : Global_storage.task_snapshot option;
   code_owner_bindings : (int * int * int * int * int) list;
+  function_slot_bindings : (int * int) list;
   has_output : bool;
   sites : program_site list;
 }
@@ -4954,10 +5083,10 @@ let validate_callable_returns graph return_kind =
 let preflight_callable_graph ~runtime_calls ~source_globals
     ~allow_retained_functions ~task_dynamic_code_words ~task_owned_targets
     ~capture_callback_default ~slot_root_runtime_calls ~slot_bindings
-    ~parameter_defaults ~functions ~code_edges ~indirect_code_edges
-    ~arena_code_cells ~global_storage ~literal_storage ~runtime_owner ~owner
-    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
-    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~task_snapshot ~parameter_defaults ~functions ~code_edges
+    ~indirect_code_edges ~arena_code_cells ~global_storage ~literal_storage
+    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t) ~variadic
+    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -4966,6 +5095,16 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     | None ->
         reject "HCBACK0003"
           "native function addresses require the original sealed graph"
+  in
+  let function_slot_addresses =
+    match
+      Runtime.original_function_slot_addresses runtime_calls
+        ~owner:runtime_owner
+    with
+    | Some addresses -> addresses
+    | None ->
+        reject "HCBACK0003"
+          "native function slots require the original sealed graph"
   in
   let reference_bytes = ref 0 in
   let blocks = Graph.blocks graph in
@@ -6503,6 +6642,73 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     result (Frame_base target_type);
                   (Frame_tick, None)
               | _ -> malformed description "IC_RBP requires one pointer result")
+          | Opcode.Ic_imm_i64
+            when Option.is_some
+                   (Runtime.original_function_slot_address
+                      function_slot_addresses raw) -> (
+              let receipt =
+                Option.get
+                  (Runtime.original_function_slot_address
+                     function_slot_addresses raw)
+              in
+              if Runtime.function_slot_address_cursor receipt != raw then
+                malformed description
+                  "native slot cursor is not its original producer";
+              let slot =
+                match
+                  Option.bind task_snapshot (fun snapshot ->
+                      Global_storage.find_function_slot snapshot receipt)
+                with
+                | Some slot -> slot
+                | None ->
+                    unsupported description
+                      "native function slot requires original task storage"
+              in
+              match (description.result, description.target_type) with
+              | Some result, Some target_type ->
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  (Load_function_slot_cursor (value, slot), None)
+              | _ ->
+                  malformed description
+                    "native slot cursor lost its original value")
+          | Opcode.Ic_deref
+            when Option.is_some
+                   (Runtime.original_function_slot_address
+                      function_slot_addresses raw) -> (
+              let receipt =
+                Option.get
+                  (Runtime.original_function_slot_address
+                     function_slot_addresses raw)
+              in
+              let slot =
+                match
+                  Option.bind task_snapshot (fun snapshot ->
+                      Global_storage.find_function_slot snapshot receipt)
+                with
+                | Some slot -> slot
+                | None ->
+                    unsupported description
+                      "native function slot requires original task storage"
+              in
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type )
+              with
+              | [ cursor_id ], Some result, Some target_type ->
+                  let cursor = operand values description position cursor_id in
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  mark_code value (ref task_owned_targets);
+                  (Load_function_slot (cursor, slot, value), None)
+              | _ ->
+                  malformed description
+                    "native slot dereference lost its original value")
           | (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
             when Option.is_some
                    (Runtime.original_function_address function_addresses raw)
@@ -6534,6 +6740,45 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   mark_code value (ref [ callee_index ]);
                   (Load_function_address (value, callee_index), None)
               | _ -> malformed description "invalid native function address")
+          | Opcode.Ic_imm_i64
+            when match raw.payload with
+                 | Some (Sequence.Saved_parameter_default prepared) ->
+                     Option.is_some
+                       (Prepared_default.undefined_callback_source prepared)
+                 | _ -> false -> (
+              if
+                not
+                  (List.exists
+                     (fun original -> original == raw)
+                     (Option.value ~default:[]
+                        (Runtime.original_prepared_defaults runtime_calls
+                           ~owner:runtime_owner)))
+              then
+                malformed description
+                  "native undefined default has no original saved producer";
+              if
+                Option.is_none
+                  (Option.bind task_snapshot
+                     Global_storage.task_undefined_code_owner)
+              then
+                malformed description
+                  "native undefined default lost its original task entry";
+              match (description.result, description.target_type) with
+              | Some result, Some target_type ->
+                  let word_type =
+                    Type.make_primitive ~form:Internal_storage ~primitive:I64
+                      ~pointer_depth:0
+                    |> Result.get_ok
+                  in
+                  let value =
+                    define values description position result target_type
+                      word_type
+                  in
+                  mark_code value (ref task_owned_targets);
+                  (Load_undefined_function_address value, None)
+              | _ ->
+                  malformed description
+                    "native undefined default lost its original callback value")
           | Opcode.Ic_imm_i64
             when raw.flags = 0x2000L
                  &&
@@ -8161,7 +8406,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> false);
             undefined_extern_site =
               (match operation with
-              | Undefined_extern_call -> true
+              | Undefined_extern_call | Indirect_call _ -> true
               | _ -> false);
             callback_call_site =
               (match operation with
@@ -8458,8 +8703,10 @@ let callable_definition_matches_call
 
 let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
     ~runtime_calls ~entry ~functions ~retained_function_source
-    ~retained_slot_binding ~prior_code_owners =
+    ~retained_slot_binding ~retained_slot_address_binding
+    ~retained_slot_address_refresh ~prior_function_slots ~prior_code_owners =
   let slot_bindings = ref [] in
+  let slot_address_bindings = ref [] in
   let code_owners = ref [] in
   let root_runtime_calls = runtime_calls in
   let queue = Queue.create () in
@@ -8575,6 +8822,61 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
       | Ok source -> own_source link (validate_resolved link source)
       | Error _ -> ())
     prior_code_owners;
+  let add_slot_address binding =
+    let module VM = Ir.Integer_interpreter in
+    let receipt = VM.native_slot_address_binding_receipt binding in
+    if
+      not
+        (VM.native_slot_address_binding_matches binding ~root_runtime_calls
+           ~runtime_calls:(VM.native_slot_address_binding_runtime_calls binding)
+           ~owner:(VM.native_slot_address_binding_owner binding)
+           ~globals:(VM.native_slot_address_binding_globals binding)
+           receipt)
+    then reject "HCBACK0003" "native slot address has another source generation";
+    slot_address_bindings := binding :: !slot_address_bindings;
+    match VM.native_slot_address_binding_source binding with
+    | Some (link, source) -> own_source link (validate_resolved link source)
+    | None ->
+        if
+          Option.is_none (VM.native_slot_address_binding_local_owner binding)
+          && Option.is_some (Runtime.function_slot_address_provider receipt)
+        then
+          reject "HCBACK0002"
+            "native callback addresses for hosted output providers require \
+             their own checked entries";
+        Option.iter
+          (fun body ->
+            match
+              List.find_opt
+                (fun (definition : Ir.Integer_interpreter.function_definition)
+                   -> definition.body == body)
+                functions
+            with
+            | None ->
+                reject "HCBACK0003"
+                  "native own slot address has no original body"
+            | Some definition -> (
+                match
+                  List.find_opt
+                    (fun link ->
+                      retained_link_matches_definition link definition)
+                    (Ir.Integer_globals.function_publications globals)
+                with
+                | None ->
+                    reject "HCBACK0003"
+                      "native own slot address has no body publication"
+                | Some link -> own_source link (current_source definition)))
+          (VM.native_slot_address_binding_local_owner binding)
+  in
+  List.iter
+    (fun slot ->
+      match
+        retained_slot_address_refresh
+          (Global_storage.function_slot_binding slot)
+      with
+      | Ok binding -> add_slot_address binding
+      | Error message -> reject "HCBACK0003" message)
+    prior_function_slots;
   let source_for_call ~runtime_calls ~source_globals ~source_functions
       ~historical call =
     match Runtime.retained_function call with
@@ -8618,6 +8920,13 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
   in
   let scan ~runtime_calls ~source_globals ~source_functions ~historical ~owner
       graph =
+    let slot_addresses =
+      match Runtime.original_function_slot_addresses runtime_calls ~owner with
+      | Some addresses -> addresses
+      | None ->
+          reject "HCBACK0003"
+            "native task slot address graph lost its original producers"
+    in
     let addresses =
       match Runtime.original_function_addresses runtime_calls ~owner with
       | Some addresses -> addresses
@@ -8636,6 +8945,26 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
             let raw = Sequence.description instruction in
+            Option.iter
+              (fun receipt ->
+                if Runtime.function_slot_address_cursor receipt == raw then
+                  match
+                    retained_slot_address_binding ~runtime_calls ~owner receipt
+                  with
+                  | Ok binding ->
+                      if
+                        not
+                          (Ir.Integer_interpreter
+                           .native_slot_address_binding_matches binding
+                             ~root_runtime_calls ~runtime_calls ~owner
+                             ~globals:source_globals receipt)
+                      then
+                        reject ?span:raw.span "HCBACK0003"
+                          "native slot resolver returned another original \
+                           address";
+                      add_slot_address binding
+                  | Error message -> reject ?span:raw.span "HCBACK0003" message)
+              (Runtime.original_function_slot_address slot_addresses raw);
             (if historical then
                let source_storage =
                  match raw.payload with
@@ -8805,7 +9134,10 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
       ~historical:source.source_historical ~owner:(Runtime.Function body)
       (Ir.X87_stack.graph (Function.x87 body))
   done;
-  (List.rev !collected_rev, List.rev !slot_bindings, List.rev !code_owners)
+  ( List.rev !collected_rev,
+    List.rev !slot_bindings,
+    List.rev !code_owners,
+    List.rev !slot_address_bindings )
 
 let validate_switch_code_floor ~max_code_bytes ~label block_groups =
   let used = ref 0 in
@@ -9090,6 +9422,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         status_abi = abi;
                         block_count;
                         function_count = 0;
+                        private_function_count = 0;
                         entry_stack_bytes = 8 + !frame_size;
                         global_bytes = 0;
                         literal_bytes = 0;
@@ -9098,6 +9431,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         task_zero_bytes = None;
                         task_snapshot = None;
                         code_owner_bindings = [];
+                        function_slot_bindings = [];
                         has_output = false;
                         sites;
                       }
@@ -9105,11 +9439,12 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
 
 let compile_callable_internal ?task_snapshot ?retained_parameter_default
     ?(capture_callback_default = false) ?retained_function_source
-    ?retained_slot_binding ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
-    ?(max_blocks = 4096) ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ?parameter_defaults ?global_initializers
-    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
-    ~functions () =
+    ?retained_slot_binding ?retained_slot_address_binding
+    ?retained_slot_address_refresh ?status_abi
+    ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+    ?parameter_defaults ?global_initializers ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
   let globals = Ir.Global_initialization.globals initialization in
   let ( let* ) = Result.bind in
   let* () =
@@ -9145,7 +9480,10 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         definition.body)
       functions
   in
-  let* callable_sources, slot_bindings, code_owner_sources =
+  let* ( callable_sources,
+         slot_bindings,
+         code_owner_sources,
+         slot_address_bindings ) =
     match task_snapshot with
     | Some snapshot -> (
         if
@@ -9165,8 +9503,13 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               };
             ]
         else
-          match (retained_function_source, retained_slot_binding) with
-          | None, _ | _, None ->
+          match
+            ( retained_function_source,
+              retained_slot_binding,
+              retained_slot_address_binding,
+              retained_slot_address_refresh )
+          with
+          | None, _, _, _ | _, None, _, _ | _, _, None, _ | _, _, _, None ->
               Error
                 [
                   {
@@ -9177,12 +9520,19 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                     span = None;
                   };
                 ]
-          | Some retained_function_source, Some retained_slot_binding -> (
+          | ( Some retained_function_source,
+              Some retained_slot_binding,
+              Some retained_slot_address_binding,
+              Some retained_slot_address_refresh ) -> (
               try
                 Ok
                   (collect_task_callable_sources ~max_ir_instructions
                      ~max_blocks ~globals ~runtime_calls ~entry ~functions
                      ~retained_function_source ~retained_slot_binding
+                     ~retained_slot_address_binding
+                     ~retained_slot_address_refresh
+                     ~prior_function_slots:
+                       (Global_storage.task_function_slots snapshot)
                      ~prior_code_owners:
                        (Global_storage.task_code_owners snapshot))
               with Rejected error -> Error [ error ]))
@@ -9198,6 +9548,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   source_historical = false;
                 })
               functions,
+            [],
             [],
             [] )
   in
@@ -9255,6 +9606,17 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
     | Some snapshot ->
         let* snapshot =
           Global_storage.append_task_code_owners snapshot code_owner_sources
+          |> Result.map_error
+               (List.map (fun (error : Global_storage.error) ->
+                    {
+                      code = error.code;
+                      message = error.message;
+                      span = error.span;
+                    }))
+        in
+        let* snapshot =
+          Global_storage.append_task_function_slots snapshot
+            slot_address_bindings
           |> Result.map_error
                (List.map (fun (error : Global_storage.error) ->
                     {
@@ -9462,6 +9824,12 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   (Global_storage.task_code_owners snapshot)))
           function_infos
       in
+      let undefined_code_owner =
+        Option.bind task_snapshot Global_storage.task_undefined_code_owner
+      in
+      let private_function_count =
+        if Option.is_some undefined_code_owner then 1 else 0
+      in
       let task_owned_targets =
         Array.to_list
           (Array.mapi
@@ -9478,7 +9846,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           ~allow_retained_functions:(Option.is_some task_snapshot)
           ~task_dynamic_code_words:(Option.is_some task_snapshot)
           ~task_owned_targets ~capture_callback_default
-          ~slot_root_runtime_calls:runtime_calls ~slot_bindings
+          ~slot_root_runtime_calls:runtime_calls ~slot_bindings ~task_snapshot
           ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
           ~functions:function_infos ~global_storage ~literal_storage
           ~runtime_owner:Runtime.Entry ~owner:Entry_owner
@@ -9495,11 +9863,11 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ~task_dynamic_code_words:(Option.is_some task_snapshot)
               ~task_owned_targets ~capture_callback_default:false
               ~slot_root_runtime_calls:runtime_calls ~slot_bindings
-              ~parameter_defaults ~code_edges ~indirect_code_edges
-              ~arena_code_cells ~functions:function_infos ~global_storage
-              ~literal_storage ~runtime_owner:(Runtime.Function body)
-              ~owner:info.owner ~frame_slots:info.frame_slots
-              ~variadic:info.variadic
+              ~task_snapshot ~parameter_defaults ~code_edges
+              ~indirect_code_edges ~arena_code_cells ~functions:function_infos
+              ~global_storage ~literal_storage
+              ~runtime_owner:(Runtime.Function body) ~owner:info.owner
+              ~frame_slots:info.frame_slots ~variadic:info.variadic
               ~expected_return:(Some (Function.return_type body))
               ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes
               ~next_site
@@ -9606,7 +9974,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             in
             let allocation =
               allocate_body ~shared_values:prepared.callable_shared_values
-                ~function_code_owners
+                ~function_code_owners ?undefined_code_owner
                 ~callable_frame:{ rbp_bytes; fixed_stack_slots }
                 ~max_stack_bytes
                 ~reserved_registers:
@@ -9860,13 +10228,100 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                  owner)
              function_code_owners)
         |> List.filter_map Fun.id
+        |> fun bindings ->
+        (match undefined_code_owner with
+          | None -> bindings
+          | Some owner ->
+              ( Global_storage.undefined_code_owner_id owner,
+                Global_storage.undefined_code_owner_address owner,
+                Global_storage.undefined_code_owner_target owner,
+                Array.length function_infos + 1 )
+              :: bindings)
         |> List.sort (fun (left, _, _, _) (right, _, _, _) ->
             Int.compare left right)
         |> List.mapi (fun leaf (id, address, target, body) ->
-            (id, address, target, body, Array.length function_infos + 1 + leaf))
+            ( id,
+              address,
+              target,
+              body,
+              Array.length function_infos + 1 + private_function_count + leaf ))
       in
+      let function_slot_bindings =
+        match task_snapshot with
+        | None -> []
+        | Some snapshot ->
+            List.map
+              (fun slot ->
+                let module VM = Ir.Integer_interpreter in
+                let original =
+                  VM.native_slot_address_binding_receipt
+                    (Global_storage.function_slot_binding slot)
+                in
+                let symbol receipt =
+                  Sema.Function_resolution.resolved_declaration_identity_symbol
+                    (Runtime.function_slot_address_declaration receipt)
+                in
+                let body binding =
+                  match VM.native_slot_address_binding_source binding with
+                  | Some (_, source) -> Some source.source_definition.body
+                  | None -> VM.native_slot_address_binding_local_owner binding
+                in
+                let selected =
+                  List.find_map
+                    (fun binding ->
+                      if
+                        symbol (VM.native_slot_address_binding_receipt binding)
+                        == symbol original
+                      then body binding
+                      else None)
+                    slot_address_bindings
+                in
+                let id =
+                  match selected with
+                  | Some body -> (
+                      match
+                        List.find_opt
+                          (fun owner ->
+                            (Global_storage.code_owner_definition owner).body
+                            == body)
+                          (Global_storage.task_code_owners snapshot)
+                      with
+                      | Some owner -> Global_storage.code_owner_id owner
+                      | None ->
+                          reject "HCBACK0003"
+                            "native slot body lacks its original executable \
+                             owner")
+                  | None ->
+                      Global_storage.undefined_code_owner_id
+                        (Option.get undefined_code_owner)
+                in
+                (Global_storage.function_slot_address slot, id))
+              (Global_storage.task_function_slots snapshot)
+            |> List.sort (fun (left, _) (right, _) -> Int.compare left right)
+      in
+      let undefined_instructions =
+        match undefined_code_owner with
+        | None -> []
+        | Some _ ->
+            [
+              Encoder.Push_rbp;
+              Encoder.Mov_rbp_rsp;
+              Encoder.Store_context_imm (0, 23);
+              Encoder.Pop_rbp;
+              Encoder.Ret;
+            ]
+      in
+      let undefined_bytes =
+        match Encoder.encode_all ~max_code_bytes undefined_instructions with
+        | Ok code -> Bytes.of_string code
+        | Error message -> reject "HCBACK0005" message
+      in
+      let leaf_start = code_size + Bytes.length undefined_bytes in
       if
-        Array.length function_infos + List.length code_owner_bindings >= 100_000
+        Array.length function_infos
+        + private_function_count
+        + List.length code_owner_bindings
+        >= 100_000
       then
         reject "HCBACK0001"
           "native source bodies and private entries exceed the unwind table \
@@ -9881,8 +10336,10 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           Bytes.set leaf_bytes (offset + 3) '\xa1';
           Bytes.set_int32_le leaf_bytes (offset + 4) (Int32.of_int target))
         code_owner_bindings;
-      if Bytes.length leaf_bytes > max_code_bytes - code_size then
-        reject "HCBACK0005" "native stable entries exceed max_code_bytes";
+      if
+        leaf_start > max_code_bytes
+        || Bytes.length leaf_bytes > max_code_bytes - leaf_start
+      then reject "HCBACK0005" "native stable entries exceed max_code_bytes";
       let unwind_functions =
         let entry_end =
           if Array.length function_starts = 0 then code_size
@@ -9907,12 +10364,18 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         let leaves =
           List.mapi
             (fun index _ ->
-              ( code_size + (8 * index),
-                code_size + (8 * (index + 1)),
+              ( leaf_start + (8 * index),
+                leaf_start + (8 * (index + 1)),
                 Bytes.of_string "\001\000\000\000" ))
             code_owner_bindings
         in
-        (entry_record :: named) @ leaves
+        let private_entries =
+          match undefined_code_owner with
+          | None -> []
+          | Some _ ->
+              [ (code_size, leaf_start, build_callable_windows_unwind_info 0) ]
+        in
+        (entry_record :: named) @ private_entries @ leaves
       in
       match Encoder.encode_all ~max_code_bytes instructions with
       | Error message -> reject "HCBACK0005" message
@@ -9932,9 +10395,14 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           in
           Ok
             {
-              encoded = Bytes.cat (Bytes.of_string encoded) leaf_bytes;
+              encoded =
+                Bytes.concat Bytes.empty
+                  [ Bytes.of_string encoded; undefined_bytes; leaf_bytes ];
               ir_count;
-              machine_count = machine_count + List.length code_owner_bindings;
+              machine_count =
+                machine_count
+                + List.length undefined_instructions
+                + List.length code_owner_bindings;
               peak = max (if has_storage then 6 else 5) peak;
               frame_size;
               unwind_info = Bytes.copy entry_allocated.body_unwind;
@@ -9942,6 +10410,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               status_abi = abi;
               block_count;
               function_count = Array.length function_infos;
+              private_function_count;
               entry_stack_bytes = 16 + entry_allocated.body_frame_size;
               global_bytes = Global_storage.global_bytes global_storage;
               literal_bytes = Literal_storage.literal_bytes literal_storage;
@@ -9959,6 +10428,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 Option.map (fun _ -> global_arena_bytes) task_snapshot;
               task_snapshot;
               code_owner_bindings;
+              function_slot_bindings;
               has_output = List.exists (fun site -> site.output_site) sites;
               sites;
             }
@@ -9976,11 +10446,13 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
 let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
     ?capture_callback_default ~task_snapshot ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~retained_function_source
-    ~retained_slot_binding ~retained_parameter_default ~initialization ~entry
-    ~functions () =
+    ~retained_slot_binding ~retained_parameter_default
+    ~retained_slot_address_binding ~retained_slot_address_refresh
+    ~initialization ~entry ~functions () =
   compile_callable_internal ~task_snapshot ~retained_parameter_default
     ?capture_callback_default ~retained_function_source ~retained_slot_binding
-    ?status_abi ?max_stack_bytes ?max_blocks
+    ~retained_slot_address_binding ~retained_slot_address_refresh ?status_abi
+    ?max_stack_bytes ?max_blocks
     ~max_global_bytes:Global_storage.hard_max_global_bytes ~max_ir_instructions
     ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions ()
 
@@ -10051,3 +10523,9 @@ let program_task_snapshot (compiled : program_image) = compiled.task_snapshot
 
 let program_code_owner_bindings (compiled : program_image) =
   compiled.code_owner_bindings
+
+let program_private_function_count (compiled : program_image) =
+  compiled.private_function_count
+
+let program_function_slot_bindings (compiled : program_image) =
+  compiled.function_slot_bindings

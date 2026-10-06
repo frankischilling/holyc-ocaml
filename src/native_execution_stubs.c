@@ -1828,6 +1828,42 @@ static size_t native_validate_task_bindings(value identity, size_t prefix)
     previous_id = maximum = (size_t)id;
     previous_end = (size_t)target + 8;
   }
+  if (Wosize_val(identity) == 7) {
+    value slots = Field(identity, 6);
+    mlsize_t slot_count, owner_index = 0;
+    size_t previous_slot_end = 0;
+    if (!Is_block(slots) || Tag_val(slots) != 0)
+      caml_invalid_argument("native function slot bindings are not an array");
+    slot_count = Wosize_val(slots);
+    if (slot_count > 1000000 || slot_count > prefix / 16)
+      caml_invalid_argument("native function slot bindings exceed the admitted arena");
+    for (index = 0; index < slot_count; ++index) {
+      value slot = Field(slots, index);
+      intnat address, id;
+      mlsize_t low = 0, high = count;
+      if (!Is_block(slot) || Tag_val(slot) != 0 || Wosize_val(slot) != 2 ||
+          !Is_long(Field(slot, 0)) || !Is_long(Field(slot, 1)))
+        caml_invalid_argument("native function slot binding is malformed");
+      address = Long_val(Field(slot, 0)); id = Long_val(Field(slot, 1));
+      if (address < 0 || (size_t)address < previous_slot_end ||
+          (size_t)address > prefix || prefix - (size_t)address < 16 || id <= 0)
+        caml_invalid_argument("native function slot leaves its admitted arena");
+      while (owner_index < count &&
+             (size_t)Long_val(Field(Field(bindings, owner_index), 2)) + 8 <= (size_t)address)
+        ++owner_index;
+      if (owner_index < count &&
+          (size_t)Long_val(Field(Field(bindings, owner_index), 1)) < (size_t)address + 16)
+        caml_invalid_argument("native function slot overlaps an executable owner");
+      while (low < high) {
+        mlsize_t middle = low + (high - low) / 2;
+        if (Long_val(Field(Field(bindings, middle), 0)) < id) low = middle + 1;
+        else high = middle;
+      }
+      if (low == count || Long_val(Field(Field(bindings, low), 0)) != id)
+        caml_invalid_argument("native function slot has no original executable owner");
+      previous_slot_end = (size_t)address + 16;
+    }
+  }
   return maximum;
 }
 #endif
@@ -1845,7 +1881,7 @@ static value native_retain_program_identity(value identity, int task_fragment)
   unsigned checked_stack = 0;
   int closed_entry = 0;
   struct native_retained_program *program;
-  if (!Is_block(identity) || Tag_val(identity) != 0 || (Wosize_val(identity) != 5 && !(task_fragment && Wosize_val(identity) == 6)) ||
+  if (!Is_block(identity) || Tag_val(identity) != 0 || (Wosize_val(identity) != 5 && !(task_fragment && (Wosize_val(identity) == 6 || Wosize_val(identity) == 7))) ||
       !Is_long(Field(identity, 2)) || !Is_long(Field(identity, 3)))
     caml_invalid_argument("retained native image identity is malformed");
   code = Field(identity, 0);
@@ -1885,14 +1921,14 @@ static value native_retain_program_identity(value identity, int task_fragment)
       metadata < 0 || (uintnat)metadata > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
       arena_length != (uintnat)globals + (uintnat)literals + (uintnat)metadata ||
-      (globals == 0 && literals == 0 && metadata != 0 && Wosize_val(identity) != 6))
+      (globals == 0 && literals == 0 && metadata != 0 && Wosize_val(identity) < 6))
     caml_invalid_argument("retained native arena image is inconsistent with data and metadata");
-  if (Wosize_val(identity) != 6) {
+  if (Wosize_val(identity) < 6) {
     for (mlsize_t index = 0; index < Wosize_val(functions); ++index)
       if (caml_string_length(Field(Field(functions, index), 2)) == 4)
         caml_invalid_argument("native leaf entries require original task owner bindings");
   }
-  if (Wosize_val(identity) == 6) {
+  if (Wosize_val(identity) >= 6) {
     size_t maximum = native_validate_task_bindings(identity, arena_length);
     if (globals == 0 && literals == 0 && metadata != 0 && maximum == 0)
       caml_invalid_argument("retained task metadata has no original code owner");
@@ -2167,7 +2203,7 @@ CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
     caml_invalid_argument("native task entry binding descriptor is malformed");
   arena = native_task_arena_get(Field(descriptor, 0));
   prefix = (size_t)Long_val(Field(descriptor, 1));
-  if (!program->task_fragment || Wosize_val(program->identity) != 6 ||
+  if (!program->task_fragment || Wosize_val(program->identity) < 6 ||
       prefix != (size_t)Long_val(Field(Field(program->identity, 4), 3)))
     caml_invalid_argument("native task entries have another retained arena extent");
   bindings = Field(program->identity, 5);
@@ -2211,6 +2247,25 @@ CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
     }
   }
   /* Validate every old cell before publishing any mapping or target. */
+  if (Wosize_val(program->identity) == 7) {
+    value slots = Field(program->identity, 6);
+    for (index = 0; index < Wosize_val(slots); ++index) {
+      value slot = Field(slots, index);
+      uint64_t address, id;
+      size_t cell = (size_t)Long_val(Field(slot, 0));
+      memcpy(&address, (char *)arena->mapping + cell, 8);
+      memcpy(&id, (char *)arena->mapping + cell + 8, 8);
+      if (id == 0) {
+        if (address != 0) ENTRY_FAIL("unpublished native function slot is not empty");
+      } else if (id >= arena->owner_capacity || arena->owners[id] == NULL ||
+                 arena->owners[id]->canonical == 0 ||
+                 address != arena->owners[id]->canonical ||
+                 arena->owners[id]->program == NULL ||
+                 arena->owners[id]->program->closing ||
+                 arena->owners[id]->program->mapping == NULL)
+        ENTRY_FAIL("native function slot lost its original executable owner");
+    }
+  }
   for (index = 0; index < count; ++index) {
     value binding = Field(bindings, index);
     struct native_task_code_owner *owner = arena->owners[Long_val(Field(binding, 0))];
@@ -2247,6 +2302,17 @@ CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
     owner->current_target = target;
     owner->current_program = program;
     caml_modify_generational_global_root(&owner->current_handle, retained);
+  }
+  if (Wosize_val(program->identity) == 7) {
+    value slots = Field(program->identity, 6);
+    for (index = 0; index < Wosize_val(slots); ++index) {
+      value slot = Field(slots, index);
+      uint64_t id = (uint64_t)Long_val(Field(slot, 1));
+      struct native_task_code_owner *owner = arena->owners[id];
+      size_t cell = (size_t)Long_val(Field(slot, 0));
+      memcpy((char *)arena->mapping + cell, &owner->canonical, 8);
+      memcpy((char *)arena->mapping + cell + 8, &id, 8);
+    }
   }
   atomic_store(&program->active, 0); atomic_store(&arena->active, 0);
 #undef ENTRY_FAIL

@@ -141,6 +141,14 @@ val compile_task_fragment :
     parameter:Sema.Function_type_resolution.parameter ->
     Ir.Prepared_parameter_default.t ->
     (unit, string) result) ->
+  retained_slot_address_binding:
+    (runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result) ->
+  retained_slot_address_refresh:
+    (Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result) ->
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   functions:Ir.Integer_interpreter.function_definition list ->
@@ -193,3 +201,6 @@ val hard_max_global_bytes : int
 
 val program_code_owner_bindings :
   program_image -> (int * int * int * int * int) list
+
+val program_private_function_count : program_image -> int
+val program_function_slot_bindings : program_image -> (int * int) list

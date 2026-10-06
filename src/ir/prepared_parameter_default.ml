@@ -13,6 +13,10 @@ let value value = value.value
 let bits value = Option.get (Saved_parameter_value.word_bits value.value)
 let word_bits value = Saved_parameter_value.word_bits value.value
 let callback_source value = Saved_parameter_value.callback_source value.value
+
+let undefined_callback_source value =
+  Saved_parameter_value.undefined_callback_source value.value
+
 let type_ value = value.type_
 let receipt value = value.receipt
 let publication value = value.publication
@@ -60,7 +64,7 @@ let create_value ~publication ~header ~receipt ~value =
   in
   let* () =
     if
-      Option.is_some (Saved_parameter_value.callback_source value)
+      Option.is_none (Saved_parameter_value.word_bits value)
       && Option.is_none source.function_pointer
     then Error "owned saved default requires its original callback parameter"
     else Ok ()

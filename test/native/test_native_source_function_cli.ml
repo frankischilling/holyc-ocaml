@@ -21,12 +21,12 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 9)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 10)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
      [native-source-defaults.hc] [native-source-extern-slots.hc] \
-     [native-source-callback-words.hc]"
+     [native-source-callback-words.hc] [native-source-slot-addresses.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -594,6 +594,45 @@ let () =
       "I64 F(){return 42;}I64 G(){return 17;}I64 Call(I64 (*q)()=&F){return \
        q();}I64 Old(){return Call();}I64 Call(I64 (*q)()=&G){return \
        q();}Old();";
+    ];
+  let slot_checks path =
+    let native = json_path path in
+    require
+      (final_bits native = "0x000000000000002a")
+      "native original slot and saved placeholder";
+    require
+      (final_bits (json_path ~target:"ir" path) = final_bits native)
+      "independent IR preserves original slot timing";
+    require
+      (has_diagnostic "HCRUN0006" (json_path ~target:"host-jit" ~status:1 path))
+      "isolated default capture keeps its existing boundary"
+  in
+  if Array.length Sys.argv >= 10 then slot_checks Sys.argv.(9)
+  else
+    with_file ".hc"
+      "extern I64 Answer();I64 Read(){I64 (*p)();p=&Answer;return p();}I64 \
+       Same(I64 (*p)()=&Answer){return p==&Answer;}I64 Answer(){return 42;}I64 \
+       Answer(){return 17;}Read()+Same();"
+      slot_checks;
+  List.iter
+    (fun text ->
+      with_file ".hc" text (fun path ->
+          List.iter
+            (fun target ->
+              let report = json_path ~target ~status:1 path in
+              require
+                (has_diagnostic "HCIRVM0030" report)
+                "captured placeholder cannot select a later body";
+              if target = "host-jit-task" then
+                require
+                  (last_fragment report |> member "outcome" |> to_string
+                 = "fault")
+                  "original placeholder reaches a native callback fault")
+            [ "ir"; "host-jit-task" ]))
+    [
+      "extern I64 F();I64 (*p)()=&F;I64 F(){return 42;}p();";
+      "extern I64 F();I64 Call(I64 (*p)()=&F){return p();}I64 F(){return \
+       42;}Call();";
     ];
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions
