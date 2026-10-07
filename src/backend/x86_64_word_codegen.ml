@@ -1159,8 +1159,8 @@ let print_argument_kind type_ =
 
 let allocate_body ?callable_frame ?(shared_values = [])
     ?(provider_entry_start = Int.max_int) ?(function_code_owners = [||])
-    ?undefined_code_owner ~max_stack_bytes ~reserved_registers ~supply ~mode
-    prepared =
+    ?undefined_code_owner ?(status_abi = Encoder.System_v_x64) ~max_stack_bytes
+    ~reserved_registers ~supply ~mode prepared =
   let function_owner index =
     if index < Array.length function_code_owners then
       function_code_owners.(index)
@@ -3080,6 +3080,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           Print_codegen.emit
             {
+              status_abi;
               instruction = emit;
               fresh = (fun () -> fresh_label supply);
               mark;
@@ -9887,7 +9888,8 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                             "native program block has no machine label"
                     in
                     let allocation =
-                      allocate_body ~shared_values ~max_stack_bytes
+                      allocate_body ~status_abi:abi ~shared_values
+                        ~max_stack_bytes
                         ~reserved_registers:[ Encoder.R10; Encoder.R11 ]
                         ~supply
                         ~mode:
@@ -10636,7 +10638,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                     "native callable block has no machine label"
             in
             let allocation =
-              allocate_body ~shared_values:prepared.callable_shared_values
+              allocate_body ~status_abi:abi
+                ~shared_values:prepared.callable_shared_values
                 ~function_code_owners ?undefined_code_owner
                 ~provider_entry_start:(Array.length function_infos)
                 ~callable_frame:{ rbp_bytes; fixed_stack_slots }
@@ -10909,6 +10912,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               emit (Encoder.Store_stack (slot 2, Encoder.Rdx));
               Print_codegen.emit_provider
                 {
+                  status_abi = abi;
                   instruction = emit;
                   fresh = (fun () -> fresh_label supply);
                   mark;

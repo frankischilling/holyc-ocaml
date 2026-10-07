@@ -27,6 +27,7 @@ type fault_kind =
   | Generated_limit_exceeded
   | Stream_context_required
   | Stream_exe_context_required
+  | Stream_exe_source_failed
   | Output_limit_exceeded
   | Output_work_limit_exceeded
   | Output_invalid_format
@@ -821,7 +822,7 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        else if Int64.equal kind 15L then Output_invalid_pointer
                        else Output_invalid_byte)
                       None
-                else if kind >= 26L && kind <= 28L then
+                else if kind >= 26L && kind <= 29L then
                   let source_site =
                     if Int64.equal kind 26L then
                       candidate.stream_print_site || candidate.stream_exe_site
@@ -837,7 +838,9 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                     make_fault
                       (if Int64.equal kind 26L then Generated_limit_exceeded
                        else if Int64.equal kind 27L then Stream_context_required
-                       else Stream_exe_context_required)
+                       else if Int64.equal kind 28L then
+                         Stream_exe_context_required
+                       else Stream_exe_source_failed)
                       None
                 else if Int64.equal kind 17L then
                   if not candidate.pointer_ordering_site then

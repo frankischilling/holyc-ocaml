@@ -42,6 +42,34 @@ execution still requires a bridge that resumes the original parser while
 the calling native function is suspended. [Native AOT sessions](native-aot-source-sessions.md)
 now execute the original directive tasks and their separate outer module.
 
+The runtime now provides that call site's C callback boundary as a prerequisite
+for child execution. `execute_retained_budget_report` accepts a source callback
+for an authenticated active task image. Formatting completes first. Generated
+code then publishes its live instruction count, calls the host through the
+image's private ABI, and restores its arena, remaining instructions and context
+registers before using the returned integer word. A rejected callback returns a
+checked source fault. An OCaml exception is caught at the C callback and raised
+after the machine caller has unwound, its guards have closed and its reached
+effects have been accounted.
+
+The scope is created inside the actual C callback and is tied to the current
+physical caller, original generation target, retained image, arena and
+cumulative budget identity. It exposes remaining limits without exposing native
+addresses. Other domains, copied generation metadata, equal allowances from
+another budget, duplicate opens and expired scopes reject. The ordinary budget,
+image and arena entry and release guards remain active. This scope alone does
+not admit child code or join a parser completion; the source driver still reports
+its missing parser bridge.
+
+Output, generation and formatted-source buffers now have C-owned addresses.
+Their rooted custom owner frees them after checked capture, or on collection
+after an exceptional exit. Callback and scope roots remain live through forced
+collection and close before native execution resumes. Tests suspend a native
+function after it has written ordinary and generation prefixes, collect and
+compact while its buffers are live, and check its resumed suffix. They also
+exercise repeated callbacks, captured provider calls, rejection and exception
+cleanup with zero interpreted instructions.
+
 The private generation context does not implement the exported HolyC ABI,
 TempleOS task scheduling or arbitrary compile-time execution. Module functions
 outside an executing `#exe` task keep their existing visibility boundary. Native

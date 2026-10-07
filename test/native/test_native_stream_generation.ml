@@ -318,6 +318,197 @@ let capture_authority () =
         (String.starts_with ~prefix:"native generation capture has an expired"
            error))
 
+let native_source_callback_scope ?(failure = `None)
+    ?(fixture =
+      {|#exe {I64 Emit(){Print("before;");StreamPrint("40;");Print("%d;%d;after;",StreamExePrint("payload%d",42),StreamExePrint("payload%d",42));StreamPrint("42;");return 42;}Emit;}42;|})
+    () =
+  let module Task = Holyc_lib__Driver.Integer_task in
+  let module Source = Holyc_lib__Driver.Integer_source_execution in
+  let module Scope = Holyc_lib__Ir.Native_source_suspension in
+  let module Runtime = Native_program_execution in
+  let compile = function
+    | Ok value -> value
+    | Error errors ->
+        Alcotest.fail
+          (String.concat "; "
+             (List.map (fun (error : Image.error) -> error.message) errors))
+  in
+  let layout =
+    Image.create_task_layout_with_literals ~max_global_bytes:64
+      ~max_literal_bytes:1024
+    |> compile
+  in
+  let arena =
+    Runtime.create_task_arena ~max_arena_bytes:65_536 layout |> unwrap
+  in
+  let budget = Runtime.create_budget ~max_steps:100_000 () |> unwrap in
+  let saved = ref None in
+  let calls = ref 0 in
+  let foreign_budget = Runtime.create_budget ~max_steps:100_000 () |> unwrap in
+  let session, source, config = inputs fixture in
+  let callback_error () =
+    [
+      Diagnostic.make ~code:"HCRUN0004" ~severity:Diagnostic.Error
+        ~message:"source callback rejected its input"
+        ~primary:(Holyc_lib__Driver.Integer_source.source_span source)
+        ();
+    ]
+  in
+  let execute request =
+    let image =
+      Image.compile_task_command ~max_code_bytes:524_288 ~layout request
+      |> compile
+    in
+    let retained = Runtime.retain_task_fragment arena image |> unwrap in
+    let source_callback scope source =
+      incr calls;
+      Alcotest.(check string) "actual formatted source" "payload42" source;
+      Scope.check scope |> unwrap;
+      Alcotest.(check bool)
+        "original cumulative budget" true
+        (Runtime.suspension_owns_budget scope budget |> unwrap);
+      Alcotest.(check bool)
+        "equal allowances have another owner" false
+        (Runtime.suspension_owns_budget scope foreign_budget |> unwrap);
+      let target = Option.get (Image.generation image) in
+      Alcotest.(check bool)
+        "original generation owner" true
+        (Scope.owns_generation scope target |> unwrap);
+      let copied = Obj.obj (Obj.dup (Obj.repr target)) in
+      Alcotest.(check bool)
+        "copied generation metadata is foreign" false
+        (Scope.owns_generation scope copied |> unwrap);
+      Option.iter
+        (fun previous ->
+          rejects "earlier callback scope is closed" (Scope.check previous))
+        !saved;
+      saved := Some scope;
+      let steps, frame, depth, stack = Scope.limits scope |> unwrap in
+      Alcotest.(check bool)
+        "live caller limits" true
+        (steps > 0 && steps < 100_000 && frame > 0 && depth > 0 && stack > 0);
+      rejects "foreign domain cannot borrow native suspension"
+        (Domain.join (Domain.spawn (fun () -> Scope.check scope)));
+      rejects "scope is not a callback bridge"
+        (try
+           Scope.open_raw scope |> ignore;
+           Ok ()
+         with Invalid_argument message -> Error message);
+      rejects "ordinary budget entry is still excluded"
+        (Runtime.execute_retained_budget_report budget retained
+        |> Runtime.outcome);
+      rejects "original caller cannot be released" (Runtime.release retained);
+      rejects "original arena cannot be released"
+        (Runtime.release_task_arena arena);
+      Gc.full_major ();
+      Gc.compact ();
+      Scope.check scope |> unwrap;
+      match failure with
+      | `None -> Some 42L
+      | `Reject -> None
+      | `Raise -> failwith "native source callback exception"
+    in
+    let report =
+      Fun.protect
+        ~finally:(fun () ->
+          Option.iter
+            (fun scope ->
+              rejects "scope closes on normal and exceptional returns"
+                (Scope.check scope))
+            !saved;
+          Runtime.release retained |> unwrap)
+        (fun () ->
+          Runtime.execute_retained_budget_report ~source_callback budget
+            retained)
+    in
+    Option.iter
+      (fun scope ->
+        rejects "suspension expires before caller resumes" (Scope.check scope);
+        rejects "expired scope cannot read caller limits" (Scope.limits scope))
+      !saved;
+    match Runtime.outcome report |> unwrap with
+    | Image.Fault fault when failure = `Reject ->
+        Alcotest.(check bool)
+          "reached callback failure" true
+          (fault.kind = Image.Stream_exe_source_failed);
+        Error (callback_error ())
+    | Image.Fault _ ->
+        Alcotest.fail "source callback did not resume native caller"
+    | Image.Completed result ->
+        Ok
+          (if Runtime.value_captured report then
+             Task.Native_dispatch.Captured
+               (Option.map
+                  (fun (word : Image.word) ->
+                    match word.type_ with
+                    | I64 -> Task.Native_dispatch.I64 word.bits
+                    | U64 -> Task.Native_dispatch.U64 word.bits)
+                  result.final_value)
+           else Task.Native_dispatch.Unchanged)
+  in
+  let dispatch : Task.Native_dispatch.t =
+    {
+      execute_initializer =
+        (fun _ -> Alcotest.fail "fixture has no initializer");
+      execute_command = execute;
+    }
+  in
+  Fun.protect
+    ~finally:(fun () -> Runtime.release_task_arena arena |> unwrap)
+    (fun () ->
+      let report =
+        try
+          Some
+            (Source.run ~native_dispatch:dispatch session ~source ~config
+               ~max_steps:100_000)
+        with
+        | Failure message
+        when failure = `Raise && message = "native source callback exception"
+        ->
+          None
+      in
+      (match (failure, report) with
+      | `Raise, None -> ()
+      | `None, Some report -> Source.outcome report |> checked |> ignore
+      | `Reject, Some report ->
+          rejects "source sees callback failure" (Source.outcome report)
+      | _ -> Alcotest.fail "callback exception was not propagated after cleanup");
+      Alcotest.(check int)
+        "physical callbacks"
+        (if failure = `None then 2 else 1)
+        !calls;
+      Alcotest.(check string)
+        "GC preserves native prefix and resumed suffix"
+        (if failure = `None then "before;42;42;after;" else "before;")
+        (Runtime.budget_output_bytes budget);
+      Option.iter
+        (fun report ->
+          Alcotest.(check int)
+            "no interpreted instructions" 0
+            (Option.get (Source.progress report)).runtime.executed_steps)
+        report;
+      Option.iter
+        (fun report ->
+          Alcotest.(check int)
+            "GC preserves live generation bytes"
+            (if failure = `None then 6 else 3)
+            (Option.get (Source.progress report)).runtime.generated_bytes)
+        report;
+      Alcotest.(check bool)
+        "budget remains verified" true
+        ((Runtime.budget_progress budget).error = None))
+
+let native_source_callbacks () =
+  List.iter
+    (fun failure ->
+      native_source_callback_scope ~failure ();
+      native_source_callback_scope ~failure
+        ~fixture:
+          {|#exe {I64 Emit(I64 (*p)(U8 *fmt,...)){Print("before;");StreamPrint("40;");Print("%d;%d;after;",p("payload%d",42),p("payload%d",42));StreamPrint("42;");return 42;}Emit(&StreamExePrint);}42;|}
+        ())
+    [ `None; `Reject; `Raise ];
+  ()
+
 let () =
   Alcotest.run "Native original stream generation"
     [
@@ -330,5 +521,7 @@ let () =
             `Quick synchronous_boundary;
           Alcotest.test_case "executed capture identity and lifetime" `Quick
             capture_authority;
+          Alcotest.test_case "native source callback scope and collection"
+            `Quick native_source_callbacks;
         ] );
     ]

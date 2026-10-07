@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added the native source callback boundary and C-owned output buffers. An
+  active formatted-source site can suspend its physical caller, preserve live
+  buffers across collection, and resume with the callback's integer result.
+  Scopes retain their original generation and cumulative budget owners and
+  expire before the caller resumes. Callback exceptions propagate after native
+  cleanup and checked accounting. Parser child execution and scoped native
+  arena/budget admission remain unfinished; ordinary entry and release guards
+  still reject overlap.
+
 - Fixed IR StreamExePrint lookup and publication through the original saved
   compiler namespace in both outer modes. Child declarations, completed type
   metadata and replacements persist there while directive-only names stay in

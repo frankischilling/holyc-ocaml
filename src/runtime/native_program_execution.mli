@@ -166,6 +166,7 @@ val execute_retained_budget_report :
   ?max_active_stack_bytes:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
+  ?source_callback:(Ir.Native_source_suspension.t -> string -> int64 option) ->
   budget ->
   retained ->
   report
@@ -195,7 +196,19 @@ val execute_retained_budget_report :
     host/status failure revokes it. Frame, call-depth, active-stack and
     image-storage bounds keep their per-activation meanings. The existing
     [execute_retained_report] keeps fresh limits only for ordinary retained
-    images. *)
+    images.
+
+    An authenticated active task source site may invoke [source_callback] after
+    formatting. Its C-created scope expires before native execution resumes;
+    ordinary image, arena and budget entries remain excluded while it runs.
+    Callback exceptions are returned through C and raised after native cleanup
+    and checked budget accounting. This low-level callback alone provides no
+    parser, namespace or child-machine admission authority. *)
+
+val suspension_owns_budget :
+  Ir.Native_source_suspension.t -> budget -> (bool, string) result
+(** Compare the original cumulative owner while its physical callback is
+    suspended. Equal numeric allowances do not identify that owner. *)
 
 val execute_report :
   ?max_frame_bytes:int ->

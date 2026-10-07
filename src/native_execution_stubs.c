@@ -14,6 +14,7 @@
 #include <caml/memory.h>
 #include <caml/alloc.h>
 #include <caml/fail.h>
+#include <caml/callback.h>
 
 #if (defined(__x86_64__) || defined(_M_X64)) && \
     !defined(_M_ARM64EC) && UINTPTR_MAX == UINT64_MAX
@@ -1099,6 +1100,9 @@ static void native_retained_map(struct native_retained_program *program,
 #endif
 }
 
+static void native_source_enter(uint64_t *context);
+static void native_source_leave(uint64_t *context);
+
 static uint64_t native_retained_run(value handle, uint64_t *context, value entered)
 {
   struct native_retained_program *program = native_retained_get(handle);
@@ -1119,7 +1123,9 @@ static uint64_t native_retained_run(value handle, uint64_t *context, value enter
   memcpy(&entry, &program->mapping, sizeof(entry));
   if (entered != Val_unit)
     Store_field(entered, 0, Val_true);
+  native_source_enter(context);
   bits = entry(context);
+  native_source_leave(context);
   atomic_store(&program->active, 0);
   if (context[9] != arena)
     caml_failwith("retained native status integrity failure: arena pointer was modified");
@@ -1213,7 +1219,9 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
   memcpy(&entry, &program->mapping, sizeof(entry));
   if (entered != Val_unit)
     Store_field(entered, 0, Val_true);
+  native_source_enter(context);
   bits = entry(context);
+  native_source_leave(context);
   pointer_ok = context[9] == arena_address;
   for (size_t index = 0; index < borrowed; ++index) {
     struct native_task_code_owner *owner = arena->owners[index];
@@ -1537,6 +1545,312 @@ static struct custom_operations native_generation_capture_operations = {
   custom_fixed_length_default
 };
 
+/* Machine-visible buffers must keep their addresses when a suspended native
+   entry calls back into OCaml. The custom owner remains rooted until all
+   captures have been copied, including allocating and exceptional exits. */
+struct native_output_buffers {
+  unsigned char *output, *generation, *formatted;
+  size_t output_capacity, generation_capacity, formatted_capacity;
+};
+
+static void native_output_buffers_finalize(value handle)
+{
+  struct native_output_buffers *buffers =
+    *((struct native_output_buffers **)Data_custom_val(handle));
+  if (buffers == NULL) return;
+  free(buffers->output);
+  free(buffers->generation);
+  free(buffers->formatted);
+  free(buffers);
+  *((struct native_output_buffers **)Data_custom_val(handle)) = NULL;
+}
+
+static struct custom_operations native_output_buffers_operations = {
+  "holyc.native.output-buffers.v1",
+  native_output_buffers_finalize,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+static value native_create_output_buffers(size_t output_capacity,
+                                         size_t generation_capacity,
+                                         size_t formatted_capacity)
+{
+  CAMLparam0();
+  CAMLlocal1(owner);
+  struct native_output_buffers *buffers;
+  size_t total = sizeof(*buffers) + output_capacity + generation_capacity +
+                 formatted_capacity + 3;
+  owner = caml_alloc_custom_mem(&native_output_buffers_operations,
+    sizeof(buffers), total);
+  *((struct native_output_buffers **)Data_custom_val(owner)) = NULL;
+  buffers = calloc(1, sizeof(*buffers));
+  if (buffers == NULL) caml_raise_out_of_memory();
+  *((struct native_output_buffers **)Data_custom_val(owner)) = buffers;
+  buffers->output_capacity = output_capacity;
+  buffers->generation_capacity = generation_capacity;
+  buffers->formatted_capacity = formatted_capacity;
+  buffers->output = calloc(output_capacity ? output_capacity : 1, 1);
+  buffers->generation = calloc(generation_capacity ? generation_capacity : 1, 1);
+  buffers->formatted = calloc(formatted_capacity ? formatted_capacity : 1, 1);
+  if (buffers->output == NULL || buffers->generation == NULL ||
+      buffers->formatted == NULL)
+    caml_raise_out_of_memory();
+  CAMLreturn(owner);
+}
+
+struct native_source_bridge;
+struct native_source_scope;
+struct native_source_frame {
+  struct native_source_bridge *bridge;
+  struct native_source_frame *previous;
+  struct native_source_scope *scope;
+  uint64_t *context;
+  value scope_handle;
+};
+
+struct native_source_bridge {
+  value callback, exception_seen, exception_value;
+  value generation, arena, program, budget, handle;
+  struct native_source_frame *frame;
+  uint64_t *context;
+  struct native_output_buffers *buffers;
+  const struct custom_operations *word_operations;
+  int live;
+};
+
+struct native_source_scope {
+  struct native_source_frame *frame;
+};
+
+/* This stack is per native execution thread. A scope can only inspect the
+   current physical callback, never another suspended ancestor or domain. */
+static _Thread_local struct native_source_frame *native_source_current;
+
+static void native_source_scope_finalize(value handle)
+{
+  free(*((struct native_source_scope **)Data_custom_val(handle)));
+  *((struct native_source_scope **)Data_custom_val(handle)) = NULL;
+}
+
+static struct custom_operations native_source_scope_operations = {
+  "holyc.native.source-suspension.v1", native_source_scope_finalize,
+  custom_compare_default, custom_hash_default, custom_serialize_default,
+  custom_deserialize_default, custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+static struct native_source_scope *native_source_scope_get(value handle)
+{
+  struct native_source_scope *scope;
+  if (!Is_block(handle) || Tag_val(handle) != Custom_tag ||
+      Custom_ops_val(handle) != &native_source_scope_operations)
+    caml_invalid_argument("native source suspension is not an original C scope");
+  scope = *((struct native_source_scope **)Data_custom_val(handle));
+  if (scope == NULL || scope->frame == NULL ||
+      scope->frame != native_source_current || scope->frame->scope != scope ||
+      scope->frame->scope_handle != handle ||
+      !scope->frame->bridge->live ||
+      scope->frame->context != scope->frame->bridge->context)
+    caml_invalid_argument("native source suspension is foreign or expired");
+  return scope;
+}
+
+static void native_source_bridge_finalize(value handle)
+{
+  struct native_source_bridge *bridge =
+    *((struct native_source_bridge **)Data_custom_val(handle));
+  if (bridge == NULL) return;
+  caml_remove_generational_global_root(&bridge->callback);
+  caml_remove_generational_global_root(&bridge->exception_seen);
+  caml_remove_generational_global_root(&bridge->exception_value);
+  caml_remove_generational_global_root(&bridge->generation);
+  caml_remove_generational_global_root(&bridge->arena);
+  caml_remove_generational_global_root(&bridge->program);
+  caml_remove_generational_global_root(&bridge->budget);
+  free(bridge);
+  *((struct native_source_bridge **)Data_custom_val(handle)) = NULL;
+}
+
+static struct custom_operations native_source_bridge_operations = {
+  "holyc.native.source-bridge.v1", native_source_bridge_finalize,
+  custom_compare_default, custom_hash_default, custom_serialize_default,
+  custom_deserialize_default, custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+static value native_source_bridge_create(value callback, value generation,
+                                          value arena, value program)
+{
+  CAMLparam4(callback, generation, arena, program);
+  CAMLlocal2(handle, word);
+  struct native_source_bridge *bridge;
+  if (!Is_block(callback) || Tag_val(callback) != 0 || Wosize_val(callback) != 4 ||
+      !Is_block(Field(callback, 0)) || Tag_val(Field(callback, 0)) != Closure_tag ||
+      !Is_block(Field(callback, 1)) || Wosize_val(Field(callback, 1)) != 1 ||
+      Field(Field(callback, 1), 0) != Val_false ||
+      !Is_block(Field(callback, 2)) || Wosize_val(Field(callback, 2)) != 1 ||
+      !Is_block(Field(callback, 3)) || Tag_val(Field(callback, 3)) != 0 ||
+      Wosize_val(Field(callback, 3)) != 1 || Field(Field(callback, 3), 0) != Val_unit)
+    caml_invalid_argument("native source callback state is malformed");
+  word = caml_copy_int64(0);
+  handle = caml_alloc_custom_mem(&native_source_bridge_operations,
+    sizeof(bridge), sizeof(*bridge));
+  *((struct native_source_bridge **)Data_custom_val(handle)) = NULL;
+  bridge = calloc(1, sizeof(*bridge));
+  if (bridge == NULL) caml_raise_out_of_memory();
+  bridge->callback = Field(callback, 0);
+  bridge->exception_seen = Field(callback, 1);
+  bridge->exception_value = Field(callback, 2);
+  bridge->generation = generation;
+  bridge->arena = arena;
+  bridge->program = program;
+  bridge->budget = Field(callback, 3);
+  bridge->word_operations = Custom_ops_val(word);
+  caml_register_generational_global_root(&bridge->callback);
+  caml_register_generational_global_root(&bridge->exception_seen);
+  caml_register_generational_global_root(&bridge->exception_value);
+  caml_register_generational_global_root(&bridge->generation);
+  caml_register_generational_global_root(&bridge->arena);
+  caml_register_generational_global_root(&bridge->program);
+  caml_register_generational_global_root(&bridge->budget);
+  *((struct native_source_bridge **)Data_custom_val(handle)) = bridge;
+  CAMLreturn(handle);
+}
+
+static uint64_t native_source_callback(uint64_t *context)
+{
+  CAMLparam0();
+  CAMLlocal1(result);
+  struct native_source_bridge *bridge =
+    (struct native_source_bridge *)(uintptr_t)context[22];
+  struct native_source_frame frame;
+  uint64_t bits = 0;
+  if (bridge == NULL || !bridge->live || bridge->context != context ||
+      bridge->frame != NULL || context[17] != 1 ||
+      context[18] != (uint64_t)(uintptr_t)bridge->buffers->formatted ||
+      context[20] > context[19] ||
+      context[20] > bridge->buffers->formatted_capacity ||
+      context[3] > context[2]) {
+    context[0] = 29;
+    context[20] = 0;
+    CAMLreturnT(uint64_t, 0);
+  }
+  frame = (struct native_source_frame){ bridge, native_source_current, NULL, context, Val_unit };
+  bridge->frame = &frame;
+  native_source_current = &frame;
+  /* All allocation, including creation of the source string and scope, occurs
+     inside this exception-returning callback. An OCaml exception must never
+     unwind through the suspended generated machine frames. */
+  result = caml_callback_exn(bridge->callback, bridge->handle);
+  if (Is_exception_result(result)) {
+    caml_modify(&Field(bridge->exception_value, 0), Extract_exception(result));
+    caml_modify(&Field(bridge->exception_seen, 0), Val_true);
+    context[0] = 29;
+  } else if (frame.scope == NULL || !Is_block(result) || Tag_val(result) != 0 ||
+             Wosize_val(result) != 1 || !Is_block(Field(result, 0)) ||
+             Tag_val(Field(result, 0)) != Custom_tag ||
+             Custom_ops_val(Field(result, 0)) != bridge->word_operations) {
+    context[0] = 29;
+  } else bits = (uint64_t)Int64_val(Field(result, 0));
+  if (frame.scope != NULL) {
+    frame.scope->frame = NULL;
+    caml_remove_generational_global_root(&frame.scope_handle);
+  }
+  bridge->frame = NULL;
+  native_source_current = frame.previous;
+  context[20] = 0;
+  CAMLreturnT(uint64_t, bits);
+}
+
+CAMLprim value holyc_native_source_suspension_open(value owner)
+{
+  CAMLparam1(owner);
+  CAMLlocal3(handle, source, result);
+  struct native_source_bridge *bridge;
+  struct native_source_scope *scope;
+  if (!Is_block(owner) || Tag_val(owner) != Custom_tag ||
+      Custom_ops_val(owner) != &native_source_bridge_operations)
+    caml_invalid_argument("native source callback has no original bridge");
+  bridge = *((struct native_source_bridge **)Data_custom_val(owner));
+  if (bridge == NULL || !bridge->live || bridge->frame == NULL ||
+      bridge->frame != native_source_current || bridge->frame->scope != NULL)
+    caml_invalid_argument("native source callback is foreign, repeated or expired");
+  handle = caml_alloc_custom_mem(&native_source_scope_operations,
+    sizeof(scope), sizeof(*scope));
+  *((struct native_source_scope **)Data_custom_val(handle)) = NULL;
+  scope = calloc(1, sizeof(*scope));
+  if (scope == NULL) caml_raise_out_of_memory();
+  scope->frame = bridge->frame;
+  *((struct native_source_scope **)Data_custom_val(handle)) = scope;
+  bridge->frame->scope = scope;
+  bridge->frame->scope_handle = handle;
+  caml_register_generational_global_root(&bridge->frame->scope_handle);
+  source = caml_alloc_string((mlsize_t)bridge->context[20]);
+  memcpy((char *)String_val(source), bridge->buffers->formatted,
+    (size_t)bridge->context[20]);
+  result = caml_alloc_tuple(2);
+  Store_field(result, 0, handle);
+  Store_field(result, 1, source);
+  CAMLreturn(result);
+}
+
+CAMLprim value holyc_native_source_suspension_check(value handle)
+{
+  CAMLparam1(handle);
+  (void)native_source_scope_get(handle);
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_source_suspension_limits(value handle)
+{
+  CAMLparam1(handle);
+  CAMLlocal1(result);
+  uint64_t *context = native_source_scope_get(handle)->frame->context;
+  result = caml_alloc_tuple(4);
+  Store_field(result, 0, Val_long((intnat)(context[2] - context[3])));
+  Store_field(result, 1, Val_long((intnat)context[6]));
+  Store_field(result, 2, Val_long((intnat)context[7]));
+  Store_field(result, 3, Val_long((intnat)context[8]));
+  CAMLreturn(result);
+}
+
+CAMLprim value holyc_native_source_suspension_owns_generation(value handle, value target)
+{
+  CAMLparam2(handle, target);
+  CAMLreturn(Val_bool(native_source_scope_get(handle)->frame->bridge->generation == target));
+}
+
+CAMLprim value holyc_native_source_suspension_owns_budget(value handle, value budget)
+{
+  CAMLparam2(handle, budget);
+  CAMLreturn(Val_bool(native_source_scope_get(handle)->frame->bridge->budget == budget));
+}
+
+static void native_source_enter(uint64_t *context)
+{
+  struct native_source_bridge *bridge =
+    (struct native_source_bridge *)(uintptr_t)context[22];
+  if (bridge == NULL) return;
+  caml_register_generational_global_root(&bridge->handle);
+  bridge->context = context;
+  bridge->live = 1;
+}
+
+static void native_source_leave(uint64_t *context)
+{
+  struct native_source_bridge *bridge =
+    (struct native_source_bridge *)(uintptr_t)context[22];
+  if (bridge == NULL) return;
+  bridge->live = 0;
+  bridge->context = NULL;
+  caml_remove_generational_global_root(&bridge->handle);
+}
+
 CAMLprim value holyc_native_consume_generation_capture(value handle, value target)
 {
   CAMLparam2(handle, target);
@@ -1583,9 +1897,11 @@ static value native_execute_program_output(value code, value functions,
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
-  CAMLlocal5(output_buffer, captured, status, result, boxed_kind);
+  CAMLlocal5(buffer_owner, captured, status, result, boxed_kind);
   CAMLlocal5(boxed_site, boxed_steps, boxed_value_site, boxed_bits, arena_image);
-  CAMLlocal5(generation_buffer, formatted_buffer, generation_bytes, generation_handle, generation_saved);
+  CAMLlocal4(generation_bytes, generation_handle, generation_saved, bridge_owner);
+  struct native_output_buffers *buffers;
+  struct native_source_bridge *bridge = NULL;
   intnat step_limit;
   intnat frame_limit;
   intnat depth_limit;
@@ -1619,7 +1935,8 @@ static value native_execute_program_output(value code, value functions,
   uint64_t generation_written;
 
   if (generation != Val_unit) {
-    if (!Is_block(generation) || Tag_val(generation) != 0 || Wosize_val(generation) != 5 ||
+    if (!Is_block(generation) || Tag_val(generation) != 0 ||
+        (Wosize_val(generation) != 5 && Wosize_val(generation) != 6) ||
         !Is_long(Field(generation, 1)) || !Is_long(Field(generation, 2)) ||
         !Is_long(Field(generation, 3)) ||
         (Field(generation, 1) != Val_true && Field(generation, 1) != Val_false) ||
@@ -1770,24 +2087,41 @@ static value native_execute_program_output(value code, value functions,
   if (code_length == 0 || code_length > 16u * 1024u * 1024u)
     caml_invalid_argument("native image length is outside the host allocation bound");
 
-  /* Work bounds the bytes that can be visited even when the declared byte
-     quota is larger. Take addresses only after all allocating calls. */
-  generation_buffer = caml_alloc_string((mlsize_t)(generation_limit < remaining_work ? generation_limit : remaining_work));
-  formatted_buffer = caml_alloc_string((mlsize_t)(formatted_limit < remaining_work ? formatted_limit : remaining_work));
-  output_buffer = caml_alloc_string((mlsize_t)remaining_output);
-  memset((char *)String_val(output_buffer), 0, (size_t)remaining_output);
-  output_address = (uint64_t)(uintptr_t)String_val(output_buffer);
-  generation_address = (uint64_t)(uintptr_t)String_val(generation_buffer);
-  formatted_address = (uint64_t)(uintptr_t)String_val(formatted_buffer);
+  /* Work bounds the visited bytes independently of each destination's quota.
+     Only the rooted owner moves during collection; its C allocations do not. */
+  buffer_owner = native_create_output_buffers((size_t)remaining_output,
+    (size_t)(generation_limit < remaining_work ? generation_limit : remaining_work),
+    (size_t)(formatted_limit < remaining_work ? formatted_limit : remaining_work));
+  buffers = *((struct native_output_buffers **)Data_custom_val(buffer_owner));
+  output_address = (uint64_t)(uintptr_t)buffers->output;
+  generation_address = (uint64_t)(uintptr_t)buffers->generation;
+  formatted_address = (uint64_t)(uintptr_t)buffers->formatted;
+  if (generation != Val_unit && Wosize_val(generation) == 6 &&
+      Field(generation, 5) != Val_none) {
+    value callback = Field(generation, 5);
+    if (!Is_block(callback) || Tag_val(callback) != 0 || Wosize_val(callback) != 1 ||
+        retained == Val_unit)
+      caml_invalid_argument("native source callback requires its original retained task entry");
+    bridge_owner = native_source_bridge_create(Field(callback, 0),
+      Field(generation, 0), task_arena, retained);
+    bridge = *((struct native_source_bridge **)Data_custom_val(bridge_owner));
+    bridge->buffers = buffers;
+  }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[21] = {
+    uint64_t context[23] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
       output_address, remaining_output, remaining_work, 0,
       generation_address, generation_limit, 0, generation_active,
-      formatted_address, formatted_limit, 0
+      formatted_address, formatted_limit, 0,
+      bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_source_callback,
+      (uint64_t)(uintptr_t)bridge
     };
+
+    if (bridge != NULL) {
+      bridge->handle = bridge_owner;
+    }
 
     if (retained != Val_unit) {
       if (task_storage) {
@@ -1810,6 +2144,9 @@ static value native_execute_program_output(value code, value functions,
         context);
     }
 
+    if (context[21] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_source_callback) ||
+        context[22] != (uint64_t)(uintptr_t)bridge)
+      caml_failwith("native source callback status integrity failure: owner was modified");
     if (context[2] != remaining_steps)
       caml_failwith("native program status integrity failure: budget was modified");
     if (context[3] > remaining_steps)
@@ -1842,22 +2179,22 @@ static value native_execute_program_output(value code, value functions,
       caml_failwith("native generation status integrity failure: capture context was modified");
     generation_written = context[16];
     if ((!generation_active && generation_written != 0) ||
-        generation_written > caml_string_length(generation_buffer) ||
+        generation_written > buffers->generation_capacity ||
         work < written + generation_written)
       caml_failwith("native generation status integrity failure: bytes disagree with active work");
 
-    /* Every value above is validated before the first post-execution allocation.
-       Re-read the rooted source pointer after allocating the exact result string. */
+    /* Validate every native result before allocating the exact capture. The
+       rooted custom owner retains the fixed source addresses across allocation. */
     captured = caml_alloc_string((mlsize_t)written);
     if (written != 0)
-      memcpy((char *)String_val(captured), String_val(output_buffer),
+      memcpy((char *)String_val(captured), buffers->output,
              (size_t)written);
 
     if (generation != Val_unit) {
       struct native_generation_capture *capture;
       generation_bytes = caml_alloc_string((mlsize_t)generation_written);
       if (generation_written != 0)
-        memcpy((char *)String_val(generation_bytes), String_val(generation_buffer), (size_t)generation_written);
+        memcpy((char *)String_val(generation_bytes), buffers->generation, (size_t)generation_written);
       generation_handle = caml_alloc_custom_mem(&native_generation_capture_operations,
         sizeof(capture), sizeof(struct native_generation_capture));
       *((struct native_generation_capture **)Data_custom_val(generation_handle)) = NULL;
@@ -1893,6 +2230,7 @@ static value native_execute_program_output(value code, value functions,
   Store_field(result, 0, status);
   Store_field(result, 1, captured);
   Store_field(result, 2, Val_long((intnat)work));
+  native_output_buffers_finalize(buffer_owner);
   CAMLreturn(result);
 #endif
   CAMLreturn(Val_unit);

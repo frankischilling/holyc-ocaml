@@ -57,6 +57,7 @@ type instruction =
   | Shift_cl of shift * register
   | Shift_immediate of shift * register * int64
   | Capture_status of status_abi
+  | Source_arguments of status_abi
   | Zero_edx
   | Cqo
   | Div_rcx
@@ -317,7 +318,7 @@ let form = function
   | Binary (Xor, _, _) -> bitwise_xor
   | Shift_cl (shift, _) -> shift_form shift
   | Shift_immediate (shift, _, count) -> immediate_shift_form shift count
-  | Capture_status _ -> mov_register
+  | Capture_status _ | Source_arguments _ -> mov_register
   | Zero_edx -> zero_register32
   | Cqo -> sign_extend_rax
   | Div_rcx -> divide
@@ -350,11 +351,12 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_read_offset offset =
-  offset >= 0 && offset <= 160 && offset mod 8 = 0
+  offset >= 0 && offset <= 176 && offset mod 8 = 0
 
 let valid_context_write_offset offset =
   (offset >= 0 && offset <= 64 && offset mod 8 = 0)
   || offset = 88 || offset = 96 || offset = 104 || offset = 120 || offset = 128
+  || offset = 160
 
 let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24
@@ -390,16 +392,16 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | Load_context (_, offset) when not (valid_context_read_offset offset) ->
       invalid_arg
-        "private context read offset must be aligned from 0 through 160"
+        "private context read offset must be aligned from 0 through 176"
   | Store_context (offset, _) when not (valid_context_write_offset offset) ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96, 104, 120 or 128"
+         88, 96, 104, 120, 128 or 160"
   | Store_context_imm (offset, _) when not (valid_context_write_offset offset)
     ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96, 104, 120 or 128"
+         88, 96, 104, 120, 128 or 160"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
@@ -435,7 +437,7 @@ let size instruction =
   | Store_arena_narrow (_, (Frame8 | Frame32), _) -> 7
   | Alloc_call_frame _ | Free_call_frame _ -> 7
   | Call _ -> 5
-  | Capture_status _ | Div_rcx | Idiv_rcx -> 3
+  | Capture_status _ | Source_arguments _ | Div_rcx | Idiv_rcx -> 3
   | Zero_edx | Cqo -> 2
   | Cmp_imm8 _ -> 4
   | Jump _ -> 5
@@ -702,6 +704,15 @@ let write buffer position instruction =
         (match abi with
         | Windows_x64 -> 0xcb
         | System_v_x64 -> 0xfb)
+  | Source_arguments abi ->
+      (* Reverse the context capture into the host's first pointer argument.
+         RDI remains outside the allocator and is only written for System V. *)
+      byte 0x4c;
+      opcodes ();
+      byte
+        (match abi with
+        | Windows_x64 -> 0xd9
+        | System_v_x64 -> 0xdf)
   | Zero_edx ->
       (* BackLib.HC:404-411 uses XOR r32,r32 to zero the complete register. *)
       opcodes ();

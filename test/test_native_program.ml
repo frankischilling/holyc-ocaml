@@ -172,6 +172,7 @@ let kind_name = function
   | Program.Generated_limit_exceeded -> "generated-limit"
   | Program.Stream_context_required -> "stream-context"
   | Program.Stream_exe_context_required -> "stream-exe-context"
+  | Program.Stream_exe_source_failed -> "stream-exe-source-failed"
   | Program.Output_work_limit_exceeded -> "output-work-limit"
   | Program.Output_invalid_format -> "output-format"
   | Program.Output_invalid_argument -> "output-argument"
@@ -1168,7 +1169,7 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
-      Encoder.Load_context (Encoder.Rax, 168);
+      Encoder.Load_context (Encoder.Rax, 184);
       Encoder.Store_context (72, Encoder.Rax);
       Encoder.Store_context_imm (72, 0);
       Encoder.Store_context (80, Encoder.Rax);

@@ -29,6 +29,7 @@ type provider_input = {
 type branch = Always | Equal | Not_equal | Below | Less | Overflow
 
 type 'label emitter = {
+  status_abi : E.status_abi;
   instruction : E.instruction -> unit;
   fresh : unit -> 'label;
   mark : 'label -> unit;
@@ -1508,7 +1509,39 @@ let emit_internal ?provider emitter (call : t) =
       out (E.Load_context (E.Rcx, 136));
       out (E.Test E.Rcx);
       jump Equal (fault 27)
-  | Formatted_source -> jump Always (fault 28)
+  | Formatted_source -> (
+      out (E.Load_context (E.Rcx, 136));
+      out (E.Test E.Rcx);
+      jump Equal (fault 28);
+      out (E.Load_context (E.Rax, 168));
+      out (E.Test E.Rax);
+      jump Equal (fault 28);
+      store current_word E.Rax;
+      store current_pointer E.R11;
+      store current_offset E.R9;
+      (* R10 holds the live remaining instruction allowance. Publish it before
+         the host callback and reload it after any admitted child execution. *)
+      out (E.Load_context (E.Rax, 16));
+      out (E.Binary (E.Sub, E.Rax, E.R10));
+      out (E.Store_context (24, E.Rax));
+      load E.Rax draft_length;
+      out (E.Store_context (160, E.Rax));
+      out (E.Source_arguments emitter.status_abi);
+      out (E.Call_stack (stage current_word));
+      store current_kind E.Rax;
+      load E.R11 current_pointer;
+      load E.R9 current_offset;
+      out (E.Load_context (E.R10, 16));
+      out (E.Load_context (E.Rcx, 24));
+      out (E.Binary (E.Sub, E.R10, E.Rcx));
+      out (E.Load_context (E.Rcx, 0));
+      out (E.Test E.Rcx);
+      jump Not_equal (fault 29);
+      load E.Rax current_kind;
+      match provider with
+      | None ->
+          out (E.Store_stack (emitter.slot (call.scratch_stage - 1), E.Rax))
+      | Some _ -> ())
   | Task_output -> ());
   if call.target <> Formatted_source then (
     load E.Rax draft_length;

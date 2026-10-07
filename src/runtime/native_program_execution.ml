@@ -37,6 +37,14 @@ external execute_program_output :
 
 type retained_handle
 type task_arena_handle
+type source_bridge
+
+type source_callback_state =
+  (source_bridge -> int64 option) * bool ref * exn ref * unit ref
+
+external suspension_owns_budget_raw :
+  Ir.Native_source_suspension.t -> unit ref -> bool
+  = "holyc_native_source_suspension_owns_budget"
 
 external retain_program :
   string * (int * int * string) array * int * int * (int * int * int * string) ->
@@ -101,7 +109,8 @@ external execute_retained_budget_task_program :
     * int
     * Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
       option
-      ref) ->
+      ref
+    * source_callback_state option) ->
   int * int * int * int * int * int * int * int * int ->
   int * int * int ->
   bool ref ->
@@ -118,7 +127,8 @@ external execute_retained_budget_scalar_program :
     * int
     * Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
       option
-      ref) ->
+      ref
+    * source_callback_state option) ->
   int * int * int * int * int * int * int * int * int ->
   int * int * int ->
   bool ref * 'program ->
@@ -220,7 +230,8 @@ let acquire_lease lease message =
 let release_lease lease = Atomic.set lease false
 
 let execute_report_internal ?retained ?consumed ?entered ?task_binding
-    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?source_callback_state ?(max_frame_bytes = 1_048_576)
+    ?(max_call_depth = 128)
     ?(max_active_stack_bytes = hard_max_active_stack_bytes)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~max_steps
@@ -435,7 +446,8 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                                 active,
                                 available,
                                 capacity,
-                                generated_capture ))
+                                generated_capture,
+                                source_callback_state ))
                         generation
                     in
                     let status, captured, work =
@@ -1279,6 +1291,10 @@ let budget_progress budget =
 
 let budget_output_bytes budget = (budget_progress budget).output_bytes
 
+let suspension_owns_budget scope budget =
+  try Ok (suspension_owns_budget_raw scope budget.identity_)
+  with Failure message | Invalid_argument message -> Error message
+
 (* Newest chunks come first, with strictly increasing lengths. Coalescing
    bounds retained list metadata and avoids copying the full output prefix on
    every one-byte activation. Reports never share writable backing with it. *)
@@ -1294,7 +1310,20 @@ let append_capture captured chunks =
 
 let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
     ?max_call_depth ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
-    budget retained =
+    ?source_callback budget retained =
+  let callback_exception_seen = ref false in
+  let callback_exception_value = ref Not_found in
+  let source_callback_state =
+    Option.map
+      (fun callback ->
+        ( (fun owner ->
+            let scope, contents = Ir.Native_source_suspension.open_raw owner in
+            callback scope contents),
+          callback_exception_seen,
+          callback_exception_value,
+          budget.identity_ ))
+      source_callback
+  in
   if
     Option.fold ~none:false ~some:(fun limit -> limit <= 0) max_activation_steps
   then error_report "native activation step allowance must be positive"
@@ -1312,6 +1341,7 @@ let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
         | None -> (
             let run task_binding =
               let entered = ref false in
+              let verified = ref false in
               let poisoned =
                 {
                   state with
@@ -1324,6 +1354,7 @@ let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
               try
                 let report =
                   execute_report_internal ~retained:retained.handle_
+                    ?source_callback_state
                     ~consumed:(state.steps_, state.bytes_, state.work_)
                     ~entered ?task_binding ?max_frame_bytes ?max_call_depth
                     ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
@@ -1355,10 +1386,13 @@ let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
                         error_ = None;
                       }
                     in
-                    Atomic.set budget.state_ next);
+                    Atomic.set budget.state_ next;
+                    verified := true);
+                if !callback_exception_seen then raise !callback_exception_value;
                 report
               with exception_ ->
-                if !entered then Atomic.set budget.state_ poisoned;
+                if !entered && not !verified then
+                  Atomic.set budget.state_ poisoned;
                 raise exception_
             in
             let run_with_retained_lease () =

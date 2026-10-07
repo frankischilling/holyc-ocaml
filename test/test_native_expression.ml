@@ -1339,6 +1339,10 @@ let encoder_divmod_status_bytes () =
     [
       ("capture Windows status pointer", Capture_status Windows_x64, "4989cb");
       ("capture System V status pointer", Capture_status System_v_x64, "4989fb");
+      ("source Windows context argument", Source_arguments Windows_x64, "4c89d9");
+      ( "source System V context argument",
+        Source_arguments System_v_x64,
+        "4c89df" );
       ("zero RDX", Zero_edx, "33d2");
       ("sign extend RAX", Cqo, "4899");
       ("unsigned DIV RCX", Div_rcx, "48f7f1");
@@ -1890,7 +1894,7 @@ let encoder_arena_bytes () =
       in
       Alcotest.(check bool)
         "generation pointers and activity are immutable" true invalid)
-    [ 112; 136; 144; 152; 160 ];
+    [ 112; 136; 144; 152; 168; 176 ];
   if Sys.int_size > 32 then (
     Alcotest.(check bool)
       "arena displacement above signed disp32 rejects" true

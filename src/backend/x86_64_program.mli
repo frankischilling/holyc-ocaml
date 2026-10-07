@@ -23,6 +23,7 @@ type fault_kind =
   | Generated_limit_exceeded
   | Stream_context_required
   | Stream_exe_context_required
+  | Stream_exe_source_failed
   | Output_limit_exceeded
   | Output_work_limit_exceeded
   | Output_invalid_format

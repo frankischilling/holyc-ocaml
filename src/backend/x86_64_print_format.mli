@@ -30,6 +30,7 @@ val argument_kind_tag : argument_kind -> int64
 val provider_scratch_slots : int
 
 type 'label emitter = {
+  status_abi : X86_64_encoder.status_abi;
   instruction : X86_64_encoder.instruction -> unit;
   fresh : unit -> 'label;
   mark : 'label -> unit;
@@ -51,7 +52,9 @@ val emit : 'label emitter -> t -> unit
     lowercase list selection [%z]. Only RAX, RCX, RDX and R8 are clobbered.
     R9/R10/R11 retain their arena, instruction-budget and context roles. Draft
     bytes are committed only after the entire format succeeds; charged work
-    survives a fault. *)
+    survives a fault. Formatted source checks the active block after formatting
+    and may invoke its original C callback. The callback preserves the private
+    registers and returns the actual word into the staged source-call result. *)
 
 val emit_provider : 'label emitter -> provider_input -> unit
 (** Emit the same formatter from original caller-supplied count and

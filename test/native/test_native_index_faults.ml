@@ -56,6 +56,7 @@ let status_kind = function
   | Program.Generated_limit_exceeded -> 26L
   | Program.Stream_context_required -> 27L
   | Program.Stream_exe_context_required -> 28L
+  | Program.Stream_exe_source_failed -> 29L
   | Program.Output_work_limit_exceeded -> 12L
   | Program.Output_invalid_format -> 13L
   | Program.Output_invalid_argument -> 14L

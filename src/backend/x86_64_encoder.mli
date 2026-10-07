@@ -116,6 +116,9 @@ type instruction =
       (** Copy the ABI's first pointer argument into private R11. Windows x64
           reads RCX; System V x86-64 reads RDI. RDI is not a general allocator
           register. *)
+  | Source_arguments of status_abi
+      (** Copy the private R11 context into the host's first pointer argument
+          for the authenticated synchronous source callback. *)
   | Zero_edx
       (** Clear EDX with XOR EDX,EDX, which also clears the full RDX value. *)
   | Cqo  (** Sign-extend RAX into RDX:RAX before signed division. *)
@@ -144,17 +147,18 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 160. Arena, output, generation and temporary-buffer
-          pointers and generation activity are immutable. Output counters occupy
-          offsets 88, 96 and 104; generation counters occupy 120 and 128. *)
+          from zero through 176. Arena, output, generation, temporary-buffer and
+          source callback pointers and generation activity are immutable. Output
+          counters occupy offsets 88, 96 and 104; generation counters occupy 120
+          and 128. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
-          from zero through 64, or at counter offsets 88, 96, 104, 120 and 128.
-      *)
+          from zero through 64, or at counter offsets 88, 96, 104, 120, 128 and
+          the formatted-source length at 160. *)
   | Store_context_imm of int * int
       (** Store a sign-extended imm32 qword to the private R11 context at an
-          aligned byte offset from zero through 64, or 88, 96, 104, 120 and 128.
-      *)
+          aligned byte offset from zero through 64, or 88, 96, 104, 120, 128 and
+          160. *)
   | Dec of register
       (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register
@@ -226,8 +230,8 @@ val size : instruction -> int
     forms. Private context accesses use disp8 through offset 120 and disp32 for
     later generation fields; immediate stores have the corresponding eight or
     eleven-byte size. Context pointer and activity words are immutable; stores
-    admit the original offsets through 64 and counters at 88, 96, 104, 120 and
-    128. Arena qword/narrow accesses use fixed R9+disp32 forms. Invalid
+    admit the original offsets through 64 and counters at 88, 96, 104, 120, 128
+    and 160. Arena qword/narrow accesses use fixed R9+disp32 forms. Invalid
     immediate, branch or private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
