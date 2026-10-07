@@ -76,8 +76,10 @@ type t = {
   callback_default_ : Ir.Default_fragment_destination.t option;
   data_default_ : Ir.Saved_parameter_value.t option;
   data_default_misc_ : bool;
+  internal_binding_ : Ir.Internal_binding_fragment_program.t option;
 }
 
+let internal_binding value = value.internal_binding_
 let data_default value = value.data_default_
 let data_default_has_misc_data value = value.data_default_misc_
 let hard_max_stack_bytes = Codegen.hard_max_stack_bytes
@@ -112,6 +114,7 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         callback_default_ = None;
         data_default_ = None;
         data_default_misc_ = false;
+        internal_binding_ = None;
       })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
@@ -132,6 +135,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         callback_default_ = None;
         data_default_ = None;
         data_default_misc_ = false;
+        internal_binding_ = None;
       })
 
 let project_storage_errors errors =
@@ -149,11 +153,12 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
   |> Result.map_error project_storage_errors
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
-    ?callback_default ?data_default ~max_ir_instructions ~max_code_bytes ~layout
-    ~check ~claim ~runtime_calls ~retained_function_source
-    ~retained_slot_binding ~retained_slot_address_binding
-    ~retained_slot_address_refresh ~retained_parameter_default
-    ~retained_callback_default ~initialization ~entry ~functions () =
+    ?callback_default ?data_default ?internal_binding ~max_ir_instructions
+    ~max_code_bytes ~layout ~check ~claim ~runtime_calls
+    ~retained_function_source ~retained_slot_binding
+    ~retained_slot_address_binding ~retained_slot_address_refresh
+    ~retained_parameter_default ~retained_callback_default ~initialization
+    ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -197,6 +202,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         task_claim_ = Some claim;
         callback_default_ = callback_default;
         data_default_ = data_default;
+        internal_binding_ = internal_binding;
         data_default_misc_ =
           Option.is_some data_default
           && Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
@@ -287,6 +293,25 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
   in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ?data_default ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_internal_binding ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_internal_binding in
+  let module Program = Ir.Internal_binding_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~internal_binding:program ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~runtime_calls:(Program.runtime_calls program)

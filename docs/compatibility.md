@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Ordinary JIT [live internal bindings](native-internal-bindings.md) evaluate
+integer targets before type validation in both IR and native tasks. Supported
+numeric and pointed internal operations retain original call authority and
+owned data checks. Native completion requires the actual original entry result;
+metadata, substituted programs, foreign or expired arenas and replay reject.
+
 JIT [data-pointer defaults](data-pointer-defaults.md) retain original primitive
 objects and views at named and anonymous headers. The IR and native task paths
 reuse their saved aliases and copy miscellaneous-data string results once.
@@ -163,8 +169,8 @@ and StrLen declarations inside IR `#exe` tasks in both outer modes. Publication,
 header installation, shared allocation history and argument/emission captures
 retain their own source receipts. Supported retained integer binding expressions
 evaluate before type validation and publication, including calls with effects.
-Floating targets, ordinary output-source binding expressions and native retained
-source execution remain under #701, #695 and #704.
+Floating targets, native stream services and native `#exe` remain under #701,
+#695 and #704. Ordinary JIT target expressions now execute in both task paths.
 
 [Internal ASCII conversion](internal-toupper.md) supports the retained numeric
 `IC_TOUPPER` target, I64 result and U8 scalar formal through interpreted and

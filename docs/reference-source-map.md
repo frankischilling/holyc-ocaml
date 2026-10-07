@@ -1,5 +1,13 @@
 # Reference source map
 
+Live internal bindings follow `Compiler/PrsStmt.HC:1055-1061`: evaluate the
+target through LexExpressionI64 before validating the type. The original header
+then installs `exe_addr`, sets `Ff_INTERNAL` and clears `Cf_EXTERN` at
+`PrsStmt.HC:244-249`. `Compiler/PrsExp.HC:1116-1154` compiles and calls that
+expression; its floating-to-integer branch remains open here. The IR and native
+JIT task paths preserve these phases and require their original source result.
+See [live internal bindings](native-internal-bindings.md).
+
 Saved data-pointer defaults follow `Compiler/PrsVar.HC:629-656`: clear the
 miscellaneous-data flag, compile/call the original expression, copy its resulting
 string with `StrNew` when that flag was set, and retain the member's saved

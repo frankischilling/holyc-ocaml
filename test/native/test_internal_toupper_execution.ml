@@ -45,9 +45,15 @@ let values () =
           native_word expected native.execution.final_value;
           let _, interpreted = T.success mode contents in
           T.word label expected interpreted;
+          let _, batch =
+            Native_scalar_fixture.execute_source ~mode ~contents () |> function
+            | Ok value -> value
+            | Error message -> Alcotest.fail message
+          in
+          T.word (label ^ " closed IR") expected batch;
           Alcotest.(check int)
-            "same instruction work"
-            (T.VM.executed_steps interpreted)
+            "same closed IR/native instruction work"
+            (T.VM.executed_steps batch)
             native.execution.executed_steps;
           Alcotest.(check string)
             "no output" ""

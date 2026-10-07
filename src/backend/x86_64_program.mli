@@ -180,6 +180,16 @@ val compile_task_default :
   Driver.Integer_task.Native_default.request ->
   (t, error list) result
 
+val compile_task_internal_binding :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_internal_binding.request ->
+  (t, error list) result
+
 val compile_task_command :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
@@ -289,3 +299,4 @@ val global_image : t -> string
 val code_owner_bindings : t -> (int * int * int * int * int) list
 val private_function_count : t -> int
 val function_slot_bindings : t -> (int * int) list
+val internal_binding : t -> Ir.Internal_binding_fragment_program.t option

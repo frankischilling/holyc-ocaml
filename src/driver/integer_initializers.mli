@@ -28,6 +28,7 @@ val prepare_dimension :
   (classification * int, Common.Diagnostic.t list) result
 
 val prepare_internal_binding :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->

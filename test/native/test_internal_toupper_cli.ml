@@ -84,12 +84,13 @@ let () =
     (fun target ->
       List.iter
         (fun mode ->
-          let report = invoke ~target ~mode ~steps:194 example in
+          let steps = if target = "ir" && mode = "jit" then 202 else 194 in
+          let report = invoke ~target ~mode ~steps example in
           require
             (member "outcome" report = `String "success")
             "example outcome";
           require
-            (member "executed_steps" report = `Int 194)
+            (member "executed_steps" report = `Int steps)
             "example instruction work";
           require
             (report |> member "final_value" |> member "bits"
@@ -104,10 +105,12 @@ let () =
             )
             "execution target";
           output report "415a213a33" 5 15;
-          let below = invoke ~target ~mode ~steps:193 ~status:1 example in
+          let below =
+            invoke ~target ~mode ~steps:(steps - 1) ~status:1 example
+          in
           error below "HCIRVM0007";
           require
-            (member "executed_steps" below = `Int 193)
+            (member "executed_steps" below = `Int (steps - 1))
             "one-below reached work";
           output below "415a213a33" 5 15;
           with_file ".hc" "_intern 0x1e I64 Bad(U8 *ch);Bad(\"a\");"

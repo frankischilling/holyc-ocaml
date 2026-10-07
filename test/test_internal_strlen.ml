@@ -76,7 +76,11 @@ let contains text needle =
 let program report =
   match integer_program_report_program report with
   | Some program -> program
-  | None -> Alcotest.fail "successful source did not retain its checked program"
+  | None -> (
+      match List.rev (integer_program_report_task_units report) with
+      | program :: _ -> program
+      | [] ->
+          Alcotest.fail "successful source did not retain its checked program")
 
 let instruction_count report =
   program report |> integer_program_entry |> Ir_x87_stack.graph |> Graph.blocks
@@ -262,6 +266,12 @@ let byte_probe_meter_and_step_limit () =
   in
   List.iter
     (fun mode ->
+      let binding_report, binding_execution =
+        success mode (internal () ^ "0;")
+      in
+      let binding_steps =
+        VM.executed_steps binding_execution - instruction_count binding_report
+      in
       List.iter
         (fun (label, literal, expected_value, extra_probe_ticks) ->
           let source =
@@ -275,7 +285,7 @@ let byte_probe_meter_and_step_limit () =
             (label
            ^ " uses the normal intrinsic tick for the first probe and one tick \
               for each later probe")
-            (base + extra_probe_ticks)
+            (binding_steps + base + extra_probe_ticks)
             (VM.executed_steps execution))
         cases;
 

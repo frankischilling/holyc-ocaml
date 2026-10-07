@@ -186,7 +186,12 @@ let signatures () =
           match integer_program_report_outcome (run mode source) with
           | Error (_ :: _) -> ()
           | _ -> Alcotest.fail ("invalid call executed: " ^ source))
-        rejected)
+        (if mode = Preprocessor.Jit then
+           List.filter
+             (fun source ->
+               not (Internal_binding_cases.is_parenthesized source))
+             rejected
+         else rejected))
     modes
 
 let authority () =

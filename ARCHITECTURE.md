@@ -1,5 +1,12 @@
 # holyc-ocaml architecture
 
+The live internal-binding adapter lowers the original typed target before its
+header is read. Native execution returns an opaque C capture rooted to that
+program and task arena, with actual result bits and work. The current source
+attempt consumes it once before publishing the saved operation. The IR driver
+activates on the original binding callback so it cannot replay that expression
+after publication. See [live internal bindings](docs/native-internal-bindings.md).
+
 `Ir.Saved_parameter_value` separates numeric words, executable callback owners
 and opaque data-default identities. Interpreted tasks retain the evaluated data
 address under that identity. Native fragments save a four-word descriptor in

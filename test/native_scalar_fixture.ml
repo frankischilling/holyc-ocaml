@@ -122,3 +122,23 @@ let execute ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ~max_steps ~max_frame_bytes ~max_call_depth ~max_global_bytes
     ~functions:(Unit.functions fixture.unit_)
     (Unit.entry fixture.unit_)
+
+let execute_source ~mode ~contents () =
+  let ( let* ) = Result.bind in
+  let* fixture =
+    compile ~mode ~path:"closed-native-work-control.hc" ~contents ()
+    |> Result.map_error (fun errors ->
+        errors
+        |> List.map (fun (error : Diagnostic.t) ->
+            error.code ^ ": " ^ error.message)
+        |> String.concat "; ")
+  in
+  let* execution =
+    execute ~max_steps:100_000 fixture
+    |> Result.map_error (fun errors ->
+        errors
+        |> List.map (fun (error : VM.error) ->
+            error.code ^ ": " ^ error.message)
+        |> String.concat "; ")
+  in
+  Ok (fixture, execution)

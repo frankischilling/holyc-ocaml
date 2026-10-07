@@ -1,5 +1,21 @@
 # Testing holyc-ocaml
 
+Live internal bindings share fixtures in `test/internal_binding_cases.ml`.
+Three IR groups and four native groups exercise every supported integer
+operation, effectful and function-pointer targets, unused declarations,
+historical headers, saved string defaults, reached faults and quotas. Native
+controls require zero interpreted instructions, compile both private ABIs and
+reject equal programs, substituted images, foreign domains/arenas, wrong work,
+expiration and replay. The CLI example verifies once-only output, pre-header
+effects and exact/one-below execution, preparation and output limits. See
+[live internal bindings](native-internal-bindings.md).
+
+Ordinary IR JIT reports include original binding and declaration work. Closed
+native-image tests retain independent source value/output checks and execute a
+fresh checked closed IR fixture for instruction-work comparisons. Their exact
+image limits therefore measure the executable they run. Task tests separately
+verify cumulative target work and once-only declaration effects.
+
 Saved data defaults have shared source fixtures in
 `test/data_pointer_default_cases.ml`, six interpreter groups and seven native
 groups. Both paths exercise 81 original/view read pairs and 81 write pairs,

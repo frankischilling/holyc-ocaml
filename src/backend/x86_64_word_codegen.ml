@@ -9547,7 +9547,10 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
               | None
                 when Option.is_some
                        (Runtime.find_callback_start runtime_calls ~owner
-                          raw.instruction_id) -> ()
+                          raw.instruction_id)
+                     || Option.is_some
+                          (Runtime.find_intrinsic_start runtime_calls ~owner
+                             raw.instruction_id) -> ()
               | None ->
                   reject ?span:raw.span "HCBACK0003"
                     "native task direct call is absent from its original \

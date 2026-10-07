@@ -442,6 +442,9 @@ type internal_binding_attempt = {
   internal_binding_preparation_before : int;
   mutable internal_binding_state : initializer_attempt_state;
   mutable internal_binding_prepared : Sema.Prepared_internal_binding.t option;
+  mutable internal_binding_native_program :
+    Internal_binding_fragment_program.t option;
+  mutable internal_binding_native_work : int option;
 }
 
 type offset_attempt = {
@@ -2838,6 +2841,113 @@ let task_dimension_bits task receipt =
       else None)
     task.dimensions
 
+let check_native_task_internal_binding task attempt program =
+  let module Program = Internal_binding_fragment_program in
+  let module Destination = Internal_binding_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.internal_binding_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.internal_bindings))
+    || attempt.internal_binding_state <> Preparing_initializer
+    || (not
+          (Frontend.Parser.internal_binding_is_current
+             attempt.internal_binding_receipt))
+    || Program.source_authority program != attempt.internal_binding_authority
+    || Sema.Internal_binding_fragment.receipt fragment
+       != attempt.internal_binding_receipt
+    || Sema.Internal_binding_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_internal_binding_fragment
+             (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.initializer_steps <> attempt.internal_binding_preparation_before
+  then
+    Error
+      "native internal binding requires its original live task, attempt and \
+       expression"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_internal_binding task attempt program =
+  Result.map
+    (fun () ->
+      attempt.internal_binding_state <- Executing_initializer;
+      attempt.internal_binding_native_program <- Some program;
+      retain_native_provider_sources task
+        (Internal_binding_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Internal_binding_fragment_program.entry program)))
+    (check_native_task_internal_binding task attempt program)
+
+let record_native_internal_binding_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.internal_binding_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.internal_bindings))
+    || attempt.internal_binding_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.internal_binding_native_work
+    || Option.is_none attempt.internal_binding_native_program
+    || steps > task.max_initializer_steps - task.initializer_steps
+  then
+    Error
+      "native internal binding work has another task, attempt or exhausted \
+       allowance"
+  else (
+    task.initializer_steps <- task.initializer_steps + steps;
+    attempt.internal_binding_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_internal_binding task attempt program capture =
+  let module Program = Internal_binding_fragment_program in
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      (not task.native_storage_authority)
+      || attempt.internal_binding_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.internal_bindings))
+      || attempt.internal_binding_state <> Executing_initializer
+      || Option.is_none attempt.internal_binding_native_work
+      || (not
+            (Option.fold ~none:false ~some:(( == ) program)
+               attempt.internal_binding_native_program))
+      || not
+           (Frontend.Parser.internal_binding_is_current
+              attempt.internal_binding_receipt)
+    then
+      Error
+        "native internal binding completion has another task or expired \
+         original expression"
+    else Ok ()
+  in
+  let* bits =
+    Native_internal_binding_capture.consume capture ~program
+      ~work:(Option.get attempt.internal_binding_native_work)
+  in
+  let fragment =
+    Program.destination program
+    |> Internal_binding_fragment_destination.fragment
+  in
+  let* prepared =
+    Sema.Prepared_internal_binding.create
+      ~table:(Sema.Internal_binding_fragment.table fragment)
+      ~namespace:(Sema.Internal_binding_fragment.namespace fragment)
+      ~receipt:attempt.internal_binding_receipt ~bits
+      ~work:
+        (task.initializer_steps - attempt.internal_binding_preparation_before)
+  in
+  attempt.internal_binding_prepared <- Some prepared;
+  attempt.internal_binding_state <- Successful_initializer;
+  Ok ()
+
 let begin_task_internal_binding task authority =
   let ( let* ) = Result.bind in
   let fragment = Sema.Internal_binding_fragment.authorized_fragment authority in
@@ -2868,6 +2978,8 @@ let begin_task_internal_binding task authority =
         internal_binding_preparation_before = task.initializer_steps;
         internal_binding_state = Preparing_initializer;
         internal_binding_prepared = None;
+        internal_binding_native_program = None;
+        internal_binding_native_work = None;
       }
     in
     task.internal_bindings <- attempt :: task.internal_bindings;

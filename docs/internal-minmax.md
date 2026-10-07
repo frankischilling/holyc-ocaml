@@ -13,8 +13,10 @@ holyc run --mode=aot --format=json examples/stream-internal-minmax.hc
 ```
 
 The ordinary example captures `42:8000000000000000;` and returns I64 42 in both
-modes and targets. It uses 76 runtime instructions, no preparation instructions
-and 27 formatting-work units. The retained example evaluates both effectful
+modes and targets. IR JIT execution includes the original binding targets and
+declaration work: 95 runtime steps and twelve preparation steps. AOT and closed
+native execution use 76 runtime steps and no preparation. Both use 27
+formatting-work units. The retained example evaluates both effectful
 arguments in its original default callback, saves the selected word and reuses
 it after a later write. It generates `42;`, returns I64 42 and captures no output.
 Both modes use 132 runtime instructions, fifteen preparation instructions and

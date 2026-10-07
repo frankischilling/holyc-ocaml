@@ -12,9 +12,11 @@ holyc run --mode=aot --format=json examples/stream-swap-internals.hc
 ```
 
 The ordinary example exercises all four widths, a Bool/byte pair and a literal
-pair. It captures `42:42:42:42:128:BA;` and returns I64 42. Both modes and
-targets use 256 runtime instructions, no preparation and 41 formatting-work
-units. The retained example prepares a default through an actual void swap,
+pair. It captures `42:42:42:42:128:BA;` and returns I64 42. IR JIT execution
+includes the original binding targets and declaration work: 274 runtime steps
+and thirteen preparation steps. AOT and closed native execution use 256 runtime
+steps and no preparation. Both use 41 formatting-work units. The retained
+example prepares a default through an actual void swap,
 checks its effects and reuses the saved result after later writes. Both IR
 modes return I64 42 without captured output, using 118 runtime instructions,
 12 preparation instructions and seven formatting-work units.

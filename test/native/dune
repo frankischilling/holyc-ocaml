@@ -1,5 +1,22 @@
 (copy_files ../data_pointer_default_cases.ml)
 
+(copy_files ../internal_binding_cases.ml)
+
+(library
+ (name internal_binding_fixture)
+ (wrapped false)
+ (modules internal_binding_cases))
+
+(executable
+ (name test_native_internal_bindings)
+ (modules test_native_internal_bindings)
+ (libraries holyc_lib internal_binding_fixture alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_internal_bindings.exe})))
+
 (rule
  (alias native-tests)
  (deps ../../examples/data-pointer-defaults.hc)
@@ -23,7 +40,7 @@
 (executable
  (name test_primitive_pointer_views_execution)
  (modules test_primitive_pointer_views_execution)
- (libraries holyc_lib alcotest))
+ (libraries holyc_lib native_scalar_support alcotest))
 
 (rule
  (alias native-tests)
@@ -165,7 +182,11 @@
   test_pointer_equality
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -182,7 +203,11 @@
   test_pointer_equality
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -198,7 +223,11 @@
   test_pointer_equality
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -214,7 +243,11 @@
   test_pointer_subtraction
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -243,7 +276,11 @@
   test_pointer_addition
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -272,7 +309,11 @@
   test_swap_internals
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -300,7 +341,11 @@
   test_pointer_bit_execution
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -328,7 +373,11 @@
   test_canonical_bool_execution
   test_canonical_bool
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -356,7 +405,11 @@
   test_internal_mod_u64_execution
   test_internal_mod_u64
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -371,7 +424,11 @@
   test_internal_bitscan_execution
   test_internal_bitscan
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -399,7 +456,11 @@
   test_internal_minmax_execution
   test_internal_minmax
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -427,7 +488,11 @@
   test_internal_integers_execution
   test_internal_integers
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -461,7 +526,11 @@
   test_internal_toupper_execution
   test_internal_toupper
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -1220,3 +1289,13 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_source_callback_expressions.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-internal-bindings.hc)
+ (action
+  (run
+   %{exe:../test_native_internal_bindings_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-internal-bindings.hc}
+   --native)))

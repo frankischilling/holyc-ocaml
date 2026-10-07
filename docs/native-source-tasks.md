@@ -1,5 +1,11 @@
 # Native source tasks
 
+Original integer `_intern` targets execute as native fragments before their
+type and header are read. Target calls share this task's storage and output;
+completed headers install their once-evaluated operation. Supported internal
+calls also execute in later commands, functions and saved-default expressions.
+See [live internal bindings](native-internal-bindings.md).
+
 [Saved data-pointer defaults](data-pointer-defaults.md) execute at their original
 JIT headers. Native calls reuse the original object/view capture or the copied
 terminated string. The maintained `examples/data-pointer-defaults.hc` prints

@@ -1,5 +1,11 @@
 # holyc-ocaml roadmap
 
+Issue #704 now connects integer `_intern` target expressions to original JIT
+task execution in IR and native code. Supported internal calls share the native
+task's owned storage and budgets. Floating targets, native stream services,
+native `#exe`, AOT sessions and exported executable addresses remain open. See
+[live internal bindings](docs/native-internal-bindings.md).
+
 Issue #704 now connects one-level primitive data-pointer defaults to original
 JIT headers, saved calls and native task storage. Miscellaneous-data expressions
 copy their resulting terminated string. AOT relocation, pointer returns,

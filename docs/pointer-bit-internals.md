@@ -12,8 +12,10 @@ holyc run --mode=aot --format=json examples/stream-pointer-bit-internals.hc
 ```
 
 The ordinary example captures `0:1:1:0:-128;` and returns I64 42. It selects
-bit 70 in a two-word array and bit 7 in a Bool object. Both modes and targets
-use 125 runtime instructions, no preparation and 29 formatting-work units.
+bit 70 in a two-word array and bit 7 in a Bool object. IR JIT execution includes
+the original binding targets and declaration work: 143 runtime steps and
+thirteen preparation steps. AOT and closed native execution use 125 runtime
+steps and no preparation. Both use 29 formatting-work units.
 The retained example prepares a mutating default once, checks its original
 effects and reuses the saved prior bit after another object write. Both IR
 modes return I64 42 without captured output, using 143 runtime instructions,

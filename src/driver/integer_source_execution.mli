@@ -26,6 +26,7 @@ val compile_report :
   ?native_static_initializer:Integer_task.Native_static_initializer.t ->
   ?native_static_copy:Integer_task.Native_static_copy.t ->
   ?native_default:Integer_task.Native_default.t ->
+  ?native_internal_binding:Integer_task.Native_internal_binding.t ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->
@@ -55,6 +56,7 @@ val run :
   ?native_static_initializer:Integer_task.Native_static_initializer.t ->
   ?native_static_copy:Integer_task.Native_static_copy.t ->
   ?native_default:Integer_task.Native_default.t ->
+  ?native_internal_binding:Integer_task.Native_internal_binding.t ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->

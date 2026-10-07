@@ -19,8 +19,10 @@ holyc run --target=host-jit --mode=aot --format=json examples/internal-toupper.h
 ```
 
 The example converts owned byte storage, captures `AZ!:3` and returns I64 42.
-Both execution targets use 194 runtime instructions and 15 formatting-work
-units. The internal operation itself emits no bytes or formatting work.
+IR JIT execution includes the original binding target and declaration work:
+202 runtime steps and eight preparation steps. AOT and closed native execution
+use 194 runtime steps and four preparation steps. Both use fifteen
+formatting-work units. The internal operation itself emits no bytes or work.
 
 ## Argument and declaration ownership
 

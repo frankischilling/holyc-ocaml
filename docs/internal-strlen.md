@@ -22,8 +22,9 @@ holyc run --target=host-jit --mode=aot --format=json examples/internal-strlen.hc
 ## Declaration and call ownership
 
 The original `_intern` target selects the operation. Source batches use the
-integer literal retained after macro expansion. Retained tasks use the saved
-value from their original supported integer expression execution. The target `0x84` maps to
+integer literal retained after macro expansion in the closed path. Ordinary JIT
+and retained tasks use the saved value from their original supported integer
+expression execution. The target `0x84` maps to
 `IC_STRLEN` in the generated reference table. Renaming this declaration to
 `ByteCount` preserves its operation. An ordinary source function called `StrLen`
 executes its own body.

@@ -98,11 +98,16 @@ let () =
     (fun target ->
       List.iter
         (fun mode ->
+          let steps, prep =
+            if target = "ir" && mode = "jit" then (95, 12) else (76, 0)
+          in
           validate
-            (invoke ~target ~mode ~steps:76 example)
-            ~steps:76 ~prep:0 ~hex:"34323a383030303030303030303030303030303b"
+            (invoke ~target ~mode ~steps example)
+            ~steps ~prep ~hex:"34323a383030303030303030303030303030303b"
             ~bytes:20 ~work:27;
-          let below = invoke ~target ~mode ~steps:75 ~status:1 example in
+          let below =
+            invoke ~target ~mode ~steps:(steps - 1) ~status:1 example
+          in
           error below "HCIRVM0007";
           output below "34323a383030303030303030303030303030303b" 20 27)
         [ "jit"; "aot" ])

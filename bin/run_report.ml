@@ -264,6 +264,7 @@ let native_fragment_json (fragment : Holyc_lib.Native_source_execution.fragment)
           (match fragment.kind with
           | Initializer -> "initializer"
           | Default -> "default"
+          | Internal_binding -> "internal-binding"
           | Command -> "command") );
       ("outcome", `String outcome);
       ("executed_steps", steps);

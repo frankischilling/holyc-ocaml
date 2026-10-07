@@ -1,7 +1,7 @@
 type word = private { type_ : Backend.X86_64_program.word_type; bits : int64 }
 type result = private { final_value : word option }
 type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
-type fragment_kind = Initializer | Default | Command
+type fragment_kind = Initializer | Default | Internal_binding | Command
 
 type image = private {
   status_abi : Backend.X86_64_program.status_abi;

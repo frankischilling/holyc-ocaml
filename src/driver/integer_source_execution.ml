@@ -137,7 +137,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
     ?native_dispatch ?native_static_allocation ?native_static_initializer
-    ?native_static_copy ?native_default session ~config ~source =
+    ?native_static_copy ?native_default ?native_internal_binding session ~config
+    ~source =
   let limits =
     {
       steps = max_steps;
@@ -229,7 +230,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                         (Frontend.Preprocessor.Config.max_generated_bytes config)
                       ?native_dispatch ?native_static_allocation
                       ?native_static_initializer ?native_static_copy
-                      ?native_default session ~source ~ledger
+                      ?native_default ?native_internal_binding session ~source
+                      ~ledger
             in
             let* retained =
               create ()
@@ -364,6 +366,9 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       ensure_task
                         receipt.allocation_function.function_name.location.span
                       |> Result.map ignore
+                  | true, None, Parser.Internal_binding_preparing receipt ->
+                      ensure_task receipt.binding_ast.location.span
+                      |> Result.map ignore
                   | true, Some task, _ -> Task.observe_initializer task event
                   | true, None, Parser.Callback_default_completed receipt -> (
                       match receipt.callback_default_ast.value with
@@ -463,13 +468,15 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?native_dispatch
     ?native_static_allocation ?native_static_initializer ?native_static_copy
-    ?native_default session ~config ~source ~max_steps =
+    ?native_default ?native_internal_binding session ~config ~source ~max_steps
+    =
   let compilation =
     compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
       ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
       ?max_output_bytes ?max_output_work ?native_dispatch
       ?native_static_allocation ?native_static_initializer ?native_static_copy
-      ?native_default ~max_steps session ~config ~source
+      ?native_default ?native_internal_binding ~max_steps session ~config
+      ~source
   in
   let span = Integer_source.source_span source in
   let program_ =

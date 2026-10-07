@@ -52,6 +52,8 @@ copied default and returns 42.
 AOT reference defaults still require output relocation and callable authority.
 Closed `host-jit` images retain their separate default admission. Raw/null
 address conversions, persistent pointer variables, pointer returns and escapes,
-source variadic pointer ownership, deeper/F64/aggregate pointers, live native
-internal bindings and the exported HolyC ABI remain compiler work. These hosted
+source variadic pointer ownership, deeper/F64/aggregate pointers, floating
+internal targets and the exported HolyC ABI remain compiler work. Integer
+[live internal bindings](native-internal-bindings.md) now use the native task
+path. These hosted
 tests add no TempleOS runtime capture, loader or bootstrap acceptance.

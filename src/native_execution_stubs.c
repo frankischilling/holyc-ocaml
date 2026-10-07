@@ -2551,3 +2551,111 @@ CAMLprim value holyc_native_execute_retained_budget_task_program(
 #endif
   CAMLreturn(Val_unit);
 }
+
+struct native_internal_binding_capture {
+  value program, arena;
+  uint64_t bits;
+  intnat work;
+  _Atomic int consumed;
+};
+
+static void native_internal_binding_capture_finalize(value handle)
+{
+  struct native_internal_binding_capture *capture =
+    *((struct native_internal_binding_capture **)Data_custom_val(handle));
+  if (capture == NULL) return;
+  caml_remove_generational_global_root(&capture->program);
+  caml_remove_generational_global_root(&capture->arena);
+  free(capture);
+  *((struct native_internal_binding_capture **)Data_custom_val(handle)) = NULL;
+}
+
+static struct custom_operations native_internal_binding_capture_operations = {
+  "holyc.native.internal-binding-capture.v1",
+  native_internal_binding_capture_finalize,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+/* The result is minted here after the actual original native entry returns.
+   There is no separate constructor accepting caller-provided status or bits. */
+CAMLprim value holyc_native_execute_retained_budget_binding_program(
+  value handle, value task, value limits, value consumed, value binding)
+{
+  CAMLparam5(handle, task, limits, consumed, binding);
+  CAMLlocal5(report, result, status, capture_handle, saved);
+  struct native_internal_binding_capture *capture;
+  int64_t steps;
+  if (!Is_block(binding) || Tag_val(binding) != 0 || Wosize_val(binding) != 2)
+    caml_invalid_argument("native internal binding has no original program");
+  report = holyc_native_execute_retained_budget_task_program(
+    handle, task, limits, consumed, Field(binding, 0));
+  status = Field(report, 0);
+  steps = Int64_val(Field(status, 2));
+  saved = Val_none;
+  if (Int64_val(Field(status, 0)) == 0 &&
+      Int64_val(Field(status, 3)) > 0 &&
+      steps > Long_val(Field(consumed, 0))) {
+    capture_handle = caml_alloc_custom_mem(
+      &native_internal_binding_capture_operations, sizeof(capture),
+      sizeof(struct native_internal_binding_capture));
+    *((struct native_internal_binding_capture **)Data_custom_val(capture_handle)) = NULL;
+    capture = calloc(1, sizeof(*capture));
+    if (capture == NULL) caml_raise_out_of_memory();
+    capture->program = Field(binding, 1);
+    capture->arena = Field(task, 0);
+    capture->bits = (uint64_t)Int64_val(Field(status, 4));
+    capture->work = (intnat)(steps - Long_val(Field(consumed, 0)));
+    atomic_init(&capture->consumed, 0);
+    caml_register_generational_global_root(&capture->program);
+    caml_register_generational_global_root(&capture->arena);
+    *((struct native_internal_binding_capture **)Data_custom_val(capture_handle)) = capture;
+    saved = caml_alloc_small(1, 0);
+    Field(saved, 0) = capture_handle;
+  }
+  result = caml_alloc_tuple(2);
+  Store_field(result, 0, report);
+  Store_field(result, 1, saved);
+  CAMLreturn(result);
+}
+
+CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
+                                                           value request)
+{
+  CAMLparam2(handle, request);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_internal_binding_capture *capture;
+  struct native_task_arena *arena;
+  int expected = 0;
+  if (!Is_block(handle) || Tag_val(handle) != Custom_tag ||
+      Custom_ops_val(handle) != &native_internal_binding_capture_operations)
+    caml_invalid_argument("native internal binding has no executed capture");
+  capture = *((struct native_internal_binding_capture **)Data_custom_val(handle));
+  if (capture == NULL || !Is_block(request) || Tag_val(request) != 0 ||
+      Wosize_val(request) != 2 || !Is_long(Field(request, 1)) ||
+      capture->program != Field(request, 0) ||
+      capture->work != Long_val(Field(request, 1)))
+    caml_invalid_argument("native internal binding has another program or actual work");
+  arena = native_task_arena_get(capture->arena);
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_failwith("native internal binding arena is already active");
+  if (arena->closing || arena->mapping == NULL) {
+    atomic_store(&arena->active, 0);
+    caml_failwith("native internal binding capture has an expired original arena");
+  }
+  expected = 0;
+  if (!atomic_compare_exchange_strong(&capture->consumed, &expected, 1)) {
+    atomic_store(&arena->active, 0);
+    caml_failwith("native internal binding capture was already consumed");
+  }
+  atomic_store(&arena->active, 0);
+  CAMLreturn(caml_copy_int64((int64_t)capture->bits));
+#endif
+  CAMLreturn(Val_unit);
+}

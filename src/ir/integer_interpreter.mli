@@ -182,6 +182,28 @@ val begin_task_internal_binding :
 val fail_task_internal_binding :
   task_state -> internal_binding_attempt -> (unit, string) result
 
+val check_native_task_internal_binding :
+  task_state ->
+  internal_binding_attempt ->
+  Internal_binding_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_internal_binding :
+  task_state ->
+  internal_binding_attempt ->
+  Internal_binding_fragment_program.t ->
+  (unit, string) result
+
+val record_native_internal_binding_steps :
+  task_state -> internal_binding_attempt -> int -> (unit, string) result
+
+val complete_native_task_internal_binding :
+  task_state ->
+  internal_binding_attempt ->
+  Internal_binding_fragment_program.t ->
+  Native_internal_binding_capture.t ->
+  (unit, string) result
+
 val task_internal_binding_target :
   task_state ->
   Frontend.Parser.internal_binding_preparation ->

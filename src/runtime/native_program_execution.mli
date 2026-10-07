@@ -293,3 +293,10 @@ val execute :
     This executes in the current process while retaining the OCaml runtime lock.
     The IR budget bounds checked loops; it is not a CPU timeout or recovery from
     arbitrary machine-code faults. *)
+
+val finish_task_internal_binding :
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Native_internal_binding_capture.t, string) result
+(** Take the actual successful scalar capture from this original image and arena
+    once. Metadata, a different image or arena, and replay are rejected. *)

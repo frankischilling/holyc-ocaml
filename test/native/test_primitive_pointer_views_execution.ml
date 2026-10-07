@@ -37,13 +37,13 @@ let word expected report =
   | None -> Alcotest.fail "missing native word");
   native
 
-let case ?(output = "") mode (source, expected) =
-  let report = run mode source in
+let case ?(output = "") mode (contents, expected) =
+  let report = run mode contents in
   let native = word expected report in
   Alcotest.(check string)
     "native bytes" output
     (Native_program.output_bytes report);
-  let session, config, source = inputs mode source in
+  let session, config, source = inputs mode contents in
   let interpreted =
     (run_integer_program session ~config ~source ~max_steps:100_000 |> checked)
       .value
@@ -52,9 +52,16 @@ let case ?(output = "") mode (source, expected) =
   | Some w ->
       Alcotest.(check int64) "independent interpreter word" expected w.bits
   | None -> Alcotest.fail "missing interpreter word");
+  let _, batch =
+    Native_scalar_fixture.execute_source ~mode ~contents () |> function
+    | Ok value -> value
+    | Error message -> Alcotest.fail message
+  in
+  Alcotest.(check bool)
+    "closed IR retains the independent source result" true
+    (VM.final_value batch = VM.final_value interpreted);
   Alcotest.(check int)
-    "same reached instruction work"
-    (VM.executed_steps interpreted)
+    "same closed IR/native instruction work" (VM.executed_steps batch)
     native.execution.executed_steps
 
 let cases fixtures () =

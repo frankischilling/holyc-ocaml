@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+Ordinary JIT `_intern` targets now execute at their original source phase in
+both IR and native tasks, including effectful calls and saved-data defaults in
+their callers. The maintained example prints `bind` once and returns 42. See
+[live internal bindings](docs/native-internal-bindings.md) for supported
+operations, execution evidence and remaining compiler work.
+
 The `host-jit-task` target executes integer scalar and fixed-array initializers
 at their original live source callbacks. Later commands share the same native
 storage. `examples/native-source-arrays.hc` returns 42 from

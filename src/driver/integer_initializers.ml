@@ -1726,11 +1726,11 @@ let prepare_dimension ?retained_function_source ?on_progress ~max_steps
       Ok (item.classification_, prepared.steps)
   | _ -> invalid_arg "dimension preparation lost its original work item"
 
-let prepare_internal_binding ?retained_function_source ?on_progress ~max_steps
-    ~top_calls destination =
+let prepare_internal_binding ?top_callback_calls ?retained_function_source
+    ?on_progress ~max_steps ~top_calls destination =
   let* prepared =
     prepare_internal ~internal_binding:destination ~allow_zero_budget:true
-      ?retained_function_source ?on_progress ~max_steps
+      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
       ~span:(Internal_binding.span destination)
       ~globals:(Internal_binding.globals destination)
       ~top_calls ~functions:[] ()

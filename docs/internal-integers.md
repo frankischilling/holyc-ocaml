@@ -26,8 +26,10 @@ holyc run --mode=aot --format=json examples/stream-internal-integers.hc
 ```
 
 The ordinary example captures `42:1;` and returns I64 42 on both targets and in
-both source modes. It uses 81 runtime instructions, no preparation instructions
-and twelve formatting-work units. The retained example evaluates an effectful
+both source modes. IR JIT execution now includes the original binding targets
+and declaration work: 104 runtime steps and fifteen preparation steps. AOT and
+closed native execution use 81 runtime steps and no preparation. Both use twelve
+formatting-work units. The retained example evaluates an effectful
 argument once in its original default callback, saves the absolute value and
 reuses it after a later write. It generates the outer expression `42;`, returns
 I64 42 and captures no output. Both outer modes use 113 runtime instructions,

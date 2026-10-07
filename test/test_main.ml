@@ -28,6 +28,7 @@ let () =
       ("prepared pointer difference", Test_prepared_pointer_difference.tests);
       ("prepared integer shifts", Test_prepared_integer_shifts.tests);
       ("retained internal headers", Test_retained_internal.tests);
+      ("live internal bindings", Test_live_internal_bindings.tests);
       ("internal call authority", Test_internal_strlen_authority.tests);
       ("internal source ownership", Test_internal_strlen_source.tests);
       ("integer goto execution", Test_integer_goto_execution.tests);

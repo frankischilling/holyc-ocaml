@@ -47,41 +47,22 @@ let values () =
           native_word type_ expected native.execution.final_value;
           let _, interpreted = T.success mode contents in
           T.word label type_ expected interpreted;
-          (* Defaults activate a source task in public JIT execution. Its
-             declaration-unit ticks do not belong to the native batch. *)
-          let batch_steps =
-            match label with
-            | "Bool constant default entry" | "Bool omitted positions" ->
-                let fixture =
-                  match
-                    Native_scalar_fixture.compile ~mode
-                      ~path:"canonical-bool-default-batch.hc" ~contents ()
-                  with
-                  | Ok fixture -> fixture
-                  | Error ds -> Alcotest.fail (errors ds)
-                in
-                let batch =
-                  match
-                    Native_scalar_fixture.execute ~max_steps:100_000 fixture
-                  with
-                  | Ok execution -> execution
-                  | Error ds ->
-                      Alcotest.fail
-                        (ds
-                        |> List.map (fun (d : T.VM.error) ->
-                            d.code ^ ": " ^ d.message)
-                        |> String.concat "; ")
-                in
-                T.word (label ^ " checked batch") type_ expected batch;
-                Alcotest.(check int)
-                  "original default preparation work" fixture.preparation_steps
-                  (Native_program.preparation_steps native_report);
-                Alcotest.(check int)
-                  "original saved default bytes" fixture.default_bytes
-                  (Native_program.default_bytes native_report);
-                T.VM.executed_steps batch
-            | _ -> T.VM.executed_steps interpreted
+          let fixture, batch =
+            Native_scalar_fixture.execute_source ~mode ~contents () |> function
+            | Ok value -> value
+            | Error message -> Alcotest.fail message
           in
+          T.word (label ^ " checked batch") type_ expected batch;
+          (match label with
+          | "Bool constant default entry" | "Bool omitted positions" ->
+              Alcotest.(check int)
+                "original default preparation work" fixture.preparation_steps
+                (Native_program.preparation_steps native_report);
+              Alcotest.(check int)
+                "original saved default bytes" fixture.default_bytes
+                (Native_program.default_bytes native_report)
+          | _ -> ());
+          let batch_steps = T.VM.executed_steps batch in
           Alcotest.(check int)
             (label ^ " checked batch/native instruction work")
             batch_steps native.execution.executed_steps;
