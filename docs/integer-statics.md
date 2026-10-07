@@ -110,3 +110,10 @@ Pointer-valued statics, other narrow/floating/aggregate storage, full runtime ou
 stateful compilation, broader optimizer parity (#585/#696/#697), native execution, BIN/loader
 acceptance and bootstrap remain unfinished. This increment has hosted execution
 tests and pinned-source evidence, without a new native TempleOS capture.
+
+A static callback with a named class in its return metadata keeps the original
+class selection and completed anonymous header. Its checked frame location must
+agree with that exact canonical return class. The live allocation and completed
+frame still use physical RT_PTR cells, so `static Pair (*p)()[2]` occupies 16
+logical bytes even when Pair has another size. Class metadata alone grants no
+aggregate layout or callback invocation authority.

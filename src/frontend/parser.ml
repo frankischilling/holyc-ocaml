@@ -100,10 +100,18 @@ let sequence_accepted sequence =
   | Some ast -> ast == sequence.sequence_ast
   | None -> false
 
+type named_aggregate_selection = {
+  type_specifier : Ast.type_specifier;
+  identifier : Ast.identifier;
+  environment : Symbol_visibility.Environment.t;
+  entry : Symbol_visibility.entry;
+}
+
 type local_source =
   | Local_parameter of Ast.function_parameter
   | Local_variable of {
       local_type_specifier : Ast.type_specifier;
+      local_type_selection : named_aggregate_selection option;
       local_name : Ast.identifier;
       local_pointer_layers : Ast.pointer_layer list;
       local_array_dimensions : Ast.array_dimension list;
@@ -289,6 +297,7 @@ type declaration_header = {
   binding : Ast.declaration_binding option;
   binding_preparation : internal_binding_preparation option;
   type_specifier : Ast.type_specifier;
+  declaration_type_selection : named_aggregate_selection option;
 }
 
 type global_activity = { mutable global_active : bool }
@@ -379,13 +388,6 @@ let initializer_delimiter_is_current delimiter =
          .command_context
 
 type function_activity = { mutable function_active : bool }
-
-type named_aggregate_selection = {
-  type_specifier : Ast.type_specifier;
-  identifier : Ast.identifier;
-  environment : Symbol_visibility.Environment.t;
-  entry : Symbol_visibility.entry;
-}
 
 type function_publication = {
   function_activity : function_activity;
@@ -644,6 +646,9 @@ type callback_signature_activity = {
 
 type callback_signature_publication = {
   callback_command : command_start;
+  callback_return_type_specifier : Ast.type_specifier;
+  callback_return_selection : named_aggregate_selection option;
+  callback_return_pointer_layers : Ast.pointer_layer list;
   callback_opening : Ast.location;
   callback_indirection_layers : Ast.pointer_layer list;
   callback_activity : callback_signature_activity;
@@ -655,6 +660,7 @@ type callback_parameter_publication = {
   callback_parameter_predecessor : completed_callback_parameter option;
   callback_parameter_register_qualifiers : Ast.register_qualifier list;
   callback_parameter_type_specifier : Ast.type_specifier;
+  callback_parameter_type_selection : named_aggregate_selection option;
   callback_parameter_pointer_layers : Ast.pointer_layer list;
   callback_parameter_name : Ast.identifier option;
   callback_parameter_function_pointer : Ast.function_pointer_declarator option;
@@ -2234,7 +2240,8 @@ let publish_function cursor (name : Ast.identifier) parameters variadic =
        ~origin:(symbol_source_origin name.location)
        ())
 
-let declaration_header cursor ~modifiers ~binding ~type_specifier =
+let declaration_header ?type_selection cursor ~modifiers ~binding
+    ~type_specifier =
   {
     declaration_sources = cursor.sources;
     declaration_source = cursor.source;
@@ -2247,6 +2254,7 @@ let declaration_header cursor ~modifiers ~binding ~type_specifier =
             (fun receipt -> receipt.binding_ast == binding)
             cursor.internal_bindings);
     type_specifier;
+    declaration_type_selection = type_selection;
   }
 
 let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind
@@ -2534,7 +2542,8 @@ let rec parse_modifiers ?(stop = fun _ -> false) cursor
       in
       parse_modifiers ~stop cursor ({ node; item } :: modifiers_rev)
 
-let parse_declarator_prefix cursor base_spelling ~parse_function_pointer =
+let parse_declarator_prefix cursor base_spelling ~type_specifier ~type_selection
+    ~parse_function_pointer =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> None
   | Some (pointer_layers, pointer_items) ->
@@ -2560,7 +2569,9 @@ let parse_declarator_prefix cursor base_spelling ~parse_function_pointer =
               definition_trace = pointer_trace;
               name_selection = parsed.name_selection;
             })
-          (parse_function_pointer ())
+          (parse_function_pointer ~return_type:type_specifier
+             ~return_selection:type_selection
+             ~return_pointer_layers:pointer_layers ())
       else if not (token_is_name_position_identifier name_item.token) then (
         report ~secondary:pointer_trace cursor name_item ~code:"HCPARSE0002"
           ~message:
@@ -4892,15 +4903,17 @@ let parse_variable_declarator_suffix ?header cursor
                 publication;
               Some ({ node; tokens } : parsed_declarator))
 
-let parse_declarator ?header cursor base_spelling ~parse_function_pointer =
+let parse_declarator ?header cursor base_spelling ~type_specifier
+    ~type_selection ~parse_function_pointer =
   match
-    parse_declarator_prefix cursor base_spelling ~parse_function_pointer
+    parse_declarator_prefix cursor base_spelling ~type_specifier ~type_selection
+      ~parse_function_pointer
   with
   | None -> None
   | Some prefix -> parse_variable_declarator_suffix ?header cursor prefix
 
-let rec parse_declarators ?header cursor base_spelling ~parse_function_pointer
-    declarators_rev =
+let rec parse_declarators ?header cursor base_spelling ~type_specifier
+    ~type_selection ~parse_function_pointer declarators_rev =
   let item = peek cursor in
   if item.token.kind = Token_kind.Punctuation ';' then
     Some
@@ -4910,7 +4923,8 @@ let rec parse_declarators ?header cursor base_spelling ~parse_function_pointer
       }
   else
     match
-      parse_declarator ?header cursor base_spelling ~parse_function_pointer
+      parse_declarator ?header cursor base_spelling ~type_specifier
+        ~type_selection ~parse_function_pointer
     with
     | None -> None
     | Some declarator -> (
@@ -4923,8 +4937,8 @@ let rec parse_declarators ?header cursor base_spelling ~parse_function_pointer
                 trailing_semicolon = None;
               }
         | Ast.Comma ->
-            parse_declarators ?header cursor base_spelling
-              ~parse_function_pointer declarators_rev)
+            parse_declarators ?header cursor base_spelling ~type_specifier
+              ~type_selection ~parse_function_pointer declarators_rev)
 
 let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   report cursor item ~code ~message;
@@ -5136,7 +5150,7 @@ and parse_aggregate_member_declaration cursor ~aggregate ~recovery_depth
     ~parse_member_function_pointer :
     (parsed_aggregate_member, aggregate_parse_failure) result =
   let type_item = peek cursor in
-  match type_specifier_of_item cursor type_item with
+  match type_specifier_with_selection_of_item cursor type_item with
   | None ->
       aggregate_member_failure cursor type_item ~recovery_depth
         ~code:"HCPARSE0112"
@@ -5144,14 +5158,15 @@ and parse_aggregate_member_declaration cursor ~aggregate ~recovery_depth
           (Printf.sprintf
              "expected a primitive, class, or union member type, but found %s"
              (token_description type_item.token))
-  | Some type_specifier ->
+  | Some (type_specifier, type_selection) ->
       let type_item = take cursor in
       let base_spelling = Ast.type_specifier_spelling type_specifier in
       let rec collect declarators_rev tokens_rev :
           (parsed_aggregate_member, aggregate_parse_failure) result =
         match
           parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
-            ~base_spelling ~recovery_depth ~parse_member_function_pointer
+            ~type_selection ~base_spelling ~recovery_depth
+            ~parse_member_function_pointer
         with
         | Error failure -> Error failure
         | Ok declarator -> (
@@ -5176,7 +5191,8 @@ and parse_aggregate_member_declaration cursor ~aggregate ~recovery_depth
       collect [] []
 
 and parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
-    ~base_spelling ~recovery_depth ~parse_member_function_pointer :
+    ~type_selection ~base_spelling ~recovery_depth
+    ~parse_member_function_pointer :
     (parsed_aggregate_member_declarator, aggregate_parse_failure) result =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> Error { recovery_depth }
@@ -5185,7 +5201,11 @@ and parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
       let name_item = peek cursor in
       let parsed_core =
         if name_item.token.kind = Token_kind.Punctuation '(' then
-          match parse_member_function_pointer () with
+          match
+            parse_member_function_pointer ~return_type:type_specifier
+              ~return_selection:type_selection
+              ~return_pointer_layers:pointer_layers ()
+          with
           | None -> None
           | Some (parsed : parsed_function_pointer) ->
               Option.map
@@ -5395,12 +5415,23 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                     Some ([], [], None)
                 | Token_kind.Identifier | Token_kind.Punctuation ('*' | '(')
                   -> (
+                    let type_specifier = Ast.Named_type_specifier name in
+                    let type_selection =
+                      Some
+                        {
+                          type_specifier;
+                          identifier = name;
+                          environment = publication.aggregate_environment;
+                          entry = publication.aggregate_entry;
+                        }
+                    in
                     match
                       parse_declarators
                         ~header:
-                          (declaration_header cursor ~modifiers ~binding:None
-                             ~type_specifier:(Ast.Named_type_specifier name))
-                        cursor name.spelling ~parse_function_pointer []
+                          (declaration_header ?type_selection cursor ~modifiers
+                             ~binding:None ~type_specifier)
+                        cursor name.spelling ~type_specifier ~type_selection
+                        ~parse_function_pointer []
                     with
                     | None -> None
                     | Some parsed_declarators ->
@@ -5524,6 +5555,7 @@ let finish_function_parameter ?default_context ?callback_context cursor
             callback_parameter_predecessor = List.nth_opt !completions 0;
             callback_parameter_register_qualifiers = register_qualifiers;
             callback_parameter_type_specifier = type_specifier;
+            callback_parameter_type_selection = type_selection;
             callback_parameter_pointer_layers = pointer_layers;
             callback_parameter_name = name;
             callback_parameter_function_pointer = function_pointer;
@@ -5729,6 +5761,8 @@ let rec parse_function_parameter ?default_context ?callback_context cursor
           if next_item.token.kind = Token_kind.Punctuation '(' then
             match
               parse_function_pointer_declarator cursor ~function_pointer_depth
+                ~return_type:type_specifier ~return_selection:type_selection
+                ~return_pointer_layers:pointer_layers
                 ~declarator_context:Function_parameter_declarator
             with
             | None -> None
@@ -5762,7 +5796,7 @@ let rec parse_function_parameter ?default_context ?callback_context cursor
              (token_description type_item.token))
 
 and parse_function_pointer_declarator cursor ~function_pointer_depth
-    ~declarator_context =
+    ~return_type ~return_selection ~return_pointer_layers ~declarator_context =
   let opening_item = peek cursor in
   if function_pointer_depth >= max_function_pointer_depth then
     function_pointer_declaration_failure cursor ~declarator_context opening_item
@@ -5912,6 +5946,9 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                       let publication =
                         {
                           callback_command;
+                          callback_return_type_specifier = return_type;
+                          callback_return_selection = return_selection;
+                          callback_return_pointer_layers = return_pointer_layers;
                           callback_opening =
                             token_location signature_opening.token;
                           callback_indirection_layers = pointer_layers;
@@ -6256,12 +6293,16 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
       Some (Ast.Function_prototype prototype)
 
 let parse_global cursor ~parse_function_definition =
-  let parse_global_function_pointer () =
+  let parse_global_function_pointer ~return_type ~return_selection
+      ~return_pointer_layers () =
     parse_function_pointer_declarator cursor ~function_pointer_depth:0
+      ~return_type ~return_selection ~return_pointer_layers
       ~declarator_context:Global_variable_declarator
   in
-  let parse_member_function_pointer () =
+  let parse_member_function_pointer ~return_type ~return_selection
+      ~return_pointer_layers () =
     parse_function_pointer_declarator cursor ~function_pointer_depth:0
+      ~return_type ~return_selection ~return_pointer_layers
       ~declarator_context:Aggregate_member_declarator
   in
   let parsed_modifiers = parse_modifiers cursor [] in
@@ -6427,7 +6468,8 @@ let parse_global cursor ~parse_function_definition =
                         Ast.type_specifier_spelling type_specifier
                       in
                       match
-                        parse_declarator_prefix cursor spelling
+                        parse_declarator_prefix cursor spelling ~type_specifier
+                          ~type_selection
                           ~parse_function_pointer:parse_global_function_pointer
                       with
                       | None -> None
@@ -6448,8 +6490,8 @@ let parse_global cursor ~parse_function_definition =
                               match
                                 parse_variable_declarator_suffix
                                   ~header:
-                                    (declaration_header cursor ~modifiers
-                                       ~binding ~type_specifier)
+                                    (declaration_header ?type_selection cursor
+                                       ~modifiers ~binding ~type_specifier)
                                   cursor first_prefix
                               with
                               | None -> None
@@ -6467,10 +6509,11 @@ let parse_global cursor ~parse_function_definition =
                                     | Ast.Comma ->
                                         parse_declarators
                                           ~header:
-                                            (declaration_header cursor
-                                               ~modifiers ~binding
+                                            (declaration_header ?type_selection
+                                               cursor ~modifiers ~binding
                                                ~type_specifier)
-                                          cursor spelling
+                                          cursor spelling ~type_specifier
+                                          ~type_selection
                                           ~parse_function_pointer:
                                             parse_global_function_pointer
                                           [ first_declarator ]
@@ -7552,7 +7595,7 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
           Some { node = Ast.Expression_statement statement; tokens })
 
 let parse_local_declarator cursor ~boundary ~storage ~base_spelling
-    ~type_specifier ~register_qualifiers ~qualifier_tokens :
+    ~type_specifier ~type_selection ~register_qualifiers ~qualifier_tokens :
     parsed_local_declarator option =
   match
     parse_pointer_layers_with_recovery cursor
@@ -7577,6 +7620,8 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
               in
               (name, Some parsed.node, parsed.tokens))
             (parse_function_pointer_declarator cursor ~function_pointer_depth:0
+               ~return_type:type_specifier ~return_selection:type_selection
+               ~return_pointer_layers:pointer_layers
                ~declarator_context:(Local_variable_declarator boundary))
         else if token_is_name_position_identifier name_item.token then
           let name_item = take cursor in
@@ -7603,6 +7648,7 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                 (Local_variable
                    {
                      local_type_specifier = type_specifier;
+                     local_type_selection = type_selection;
                      local_name = name;
                      local_pointer_layers = pointer_layers;
                      local_array_dimensions = array_dimensions;
@@ -7838,8 +7884,8 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
   | _, Some command ->
       command.command_context.context_compiler_position.position_source <- None
   | _ -> ());
-  match type_specifier_of_item cursor type_item with
-  | Some type_specifier ->
+  match type_specifier_with_selection_of_item cursor type_item with
+  | Some (type_specifier, type_selection) ->
       let type_item = take cursor in
       let spelling = Ast.type_specifier_spelling type_specifier in
       let rec parse_declarators declarators_rev =
@@ -7865,7 +7911,7 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
         else
           match
             parse_local_declarator cursor ~boundary ~storage
-              ~base_spelling:spelling ~type_specifier
+              ~base_spelling:spelling ~type_specifier ~type_selection
               ~register_qualifiers:qualifiers.nodes
               ~qualifier_tokens:qualifiers.tokens
           with

@@ -1860,3 +1860,24 @@ placeholder before its own body is installed. The automatic declarator replay
 at `PrsVar.HC:607-612` and `Demo/Graphics/Grid.HC:13` retain their separate
 restriction. These source and hosted execution checks add no TempleOS runtime
 capture or exported ABI proof.
+
+Named callback class selection follows the pinned `Compiler/Lex.HC:492-513`
+identifier lookup and retained `hash_entry`. `Compiler/PrsVar.HC:285-308` reads
+that selected class and advances its original return-pointer stars.
+`PrsVar.HC:350-356` passes the return class into an anonymous PrsFunJoin, then
+selects physical RT_PTR storage independently. `Compiler/PrsStmt.HC:62-115`
+keeps the selected return_class and parses the original parameter list; an
+anonymous header does not perform a later function-name lookup.
+`PrsStmt.HC:14-35` completes a compatible extern class in place and creates a
+fresh class for a later resolved shadow.
+
+The hosted source ledger retains these original class selections at synchronous
+callback, parameter, local-allocation and global publication events. Proofs can
+join original comma-declarator pointer children only when their type occurrence,
+class entry, parser environment and canonical semantic symbol agree. Selected
+callback return metadata admits a direct class annotation without admitting
+aggregate storage or execution. Frame positions and callback `sizeof` remain
+pointer-sized; the IR query adapter requests aggregate layout only for object
+values. Source-identity controls reject copied children, foreign tables and
+namespaces, expired minting and same-name publication substitution. This audit
+and actual private host execution add no TempleOS runtime capture.

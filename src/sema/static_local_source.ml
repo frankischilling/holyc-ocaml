@@ -13,7 +13,7 @@ let allocation value = value.allocation_
 let frame value = value.frame_
 let location value = value.location_
 
-let bind ~allocation ~frame ~location =
+let bind_selected ~selected_aggregate ~allocation ~frame ~location =
   let ( let* ) = Result.bind in
   let receipt = Record.static_allocation_receipt allocation in
   let symbol = Frame.location_symbol location in
@@ -91,11 +91,31 @@ let bind ~allocation ~frame ~location =
             when Type.equal
                    (Type_reference.resolved_type reference)
                    (Frame.location_checked_type location) -> Ok ()
-          | Error _ when Option.is_some source.local_function_pointer ->
-              (* A named callback return class retains its checked type in the
-                 frame. The original callback above proves the physical pointer
-                 declarator independently of that return class. *)
-              Ok ()
+          | Error _ when Option.is_some source.local_function_pointer -> (
+              match selected_aggregate source.local_type_specifier with
+              | None ->
+                  Error
+                    "static callback return lacks its original selected class"
+              | Some proof ->
+                  let* () =
+                    Source_type_reference.validate_selected_aggregate
+                      ~table:(Record.static_allocation_table allocation)
+                      ~namespace:(Record.static_allocation_namespace allocation)
+                      proof
+                  in
+                  let* reference =
+                    Source_type_reference.selected_callback_return proof
+                      source.local_type_specifier source.local_pointer_layers
+                  in
+                  if
+                    Type.equal
+                      (Type_reference.resolved_type reference)
+                      (Frame.location_checked_type location)
+                  then Ok ()
+                  else
+                    Error
+                      "static callback frame substituted its original return \
+                       class")
           | _ -> Error "static source has another original local type"
         in
         match Symbol.origin symbol with
@@ -129,3 +149,6 @@ let bind ~allocation ~frame ~location =
     else Ok ()
   in
   Ok { allocation_ = allocation; frame_ = frame; location_ = location }
+
+let bind ~allocation ~frame ~location =
+  bind_selected ~selected_aggregate:(fun _ -> None) ~allocation ~frame ~location

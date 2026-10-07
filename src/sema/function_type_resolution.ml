@@ -923,8 +923,8 @@ let source_registers_match sources requests =
          | _ -> false)
        sources requests
 
-let source_type_reference ?owner ~selected_aggregate type_specifier
-    pointer_layers =
+let source_type_reference ?owner ?(callback_metadata = false)
+    ~selected_aggregate type_specifier pointer_layers =
   let ( let* ) = Result.bind in
   match type_specifier with
   | Frontend.Ast.Primitive_type_specifier _
@@ -940,15 +940,18 @@ let source_type_reference ?owner ~selected_aggregate type_specifier
                 Source_type_reference.validate_selected_aggregate ~table
                   ~namespace proof
           in
-          Source_type_reference.selected proof type_specifier pointer_layers
+          (if callback_metadata then
+             Source_type_reference.selected_callback_return
+           else Source_type_reference.selected)
+            proof type_specifier pointer_layers
       | None -> Error "named source type lacks its retained aggregate selection"
       )
 
-let source_type_matches ?owner ~selected_aggregate type_specifier pointer_layers
-    reference =
+let source_type_matches ?owner ?callback_metadata ~selected_aggregate
+    type_specifier pointer_layers reference =
   match
-    source_type_reference ?owner ~selected_aggregate type_specifier
-      pointer_layers
+    source_type_reference ?owner ?callback_metadata ~selected_aggregate
+      type_specifier pointer_layers
   with
   | Error _ -> false
   | Ok expected -> same_type_reference expected reference
@@ -973,8 +976,9 @@ let rec source_signature_matches ?owner ~selected_aggregate ~opening ~parameters
        (fun (source : Frontend.Ast.function_parameter) parameter ->
          Option.fold ~none:false ~some:(( == ) source)
            (parameter_source parameter)
-         && source_type_matches ?owner ~selected_aggregate source.type_specifier
-              source.pointer_layers
+         && source_type_matches ?owner
+              ~callback_metadata:(Option.is_some source.function_pointer)
+              ~selected_aggregate source.type_specifier source.pointer_layers
               (parameter_type_reference parameter)
          && source_registers_match source.register_qualifiers
               (parameter_register_requests parameter)
@@ -1055,10 +1059,11 @@ let validate_provisional_source_types ?table ?namespace
         Error
           "provisional source type ownership requires both table and namespace"
   in
-  let type_source type_specifier pointers =
+  let type_source ?callback_metadata type_specifier pointers =
     Result.map
       (fun _ -> ())
-      (source_type_reference ?owner ~selected_aggregate type_specifier pointers)
+      (source_type_reference ?owner ?callback_metadata ~selected_aggregate
+         type_specifier pointers)
   in
   let rec callback = function
     | None -> Ok ()
@@ -1067,7 +1072,9 @@ let validate_provisional_source_types ?table ?namespace
           (fun result (parameter : A.function_parameter) ->
             let* () = result in
             let* () =
-              type_source parameter.type_specifier parameter.pointer_layers
+              type_source
+                ~callback_metadata:(Option.is_some parameter.function_pointer)
+                parameter.type_specifier parameter.pointer_layers
             in
             callback parameter.function_pointer)
           (Ok ()) pointer.signature_parameters
@@ -1083,8 +1090,9 @@ let validate_provisional_source_types ?table ?namespace
       let* () = result in
       let source = Provisional_function.member_source member in
       let* () =
-        type_source source.parameter_type_specifier
-          source.parameter_pointer_layers
+        type_source
+          ~callback_metadata:(Option.is_some source.parameter_function_pointer)
+          source.parameter_type_specifier source.parameter_pointer_layers
       in
       callback source.parameter_function_pointer)
     (Ok ())

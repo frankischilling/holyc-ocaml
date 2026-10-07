@@ -319,6 +319,18 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               | _ -> Ok []
             in
             let slots = Ir.Integer_globals.statics globals_ in
+            let* selected_aggregate =
+              let table = Session.semantic_symbols session in
+              match (declaration_command, source_command) with
+              | Some command, None ->
+                  Task_declarations.selected_type_resolver ~table ~ast command
+                  |> Result.map snd
+              | None, Some command ->
+                  Task_declarations.source_selected_type_resolver ~table ~ast
+                    command
+                  |> Result.map snd
+              | _ -> Ok (fun _ -> None)
+            in
             let* () =
               if
                 Ir.Integer_globals.compilation_mode globals_
@@ -340,7 +352,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 match
                   List.find_map
                     (fun slot ->
-                      Sema.Static_local_source.bind ~allocation
+                      Sema.Static_local_source.bind_selected ~selected_aggregate
+                        ~allocation
                         ~frame:(Ir.Integer_globals.static_frame slot)
                         ~location:(Ir.Integer_globals.static_location slot)
                       |> Result.to_option)
@@ -352,7 +365,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       List.filter_map
                         (fun slot ->
                           match
-                            Sema.Static_local_source.bind ~allocation
+                            Sema.Static_local_source.bind_selected
+                              ~selected_aggregate ~allocation
                               ~frame:(Ir.Integer_globals.static_frame slot)
                               ~location:
                                 (Ir.Integer_globals.static_location slot)

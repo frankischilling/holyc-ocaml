@@ -54,8 +54,8 @@ let resolve_type visible type_specifier pointer_layers =
                    identifier.spelling)
           | Some symbol -> Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
-let make_type_reference ?selected_aggregate ?selected_owner visible
-    type_specifier pointer_layers =
+let make_type_reference ?selected_aggregate ?selected_owner
+    ?(callback_metadata = false) visible type_specifier pointer_layers =
   let ( let* ) = Result.bind in
   match (type_specifier, selected_aggregate) with
   | Frontend.Ast.Named_type_specifier _, Some resolve -> (
@@ -68,8 +68,10 @@ let make_type_reference ?selected_aggregate ?selected_owner visible
                 Sema.Source_type_reference.validate_selected_aggregate ~table
                   ~namespace proof
           in
-          Sema.Source_type_reference.selected proof type_specifier
-            pointer_layers
+          (if callback_metadata then
+             Sema.Source_type_reference.selected_callback_return
+           else Sema.Source_type_reference.selected)
+            proof type_specifier pointer_layers
       | None ->
           Error "named function type lacks its retained selected aggregate")
   | _ -> (
@@ -504,8 +506,9 @@ and parameter_fact ?selected_aggregate ?selected_owner visible index
   Result.bind (Register_request.of_list parameter.register_qualifiers)
     (fun register_requests ->
       match
-        make_type_reference ?selected_aggregate ?selected_owner visible
-          parameter.type_specifier parameter.pointer_layers
+        make_type_reference ?selected_aggregate ?selected_owner
+          ~callback_metadata:(Option.is_some parameter.function_pointer)
+          visible parameter.type_specifier parameter.pointer_layers
       with
       | Error _ as error -> error
       | Ok type_reference -> (

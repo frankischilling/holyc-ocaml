@@ -589,21 +589,20 @@ let selected_aggregate_for ledger type_specifier =
   Type_specifiers.find_opt ledger.selected_aggregate_types type_specifier
 
 let prepare_selected_aggregate ledger source =
-  let selection, type_specifier, span =
+  let module Source = Sema.Source_type_reference in
+  let span =
     match source with
-    | Sema.Source_type_reference.Function_return function_ ->
-        ( function_.Parser.function_return_selection,
-          function_.function_header.type_specifier,
-          (Frontend.Ast.type_specifier_location
-             function_.function_header.type_specifier)
-            .span )
-    | Sema.Source_type_reference.Function_parameter parameter ->
-        ( parameter.Parser.parameter_type_selection,
-          parameter.parameter_type_specifier,
-          (Frontend.Ast.type_specifier_location
-             parameter.parameter_type_specifier)
-            .span )
+    | Source.Function_return p -> p.Parser.function_name.location.span
+    | Source.Function_parameter p ->
+        p.Parser.parameter_function.function_name.location.span
+    | Source.Callback_return p -> p.Parser.callback_opening.span
+    | Source.Callback_parameter p ->
+        p.Parser.callback_parameter_signature.callback_opening.span
+    | Source.Function_local p ->
+        p.Parser.allocation_function.function_name.location.span
+    | Source.Global_type p -> p.Parser.global_name.location.span
   in
+  let type_specifier, selection = Source.source_type source |> checked span in
   match type_specifier with
   | Ast.Primitive_type_specifier _ | Ast.Internal_type_specifier _ ->
       if Option.is_some selection then
@@ -611,8 +610,6 @@ let prepare_selected_aggregate ledger source =
           "primitive function type unexpectedly retained a class selection";
       None
   | Ast.Named_type_specifier _ ->
-      if Type_specifiers.mem ledger.selected_aggregate_types type_specifier then
-        fail span "named function type selection was already retained";
       let selection =
         match selection with
         | Some selection -> selection
@@ -638,10 +635,19 @@ let prepare_selected_aggregate ledger source =
 let retain_selected_aggregate ledger type_specifier = function
   | None -> ()
   | Some proof ->
-      if Type_specifiers.mem ledger.selected_aggregate_types type_specifier then
-        fail (Frontend.Ast.type_specifier_location type_specifier).span
-          "named function type selection was already retained";
-      Type_specifiers.add ledger.selected_aggregate_types type_specifier proof
+      let proof =
+        match
+          Type_specifiers.find_opt ledger.selected_aggregate_types
+            type_specifier
+        with
+        | None -> proof
+        | Some original ->
+            Sema.Source_type_reference.merge_selections original proof
+            |> checked
+                 (Frontend.Ast.type_specifier_location type_specifier).span
+      in
+      Type_specifiers.replace ledger.selected_aggregate_types type_specifier
+        proof
 
 let runtime_symbol = VM.admitted_source_symbol
 let retained_for ledger entry = Entries.find_opt ledger.runtime_entries entry
@@ -2252,6 +2258,12 @@ let observe ?offset_runtime ledger event =
                  (fun state -> state.callback_publication == publication)
                  ledger.callback_states
           then fail span "anonymous signature start is foreign or repeated";
+          let selected =
+            prepare_selected_aggregate ledger
+              (Sema.Source_type_reference.Callback_return publication)
+          in
+          retain_selected_aggregate ledger
+            publication.callback_return_type_specifier selected;
           ledger.callback_states <-
             {
               callback_publication = publication;
@@ -2278,6 +2290,12 @@ let observe ?offset_runtime ledger event =
           then
             fail span
               "anonymous parameter has another original position or predecessor";
+          let selected =
+            prepare_selected_aggregate ledger
+              (Sema.Source_type_reference.Callback_parameter publication)
+          in
+          retain_selected_aggregate ledger
+            publication.callback_parameter_type_specifier selected;
           state.callback_pending <- Some publication
       | Parser.Callback_default_completed receipt ->
           let owner = receipt.callback_default_signature in
@@ -2588,6 +2606,12 @@ let observe ?offset_runtime ledger event =
           validate_source ledger publication.global_environment
             publication.global_header publication.global_name;
           validate_global_dimensions ledger publication;
+          let selected =
+            prepare_selected_aggregate ledger
+              (Sema.Source_type_reference.Global_type publication)
+          in
+          retain_selected_aggregate ledger
+            publication.global_header.type_specifier selected;
           assign ledger publication.global_name Sema.Symbol.Global_variable
             (Global { publication; completed = None; initializing = None })
             publication.global_entry;
@@ -2645,6 +2669,15 @@ let observe ?offset_runtime ledger event =
           let span = publication.function_name.location.span in
           if not (Parser.function_local_allocation_is_current receipt) then
             fail span "local allocation is outside its original callback";
+          let selected =
+            prepare_selected_aggregate ledger
+              (Sema.Source_type_reference.Function_local receipt)
+          in
+          (match receipt.allocation_local.local_source with
+          | Parser.Local_variable local ->
+              retain_selected_aggregate ledger local.local_type_specifier
+                selected
+          | _ -> fail span "local allocation lacks its original type occurrence");
           match (find ledger publication.function_name).source with
           | Function state when state.publication == publication ->
               Option.iter

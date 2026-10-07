@@ -196,26 +196,26 @@ let prepare_unit ?environment:task_environment ?declaration_command
             (Label_resolution.error_message error);
         ])
   in
+  let* selected_types =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.selected_type_resolver ~table ~ast command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_selected_type_resolver ~table ~ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
   let* function_types =
-    let* selected_types =
-      match (declaration_command, source_command) with
-      | Some command, None ->
-          Task_declarations.selected_type_resolver ~table ~ast command
-          |> Result.map Option.some
-      | None, Some command ->
-          Task_declarations.source_selected_type_resolver ~table ~ast command
-          |> Result.map Option.some
-      | None, None -> Ok None
-      | Some _, Some _ -> assert false
-    in
     Function_type_resolution.resolve ?selected_types
       ~retained_headers:(List.map (fun (_, _, typed) -> typed) retained_headers)
       ~table ~declarations ~aggregates ~functions:collected_functions ast
     |> checked
   in
   let* local_types =
-    Local_type_resolution.resolve ~table ~declarations ~aggregates
-      ~functions:collected_functions ast
+    Local_type_resolution.resolve ?selected_types ~table ~declarations
+      ~aggregates ~functions:collected_functions ast
     |> checked
   in
   let* bindings =
@@ -253,8 +253,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
             (resolve name initial))
         initializers
     in
-    Global_type_resolution.resolve ?initializers ~table ~declarations
-      ~aggregates ast
+    Global_type_resolution.resolve ?initializers ?selected_types ~table
+      ~declarations ~aggregates ast
     |> checked
   in
   let* previous_function_records, function_record_heads =

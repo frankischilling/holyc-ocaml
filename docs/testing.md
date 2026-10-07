@@ -1621,3 +1621,17 @@ and reject a missing anonymous header, foreign arenas and domains, replay and
 expired requests. The maintained CLI example also runs through the independent
 IR target; closed numeric static callback leaves run through isolated native
 JIT and AOT execution. These checks add no TempleOS runtime capture.
+
+Named callback type tests exercise independent IR and actual native source
+execution for local, global and static words, fixed arrays, comma declarators,
+full-width bits and pointer-sized `sizeof`. They cover nested saved defaults,
+original header effects, forward completion, `#exe` lookahead and later class or
+function shadows. Proof tests reject copied types and pointer children, sibling
+pointer substitution, foreign tables and namespaces, and expired minting.
+Selected-class static authority tests compile both private ABIs and execute the
+host ABI across arena growth and collection, with the existing foreign-owner,
+cross-domain, replay and lifetime controls. Reached numeric and uninitialized
+callback faults retain their actual native outcomes. Exact and one-below data,
+default, code, IR, preparation and runtime limits cover cumulative accounting.
+The maintained example runs through built, staged and freshly installed CLIs;
+the standalone native suite also consumes the installed public library.

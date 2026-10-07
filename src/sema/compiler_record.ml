@@ -462,22 +462,22 @@ let record_local_allocation ~table ~namespace ~dimensions positions record
             Ok (Some (0L, [], []))
           else
             let base =
-              match
-                Source_type_reference.builtin source.local_type_specifier
-                  source.local_pointer_layers
-              with
-              | Error _ -> None
-              | Ok reference -> (
-                  match source.local_function_pointer with
-                  | Some pointer -> (
-                      match
-                        Source_type_reference.pointer_depth
-                          pointer.indirection_layers
-                      with
-                      | Ok depth when depth > 0 ->
-                          Some (Int64.of_int Primitive_type.pointer_byte_size)
-                      | _ -> None)
-                  | None ->
+              match source.local_function_pointer with
+              | Some pointer -> (
+                  match
+                    Source_type_reference.pointer_depth
+                      pointer.indirection_layers
+                  with
+                  | Ok depth when depth > 0 ->
+                      Some (Int64.of_int Primitive_type.pointer_byte_size)
+                  | _ -> None)
+              | None -> (
+                  match
+                    Source_type_reference.builtin source.local_type_specifier
+                      source.local_pointer_layers
+                  with
+                  | Error _ -> None
+                  | Ok reference ->
                       scalar_size (Type_reference.resolved_type reference)
                       |> Result.to_option)
             in
@@ -1066,8 +1066,14 @@ let declare_global ?callback
             "declared callback storage lacks its exact completed source header"
     in
     let* declared_type =
-      Source_type_reference.builtin source.global_header.type_specifier
-        source.global_pointer_layers
+      match declared_callback with
+      | Some (header, _) ->
+          Source_type_reference.callback_return ~table ~namespace
+            ~selected_aggregate ~header source.global_header.type_specifier
+            source.global_pointer_layers
+      | None ->
+          Source_type_reference.builtin source.global_header.type_specifier
+            source.global_pointer_layers
     in
     Ok
       {
@@ -1271,9 +1277,7 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
         let declared_size type_specifier pointer_layers function_pointer =
           match function_pointer with
           | Some (pointer : Ast.function_pointer_declarator) ->
-              let* _ =
-                Source_type_reference.builtin type_specifier pointer_layers
-              in
+              let* _ = Source_type_reference.pointer_depth pointer_layers in
               let* depth =
                 Source_type_reference.pointer_depth pointer.indirection_layers
               in

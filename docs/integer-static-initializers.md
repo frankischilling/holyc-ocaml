@@ -108,3 +108,11 @@ effect and fault order needs stateful compilation. Existing initializer shift
 and constant-divisor optimizer guards remain. General memory and output,
 stateful `#exe`, full optimizer parity, native backends, BIN/loader acceptance
 and bootstrap remain unfinished requirements of the full compiler.
+
+Named callback return classes now join the same original static initializer
+path. The source type proof binds the token-selected class to its original
+type occurrence and pointer children; the destination separately binds the
+completed anonymous header and physical callback storage. Reconstructing a
+matching type or looking up a later same-name class cannot supply that proof.
+Numeric leaves preserve all 64 bits, and nested callback parameter defaults
+retain their original header effects and selected class through completion.

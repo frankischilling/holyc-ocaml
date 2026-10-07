@@ -1364,7 +1364,7 @@ let native_literal_source_authority () =
       rejected "expired caller cannot readmit original literal storage"
         (Image.compile_task_command ~layout (Option.get !saved_request)))
 
-let native_static_source_authority () =
+let native_static_source_authority ?(callback_type = "I64") () =
   let module Allocation = Task.Native_static_allocation in
   let module Initializer = Task.Native_static_initializer in
   let session = Session.create () in
@@ -1404,6 +1404,8 @@ let native_static_source_authority () =
           Ok ());
       execute_command =
         (fun request ->
+          if callback_type <> "I64" then
+            compile_command_both_abis layout request;
           let result, captured =
             execute (Image.compile_task_command ~layout request |> compiled)
           in
@@ -1581,7 +1583,11 @@ let native_static_source_authority () =
         (task_run session task 71 "I64 X=40;X++;");
       task_succeeds "live private allocation and initializer"
         (task_run session task 72
-           "I64 F(){static I64 A=X,B=A+A;static I64 (*p)()=1;return A+=p;}");
+           ((if callback_type = "I64" then "" else "class Pair{I64 a;I64 b;};")
+           ^ "I64 F(){static I64 A=X,B=A+A;static " ^ callback_type
+           ^ " (*p)()=1;return A+=p;}"
+           ^ if callback_type = "I64" then "" else "class Pair{U8 different;};"
+           ));
       task_succeeds "first retained static call"
         (task_run session task 73 "F();");
       Gc.full_major ();
@@ -2670,7 +2676,10 @@ let () =
             native_literal_source_authority;
           Alcotest.test_case
             "live static allocation, initializer and arena authority" `Quick
-            native_static_source_authority;
+            (fun () -> native_static_source_authority ());
+          Alcotest.test_case
+            "selected callback classes, both ABIs and arena authority" `Quick
+            (fun () -> native_static_source_authority ~callback_type:"Pair" ());
           Alcotest.test_case "live static byte-copy source and arena authority"
             `Quick native_static_copy_authority;
           Alcotest.test_case

@@ -1777,13 +1777,10 @@ let callback_defaults_keep_original_header_and_limits () =
            (Test_integer_globals.run ~mode
               "I64 Check(I64 (**p)()=0){return 42;}Check();"))
           .code;
-      Alcotest.(check string)
-        "aggregate default signature still needs layout admission"
-        (if mode = Preprocessor.Jit then "HCRUN0004" else "HCEVAL0003")
-        (Test_integer_functions.first_error
-           (Test_integer_globals.run ~mode
-              "class Box {I64 n;};I64 Check(Box (*p)()=0){return p==0;}Check();"))
-          .code;
+      ignore
+        (Test_integer_globals.run ~mode
+           "class Box {I64 n;};I64 Check(Box (*p)()=0){return p==0;}Check();"
+        |> Test_integer_functions.expect 1L);
       let source =
         "I64 A(){return 42;}I64 Apply(I64 (*p)()=&A){return p();}Apply();"
       in

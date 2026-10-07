@@ -467,7 +467,10 @@ let completed_aggregate_for_type member_index ~before_item_index type_ =
         completed_aggregate member_index ~before_item_index symbol
 
 let aggregate_size_for_value member_index ~before_item_index value =
-  if value.array_rank <> 0 then None
+  if
+    value.array_rank <> 0
+    || value.shape <> Sema.Function_call_resolution.Object_value
+  then None
   else
     value.resolved_type
     |> completed_aggregate_for_type member_index ~before_item_index

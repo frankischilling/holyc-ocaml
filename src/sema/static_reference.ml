@@ -60,7 +60,10 @@ let create ?callback
               Source_type_reference.callback_storage ~header:completed original
             in
             let* return_reference =
-              Source_type_reference.builtin local.local_type_specifier
+              Source_type_reference.callback_return ~table
+                ~namespace:
+                  (Compiler_record.static_allocation_namespace allocation)
+                ~selected_aggregate ~header:completed local.local_type_specifier
                 local.local_pointer_layers
             in
             let* () =

@@ -491,3 +491,21 @@ parsing a new JIT header, and `PrsStmt.HC:181-191` installs the compiled body.
 The slot-address consumer keeps those original producers and capture timing.
 Its private ownership cells, host fault stub and resource guards are hosted
 policy, with no new TempleOS oracle capture.
+
+Named classes in callback return and parameter metadata retain the class selected
+at the original type token. Global, local, static and nested anonymous headers
+carry that selection into the sealed source command. A later class with the same
+name cannot replace it; completing its original forward declaration keeps the
+same canonical class. Comma declarators share their original base type while
+retaining each declarator's own return-pointer children.
+
+The callback cell still has physical RT_PTR storage. `Pair (*p)()` can hold a
+complete numeric word without allocating a Pair object. Automatic frame positions,
+static initializer destinations and `sizeof(p)` use the eight-byte cell, while
+the anonymous header retains Pair as return metadata. A callback parameter such
+as `Pair (*word)()` can save and forward a numeric callback word through an
+integer-returning function. `examples/native-source-named-callback-types.hc`
+returns 42 after a later class shadow and counter write; its original header
+effect runs once and its static cells occupy 24 logical bytes alongside the
+eight-byte counter. Aggregate-return invocation, ordinary aggregate pointer
+execution, callback members and the exported ABI remain separate work.

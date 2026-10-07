@@ -21,7 +21,7 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 14)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 15)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
@@ -29,7 +29,8 @@ let () =
      [native-source-callback-words.hc] [native-source-slot-addresses.hc] \
      [native-source-callback-updates.hc] [native-source-anonymous-defaults.hc] \
      [native-source-static-callbacks.hc] \
-     [native-source-static-callback-initializers.hc]"
+     [native-source-static-callback-initializers.hc] \
+     [native-source-named-callback-types.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -788,5 +789,77 @@ let () =
             = "0x000000000000002a")
             "closed native static callback initializer")
         [ "jit"; "aot" ]);
+  let named_callback_checks path =
+    List.iter
+      (fun target ->
+        let baseline = json_path ~target path in
+        require
+          (final_bits baseline = "0x000000000000002a")
+          "original named callback metadata and saved header";
+        if target = "host-jit-task" then
+          require
+            (baseline |> member "prepared_default_bytes" |> to_int = 8)
+            "saved named callback parameter occupies one word";
+        require
+          (final_bits
+             (json_path ~target ~options:[ "--global-byte-limit=32" ] path)
+          = final_bits baseline)
+          "named callback arrays retain physical pointer storage";
+        require
+          (has_diagnostic "HCIRVM0016"
+             (json_path ~target ~status:1
+                ~options:[ "--global-byte-limit=31" ]
+                path))
+          "named callback storage counts toward the original data quota")
+      [ "ir"; "host-jit-task" ]
+  in
+  if Array.length Sys.argv >= 15 then named_callback_checks Sys.argv.(14)
+  else
+    with_file ".hc"
+      "class Pair{I64 a;I64 b;};I64 Counter=0;I64 Seed(){return \
+       ++Counter+41;}I64 Consume(Pair (*word)()){return word;}I64 \
+       Remember(){static Pair (*words)()[2]={0,42};static I64 (*saved)(Pair \
+       (*word)()=Seed())=&Consume;if(sizeof(words)!=16)return \
+       0;if(words[1]!=42)return 0;return saved();}class Pair{U8 \
+       different;};Counter=99;Remember();Remember();"
+      named_callback_checks;
+  List.iter
+    (fun text ->
+      with_file ".hc" text (fun path ->
+          List.iter
+            (fun (target, mode) ->
+              require
+                (final_bits (json_path ~target ~mode path)
+                = "0x000000000000002a")
+                "original named callback selection in streamed and \
+                 whole-source modes")
+            [ ("ir", "jit"); ("ir", "aot"); ("host-jit-task", "jit") ]))
+    [
+      "class Pair{I64 a;I64 b;};I64 Run(){Pair (*p)();p=42;return p;}Run();";
+      "class Pair{I64 a;I64 b;};I64 Run(){Pair (*p)();return \
+       34+sizeof(p);}Run();";
+      "class Pair{I64 a;I64 b;};I64 Consume(Pair (*q)()){return q;}I64 \
+       Run(){I64 (*p)(Pair (*q)()=42);p=&Consume;return p();}Run();";
+    ];
+  with_file ".hc"
+    "class Pair{I64 a;I64 b;};I64 Run(){I64 (*p)(Pair (*q)());p=42;return \
+     p(42);}Run();" (fun path ->
+      List.iter
+        (fun target ->
+          let result = json_path ~target ~status:1 path in
+          require
+            (has_diagnostic "HCIRVM0024" result)
+            "named parameter metadata cannot grant a numeric address an owner";
+          if target = "host-jit-task" then
+            require
+              (last_fragment result |> member "outcome" |> to_string = "fault")
+              "original numeric callback reaches native code")
+        [ "ir"; "host-jit-task" ]);
+  with_file ".hc"
+    "class Pair{I64 a;I64 b;};I64 Run(){Pair (*p)();p=42;return p();}Run();"
+    (fun path ->
+      require
+        (has_diagnostic "HCBACK0002" (json_path ~status:1 path))
+        "aggregate return metadata requires separate native execution authority");
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

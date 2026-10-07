@@ -73,10 +73,24 @@ val sequence_accepted : completed_sequence -> bool
     Later parent parsing or stream-generation failures do not revoke accepted
     child syntax. *)
 
+type named_aggregate_selection = private {
+  type_specifier : Ast.type_specifier;
+  identifier : Ast.identifier;
+  environment : Symbol_visibility.Environment.t;
+  entry : Symbol_visibility.entry;
+}
+(** Exact visible aggregate selected when the original named type token was
+    produced. [type_specifier] is the same AST node retained by the surrounding
+    function source witness and [identifier] is its exact named child. The entry
+    is a snapshot, not authority for a later lookup or parser phase. A captured
+    Class selection takes precedence over a coincident public primitive
+    spelling, matching the original token's selected hash entry. *)
+
 type local_source = private
   | Local_parameter of Ast.function_parameter
   | Local_variable of {
       local_type_specifier : Ast.type_specifier;
+      local_type_selection : named_aggregate_selection option;
       local_name : Ast.identifier;
       local_pointer_layers : Ast.pointer_layer list;
       local_array_dimensions : Ast.array_dimension list;
@@ -290,6 +304,7 @@ type declaration_header = private {
   binding : Ast.declaration_binding option;
   binding_preparation : internal_binding_preparation option;
   type_specifier : Ast.type_specifier;
+  declaration_type_selection : named_aggregate_selection option;
 }
 
 type global_activity
@@ -354,19 +369,6 @@ val initializer_delimiter_is_current : completed_initializer_delimiter -> bool
     predecessor chains retain ordering with leaves and other delimiters. *)
 
 type function_activity
-
-type named_aggregate_selection = private {
-  type_specifier : Ast.type_specifier;
-  identifier : Ast.identifier;
-  environment : Symbol_visibility.Environment.t;
-  entry : Symbol_visibility.entry;
-}
-(** Exact visible aggregate selected when the original named type token was
-    produced. [type_specifier] is the same AST node retained by the surrounding
-    function source witness and [identifier] is its exact named child. The entry
-    is a snapshot, not authority for a later lookup or parser phase. A captured
-    Class selection takes precedence over a coincident public primitive
-    spelling, matching the original token's selected hash entry. *)
 
 type function_publication = private {
   function_activity : function_activity;
@@ -544,6 +546,9 @@ type callback_signature_activity
 
 type callback_signature_publication = private {
   callback_command : command_start;
+  callback_return_type_specifier : Ast.type_specifier;
+  callback_return_selection : named_aggregate_selection option;
+  callback_return_pointer_layers : Ast.pointer_layer list;
   callback_opening : Ast.location;
   callback_indirection_layers : Ast.pointer_layer list;
   callback_activity : callback_signature_activity;
@@ -555,6 +560,7 @@ type callback_parameter_publication = private {
   callback_parameter_predecessor : completed_callback_parameter option;
   callback_parameter_register_qualifiers : Ast.register_qualifier list;
   callback_parameter_type_specifier : Ast.type_specifier;
+  callback_parameter_type_selection : named_aggregate_selection option;
   callback_parameter_pointer_layers : Ast.pointer_layer list;
   callback_parameter_name : Ast.identifier option;
   callback_parameter_function_pointer : Ast.function_pointer_declarator option;
