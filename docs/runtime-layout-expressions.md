@@ -37,7 +37,9 @@ domains, expiration and replay cannot authorize a layout result.
 Checked member dimensions identify their original member, command, table,
 namespace and predecessor chain. Intermediate aggregate sizes retain runtime
 dimension and offset dependencies. Completed `sizeof` values, derived bounds
-and automatic frames carry those dependencies too. Native source admission
+and automatic frames carry those dependencies too. [Inherited sizes](source-inherited-layouts.md)
+copy the original selected base's reached layout and its transitive dependencies.
+Native source admission
 checks them against the owning task's successful original executions. Standalone
 callable compilation continues to reject runtime-derived frames.
 

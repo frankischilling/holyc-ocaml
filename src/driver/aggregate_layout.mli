@@ -1,4 +1,5 @@
 val layout :
+  ?inherited_metadata:Sema.Compiler_record.inherited_metadata list ->
   ?offsets:
     (Frontend.Ast.expression ->
     (Sema.Compiler_record.aggregate_offset, string) result) ->
@@ -17,4 +18,5 @@ val layout :
     source command supplies its original checked member bounds through
     [prepared] and its original checked offsets through [offsets]. Both
     resolvers must return receipts for the exact expression/dimension and
-    semantic table. *)
+    semantic table. Original inherited metadata proofs preserve their reached
+    sizes separately; they cannot grant an object layout or member index. *)

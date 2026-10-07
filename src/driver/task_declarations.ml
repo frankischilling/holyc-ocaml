@@ -179,6 +179,7 @@ type reading_query = {
 type command = {
   calls : Sema.Function_call_phase.t list;
   namespace : Collection.namespace;
+  inherited_metadata : Sema.Compiler_record.inherited_metadata list;
   selected_aggregate_types :
     Sema.Source_type_reference.selected_aggregate Type_specifiers.t;
   function_headers :
@@ -1654,6 +1655,40 @@ let validate_implicit_output ledger selection ~execution =
                read"
         | _ -> ())
 
+let selected_base_record ledger (phase : Parser.aggregate_phase) =
+  match phase.phase_step with
+  | Parser.Aggregate_base_attached selection
+    when selection.base_environment == ledger.symbols -> (
+      match Entries.find_opt ledger.entries selection.base_entry with
+      | Some { publication; source = Aggregate _; _ } -> (
+          match
+            Collection.current_aggregate_publication ledger.namespace
+              publication
+          with
+          | None ->
+              Error "inherited class has no original canonical publication"
+          | Some current -> (
+              let selected =
+                Entries.fold
+                  (fun _ assigned found ->
+                    if assigned.publication == current then Some assigned.source
+                    else found)
+                  ledger.entries None
+              in
+              match selected with
+              | Some (Aggregate { record = Some (Ok record); _ }) ->
+                  Sema.Compiler_record.select_aggregate_base ~table:ledger.table
+                    ~namespace:ledger.namespace
+                    ~selected_publication:publication phase record
+              | Some (Aggregate { record = Some (Error message); _ }) ->
+                  Error message
+              | _ ->
+                  Error
+                    "inherited class lacks its current original layout record"))
+      | _ -> Error "inherited class has no original retained source publication"
+      )
+  | _ -> Error "inherited layout read belongs to another original base phase"
+
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
   | Parser.Defined_target _ | Parser.Offset_target _ -> None
@@ -2513,6 +2548,7 @@ let observe ?offset_runtime ledger event =
               | _ -> ());
               Sema.Compiler_record.advance_aggregate
                 ~callbacks:(completed_callback_header ledger)
+                ~bases:(selected_base_record ledger)
                 ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
                 progress phase
               |> checked phase.phase_location.span;
@@ -3438,6 +3474,30 @@ let seal ledger (ast : Ast.module_) =
                         else None)
                       ledger.implicit_outputs;
                 namespace = ledger.namespace;
+                inherited_metadata =
+                  List.filter_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Aggregate
+                          {
+                            completed =
+                              Some
+                                {
+                                  aggregate_item =
+                                    Ast.Aggregate_definition definition;
+                                  _;
+                                };
+                            record = Some (Ok record);
+                            _;
+                          }
+                        when Option.is_some definition.base ->
+                          Some
+                            (Sema.Compiler_record.retain_inherited_metadata
+                               ~table:ledger.table ~namespace:ledger.namespace
+                               definition record
+                            |> checked definition.location.span)
+                      | _ -> None)
+                    !claimed;
                 static_allocations =
                   List.rev ledger.static_allocations_rev
                   |> List.filter (fun allocation ->
@@ -4429,6 +4489,16 @@ let selected_type_resolver ~table ~ast (command : command) =
 
 let source_selected_type_resolver ~table ~ast (Source_command command) =
   selected_type_resolver ~table ~ast command
+
+let inherited_metadata ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "inherited metadata belongs to another original source command";
+      command.inherited_metadata)
+
+let source_inherited_metadata ~table ~ast (Source_command command) =
+  inherited_metadata ~table ~ast command
 
 let native_publication_event = function
   | Parser.Function_declared p -> Some p

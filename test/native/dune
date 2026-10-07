@@ -1331,6 +1331,28 @@
 
 (copy_files ../local_aggregate_cases.ml)
 
+(copy_files ../source_inherited_layout_cases.ml)
+
+(executable
+ (name test_native_source_inherited_layouts)
+ (modules test_native_source_inherited_layouts source_inherited_layout_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_inherited_layouts.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/source-inherited-layouts.hc)
+ (action
+  (run
+   %{exe:../test_source_inherited_layouts_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/source-inherited-layouts.hc}
+   --native)))
+
 (executable
  (name test_native_local_aggregates)
  (modules test_native_local_aggregates local_aggregate_cases)

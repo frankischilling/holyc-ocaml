@@ -28,6 +28,7 @@ val layout :
   ?callbacks:
     (Frontend.Ast.function_pointer_declarator ->
     Frontend.Parser.completed_callback_signature option) ->
+  ?initial_size:int64 ->
   offsets:(Frontend.Ast.expression -> (int64, string) result) ->
   dimensions:
     (Frontend.Ast.aggregate_member_declarator -> (int64 list, string) result) ->

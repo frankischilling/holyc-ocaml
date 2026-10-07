@@ -593,7 +593,7 @@ let resolve_definition ~table ~scope visible event header collected
                              (Sema.Member_collection.aggregate_scope collected)
                            ~item_index:event.ast.item_index members)))))
 
-let resolve_events ~table ~scope events headers collected =
+let resolve_events ~metadata_only ~table ~scope events headers collected =
   let rec resolve visible facts_rev events headers collected =
     match events with
     | [] ->
@@ -607,6 +607,11 @@ let resolve_events ~table ~scope events headers collected =
     | event :: rest -> (
         match event.ast.definition with
         | None ->
+            resolve
+              (String_map.add event.ast.identifier.spelling
+                 event.identity_symbol visible)
+              facts_rev rest headers collected
+        | Some definition when metadata_only definition ->
             resolve
               (String_map.add event.ast.identifier.spelling
                  event.identity_symbol visible)
@@ -629,7 +634,8 @@ let resolve_events ~table ~scope events headers collected =
   in
   resolve String_map.empty [] events headers collected
 
-let resolve ~table ~declarations ~aggregates ~headers ~members module_ =
+let resolve ?(inherited_metadata = []) ~table ~declarations ~aggregates ~headers
+    ~members module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic member declarations belong to a different symbol table"
@@ -639,6 +645,9 @@ let resolve ~table ~declarations ~aggregates ~headers ~members module_ =
     match events ~table ~declarations ~aggregates module_ with
     | Error _ as error -> error
     | Ok events ->
-        resolve_events ~table ~scope events
+        resolve_events
+          ~metadata_only:
+            (Inherited_metadata.contains ~table ~scope inherited_metadata)
+          ~table ~scope events
           (Sema.Aggregate_header_resolution.headers headers)
           (Sema.Member_collection.aggregates members)

@@ -73,9 +73,9 @@ module Offsets = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
-let layout ?(callbacks = fun _ -> None) ~offsets ~dimensions ~table ~namespace
-    ~symbol (definition : Ast.aggregate_definition) =
-  if Option.is_some definition.base then
+let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
+    ~table ~namespace ~symbol (definition : Ast.aggregate_definition) =
+  if Option.is_some definition.base <> Option.is_some initial_size then
     Error "retained aggregate bases require original selected layout metadata"
   else if definition.attached_declarators <> [] then
     Error "retained aggregate attached storage is not implemented"
@@ -211,20 +211,23 @@ let layout ?(callbacks = fun _ -> None) ~offsets ~dimensions ~table ~namespace
         members
       |> List.concat
     in
-    Layout.layout ~table ~parent
-      [
-        {
-          aggregate_symbol = symbol;
-          aggregate_scope = Member_collection.aggregate_scope collected;
-          aggregate_kind =
-            (match definition.aggregate_kind with
-            | Class_aggregate -> Layout.Class
-            | Union_aggregate -> Layout.Union);
-          aggregate_item_index = 0;
-          aggregate_origin = origin definition.location;
-          aggregate_base = None;
-          aggregate_items = items [] definition.members;
-        };
-      ]
+    let input : Layout.aggregate_input =
+      {
+        aggregate_symbol = symbol;
+        aggregate_scope = Member_collection.aggregate_scope collected;
+        aggregate_kind =
+          (match definition.aggregate_kind with
+          | Class_aggregate -> Layout.Class
+          | Union_aggregate -> Layout.Union);
+        aggregate_item_index = 0;
+        aggregate_origin = origin definition.location;
+        aggregate_base = None;
+        aggregate_items = items [] definition.members;
+      }
+    in
+    (match initial_size with
+      | None -> Layout.layout ~table ~parent [ input ]
+      | Some initial_size ->
+          Layout.layout_from_size ~table ~parent ~initial_size input)
     |> Result.map_error Layout.error_to_string
     |> Result.map (fun result -> (List.hd (Layout.layouts result)).size)

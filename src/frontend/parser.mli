@@ -711,7 +711,17 @@ val switch_completion_is_current : completed_switch -> bool
 
 type aggregate_activity
 
+type aggregate_base_selection = private {
+  base_ast : Ast.aggregate_base;
+  base_environment : Symbol_visibility.Environment.t;
+  base_entry : Symbol_visibility.entry;
+}
+(** The original class entry selected before the base name's following
+    lookahead. Its layout is read only at [Aggregate_base_attached], after that
+    lookahead and before validating the opening brace. *)
+
 type aggregate_step =
+  | Aggregate_base_attached of aggregate_base_selection
   | Aggregate_body_started of Ast.aggregate_base option
   | Aggregate_member_prepared of {
       member_type : Ast.type_specifier;

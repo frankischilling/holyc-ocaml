@@ -1,5 +1,12 @@
 # Reference source map
 
+Inherited size metadata follows `Compiler/PrsStmt.HC:46-57`: select the original
+base entry before following lookahead, then attach it and copy its reached size
+before opening-brace validation. `Compiler/PrsVar.HC:408,660-721` keeps the root
+union base at zero and applies original member sizes, offsets and padding.
+Opaque source proofs retain canonical forward identity and runtime dependencies.
+See [inherited layouts](source-inherited-layouts.md).
+
 Runtime layout expressions follow `Compiler/PrsVar.HC:247-283` bound execution before bracket validation, `PrsVar.HC:408-449` offset execution before semicolon validation, and `PrsVar.HC:660-721` member placement and completed layout. IR and native tasks retain original receipts, counts and dependencies. Their ownership and resource guards are hosted policy; this connection adds no TempleOS runtime capture. See [runtime layout expressions](runtime-layout-expressions.md).
 
 Live internal bindings follow `Compiler/PrsStmt.HC:1055-1061`: evaluate the

@@ -1,5 +1,11 @@
 # holyc-ocaml roadmap
 
+Original inherited size metadata now carries the selected base's reached layout
+and runtime dependencies into saved queries, defaults and frames. Partial bases,
+forward completion and same-name replacement follow the original parser phases.
+Aggregate object storage and member-index admission remain open. See
+[inherited layouts](docs/source-inherited-layouts.md).
+
 Issue #704 now connects integer runtime array bounds and aggregate `$$` offsets
 to original IR and native JIT task execution. Primitive member layouts retain
 runtime dependencies through completed sizes and derived frames. AOT relocation,

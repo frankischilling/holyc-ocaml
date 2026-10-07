@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Inherited metadata](source-inherited-layouts.md) copies the original selected
+base's reached size after lookahead. A completed extern forward retains its
+canonical identity; a new completed same-name class cannot replace a frozen
+selection. Runtime dependencies survive inheritance. This metadata supplies
+captured queries without admitting aggregate object storage or a member index.
+
 Ordinary JIT [runtime layout expressions](runtime-layout-expressions.md) execute integer array bounds and aggregate offsets in IR and native tasks. Global, automatic, static and primitive member extents keep their original counts and execution dependencies. Native completion requires the actual original scalar capture; AOT runtime relocation, floating bounds and aggregate object execution remain open.
 
 Ordinary JIT [live internal bindings](native-internal-bindings.md) evaluate

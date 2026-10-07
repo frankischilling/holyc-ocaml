@@ -211,6 +211,17 @@ end) : sig
       layout. *)
 
   val layouts : t -> aggregate_layout list
+
+  val layout_from_size :
+    table:Symbol_table.t ->
+    parent:Symbol_table.scope ->
+    initial_size:int64 ->
+    aggregate_input ->
+    (t, error) result
+  (** Pure metadata layout with an existing initial size. This grants no source,
+      storage or runtime authority. A declared base still requires its own
+      completed layout; this entry cannot substitute a size for it. *)
+
   val owns_table : t -> Symbol_table.t -> bool
   val find : t -> Symbol.t -> aggregate_layout option
   val error_code : error -> string

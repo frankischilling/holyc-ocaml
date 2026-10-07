@@ -107,7 +107,24 @@ type t = {
   internal : bool;
   runtime_dimensions : runtime_dimension_proposal list;
   runtime_offsets : aggregate_offset list;
+  aggregate_owner :
+    (Declaration_collection.namespace
+    * Declaration_collection.publication
+    * Parser.completed_aggregate option)
+    option;
   aggregate_stamp : (aggregate_stamp * unit ref) option;
+}
+
+type inherited_base = {
+  inherited_phase : Parser.aggregate_phase;
+  inherited_namespace : Declaration_collection.namespace;
+  inherited_selected : Declaration_collection.publication;
+  inherited_record : t;
+}
+
+type inherited_metadata = {
+  metadata_record : t;
+  metadata_definition : Ast.aggregate_definition;
 }
 
 type sizeof_owner =
@@ -531,6 +548,7 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           internal = true;
           runtime_dimensions = [];
           runtime_offsets = [];
+          aggregate_owner = None;
           aggregate_stamp = None;
         }
 
@@ -572,8 +590,80 @@ let seed_public_union ~table ~entry ~symbol
               internal = false;
               runtime_dimensions = [];
               runtime_offsets = [];
+              aggregate_owner = None;
               aggregate_stamp = None;
             }
+
+let aggregate_snapshot_is_current record =
+  Option.fold ~none:true
+    ~some:(fun (stamp, version) -> stamp.current_stamp == version)
+    record.aggregate_stamp
+
+let select_aggregate_base ~table ~namespace ~selected_publication
+    (phase : Parser.aggregate_phase) record =
+  let invalid () =
+    Error
+      "inherited layout requires the original selected class and current \
+       source record"
+  in
+  match
+    ( phase.phase_step,
+      Declaration_collection.publication_source_aggregate selected_publication,
+      record.aggregate_owner )
+  with
+  | ( Parser.Aggregate_base_attached selection,
+      Some selected,
+      Some (owner_namespace, owner_publication, _) ) ->
+      let same_identity =
+        match
+          ( Declaration_collection.publication_aggregate_identity
+              selected_publication,
+            Declaration_collection.publication_aggregate_identity
+              owner_publication )
+        with
+        | Some selected, Some owner -> selected == owner
+        | _ -> false
+      in
+      if
+        (not (Parser.aggregate_phase_is_current phase))
+        || record.table != table
+        || owner_namespace != namespace
+        || (not (Declaration_collection.namespace_owns_table namespace table))
+        || (not
+              (Declaration_collection.namespace_owns_publication namespace
+                 selected_publication))
+        || (not
+              (Declaration_collection.namespace_owns_publication namespace
+                 owner_publication))
+        || selected.aggregate_entry != selection.base_entry
+        || selected.aggregate_environment != selection.base_environment
+        || phase.phase_aggregate.aggregate_environment
+           != selection.base_environment
+        || record.symbol
+           != Declaration_collection.publication_symbol owner_publication
+        || (not same_identity)
+        || (not (aggregate_snapshot_is_current record))
+        || (not
+              (Option.fold ~none:false ~some:(( == ) owner_publication)
+                 (Declaration_collection.current_aggregate_publication namespace
+                    selected_publication)))
+        || not
+             (Option.fold ~none:false
+                ~some:(fun (source : Parser.aggregate_publication) ->
+                  source.aggregate_entry == record.entry
+                  && source.aggregate_environment == selection.base_environment)
+                (Declaration_collection.publication_source_aggregate
+                   owner_publication))
+      then invalid ()
+      else
+        Ok
+          {
+            inherited_phase = phase;
+            inherited_namespace = namespace;
+            inherited_selected = selected_publication;
+            inherited_record = record;
+          }
+  | _ -> invalid ()
 
 type aggregate_progress = {
   progress_compiler_positions : compiler_positions;
@@ -586,6 +676,9 @@ type aggregate_progress = {
   mutable progress_finished : bool;
   progress_stamp : aggregate_stamp;
   mutable progress_negative_offset : int64;
+  mutable progress_base_phase : Parser.aggregate_phase option;
+  mutable progress_base : inherited_base option;
+  mutable progress_body_started : bool;
   mutable progress_body_finished : bool;
   mutable progress_offset_attempt : Parser.aggregate_phase option;
   mutable progress_offsets : aggregate_offset list;
@@ -638,6 +731,9 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
           progress_finished = false;
           progress_stamp = stamp;
           progress_negative_offset = 0L;
+          progress_base_phase = None;
+          progress_base = None;
+          progress_body_started = false;
           progress_body_finished = false;
           progress_offset_attempt = None;
           progress_offsets = [];
@@ -652,6 +748,7 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
                 internal = false;
                 runtime_dimensions = [];
                 runtime_offsets = [];
+                aggregate_owner = Some (namespace, publication, None);
                 aggregate_stamp = Some (stamp, stamp.current_stamp);
               };
         }
@@ -666,8 +763,10 @@ let same_phase left right =
   | Some left, Some right -> left == right
   | _ -> false
 
-let advance_aggregate ?(callbacks = fun _ -> None) ~dimensions progress
-    (phase : Parser.aggregate_phase) =
+let advance_aggregate ?(callbacks = fun _ -> None)
+    ?(bases =
+      fun _ -> Error "inherited layout lacks its original selected record")
+    ~dimensions progress (phase : Parser.aggregate_phase) =
   if
     progress.progress_finished
     || phase.phase_aggregate != progress.progress_source
@@ -686,18 +785,58 @@ let advance_aggregate ?(callbacks = fun _ -> None) ~dimensions progress
     let* record, scopes =
       match phase.phase_step with
       | Parser.Aggregate_position_reset -> Ok (progress.progress_record, scopes)
+      | Parser.Aggregate_base_attached _ ->
+          if
+            Option.is_some progress.progress_phase
+            || progress.progress_body_started
+          then
+            Error "aggregate base has already been attached or its body started"
+          else (
+            progress.progress_base_phase <- Some phase;
+            let record =
+              let* record = progress.progress_record in
+              let* base = bases phase in
+              if
+                base.inherited_phase != phase
+                || base.inherited_namespace != progress.progress_namespace
+              then
+                Error "inherited layout proof belongs to another original phase"
+              else
+                let* base =
+                  select_aggregate_base ~table:record.table
+                    ~namespace:progress.progress_namespace
+                    ~selected_publication:base.inherited_selected phase
+                    base.inherited_record
+                in
+                progress.progress_base <- Some base;
+                Ok
+                  {
+                    record with
+                    byte_size = base.inherited_record.byte_size;
+                    runtime_dimensions =
+                      merge_dimension_dependencies record.runtime_dimensions
+                        base.inherited_record.runtime_dimensions;
+                    runtime_offsets =
+                      merge_offset_dependencies record.runtime_offsets
+                        base.inherited_record.runtime_offsets;
+                  }
+            in
+            Ok (record, scopes))
       | Parser.Aggregate_body_started base ->
-          if Option.is_some progress.progress_phase then
+          if progress.progress_body_started then
             Error "aggregate body has already started"
-          else
-            Ok
-              ( (match base with
-                | None -> progress.progress_record
-                | Some _ ->
-                    Error
-                      "retained aggregate bases require original selected \
-                       layout metadata"),
-                scopes )
+          else if
+            match (base, progress.progress_base_phase) with
+            | None, None -> false
+            | ( Some base,
+                Some
+                  { phase_step = Parser.Aggregate_base_attached selection; _ } )
+              -> selection.base_ast != base
+            | _ -> true
+          then Error "aggregate body substituted its original base selection"
+          else (
+            progress.progress_body_started <- true;
+            Ok (progress.progress_record, scopes))
       | Parser.Aggregate_union_entered ->
           let size =
             match progress.progress_record with
@@ -710,8 +849,11 @@ let advance_aggregate ?(callbacks = fun _ -> None) ~dimensions progress
           | _ :: (_ :: _ as rest) -> Ok (progress.progress_record, rest)
           | _ -> Error "aggregate union phase has no original enclosing scope")
       | Parser.Aggregate_body_finished ->
-          if progress.progress_body_finished || List.length scopes <> 1 then
-            Error "aggregate body completion has no original enclosing scope"
+          if
+            (not progress.progress_body_started)
+            || progress.progress_body_finished
+            || List.length scopes <> 1
+          then Error "aggregate body completion has no original enclosing scope"
           else (
             progress.progress_body_finished <- true;
             let record =
@@ -921,7 +1063,13 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
             | None ->
                 Error "aggregate offset lacks its original checked preparation"
           in
-          Source_aggregate_layout.layout ~callbacks ~offsets
+          let initial_size =
+            Option.bind progress (fun progress ->
+                Option.map
+                  (fun base -> base.inherited_record.byte_size)
+                  progress.progress_base)
+          in
+          Source_aggregate_layout.layout ~callbacks ?initial_size ~offsets
             ~dimensions:member_dimensions ~table ~namespace ~symbol definition
       | _ -> Error "aggregate completion has another original declaration"
     in
@@ -956,8 +1104,35 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
               | Ok record -> record.runtime_offsets
               | Error _ -> [])
             progress;
+        aggregate_owner = Some (namespace, publication, Some receipt);
         aggregate_stamp = None;
       }
+
+let retain_inherited_metadata ~table ~namespace definition record =
+  match record.aggregate_owner with
+  | Some
+      ( owner_namespace,
+        publication,
+        Some { aggregate_item = Ast.Aggregate_definition original; _ } )
+    when owner_namespace == namespace
+         && record.table == table && original == definition
+         && Option.is_some original.base
+         && Option.is_none record.aggregate_stamp
+         && Declaration_collection.namespace_owns_table namespace table
+         && Declaration_collection.namespace_owns_publication namespace
+              publication ->
+      Ok { metadata_record = record; metadata_definition = original }
+  | _ ->
+      Error "inherited metadata requires its original completed source layout"
+
+let inherited_metadata_owns_definition ~table ~scope definition metadata =
+  metadata.metadata_definition == definition
+  && metadata.metadata_record.table == table
+  &&
+  match metadata.metadata_record.aggregate_owner with
+  | Some (namespace, _, _) ->
+      Declaration_collection.namespace_scope namespace == scope
+  | None -> false
 
 let rebind_primitive ~table ~symbol record =
   if
@@ -1009,6 +1184,7 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
               List.concat_map dimension_runtime_dependencies dimensions;
             runtime_offsets =
               List.concat_map dimension_offset_dependencies dimensions;
+            aggregate_owner = None;
             aggregate_stamp = None;
           }
 
@@ -1193,6 +1369,7 @@ let bind_retained_scalar ~table ~entry global =
             internal = false;
             runtime_dimensions = [];
             runtime_offsets = [];
+            aggregate_owner = None;
             aggregate_stamp = None;
           }
     | Global_type_resolution.Object ->
@@ -1211,6 +1388,7 @@ let bind_retained_scalar ~table ~entry global =
             internal = false;
             runtime_dimensions = [];
             runtime_offsets = [];
+            aggregate_owner = None;
             aggregate_stamp = None;
           }
 
@@ -2176,6 +2354,7 @@ let bind_retained_global ~table ~entry ~record ~extent =
             internal = false;
             runtime_dimensions = global_extent_runtime_dependencies extent;
             runtime_offsets = global_extent_offset_dependencies extent;
+            aggregate_owner = None;
             aggregate_stamp = None;
           }
 

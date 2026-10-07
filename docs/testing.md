@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+Inherited layout fixtures run in both IR modes and native JIT. They cover
+original selected entries, partial and forward bases, lookahead replacement,
+unions, offsets, padding, saved queries/defaults and derived frames. Native
+checks require actual completed fragments with zero interpreted instructions.
+Authority controls reject copied definitions, foreign namespaces, stale records,
+expiration, replay and unexecuted transitive dimensions or offsets. API and CLI
+tests exercise exact and one-below preparation, execution, output, code and IR
+limits. See [inherited layouts](source-inherited-layouts.md).
+
 Runtime layout tests share original integer bounds and offsets between fresh IR
 and native source tasks. They cover strides, automatic and static timing, unused
 declarations, callbacks, saved arguments, primitive member layouts, historical
@@ -8,7 +17,8 @@ check actual capture identity, equal metadata, wrong work, foreign domains and
 arenas, collection, expiration and replay. The maintained
 `runtime-layout-expressions.hc` CLI test checks exact and one-below instruction,
 initializer, global and output limits; API tests check cumulative code and IR
-limits too. Class declarations inside functions keep their parser diagnostic.
+limits too. Class declarations inside functions publish during parsing, even
+when their functions are never called.
 
 Live internal bindings share fixtures in `test/internal_binding_cases.ml`.
 Three IR groups and four native groups exercise every supported integer

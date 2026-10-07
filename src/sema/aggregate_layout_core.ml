@@ -605,12 +605,12 @@ struct
                    size = layout.size;
                  }))
 
-  let lay_out_aggregate (previous : aggregate_layout Int_map.t)
+  let lay_out_aggregate ?initial_size (previous : aggregate_layout Int_map.t)
       (input : aggregate_input) =
     Result.bind (base_layout previous input) (fun base ->
         let initial_size =
           match base with
-          | None -> 0L
+          | None -> Option.value ~default:0L initial_size
           | Some base -> base.size
         in
         let state =
@@ -635,6 +635,17 @@ struct
                 })
               (checked_add input.aggregate_origin "the final aggregate size"
                  state.size state.negative_offset)))
+
+  let layout_from_size ~table ~parent ~initial_size input =
+    Result.bind (validate_inputs table parent [ input ]) (fun () ->
+        Result.map
+          (fun result ->
+            {
+              table;
+              layouts = [ result ];
+              by_symbol = Int_map.singleton (symbol_key result.symbol) result;
+            })
+          (lay_out_aggregate ~initial_size Int_map.empty input))
 
   let layout ~table ~parent inputs =
     Result.bind (validate_inputs table parent inputs) (fun () ->

@@ -48,8 +48,9 @@ The pinned `Compiler/PrsStmt.HC:1-60,1143-1159,1208-1218` provides global class
 publication and function statement delimiters. `Compiler/PrsVar.HC:286-368`
 provides backed inline types through the local declaration path.
 
-Executable aggregate objects and inherited layouts still need their existing
-storage and selected-layout support. Runtime AOT dimensions and offsets retain
+[Inherited size metadata](source-inherited-layouts.md) retains the original
+selected base and its reached layout. Executable aggregate objects still need
+their storage and member-index support. Runtime AOT dimensions and offsets retain
 their relocation and callable-authority limits; native AOT source execution and
 synchronous native StreamExePrint also remain open. Function `$$` addresses keep
 their code-address requirements. These parser and layout changes do not complete

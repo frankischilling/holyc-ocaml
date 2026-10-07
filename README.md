@@ -1,5 +1,13 @@
 # holyc-ocaml
 
+Inherited class and union sizes now retain the exact base selected by the
+original parser, including reached partial layouts and forward completion
+during JIT lookahead. Their runtime dependencies remain attached to saved
+queries, defaults and derived frames. The [inherited layout example](examples/source-inherited-layouts.hc)
+prints `dimoff42` and returns 42 in IR and native JIT. See
+[inherited metadata](docs/source-inherited-layouts.md) for source timing and the
+remaining aggregate object limits.
+
 Classes and unions inside function bodies now publish their types when the
 parser reaches them, including in uncalled functions. The
 [local aggregate example](examples/local-aggregate-declarations.hc) prints and

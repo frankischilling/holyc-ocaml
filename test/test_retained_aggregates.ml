@@ -32,8 +32,9 @@ let boundaries () =
   List.iter
     (fun mode ->
       ignore
-        (O.run ~mode {|#exe {class Base {I64 a;};class Child : Base {U8 b;};}|}
-        |> O.fault "HCRUN0001");
+        (O.run ~mode
+           {|#exe {class Base {I64 a;};class Child : Base {U8 b;};StreamPrint("%d;",sizeof(Child)+33);}|}
+        |> O.expect "");
       ignore
         (O.run ~mode {|#exe {class A {I64 x;};class B {A a;};}|}
         |> O.fault "HCRUN0001");

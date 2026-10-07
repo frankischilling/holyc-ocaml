@@ -894,6 +894,7 @@ and aggregate_publication = {
 }
 
 and aggregate_step =
+  | Aggregate_base_attached of aggregate_base_selection
   | Aggregate_body_started of Ast.aggregate_base option
   | Aggregate_member_prepared of {
       member_type : Ast.type_specifier;
@@ -907,6 +908,12 @@ and aggregate_step =
   | Aggregate_offset_reached of Ast.expression
   | Aggregate_body_finished
   | Aggregate_position_reset
+
+and aggregate_base_selection = {
+  base_ast : Ast.aggregate_base;
+  base_environment : Symbol_visibility.Environment.t;
+  base_entry : Symbol_visibility.entry;
+}
 
 and aggregate_phase = {
   phase_aggregate : aggregate_publication;
@@ -1245,6 +1252,7 @@ type parsed_aggregate_backing = {
 type parsed_aggregate_base = {
   node : Ast.aggregate_base;
   tokens : Token.t list;
+  base_selection : aggregate_base_selection;
 }
 
 type aggregate_parse_failure = { recovery_depth : int }
@@ -4156,6 +4164,17 @@ let parse_aggregate_base cursor =
         Ast.make_identifier ~spelling:base_item.token.raw
           ~location:(token_location base_item.token)
       in
+      let environment, entry = Option.get (selected_class cursor base_item) in
+      let tokens = [ colon_item.token; base_item.token ] in
+      let node =
+        Ast.make_aggregate_base ~colon_spelling:colon_item.token.raw
+          ~colon_location:(token_location colon_item.token)
+          ~name:base_name
+          ~location:(location_from_expression_tokens tokens)
+      in
+      let selection =
+        { base_ast = node; base_environment = environment; base_entry = entry }
+      in
       let following_item = peek cursor in
       if following_item.token.kind = Token_kind.Punctuation ',' then (
         report cursor following_item ~code:"HCPARSE0126"
@@ -4167,14 +4186,10 @@ let parse_aggregate_base cursor =
         recover_aggregate_declaration cursor ~depth:0;
         None)
       else
-        let tokens = [ colon_item.token; base_item.token ] in
-        let node =
-          Ast.make_aggregate_base ~colon_spelling:colon_item.token.raw
-            ~colon_location:(token_location colon_item.token)
-            ~name:base_name
-            ~location:(location_from_expression_tokens tokens)
-        in
-        Some (Some ({ node; tokens } : parsed_aggregate_base))
+        Some
+          (Some
+             ({ node; tokens; base_selection = selection }
+               : parsed_aggregate_base))
 
 let parse_binding cursor =
   let item = peek cursor in
@@ -5379,6 +5394,11 @@ let parse_aggregate_definition ?(local = false) ?(type_tail = false)
     | None -> None
     | Some base -> (
         let opening_item = peek cursor in
+        Option.iter
+          (fun (base : parsed_aggregate_base) ->
+            advance_aggregate cursor opening_item publication
+              (Aggregate_base_attached base.base_selection))
+          base;
         if opening_item.token.kind <> Token_kind.Punctuation '{' then (
           report cursor opening_item ~code:"HCPARSE0110"
             ~message:

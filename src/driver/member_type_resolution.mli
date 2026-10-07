@@ -1,4 +1,5 @@
 val resolve :
+  ?inherited_metadata:Sema.Compiler_record.inherited_metadata list ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->
   aggregates:Sema.Aggregate_resolution.t ->
@@ -8,4 +9,5 @@ val resolve :
   (Sema.Member_type_resolution.t, string) result
 (** Bind aggregate member type references to the canonical identities visible at
     each definition. Array extents and recursive callback signatures remain
-    unresolved. *)
+    unresolved. Original inherited metadata definitions do not acquire an object
+    member index. *)

@@ -13650,5 +13650,37 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source_identity = "Each original layout expression retains its typed root, task snapshot, namespace, parser receipt and predecessor chain. Native results require the physical original program, actual execution work and a live arena, and are consumed once."
 execution = "Bounds and offsets execute during their original parser callbacks. Counts fix global, automatic, static and primitive member dimensions. Class and union layouts preserve runtime dependencies through compiler positions, completed sizes, derived bounds and frames. Effects and output survive later syntax and allocation failures. Native execution uses zero interpreted instructions."
 verification = "Shared IR/native sources cover strides, unused declarations, repeated and historical functions, direct and callback calls, saved arguments, internal calls, primitive members, nested unions, negative offsets, compiler positions, size chains and prior ordinary results. Actual native captures reject equal metadata, substituted images, foreign domains and arenas, wrong work, expiration and replay while surviving collection. API and CLI controls exercise exact and one-below instruction, initializer, output, global, code and IR limits. Both private image ABIs compile and the host ABI executes."
-verification_boundary = "Guarded hosted integer execution adds no TempleOS runtime capture, AOT relocation, aggregate object execution, native stream support, exported ABI or loader acceptance."
-excluded = ["runtime floating bounds", "class definitions inside function bodies", "aggregate object execution", "AOT runtime relocation", "native streams and #exe", "exported HolyC ABI", "object/BIN output and actual loader acceptance", "whole-tree compiler and bootstrap", "complete compiler and release"]
+verification_boundary = "Guarded hosted integer execution adds no TempleOS runtime capture, AOT relocation, aggregate object execution, native AOT stream execution, exported ABI or loader acceptance."
+excluded = ["runtime floating bounds", "aggregate object execution", "AOT runtime relocation", "synchronous native StreamExePrint", "exported HolyC ABI", "object/BIN output and actual loader acceptance", "whole-tree compiler and bootstrap", "complete compiler and release"]
+
+[[feature]]
+id = "HC-STATEMENT-AGGREGATE-DECLARATIONS"
+description = "Classes and unions in function and statement bodies publish original global types during parsing."
+sources = ["Compiler/PrsStmt.HC:1-60 class publication", "Compiler/PrsStmt.HC:1143-1159 statement declarations", "Compiler/PrsStmt.HC:1208-1218 statement delimiters", "Compiler/PrsVar.HC:286-368 backed inline local declarations"]
+implementation = ["src/frontend/parser.ml", "src/frontend/ast.ml", "src/driver/task_declarations.ml", "src/sema/compiler_record.ml"]
+tests = ["test/local_aggregate_cases.ml", "test/test_local_aggregates.ml", "test/native/test_native_local_aggregates.ml", "test/test_local_aggregates_cli.ml", "examples/local-aggregate-declarations.hc"]
+documentation = ["docs/local-aggregate-declarations.md", "docs/runtime-layout-expressions.md", "docs/testing.md", "README.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Statement ASTs retain exact completed aggregate items. Shared lexical declaration indices include nested declarations. Saved type selections, queries and defaults retain their original source occurrences."
+execution = "Type publication and original bounds and offsets occur during parsing, including in uncalled functions. Metadata statements emit no runtime operation; native calls and layout preparation still execute their original machine entries with zero interpreted instructions."
+verification = "Parser, semantic, IR and native tests cover comma definitions and forwards, global visibility, source indices, historical type replacement, inline local types, original callbacks, runtime effects, reached failures and resource limits."
+verification_boundary = "Type publication grants no aggregate object execution, AOT runtime relocation, raw code-address authority or complete compiler acceptance."
+excluded = ["aggregate object execution", "AOT runtime relocation", "native AOT sessions", "synchronous native StreamExePrint", "exported HolyC ABI", "object/BIN loader", "whole-tree compilation and bootstrap", "complete compiler and release"]
+
+[[feature]]
+id = "HC-SOURCE-INHERITED-LAYOUT-METADATA"
+description = "Original inherited size metadata copies the selected base's reached layout and transitive runtime dependencies."
+sources = ["Compiler/PrsStmt.HC:46-57 base selection before following lookahead and size copy after it", "Compiler/PrsVar.HC:408 root union base zero", "Compiler/PrsVar.HC:660-721 original member placement and padding"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/declaration_collection.ml", "src/sema/source_aggregate_layout.ml", "src/sema/aggregate_layout_core.ml", "src/driver/task_declarations.ml", "src/driver/inherited_metadata.ml", "src/driver/integer_source.ml"]
+tests = ["test/source_inherited_layout_cases.ml", "test/test_source_inherited_layouts.ml", "test/test_source_inherited_layout_authority.ml", "test/native/test_native_source_inherited_layouts.ml", "test/test_source_inherited_layouts_cli.ml", "examples/source-inherited-layouts.hc"]
+documentation = ["docs/source-inherited-layouts.md", "docs/local-aggregate-declarations.md", "docs/runtime-layout-expressions.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The parser freezes the physical selected class entry before following lookahead. Attachment reads only the current original record of its exact canonical identity; completing the original forward may change that record, while a fresh same-name definition cannot. Original completed metadata proofs retain exact definitions and namespace ownership."
+execution = "Original base size is copied once before brace validation. Member placement, offsets and padding retain original source phases. Runtime dimensions and offsets execute once, and their dependencies propagate through inherited sizes, saved queries, defaults, derived bounds and frames. Native source runs require actual machine fragments with zero interpreted instructions."
+verification = "Shared IR/native fixtures cover partial, forward and self bases, lookahead completion and replacement, union overlap, offsets, padding, pointer/callback members, uncalled functions, history, effects, malformed input and overflow. Authority controls reject foreign namespaces/tables, equal records from another class, stale snapshots, copied definitions, expiration and replay. Unexecuted inherited dimensions and offsets cannot authorize task or isolated preparation. API/CLI tests check exact and one-below source, execution, output, code and IR limits."
+verification_boundary = "Inherited metadata supplies captured size queries without admitting aggregate objects or a member index. Ordinary semantic layout APIs retain their completed-base requirements. Hosted execution adds no TempleOS runtime capture or full compiler acceptance."
+excluded = ["aggregate object execution and retained member indexes", "runtime AOT relocation", "native AOT source execution", "synchronous native StreamExePrint", "wider ABI", "object/BIN loader", "whole-tree compilation and bootstrap", "complete compiler and release"]

@@ -147,21 +147,32 @@ let prepare_unit ?environment:task_environment ?declaration_command
   let* aggregates =
     Aggregate_resolution.resolve ~table ~declarations ast |> checked
   in
+  let* inherited_metadata =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.inherited_metadata ~table ~ast command
+    | None, Some command ->
+        Task_declarations.source_inherited_metadata ~table ~ast command
+    | None, None -> Ok []
+    | Some _, Some _ -> assert false
+  in
   let* headers =
-    Aggregate_header_resolution.resolve ~table ~declarations ~aggregates ast
+    Aggregate_header_resolution.resolve ~inherited_metadata ~table ~declarations
+      ~aggregates ast
     |> checked
   in
   let* collected_members =
-    Member_collection.collect ~table ~declarations ast |> checked
+    Member_collection.collect ~inherited_metadata ~table ~declarations ast
+    |> checked
   in
   let* members =
-    Member_type_resolution.resolve ~table ~declarations ~aggregates ~headers
-      ~members:collected_members ast
+    Member_type_resolution.resolve ~inherited_metadata ~table ~declarations
+      ~aggregates ~headers ~members:collected_members ast
     |> checked
   in
   let* layouts =
-    Aggregate_layout.layout ?offsets ?prepared ~table ~declarations ~aggregates
-      ~headers ~members ast
+    Aggregate_layout.layout ~inherited_metadata ?offsets ?prepared ~table
+      ~declarations ~aggregates ~headers ~members ast
     |> checked
   in
   let* members =

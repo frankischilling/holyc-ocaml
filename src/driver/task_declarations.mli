@@ -212,6 +212,14 @@ val complete_initializer_runtime :
 
 type command
 
+val inherited_metadata :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Sema.Compiler_record.inherited_metadata list,
+    Common.Diagnostic.t list )
+  result
+
 val selected_type_resolver :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -251,6 +259,14 @@ val implicit_output_resolver :
 *)
 
 type source_command
+
+val source_inherited_metadata :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Sema.Compiler_record.inherited_metadata list,
+    Common.Diagnostic.t list )
+  result
 
 val source_selected_type_resolver :
   table:Sema.Symbol_table.t ->

@@ -212,7 +212,7 @@ let resolve_base visible (base : Frontend.Ast.aggregate_base) =
         ~name_origin:(origin base.base_name.location)
         ~symbol
 
-let resolve_events ~table ~scope events =
+let resolve_events ~metadata_only ~table ~scope events =
   let rec resolve visible headers_rev = function
     | [] ->
         Sema.Aggregate_header_resolution.resolve ~table ~parent:scope
@@ -221,6 +221,10 @@ let resolve_events ~table ~scope events =
         let name = event.ast.identifier.spelling in
         match event.ast.definition with
         | None ->
+            resolve
+              (String_map.add name event.identity_symbol visible)
+              headers_rev rest
+        | Some definition when metadata_only definition ->
             resolve
               (String_map.add name event.identity_symbol visible)
               headers_rev rest
@@ -262,7 +266,8 @@ let resolve_events ~table ~scope events =
   in
   resolve String_map.empty [] events
 
-let resolve ~table ~declarations ~aggregates module_ =
+let resolve ?(inherited_metadata = []) ~table ~declarations ~aggregates module_
+    =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic aggregate declarations belong to a different symbol table"
@@ -271,4 +276,8 @@ let resolve ~table ~declarations ~aggregates module_ =
   else
     match events ~table ~declarations ~aggregates module_ with
     | Error _ as error -> error
-    | Ok events -> resolve_events ~table ~scope events
+    | Ok events ->
+        resolve_events
+          ~metadata_only:
+            (Inherited_metadata.contains ~table ~scope inherited_metadata)
+          ~table ~scope events

@@ -137,6 +137,8 @@ val published_scalar :
     and function-pointer signatures still need separate checked metadata. *)
 
 type aggregate_progress
+type inherited_base
+type inherited_metadata
 type aggregate_offset
 type runtime_aggregate_offset
 type compiler_position
@@ -227,10 +229,24 @@ val aggregate_metadata : aggregate_progress -> (t, string) result
 (** An immutable snapshot of reached layout, not storage or command authority.
     Advancing invalidates this snapshot for new reads, not consumed queries. *)
 
+val select_aggregate_base :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  selected_publication:Declaration_collection.publication ->
+  Frontend.Parser.aggregate_phase ->
+  t ->
+  (inherited_base, string) result
+(** Read the current original layout of the exact class entry selected before
+    lookahead, during its live base attachment. Only completion of that entry's
+    original forward identity may supply a newer publication. The opaque proof
+    preserves runtime dependencies and grants no storage or executable
+    authority. *)
+
 val advance_aggregate :
   ?callbacks:
     (Frontend.Ast.function_pointer_declarator ->
     Frontend.Parser.completed_callback_signature option) ->
+  ?bases:(Frontend.Parser.aggregate_phase -> (inherited_base, string) result) ->
   dimensions:(Frontend.Ast.array_dimension -> declared_dimension option) ->
   aggregate_progress ->
   Frontend.Parser.aggregate_phase ->
@@ -251,6 +267,22 @@ val complete_aggregate :
   (t, string) result
 (** Compute original completed aggregate metadata during its live callback. An
     arbitrary layout or a matching symbol cannot supply the size. *)
+
+val retain_inherited_metadata :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Frontend.Ast.aggregate_definition ->
+  t ->
+  (inherited_metadata, string) result
+(** Preserve a completed original inherited layout for metadata queries. This
+    does not admit an aggregate object or a member index. *)
+
+val inherited_metadata_owns_definition :
+  table:Symbol_table.t ->
+  scope:Symbol_table.scope ->
+  Frontend.Ast.aggregate_definition ->
+  inherited_metadata ->
+  bool
 
 val bind_retained_scalar :
   table:Symbol_table.t ->
