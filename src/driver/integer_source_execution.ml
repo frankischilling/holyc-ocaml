@@ -258,8 +258,7 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
             providers_installed := true;
             Ok ()
         in
-        Task.stream_executor ~allow_stream_exe_print:(not is_jit) retained
-          directive
+        Task.stream_executor retained directive
       in
       let commands : Parser.command_sink =
         {

@@ -20,21 +20,21 @@ let unwrap = function
 let rejects label result =
   Alcotest.(check bool) label true (Result.is_error result)
 
-let inputs ?max_generated_bytes text =
+let inputs ?(mode = Preprocessor.Jit) ?max_generated_bytes text =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-stream-generation.hc"
       ~contents:(Cases.headers ^ text)
   in
   let config =
-    Preprocessor.Config.create ~compilation_mode:Jit ?max_generated_bytes ()
+    Preprocessor.Config.create ~compilation_mode:mode ?max_generated_bytes ()
     |> Result.get_ok
   in
   (session, source, config)
 
-let run ?max_generated_bytes ?max_output_bytes ?max_output_work ?max_steps text
-    =
-  let session, source, config = inputs ?max_generated_bytes text in
+let run ?mode ?max_generated_bytes ?max_output_bytes ?max_output_work ?max_steps
+    text =
+  let session, source, config = inputs ?mode ?max_generated_bytes text in
   Native.evaluate ~max_code_bytes:524_288 ?max_output_bytes ?max_output_work
     session ~source ~config
     ~max_steps:(Option.value ~default:100_000 max_steps)
@@ -146,6 +146,44 @@ let quotas () =
   let small = run ~max_generated_bytes:5 Cases.two_streams in
   failure "HCIRVM0028" small;
   Alcotest.(check int) "previous stream stays charged" 3 (generated small)
+
+let synchronous_boundary () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let report = run ~mode source in
+          failure "HCIRVM0027" report;
+          let errors = Native.outcome report |> Result.get_error in
+          Alcotest.(check bool)
+            "active block identifies the missing native bridge" true
+            (List.exists
+               (fun (error : Diagnostic.t) ->
+                 error.message
+                 = "native StreamExePrint requires the synchronous parser \
+                    bridge")
+               errors);
+          Alcotest.(check bool)
+            "native source formatting happens before its bridge boundary" true
+            (Native.output_work report > 0);
+          Alcotest.(check int)
+            "no interpreted child" 0
+            (Option.get (Native.source_progress report)).runtime.executed_steps;
+          Alcotest.(check bool)
+            "original entry reaches its machine boundary" true
+            (List.exists
+               (fun (fragment : Native.fragment) ->
+                 match fragment.native_outcome with
+                 | Some (Ok (Image.Fault fault)) ->
+                     fault.kind = Image.Stream_exe_context_required
+                 | _ -> false)
+               (Native.fragments report)))
+        [
+          {|#exe {StreamExePrint("40+2;");}|};
+          {|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;p("40+2;");}|};
+          {|#exe {I64 F(I64 (*p)(U8 *fmt,...)=&StreamExePrint){return p("40+2;");}F();}|};
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let capture_authority () =
   let module Task = Holyc_lib__Driver.Integer_task in
@@ -288,6 +326,8 @@ let () =
           Alcotest.test_case "values and retained owners" `Quick values;
           Alcotest.test_case "reached failures" `Quick failures;
           Alcotest.test_case "shared work and cumulative bytes" `Quick quotas;
+          Alcotest.test_case "active blocks retain the native bridge boundary"
+            `Quick synchronous_boundary;
           Alcotest.test_case "executed capture identity and lifetime" `Quick
             capture_authority;
         ] );

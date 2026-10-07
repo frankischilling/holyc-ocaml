@@ -8315,8 +8315,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 let formatted = Output.contents output in
                 match stream_exe_print with
                 | None ->
-                    error "HCIRVM0027"
-                      "only allowed in AOT compiled #exe{} mode"
+                    error "HCIRVM0027" "requires an active #exe parser context"
                 | Some execute ->
                     let frame_bytes =
                       !live_frame_bytes + (8 * Array.length parameter_types)
@@ -11300,6 +11299,9 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
 let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
     ~runtime_calls ~globals ~initialization ~functions checked =
   task.source_promotion_open <- false;
+  (* The synchronous stream callback alone reserves nested source depth.
+     Original child parser receipts still govern admission while the caller's
+     declaration-time evaluation remains suspended. *)
   let available_frame_bytes = task.max_frame_bytes - task.nested_frame_bytes in
   let available_call_depth = task.max_call_depth - task.nested_call_depth in
   let result =
@@ -11316,11 +11318,12 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
             (List.for_all
                (Sema.Source_activation.command_admission task.source_activation)
                (Integer_globals.source_command_receipts globals)))
-      || List.exists
-           (fun attempt ->
-             attempt.offset_state = Preparing_initializer
-             || attempt.offset_state = Executing_initializer)
-           task.runtime_offsets
+      || task.nested_source_depth = 0
+         && List.exists
+              (fun attempt ->
+                attempt.offset_state = Preparing_initializer
+                || attempt.offset_state = Executing_initializer)
+              task.runtime_offsets
     then
       Error
         [
@@ -11329,28 +11332,28 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
         ]
     else if
       task.nested_source_depth = 0
-      && List.exists
-           (fun state ->
-             (not (initializer_is_idle state))
-             && not
-                  (Integer_globals.declared_initializer_failed
-                     state.initializer_slot))
-           task.initializers
-      || List.exists
-           (fun attempt ->
-             attempt.default_state = Preparing_initializer
-             || attempt.default_state = Executing_initializer)
-           task.defaults
-      || List.exists
-           (fun attempt ->
-             attempt.dimension_state = Preparing_initializer
-             || attempt.dimension_state = Executing_initializer)
-           task.dimensions
-      || List.exists
-           (fun attempt ->
-             attempt.internal_binding_state = Preparing_initializer
-             || attempt.internal_binding_state = Executing_initializer)
-           task.internal_bindings
+      && (List.exists
+            (fun state ->
+              (not (initializer_is_idle state))
+              && not
+                   (Integer_globals.declared_initializer_failed
+                      state.initializer_slot))
+            task.initializers
+         || List.exists
+              (fun attempt ->
+                attempt.default_state = Preparing_initializer
+                || attempt.default_state = Executing_initializer)
+              task.defaults
+         || List.exists
+              (fun attempt ->
+                attempt.dimension_state = Preparing_initializer
+                || attempt.dimension_state = Executing_initializer)
+              task.dimensions
+         || List.exists
+              (fun attempt ->
+                attempt.internal_binding_state = Preparing_initializer
+                || attempt.internal_binding_state = Executing_initializer)
+              task.internal_bindings)
     then
       Error
         [

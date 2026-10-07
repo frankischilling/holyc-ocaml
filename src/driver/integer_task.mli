@@ -774,8 +774,10 @@ val stream_executor :
     only stream commands; an unobserved outer parser must use a distinct
     frontend environment. Within the stream, original initializer leaves finish
     before later leaves and reuse their retained storage at command completion.
-    This does not execute the outer unit or provide a whole-invocation report.
-*)
+    [allow_stream_exe_print] defaults to [true] for this active [#exe] block in
+    both outer compilation modes. Ordinary nested source does not inherit that
+    permission; a nested [#exe] establishes its own active context. This does
+    not execute the outer unit or provide a whole-invocation report. *)
 
 val run_suspended :
   t -> source:Common.Source_file.t -> (unit, Common.Diagnostic.t list) result

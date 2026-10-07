@@ -2452,7 +2452,7 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
             (stream_diagnostics span
                "HCIRVM0027: source sequence has not been accepted") )
 
-let rec stream_executor ?(allow_stream_exe_print = false) task span =
+let rec stream_executor ?(allow_stream_exe_print = true) task span =
   let ( let* ) = Result.bind in
   let* stream =
     begin_stream task |> Result.map_error (stream_diagnostics span)
@@ -2516,8 +2516,8 @@ and run_stream_exe_source task ~active ~span contents =
   Frontend.Symbol_visibility.Environment.without_locals
     (Session.symbols task.session) (fun () ->
       let* sequence, final_value =
-        run_input_execution ~suspension ~use_active_stream:false
-          ~allow_stream_exe_print:true ~active task ~source
+        run_input_execution ~suspension ~use_active_stream:false ~active task
+          ~source
       in
       let* () =
         VM.check_task_suspended_completion task.state ~suspension sequence
@@ -2536,7 +2536,7 @@ and run_stream_exe_source task ~active ~span contents =
            final_value))
 
 and run_input_execution ?suspension ?(use_active_stream = true)
-    ?(allow_stream_exe_print = false) ?(active = fun () -> Ok ()) task ~source =
+    ?(active = fun () -> Ok ()) task ~source =
   let ( let* ) = Result.bind in
   let* () =
     match
@@ -2553,39 +2553,32 @@ and run_input_execution ?suspension ?(use_active_stream = true)
               "HCRUN0004" "task input is not the exact registered source";
           ]
   in
-  let stream_exe_print =
-    if allow_stream_exe_print then
-      Some
-        (run_stream_exe_source task ~active
-           ~span:(Integer_source.source_span source))
-    else None
-  in
   let execute_command command =
     match task.native_dispatch with
     | Some _ -> execute_source task command
     | None ->
-        execute_internal ~use_active_stream ?stream_exe_print task command
+        execute_internal ~use_active_stream task command
         |> Result.map (fun execution ->
             Option.map native_word_of_vm (VM.final_value execution))
   in
   let commands, completed =
     execution_commands task
       (Integer_source.source_span source)
-      ~use_active_stream ?stream_exe_print ~active ~execute_command
+      ~use_active_stream ~active ~execute_command
   in
   let* parsed =
     match suspension with
     | None ->
         Ok
           (Frontend.Parser.parse ~commands
-             ~execute_stream:(stream_executor ~allow_stream_exe_print task)
+             ~execute_stream:(stream_executor task)
              ~sources:(Session.sources task.session)
              ~definitions:(Session.definitions task.session)
              ~symbols:(Session.symbols task.session)
              ~config:task.config source)
     | Some suspension ->
         Frontend.Parser.parse_suspended suspension ~commands
-          ~execute_stream:(stream_executor ~allow_stream_exe_print task)
+          ~execute_stream:(stream_executor task)
           ~sources:(Session.sources task.session)
           ~definitions:(Session.definitions task.session)
           ~symbols:(Session.symbols task.session)

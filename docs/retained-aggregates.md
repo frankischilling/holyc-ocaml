@@ -218,11 +218,13 @@ Failed preparation and execution consume their original attempt; later layout
 completion never reevaluates the expression. The authority tests also reject
 substituted typed roots, preparation counts, snapshots and replay.
 
-StreamExePrint nested source uses the same retained task and exact suspended
+JIT StreamExePrint nested source uses the same retained task and exact suspended
 parser authority. It can publish declarations into that task, but it does not
 create independent aggregate-layout authority. Existing size, position and
 runtime-offset dependencies still require their original parser and execution
 receipts before a later nested source can consume them.
+The AOT child still needs the saved enclosing compiler table; its present use
+of the detached directive task does not establish AOT namespace parity.
 
 ## Remaining work
 

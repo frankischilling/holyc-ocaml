@@ -241,6 +241,16 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       in
       let execute ?max_activation_steps kind image =
         let metadata = describe_image image in
+        let active_stream_context =
+          Option.fold ~none:false
+            ~some:(fun generation ->
+              match
+                Ir.Integer_interpreter.native_generation_limits generation
+              with
+              | Ok (active, _, _) -> active
+              | Error _ -> false)
+            (Image.generation image)
+        in
         let retained =
           match kind with
           | Aot_module ->
@@ -282,14 +292,12 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   let error =
                     if
                       fault.kind = Image.Stream_exe_context_required
-                      && Frontend.Preprocessor.Config.compilation_mode config
-                         = Aot
-                      && kind <> Aot_module
+                      && active_stream_context
                     then
                       {
                         error with
                         message =
-                          "native AOT StreamExePrint requires the synchronous \
+                          "native StreamExePrint requires the synchronous \
                            parser bridge";
                       }
                     else error

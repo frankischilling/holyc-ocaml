@@ -1010,8 +1010,7 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
     | Image.Stream_context_required ->
         ("HCIRVM0027", "StreamPrint: requires an active task generation buffer")
     | Image.Stream_exe_context_required ->
-        ( "HCIRVM0027",
-          "StreamExePrint: only allowed in AOT compiled #exe{} mode" )
+        ("HCIRVM0027", "StreamExePrint: requires an active #exe parser context")
     | Image.Output_limit_exceeded ->
         ("HCIRVM0022", "runtime output exceeds the output byte limit")
     | Image.Output_work_limit_exceeded ->

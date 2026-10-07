@@ -477,13 +477,20 @@ the same retained task. Journaling, single-use authority, quota checks and
 separate compiled-unit inspection are hosted implementation controls. They do
 not establish native execution equivalence beyond the audited source behavior.
 
-`Compiler/CMain.HC:673-688` defines StreamExePrint as formatted source execution
+`Compiler/CMain.HC:673-690` defines StreamExePrint as formatted source execution
 through `ExePutS` with `cc->htc.next`, and `Compiler/CompilerB.HH:21` publishes
-its variadic I64 signature. The hosted AOT service executes a separately tracked
-`<StreamExePrint>` source through the retained outer task context with function
-locals hidden. The nested parser keeps the existing suspension and command-order
-ownership checks. JIT retains the source ordering in which formatting happens
-before the compiled-`#exe` requirement is rejected.
+its variadic I64 signature. `Compiler/PrsStmt.HC:805-840` sets `CCF_EXE_BLK`
+unconditionally for both outer modes. The service checks that bit after
+formatting, despite the AOT wording in its diagnostic. `ExePutS` at
+`Compiler/CMain.HC:572-604` copies the saved tables but inherits only the assembly
+flag, so ordinary child source has no active-block permission.
+
+The IR service executes a separately tracked `<StreamExePrint>` source with
+function locals hidden. Its nested parser retains original suspension and
+command-order ownership. JIT namespace lookup and declaration-time execution
+use the retained task. AOT saved-table lookup and publication remain unfinished:
+the hosted child currently uses the detached task table. Native synchronous
+execution in both modes remains unfinished as well.
 
 [Partial task storage](integer-task.md) follows the pinned
 `Compiler/PrsStmt.HC:334-435` allocation and publication path. Global storage

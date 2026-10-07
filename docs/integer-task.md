@@ -512,23 +512,40 @@ remain part of the complete #635 connection below.
 
 `extern I64 StreamExePrint(U8 *fmt,...);` is a separate service. The pinned
 compiler formats the call and executes the resulting text through the enclosing
-compiler hash-table context. Hosted AOT execution follows that boundary by
-formatting with the shared checked formatter, creating a `<StreamExePrint>`
-source, and resuming the task parser with function locals hidden. The nested
-source therefore sees the current outer task declarations and replacements. Its
-final integer value is returned to the caller, or zero when the nested source has
-no final value. Declarations reached by the nested source remain published in the
-same task.
+compiler hash-table context. `PrsStreamBlk` sets `CCF_EXE_BLK` in both JIT and AOT
+outer modes; `StreamExePrint` checks that bit after formatting. The wording of
+the reference error does not impose an AOT-only condition.
+
+The IR service creates a `<StreamExePrint>` source and resumes the original task
+parser with function locals hidden. JIT nested source sees the task's original
+declarations and replacements, and its reached declarations remain published in
+that task. Its final integer value is returned to the caller, or zero when it
+has no final value. The child starts without `CCF_EXE_BLK`; its ordinary commands
+cannot call StreamExePrint again. A child `#exe` establishes its own permission,
+which ends when that directive returns. Retained bodies and callbacks use the
+active invocation's context.
 
 StreamExePrint text is executed directly and is never injected into the active
 StreamPrint buffer. Formatting shares the task output-work budget and is bounded
 by `max_generated_bytes`, but those bytes do not increment `generated_bytes`.
 Nested execution shares cumulative instruction, frame-byte and call-depth
 limits. Reached ordinary output and task effects remain visible when nested
-execution later fails. JIT calls still perform checked formatting first, then
-report HCIRVM0027 because the pinned service requires compiled `#exe` mode.
+execution later fails. Inactive calls perform checked formatting first, then
+report HCIRVM0027. Original initializer, saved-default, dimension and offset
+evaluations can suspend for nested commands without releasing the caller's
+frame or admitting an unrelated preparation attempt. Integer defaults can use
+existing owned format buffers during IR evaluation. A miscellaneous-data
+integer default still requires the reference's result-string copy semantics
+and remains rejected by this path.
 Suspended parser ownership remains exact, so stale, foreign or reconstructed
 completion evidence cannot authorize the nested source.
+
+AOT nested source still uses the detached directive task's table. The reference
+selects the saved enclosing compiler table through `cc->htc.next`. Outer AOT
+types are therefore unavailable to this hosted child, while directive-only
+names can be exposed incorrectly. Correct saved-table lookup and publication
+remain required before claiming AOT StreamExePrint namespace parity. Native
+synchronous execution in either outer mode also remains open.
 
 ## Bounds
 

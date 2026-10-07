@@ -44,6 +44,9 @@ open. AOT StreamExePrint currently reaches its native formatter and then reports
 `HCIRVM0027`; its successful synchronous path still needs the original suspended
 caller, parser/frame ownership and reentrant arena and budget leases. Running
 generated source after the caller returns would change that behavior.
+The reference also allows StreamExePrint in JIT `#exe`, since both modes set
+`CCF_EXE_BLK`. Its AOT child uses the saved enclosing compiler table; the IR
+child's current use of the detached task table still needs correction.
 
 This path adds no TempleOS runtime capture, exported HolyC ABI, object/BIN
 output, loader acceptance, whole-tree compilation or bootstrap evidence.

@@ -35,9 +35,10 @@ longer histories can require a larger explicit code allowance.
 The pinned StreamPrint formats before checking the active stream. Native calls
 outside `#exe` therefore report `HCIRVM0027` after formatting; format, pointer,
 byte and work faults can occur first. StreamExePrint retains its original I64
-signature and formats through its own temporary buffer. JIT calls then report
-`HCIRVM0027`, including calls through saved callbacks. Its successful synchronous
-AOT execution still requires a bridge that resumes the original parser while
+signature and formats through its own temporary buffer. Native calls then report
+`HCIRVM0027`, including calls through saved callbacks. The reference allows calls
+inside active `#exe` blocks in both outer modes. Successful synchronous native
+execution still requires a bridge that resumes the original parser while
 the calling native function is suspended. [Native AOT sessions](native-aot-source-sessions.md)
 now execute the original directive tasks and their separate outer module.
 
@@ -48,8 +49,11 @@ broader outer AOT language support, floating execution, aggregate object executi
 loader integration and bootstrap acceptance remain open.
 
 `Compiler/CMisc.HC:68-81` supplies StreamPrint's format-before-context order and
-stream append. `Compiler/CMain.HC:673-690` supplies StreamExePrint's synchronous
-AOT context and return value. Both come from the pinned TempleOS tree.
+stream append. `Compiler/CMain.HC:673-690` supplies StreamExePrint's active-block
+check, saved compiler table and synchronous return value.
+`Compiler/PrsStmt.HC:805-840` sets that block flag in both modes;
+`Compiler/CMain.HC:572-604` starts child execution without inheriting it. Both
+services come from the pinned TempleOS tree.
 
 The shared source fixtures cover values, callbacks, saved defaults, replacement
 order, nested generation and reached failures. Fresh IR and native executions

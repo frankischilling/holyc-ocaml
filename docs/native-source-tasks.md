@@ -329,7 +329,8 @@ generation still govern source selection; names and numeric bits grant no entry.
 The IR consumer preserves the same declaration-time capture and source-position
 rules. PutChars, Print and stream callback addresses use checked private entries.
 StreamPrint writes to the original active generation buffer in native JIT
-`#exe`; StreamExePrint formats before its JIT context diagnostic. See
+`#exe`; StreamExePrint formats before the missing native bridge reports
+`HCIRVM0027`. Active JIT `#exe` is allowed by the reference. See
 [provider entries](provider-callback-entries.md) and
 [native stream generation](native-stream-generation.md).
 

@@ -126,8 +126,9 @@ val evaluate :
     preparation, saved-default, code/IR and combined logical storage allowances
     cover both contexts. [source_progress] observes only the directive task; the
     native report retains actual work and output for the complete invocation.
-    Successful synchronous AOT StreamExePrint, runtime AOT dimensions, general
-    outer aggregates and reference-default relocation remain open. *)
+    Successful synchronous StreamExePrint in either outer mode, AOT saved-table
+    selection, runtime AOT dimensions, general outer aggregates and
+    reference-default relocation remain open. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val fragments : report -> fragment list

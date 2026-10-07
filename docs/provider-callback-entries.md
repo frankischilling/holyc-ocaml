@@ -81,12 +81,15 @@ original parser. Ordinary output stays separate, while both destinations share
 the native output-work budget. See [native stream generation](native-stream-generation.md)
 for the maintained example, source and resource boundaries, and capture checks.
 
-StreamExePrint formats first and requires the enclosing compiled AOT `#exe`
-context. The IR task executes the formatted source, returns its word, and
-shares runtime, output-work and nested execution limits. A JIT or inactive
-context reports `HCIRVM0027` after formatting. This includes invocation through
-a saved callback and recursive source execution. Ordinary output remains
-separate from generated text.
+StreamExePrint formats first and requires an active `#exe` context in either
+outer compilation mode. The IR task executes the formatted source, returns its
+word, and shares runtime, output-work and nested execution limits. Inactive
+calls report `HCIRVM0027` after formatting, including calls through a retained
+body or saved callback. Ordinary child source has no inherited `#exe` permission;
+a child directive establishes and closes its own context. JIT nested source
+uses the retained task namespace with caller locals hidden. The AOT child still
+needs the saved enclosing compiler table instead of the directive task table.
+Ordinary output remains separate from generated text.
 
 The provider writes packed nonzero bytes to the hosted output buffer. TempleOS
 `PutKey` device hooks, scheduling and display behavior remain outside this hosted
@@ -94,9 +97,10 @@ contract. Native entries use the existing private status/arena convention;
 the exported HolyC ABI is separate work.
 
 The isolated `host-jit` path still rejects original extern slot addresses
-without task storage. Native synchronous StreamExePrint execution and AOT source tasks,
-callback members, wider indirection and full compiler
-acceptance remain open. Unresolved ordinary AOT extern addresses still report
+without task storage. Native synchronous StreamExePrint execution, AOT saved
+namespace selection, callback members, wider indirection and full compiler
+acceptance remain open. Native AOT source sessions execute their separate
+directive tasks and outer module. Unresolved ordinary AOT extern addresses still report
 `HCSEMA0046` outside assembly.
 
 ## Source and checks

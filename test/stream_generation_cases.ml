@@ -108,7 +108,7 @@ let failures =
       "",
       7,
       0 );
-    ( "JIT format before mode check",
+    ( "StreamExePrint JIT format fault",
       {|#exe {StreamExePrint("%f",42);}|},
       "HCIRVM0024",
       "",
@@ -120,8 +120,8 @@ let failures =
       "",
       9,
       3 );
-    ( "earlier generation survives JIT source fault",
-      {|#exe {StreamPrint("42;");StreamExePrint("42;");}|},
+    ( "earlier generation survives an inactive source call",
+      {|#exe {StreamPrint("42;");}StreamExePrint("42;");|},
       "HCIRVM0027",
       "",
       14,

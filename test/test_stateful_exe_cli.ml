@@ -618,8 +618,26 @@ let () =
           [ "run"; "--format=json"; "--report-version=2"; "--mode=jit"; path ]
       in
       require
+        (status = Unix.WEXITED 0 && errors = "")
+        ("StreamExePrint JIT directive execution: " ^ output ^ errors);
+      let open Yojson.Basic.Util in
+      let report = Yojson.Basic.from_string output in
+      require
+        (report |> member "schema" |> to_string = "holyc-integer-program-v2"
+        && report |> member "outcome" |> to_string = "success"
+        && report |> member "mode" |> to_string = "jit"
+        && report |> member "output_hex" |> to_string = ""
+        && report |> member "output_work" |> to_int > 0)
+        "StreamExePrint JIT directive report contract");
+  with_source {|#exe {StreamExePrint("StreamExePrint(\"42;\");");}|}
+    (fun path ->
+      let status, output, errors =
+        capture executable
+          [ "run"; "--format=json"; "--report-version=2"; "--mode=jit"; path ]
+      in
+      require
         (status = Unix.WEXITED 1 && errors = "")
-        ("StreamExePrint JIT rejection: " ^ output ^ errors);
+        ("StreamExePrint nested context rejection: " ^ output ^ errors);
       let open Yojson.Basic.Util in
       let report = Yojson.Basic.from_string output in
       require
@@ -630,7 +648,7 @@ let () =
       require
         (report |> member "final_value" = `Null
         && report |> member "output_work" |> to_int > 0)
-        "StreamExePrint JIT formats before rejection";
+        "StreamExePrint nested source formats before context rejection";
       require
         (report |> member "diagnostics" |> to_list |> List.hd |> member "code"
        |> to_string = "HCIRVM0027")

@@ -194,17 +194,15 @@ let stream_execution () =
       {|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;I64 N=p("40+2;");StreamPrint("%d;",N);}|};
       {|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;}#exe {I64 N=p("40+2;");StreamPrint("%d;",N);}|};
       {|#exe {I64 Run(I64 (*p)(U8 *fmt,...)=&StreamExePrint){return p("40+2;");}StreamPrint("%d;",Run());}|};
-      {|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;I64 N=p("p(\"40+2;\");");StreamPrint("%d;",N);}|};
+      {|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;I64 N=p("#exe {I64 N=p(\"40+2;\");StreamPrint(\"%%d;\",N);}");StreamPrint("%d;",N);}|};
     ]
   in
   List.iter
     (fun source ->
-      ignore (Output.run ~mode:Preprocessor.Aot source |> Output.expect "");
-      let rejected = Output.run ~mode:Preprocessor.Jit source in
-      ignore (rejected |> Output.fault "HCIRVM0027");
-      Alcotest.(check bool)
-        "JIT context check follows formatting" true
-        (integer_program_report_output_work rejected > 0))
+      List.iter
+        (fun mode ->
+          ignore (Output.run ~mode source |> Output.expect ~value:(Some 42L) ""))
+        [ Preprocessor.Jit; Preprocessor.Aot ])
     sources;
   let source = List.hd sources in
   let measured = Output.run ~mode:Preprocessor.Aot source in
@@ -255,6 +253,6 @@ let tests =
     Alcotest.test_case
       "stream callback generation, history and buffer ownership" `Quick
       stream_generation;
-    Alcotest.test_case "stream callback AOT execution and nested limits" `Quick
+    Alcotest.test_case "stream callback contexts and nested limits" `Quick
       stream_execution;
   ]
