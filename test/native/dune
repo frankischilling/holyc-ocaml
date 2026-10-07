@@ -1012,7 +1012,8 @@
   ../../examples/native-source-anonymous-defaults.hc
   ../../examples/native-source-static-callbacks.hc
   ../../examples/native-source-static-callback-initializers.hc
-  ../../examples/native-source-named-callback-types.hc)
+  ../../examples/native-source-named-callback-types.hc
+  ../../examples/callback-expressions.hc)
  (action
   (run
    %{exe:test_native_source_function_cli.exe}
@@ -1029,7 +1030,8 @@
    %{dep:../../examples/native-source-anonymous-defaults.hc}
    %{dep:../../examples/native-source-static-callbacks.hc}
    %{dep:../../examples/native-source-static-callback-initializers.hc}
-   %{dep:../../examples/native-source-named-callback-types.hc})))
+   %{dep:../../examples/native-source-named-callback-types.hc}
+   %{dep:../../examples/callback-expressions.hc})))
 
 (executable
  (name test_native_source_literals)
@@ -1130,3 +1132,15 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_source_owned_defaults.exe})))
+
+(copy_files ../callback_expression_cases.ml)
+
+(executable
+ (name test_native_source_callback_expressions)
+ (modules test_native_source_callback_expressions callback_expression_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_callback_expressions.exe})))

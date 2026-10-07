@@ -110,6 +110,7 @@ let () =
       ("callback storage", Test_callback_storage.tests);
       ("callback dereference", Test_callback_dereference.tests);
       ("callback updates", Test_callback_updates.tests);
+      ("callback expressions", Test_callback_expressions.tests);
       ( "semantic implicit output target resolution",
         Test_implicit_output_target_resolution.tests );
       ( "semantic top-level implicit output target resolution",

@@ -509,3 +509,9 @@ returns 42 after a later class shadow and counter write; its original header
 effect runs once and its static cells occupy 24 logical bytes alongside the
 eight-byte counter. Aggregate-return invocation, ordinary aggregate pointer
 execution, callback members and the exported ABI remain separate work.
+
+[Numeric callback expressions](callback-expressions.md) consume original reads
+and assignment results through signed RT_PTR word views. Parser pointer scaling
+and difference division remain separate from numeric computation classes.
+Dynamic executable owners are checked at reached integer consumers; callback
+copies and calls keep their existing owner path.

@@ -220,7 +220,7 @@ results can supply integer consumers while retaining the checked storage type
 on the original update instruction.
 
 Native member storage, JIT owned-code/effectful callback initializers,
-arithmetic on owned code, native callback-valued arithmetic right operands, effectful/owned-code
+arithmetic on owned code, effectful/owned-code
 callback defaults,
 pointer/owned-code variadic tails, retained publication after same-name
 replacement, unresolved extern slots and live task linking remain unfinished in
@@ -230,3 +230,9 @@ F64, aggregate and mixed-value execution remains in #688. The IR callback
 consumer has a broader admitted domain; see [global callbacks](global-callbacks.md).
 HolyC ABI exports, RET-imm execution, interrupt entry and the full compiler remain
 unfinished.
+
+[Numeric callback expressions](callback-expressions.md) connect original reads
+and assignment results to integer operators, with separate parser scaling and
+numeric computation classes. Dynamic owners survive word views and are checked
+at reached arithmetic consumers. Original callback copies retain invocation
+authority through their existing storage path.

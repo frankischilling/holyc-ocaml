@@ -22,7 +22,8 @@ Arithmetic wraps where the existing integer runner wraps; division faults keep
 their existing diagnostics. Prefix expressions return the new word, and postfix
 expressions return the old word.
 
-An update result can feed ordinary integer arithmetic. Following `+` and `-`
+An update result can feed [numeric callback expressions](callback-expressions.md).
+Following `+` and `-`
 retain the parser's eight-byte scaling, including across parentheses and chained
 operations. The optimizer chooses the computation class separately: a `U64`
 operand makes the resulting word unsigned. Later comparisons and right shifts

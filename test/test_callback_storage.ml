@@ -36,7 +36,7 @@ let check_storage left =
     "positive scalar callback storage" true
     (R.result_is_callback_storage left);
   check_word_pointer 1 (R.result_storage_type left);
-  check_word_pointer 1 (R.result_computation_type left);
+  check_word_pointer 0 (R.result_computation_type left);
   Alcotest.(check string)
     "callback address has integer class" "integer-result"
     (R.result_class left |> R.result_class_name);

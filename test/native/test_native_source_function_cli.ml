@@ -21,7 +21,7 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 15)
+    (Array.length Sys.argv >= 3 && Array.length Sys.argv <= 16)
     "usage: test_native_source_function_cli.exe <holyc.exe> \
      <native-source-functions.hc> [native-source-output.hc] \
      [native-source-literals.hc] [native-source-static-copies.hc] \
@@ -30,7 +30,7 @@ let () =
      [native-source-callback-updates.hc] [native-source-anonymous-defaults.hc] \
      [native-source-static-callbacks.hc] \
      [native-source-static-callback-initializers.hc] \
-     [native-source-named-callback-types.hc]"
+     [native-source-named-callback-types.hc] [callback-expressions.hc]"
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
@@ -861,5 +861,61 @@ let () =
       require
         (has_diagnostic "HCBACK0002" (json_path ~status:1 path))
         "aggregate return metadata requires separate native execution authority");
+  let callback_expression_checks path =
+    List.iter
+      (fun (target, mode) ->
+        let report = json_path ~target ~mode path in
+        require
+          (final_bits report = "0x000000000000002a")
+          "original callback assignment and scaled difference";
+        if target = "host-jit-task" then
+          List.iter
+            (fun fragment ->
+              require
+                (fragment |> member "outcome" |> to_string = "success")
+                "numeric callback expression executes natively")
+            (fragments report))
+      [ ("ir", "jit"); ("ir", "aot"); ("host-jit-task", "jit") ]
+  in
+  if Array.length Sys.argv >= 16 then callback_expression_checks Sys.argv.(15)
+  else
+    with_file ".hc"
+      "class Pair{I64 a;I64 b;};I64 Compute(){static Pair \
+       (*p)()[2]={370,42};I64 (*q)();I64 answer=(p[0]+1)-p[1];return \
+       (q=answer)|0;}class Pair{U8 later;};Compute();Compute();"
+      callback_expression_checks;
+  List.iter
+    (fun (text, bits) ->
+      with_file ".hc" text (fun path ->
+          List.iter
+            (fun (target, mode) ->
+              require
+                (final_bits (json_path ~target ~mode path) = bits)
+                "callback numeric class and original consumer")
+            [ ("ir", "jit"); ("ir", "aot"); ("host-jit-task", "jit") ]))
+    [
+      ("I64 Run(){I64 (*p)();return (p=34)+1;}Run();", "0x000000000000002a");
+      ("I64 (*p)()=32;(p|2)+1;", "0x0000000000000023");
+      ("I64 (*p)()=-1;U64 d=2;p/d;", "0x7fffffffffffffff");
+      ("I64 (*p)()=-84;p>>1;", "0xffffffffffffffd6");
+      ("I64 (*p)()=-377,(*q)()=-42;p-q;", "0xffffffffffffffd7");
+    ];
+  List.iter
+    (fun consumer ->
+      with_file ".hc"
+        ("extern U0 PutChars(U64 ch);I64 F(){return 42;}I64 Run(){I64 \
+          (*p)();p=&F;PutChars('B');return " ^ consumer ^ ";}Run();")
+        (fun path ->
+          List.iter
+            (fun target ->
+              let report = json_path ~target ~status:1 path in
+              require
+                (has_diagnostic "HCIRVM0024" report)
+                "owned code faults at original numeric consumer";
+              require
+                (report |> member "output_hex" |> to_string = "42")
+                "numeric callback fault retains reached output")
+            [ "ir"; "host-jit-task" ]))
+    [ "(p=&F)+0"; "p|0"; "p/1"; "p>>0" ];
   Printf.printf "Native source function CLI: %d executions passed.\n"
     !executions

@@ -2621,11 +2621,31 @@ let slot_address_host_bounds () =
   rejected "closed original request cannot grant slot authority"
     ((Option.get !expired) ())
 
+let numeric_callback_expression_abis () =
+  List.iter
+    (fun text ->
+      let report, _, _, _ =
+        array_source ~both_abis:true ~max_global_bytes:16 ~max_arena_bytes:1024
+          ~text ()
+      in
+      Source.outcome report |> Result.map_error describe |> checked |> ignore;
+      Alcotest.(check bool)
+        "original numeric consumer executes host ABI" true
+        (Source.native_final_value report = Some (Dispatch.I64 42L)))
+    [
+      "I64 (*p)()=40;I64 Run(){return p|2;}Run();";
+      "I64 (*p)();I64 Run(){return (p=34)+1;}Run();";
+      "I64 (*p)()=378,(*q)()=42;I64 Run(){return (p|0)-(q|0);}Run();";
+      "I64 (*p)()=84;I64 Run(){return p>>1;}Run();";
+    ]
+
 let () =
   Alcotest.run "Native source authority"
     [
       ( "original source",
         [
+          Alcotest.test_case "numeric callback expression private ABIs" `Quick
+            numeric_callback_expression_abis;
           Alcotest.test_case
             "original extern slots, both ABIs, status and lifetime" `Quick
             native_extern_slot_authority;

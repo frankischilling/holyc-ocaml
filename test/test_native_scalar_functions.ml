@@ -789,11 +789,13 @@ let local_callback_source_and_authority () =
            Read(p=123);}Run();";
           "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)();return \
            Read(p=0);}Run();";
-          "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p+1;}Run();";
           "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p(I32);}Run();";
           "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;I64 \
            *q=(&p)(I64*);return 42;}Run();";
         ];
+      ignore
+        (image ~mode
+           "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p+1;}Run();");
       ignore
         (image ~mode
            "I64 A(I64 n){return n;}I64 Run(){I64 (*p)(I64 n=42);p=&A;return \

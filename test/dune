@@ -522,6 +522,8 @@
   test_callback_storage
   test_callback_dereference
   test_callback_updates
+  callback_expression_cases
+  test_callback_expressions
   test_implicit_output_target_resolution
   test_top_level_implicit_output_target_resolution
   test_top_level_implicit_output_argument_binding

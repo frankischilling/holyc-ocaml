@@ -849,6 +849,7 @@ let rec result_callback_update_operand (result : expression_result) =
            (Function_call_resolution.binary_operator binary)
            Generated.Intermediate_codes.
              [
+               Ic_assign;
                Ic_add_equ;
                Ic_sub_equ;
                Ic_mul_equ;
@@ -866,109 +867,572 @@ let rec result_callback_update_operand (result : expression_result) =
           else None)
   | _ -> None
 
-let rec result_is_numeric_callback (result : expression_result) =
-  match result.source_type with
-  | Some type_
-    when Type.pointer_depth type_ = 1
-         && Type.base type_
-            = Type.Primitive (Type.Internal_storage, Primitive_type.I64)
-         && result.result_class = Integer_result -> (
-      if Option.is_some (result_callback_update_operand result) then true
-      else
-        match
-          Function_call_resolution.argument_expression_kind result.source
-        with
-        | Function_call_resolution.Parenthesized_expression source ->
-            Option.fold ~none:false
-              ~some:(fun (operand : expression_result) ->
-                operand.source == source
-                && operand.source_type = Some type_
-                && result_is_numeric_callback operand)
-              result.operand_result
-        | Function_call_resolution.Binary_expression binary
-          when List.mem
-                 (Function_call_resolution.binary_operator binary)
-                 Generated.Intermediate_codes.[ Ic_add; Ic_sub ] ->
-            Option.fold ~none:false
-              ~some:(fun
-                  ((left : expression_result), (right : expression_result)) ->
-                left.source == Function_call_resolution.binary_left binary
-                && right.source == Function_call_resolution.binary_right binary
-                && left.source_type = Some type_
-                && result_is_numeric_callback left
-                && right.result_class = Integer_result
-                && right.array_rank = 0
-                && Option.fold ~none:false
-                     ~some:(fun right_type ->
-                       Type.pointer_depth right_type = 0
-                       &&
-                       match Type.base right_type with
-                       | Type.Primitive (_, primitive) ->
-                           Option.is_some
-                             (Primitive_type.integer_storage_info primitive)
-                       | _ -> false)
-                     (result_storage_type right))
-              result.binary_operands
-        | _ -> false)
-  | _ -> false
+let callback_word_pointer type_ =
+  Type.pointer_depth type_ = 1
+  && Type.base type_ = Type.Primitive (Type.Internal_storage, Primitive_type.I64)
 
-let rec result_computation_type (result : expression_result) =
-  let module C = Integer_computation_class in
-  let declared () = Option.map C.declared (result_storage_type result) in
-  let forwarded () = Option.map C.forward (result_storage_type result) in
-  if result_is_numeric_callback result then
-    let word primitive =
-      Type.make_primitive ~form:Type.Internal_storage ~primitive
-        ~pointer_depth:0
-      |> Result.to_option
-    in
+let rec result_callback_parser_pointer (result : expression_result) =
+  let original_operand source =
+    Option.bind result.operand_result (fun operand ->
+        if operand.source == source then result_callback_parser_pointer operand
+        else None)
+  in
+  if result.result_class <> Integer_result || result.array_rank <> 0 then None
+  else if result_is_callback_storage result then
+    Option.bind (result_storage_type result) (fun type_ ->
+        if callback_word_pointer type_ then Some type_ else None)
+  else if Option.is_some (result_callback_update_operand result) then
+    Option.bind result.source_type (fun type_ ->
+        if callback_word_pointer type_ then Some type_ else None)
+  else
     match Function_call_resolution.argument_expression_kind result.source with
-    | Function_call_resolution.Parenthesized_expression _ ->
-        Option.bind result.operand_result result_computation_type
+    | Function_call_resolution.Parenthesized_expression source ->
+        original_operand source
+    | Function_call_resolution.Prefix_expression prefix
+      when List.mem
+             (Function_call_resolution.prefix_operator prefix)
+             Function_call_resolution.
+               [ Unary_plus; Unary_minus; Logical_not; Bitwise_not ] ->
+        original_operand (Function_call_resolution.prefix_operand prefix)
     | Function_call_resolution.Binary_expression binary
       when List.mem
              (Function_call_resolution.binary_operator binary)
-             Generated.Intermediate_codes.[ Ic_add; Ic_sub ] ->
-        let unsigned operand =
-          Option.fold ~none:false
-            ~some:(fun type_ ->
-              match Type.base type_ with
-              | Type.Primitive (_, Primitive_type.U64) -> true
-              | _ -> false)
-            (result_computation_type operand)
-        in
+             Generated.Intermediate_codes.
+               [
+                 Ic_add;
+                 Ic_sub;
+                 Ic_mul;
+                 Ic_div;
+                 Ic_mod;
+                 Ic_shl;
+                 Ic_shr;
+                 Ic_and;
+                 Ic_or;
+                 Ic_xor;
+                 Ic_equ_equ;
+                 Ic_not_equ;
+                 Ic_less;
+                 Ic_less_equ;
+                 Ic_greater;
+                 Ic_greater_equ;
+                 Ic_and_and;
+                 Ic_or_or;
+                 Ic_xor_xor;
+               ] ->
         Option.bind result.binary_operands (fun (left, right) ->
-            (* PrsAddOp retains the parser's pointer class for scaling. The
-               optimizer then selects the common raw class after that scale. *)
-            word
-              (if unsigned left || unsigned right then Primitive_type.U64
-               else Primitive_type.I64))
-    | _ -> word Primitive_type.I64
+            if
+              left.source != Function_call_resolution.binary_left binary
+              || right.source != Function_call_resolution.binary_right binary
+            then None
+            else
+              Option.bind (result_callback_parser_pointer left) (fun type_ ->
+                  (* PrsAddOp emits a scalar DIV after pointer subtraction.
+                     Other binary operations retain the parser's left class;
+                     the optimizer selects their raw computation class later. *)
+                  let comparison opcode =
+                    List.mem opcode
+                      Generated.Intermediate_codes.
+                        [
+                          Ic_equ_equ;
+                          Ic_not_equ;
+                          Ic_less;
+                          Ic_less_equ;
+                          Ic_greater;
+                          Ic_greater_equ;
+                        ]
+                  in
+                  let completes_chain =
+                    comparison (Function_call_resolution.binary_operator binary)
+                    &&
+                    match
+                      Function_call_resolution.argument_expression_kind
+                        left.source
+                    with
+                    | Function_call_resolution.Binary_expression previous ->
+                        comparison
+                          (Function_call_resolution.binary_operator previous)
+                    | _ -> false
+                  in
+                  if completes_chain then None
+                  else if
+                    Function_call_resolution.binary_operator binary
+                    = Generated.Intermediate_codes.Ic_sub
+                    && (Option.is_some (result_callback_parser_pointer right)
+                       || Option.fold ~none:false
+                            ~some:(fun type_ -> Type.pointer_depth type_ > 0)
+                            (result_storage_type right))
+                  then None
+                  else Some type_))
+    | _ -> None
+
+type callback_numeric_classes = {
+  parser_class : Type.t;
+  first_class : Type.t;
+  final_class : Type.t;
+  scale_left : bool;
+  scale_right : bool;
+  unsigned_comparison : bool;
+}
+
+let callback_integer_class =
+  Type.make_primitive ~form:Type.Internal_storage ~primitive:Primitive_type.I64
+    ~pointer_depth:0
+  |> Result.get_ok
+
+let callback_raw_class type_ =
+  if Type.pointer_depth type_ > 0 then
+    (Primitive_type.info Primitive_type.I64).raw_id
   else
-    match result.call_resolution with
-    | Some _ -> declared ()
-    | None -> (
-        match
-          Function_call_resolution.argument_expression_kind result.source
-        with
-        | Function_call_resolution.Parenthesized_expression _ -> (
-            match result.operand_result with
-            | Some operand when not operand.array_address ->
-                result_computation_type operand
-            | _ -> forwarded ())
-        | Function_call_resolution.Prefix_expression prefix
-          when Function_call_resolution.prefix_operator prefix
-               = Function_call_resolution.Unary_plus ->
-            Option.bind result.operand_result result_computation_type
-        | Function_call_resolution.Prefix_expression prefix
-          when Function_call_resolution.prefix_operator prefix
-               = Function_call_resolution.Bitwise_not ->
-            Option.map C.forward
-              (Option.bind result.operand_result result_computation_type)
-        | Function_call_resolution.Postfix_cast_expression _
-        | Function_call_resolution.Unresolved_expression
-            Function_call_resolution.Call_expression -> declared ()
-        | _ -> forwarded ())
+    match Type.base type_ with
+    | Type.Primitive (_, primitive) -> (Primitive_type.info primitive).raw_id
+    | Type.Aggregate _ -> -1
+
+let callback_common_class left right =
+  (* OptFixupBinaryOp1 forwards both classes and selects the RHS on a tie. *)
+  let left = Integer_computation_class.forward left
+  and right = Integer_computation_class.forward right in
+  if callback_raw_class left > callback_raw_class right then left else right
+
+let callback_unsigned_class type_ =
+  Type.pointer_depth type_ = 0
+  &&
+  match Type.base type_ with
+  | Type.Primitive (_, primitive) ->
+      (Primitive_type.info primitive).raw_is_unsigned
+  | Type.Aggregate _ -> false
+
+let callback_scalar_class type_ =
+  if callback_word_pointer type_ then callback_integer_class else type_
+
+let callback_comparison_opcode opcode =
+  List.mem opcode
+    Generated.Intermediate_codes.
+      [
+        Ic_equ_equ; Ic_not_equ; Ic_less; Ic_less_equ; Ic_greater; Ic_greater_equ;
+      ]
+
+let rec callback_constant_word (result : expression_result) =
+  let original_operand source =
+    Option.bind result.operand_result (fun operand ->
+        if operand.source == source then callback_constant_word operand
+        else None)
+  in
+  match Function_call_resolution.argument_expression_kind result.source with
+  | Function_call_resolution.Integer_literal bits
+  | Function_call_resolution.Character_literal bits -> Some bits
+  | Function_call_resolution.Sizeof_expression query ->
+      Function_call_resolution.sizeof_known_value query
+  | Function_call_resolution.Defined_expression query ->
+      Option.map
+        (fun value -> if value then 1L else 0L)
+        (Function_call_resolution.defined_known_value query)
+  | Function_call_resolution.Parenthesized_expression source ->
+      original_operand source
+  | Function_call_resolution.Postfix_cast_expression (source, _) ->
+      original_operand source
+  | Function_call_resolution.Prefix_expression prefix -> (
+      let bits =
+        original_operand (Function_call_resolution.prefix_operand prefix)
+      in
+      match Function_call_resolution.prefix_operator prefix with
+      | Function_call_resolution.Unary_plus -> bits
+      | Function_call_resolution.Unary_minus -> Option.map Int64.neg bits
+      | Function_call_resolution.Bitwise_not -> Option.map Int64.lognot bits
+      | Function_call_resolution.Logical_not ->
+          Option.map (fun bits -> if bits = 0L then 1L else 0L) bits
+      | _ -> None)
+  | Function_call_resolution.Binary_expression binary ->
+      Option.bind result.binary_operands (fun (left, right) ->
+          if
+            left.source != Function_call_resolution.binary_left binary
+            || right.source != Function_call_resolution.binary_right binary
+          then None
+          else
+            Option.bind (callback_constant_word left) (fun l ->
+                Option.bind (callback_constant_word right) (fun r ->
+                    let open Generated.Intermediate_codes in
+                    let unsigned =
+                      Option.fold ~none:false ~some:callback_unsigned_class
+                        (result_computation_type left)
+                      || Option.fold ~none:false ~some:callback_unsigned_class
+                           (result_computation_type right)
+                    in
+                    let opcode =
+                      Function_call_resolution.binary_operator binary
+                    in
+                    let boolean value = Some (if value then 1L else 0L) in
+                    match opcode with
+                    | Ic_add -> Some (Int64.add l r)
+                    | Ic_sub -> Some (Int64.sub l r)
+                    | Ic_mul -> Some (Int64.mul l r)
+                    | Ic_and -> Some (Int64.logand l r)
+                    | Ic_or -> Some (Int64.logor l r)
+                    | Ic_xor -> Some (Int64.logxor l r)
+                    | Ic_and_and -> boolean (l <> 0L && r <> 0L)
+                    | Ic_or_or -> boolean (l <> 0L || r <> 0L)
+                    | Ic_xor_xor -> boolean (l <> 0L <> (r <> 0L))
+                    | opcode when callback_comparison_opcode opcode -> (
+                        let comparison left_bits unsigned =
+                          let order =
+                            (if unsigned then Int64.unsigned_compare
+                             else Int64.compare)
+                              left_bits r
+                          in
+                          match opcode with
+                          | Ic_equ_equ -> left_bits = r
+                          | Ic_not_equ -> left_bits <> r
+                          | Ic_less -> order < 0
+                          | Ic_less_equ -> order <= 0
+                          | Ic_greater -> order > 0
+                          | _ -> order >= 0
+                        in
+                        match
+                          ( Function_call_resolution.argument_expression_kind
+                              left.source,
+                            left.binary_operands )
+                        with
+                        | ( Function_call_resolution.Binary_expression previous,
+                            Some (_, middle) )
+                          when callback_comparison_opcode
+                                 (Function_call_resolution.binary_operator
+                                    previous) ->
+                            Option.map
+                              (fun bits ->
+                                if
+                                  l <> 0L
+                                  && comparison bits
+                                       (unsigned
+                                       || callback_constant_comparison_unsigned
+                                            left)
+                                then 1L
+                                else 0L)
+                              (callback_constant_word middle)
+                        | _ -> boolean (comparison l unsigned))
+                    | Ic_shl ->
+                        Some
+                          (Int64.shift_left l
+                             (Int64.to_int (Int64.logand r 63L)))
+                    | Ic_shr ->
+                        Some
+                          ((if unsigned then Int64.shift_right_logical
+                            else Int64.shift_right)
+                             l
+                             (Int64.to_int (Int64.logand r 63L)))
+                    | (Ic_div | Ic_mod) as opcode
+                      when r <> 0L
+                           && (unsigned || l <> Int64.min_int || r <> -1L) ->
+                        let operation =
+                          if opcode = Ic_div then
+                            if unsigned then Int64.unsigned_div else Int64.div
+                          else if unsigned then Int64.unsigned_rem
+                          else Int64.rem
+                        in
+                        Some (operation l r)
+                    | _ -> None)))
+  | _ -> None
+
+and callback_constant_comparison_unsigned (result : expression_result) =
+  match
+    ( Function_call_resolution.argument_expression_kind result.source,
+      result.binary_operands )
+  with
+  | Function_call_resolution.Binary_expression binary, Some (left, right)
+    when callback_comparison_opcode
+           (Function_call_resolution.binary_operator binary) ->
+      callback_constant_comparison_unsigned left
+      || Option.fold ~none:false ~some:callback_unsigned_class
+           (result_computation_type left)
+      || Option.fold ~none:false ~some:callback_unsigned_class
+           (result_computation_type right)
+  | _ -> false
+
+and result_callback_numeric_classes (result : expression_result) =
+  let classes parser_class first_class final_class =
+    {
+      parser_class;
+      first_class;
+      final_class;
+      scale_left = false;
+      scale_right = false;
+      unsigned_comparison = false;
+    }
+  in
+  let original_operand source =
+    Option.bind result.operand_result (fun operand ->
+        if operand.source == source then result_callback_numeric_classes operand
+        else None)
+  in
+  let operand_classes operand numeric =
+    match numeric with
+    | Some value -> Some value
+    | None ->
+        Option.bind (result_storage_type operand) (fun parser ->
+            Option.map
+              (fun computation -> classes parser computation computation)
+              (result_computation_type operand))
+  in
+  if result.result_class <> Integer_result || result.array_rank <> 0 then None
+  else if
+    result_is_callback_storage result
+    || Option.is_some (result_callback_update_operand result)
+  then
+    Option.bind (result_storage_type result) (fun type_ ->
+        if callback_word_pointer type_ then Some (classes type_ type_ type_)
+        else None)
+  else
+    match Function_call_resolution.argument_expression_kind result.source with
+    | Function_call_resolution.Parenthesized_expression source ->
+        original_operand source
+    | Function_call_resolution.Prefix_expression prefix ->
+        Option.bind
+          (original_operand (Function_call_resolution.prefix_operand prefix))
+          (fun operand ->
+            match Function_call_resolution.prefix_operator prefix with
+            | Function_call_resolution.Unary_plus -> Some operand
+            | Function_call_resolution.Unary_minus ->
+                Some
+                  (classes operand.parser_class
+                     (Integer_computation_class.negate operand.first_class)
+                     (Integer_computation_class.negate operand.final_class))
+            | Function_call_resolution.Bitwise_not
+            | Function_call_resolution.Logical_not ->
+                (* COM/NOT retain the original node class; COM has a separate
+                 I64 stack class. Ordinary parentheses emit no cast. *)
+                let type_ =
+                  Integer_computation_class.forward operand.parser_class
+                in
+                Some (classes type_ type_ type_)
+            | _ -> None)
+    | Function_call_resolution.Binary_expression binary ->
+        let opcode = Function_call_resolution.binary_operator binary in
+        if
+          not
+            (List.mem opcode
+               Generated.Intermediate_codes.
+                 [
+                   Ic_add;
+                   Ic_sub;
+                   Ic_mul;
+                   Ic_div;
+                   Ic_mod;
+                   Ic_shl;
+                   Ic_shr;
+                   Ic_and;
+                   Ic_or;
+                   Ic_xor;
+                   Ic_equ_equ;
+                   Ic_not_equ;
+                   Ic_less;
+                   Ic_less_equ;
+                   Ic_greater;
+                   Ic_greater_equ;
+                   Ic_and_and;
+                   Ic_or_or;
+                   Ic_xor_xor;
+                 ])
+        then None
+        else
+          Option.bind result.binary_operands (fun (left, right) ->
+              let left_numeric = result_callback_numeric_classes left
+              and right_numeric = result_callback_numeric_classes right in
+              if
+                left.source != Function_call_resolution.binary_left binary
+                || right.source != Function_call_resolution.binary_right binary
+                || (Option.is_none left_numeric && Option.is_none right_numeric)
+              then None
+              else
+                Option.bind (operand_classes left left_numeric) (fun l ->
+                    Option.map
+                      (fun r ->
+                        let open Generated.Intermediate_codes in
+                        let additive = opcode = Ic_add || opcode = Ic_sub in
+                        let parser_integer type_ =
+                          Type.pointer_depth type_ = 0
+                          && callback_raw_class type_
+                             <> (Primitive_type.info Primitive_type.F64).raw_id
+                        in
+                        let placeholder_left =
+                          additive && parser_integer l.parser_class
+                        in
+                        let placeholder_right =
+                          additive
+                          && Type.pointer_depth l.parser_class > 0
+                          && parser_integer r.parser_class
+                        in
+                        let first_left =
+                          if placeholder_left then
+                            callback_common_class l.first_class
+                              callback_integer_class
+                          else l.first_class
+                        in
+                        let first_right =
+                          if placeholder_right then
+                            callback_common_class r.first_class
+                              callback_integer_class
+                          else r.first_class
+                        in
+                        (* Pass 1 resolves SIZEOF after the binary raw-class selection.
+               Later passes see IMM/removed multipliers, never a fresh SIZEOF. *)
+                        let scale_left =
+                          placeholder_left && callback_word_pointer first_right
+                        in
+                        let scale_right =
+                          placeholder_right && callback_word_pointer first_left
+                        in
+                        let first_class =
+                          callback_common_class first_left first_right
+                        in
+                        let first_class =
+                          if placeholder_left then first_right else first_class
+                        in
+                        let first_class =
+                          if placeholder_right then first_left else first_class
+                        in
+                        let final_left =
+                          if scale_left then
+                            callback_common_class l.final_class first_right
+                          else l.final_class
+                        in
+                        let final_right =
+                          if scale_right then
+                            callback_common_class r.final_class first_left
+                          else r.final_class
+                        in
+                        let final_class =
+                          callback_common_class final_left final_right
+                        in
+                        let constant = callback_constant_word right in
+                        let one_bit bits =
+                          bits <> 0L
+                          && Int64.logand bits (Int64.sub bits 1L) = 0L
+                        in
+                        let rewritten_unary =
+                          (opcode = Ic_shl || opcode = Ic_shr)
+                          && Option.is_some constant
+                          || (opcode = Ic_div || opcode = Ic_mul)
+                             && Option.fold ~none:false ~some:one_bit constant
+                        in
+                        let final_class =
+                          if rewritten_unary then l.final_class else final_class
+                        in
+                        let first_class =
+                          if
+                            (opcode = Ic_div || opcode = Ic_mul)
+                            && constant = Some 1L
+                          then l.first_class
+                          else first_class
+                        in
+                        let comparison =
+                          List.mem opcode
+                            [
+                              Ic_equ_equ;
+                              Ic_not_equ;
+                              Ic_less;
+                              Ic_less_equ;
+                              Ic_greater;
+                              Ic_greater_equ;
+                            ]
+                        in
+                        let logical =
+                          List.mem opcode [ Ic_and_and; Ic_or_or; Ic_xor_xor ]
+                        in
+                        let difference =
+                          opcode = Ic_sub
+                          && Type.pointer_depth l.parser_class > 0
+                          && Type.pointer_depth r.parser_class > 0
+                        in
+                        let first_class, final_class =
+                          if comparison || logical || difference then
+                            (callback_integer_class, callback_integer_class)
+                          else (first_class, final_class)
+                        in
+                        let completes_chain =
+                          comparison
+                          &&
+                          match
+                            Function_call_resolution.argument_expression_kind
+                              left.source
+                          with
+                          | Function_call_resolution.Binary_expression previous
+                            ->
+                              List.mem
+                                (Function_call_resolution.binary_operator
+                                   previous)
+                                [
+                                  Ic_equ_equ;
+                                  Ic_not_equ;
+                                  Ic_less;
+                                  Ic_less_equ;
+                                  Ic_greater;
+                                  Ic_greater_equ;
+                                ]
+                          | _ -> false
+                        in
+                        let parser_class =
+                          if difference || completes_chain then
+                            callback_integer_class
+                          else l.parser_class
+                        in
+                        {
+                          parser_class;
+                          first_class;
+                          final_class;
+                          scale_left;
+                          scale_right;
+                          unsigned_comparison =
+                            comparison
+                            && (callback_unsigned_class first_left
+                               || callback_unsigned_class first_right
+                               || callback_unsigned_class final_left
+                               || callback_unsigned_class final_right);
+                        })
+                      (operand_classes right right_numeric)))
+    | _ -> None
+
+and result_computation_type (result : expression_result) =
+  let module C = Integer_computation_class in
+  let declared () = Option.map C.declared (result_storage_type result) in
+  let forwarded () = Option.map C.forward (result_storage_type result) in
+  match result_callback_numeric_classes result with
+  | Some classes -> Some (callback_scalar_class classes.final_class)
+  | None -> (
+      match result.call_resolution with
+      | Some _ -> declared ()
+      | None -> (
+          match
+            Function_call_resolution.argument_expression_kind result.source
+          with
+          | Function_call_resolution.Parenthesized_expression _ -> (
+              match result.operand_result with
+              | Some operand when not operand.array_address ->
+                  result_computation_type operand
+              | _ -> forwarded ())
+          | Function_call_resolution.Prefix_expression prefix
+            when Function_call_resolution.prefix_operator prefix
+                 = Function_call_resolution.Unary_plus ->
+              Option.bind result.operand_result result_computation_type
+          | Function_call_resolution.Prefix_expression prefix
+            when Function_call_resolution.prefix_operator prefix
+                 = Function_call_resolution.Bitwise_not ->
+              Option.map C.forward
+                (Option.bind result.operand_result result_computation_type)
+          | Function_call_resolution.Postfix_cast_expression _
+          | Function_call_resolution.Unresolved_expression
+              Function_call_resolution.Call_expression -> declared ()
+          | _ -> forwarded ()))
+
+let result_is_numeric_callback result =
+  Option.is_some (result_callback_numeric_classes result)
+
+let result_callback_numeric_scales result =
+  Option.map
+    (fun classes -> (classes.scale_left, classes.scale_right))
+    (result_callback_numeric_classes result)
+
+let result_callback_unsigned_comparison result =
+  Option.fold ~none:false
+    ~some:(fun classes -> classes.unsigned_comparison)
+    (result_callback_numeric_classes result)
 
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
@@ -3158,6 +3622,10 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
           | Ok (right, state) ->
               let result_class, source_type =
                 match Function_call_resolution.binary_operator binary with
+                | Generated.Intermediate_codes.Ic_sub
+                  when Option.is_some (result_callback_parser_pointer left)
+                       && Option.is_some (result_callback_parser_pointer right)
+                  -> (Integer_result, integer_type)
                 | Generated.Intermediate_codes.(Ic_add | Ic_sub)
                   when Option.is_some
                          (scalar_pointer_integer_arithmetic_type left right) ->

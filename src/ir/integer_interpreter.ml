@@ -5245,8 +5245,11 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       | None -> Error (invalid_type_matrix block_id description)
                       | Some operand
                         when match Value_map.find_opt operand_id types with
-                             | Some (Supported (_, type_, _)) ->
+                             | Some (Supported (_, type_, computation)) ->
                                  Option.is_some (return_word_type type_)
+                                 || callback_word_type type_
+                                    && Option.is_some
+                                         (return_word_type computation)
                              | _ -> false ->
                           Ok (Word_view (operand, result.value_id, result_type))
                       | Some _ ->

@@ -1635,3 +1635,13 @@ callback faults retain their actual native outcomes. Exact and one-below data,
 default, code, IR, preparation and runtime limits cover cumulative accounting.
 The maintained example runs through built, staged and freshly installed CLIs;
 the standalone native suite also consumes the installed public library.
+
+Numeric callback expression tests share source-derived expected values across
+the IR and actual native consumers. They cover unary, bitwise, arithmetic,
+shift, logical and comparison operations in automatic, static, global, indexed
+and parameter cells; opposite-operand scaling, optimizer pass order, folded
+identity constants, signed differences, assignment
+results, comparison chains, unsigned computation and selected return metadata.
+Native owner guards preserve earlier operand output. Exact and one-below code,
+IR, frame and execution limits use measured work. The original source authority
+suite compiles these consumers for both private ABIs and executes the host ABI.

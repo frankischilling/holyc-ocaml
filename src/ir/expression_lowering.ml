@@ -297,6 +297,12 @@ let lowering_error ?span code message =
 let metadata_error ?span message = lowering_error ?span "HCIRL0004" message
 let callback_update_operand = Semantic_result.result_callback_update_operand
 let numeric_callback_result = Semantic_result.result_is_numeric_callback
+let callback_parser_pointer = Semantic_result.result_callback_parser_pointer
+
+let callback_pointer_difference opcode left right =
+  opcode = Opcode.Ic_sub
+  && Option.is_some (callback_parser_pointer left)
+  && Option.is_some (callback_parser_pointer right)
 
 let checked_integer_type result =
   if numeric_callback_result result then
@@ -2471,6 +2477,26 @@ let plan ?frame ?globals ~allow_calls root =
                   | Error item, _ | _, Error item -> error := Some item
                   | Ok (left, right), Ok span -> (
                       if
+                        callback_pointer_difference opcode left right
+                        && conversion = Keep_result
+                      then
+                        pending :=
+                          Visit { result = left; conversion = Keep_result }
+                          :: Visit { result = right; conversion = Keep_result }
+                          :: Finish_pointer_difference
+                               {
+                                 difference_result = result;
+                                 difference_left = left;
+                                 difference_right = right;
+                                 difference_stride = 8L;
+                                 difference_type =
+                                   Option.get
+                                     (Semantic_result.result_computation_type
+                                        result);
+                                 difference_span = span;
+                               }
+                          :: !pending
+                      else if
                         (opcode = Opcode.Ic_add || opcode = Opcode.Ic_sub)
                         && conversion = Keep_result
                         && (Option.is_some frame || Option.is_some globals)
@@ -3157,7 +3183,12 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
       else internal_u64_type
     in
     let original result =
-      Option.bind (Semantic_result.result_type result) (fun declared ->
+      let declared =
+        if numeric_callback_result result then
+          Semantic_result.result_computation_type result
+        else Semantic_result.result_type result
+      in
+      Option.bind declared (fun declared ->
           if full_integer_word declared then
             Some
               {
@@ -3304,11 +3335,17 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
                         {
                           value with
                           computation =
-                            Sema.Integer_computation_class.forward
-                              input.computation;
+                            (if numeric_callback_result result then
+                               value.computation
+                             else
+                               Sema.Integer_computation_class.forward
+                                 input.computation);
                           early_computation =
-                            Sema.Integer_computation_class.forward
-                              input.early_computation;
+                            (if numeric_callback_result result then
+                               value.early_computation
+                             else
+                               Sema.Integer_computation_class.forward
+                                 input.early_computation);
                           bits =
                             (if has_division then
                                Option.map Int64.lognot input.bits
@@ -3399,13 +3436,18 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
                        && full_integer_word r.declared
                        && full_integer_word l.computation
                        && full_integer_word r.computation ->
-                    let computation = common l.computation r.computation in
+                    let computation =
+                      if numeric_callback_result result then
+                        (Option.get default).computation
+                      else common l.computation r.computation
+                    in
                     let early_computation =
                       common l.early_computation r.early_computation
                     in
                     if accepted_f64_comparison_opcode opcode then (
                       if
-                        (not (internal_i64 early_computation))
+                        (not (numeric_callback_result result))
+                        && (not (internal_i64 early_computation))
                         && internal_i64 computation
                       then
                         unsigned_comparisons :=
@@ -3456,7 +3498,9 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
                               else Int64.unsigned_rem dividend divisor
                             in
                             constant result span computation computation bits
-                      | None, Some 1L when opcode = Opcode.Ic_div ->
+                      | None, Some 1L
+                        when opcode = Opcode.Ic_div
+                             && not (numeric_callback_result left) ->
                           ( Eliminated_division { result; operand = left },
                             Some l )
                       | None, Some divisor
@@ -3592,10 +3636,9 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
   let result_type result =
     if Semantic_result.result_is_callback_storage result then
       Semantic_result.result_storage_type result
-    else if
-      numeric_callback_result result
-      && Option.is_none (callback_update_operand result)
-    then
+    else if Option.is_some (callback_update_operand result) then
+      Semantic_result.result_type result
+    else if numeric_callback_result result then
       (* The update instruction itself retains the physical destination type.
          Only its subsequent arithmetic uses the projected numeric class. *)
       Semantic_result.result_computation_type result
@@ -3688,6 +3731,19 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
         in
         descriptions_rev := description :: !descriptions_rev;
         Ok { lowered_value = value_id; lowered_type = target_type }
+  in
+  let find_numeric_lowered result description span =
+    Result.bind (find_lowered !lowered result description) (fun node ->
+        if
+          numeric_callback_result result && callback_word_type node.lowered_type
+        then
+          (* Keep the physical producer and its dynamic code owner intact. A
+             numeric consumer sees signed RT_PTR bits through a full-word view;
+             the runtime still rejects an owned executable at that consumer. *)
+          emit_index_value ~opcode:Opcode.Ic_holyc_typecast
+            ~operands:[ node.lowered_value ] ~target_type:internal_i64_type
+            ~payload:(Some (Sequence.Integer 0L)) ~span
+        else Ok node)
   in
   let storage_address address =
     match
@@ -3785,12 +3841,12 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
             let ( let* ) = Result.bind in
             let emitted =
               let* left =
-                find_lowered !lowered step.difference_left
-                  "left pointer difference operand"
+                find_numeric_lowered step.difference_left
+                  "left pointer difference operand" step.difference_span
               in
               let* right =
-                find_lowered !lowered step.difference_right
-                  "right pointer difference operand"
+                find_numeric_lowered step.difference_right
+                  "right pointer difference operand" step.difference_span
               in
               let emit opcode operands payload =
                 emit_index_value ~opcode ~operands ~payload
@@ -4012,9 +4068,24 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                         Int_map.add (result_key result) lowered_operand !lowered
                 ))
         | Unary { result; opcode; span; operand; conversion } -> (
-            match
-              (find_lowered !lowered operand "unary operand", result_type result)
-            with
+            let input =
+              Result.bind (find_numeric_lowered operand "unary operand" span)
+                (fun node ->
+                  if
+                    numeric_callback_result result
+                    && (opcode = Opcode.Ic_com || opcode = Opcode.Ic_not)
+                    && Semantic_result.result_computation_type result
+                       <> Semantic_result.result_computation_type operand
+                  then
+                    emit_index_value ~opcode:Opcode.Ic_holyc_typecast
+                      ~operands:[ node.lowered_value ]
+                      ~target_type:
+                        (Option.get
+                           (Semantic_result.result_computation_type result))
+                      ~payload:(Some (Sequence.Integer 0L)) ~span
+                  else Ok node)
+            in
+            match (input, result_type result) with
             | Error item, _ -> error := Some item
             | _, None ->
                 error :=
@@ -4080,11 +4151,15 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
         | Constant_shift { result; opcode; span; operand; count; result_type }
           -> (
             match
-              ( find_lowered !lowered operand "constant shift operand",
-                take_identity allocator (Some span) )
+              Result.bind
+                (find_numeric_lowered operand "constant shift operand" span)
+                (fun input ->
+                  Result.map
+                    (fun identities -> (input, identities))
+                    (take_identity allocator (Some span)))
             with
-            | Error item, _ | _, Error item -> error := Some item
-            | Ok input, Ok (instruction_id, value_id) ->
+            | Error item -> error := Some item
+            | Ok (input, (instruction_id, value_id)) ->
                 let description : Sequence.description =
                   {
                     instruction_id;
@@ -4121,11 +4196,15 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
               result_type;
             } -> (
             match
-              ( find_lowered !lowered left "constant binary operand",
-                take_identity allocator (Some constant_span) )
+              Result.bind
+                (find_numeric_lowered left "constant binary operand" span)
+                (fun input ->
+                  Result.map
+                    (fun identities -> (input, identities))
+                    (take_identity allocator (Some constant_span)))
             with
-            | Error item, _ | _, Error item -> error := Some item
-            | Ok left_node, Ok (constant_instruction, constant_value) -> (
+            | Error item -> error := Some item
+            | Ok (left_node, (constant_instruction, constant_value)) -> (
                 let immediate : Sequence.description =
                   {
                     instruction_id = constant_instruction;
@@ -4162,9 +4241,16 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
         | Binary
             { result; opcode; span; left; right; conversion; operation_flags }
           -> (
+            let find_operand operand description =
+              if
+                opcode = Opcode.Ic_assign || compound_assignment opcode
+                || opcode = Opcode.Ic_equ_equ || opcode = Opcode.Ic_not_equ
+              then find_lowered !lowered operand description
+              else find_numeric_lowered operand description span
+            in
             match
-              ( find_lowered !lowered left "left binary operand",
-                find_lowered !lowered right "right binary operand",
+              ( find_operand left "left binary operand",
+                find_operand right "right binary operand",
                 result_type result )
             with
             | Error item, _, _ | _, Error item, _ -> error := Some item
@@ -4174,44 +4260,77 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                     (metadata_error ~span
                        "binary expression does not have a checked result type")
             | Ok left_node, Ok right_node, Some result_type -> (
-                let right_node =
-                  if
-                    (opcode = Opcode.Ic_add_equ || opcode = Opcode.Ic_sub_equ)
-                    && Semantic_result.result_is_callback_storage left
-                    || (opcode = Opcode.Ic_add || opcode = Opcode.Ic_sub)
-                       && numeric_callback_result result
-                  then
-                    (* PrsAddOp scales the original RHS by the RT_PTR pointee
-                       size before the update reads its destination. *)
-                    match
-                      emit_index_value ~opcode:Opcode.Ic_imm_i64 ~operands:[]
-                        ~target_type:internal_i64_type
-                        ~payload:(Some (Sequence.Integer 8L)) ~span
-                    with
-                    | Error item ->
-                        error := Some item;
-                        right_node
-                    | Ok stride -> (
-                        let scaled_type =
-                          match Type.base right_node.lowered_type with
-                          | Type.Primitive (_, Sema.Primitive_type.U64) ->
-                              internal_u64_type
-                          | _ -> internal_i64_type
-                        in
-                        match
-                          emit_index_value ~opcode:Opcode.Ic_mul
-                            ~operands:
-                              [ right_node.lowered_value; stride.lowered_value ]
-                            ~target_type:scaled_type ~payload:None ~span
-                        with
-                        | Error item ->
-                            error := Some item;
-                            right_node
-                        | Ok value -> value)
-                  else right_node
+                let scale_left, scale_right =
+                  Option.value ~default:(false, false)
+                    (Semantic_result.result_callback_numeric_scales result)
+                in
+                let scale node =
+                  match
+                    emit_index_value ~opcode:Opcode.Ic_imm_i64 ~operands:[]
+                      ~target_type:internal_i64_type
+                      ~payload:(Some (Sequence.Integer 8L)) ~span
+                  with
+                  | Error item ->
+                      error := Some item;
+                      node
+                  | Ok stride -> (
+                      let scaled_type =
+                        match Type.base node.lowered_type with
+                        | Type.Primitive (_, Sema.Primitive_type.U64) ->
+                            internal_u64_type
+                        | _ -> internal_i64_type
+                      in
+                      match
+                        emit_index_value ~opcode:Opcode.Ic_mul
+                          ~operands:[ node.lowered_value; stride.lowered_value ]
+                          ~target_type:scaled_type ~payload:None ~span
+                      with
+                      | Error item ->
+                          error := Some item;
+                          node
+                      | Ok value -> value)
                 in
                 let left_node =
-                  if not (Int_map.mem (result_key result) unsigned_comparisons)
+                  if scale_left then scale left_node else left_node
+                in
+                let right_node =
+                  if
+                    scale_right
+                    || (opcode = Opcode.Ic_add_equ || opcode = Opcode.Ic_sub_equ)
+                       && Semantic_result.result_is_callback_storage left
+                  then scale right_node
+                  else right_node
+                in
+                let computation_view operand node =
+                  if
+                    numeric_callback_result result
+                    && opcode <> Opcode.Ic_assign
+                    && (not (compound_assignment opcode))
+                    && (not (accepted_f64_comparison_opcode opcode))
+                    && (not (accepted_f64_logical_opcode opcode))
+                    && internal_i64 result_type
+                    && unsigned_integer_computation operand
+                  then (
+                    match
+                      emit_index_value ~opcode:Opcode.Ic_holyc_typecast
+                        ~operands:[ node.lowered_value ]
+                        ~target_type:internal_i64_type
+                        ~payload:(Some (Sequence.Integer 0L)) ~span
+                    with
+                    | Ok node -> node
+                    | Error item ->
+                        error := Some item;
+                        node)
+                  else node
+                in
+                let left_node = computation_view left left_node in
+                let right_node = computation_view right right_node in
+                let left_node =
+                  if
+                    not
+                      (Int_map.mem (result_key result) unsigned_comparisons
+                      || Semantic_result.result_callback_unsigned_comparison
+                           result)
                   then left_node
                   else
                     match take_identity allocator (Some span) with
@@ -4257,7 +4376,9 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                       comparison_domains :=
                         Int_map.add (result_key result)
                           (unsigned_integer_computation left
-                          || unsigned_integer_computation right)
+                          || unsigned_integer_computation right
+                          || Semantic_result.result_callback_unsigned_comparison
+                               result)
                           !comparison_domains;
                     descriptions_rev := description :: !descriptions_rev;
                     lowered :=
@@ -4269,8 +4390,8 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
             { result; previous; middle; right; opcode; span; conversion } -> (
             match
               ( find_lowered !lowered previous "previous comparison",
-                find_lowered !lowered middle "shared comparison operand",
-                find_lowered !lowered right "right comparison operand",
+                find_numeric_lowered middle "shared comparison operand" span,
+                find_numeric_lowered right "right comparison operand" span,
                 Semantic_result.result_type result,
                 Int_map.find_opt (result_key previous) !comparison_domains )
             with

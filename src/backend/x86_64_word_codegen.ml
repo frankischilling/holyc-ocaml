@@ -1888,6 +1888,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
                    (Global_storage.undefined_code_owner_address owner) ));
           assign position destination result
       | Apply_unary (unary, input, result) ->
+          require_numeric_owner input;
           let inputs, protected = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
           let destination =
@@ -1925,6 +1926,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
             emit (Encoder.Binary (binary, target, registers.(right))));
           assign position destination result
       | Apply_constant_shift (shift, input, count, result) ->
+          require_numeric_owner input;
           let inputs, protected = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
           let destination =
@@ -1936,6 +1938,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Shift_immediate (shift, registers.(destination), count));
           assign position destination result
       | Apply_shift (shift, left, count, result) ->
+          require_numeric_owner left;
+          require_numeric_owner count;
           let count_register = find_register count in
           (match owners.(rcx) with
           | None -> ()
@@ -1986,6 +1990,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           assign position destination result
       | Apply_division (arithmetic_operation, word, site, left, right, result)
         ->
+          require_numeric_owner left;
+          require_numeric_owner right;
           prepare_division_operands instruction.span position left right;
           let zero_label = fresh_label supply in
           fault_blocks :=
@@ -2021,6 +2027,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
             | Remainder -> rdx)
             result
       | Apply_comparison (condition, left, right, result) ->
+          require_numeric_owner left;
+          require_numeric_owner right;
           let inputs, protected =
             ensure_inputs instruction.span [ left; right ]
           in
@@ -2162,6 +2170,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rax result
       | Apply_logical_not (input, result) ->
+          require_numeric_owner input;
           let inputs, protected = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
           let destination =
@@ -2174,6 +2183,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Movzx8 (target, target));
           assign position destination result
       | Apply_logical (binary, left, right, result) ->
+          require_numeric_owner left;
+          require_numeric_owner right;
           let inputs, protected =
             ensure_inputs instruction.span [ left; right ]
           in
@@ -5439,7 +5450,17 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             (Value_map.find_opt id !values))
                      description.operands))
           && (not
-                (description.opcode = Opcode.Ic_mul
+                ((match opcode_kind description.opcode with
+                   | Some
+                       ( Unary_kind _
+                       | Logical_not_kind
+                       | Logical_kind _
+                       | Binary_kind _
+                       | Constant_shift_kind _
+                       | Shift_kind _
+                       | Division_kind _
+                       | Comparison_kind _ ) -> true
+                   | _ -> false)
                 && List.for_all
                      (fun id ->
                        (not (Value_map.mem id !code_values))
@@ -5556,9 +5577,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       (Computation.declared target_type)
                   in
                   mark_code value (Option.get (code_source input));
-                  if has_code_word_view input then
-                    word_code_values :=
-                      Value_set.add value.value_id !word_code_values;
+                  word_code_values :=
+                    Value_set.add value.value_id !word_code_values;
                   (Apply_word_view (input, value), None)
               | _ ->
                   unsupported description
@@ -8506,7 +8526,15 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               (match operation with
                 | Return_value input -> Option.is_some input.code_owner_offset
                 | Discard_callback_default _ -> true
-                | Apply_binary (_, left, right, _) ->
+                | Apply_unary (_, input, _)
+                | Apply_constant_shift (_, input, _, _)
+                | Apply_logical_not (input, _) ->
+                    Option.is_some input.code_owner_offset
+                | Apply_binary (_, left, right, _)
+                | Apply_shift (_, left, right, _)
+                | Apply_division (_, _, _, left, right, _)
+                | Apply_comparison (_, left, right, _)
+                | Apply_logical (_, left, right, _) ->
                     Option.is_some left.code_owner_offset
                     || Option.is_some right.code_owner_offset
                 | Update_frame_value (_, _, input, _, _, _, _)

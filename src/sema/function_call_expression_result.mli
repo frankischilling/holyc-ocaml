@@ -567,16 +567,31 @@ val result_canceled_callback_operand :
 
 val result_callback_update_operand :
   expression_result -> expression_result option
-(** The exact callback cell selected by an original prefix, postfix or compound
-    update. Grouping retains the same operand. This does not expose code bits.
+(** The exact callback cell selected by an original assignment, prefix, postfix
+    or compound update. Grouping retains the same operand. This does not expose
+    code bits. *)
+
+val result_callback_parser_pointer : expression_result -> Type.t option
+(** The parser's retained pointer class for an original one-star callback word
+    expression. Grouping, integer unary operations and the original binary left
+    operand preserve this class. Pointer subtraction consumes it. This supplies
+    parser metadata, not a storage address, signature or invocation authority.
 *)
 
 val result_is_numeric_callback : expression_result -> bool
-(** An original callback update result, optionally followed by grouped integer
-    addition or subtraction. Its source pointer class supplies the parser's
-    scaling; [result_computation_type] supplies the resulting numeric word
-    class. Bare callback reads and arbitrary pointer expressions do not qualify.
+(** An original callback read, assignment or update, optionally followed by
+    integer operators on either side. [result_computation_type] supplies the
+    numeric word class while declaration and storage types remain separate.
+    Arbitrary pointer expressions do not qualify. *)
+
+val result_callback_numeric_scales : expression_result -> (bool * bool) option
+(** Left and right callback-word scales resolved from original parser SIZEOF
+    insertion and opposite operand classes in the first optimizer pass. Later
+    class changes do not reinsert a removed placeholder. No authority is minted.
 *)
+
+val result_callback_unsigned_comparison : expression_result -> bool
+(** Unsigned comparison flags retained across the original optimizer passes. *)
 
 val result_computation_type : expression_result -> Type.t option
 (** Effective native integer producer class, derived from retained expression

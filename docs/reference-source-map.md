@@ -1881,3 +1881,15 @@ pointer-sized; the IR query adapter requests aggregate layout only for object
 values. Source-identity controls reject copied children, foreign tables and
 namespaces, expired minting and same-name publication substitution. This audit
 and actual private host execution add no TempleOS runtime capture.
+
+Numeric callback expressions follow `Compiler/PrsExp.HC:15-63,174-181,203-253` for the
+parser's retained left class, eight-byte callback scaling, signed difference
+division and comparison-chain completion. `Compiler/OptLib.HC:96-177,195-228`
+selects raw computation classes independently. `OptPass012.HC:458-485,866-895`
+uses those classes for bitwise operators and retains assignment destinations.
+`OptLib.HC:484-505` and `OptPass012.HC:1259-1266` resolve each size placeholder
+from the opposite operand's optimized class. `PrsLib.HC:249-263` runs the
+optimizer passes in order; later class changes do not restore removed scaling.
+The original typed AST supplies parser and computation provenance; physical cells and dynamic
+executable owners remain intact through numeric views. Hosted owner guards add
+no TempleOS runtime capture. See [callback expressions](callback-expressions.md).
