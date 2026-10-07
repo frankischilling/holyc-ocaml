@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+Native AOT tests share seventeen source-derived fixtures with the IR suite.
+They check separate task/module tables, retained functions and defaults,
+callbacks, statics, nested generation, inherited task layouts, load-time calls
+and output order. Every native fragment must complete in machine code; source
+task runtime counters remain zero. Exact and one-below instruction, declaration,
+default, generation, output, code, IR and combined storage limits retain reached
+effects. The maintained AOT example also runs through the CLI with resource
+reports. Synchronous native StreamExePrint remains a checked dependency failure.
+
 Inherited layout fixtures run in both IR modes and native JIT. They cover
 original selected entries, partial and forward bases, lookahead replacement,
 unions, offsets, padding, saved queries/defaults and derived frames. Native

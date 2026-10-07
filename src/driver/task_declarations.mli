@@ -399,6 +399,7 @@ type reference_stage = private
       * Frontend.Ast.function_definition option
 
 val dimension_work : t -> int
+val compiler_positions : t -> Sema.Compiler_record.compiler_positions
 val switch_budget : t -> Sema.Integer_switch_preparation.budget
 val switch_work : t -> int
 val switch_preparation_work : t -> int

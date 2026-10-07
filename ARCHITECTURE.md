@@ -1,5 +1,13 @@
 # holyc-ocaml architecture
 
+`Hosted.Native_source_execution` freezes a separate directive task before AOT
+module publication. `Hosted.Native_program` supplies the original outer parser
+and checked module compiler; its stream adapter executes only original task
+requests. Both use the same native instruction/output budget and cumulative
+preparation, saved-default and code allowances. The module retains a separate
+native arena and follows all directive fragments. No task graph is merged into
+the module. See [native AOT sessions](docs/native-aot-source-sessions.md).
+
 The live internal-binding adapter lowers the original typed target before its
 header is read. Native execution returns an opaque C capture rooted to that
 program and task arena, with actual result bits and work. The current source

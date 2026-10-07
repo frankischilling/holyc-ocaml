@@ -1,5 +1,11 @@
 # Native source tasks
 
+[Native AOT sessions](native-aot-source-sessions.md) execute `#exe` blocks in a
+separate retained JIT task, then run the original checked module in native code.
+Their resource allowances cover both contexts. The remaining synchronous
+StreamExePrint bridge must retain the original caller and parser while nested
+source runs.
+
 [Runtime layout expressions](runtime-layout-expressions.md) execute integer
 array bounds and aggregate `$$` offsets at their original JIT parser callbacks.
 Global, automatic, static and primitive member extents retain their original
@@ -408,7 +414,7 @@ named or anonymous integer and one-star callback defaults, original Print,
 PutChars and stream callback entries, and native JIT `#exe` generation.
 Runtime-dependent integer dimensions and aggregate offsets use their original
 native scalar captures. Wider callback defaults, synchronous native
-StreamExePrint and AOT source-task execution
+StreamExePrint and broader outer AOT module execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.
 The compiler retains each successful live JIT static allocation, including
@@ -544,5 +550,6 @@ defaults retain that entry after a later source body replaces the extern slot.
 The immutable provider owner and mutable slot have separate native cells.
 Print accepts checked primitive pointer tails and shares the native formatter's
 atomic drafts. Fragment histories currently re-emit the provider; larger saved
-default examples use an explicit cumulative code allowance. Native stream
-provider entries remain required; the IR task executes their original contexts.
+default examples use an explicit cumulative code allowance. Native StreamPrint
+executes its original generation context. Synchronous native StreamExePrint
+remains required.

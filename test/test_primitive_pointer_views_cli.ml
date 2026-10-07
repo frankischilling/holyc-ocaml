@@ -128,11 +128,19 @@ let () =
       List.iter
         (fun target ->
           if target = "host-jit-task" && mode = "aot" then (
-            let report = invoke ~status:1 target mode example in
-            error "HCRUN0001" report;
+            let report = invoke target mode example in
+            word "42" report;
             require
-              (member "executed_steps" report = `Int 0)
-              "native source tasks require JIT")
+              (member "output_hex" report = `String "4142"
+              && member "output_work" report = `Int 8)
+              "AOT view scans retain exact output";
+            let fragments =
+              report |> member "native" |> member "fragments" |> to_list
+            in
+            require (List.length fragments = 1) "one original AOT module";
+            require
+              (List.hd fragments |> member "kind" |> to_string = "aot-module")
+              "AOT views use the separate module image")
           else
             let report = invoke target mode example in
             word "42" report;

@@ -34,6 +34,18 @@ type t = {
 let ( let* ) = Result.bind
 let work value = VM.task_initializer_steps value.state
 let bytes value = value.saved_bytes
+
+let synchronize_work value ~work ~bytes =
+  let before = VM.task_initializer_steps value.state in
+  if work < before || work > VM.task_initializer_limit value.state then
+    Error "native declaration work exceeds its cumulative preparation allowance"
+  else if bytes < value.saved_bytes || bytes > value.max_default_bytes then
+    Error "native saved defaults exceed their cumulative byte allowance"
+  else (
+    VM.record_task_preparation value.state ~before ~steps:(work - before);
+    value.saved_bytes <- bytes;
+    Ok ())
+
 let completions value = List.rev value.completed_rev
 let execution completion = completion.execution
 let initializer_completions value = List.rev value.initializers_rev

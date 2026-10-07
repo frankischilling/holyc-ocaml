@@ -37,13 +37,14 @@ outside `#exe` therefore report `HCIRVM0027` after formatting; format, pointer,
 byte and work faults can occur first. StreamExePrint retains its original I64
 signature and formats through its own temporary buffer. JIT calls then report
 `HCIRVM0027`, including calls through saved callbacks. Its successful synchronous
-AOT execution still requires native AOT source tasks and a bridge that resumes
-the original parser while the calling native function is suspended.
+AOT execution still requires a bridge that resumes the original parser while
+the calling native function is suspended. [Native AOT sessions](native-aot-source-sessions.md)
+now execute the original directive tasks and their separate outer module.
 
 The private generation context does not implement the exported HolyC ABI,
 TempleOS task scheduling or arbitrary compile-time execution. Module functions
 outside an executing `#exe` task keep their existing visibility boundary. Native
-AOT tasks, floating execution, aggregate object execution, object/BIN relocation,
+broader outer AOT language support, floating execution, aggregate object execution, object/BIN relocation,
 loader integration and bootstrap acceptance remain open.
 
 `Compiler/CMisc.HC:68-81` supplies StreamPrint's format-before-context order and

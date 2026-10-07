@@ -25,6 +25,14 @@ type report = {
   output_work_ : int;
 }
 
+type source_streams = {
+  execute_stream :
+    Common.Span.t ->
+    (Frontend.Parser.stream_execution, Common.Diagnostic.t list) Stdlib.result;
+  checkpoint : unit -> (unit, Common.Diagnostic.t list) Stdlib.result;
+  remaining_code : unit -> (int * int, Common.Diagnostic.t list) Stdlib.result;
+}
+
 let ( let* ) = Result.bind
 
 let diagnostic ~span code message =
@@ -630,7 +638,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
     ?(max_default_bytes = 65_536) ?(max_global_bytes = 1_048_576)
     ?(max_literal_bytes = 1_048_576) ?status_abi ~preparation_steps ~switch_work
-    ~dimension_work ~default_bytes session ~config ~source =
+    ~dimension_work ~default_bytes ?streams session ~config ~source =
   let span = Integer_source.source_span source in
   let* () =
     if
@@ -662,25 +670,45 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
     |> Result.map_error (fun message ->
         [ diagnostic ~span "HCIRVM0001" message ])
   in
+  let* streams =
+    match streams with
+    | None -> Ok None
+    | Some create -> create ledger preparation |> Result.map Option.some
+  in
+  let checkpoint () =
+    Option.fold ~none:(Ok ())
+      ~some:(fun streams -> streams.checkpoint ())
+      streams
+  in
+  let with_checkpoint action =
+    let* () = checkpoint () in
+    let result = action () in
+    match (result, checkpoint ()) with
+    | result, Ok () -> result
+    | Ok _, Error errors -> Error errors
+    | Error errors, Error later -> Error (errors @ later)
+  in
   let entry_statement_seen = ref false in
   let commands : Frontend.Parser.command_sink =
     {
       checkpoint =
         Some
           (fun event ->
-            let* () = Task_declarations.observe_command ledger event in
-            (match event with
-            | Frontend.Parser.Command_completed receipt ->
-                if
-                  List.exists
-                    (function
-                      | Ast.Top_level_statement (Ast.Empty_statement _) -> false
-                      | Ast.Top_level_statement _ -> true
-                      | _ -> false)
-                    receipt.command_ast.items
-                then entry_statement_seen := true
-            | _ -> ());
-            Ok ());
+            with_checkpoint (fun () ->
+                let* () = Task_declarations.observe_command ledger event in
+                (match event with
+                | Frontend.Parser.Command_completed receipt ->
+                    if
+                      List.exists
+                        (function
+                          | Ast.Top_level_statement (Ast.Empty_statement _) ->
+                              false
+                          | Ast.Top_level_statement _ -> true
+                          | _ -> false)
+                        receipt.command_ast.items
+                    then entry_statement_seen := true
+                | _ -> ());
+                Ok ()));
       query = Some (Task_declarations.observe_query ledger);
       call = None;
       implicit_output = Some (Task_declarations.observe_implicit_output ledger);
@@ -688,97 +716,103 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
       declaration =
         Some
           (fun event ->
-            let* () =
-              match event with
-              | Frontend.Parser.Parameter_default_completed receipt
-                when !entry_statement_seen ->
-                  Error
-                    [
-                      diagnostic ~span:receipt.default_ast.location.span
-                        "HCRUN0006"
-                        "native defaults must precede executable top-level \
-                         statements; interleaved declaration execution is \
-                         unsupported";
-                    ]
-              | Frontend.Parser.Callback_default_completed receipt
-                when !entry_statement_seen ->
-                  Error
-                    [
-                      diagnostic
-                        ~span:receipt.callback_default_ast.location.span
-                        "HCRUN0006"
-                        "native defaults must precede executable top-level \
-                         statements; interleaved declaration execution is \
-                         unsupported";
-                    ]
-              | Frontend.Parser.Global_declared publication -> (
-                  match
-                    global_source_error
-                      ~span:publication.global_name.location.span
-                      ~modifiers:publication.global_header.modifiers
-                      ~binding:publication.global_header.binding
-                      ~type_specifier:publication.global_header.type_specifier
-                      ~pointer_layers:publication.global_pointer_layers
-                      ~function_pointer:publication.global_function_pointer
-                      ~array_dimensions:publication.global_dimensions
-                      ~has_initializer:false
-                  with
-                  | None -> Ok ()
-                  | Some error -> Error [ error ])
-              | Frontend.Parser.Global_initializer_started receipt
-                when !entry_statement_seen ->
-                  Error
-                    [
-                      source_error receipt.initializer_equals.span
-                        "native initializers must precede executable top-level \
-                         statements";
-                    ]
-              | Frontend.Parser.Static_initializer_preparing receipt
-                when !entry_statement_seen ->
-                  Error
-                    [
-                      source_error
-                        (Frontend.Parser.static_initializer_leaf_location
-                           receipt)
-                          .span
-                        "native static initializers must precede executable \
-                         top-level statements";
-                    ]
-              | Frontend.Parser.Aggregate_declared _ ->
-                  Error
-                    [
-                      diagnostic ~span "HCRUN0001"
-                        "native source does not admit aggregate declarations";
-                    ]
-              | _ -> Ok ()
-            in
-            let* () = Task_declarations.observe ledger event in
-            match event with
-            | Frontend.Parser.Parameter_default_completed receipt ->
-                Native_default_preparation.prepare preparation ~session ~ledger
-                  receipt
-            | Frontend.Parser.Callback_default_completed receipt ->
-                Native_default_preparation.prepare_callback preparation ~session
-                  ~ledger receipt
-            | Frontend.Parser.Callback_signature_completed header ->
-                Task_declarations.complete_source_callback_defaults ledger
-                  header
-            | Frontend.Parser.Global_initializer_leaf_completed receipt ->
-                Native_default_preparation.prepare_initializer preparation
-                  ~session ~ledger receipt
-            | Frontend.Parser.Static_initializer_preparing receipt ->
-                Native_default_preparation.prepare_static preparation ~session
-                  ~ledger receipt
-            | Frontend.Parser.Function_header_completed header ->
-                Task_declarations.complete_source_defaults ledger header
-            | _ -> Ok ());
+            with_checkpoint (fun () ->
+                let* () =
+                  match event with
+                  | Frontend.Parser.Parameter_default_completed receipt
+                    when !entry_statement_seen ->
+                      Error
+                        [
+                          diagnostic ~span:receipt.default_ast.location.span
+                            "HCRUN0006"
+                            "native defaults must precede executable top-level \
+                             statements; interleaved declaration execution is \
+                             unsupported";
+                        ]
+                  | Frontend.Parser.Callback_default_completed receipt
+                    when !entry_statement_seen ->
+                      Error
+                        [
+                          diagnostic
+                            ~span:receipt.callback_default_ast.location.span
+                            "HCRUN0006"
+                            "native defaults must precede executable top-level \
+                             statements; interleaved declaration execution is \
+                             unsupported";
+                        ]
+                  | Frontend.Parser.Global_declared publication -> (
+                      match
+                        global_source_error
+                          ~span:publication.global_name.location.span
+                          ~modifiers:publication.global_header.modifiers
+                          ~binding:publication.global_header.binding
+                          ~type_specifier:
+                            publication.global_header.type_specifier
+                          ~pointer_layers:publication.global_pointer_layers
+                          ~function_pointer:publication.global_function_pointer
+                          ~array_dimensions:publication.global_dimensions
+                          ~has_initializer:false
+                      with
+                      | None -> Ok ()
+                      | Some error -> Error [ error ])
+                  | Frontend.Parser.Global_initializer_started receipt
+                    when !entry_statement_seen ->
+                      Error
+                        [
+                          source_error receipt.initializer_equals.span
+                            "native initializers must precede executable \
+                             top-level statements";
+                        ]
+                  | Frontend.Parser.Static_initializer_preparing receipt
+                    when !entry_statement_seen ->
+                      Error
+                        [
+                          source_error
+                            (Frontend.Parser.static_initializer_leaf_location
+                               receipt)
+                              .span
+                            "native static initializers must precede \
+                             executable top-level statements";
+                        ]
+                  | Frontend.Parser.Aggregate_declared _ ->
+                      Error
+                        [
+                          diagnostic ~span "HCRUN0001"
+                            "native source does not admit aggregate \
+                             declarations";
+                        ]
+                  | _ -> Ok ()
+                in
+                let* () = Task_declarations.observe ledger event in
+                match event with
+                | Frontend.Parser.Parameter_default_completed receipt ->
+                    Native_default_preparation.prepare preparation ~session
+                      ~ledger receipt
+                | Frontend.Parser.Callback_default_completed receipt ->
+                    Native_default_preparation.prepare_callback preparation
+                      ~session ~ledger receipt
+                | Frontend.Parser.Callback_signature_completed header ->
+                    Task_declarations.complete_source_callback_defaults ledger
+                      header
+                | Frontend.Parser.Global_initializer_leaf_completed receipt ->
+                    Native_default_preparation.prepare_initializer preparation
+                      ~session ~ledger receipt
+                | Frontend.Parser.Static_initializer_preparing receipt ->
+                    Native_default_preparation.prepare_static preparation
+                      ~session ~ledger receipt
+                | Frontend.Parser.Function_header_completed header ->
+                    Task_declarations.complete_source_defaults ledger header
+                | _ -> Ok ()));
       dimension_count = Some (Task_declarations.grammar_dimension_count ledger);
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
   in
   let parsed =
-    Frontend.Parser.parse ~commands ~sources:(Session.sources session)
+    Frontend.Parser.parse ~commands
+      ?execute_stream:
+        (Option.map (fun streams -> streams.execute_stream) streams)
+      ~sources:(Session.sources session)
       ~definitions:(Session.definitions session)
       ~symbols:(Session.symbols session) ~config source
   in
@@ -792,6 +826,23 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
       match ast_errors ast with
       | _ :: _ as errors -> Error (parsed.diagnostics @ errors)
       | [] -> (
+          let* max_ir_instructions, max_code_bytes =
+            match streams with
+            | None -> Ok (max_ir_instructions, max_code_bytes)
+            | Some streams ->
+                let* ir, code = streams.remaining_code () in
+                if
+                  ir <= 0 || code <= 0 || ir > max_ir_instructions
+                  || code > max_code_bytes
+                then
+                  Error
+                    [
+                      diagnostic ~span "HCBACK0001"
+                        "remaining native code allowances must stay within \
+                         their original bounds";
+                    ]
+                else Ok (ir, code)
+          in
           let* source_command =
             Task_declarations.seal_source ledger ast
             |> Result.map_error (fun errors -> parsed.diagnostics @ errors)

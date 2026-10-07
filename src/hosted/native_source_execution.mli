@@ -9,6 +9,7 @@ type fragment_kind =
   | Dimension
   | Offset
   | Command
+  | Aot_module
 
 type image = private {
   status_abi : Backend.X86_64_program.status_abi;
@@ -116,8 +117,17 @@ val evaluate :
     storage; attempted scans charge initializer work. Data descriptors charge 32
     private arena bytes and expose no host pointer. Direct static callback
     initializers and F64 defaults remain unsupported. Unsupported task
-    declarations and AOT mode return diagnostics. There is no isolated program
-    or interpreter fallback. *)
+    declarations return diagnostics. There is no interpreter fallback.
+
+    AOT mode freezes a separate directive task before module publication.
+    Original [#exe] commands run in that task and feed committed generated text
+    into the original outer parser. Its checked native module follows as one
+    [Aot_module] fragment with a separate arena. Instruction/output,
+    preparation, saved-default, code/IR and combined logical storage allowances
+    cover both contexts. [source_progress] observes only the directive task; the
+    native report retains actual work and output for the complete invocation.
+    Successful synchronous AOT StreamExePrint, runtime AOT dimensions, general
+    outer aggregates and reference-default relocation remain open. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val fragments : report -> fragment list

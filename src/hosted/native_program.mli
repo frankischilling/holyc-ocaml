@@ -10,6 +10,43 @@ type result = private {
 
 type report
 
+type source_streams = {
+  execute_stream :
+    Common.Span.t ->
+    (Frontend.Parser.stream_execution, Common.Diagnostic.t list) Stdlib.result;
+  checkpoint : unit -> (unit, Common.Diagnostic.t list) Stdlib.result;
+  remaining_code : unit -> (int * int, Common.Diagnostic.t list) Stdlib.result;
+}
+
+val compile_with_preparation :
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_initializer_steps:int ->
+  ?max_switch_work:int ->
+  ?max_dimension_work:int ->
+  ?max_default_bytes:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?status_abi:Backend.X86_64_program.status_abi ->
+  preparation_steps:int ref ->
+  switch_work:int ref ->
+  dimension_work:int ref ->
+  default_bytes:int ref ->
+  ?streams:
+    (Task_declarations.t ->
+    Native_default_preparation.t ->
+    (source_streams, Common.Diagnostic.t list) Stdlib.result) ->
+  Session.t ->
+  config:Frontend.Preprocessor.Config.t ->
+  source:Common.Source_file.t ->
+  (Backend.X86_64_program.t checked, Common.Diagnostic.t list) Stdlib.result
+(** Shared native source compiler. A stream adapter owns its original directive
+    task separately from the AOT module and supplies only parser execution and
+    cumulative resource checkpoints. It cannot replace module syntax, checked
+    preparation receipts or backend admission. *)
+
 val compile :
   ?max_ir_instructions:int ->
   ?max_code_bytes:int ->

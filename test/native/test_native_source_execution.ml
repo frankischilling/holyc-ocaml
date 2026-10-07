@@ -540,9 +540,9 @@ let exact_native_limits () =
 let unsupported_domains () =
   ignore (expect_value 42L (run "I64 N=2; I64 A[N]; A[0]=42; A[0];"));
   let aot = run ~mode:Preprocessor.Aot source in
-  expect_rejection aot;
+  ignore (expect_value 42L aot);
   Alcotest.(check int)
-    "AOT rejected before native source callbacks" 0
+    "AOT executes its original module image" 1
     (List.length (Native.fragments aot));
   let foreign =
     match Native_program_execution.platform () with

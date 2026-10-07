@@ -50,7 +50,7 @@ does not complete the selected outer forward.
 
 Retained inherited declarations provide metadata for their captured queries.
 They grant no aggregate object storage or member index. The ordinary semantic
-layout APIs keep their completed-base and member-index requirements. Native AOT
-source execution, runtime AOT relocation, synchronous native StreamExePrint,
+layout APIs keep their completed-base and member-index requirements. General AOT
+module layouts, runtime AOT relocation, synchronous native StreamExePrint,
 aggregate object execution, wider ABI, BIN and loader compatibility, whole-tree
 compilation and bootstrap remain open.

@@ -130,10 +130,14 @@ let () =
             (report |> member "output_work" |> to_int = 2)
             "JIT context check ran before formatting");
       if target = "host-jit-task" then (
-        let report = invoke ~status:1 ~mode:"aot" target example in
-        error "HCRUN0001" report;
+        let report = invoke ~mode:"aot" target example in
+        value report;
+        let fragments =
+          report |> member "native" |> member "fragments" |> to_list
+        in
         require
-          (report |> member "native" |> member "fragments" |> to_list = [])
-          "AOT task entered native code"))
+          (List.hd (List.rev fragments)
+          |> member "kind" |> to_string = "aot-module")
+          "AOT module follows original native directives"))
     targets;
   Printf.printf "%d stream generation CLI executions passed\n%!" !count

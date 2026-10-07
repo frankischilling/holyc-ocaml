@@ -1329,6 +1329,32 @@
 
 (copy_files ../stream_generation_cases.ml)
 
+(copy_files ../aot_source_cases.ml)
+
+(executable
+ (name test_native_aot_source)
+ (modules test_native_aot_source aot_source_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_aot_source.exe})))
+
+(executable
+ (name test_native_aot_source_cli)
+ (modules test_native_aot_source_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-aot-streams.hc)
+ (action
+  (run
+   %{exe:test_native_aot_source_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-aot-streams.hc})))
+
 (copy_files ../local_aggregate_cases.ml)
 
 (copy_files ../source_inherited_layout_cases.ml)

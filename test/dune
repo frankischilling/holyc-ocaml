@@ -5110,6 +5110,11 @@
  (libraries holyc_lib alcotest))
 
 (test
+ (name test_aot_source_sessions)
+ (modules test_aot_source_sessions aot_source_cases)
+ (libraries holyc_lib alcotest))
+
+(test
  (name test_source_inherited_layout_authority)
  (modules test_source_inherited_layout_authority)
  (libraries holyc_lib alcotest))

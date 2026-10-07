@@ -95,6 +95,11 @@ val claim_task_arena : task_layout -> (unit, string) result
     its lifetime; release does not authorize a replacement or a copied arena. *)
 
 val task_layout_work : task_layout -> int
+val task_layout_global_bytes : task_layout -> int
+
+val task_layout_literal_bytes : task_layout -> int
+(** Read the current logical allocation totals, including copied saved strings.
+    These observations grant no snapshot, arena or source authority. *)
 
 val create_task_snapshot :
   ?functions:Ir.Integer_interpreter.function_definition list ->

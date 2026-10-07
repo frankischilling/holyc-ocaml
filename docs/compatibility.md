@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Native AOT sessions](native-aot-source-sessions.md) retain separate task and
+module namespaces. Original `#exe` commands run in machine code during parsing;
+the original module image runs afterward. Shared allowances and reached effects
+cover both stages. Outer aggregate execution, runtime AOT relocation,
+synchronous native StreamExePrint and the wider compiler remain open.
+
 [Inherited metadata](source-inherited-layouts.md) copies the original selected
 base's reached size after lookahead. A completed extern forward retains its
 canonical identity; a new completed same-name class cannot replace a frozen
@@ -32,9 +38,10 @@ Scalar and fully initialized fixed-array statics retain declared widths,
 per-element initialization flags and historical function ownership.
 Original literal-copy leaves initialize fixed byte-array statics, including
 nested rows and truncated or terminating-zero copies. Automatic/parameter reads
-in static initializers and partial array initialization still reject. Persistent function addresses, task
-callbacks, runtime dimensions, wider and anonymous defaults, native `#exe` and AOT task
-execution remain open under #704.
+in static initializers and partial array initialization still reject. Original
+one-star callbacks, runtime dimensions, saved defaults and native `#exe` now
+execute in the retained task. Wider callback domains, synchronous native
+StreamExePrint and broader outer AOT execution remain open under #704.
 Named integer defaults execute once at their original header callback through
 a real native expression image. Storage effects and retained calls produce the
 saved full word; later calls require its original published object and completed
@@ -46,8 +53,8 @@ Retained task functions use their original source context for Print and PutChars
 Owned array and original literal formats, nested calls and initializer output share cumulative native
 instruction, output-byte and output-work limits. Print faults preserve earlier
 output without publishing a partial draft; PutChars keeps reached prefixes.
-Joined source-body replacement rejects provider fallback while native extern-slot
-dispatch remains unfinished. StreamPrint and StreamExePrint remain separate
+Joined source-body replacement rejects provider fallback; supported JIT extern
+calls retain their selected source bodies. StreamPrint and StreamExePrint remain separate
 source-generation consumers.
 
 Original task string producers append stable byte regions and descriptor
@@ -177,8 +184,9 @@ and StrLen declarations inside IR `#exe` tasks in both outer modes. Publication,
 header installation, shared allocation history and argument/emission captures
 retain their own source receipts. Supported retained integer binding expressions
 evaluate before type validation and publication, including calls with effects.
-Floating targets, native stream services and native `#exe` remain under #701,
-#695 and #704. Ordinary JIT target expressions now execute in both task paths.
+Floating targets and synchronous native StreamExePrint remain under #701,
+#695 and #704. Ordinary JIT target expressions and native `#exe` now execute
+in the retained task paths.
 
 [Internal ASCII conversion](internal-toupper.md) supports the retained numeric
 `IC_TOUPPER` target, I64 result and U8 scalar formal through interpreted and

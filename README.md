@@ -1,5 +1,12 @@
 # holyc-ocaml
 
+AOT source now runs `#exe` blocks in their original native JIT task before
+executing the separately compiled module. The
+[AOT example](examples/native-aot-streams.hc) prints `parse43;load1;` and returns
+42 while keeping task and module variables separate. See
+[native AOT sessions](docs/native-aot-source-sessions.md) for execution, shared
+limits and the remaining synchronous StreamExePrint dependency.
+
 Inherited class and union sizes now retain the exact base selected by the
 original parser, including reached partial layouts and forward completion
 during JIT lookahead. Their runtime dependencies remain attached to saved

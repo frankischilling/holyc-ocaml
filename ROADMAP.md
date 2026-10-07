@@ -1,5 +1,12 @@
 # holyc-ocaml roadmap
 
+Issue #704 now connects native AOT source sessions: original JIT `#exe` tasks
+generate source during parsing, and a distinct native module runs afterward.
+Instructions, output, preparation, defaults, code and storage stay bounded
+across both contexts. Synchronous StreamExePrint, runtime AOT dimensions,
+reference relocation and wider outer module support remain open. See
+[native AOT sessions](docs/native-aot-source-sessions.md).
+
 Original inherited size metadata now carries the selected base's reached layout
 and runtime dependencies into saved queries, defaults and frames. Partial bases,
 forward completion and same-name replacement follow the original parser phases.
@@ -9,13 +16,13 @@ Aggregate object storage and member-index admission remain open. See
 Issue #704 now connects integer runtime array bounds and aggregate `$$` offsets
 to original IR and native JIT task execution. Primitive member layouts retain
 runtime dependencies through completed sizes and derived frames. AOT relocation,
-floating bounds, aggregate object execution and native stream services remain
-open. See [runtime layout expressions](docs/runtime-layout-expressions.md).
+floating bounds, aggregate object execution and synchronous native StreamExePrint
+remain open. See [runtime layout expressions](docs/runtime-layout-expressions.md).
 
 Issue #704 now connects integer `_intern` target expressions to original JIT
 task execution in IR and native code. Supported internal calls share the native
-task's owned storage and budgets. Floating targets, native stream services,
-native `#exe`, AOT sessions and exported executable addresses remain open. See
+task's owned storage and budgets. Floating targets, synchronous native
+StreamExePrint and exported executable addresses remain open. See
 [live internal bindings](docs/native-internal-bindings.md).
 
 Issue #704 now connects one-level primitive data-pointer defaults to original
@@ -29,7 +36,8 @@ retained direct functions and resumed commands to one native arena through
 `host-jit-task`. Source requests execute once under a shared native budget.
 Each caller compiles its original function bodies and historical global bindings.
 Retained Print and PutChars calls use those original contexts and share the
-task's output allowance. Joined extern-body dispatch remains unfinished.
+task's output allowance. Joined JIT extern calls retain their selected bodies
+and source contexts.
 Original task literals now keep their mutable bytes and reference tables across
 fragments, including retained formats and initializer calls.
 Integer function statics now allocate at the original live declaration and
@@ -40,7 +48,8 @@ array statics under the same task ownership and initializer allowance.
 Named integer defaults now execute once at their original live header callback,
 including storage effects and calls to retained functions. Later and historical
 calls require the exact original saved word and native completion receipt.
-Wider defaults, native `#exe` and AOT task execution remain open. See
+Wider defaults, synchronous native StreamExePrint and AOT reference relocation
+remain open. See
 [native source tasks](docs/native-source-tasks.md).
 
 Issue #797 adds [conditional integer chains](docs/conditional-comparison-chains.md)

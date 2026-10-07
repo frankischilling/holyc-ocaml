@@ -1,5 +1,12 @@
 # Reference source map
 
+Native AOT orchestration follows `Compiler/PrsStmt.HC:805-840`: switch `#exe`
+to task tables and JIT flags, hide surrounding locals, restore the original
+context, then inject the committed stream. `Compiler/Lex.HC:1031-1035` selects
+that path and `Compiler/CMisc.HC:68-81` supplies formatting and append order.
+Separate synchronous StreamExePrint execution remains grounded in
+`Compiler/CMain.HC:673-690`. See [native AOT sessions](native-aot-source-sessions.md).
+
 Inherited size metadata follows `Compiler/PrsStmt.HC:46-57`: select the original
 base entry before following lookahead, then attach it and copy its reached size
 before opening-brace validation. `Compiler/PrsVar.HC:408,660-721` keeps the root

@@ -28,6 +28,11 @@ val prepare :
 
 val work : t -> int
 
+val synchronize_work : t -> work:int -> bytes:int -> (unit, string) result
+(** Charge other original source contexts to the same invocation allowance.
+    Counters can only increase within their existing bounds. This creates no
+    preparation, saved-value, storage or source-completion receipt. *)
+
 val prepare_callback :
   t ->
   session:Session.t ->

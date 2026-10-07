@@ -1741,6 +1741,13 @@ let task_snapshot_matches_layout snapshot layout =
 
 let task_layout_work layout = (Atomic.get layout.task_state).task_layout_work
 
+let task_layout_global_bytes layout =
+  (Atomic.get layout.task_state).task_global_bytes
+
+let task_layout_literal_bytes layout =
+  let state = Atomic.get layout.task_state in
+  Literals.literal_bytes state.task_literals + state.task_saved_literal_bytes
+
 let arena_bytes layout =
   match layout.zero_bytes with
   | Some count -> count

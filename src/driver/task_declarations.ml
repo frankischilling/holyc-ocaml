@@ -581,6 +581,7 @@ let requires_query_metadata ledger =
   | _ -> true
 
 let dimension_work ledger = ledger.dimension_work
+let compiler_positions ledger = ledger.compiler_positions
 let offset_work ledger = ledger.offset_work
 let switch_budget ledger = ledger.switch_budget
 let switch_work ledger = Switch.budget_work ledger.switch_budget

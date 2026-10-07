@@ -141,8 +141,11 @@ let () =
   require
     (isolated_jit |> member "outcome" |> to_string = "error")
     "isolated JIT contract remains explicit";
-  let task_aot = json_path ~status:1 ~mode:"aot" fixture in
-  require (fragments task_aot = []) "AOT does not enter native source callbacks";
+  let task_aot = json_path ~mode:"aot" fixture in
+  require
+    (final_bits task_aot = "0x000000000000002a")
+    "AOT task target module result";
+  require (List.length (fragments task_aot) = 1) "distinct AOT module image";
   let invalid = json_path ~status:1 ~options:[ "--step-limit=0" ] fixture in
   require
     (invalid |> member "command_error" |> member "code" |> to_string

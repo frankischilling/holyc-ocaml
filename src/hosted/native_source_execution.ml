@@ -15,6 +15,7 @@ type fragment_kind =
   | Dimension
   | Offset
   | Command
+  | Aot_module
 
 type image = {
   status_abi : Image.status_abi;
@@ -109,12 +110,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
   let validate =
     let errors = image_errors ~span in
     let* () =
-      if Frontend.Preprocessor.Config.compilation_mode config <> Jit then
-        Error
-          [
-            diagnostic ~span "HCRUN0001" "native source tasks require JIT mode";
-          ]
-      else if
+      if
         max_steps <= 0 || max_initializer_steps <= 0 || max_default_bytes <= 0
         || max_switch_work <= 0 || max_dimension_work <= 0
         || max_frame_bytes <= 0 || max_call_depth <= 0 || max_output_work <= 0
@@ -214,6 +210,10 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       let emitted_ir = ref 0 in
       let cleanup_errors = ref [] in
       let source_report = ref None in
+      let aot_task = ref None in
+      let aot_preparation = ref 0 in
+      let aot_switch_work = ref 0 in
+      let aot_dimension_work = ref 0 in
       let remaining compile =
         if !emitted_bytes >= max_code_bytes then
           Error
@@ -241,10 +241,16 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       in
       let execute ?max_activation_steps kind image =
         let metadata = describe_image image in
-        match
-          Native.retain_task_fragment ~max_global_bytes ~max_literal_bytes
-            ~max_active_stack_bytes arena image
-        with
+        let retained =
+          match kind with
+          | Aot_module ->
+              Native.retain ~max_global_bytes ~max_literal_bytes
+                ~max_active_stack_bytes image
+          | _ ->
+              Native.retain_task_fragment ~max_global_bytes ~max_literal_bytes
+                ~max_active_stack_bytes arena image
+        in
+        match retained with
         | Error message ->
             fragments :=
               { kind; image = metadata; native_outcome = None } :: !fragments;
@@ -270,7 +276,25 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
               match native_outcome with
               | Error message -> Error (host_error message)
               | Ok (Image.Fault fault) ->
-                  Error [ Native_program.fault_diagnostic ~fallback:span fault ]
+                  let error =
+                    Native_program.fault_diagnostic ~fallback:span fault
+                  in
+                  let error =
+                    if
+                      fault.kind = Image.Stream_exe_context_required
+                      && Frontend.Preprocessor.Config.compilation_mode config
+                         = Aot
+                      && kind <> Aot_module
+                    then
+                      {
+                        error with
+                        message =
+                          "native AOT StreamExePrint requires the synchronous \
+                           parser bridge";
+                      }
+                    else error
+                  in
+                  Error [ error ]
               | Ok (Image.Completed completed) ->
                   Ok (completed, Native.value_captured execution)
             in
@@ -596,34 +620,171 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             | Ok () -> ()
             | Error message -> cleanup_errors := host_error message)
           (fun () ->
-            let report =
-              Source.run ~native_dispatch ~native_static_allocation
-                ~native_static_initializer ~native_static_copy ~native_default
-                ~native_dimension ~native_offset ~native_internal_binding
-                ~max_dimension_work ~max_switch_work ~max_initializer_steps
-                ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
-                ~max_call_depth ~max_output_bytes ~max_output_work session
-                ~config ~source ~max_steps
-            in
-            source_report := Some report;
-            let* checked = Source.outcome report in
-            if Option.is_some (Source.program report) then
-              Error
-                [
-                  diagnostic ~span "HCRUN0004"
-                    "native source execution returned an isolated command";
-                ]
-            else
-              Ok
-                {
-                  value =
+            match Frontend.Preprocessor.Config.compilation_mode config with
+            | Jit ->
+                let report =
+                  Source.run ~native_dispatch ~native_static_allocation
+                    ~native_static_initializer ~native_static_copy
+                    ~native_default ~native_dimension ~native_offset
+                    ~native_internal_binding ~max_dimension_work
+                    ~max_switch_work ~max_initializer_steps ~max_global_bytes
+                    ~max_literal_bytes ~max_frame_bytes ~max_call_depth
+                    ~max_output_bytes ~max_output_work session ~config ~source
+                    ~max_steps
+                in
+                source_report := Some report;
+                let* checked = Source.outcome report in
+                if Option.is_some (Source.program report) then
+                  Error
+                    [
+                      diagnostic ~span "HCRUN0004"
+                        "native source execution returned an isolated command";
+                    ]
+                else
+                  Ok
                     {
-                      final_value =
-                        Option.map word_of_dispatch
-                          (Source.native_final_value report);
-                    };
-                  diagnostics = checked.Driver.Integer_unit.diagnostics;
-                })
+                      value =
+                        {
+                          final_value =
+                            Option.map word_of_dispatch
+                              (Source.native_final_value report);
+                        };
+                      diagnostics = checked.Driver.Integer_unit.diagnostics;
+                    }
+            | Aot ->
+                (* Freeze the directive task before the outer parser publishes
+                 any module declarations. It owns a separate original table. *)
+                let task_session = Driver.Session.fork_frontend session in
+                let streams ledger preparation =
+                  let* task =
+                    Task.create
+                      ~compiler_positions:
+                        (Driver.Task_declarations.compiler_positions ledger)
+                      ~switch_budget:
+                        (Driver.Task_declarations.switch_budget ledger)
+                      ~max_steps ~max_initializer_steps ~max_global_bytes
+                      ~max_literal_bytes ~max_frame_bytes ~max_call_depth
+                      ~max_output_bytes ~max_output_work
+                      ~max_generated_bytes:
+                        (Frontend.Preprocessor.Config.max_generated_bytes config)
+                      ~native_dispatch ~native_static_allocation
+                      ~native_static_initializer ~native_static_copy
+                      ~native_default ~native_dimension ~native_offset
+                      ~native_internal_binding task_session
+                    |> Result.map_error (fun message ->
+                        [ diagnostic ~span "HCIRVM0001" message ])
+                  in
+                  aot_task := Some task;
+                  let providers_installed = ref false in
+                  let checkpoint () =
+                    let module Preparation = Driver.Native_default_preparation
+                    in
+                    let work =
+                      max
+                        (Task.initializer_steps task)
+                        (Preparation.work preparation)
+                    in
+                    let bytes =
+                      max !default_bytes (Preparation.bytes preparation)
+                    in
+                    let* () =
+                      Preparation.synchronize_work preparation ~work ~bytes
+                      |> Result.map_error (fun message ->
+                          [ diagnostic ~span "HCIRVM0007" message ])
+                    in
+                    default_bytes := bytes;
+                    Task.synchronize_preparation_work task ~work
+                    |> Result.map_error (fun message ->
+                        [ diagnostic ~span "HCIRVM0007" message ])
+                  in
+                  let execute_stream directive =
+                    let* () = checkpoint () in
+                    let* () =
+                      if !providers_installed then Ok ()
+                      else
+                        let* () = Source.install_providers task in
+                        providers_installed := true;
+                        Ok ()
+                    in
+                    Task.stream_executor ~allow_stream_exe_print:true task
+                      directive
+                  in
+                  let remaining_code () =
+                    if !emitted_bytes >= max_code_bytes then
+                      Error
+                        [
+                          diagnostic ~span "HCBACK0005"
+                            "native source fragments exceed the cumulative \
+                             code byte limit";
+                        ]
+                    else if !emitted_ir >= max_ir_instructions then
+                      Error
+                        [
+                          diagnostic ~span "HCBACK0001"
+                            "native source fragments exceed the cumulative IR \
+                             instruction limit";
+                        ]
+                    else
+                      Ok
+                        ( max_ir_instructions - !emitted_ir,
+                          max_code_bytes - !emitted_bytes )
+                  in
+                  Ok
+                    Native_program.
+                      { execute_stream; checkpoint; remaining_code }
+                in
+                let* checked =
+                  Native_program.compile_with_preparation ~streams
+                    ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
+                    ~max_blocks ~max_initializer_steps ~max_default_bytes
+                    ~max_switch_work ~max_dimension_work ~max_global_bytes
+                    ~max_literal_bytes ?status_abi
+                    ~preparation_steps:aot_preparation
+                    ~switch_work:aot_switch_work
+                    ~dimension_work:aot_dimension_work ~default_bytes session
+                    ~config ~source
+                in
+                let image = checked.Native_program.value in
+                emitted_bytes := !emitted_bytes + Image.code_bytes image;
+                emitted_ir := !emitted_ir + Image.ir_instructions image;
+                let module Storage = Backend.X86_64_global_storage in
+                let* () =
+                  if
+                    Image.global_bytes image
+                    > max_global_bytes - Storage.task_layout_global_bytes layout
+                  then
+                    Error
+                      [
+                        diagnostic ~span "HCBACK0004"
+                          "AOT module and directive task exceed the cumulative \
+                           global byte limit";
+                      ]
+                  else if
+                    Image.literal_bytes image
+                    > max_literal_bytes
+                      - Storage.task_layout_literal_bytes layout
+                  then
+                    Error
+                      [
+                        diagnostic ~span "HCBACK0004"
+                          "AOT module and directive task exceed the cumulative \
+                           literal byte limit";
+                      ]
+                  else Ok ()
+                in
+                let* completed, _captured = execute Aot_module image in
+                Ok
+                  {
+                    value =
+                      {
+                        final_value =
+                          Option.map
+                            (fun (word : Image.word) ->
+                              { type_ = word.type_; bits = word.bits })
+                            completed.final_value;
+                      };
+                    diagnostics = checked.diagnostics;
+                  })
       in
       let outcome_ =
         match (outcome_, !cleanup_errors) with
@@ -639,16 +800,29 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
         platform_;
         executed_steps_ = progress.executed_steps;
         preparation_steps_ =
-          Option.bind !source_report Source.preparation_work
-          |> Option.value ~default:0;
+          (match !aot_task with
+          | Some task -> max !aot_preparation (Task.initializer_steps task)
+          | None ->
+              Option.bind !source_report Source.preparation_work
+              |> Option.value ~default:0);
         default_bytes_ = !default_bytes;
         dimension_work_ =
-          Option.fold ~none:0 ~some:Source.dimension_work !source_report;
+          (!aot_dimension_work
+          +
+          match !aot_task with
+          | Some task -> Task.dimension_work task
+          | None ->
+              Option.fold ~none:0 ~some:Source.dimension_work !source_report);
         switch_work_ =
-          Option.fold ~none:0 ~some:Source.switch_work !source_report;
+          (match !aot_task with
+          | Some task -> max !aot_switch_work (Task.switch_work task)
+          | None -> Option.fold ~none:0 ~some:Source.switch_work !source_report);
         output_bytes_ = Native.budget_output_bytes budget;
         output_work_ = progress.output_work;
-        source_progress_ = Option.bind !source_report Source.progress;
+        source_progress_ =
+          (match !aot_task with
+          | Some task -> Some (Task.progress task)
+          | None -> Option.bind !source_report Source.progress);
       }
 
 let outcome report = report.outcome_

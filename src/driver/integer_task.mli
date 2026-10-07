@@ -700,6 +700,10 @@ val switch_work : t -> int
 val initializer_steps : t -> int
 (** Cumulative task preparation, including numeric dimension visits. *)
 
+val synchronize_preparation_work : t -> work:int -> (unit, string) result
+(** Charge other source contexts without granting execution or preparation
+    authority. The task's existing allowance cannot grow or reset. *)
+
 val dimension_work : t -> int
 (** Numeric dimension visits, also included in the shared task preparation
     tally. *)

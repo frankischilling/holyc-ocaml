@@ -10,6 +10,11 @@ val compilation_result :
 
 type report
 
+val install_providers :
+  ?suspended:bool -> Integer_task.t -> (unit, Common.Diagnostic.t list) result
+(** Install the original hosted provider declarations in the task frontend.
+    Existing selected source entries retain precedence. *)
+
 val compile_report :
   ?max_dimension_work:int ->
   ?max_switch_work:int ->

@@ -948,8 +948,8 @@ let run_target_argument =
     & info [ "target" ] ~docv:"TARGET"
         ~doc:
           "Execution target: ir, host-jit, or host-jit-task. The task target \
-           executes live scalar JIT source fragments with shared native \
-           storage.")
+           executes retained JIT tasks and AOT #exe blocks in native code. AOT \
+           module code runs after parsing.")
 
 let run_command =
   let report_version =

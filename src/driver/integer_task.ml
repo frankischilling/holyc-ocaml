@@ -1049,6 +1049,14 @@ let generated_bytes task = VM.task_generated_bytes task.state
 let executed_steps task = VM.task_executed_steps task.state
 let initializer_steps task = VM.task_initializer_steps task.state
 
+let synchronize_preparation_work task ~work =
+  let before = VM.task_initializer_steps task.state in
+  if work < before || work > VM.task_initializer_limit task.state then
+    Error "source task work exceeds its cumulative preparation allowance"
+  else (
+    VM.record_task_preparation task.state ~before ~steps:(work - before);
+    Ok ())
+
 let observe_source_offset task ledger event =
   Task_declarations.observe ~offset_runtime:task.state ledger event
 
