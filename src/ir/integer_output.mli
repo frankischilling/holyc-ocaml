@@ -61,3 +61,11 @@ val contents : t -> string
 val work : t -> int
 val committed_bytes : t -> int
 val capacity : t -> int
+
+val admit_native_capture :
+  t ->
+  target:'target ->
+  'target Native_generation_capture.t ->
+  (unit, string) result
+(** Commit only the C bridge's reached bytes. Native formatting already charged
+    the owning native work budget. *)

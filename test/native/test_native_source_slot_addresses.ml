@@ -181,13 +181,13 @@ let reached_slot_guards () =
   with
   | Error errors ->
       Alcotest.(check bool)
-        "StreamPrint provider still requires its own checked entry" true
+        "StreamPrint callback reaches its inactive context check" true
         (List.exists
-           (fun (error : Diagnostic.t) -> error.code = "HCBACK0002")
+           (fun (error : Diagnostic.t) -> error.code = "HCIRVM0027")
            errors)
   | Ok _ ->
       Alcotest.fail
-        "StreamPrint callback requires its own original native entry"
+        "StreamPrint callback outside a stream must fault after formatting"
 
 let independent_interpreter () =
   List.iter

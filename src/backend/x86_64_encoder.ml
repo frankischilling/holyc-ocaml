@@ -350,11 +350,11 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_read_offset offset =
-  offset >= 0 && offset <= 104 && offset mod 8 = 0
+  offset >= 0 && offset <= 160 && offset mod 8 = 0
 
 let valid_context_write_offset offset =
   (offset >= 0 && offset <= 64 && offset mod 8 = 0)
-  || offset = 88 || offset = 96 || offset = 104
+  || offset = 88 || offset = 96 || offset = 104 || offset = 120 || offset = 128
 
 let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24
@@ -390,16 +390,16 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | Load_context (_, offset) when not (valid_context_read_offset offset) ->
       invalid_arg
-        "private context read offset must be aligned from 0 through 104"
+        "private context read offset must be aligned from 0 through 160"
   | Store_context (offset, _) when not (valid_context_write_offset offset) ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96 or 104"
+         88, 96, 104, 120 or 128"
   | Store_context_imm (offset, _) when not (valid_context_write_offset offset)
     ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96 or 104"
+         88, 96, 104, 120 or 128"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
@@ -445,8 +445,9 @@ let size instruction =
   | Jump_less _
   | Jump_overflow _ -> 6
   | Store_status_kind _ | Store_status_site _ -> 8
-  | Load_context _ | Store_context _ -> 4
-  | Store_context_imm _ -> 8
+  | Load_context (_, offset) | Store_context (offset, _) ->
+      if offset <= 127 then 4 else 7
+  | Store_context_imm (offset, _) -> if offset <= 127 then 8 else 11
   | Dec _ -> 3
   | Shift_immediate (_, _, count) ->
       opcode_bytes + 2 + if count = 1L then 0 else 1
@@ -743,26 +744,30 @@ let write buffer position instruction =
       imm32 immediate
   | Load_context (destination, displacement) ->
       let destination = register_number destination in
-      (* MOV r64,[R11+disp8]. R11 requires REX.B; REX.R carries the high
-         destination bit. Every admitted context field fits signed disp8. *)
+      (* R11 requires REX.B; REX.R carries the high destination bit. Generation
+         fields beyond signed disp8 use the ordinary disp32 memory form. *)
       byte (0x49 lor ((destination land 8) lsr 1));
       opcodes ();
-      byte (0x43 lor ((destination land 7) lsl 3));
-      byte displacement
+      byte
+        ((if displacement <= 127 then 0x43 else 0x83)
+        lor ((destination land 7) lsl 3));
+      if displacement <= 127 then byte displacement else imm32 displacement
   | Store_context (displacement, source) ->
       let source = register_number source in
       (* MOV [R11+disp8],r64. R11 requires REX.B; REX.R carries the high source
          bit. *)
       byte (0x49 lor ((source land 8) lsr 1));
       opcodes ();
-      byte (0x43 lor ((source land 7) lsl 3));
-      byte displacement
+      byte
+        ((if displacement <= 127 then 0x43 else 0x83)
+        lor ((source land 7) lsl 3));
+      if displacement <= 127 then byte displacement else imm32 displacement
   | Store_context_imm (displacement, immediate) ->
       (* MOV qword ptr [R11+disp8],imm32. *)
       byte 0x49;
       opcodes ();
-      byte 0x43;
-      byte displacement;
+      byte (if displacement <= 127 then 0x43 else 0x83);
+      if displacement <= 127 then byte displacement else imm32 displacement;
       imm32 immediate
   | Dec register ->
       let register = register_number register in

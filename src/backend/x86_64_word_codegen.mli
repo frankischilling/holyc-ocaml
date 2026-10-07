@@ -46,6 +46,8 @@ type program_site = {
   pointer_difference_site : bool;
   output_site : bool;
   atomic_output_site : bool;
+  stream_print_site : bool;
+  stream_exe_site : bool;
 }
 
 type program_image

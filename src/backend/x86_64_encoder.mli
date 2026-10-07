@@ -144,14 +144,17 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 104. Offsets 72 and 80 are immutable arena and
-          output pointers. Output counters occupy offsets 88, 96 and 104. *)
+          from zero through 160. Arena, output, generation and temporary-buffer
+          pointers and generation activity are immutable. Output counters occupy
+          offsets 88, 96 and 104; generation counters occupy 120 and 128. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
-          from zero through 64, or at output counter offsets 88, 96 and 104. *)
+          from zero through 64, or at counter offsets 88, 96, 104, 120 and 128.
+      *)
   | Store_context_imm of int * int
       (** Store a sign-extended imm32 qword to the private R11 context at an
-          aligned byte offset from zero through 64, or 88, 96 and 104. *)
+          aligned byte offset from zero through 64, or 88, 96, 104, 120 and 128.
+      *)
   | Dec of register
       (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register
@@ -220,12 +223,12 @@ val size : instruction -> int
     use a seven-byte RBP+disp32 form. Narrow frame loads/stores are seven or
     eight bytes depending on width/prefix requirements. Callable allocation/free
     uses a seven-byte imm32 RSP form. Direct CALL and branches use fixed rel32
-    forms; status/context immediate stores are always eight bytes. Private
-    context register loads/stores use fixed disp8 forms. Context loads admit the
-    immutable pointer words at offsets 72 and 80; stores admit the original
-    offsets through 64 and output counters at 88, 96 and 104. Arena qword/narrow
-    accesses use fixed R9+disp32 forms. Invalid immediate, branch or
-    private-context operands raise [Invalid_argument]. *)
+    forms. Private context accesses use disp8 through offset 120 and disp32 for
+    later generation fields; immediate stores have the corresponding eight or
+    eleven-byte size. Context pointer and activity words are immutable; stores
+    admit the original offsets through 64 and counters at 88, 96, 104, 120 and
+    128. Arena qword/narrow accesses use fixed R9+disp32 forms. Invalid
+    immediate, branch or private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)

@@ -192,6 +192,9 @@ let status_kind = function
   | Program.Index_addition_overflow -> 9L
   | Program.Address_out_of_bounds -> 10L
   | Program.Output_limit_exceeded -> 11L
+  | Program.Generated_limit_exceeded -> 26L
+  | Program.Stream_context_required -> 27L
+  | Program.Stream_exe_context_required -> 28L
   | Program.Output_work_limit_exceeded -> 12L
   | Program.Output_invalid_format -> 13L
   | Program.Output_invalid_argument -> 14L

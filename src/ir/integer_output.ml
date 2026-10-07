@@ -887,3 +887,12 @@ let put_chars state bits =
       loop (Int64.shift_right_logical bits 8)
   in
   loop bits
+
+let admit_native_capture state ~target capture =
+  let* bytes = Native_generation_capture.consume capture ~target in
+  if String.length bytes > state.bytes.capacity - state.bytes.committed then
+    Error "native generated capture exceeds its original byte budget"
+  else (
+    Buffer.add_string state.output bytes;
+    state.bytes.committed <- state.bytes.committed + String.length bytes;
+    Ok ())

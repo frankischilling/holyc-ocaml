@@ -321,8 +321,11 @@ source function count. The bridge checks every slot range and owner before
 publishing its cells. Original graph receipts, task ownership and the current body
 generation still govern source selection; names and numeric bits grant no entry.
 The IR consumer preserves the same declaration-time capture and source-position
-rules. PutChars callback addresses use a separate checked private entry.
-Print and stream-provider addresses still report a missing-entry diagnostic.
+rules. PutChars, Print and stream callback addresses use checked private entries.
+StreamPrint writes to the original active generation buffer in native JIT
+`#exe`; StreamExePrint formats before its JIT context diagnostic. See
+[provider entries](provider-callback-entries.md) and
+[native stream generation](native-stream-generation.md).
 
 Live anonymous expression defaults and nested saved callback owners use the
 same native completion path. See [anonymous defaults](native-anonymous-defaults.md)
@@ -401,10 +404,11 @@ in OCaml.
 This source-task path supports integer globals, fixed integer arrays,
 integer and one-star callback function statics, retained direct and joined JIT
 extern calls, their original literals, numeric and owned callback storage, and
-named or anonymous integer and one-star callback defaults, and original PutChars
-callback entries. Runtime-dependent
-dimensions, wider callback defaults,
-Print and stream-provider callback entries, native `#exe` and AOT source-task execution
+named or anonymous integer and one-star callback defaults, original Print,
+PutChars and stream callback entries, and native JIT `#exe` generation.
+Runtime-dependent integer dimensions and aggregate offsets use their original
+native scalar captures. Wider callback defaults, synchronous native
+StreamExePrint and AOT source-task execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.
 The compiler retains each successful live JIT static allocation, including

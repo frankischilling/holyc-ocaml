@@ -169,6 +169,9 @@ let kind_name = function
   | Program.Index_addition_overflow -> "index-addition-overflow"
   | Program.Address_out_of_bounds -> "address-out-of-bounds"
   | Program.Output_limit_exceeded -> "output-limit"
+  | Program.Generated_limit_exceeded -> "generated-limit"
+  | Program.Stream_context_required -> "stream-context"
+  | Program.Stream_exe_context_required -> "stream-exe-context"
   | Program.Output_work_limit_exceeded -> "output-work-limit"
   | Program.Output_invalid_format -> "output-format"
   | Program.Output_invalid_argument -> "output-argument"
@@ -1165,7 +1168,7 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
-      Encoder.Load_context (Encoder.Rax, 112);
+      Encoder.Load_context (Encoder.Rax, 168);
       Encoder.Store_context (72, Encoder.Rax);
       Encoder.Store_context_imm (72, 0);
       Encoder.Store_context (80, Encoder.Rax);
@@ -1702,6 +1705,12 @@ let native_output_authority () =
             "inlined provider cannot claim a physical callee stack fault" true
             (decode 6L call_site 3L |> Result.is_error);
           List.iter
+            (fun kind ->
+              Alcotest.(check bool)
+                "ordinary output cannot claim a stream provider fault" true
+                (decode kind call_site 3L |> Result.is_error))
+            [ 26L; 27L; 28L ];
+          List.iter
             (fun kind -> ignore (decode kind call_site 3L |> require_ok Fun.id))
             [ 4L; 5L ];
           let exact () =
@@ -1972,8 +1981,8 @@ let tests =
       hard_ir_and_block_limits;
     Alcotest.test_case "program code and unwind exports are immutable" `Quick
       immutable_exports;
-    Alcotest.test_case "private six-word context encodings are literal goldens"
-      `Quick private_context_encoder_bytes;
+    Alcotest.test_case "private context encodings are literal goldens" `Quick
+      private_context_encoder_bytes;
     Alcotest.test_case "callable frame and CALL encodings are literal goldens"
       `Quick callable_frame_encoder_bytes;
     Alcotest.test_case "compiled callable frame and rel32 bytes are stable"

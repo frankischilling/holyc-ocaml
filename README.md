@@ -21,7 +21,13 @@ captures and saved defaults after a later source body replaces that slot.
 `examples/provider-callback-entries.hc` prints `AB` and returns 42.
 The saved Print example also prints `AB` and returns 42:
 `holyc run --target=host-jit-task --code-byte-limit=262144 examples/print-callback-entries.hc`.
-The IR runner also executes stream callbacks in their checked task contexts.
+IR and native JIT tasks also execute StreamPrint through direct calls and saved
+callbacks in their original `#exe` generation buffers. The
+[native stream example](examples/native-stream-generation.hc) generates a global,
+prints `made`, and returns 42. Run it with
+`holyc run --mode=jit --target=host-jit-task --code-byte-limit=524288 examples/native-stream-generation.hc`.
+See [native stream generation](docs/native-stream-generation.md) for shared work,
+separate byte budgets, capture lifetime, and the remaining native AOT dependency.
 Task strings retain their original mutable bytes across fragments;
 `examples/native-source-literals.hc` prints `42;` from a retained format.
 Function statics use that same arena and initialize at their original source

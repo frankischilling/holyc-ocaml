@@ -69,14 +69,20 @@ resource accounting.
 
 ## Stream callbacks
 
-The IR task captures StreamPrint and StreamExePrint through the same original
+IR and native JIT tasks capture StreamPrint and StreamExePrint through the same original
 slot receipts. StreamPrint formats first, then writes to the active task-owned
 generation buffer. Saved captures, arrays and defaults work across `#exe`
 directives. Nested buffers retain their LIFO ownership and cumulative generated
 byte bound.
 
+Native StreamPrint formats in its emitted entry and commits an executed capture
+to the original active generation buffer. The generated source resumes the
+original parser. Ordinary output stays separate, while both destinations share
+the native output-work budget. See [native stream generation](native-stream-generation.md)
+for the maintained example, source and resource boundaries, and capture checks.
+
 StreamExePrint formats first and requires the enclosing compiled AOT `#exe`
-context. It executes the formatted source in that task, returns its word, and
+context. The IR task executes the formatted source, returns its word, and
 shares runtime, output-work and nested execution limits. A JIT or inactive
 context reports `HCIRVM0027` after formatting. This includes invocation through
 a saved callback and recursive source execution. Ordinary output remains
@@ -88,7 +94,7 @@ contract. Native entries use the existing private status/arena convention;
 the exported HolyC ABI is separate work.
 
 The isolated `host-jit` path still rejects original extern slot addresses
-without task storage. Native stream-provider entries, native AOT source tasks,
+without task storage. Native synchronous StreamExePrint execution and AOT source tasks,
 callback members, wider indirection and full compiler
 acceptance remain open. Unresolved ordinary AOT extern addresses still report
 `HCSEMA0046` outside assembly.

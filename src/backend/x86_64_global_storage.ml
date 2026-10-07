@@ -1465,7 +1465,12 @@ let append_task_provider_code_owners snapshot bindings =
           not
             (List.mem
                (Runtime.function_slot_address_provider receipt)
-               [ Some Runtime.Put_chars; Some Runtime.Print ])
+               [
+                 Some Runtime.Put_chars;
+                 Some Runtime.Print;
+                 Some Runtime.Stream_print;
+                 Some Runtime.Stream_exe_print;
+               ])
         then Ok state
         else if
           not

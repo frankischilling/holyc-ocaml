@@ -447,6 +447,21 @@ val create_task_state :
 
 val begin_task_stream : task_state -> (task_stream, string) result
 
+type native_generation
+
+val native_task_generation : task_state -> native_generation
+
+val native_generation_limits :
+  native_generation -> (bool * int * int, string) result
+
+val complete_native_generation :
+  native_generation ->
+  native_generation Native_generation_capture.t ->
+  (unit, string) result
+(** Reached native generation is accepted once, in the original domain and exact
+    LIFO stream state. Equal metadata and caller-provided bytes grant no
+    authority. *)
+
 val task_stream_is_active : task_state -> task_stream -> bool
 (** Read-only exact top-buffer ownership check for parser callback admission. *)
 

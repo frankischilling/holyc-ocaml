@@ -5093,3 +5093,19 @@
    %{test}
    %{exe:../bin/holyc.exe}
    %{dep:../examples/runtime-layout-expressions.hc})))
+
+(test
+ (name test_stream_generation)
+ (modules test_stream_generation stream_generation_cases)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_stream_generation_cli)
+ (modules test_stream_generation_cli)
+ (libraries unix yojson)
+ (deps ../examples/native-stream-generation.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-stream-generation.hc})))

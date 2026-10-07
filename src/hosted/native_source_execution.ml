@@ -120,6 +120,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
         || max_frame_bytes <= 0 || max_call_depth <= 0 || max_output_work <= 0
         || max_output_bytes <= 0
         || max_output_bytes > Native.hard_max_output_bytes
+        || Frontend.Preprocessor.Config.max_generated_bytes config
+           > Native.hard_max_output_bytes
         || max_active_stack_bytes <= 0
         || max_active_stack_bytes > Native.hard_max_active_stack_bytes
       then

@@ -53,14 +53,16 @@ let run ?mode ?(max_steps = 100_000) ?max_global_bytes ?max_code_bytes
     ?max_initializer_steps ?max_dimension_work ?max_active_stack_bytes
     ?status_abi session ~config ~source ~max_steps
 
-let expect_value expected report =
+let expect_value ?(output_work = 0) expected report =
   let result =
     Native.outcome report |> Result.map_error diagnostics |> checked
   in
   let word = Option.get result.value.final_value in
   Alcotest.(check int64) "native source final bits" expected word.bits;
   Alcotest.(check string) "quiet native capture" "" (Native.output_bytes report);
-  Alcotest.(check int) "quiet native output work" 0 (Native.output_work report);
+  Alcotest.(check int)
+    "native formatting work" output_work
+    (Native.output_work report);
   result.value
 
 let expect_error code report =
@@ -560,10 +562,10 @@ let unsupported_domains () =
       "I64 *A; A;";
       "F64 A=42.0; A;";
       "\"unsupported\";";
-      "#exe {StreamPrint(\"42;\");}";
     ]
 
 let separate_tasks_and_gc () =
+  ignore (expect_value ~output_work:7 42L (run "#exe {StreamPrint(\"42;\");}"));
   for _ = 1 to 4 do
     ignore (expect_value 42L (run source));
     Gc.full_major ();

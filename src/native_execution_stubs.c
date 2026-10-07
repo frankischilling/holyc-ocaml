@@ -1507,21 +1507,85 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   CAMLreturn(Val_unit);
 }
 
+/* Only the actual native entry can construct a generation capture. Its
+   original target, captured bytes and arena stay rooted across collection. */
+struct native_generation_capture {
+  value target, bytes, arena;
+  _Atomic int consumed;
+};
+
+static void native_generation_capture_finalize(value handle)
+{
+  struct native_generation_capture *capture =
+    *((struct native_generation_capture **)Data_custom_val(handle));
+  if (capture == NULL) return;
+  caml_remove_generational_global_root(&capture->target);
+  caml_remove_generational_global_root(&capture->bytes);
+  caml_remove_generational_global_root(&capture->arena);
+  free(capture);
+  *((struct native_generation_capture **)Data_custom_val(handle)) = NULL;
+}
+
+static struct custom_operations native_generation_capture_operations = {
+  "holyc.native.generation-capture.v1",
+  native_generation_capture_finalize,
+  custom_compare_default,
+  custom_hash_default,
+  custom_serialize_default,
+  custom_deserialize_default,
+  custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+CAMLprim value holyc_native_consume_generation_capture(value handle, value target)
+{
+  CAMLparam2(handle, target);
+  CAMLlocal1(bytes);
+  struct native_generation_capture *capture;
+  struct native_task_arena *arena;
+  int expected = 0;
+  if (!Is_block(handle) || Tag_val(handle) != Custom_tag ||
+      Custom_ops_val(handle) != &native_generation_capture_operations)
+    caml_invalid_argument("native generation has no executed capture");
+  capture = *((struct native_generation_capture **)Data_custom_val(handle));
+  if (capture == NULL || capture->target != target)
+    caml_invalid_argument("native generation capture has another original target");
+  arena = native_task_arena_get(capture->arena);
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_failwith("native generation arena is already active");
+  if (arena->closing || arena->mapping == NULL) {
+    atomic_store(&arena->active, 0);
+    caml_failwith("native generation capture has an expired original arena");
+  }
+  expected = 0;
+  if (!atomic_compare_exchange_strong(&capture->consumed, &expected, 1)) {
+    atomic_store(&arena->active, 0);
+    caml_failwith("native generation capture was already consumed");
+  }
+  atomic_store(&arena->active, 0);
+  bytes = caml_alloc_string(caml_string_length(capture->bytes));
+  memcpy((char *)String_val(bytes), String_val(capture->bytes), caml_string_length(capture->bytes));
+  CAMLreturn(bytes);
+}
+
 static value native_execute_program_output(value code, value functions,
                                             value abi, value limits,
                                             value storage, value retained,
                                             value consumed, value entered,
                                             value task_arena,
-                                            value required_arena_bytes)
+                                            value required_arena_bytes,
+                                            value generation)
 {
   CAMLparam5(code, functions, abi, limits, storage);
   CAMLxparam5(retained, consumed, entered, task_arena,
               required_arena_bytes);
+  CAMLxparam1(generation);
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
   CAMLlocal5(output_buffer, captured, status, result, boxed_kind);
   CAMLlocal5(boxed_site, boxed_steps, boxed_value_site, boxed_bits, arena_image);
+  CAMLlocal5(generation_buffer, formatted_buffer, generation_bytes, generation_handle, generation_saved);
   intnat step_limit;
   intnat frame_limit;
   intnat depth_limit;
@@ -1548,6 +1612,29 @@ static value native_execute_program_output(value code, value functions,
   uint64_t remaining_output;
   uint64_t remaining_work;
   int task_storage;
+  uint64_t generation_limit = HOLYC_NATIVE_MAX_OUTPUT_BYTES;
+  uint64_t formatted_limit = HOLYC_NATIVE_MAX_OUTPUT_BYTES;
+  uint64_t generation_active = 0;
+  uint64_t generation_address, formatted_address;
+  uint64_t generation_written;
+
+  if (generation != Val_unit) {
+    if (!Is_block(generation) || Tag_val(generation) != 0 || Wosize_val(generation) != 5 ||
+        !Is_long(Field(generation, 1)) || !Is_long(Field(generation, 2)) ||
+        !Is_long(Field(generation, 3)) ||
+        (Field(generation, 1) != Val_true && Field(generation, 1) != Val_false) ||
+        Long_val(Field(generation, 2)) < 0 || Long_val(Field(generation, 3)) < 0 ||
+        Long_val(Field(generation, 2)) > Long_val(Field(generation, 3)) ||
+        (uintnat)Long_val(Field(generation, 3)) > HOLYC_NATIVE_MAX_OUTPUT_BYTES ||
+        !Is_block(Field(generation, 4)) || Tag_val(Field(generation, 4)) != 0 ||
+        Wosize_val(Field(generation, 4)) != 1 || Field(Field(generation, 4), 0) != Val_none)
+      caml_invalid_argument("native generation entry state is malformed or consumed");
+    generation_active = Bool_val(Field(generation, 1));
+    generation_limit = (uint64_t)Long_val(Field(generation, 2));
+    formatted_limit = (uint64_t)Long_val(Field(generation, 3));
+    if (task_arena == Val_unit)
+      caml_invalid_argument("native generation has no original task arena");
+  }
 
   if (!Is_long(abi))
     caml_invalid_argument("native program status ABI is not integral");
@@ -1683,15 +1770,23 @@ static value native_execute_program_output(value code, value functions,
   if (code_length == 0 || code_length > 16u * 1024u * 1024u)
     caml_invalid_argument("native image length is outside the host allocation bound");
 
+  /* Work bounds the bytes that can be visited even when the declared byte
+     quota is larger. Take addresses only after all allocating calls. */
+  generation_buffer = caml_alloc_string((mlsize_t)(generation_limit < remaining_work ? generation_limit : remaining_work));
+  formatted_buffer = caml_alloc_string((mlsize_t)(formatted_limit < remaining_work ? formatted_limit : remaining_work));
   output_buffer = caml_alloc_string((mlsize_t)remaining_output);
   memset((char *)String_val(output_buffer), 0, (size_t)remaining_output);
   output_address = (uint64_t)(uintptr_t)String_val(output_buffer);
+  generation_address = (uint64_t)(uintptr_t)String_val(generation_buffer);
+  formatted_address = (uint64_t)(uintptr_t)String_val(formatted_buffer);
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[14] = {
+    uint64_t context[21] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
-      output_address, remaining_output, remaining_work, 0
+      output_address, remaining_output, remaining_work, 0,
+      generation_address, generation_limit, 0, generation_active,
+      formatted_address, formatted_limit, 0
     };
 
     if (retained != Val_unit) {
@@ -1741,12 +1836,45 @@ static value native_execute_program_output(value code, value functions,
     if (context[13] != written)
       caml_failwith("native program status integrity failure: output byte count is inconsistent");
 
+    if (context[14] != generation_address || context[15] > generation_limit ||
+        context[16] != generation_limit - context[15] || context[17] != generation_active ||
+        context[18] != formatted_address || context[19] != formatted_limit || context[20] != 0)
+      caml_failwith("native generation status integrity failure: capture context was modified");
+    generation_written = context[16];
+    if ((!generation_active && generation_written != 0) ||
+        generation_written > caml_string_length(generation_buffer) ||
+        work < written + generation_written)
+      caml_failwith("native generation status integrity failure: bytes disagree with active work");
+
     /* Every value above is validated before the first post-execution allocation.
        Re-read the rooted source pointer after allocating the exact result string. */
     captured = caml_alloc_string((mlsize_t)written);
     if (written != 0)
       memcpy((char *)String_val(captured), String_val(output_buffer),
              (size_t)written);
+
+    if (generation != Val_unit) {
+      struct native_generation_capture *capture;
+      generation_bytes = caml_alloc_string((mlsize_t)generation_written);
+      if (generation_written != 0)
+        memcpy((char *)String_val(generation_bytes), String_val(generation_buffer), (size_t)generation_written);
+      generation_handle = caml_alloc_custom_mem(&native_generation_capture_operations,
+        sizeof(capture), sizeof(struct native_generation_capture));
+      *((struct native_generation_capture **)Data_custom_val(generation_handle)) = NULL;
+      capture = calloc(1, sizeof(*capture));
+      if (capture == NULL) caml_raise_out_of_memory();
+      capture->target = Field(generation, 0);
+      capture->bytes = generation_bytes;
+      capture->arena = task_arena;
+      atomic_init(&capture->consumed, 0);
+      caml_register_generational_global_root(&capture->target);
+      caml_register_generational_global_root(&capture->bytes);
+      caml_register_generational_global_root(&capture->arena);
+      *((struct native_generation_capture **)Data_custom_val(generation_handle)) = capture;
+      generation_saved = caml_alloc_small(1, 0);
+      Field(generation_saved, 0) = generation_handle;
+      caml_modify(&Field(Field(generation, 4), 0), generation_saved);
+    }
 
     boxed_kind = native_box_word(context[0]);
     boxed_site = native_box_word(context[1]);
@@ -1777,7 +1905,7 @@ CAMLprim value holyc_native_execute_program_output(value code, value functions,
 {
   return native_execute_program_output(code, functions, abi, limits, storage,
                                         Val_unit, Val_unit, Val_unit,
-                                        Val_unit, Val_unit);
+                                        Val_unit, Val_unit, Val_unit);
 }
 
 #if HOLYC_NATIVE_PLATFORM != 0
@@ -2504,7 +2632,7 @@ CAMLprim value holyc_native_execute_retained_program(value handle, value limits)
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle, Val_unit, Val_unit, Val_unit, Val_unit));
+    Field(identity, 4), handle, Val_unit, Val_unit, Val_unit, Val_unit, Val_unit));
 #endif
   CAMLreturn(Val_unit);
 }
@@ -2525,7 +2653,7 @@ CAMLprim value holyc_native_execute_retained_budget_program(value handle,
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle, consumed, entered, Val_unit, Val_unit));
+    Field(identity, 4), handle, consumed, entered, Val_unit, Val_unit, Val_unit));
 #endif
   CAMLreturn(Val_unit);
 }
@@ -2540,14 +2668,14 @@ CAMLprim value holyc_native_execute_retained_budget_task_program(
   CAMLlocal2(identity, arena_handle);
   struct native_retained_program *program = native_retained_get(handle);
   if (consumed == Val_unit || !Is_block(task) || Tag_val(task) != 0 ||
-      Wosize_val(task) != 2 || !Is_long(Field(task, 1)))
+      Wosize_val(task) != 3 || !Is_long(Field(task, 1)))
     caml_invalid_argument("retained native task execution state is malformed");
   arena_handle = Field(task, 0);
   (void)native_task_arena_get(arena_handle);
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle, consumed, entered, arena_handle, Field(task, 1)));
+    Field(identity, 4), handle, consumed, entered, arena_handle, Field(task, 1), Field(task, 2)));
 #endif
   CAMLreturn(Val_unit);
 }

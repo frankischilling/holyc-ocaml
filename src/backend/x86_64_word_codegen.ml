@@ -3929,6 +3929,8 @@ type program_site = {
   pointer_difference_site : bool;
   output_site : bool;
   atomic_output_site : bool;
+  stream_print_site : bool;
+  stream_exe_site : bool;
 }
 
 type program_image = {
@@ -4244,6 +4246,8 @@ let preflight_program graph =
                 pointer_difference_site = false;
                 output_site = false;
                 atomic_output_site = false;
+                stream_print_site = false;
+                stream_exe_site = false;
               }
               :: !sites_rev;
             prepared_rev :=
@@ -4406,7 +4410,7 @@ type callable_target =
   | Mismatched_extern of int
   | Undefined_extern of int
   | Put_chars_provider
-  | Print_provider
+  | Print_provider of Runtime.provider
 
 type callable_call_scope = {
   call : Runtime.call option;
@@ -5983,7 +5987,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                              && Runtime.function_slot_address_provider
                                   provider_entries.(callee_index
                                                     - Array.length functions)
-                                = Some Runtime.Print
+                                |> function
+                                | Some
+                                    ( Runtime.Print
+                                    | Runtime.Stream_print
+                                    | Runtime.Stream_exe_print ) -> true
+                                | _ -> false
                            then
                              Some
                                ( scope.scratch_stage,
@@ -6303,7 +6312,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       if return_kind <> Callable_void_return then
                         malformed description "native PutChars must complete U0";
                       (Put_chars_provider, [| parameter_type |], return_kind, 8)
-                  | Some Runtime.Print ->
+                  | Some
+                      (( Runtime.Print
+                       | Runtime.Stream_print
+                       | Runtime.Stream_exe_print ) as provider) ->
                       let count =
                         match Runtime.variadic_count call with
                         | Some count
@@ -6400,15 +6412,22 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         source_return_kind ?span:description.span
                           (Runtime.return_type call)
                       in
-                      if return_kind <> Callable_void_return then
-                        malformed description "native Print must complete U0";
-                      ( Print_provider,
+                      let return_matches =
+                        match (provider, return_kind) with
+                        | Runtime.Stream_exe_print, Callable_word_return scalar
+                          -> scalar.word_type = I64 && scalar.byte_size = 8
+                        | ( (Runtime.Print | Runtime.Stream_print),
+                            Callable_void_return ) -> true
+                        | _ -> false
+                      in
+                      if not return_matches then
+                        malformed description
+                          "native formatter return disagrees with its original \
+                           provider";
+                      ( Print_provider provider,
                         parameter_types,
                         return_kind,
                         (count + 2) * 8 )
-                  | Some _ ->
-                      unsupported description
-                        "native calls do not admit this runtime provider"
                   | None ->
                       let task_self_call =
                         allow_retained_functions
@@ -6490,7 +6509,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     Array.length functions.(index).parameter_types
                 | Undefined_extern fixed_count | Mismatched_extern fixed_count
                   -> fixed_count
-                | Put_chars_provider | Print_provider -> 1
+                | Put_chars_provider | Print_provider _ -> 1
               in
               let variadic_count = Runtime.variadic_count call in
               let parameter_callbacks =
@@ -6503,7 +6522,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 | Undefined_extern _
                 | Mismatched_extern _
                 | Put_chars_provider
-                | Print_provider -> Array.make parameter_count None
+                | Print_provider _ -> Array.make parameter_count None
               in
               let arguments = Runtime.arguments call in
               if List.length arguments <> parameter_count then
@@ -6558,8 +6577,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 !argument_end + if Option.is_some result_stage then 1 else 0
               in
               let scratch_count =
-                if target = Print_provider then
-                  Print_codegen.scratch_slots (parameter_count - 2)
+                if
+                  match target with
+                  | Print_provider _ -> true
+                  | _ -> false
+                then Print_codegen.scratch_slots (parameter_count - 2)
                 else if Option.is_some slot_index && slot_matches then 1
                 else 0
               in
@@ -6569,8 +6591,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                    private frame limit";
               stage_cursor := scratch_stage + scratch_count;
               stage_high_water := max !stage_high_water !stage_cursor;
-              if target <> Print_provider then
-                home_slots := max !home_slots (parameter_count + owner_count);
+              if
+                match target with
+                | Print_provider _ -> false
+                | _ -> true
+              then home_slots := max !home_slots (parameter_count + owner_count);
               let scope =
                 {
                   call = Some call;
@@ -6785,7 +6810,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     | Undefined_extern _ -> Undefined_extern_call
                     | Mismatched_extern _ -> Extern_signature_fault
                     | Put_chars_provider -> Put_chars scope.argument_stages.(0)
-                    | Print_provider ->
+                    | Print_provider provider ->
                         let tail_types =
                           Array.sub scope.argument_types 2
                             (Array.length scope.argument_types - 2)
@@ -6806,8 +6831,14 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         in
                         Print_output
                           {
-                            Print_codegen.format_stage =
-                              scope.argument_stages.(0);
+                            Print_codegen.target =
+                              (match provider with
+                              | Runtime.Print -> Print_codegen.Task_output
+                              | Runtime.Stream_print -> Print_codegen.Generation
+                              | Runtime.Stream_exe_print ->
+                                  Print_codegen.Formatted_source
+                              | Runtime.Put_chars -> assert false);
+                            format_stage = scope.argument_stages.(0);
                             arguments_stage = scope.stage_base + 2;
                             argument_kinds = kinds;
                             scratch_stage = scope.scratch_stage;
@@ -8767,7 +8798,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                     | Undefined_extern _
                                     | Mismatched_extern _
                                     | Put_chars_provider
-                                    | Print_provider -> assert false
+                                    | Print_provider _ -> assert false
                                   in
                                   code_edges :=
                                     ( destination functions.(callee_index),
@@ -8842,8 +8873,29 @@ let preflight_callable_graph ~runtime_calls ~source_globals
           | Indirect_call indirect ->
               Array.exists
                 (fun (index, receipt) ->
-                  Runtime.function_slot_address_provider receipt
-                  = Some Runtime.Print
+                  ( Runtime.function_slot_address_provider receipt |> function
+                    | Some
+                        ( Runtime.Print
+                        | Runtime.Stream_print
+                        | Runtime.Stream_exe_print ) -> true
+                    | _ -> false )
+                  && fst (indirect.target_call (Array.length functions + index)))
+                (Array.mapi
+                   (fun index receipt -> (index, receipt))
+                   provider_entries)
+          | _ -> false
+        in
+        let provider_stream_site provider =
+          match operation with
+          | Print_output call ->
+              call.target
+              =
+              if provider = Runtime.Stream_print then Print_codegen.Generation
+              else Print_codegen.Formatted_source
+          | Indirect_call indirect ->
+              Array.exists
+                (fun (index, receipt) ->
+                  Runtime.function_slot_address_provider receipt = Some provider
                   && fst (indirect.target_call (Array.length functions + index)))
                 (Array.mapi
                    (fun index receipt -> (index, receipt))
@@ -9013,6 +9065,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Put_chars _ | Print_output _ -> true
               | Indirect_call _ -> Array.length provider_entries > 0
               | _ -> false);
+            stream_print_site = provider_stream_site Runtime.Stream_print;
+            stream_exe_site = provider_stream_site Runtime.Stream_exe_print;
             atomic_output_site =
               (match operation with
               | Print_output _ -> true
@@ -9344,7 +9398,12 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
           && not
                (List.mem
                   (Runtime.function_slot_address_provider receipt)
-                  [ Some Runtime.Put_chars; Some Runtime.Print ])
+                  [
+                    Some Runtime.Put_chars;
+                    Some Runtime.Print;
+                    Some Runtime.Stream_print;
+                    Some Runtime.Stream_exe_print;
+                  ])
         then
           reject "HCBACK0002"
             "native callback addresses for hosted output providers require \
@@ -9626,7 +9685,10 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
                     | Some _
                       when historical
                            && Runtime.provider call <> Some Runtime.Print
-                           && Runtime.provider call <> Some Runtime.Put_chars ->
+                           && Runtime.provider call <> Some Runtime.Put_chars
+                           && Runtime.provider call <> Some Runtime.Stream_print
+                           && Runtime.provider call
+                              <> Some Runtime.Stream_exe_print ->
                         reject ?span:raw.span "HCBACK0002"
                           "retained native task functions currently require \
                            fixed direct integer or U0 calls"
@@ -10794,8 +10856,12 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         Array.mapi
           (fun index receipt ->
             if
-              Runtime.function_slot_address_provider receipt
-              = Some Runtime.Print
+              Runtime.function_slot_address_provider receipt |> function
+              | Some
+                  ( Runtime.Print
+                  | Runtime.Stream_print
+                  | Runtime.Stream_exe_print ) -> true
+              | _ -> false
             then (
               let frame_size =
                 align_up ((4 + Print_codegen.provider_scratch_slots) * 8) 16
@@ -10861,7 +10927,14 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                   slot;
                 }
                 {
-                  Print_codegen.format_stage = 0;
+                  Print_codegen.target =
+                    (match Runtime.function_slot_address_provider receipt with
+                    | Some Runtime.Print -> Print_codegen.Task_output
+                    | Some Runtime.Stream_print -> Print_codegen.Generation
+                    | Some Runtime.Stream_exe_print ->
+                        Print_codegen.Formatted_source
+                    | _ -> assert false);
+                  format_stage = 0;
                   count_stage = 1;
                   arguments_stage = 2;
                   kinds_stage = 3;

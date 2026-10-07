@@ -15,6 +15,12 @@ module Native_dispatch : sig
       command_request -> (capture, Common.Diagnostic.t list) result;
   }
 
+  val initializer_generation :
+    initializer_request -> Ir.Integer_interpreter.native_generation
+
+  val command_generation :
+    command_request -> Ir.Integer_interpreter.native_generation
+
   val initializer_program :
     initializer_request -> Ir.Initializer_fragment_program.t
 
@@ -167,6 +173,7 @@ module Native_static_initializer : sig
   type t = request -> (unit, Common.Diagnostic.t list) result
 
   val program : request -> Ir.Static_initializer_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -225,6 +232,7 @@ module Native_default : sig
     request -> (Ir.Saved_parameter_value.t, Common.Diagnostic.t list) result
 
   val program : request -> Ir.Default_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -291,6 +299,7 @@ module Native_internal_binding : sig
     (Ir.Native_internal_binding_capture.t, Common.Diagnostic.t list) result
 
   val program : request -> Ir.Internal_binding_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -359,6 +368,7 @@ module Native_dimension : sig
     result
 
   val program : request -> Ir.Dimension_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -427,6 +437,7 @@ module Native_offset : sig
     result
 
   val program : request -> Ir.Offset_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 

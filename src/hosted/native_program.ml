@@ -951,6 +951,14 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
           "index address addition exceeds the hosted signed address range" )
     | Image.Address_out_of_bounds ->
         ("HCIRVM0019", "indexed address is outside its declared object extent")
+    | Image.Generated_limit_exceeded ->
+        ( "HCIRVM0028",
+          "generated or formatted source exceeds the task byte limit" )
+    | Image.Stream_context_required ->
+        ("HCIRVM0027", "StreamPrint: requires an active task generation buffer")
+    | Image.Stream_exe_context_required ->
+        ( "HCIRVM0027",
+          "StreamExePrint: only allowed in AOT compiled #exe{} mode" )
     | Image.Output_limit_exceeded ->
         ("HCIRVM0022", "runtime output exceeds the output byte limit")
     | Image.Output_work_limit_exceeded ->

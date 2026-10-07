@@ -20,6 +20,9 @@ type fault_kind =
   | Index_scale_overflow
   | Index_addition_overflow
   | Address_out_of_bounds
+  | Generated_limit_exceeded
+  | Stream_context_required
+  | Stream_exe_context_required
   | Output_limit_exceeded
   | Output_work_limit_exceeded
   | Output_invalid_format
@@ -329,3 +332,4 @@ type scalar_program =
 val scalar_program : t -> scalar_program option
 val dimension : t -> Ir.Dimension_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option
+val generation : t -> Ir.Integer_interpreter.native_generation option

@@ -680,6 +680,62 @@ let abort_task_stream task stream =
       Ok ()
   | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
 
+type native_generation = {
+  generation_task : task_state;
+  generation_streams : task_stream list;
+  generation_output : Output.t;
+  generation_before : int;
+  generation_domain : Domain.id;
+  mutable generation_closed : bool;
+}
+
+let native_task_generation task =
+  let output =
+    match task.streams with
+    | active :: _ -> active.stream_output
+    | [] -> task.generated
+  in
+  {
+    generation_task = task;
+    generation_streams = task.streams;
+    generation_output = output;
+    generation_before = Output.committed_bytes output;
+    generation_domain = Domain.self ();
+    generation_closed = false;
+  }
+
+let check_native_generation generation =
+  if Domain.self () <> generation.generation_domain then
+    Error "native generation belongs to another execution domain"
+  else if generation.generation_closed then
+    Error "native generation was already completed"
+  else if generation.generation_task.streams != generation.generation_streams
+  then Error "native generation no longer owns its original active stream"
+  else if
+    Output.committed_bytes generation.generation_output
+    <> generation.generation_before
+  then Error "native generation byte budget changed before entry"
+  else Ok ()
+
+let native_generation_limits generation =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  Ok
+    ( generation.generation_streams <> [],
+      Output.capacity generation.generation_output
+      - generation.generation_before,
+      Output.capacity generation.generation_output )
+
+let complete_native_generation generation capture =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  let* () =
+    Output.admit_native_capture generation.generation_output ~target:generation
+      capture
+  in
+  generation.generation_closed <- true;
+  Ok ()
+
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
 let task_source_order task = Integer_globals.task_source_order task.catalog
 
@@ -1401,7 +1457,12 @@ let retain_native_provider_sources task runtime_calls owner graph =
                   if
                     List.mem
                       (Runtime.function_slot_address_provider receipt)
-                      [ Some Runtime.Put_chars; Some Runtime.Print ]
+                      [
+                        Some Runtime.Put_chars;
+                        Some Runtime.Print;
+                        Some Runtime.Stream_print;
+                        Some Runtime.Stream_exe_print;
+                      ]
                   then
                     Option.iter
                       (fun link ->
@@ -3899,7 +3960,12 @@ let task_native_provider_available task ~runtime_calls ~owner call =
   then Error "native provider call is not its original sealed occurrence"
   else
     match (Runtime.provider call, Runtime.retained_function call) with
-    | Some (Runtime.Print | Runtime.Put_chars), Some link
+    | ( Some
+          ( Runtime.Print
+          | Runtime.Put_chars
+          | Runtime.Stream_print
+          | Runtime.Stream_exe_print ),
+        Some link )
       when Integer_globals.task_catalog_contains_function task.catalog link ->
         let replaced =
           List.exists

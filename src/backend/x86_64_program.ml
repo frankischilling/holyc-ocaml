@@ -24,6 +24,9 @@ type fault_kind =
   | Index_scale_overflow
   | Index_addition_overflow
   | Address_out_of_bounds
+  | Generated_limit_exceeded
+  | Stream_context_required
+  | Stream_exe_context_required
   | Output_limit_exceeded
   | Output_work_limit_exceeded
   | Output_invalid_format
@@ -78,6 +81,7 @@ type t = {
   task_snapshot_ : Task_storage.task_snapshot option;
   task_check_ : (unit -> (unit, string) result) option;
   task_claim_ : (unit -> (unit, string) result) option;
+  generation_ : Ir.Integer_interpreter.native_generation option;
   callback_default_ : Ir.Default_fragment_destination.t option;
   data_default_ : Ir.Saved_parameter_value.t option;
   data_default_misc_ : bool;
@@ -86,6 +90,7 @@ type t = {
   internal_binding_ : Ir.Internal_binding_fragment_program.t option;
 }
 
+let generation value = value.generation_
 let internal_binding value = value.internal_binding_
 let dimension value = value.dimension_
 let offset value = value.offset_
@@ -128,6 +133,7 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         task_snapshot_ = None;
         task_check_ = None;
         task_claim_ = None;
+        generation_ = None;
         callback_default_ = None;
         data_default_ = None;
         data_default_misc_ = false;
@@ -151,6 +157,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         task_snapshot_ = None;
         task_check_ = None;
         task_claim_ = None;
+        generation_ = None;
         callback_default_ = None;
         data_default_ = None;
         data_default_misc_ = false;
@@ -175,8 +182,8 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ?data_default ?dimension ?offset ?internal_binding
-    ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~runtime_calls
-    ~retained_function_source ~retained_slot_binding
+    ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~generation
+    ~runtime_calls ~retained_function_source ~retained_slot_binding
     ~retained_slot_address_binding ~retained_slot_address_refresh
     ~retained_parameter_default ~retained_callback_default ~initialization
     ~entry ~functions () =
@@ -221,6 +228,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         task_snapshot_ = Some snapshot;
         task_check_ = Some check;
         task_claim_ = Some claim;
+        generation_ = Some (generation ());
         callback_default_ = callback_default;
         data_default_ = data_default;
         dimension_ = dimension;
@@ -245,6 +253,7 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Task_dispatch.check_initializer_request request)
     ~claim:(fun () -> Task_dispatch.claim_initializer_request request)
+    ~generation:(fun () -> Task_dispatch.initializer_generation request)
     ~runtime_calls:(Fragment.runtime_calls program)
     ~retained_function_source:
       (Task_dispatch.initializer_function_source request)
@@ -269,6 +278,7 @@ let compile_task_static_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -318,6 +328,7 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ?data_default ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -337,6 +348,7 @@ let compile_task_internal_binding ?status_abi ?max_stack_bytes ?max_blocks
     ~internal_binding:program ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -356,6 +368,7 @@ let compile_task_dimension ?status_abi ?max_stack_bytes ?max_blocks
     ~dimension:program ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -375,6 +388,7 @@ let compile_task_offset ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -393,6 +407,7 @@ let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Task_dispatch.check_command_request request)
     ~claim:(fun () -> Task_dispatch.claim_command_request request)
+    ~generation:(fun () -> Task_dispatch.command_generation request)
     ~runtime_calls:(Unit.runtime_calls program)
     ~retained_function_source:(Task_dispatch.command_function_source request)
     ~retained_slot_binding:(Task_dispatch.command_slot_binding request)
@@ -805,6 +820,24 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        else if Int64.equal kind 14L then Output_invalid_argument
                        else if Int64.equal kind 15L then Output_invalid_pointer
                        else Output_invalid_byte)
+                      None
+                else if kind >= 26L && kind <= 28L then
+                  let source_site =
+                    if Int64.equal kind 26L then
+                      candidate.stream_print_site || candidate.stream_exe_site
+                    else if Int64.equal kind 27L then
+                      candidate.stream_print_site
+                    else candidate.stream_exe_site
+                  in
+                  if (not source_site) || executed_steps_int < 1 then
+                    Error
+                      "native generation fault has no reached original stream \
+                       provider site"
+                  else
+                    make_fault
+                      (if Int64.equal kind 26L then Generated_limit_exceeded
+                       else if Int64.equal kind 27L then Stream_context_required
+                       else Stream_exe_context_required)
                       None
                 else if Int64.equal kind 17L then
                   if not candidate.pointer_ordering_site then

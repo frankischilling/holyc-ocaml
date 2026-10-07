@@ -4,7 +4,10 @@ type argument_kind =
   | Signed_byte_pointer
   | Other_pointer
 
+type target = Task_output | Generation | Formatted_source
+
 type t = {
+  target : target;
   format_stage : int;
   arguments_stage : int;
   argument_kinds : argument_kind array;
@@ -15,6 +18,7 @@ type t = {
 type branch = Always | Equal | Not_equal | Below | Less | Overflow
 
 type provider_input = {
+  target : target;
   format_stage : int;
   count_stage : int;
   arguments_stage : int;

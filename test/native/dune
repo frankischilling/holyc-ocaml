@@ -1326,3 +1326,25 @@
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-internal-bindings.hc}
    --native)))
+
+(copy_files ../stream_generation_cases.ml)
+
+(executable
+ (name test_native_stream_generation)
+ (modules test_native_stream_generation stream_generation_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_stream_generation.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-stream-generation.hc)
+ (action
+  (run
+   %{exe:../test_stream_generation_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-stream-generation.hc}
+   --native)))

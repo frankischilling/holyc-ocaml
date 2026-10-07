@@ -1832,6 +1832,19 @@ let encoder_arena_bytes () =
       ( "load immutable arena pointer from context",
         Load_context (R9, 72),
         "4d8b4b48" );
+      ("load generation buffer with disp8", Load_context (Rdx, 112), "498b5370");
+      ( "load generation count with disp32",
+        Load_context (Rcx, 128),
+        "498b8b80000000" );
+      ( "load immutable generation activity with disp32",
+        Load_context (R8, 136),
+        "4d8b8388000000" );
+      ( "store generation count with disp32",
+        Store_context (128, Rcx),
+        "49898b80000000" );
+      ( "store immediate generation count with disp32",
+        Store_context_imm (128, 42),
+        "49c783800000002a000000" );
     ]
   in
   List.iter
@@ -1867,6 +1880,17 @@ let encoder_arena_bytes () =
   Alcotest.(check bool)
     "arena pointer context word is not writable by generated code" true
     invalid_write;
+  List.iter
+    (fun offset ->
+      let invalid =
+        try
+          ignore (Encoder.size (Encoder.Store_context (offset, Encoder.Rax)));
+          false
+        with Invalid_argument _ -> true
+      in
+      Alcotest.(check bool)
+        "generation pointers and activity are immutable" true invalid)
+    [ 112; 136; 144; 152; 160 ];
   if Sys.int_size > 32 then (
     Alcotest.(check bool)
       "arena displacement above signed disp32 rejects" true

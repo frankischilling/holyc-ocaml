@@ -29,6 +29,12 @@ module Native_dispatch = struct
       command_request -> (capture, Common.Diagnostic.t list) result;
   }
 
+  let initializer_generation request =
+    VM.native_task_generation request.initializer_task
+
+  let command_generation request =
+    VM.native_task_generation request.command_task
+
   let initializer_program request = request.initializer_program_
   let command_program request = request.command_program_
   let owns_domain expected = Domain.self () = expected
@@ -312,6 +318,7 @@ module Native_static_initializer = struct
 
   type t = request -> (unit, Common.Diagnostic.t list) result
 
+  let generation request = VM.native_task_generation request.task
   let program request = request.program_
 
   let check request =
@@ -407,6 +414,7 @@ module Native_default = struct
   type t =
     request -> (Ir.Saved_parameter_value.t, Common.Diagnostic.t list) result
 
+  let generation request = VM.native_task_generation request.task
   let program request = request.program_
 
   let check request =
@@ -525,6 +533,7 @@ module Native_internal_binding = struct
     request ->
     (Ir.Native_internal_binding_capture.t, Common.Diagnostic.t list) result
 
+  let generation request = VM.native_task_generation request.task
   let program request = request.program_
 
   let check request =
@@ -651,6 +660,7 @@ module Native_dimension = struct
       Common.Diagnostic.t list )
     result
 
+  let generation request = VM.native_task_generation request.task
   let program request = request.program_
 
   let check request =
@@ -773,6 +783,7 @@ module Native_offset = struct
       Common.Diagnostic.t list )
     result
 
+  let generation request = VM.native_task_generation request.task
   let program request = request.program_
 
   let check request =

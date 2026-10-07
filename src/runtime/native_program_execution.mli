@@ -225,6 +225,12 @@ val outcome : report -> (Backend.X86_64_program.outcome, string) result
 val output_bytes : report -> string
 val output_work : report -> int
 
+val generation_capture :
+  report ->
+  Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t option
+(** The reached capture has already been published to its original generation
+    target. Observing it grants no replay or foreign-stream authority. *)
+
 val value_captured : report -> bool
 (** A checked native END_EXP site was reached during this activation. An empty
     command leaves an earlier task value alone; an explicit no-value capture can

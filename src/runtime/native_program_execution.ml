@@ -93,7 +93,15 @@ external bind_task_default_string :
 
 external execute_retained_budget_task_program :
   retained_handle ->
-  task_arena_handle * int ->
+  task_arena_handle
+  * int
+  * (Ir.Integer_interpreter.native_generation
+    * bool
+    * int
+    * int
+    * Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
+      option
+      ref) ->
   int * int * int * int * int * int * int * int * int ->
   int * int * int ->
   bool ref ->
@@ -102,7 +110,15 @@ external execute_retained_budget_task_program :
 
 external execute_retained_budget_scalar_program :
   retained_handle ->
-  task_arena_handle * int ->
+  task_arena_handle
+  * int
+  * (Ir.Integer_interpreter.native_generation
+    * bool
+    * int
+    * int
+    * Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
+      option
+      ref) ->
   int * int * int * int * int * int * int * int * int ->
   int * int * int ->
   bool ref * 'program ->
@@ -165,11 +181,15 @@ type report = {
   output_bytes_ : string;
   output_work_ : int;
   value_captured_ : bool;
+  generation_capture_ :
+    Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
+    option;
 }
 
 let outcome report = report.outcome_
 let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
+let generation_capture report = report.generation_capture_
 let value_captured report = report.value_captured_
 
 let error_report message =
@@ -178,6 +198,7 @@ let error_report message =
     output_bytes_ = "";
     output_work_ = 0;
     value_captured_ = false;
+    generation_capture_ = None;
   }
 
 let bind_task_budget arena identity =
@@ -399,6 +420,24 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                 | Error message -> error_report message
                 | Ok () -> (
                     let scalar_capture = ref None in
+                    let generated_capture = ref None in
+                    let generation = Image.generation image in
+                    let generation_state =
+                      Option.map
+                        (fun target ->
+                          match
+                            Ir.Integer_interpreter.native_generation_limits
+                              target
+                          with
+                          | Error message -> invalid_arg message
+                          | Ok (active, available, capacity) ->
+                              ( target,
+                                active,
+                                available,
+                                capacity,
+                                generated_capture ))
+                        generation
+                    in
                     let status, captured, work =
                       if Option.is_some retained then
                         let limits =
@@ -423,7 +462,8 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                         | Some consumed, Some binding -> (
                             let task =
                               ( binding.task_arena_.handle_,
-                                binding.task_required_arena_bytes_ )
+                                binding.task_required_arena_bytes_,
+                                Option.get generation_state )
                             in
                             match Image.scalar_program image with
                             | None ->
@@ -555,6 +595,19 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                     else
                       match decoded with
                       | Ok outcome_ ->
+                          (match (generation, !generated_capture) with
+                          | Some target, Some capture -> (
+                              match
+                                Ir.Integer_interpreter
+                                .complete_native_generation target capture
+                              with
+                              | Ok () -> ()
+                              | Error message -> invalid_arg message)
+                          | None, None -> ()
+                          | _ ->
+                              invalid_arg
+                                "native generation returned without its \
+                                 original capture");
                           (match task_binding with
                           | Some binding ->
                               let capture =
@@ -583,6 +636,7 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                             output_bytes_ = captured;
                             output_work_ = work;
                             value_captured_ = not (Int64.equal value_site 0L);
+                            generation_capture_ = !generated_capture;
                           }
                       | Error message ->
                           error_report

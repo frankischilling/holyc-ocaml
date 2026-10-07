@@ -6,7 +6,10 @@ type argument_kind =
   | Signed_byte_pointer
   | Other_pointer
 
+type target = Task_output | Generation | Formatted_source
+
 type t = {
+  target : target;
   format_stage : int;
   arguments_stage : int;
   argument_kinds : argument_kind array;
@@ -15,6 +18,7 @@ type t = {
 }
 
 type provider_input = {
+  target : target;
   format_stage : int;
   count_stage : int;
   arguments_stage : int;
@@ -106,7 +110,9 @@ let emit_internal ?provider emitter (call : t) =
        || call.format_stage > max_int - 2
        || call.arguments_stage <> call.format_stage + 2
        || call.arguments_stage > max_int - count
-       || call.scratch_stage <> call.arguments_stage + count
+       || (call.scratch_stage
+          <> call.arguments_stage + count
+             + if call.target = Formatted_source then 1 else 0)
        || call.scratch_stage > max_int - scratch_count
        || call.activation_bytes <> (count + 2) * 8)
   then invalid_arg "native Print has inconsistent staged call storage";
@@ -121,7 +127,13 @@ let emit_internal ?provider emitter (call : t) =
   let unknown_fault = fault 7 in
   let overflow_fault = fault 9 in
   let bounds_fault = fault 10 in
-  let output_fault = fault 11 in
+  let address, capacity, written =
+    match call.target with
+    | Task_output -> (80, 88, 104)
+    | Generation -> (112, 120, 128)
+    | Formatted_source -> (144, 152, 160)
+  in
+  let output_fault = fault (if call.target = Task_output then 11 else 26) in
   let work_fault = fault 12 in
   let format_fault = fault 13 in
   let argument_fault = fault 14 in
@@ -159,14 +171,14 @@ let emit_internal ?provider emitter (call : t) =
     store current_byte E.Rax;
     charge ();
     load E.Rax draft_length;
-    out (E.Load_context (E.Rcx, 88));
+    out (E.Load_context (E.Rcx, capacity));
     out (E.Cmp (E.Rax, E.Rcx));
     let available = fresh () in
     jump Below available;
     jump Always output_fault;
     mark available;
-    out (E.Load_context (E.Rdx, 80));
-    out (E.Load_context (E.Rcx, 104));
+    out (E.Load_context (E.Rdx, address));
+    out (E.Load_context (E.Rcx, written));
     out (E.Binary (E.Add, E.Rdx, E.Rcx));
     out (E.Binary (E.Add, E.Rdx, E.Rax));
     load E.R8 current_byte;
@@ -1491,13 +1503,21 @@ let emit_internal ?provider emitter (call : t) =
   mark quoted_q;
   emit_quoted format_loop ~decode:true;
   mark complete;
-  load E.Rax draft_length;
-  out (E.Load_context (E.Rcx, 88));
-  out (E.Binary (E.Sub, E.Rcx, E.Rax));
-  out (E.Store_context (88, E.Rcx));
-  out (E.Load_context (E.Rcx, 104));
-  out (E.Binary (E.Add, E.Rcx, E.Rax));
-  out (E.Store_context (104, E.Rcx))
+  (match call.target with
+  | Generation ->
+      out (E.Load_context (E.Rcx, 136));
+      out (E.Test E.Rcx);
+      jump Equal (fault 27)
+  | Formatted_source -> jump Always (fault 28)
+  | Task_output -> ());
+  if call.target <> Formatted_source then (
+    load E.Rax draft_length;
+    out (E.Load_context (E.Rcx, capacity));
+    out (E.Binary (E.Sub, E.Rcx, E.Rax));
+    out (E.Store_context (capacity, E.Rcx));
+    out (E.Load_context (E.Rcx, written));
+    out (E.Binary (E.Add, E.Rcx, E.Rax));
+    out (E.Store_context (written, E.Rcx)))
 
 let emit emitter call = emit_internal emitter call
 
@@ -1509,6 +1529,7 @@ let emit_provider emitter (input : provider_input) =
   then invalid_arg "native Print provider has invalid private input storage";
   emit_internal ~provider:input emitter
     {
+      target = input.target;
       format_stage = input.format_stage;
       arguments_stage = 0;
       argument_kinds = [||];
