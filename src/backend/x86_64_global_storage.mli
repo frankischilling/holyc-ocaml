@@ -197,7 +197,7 @@ val append_task_literals :
   work:int ->
   (task_snapshot, error list) result
 (** Append original sealed literal regions after this exact current snapshot.
-    Literal bytes, canonical reference tables and graph visits are cumulative.
+    Literal bytes, reference descriptors and graph visits are cumulative.
     Earlier global, literal and table offsets remain unchanged. *)
 
 val task_snapshot_storage : task_snapshot -> t

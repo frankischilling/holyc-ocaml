@@ -207,7 +207,7 @@ let limits_and_native_extents () =
   let fragments = Native.fragments report in
   Alcotest.(check (list int))
     "callback data plus independent flags and owners"
-    [ 96; 96; 96; 96; 113; 113; 113 ]
+    [ 96; 96; 96; 96; 120; 120; 120 ]
     (List.map
        (fun (fragment : Native.fragment) -> fragment.image.global_arena_bytes)
        fragments);

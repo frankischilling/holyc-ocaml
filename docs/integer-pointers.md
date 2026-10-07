@@ -1,9 +1,8 @@
 # Scalar pointer aliases
 
 [Explicit primitive pointer casts](primitive-pointer-views.md) give an owned
-object a different scalar view in the interpreter. Reads, writes and byte
-initialization preserve the original object and extent; native casts remain
-unfinished.
+object a different scalar view in the interpreter and native executor. Reads,
+writes and byte initialization preserve the original object and extent.
 
 Two matching owned scalar references can subtract within one original live
 object and extent. Aligned byte offsets feed original IC_SUB and, above byte

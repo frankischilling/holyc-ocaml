@@ -307,16 +307,17 @@ let persistent_authority () =
       |> reject_layout ~code:"HCBACK0003" "reconstructed static array frame")
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
-let check_array_flags ~mode ~logical ~initialized image =
+let check_array_flags ~mode ~logical ~width ~initialized image =
   let expected = if initialized || mode = Preprocessor.Aot then 1 else 0 in
-  Alcotest.(check int) "reserved object flag byte" 0 (byte image logical);
-  let low_flag = logical + 1 in
-  let root_flag = low_flag + 8 in
-  Alcotest.(check int) "array element 1 flag" expected (byte image low_flag);
-  Alcotest.(check int)
-    "array element 0 root flag" expected (byte image root_flag);
-  check_zero_range "element 1 flag padding" image (low_flag + 1) 7;
-  check_zero_range "element 0 flag padding" image (root_flag + 1) 7
+  check_zero_range "reserved object flag slot" image logical 8;
+  let root_flag = logical + 23 in
+  for index = 0 to (2 * width) - 1 do
+    Alcotest.(check int)
+      "original byte initialization" expected
+      (byte image (root_flag - index))
+  done;
+  check_zero_range "unused flag-region padding" image (logical + 8)
+    (16 - (2 * width))
 
 let global_images_across_widths () =
   List.iter
@@ -332,14 +333,14 @@ let global_images_across_widths () =
             "global logical bytes" logical
             (Program.global_bytes empty);
           Alcotest.(check int)
-            "array metadata bytes" 17
+            "array metadata bytes" 24
             (Program.arena_metadata_bytes empty);
           Alcotest.(check int)
-            "array physical bytes" (logical + 17)
+            "array physical bytes" (logical + 24)
             (String.length (Program.global_image empty));
           let empty_image = Program.global_image empty in
           check_zero_range "uninitialized data" empty_image 0 logical;
-          check_array_flags ~mode ~logical ~initialized:false empty_image;
+          check_array_flags ~mode ~logical ~width ~initialized:false empty_image;
           let prepared =
             native_image ~max_global_bytes:logical ~mode
               (Printf.sprintf "%s G[2]={%s,%s};G[0]+G[1];" type_ first second)
@@ -347,7 +348,8 @@ let global_images_across_widths () =
           let prepared_image = Program.global_image prepared in
           check_word prepared_image ~offset:0 ~width 40L "prepared first";
           check_word prepared_image ~offset:width ~width 2L "prepared second";
-          check_array_flags ~mode ~logical ~initialized:true prepared_image)
+          check_array_flags ~mode ~logical ~width ~initialized:true
+            prepared_image)
         [
           ("U8", 1, "296", "258");
           ("U16", 2, "65576", "65538");
@@ -372,17 +374,17 @@ let static_images_and_padding () =
             "padded static logical bytes" logical
             (Program.global_bytes image);
           Alcotest.(check int)
-            "static array metadata bytes" 17
+            "static array metadata bytes" 24
             (Program.arena_metadata_bytes image);
           let bytes = Program.global_image image in
           Alcotest.(check int)
-            "static physical bytes" (logical + 17) (String.length bytes);
+            "static physical bytes" (logical + 24) (String.length bytes);
           check_word bytes ~offset:0 ~width 40L "static first";
           check_word bytes ~offset:width ~width 2L "static second";
           if extent < logical then
             check_zero_range "static allocation padding" bytes extent
               (logical - extent);
-          check_array_flags ~mode ~logical ~initialized:true bytes)
+          check_array_flags ~mode ~logical ~width ~initialized:true bytes)
         [ ("U8", 1); ("U16", 2); ("U32", 4); ("I64", 8) ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -409,10 +411,10 @@ let preparation_proof_and_metadata_quotas () =
         "prepared logical quota" 2
         (Program.global_bytes prepared);
       Alcotest.(check int)
-        "prepared metadata accounting" 17
+        "prepared metadata accounting" 24
         (Program.arena_metadata_bytes prepared);
       Alcotest.(check int)
-        "prepared exact physical image" 19
+        "prepared exact physical image" 26
         (String.length (Program.global_image prepared));
       let session, config, source_file = source_inputs ~mode source in
       match
@@ -426,7 +428,7 @@ let preparation_proof_and_metadata_quotas () =
                diagnostics)
       | Ok _ -> Alcotest.fail "array metadata escaped logical global quota")
     [ Preprocessor.Jit; Preprocessor.Aot ];
-  let exact_elements = (Layout.hard_max_arena_bytes - 1) / 9 in
+  let exact_elements = (Layout.hard_max_arena_bytes - 8) / 9 in
   let exact_source = Printf.sprintf "U8 G[%d];42;" exact_elements in
   let exact_unit = integer_unit ~mode:Preprocessor.Jit exact_source in
   let exact =
@@ -437,7 +439,7 @@ let preparation_proof_and_metadata_quotas () =
   in
   Alcotest.(check int)
     "largest 1-byte array arena under hard bound"
-    ((9 * exact_elements) + 1)
+    ((9 * exact_elements) + 8)
     (String.length (Layout.image exact));
   let too_many = exact_elements + 1 in
   let too_many_unit =

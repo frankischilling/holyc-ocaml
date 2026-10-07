@@ -911,7 +911,7 @@ let callback_storage_source_and_authority () =
       Alcotest.(check int)
         "packed image charges object bytes, slot flags, element flags and \
          owners"
-        194
+        208
         (String.length (Program.global_image compiled));
       let exported = Program.global_image compiled in
       Bytes.set (Bytes.unsafe_of_string exported) 0 '\255';

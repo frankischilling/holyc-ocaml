@@ -43,7 +43,7 @@ two in both modes. Grouping and whole-object bounds follow the documented rules.
 [Scalar pointer aliases](integer-pointers.md) connect one-level I64/U64 pointer
 locals and fixed parameters to existing scalar local, global and static storage.
 The caller-writeback fixture returns 42 in 43 steps under exact frame/depth limits.
-[Primitive pointer views](primitive-pointer-views.md) extend the interpreter
+[Primitive pointer views](primitive-pointer-views.md) extend the interpreter and native executor
 with explicit casts across Bool and integer widths, including byte
 initialization and unaligned windows inside the original owned object.
 

@@ -43,8 +43,8 @@ val create :
   (t, error list) result
 (** Allocate a separate mutable byte region for each original IC_STR_CONST
     producer in the sealed entry and function graphs. Each region includes its
-    trailing NUL and a bounded canonical reference table. Layout and all quotas
-    are checked before the initial byte image is allocated. *)
+    trailing NUL and one 32-byte reference descriptor. Layout and all quotas are
+    checked before the initial byte image is allocated. *)
 
 val find :
   t ->

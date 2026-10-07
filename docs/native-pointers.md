@@ -18,8 +18,9 @@ holyc run --target=host-jit --mode=aot examples/native-scalar-pointers.hc
 
 Address-of selects an existing checked scalar parameter, local, global, static
 or automatic array element. Pointer copies, assignments, argument passing and
-`&*p` retain its exact pointee type and original object extent. Dereferences use
-the object's declared width and signedness.
+`&*p` retain its pointee type and original object extent. Explicit
+[primitive pointer casts](primitive-pointer-views.md) select a different
+integer/Bool view. Dereferences use the current view's width and signedness.
 Assignment and compound assignment return the full computed word; prefix updates
 return the normalized new object value, and postfix updates return the old one.
 The destination is evaluated before the RHS, but compound updates read the
@@ -27,9 +28,9 @@ object after RHS effects, matching the existing checked interpreter.
 
 Taking an address does not read the object. A pointer local has its own
 initialization flag; dereferencing it first requires an initialized reference.
-Reading or updating the pointee separately requires an initialized object.
-Writing through a reference marks that object initialized, so later direct and
-indirect reads agree. Named scalar parameters start initialized. Pointer
+Reading or updating the pointee separately requires every accessed byte to
+be initialized. Writing through a reference initializes those bytes, so
+later direct and indirect reads agree. Named scalar parameters start initialized. Pointer
 parameter rebinding changes the callee's slot; writing its pointee changes the
 caller's object. JIT/AOT global and static initial states remain as described in
 [native globals](native-globals.md).
@@ -39,28 +40,25 @@ caller's object. JIT/AOT global and static initial states remain as described in
 Native preflight keeps frame/global address metadata separate from runtime
 reference values. Only an exact checked object can materialize a reference;
 an integer, guessed displacement, reconstructed symbol or foreign function frame
-cannot supply an address. A private canonical table reserves one 32-byte record
-for each element and one for the object's one-past address. Each record contains
+cannot supply an address. A reached pointer producer has a private 32-byte
+descriptor snapshot. Each record contains
 the root data address, root initialization-flag address, signed logical byte
 offset and original object extent. A zero flag address denotes an already
 initialized scalar parameter. The record never becomes an integer result.
 Discarding a top-level reference clears the numeric result, as a U0 expression
 does.
 
-Each record always identifies the same object and offset. Repeating an address
-instruction can select another record without modifying earlier aliases.
-Pointer loads, assignments and call staging copy the selected record address.
+Pointer loads, assignments and call staging copy the descriptor fields into
+separate private homes. Repeating an address instruction can reuse its own
+record without modifying earlier stored aliases.
 Arguments evaluate right to left, so `Use(p=&b,p)` preserves the right
 argument's original value even though the left argument rebinds `p`.
 Assignment-expression results and indexed bases
 captured before later effects have the same protection.
 
 The accepted language prevents references from escaping their owners. Pointer
-returns, persistent pointer storage, pointer-to-pointer objects, integer/null
-casts all reject before native entry. The interpreter's
-[primitive pointer views](primitive-pointer-views.md) preserve storage across
-explicit casts; native descriptors and initialization flags still require
-that integration. Owned callback calls have their separate execution path.
+returns, persistent pointer storage, pointer-to-pointer objects and integer/null
+casts all reject before native entry. Owned callback calls have their separate execution path.
 [Scalar pointer addition](pointer-addition.md) and
 [subtraction](pointer-subtraction.md) scale original integer offsets and preserve
 captured objects; other pointer arithmetic remains unsupported.
@@ -80,7 +78,7 @@ Checked indexing and scalar pointer addition/subtraction retain the original
 object range and check signed scaling and offset arithmetic before forming a
 host address. Intermediate multidimensional
 offsets remain internal until final materialization or access. Materialization
-accepts aligned one-past addresses; reads and writes require an actual element.
+accepts one-past addresses; reads and writes require the complete view window.
 Negative indexing from an interior pointer can reach earlier elements, but a
 scalar reference cannot reach an adjacent local. Passing a static reference
 authorizes access to that object through the reference; it does not authorize
@@ -90,13 +88,13 @@ entire bundle, including unused functions.
 
 ## Resource and API boundaries
 
-Canonical records occupy compiler-private frame bytes, separately from semantic
-object storage. The complete table is charged before allocation and counts
+Snapshot records occupy compiler-private frame bytes, separately from semantic
+object storage. Producer, pointer-cell and argument homes are charged before allocation and count
 toward per-function and simultaneous physical-stack limits. Its instructions
 belong to the original IR step; record setup adds no semantic-frame, global-byte
 or interpreter-step charge. Existing code, instruction, call-depth, preparation
-and arena limits remain in force. Repeated evaluation reuses canonical records
-without allocating per loop iteration. `&*p` forwards its checked reference.
+and arena limits remain in force. Repeated evaluation reuses snapshot homes
+without allocating per loop iteration. `&*p` copies its checked reference.
 
 The public execution bridge accepts a sealed program and limits. It has no
 pointer-argument channel, and its result remains an optional I64/U64 word.

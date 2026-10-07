@@ -86,7 +86,7 @@ let original_format () =
        (fun (fragment : Native.fragment) -> fragment.image.literal_bytes)
        fragments);
   Alcotest.(check (list int))
-    "stable data and canonical table extent" [ 164; 164 ]
+    "stable data and literal descriptor extent" [ 36; 36 ]
     (List.map
        (fun (fragment : Native.fragment) -> fragment.image.global_arena_bytes)
        fragments);

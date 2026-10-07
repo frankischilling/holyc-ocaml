@@ -245,7 +245,7 @@ let quotas_include_entries () =
   let report = run ~max_global_bytes:8 text in
   value 42L report;
   Alcotest.(check (list int))
-    "address and target cells belong to arena" [ 0; 33; 33 ]
+    "address and target cells belong to arena" [ 0; 40; 40 ]
     (List.map
        (fun (fragment : Native.fragment) -> fragment.image.global_arena_bytes)
        (Native.fragments report));

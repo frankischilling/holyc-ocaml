@@ -285,13 +285,13 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
       (Ok 0) source_slots
   in
   let* arena_bytes =
-    if slot_count > hard_max_arena_bytes - declared_bytes then
+    if slot_count > (hard_max_arena_bytes - declared_bytes) / 8 then
       resource
         (Printf.sprintf
            "private global arena exceeds the hard allocation bound of %d bytes"
            hard_max_arena_bytes)
     else
-      let prefix_bytes = declared_bytes + slot_count in
+      let prefix_bytes = declared_bytes + (slot_count * 8) in
       if array_flag_bytes > hard_max_arena_bytes - prefix_bytes then
         resource
           (Printf.sprintf
@@ -513,10 +513,12 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           if is_array then
             ( array_flag_cursor + ((element_count - 1) * 8),
               array_flag_cursor + (element_count * 8) )
-          else (declared_bytes + ordinal, array_flag_cursor)
+          else (declared_bytes + (ordinal * 8), array_flag_cursor)
         in
-        let flag_at index =
-          if is_array then flag_offset - (index * 8) else flag_offset
+        let mark_bytes index =
+          for byte = 0 to width - 1 do
+            Bytes.set image (flag_offset + 7 - (index * width) - byte) '\001'
+          done
         in
         let has_initializer =
           Option.fold ~none:false
@@ -578,7 +580,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         in
         if base_initialized then
           for index = 0 to element_count - 1 do
-            Bytes.set image (flag_at index) '\001'
+            mark_bytes index
           done;
         let* array_image =
           if is_array then prepared_array_image ?span global static else Ok []
@@ -590,7 +592,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         let mark index =
           Bytes.set seen index '\001';
           if not base_initialized then incr initialized_count;
-          Bytes.set image (flag_at index) '\001'
+          mark_bytes index
         in
         let* () =
           List.fold_left
@@ -675,7 +677,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
             rest
   in
   collect 0 0 0
-    (declared_bytes + slot_count)
+    (declared_bytes + (slot_count * 8))
     (arena_bytes - code_owner_bytes)
     Symbol_map.empty source_slots
 
@@ -898,12 +900,12 @@ let append_task_globals layout ~globals =
                           state.task_arena_bytes + extent_bytes + flag_bytes - 8
                         )
                 else if
-                  width + 1 > hard_max_arena_bytes - state.task_arena_bytes
+                  width + 8 > hard_max_arena_bytes - state.task_arena_bytes
                 then
                   resource ?span
                     "native task data and initialization flags exceed the \
                      arena bound"
-                else Ok (width + 1, state.task_arena_bytes + width)
+                else Ok (width + 8, state.task_arena_bytes + width)
               in
               let* arena_bytes, code_owner_offset =
                 if Option.is_none callback then Ok (data_and_flags_bytes, None)
@@ -1128,7 +1130,7 @@ let reserve_static layout request =
           then resource "native statics exceed max_global_bytes"
           else Ok ()
         in
-        let flag_width = if dimensions = [] then 1 else 8 in
+        let flag_width = 8 in
         let* arena_bytes =
           if
             padded > hard_max_arena_bytes - before.task_arena_bytes
@@ -1264,7 +1266,7 @@ let prepare_static_copy layout request ~admitted_arena_bytes =
         copy_state = state;
         copy_request = request;
         copy_data = slot.data_offset + byte;
-        copy_flag = slot.flag_offset - (cell * 8);
+        copy_flag = slot.flag_offset + 7 - cell;
         copy_bytes = bytes;
       }
 

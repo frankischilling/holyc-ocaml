@@ -100,7 +100,7 @@ let () =
     (List.map
        (fun fragment -> fragment |> member "global_arena_bytes" |> to_int)
        images
-    = [ 9; 9; 9 ])
+    = [ 16; 16; 16 ])
     "definition and call share original storage";
   require
     (List.map
@@ -235,8 +235,8 @@ let () =
       (List.map
          (fun fragment -> fragment |> member "arena_metadata_bytes" |> to_int)
          (fragments report)
-      = [ 160; 160 ])
-      "canonical reference metadata is admitted once";
+      = [ 32; 32 ])
+      "literal descriptor metadata is admitted once";
     let ir = json_path ~target:"ir" path in
     require
       (ir |> member "output_hex" |> to_string = "34323b")
@@ -493,7 +493,7 @@ let () =
       (List.map
          (fun fragment -> fragment |> member "global_arena_bytes" |> to_int)
          (fragments report)
-      = [ 96; 96; 96; 96; 113; 113; 113; 113; 113 ])
+      = [ 96; 96; 96; 96; 120; 120; 120; 120; 120 ])
       "persistent callback data, flags and owner lanes";
     let steps = report |> member "executed_steps" |> to_int in
     require

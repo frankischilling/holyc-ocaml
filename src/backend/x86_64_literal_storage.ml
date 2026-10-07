@@ -189,10 +189,9 @@ let append storage ~max_literal_bytes ~max_arena_bytes ~arena_prefix_bytes
                           let remaining =
                             min max_arena_bytes Sys.max_string_length - !used
                           in
-                          if remaining < 32 || count > (remaining - 32) / 33
-                          then
+                          if remaining < 32 || count > remaining - 32 then
                             error ?span:description.span "HCBACK0004"
-                              "native literal bytes and reference tables \
+                              "native literal bytes and reference snapshots \
                                exceed the private arena bound"
                           else if
                             Instruction_map.mem description.instruction_id
@@ -202,7 +201,7 @@ let append storage ~max_literal_bytes ~max_arena_bytes ~arena_prefix_bytes
                               "native literal graph repeats an instruction \
                                identity"
                           else
-                            let table_bytes = (count + 1) * 32 in
+                            let table_bytes = 32 in
                             let region =
                               {
                                 data_offset = !used;

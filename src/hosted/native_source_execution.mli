@@ -85,9 +85,9 @@ val evaluate :
     Code bytes and verified IR instructions are bounded cumulatively across
     emitted fragments. Runtime steps and output share one native allowance;
     frame, call-depth and active native stack limits apply to each activation.
-    Original literal bytes and canonical reference tables append to the shared
-    arena and preserve mutation across fragments. Logical literal and metadata
-    counts appear separately in each detached image report. Integer scalar and
+    Original literal bytes and reference descriptors append to the shared arena
+    and preserve mutation across fragments. Logical literal and metadata counts
+    appear separately in each detached image report. Integer scalar and
     fixed-array function statics append their original allocation to that arena.
     Each original initializer leaf executes once during its live parser
     callback; completion joins the same allocation to its declaring frame.

@@ -165,7 +165,7 @@ let () =
         (static_image |> member "global_bytes" |> to_int = 9)
         "static padded bytes";
       require
-        (static_image |> member "global_arena_bytes" |> to_int = 11)
+        (static_image |> member "global_arena_bytes" |> to_int = 25)
         "static arena flags";
       check_success
         (host_json ~mode ~options:[ "--global-byte-limit=9" ] Sys.argv.(4));
@@ -216,7 +216,7 @@ let () =
       let image = native |> member "native" |> member "image" in
       require (image |> member "global_bytes" |> to_int = 9) "declared widths";
       require
-        (image |> member "global_arena_bytes" |> to_int = 11)
+        (image |> member "global_arena_bytes" |> to_int = 25)
         "flags charged separately";
       ignore
         (host_json ~mode ~options:[ "--global-byte-limit=9" ] global_fixture);

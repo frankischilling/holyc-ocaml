@@ -312,7 +312,7 @@ let quota_boundaries () =
       in
       Alcotest.(check int) "declared bytes" 9 (Program.global_bytes image.value);
       Alcotest.(check int)
-        "private arena bytes" 11
+        "private arena bytes" 25
         (String.length (Program.global_image image.value));
       (match
          Native_program.compile ~max_global_bytes:8 session ~config ~source
@@ -523,7 +523,7 @@ let static_locals () =
         "padded static quota" 17
         (Program.global_bytes image.value);
       Alcotest.(check int)
-        "static flags" 20
+        "static byte flags" 41
         (String.length (Program.global_image image.value));
       (match
          Native_program.compile ~max_global_bytes:16 session ~config ~source

@@ -306,7 +306,7 @@ let actual_source ?max_layout_work ~adversarial () =
     !saved;
   (report, Storage.task_layout_work layout, Runtime.budget_progress budget)
 
-let array_source ?(both_abis = false) ?(max_arena_bytes = 41)
+let array_source ?(both_abis = false) ?(max_arena_bytes = 48)
     ?(max_global_bytes = 24) ?(text = "I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;") ()
     =
   let session, config, source = inputs text in
@@ -406,15 +406,15 @@ let array_layout_and_capacity () =
     (Source.native_final_value report = Some (Dispatch.I64 42L));
   Alcotest.(check (list (pair int int)))
     "append-only array logical and arena extents"
-    [ (16, 32); (16, 32); (24, 41); (24, 41) ]
+    [ (16, 32); (16, 32); (24, 48); (24, 48) ]
     extents;
   Alcotest.(check int) "exact array layout work" 6 work;
-  let report, extents, work, _ = array_source ~max_arena_bytes:40 () in
+  let report, extents, work, _ = array_source ~max_arena_bytes:47 () in
   rejected "one-byte-short task arena stops the scalar suffix"
     (Source.outcome report);
   Alcotest.(check (list (pair int int)))
     "short arena observes the exact rejected extent"
-    [ (16, 32); (16, 32); (24, 41) ]
+    [ (16, 32); (16, 32); (24, 48) ]
     extents;
   Alcotest.(check int)
     "rejected scalar suffix still charges its admitted layout visit" 4 work
@@ -499,7 +499,7 @@ let callback_word_storage_authority () =
         budget.executed_steps;
       array_abi_compilation ~text ~global_bytes:logical ~arena_bytes ())
     [
-      ("I64 (*p)()=34;++p;p;", 8, 17, 3);
+      ("I64 (*p)()=34;++p;p;", 8, 24, 3);
       ("I64 (*p)()[2]={34,0};++p[0];p[0];", 16, 48, 4);
       ("I64 (*p)()[2][2]={{0,0},{0,34}};++p[1][1];p[1][1];", 32, 96, 6);
     ]
@@ -1230,7 +1230,7 @@ let native_literal_source_authority () =
       ~max_literal_bytes:2
     |> compiled
   in
-  let arena = Runtime.create_task_arena ~max_arena_bytes:98 layout |> checked in
+  let arena = Runtime.create_task_arena ~max_arena_bytes:34 layout |> checked in
   let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
   let saved_request = ref None and original = ref None in
   let native_dispatch : Dispatch.t =
@@ -1308,7 +1308,7 @@ let native_literal_source_authority () =
                 "both ABIs reuse the original producer's two bytes" 2
                 (Image.literal_bytes image);
               Alcotest.(check int)
-                "both ABIs reuse the exact canonical table extent" 98
+                "both ABIs reuse the exact literal snapshot extent" 34
                 (Image.arena_bytes image))
             [ Image.Windows_x64; Image.System_v_x64 ];
           let image =
@@ -1369,18 +1369,18 @@ let native_static_source_authority ?(callback_type = "I64") () =
   let module Initializer = Task.Native_static_initializer in
   let session = Session.create () in
   let layout = Image.create_task_layout ~max_global_bytes:32 |> compiled in
-  let arena = Runtime.create_task_arena ~max_arena_bytes:64 layout |> checked in
+  let arena = Runtime.create_task_arena ~max_arena_bytes:72 layout |> checked in
   let foreign_layout =
     Image.create_task_layout ~max_global_bytes:32 |> compiled
   in
   let foreign_arena =
-    Runtime.create_task_arena ~max_arena_bytes:64 foreign_layout |> checked
+    Runtime.create_task_arena ~max_arena_bytes:72 foreign_layout |> checked
   in
   let released_layout =
     Image.create_task_layout ~max_global_bytes:32 |> compiled
   in
   let released_arena =
-    Runtime.create_task_arena ~max_arena_bytes:64 released_layout |> checked
+    Runtime.create_task_arena ~max_arena_bytes:72 released_layout |> checked
   in
   Runtime.release_task_arena released_arena |> checked;
   let budget = Runtime.create_budget ~max_steps:100_000 () |> checked in
@@ -1699,7 +1699,7 @@ let native_static_copy_authority () =
       (fresh.[0] <> 'Z');
     rejected "checked plan cannot use another admitted extent"
       (Storage.prepare_static_copy layout request ~admitted_arena_bytes:1);
-    let admitted = 49 in
+    let admitted = 56 in
     let plan =
       Storage.prepare_static_copy layout request ~admitted_arena_bytes:admitted
       |> checked
@@ -1788,7 +1788,7 @@ let native_static_copy_host_bounds () =
       invalid (fun () -> raw_static_copy handle (Obj.magic 0));
       Alcotest.(check int)
         "real original flags remain available after malformed copies" 1
-        (raw_static_copy handle (40, 1, 24, "B"));
+        (raw_static_copy handle (40, 1, 31, "B"));
       Alcotest.(check int)
         "original copy may overwrite earlier initialized elements" 2
         (raw_static_copy handle (40, 0, 32, "AB"));
@@ -1797,14 +1797,14 @@ let native_static_copy_host_bounds () =
         (raw_static_copy handle (40, 0, 32, "A"));
       Alcotest.(check int)
         "remaining original array elements stay available" 2
-        (raw_static_copy handle (40, 2, 16, "CD"));
+        (raw_static_copy handle (40, 2, 30, "CD"));
       raw_arena_release handle;
       invalid (fun () -> raw_static_copy handle (40, 0, 32, "A")));
   let corrupt = raw_arena_create 40 in
   Fun.protect
     ~finally:(fun () -> raw_arena_release corrupt)
     (fun () ->
-      ignore (raw_arena_admit corrupt 0 40 [ (24, "\002") ]);
+      ignore (raw_arena_admit corrupt 0 40 [ (31, "\002") ]);
       invalid (fun () -> raw_static_copy corrupt (40, 0, 32, "AB"));
       Alcotest.(check int)
         "unaffected flag representations remain valid" 1
@@ -2361,7 +2361,7 @@ let callback_host_entry_bounds () =
           reject "another entry opcode is not the sealed arena jump" (fun () ->
               raw_code_retain
                 (identity (Bytes.to_string altered) functions bindings));
-          let arena = raw_arena_create 33 in
+          let arena = raw_arena_create 40 in
           let code =
             raw_code_retain (identity (Image.code image) functions bindings)
           in
@@ -2370,7 +2370,7 @@ let callback_host_entry_bounds () =
               raw_arena_release arena;
               raw_code_release code)
             (fun () ->
-              ignore (raw_arena_admit arena 0 33 []);
+              ignore (raw_arena_admit arena 0 40 []);
               List.iter
                 (fun descriptor ->
                   reject "wrong native owner binding has no publication"
@@ -2378,15 +2378,15 @@ let callback_host_entry_bounds () =
                 [
                   Obj.repr ();
                   Obj.repr (arena, -1);
-                  Obj.repr (arena, 32);
-                  Obj.repr (arena, 34);
+                  Obj.repr (arena, 39);
+                  Obj.repr (arena, 41);
                 ];
               Alcotest.(check bool)
                 "first exact live mapping becomes canonical" true
-                (raw_code_bind code (Obj.repr (arena, 33)));
+                (raw_code_bind code (Obj.repr (arena, 40)));
               Alcotest.(check bool)
                 "same mapping cannot replace the canonical entry" false
-                (raw_code_bind code (Obj.repr (arena, 33)));
+                (raw_code_bind code (Obj.repr (arena, 40)));
               let clone =
                 raw_code_retain (identity (Image.code image) functions bindings)
               in
@@ -2398,15 +2398,15 @@ let callback_host_entry_bounds () =
                   Alcotest.(check bool)
                     "later body mapping preserves the first executable entry"
                     false
-                    (raw_code_bind clone (Obj.repr (arena, 33)));
+                    (raw_code_bind clone (Obj.repr (arena, 40)));
                   raw_code_release code;
                   reject
                     "released canonical mapping cannot be substituted by a \
                      later body" (fun () ->
-                      raw_code_bind clone (Obj.repr (arena, 33))));
+                      raw_code_bind clone (Obj.repr (arena, 40))));
               raw_arena_release arena;
               reject "released arena has no live native entry publication"
-                (fun () -> raw_code_bind code (Obj.repr (arena, 33))));
+                (fun () -> raw_code_bind code (Obj.repr (arena, 40))));
           Image.check_task_request image |> checked;
           observed := true;
           Error
@@ -2430,7 +2430,7 @@ let callback_host_entry_bounds () =
 let callback_executable_storage_authority () =
   let text = "I64 F(){return 42;}I64 (*p)()=&F;I64 (*q)()=p;p=0;q();q();" in
   let report, extents, _, budget =
-    array_source ~both_abis:true ~text ~max_global_bytes:16 ~max_arena_bytes:50
+    array_source ~both_abis:true ~text ~max_global_bytes:16 ~max_arena_bytes:64
       ()
   in
   Source.outcome report |> Result.map_error describe |> checked |> ignore;
@@ -2439,21 +2439,21 @@ let callback_executable_storage_authority () =
     (Source.native_final_value report = Some (Dispatch.I64 42L));
   Alcotest.(check (list (pair int int)))
     "stable code cells and copied owners retain native extent"
-    [ (0, 0); (8, 33); (16, 50); (16, 50); (16, 50); (16, 50) ]
+    [ (0, 0); (8, 40); (16, 64); (16, 64); (16, 64); (16, 64) ]
     extents;
   Alcotest.(check bool)
     "callback bodies consume actual cumulative native instructions" true
     (budget.executed_steps > 0);
   let short, extents, _, budget =
     array_source ~text:"I64 F(){return 42;}I64 (*p)()=&F;p();"
-      ~max_global_bytes:8 ~max_arena_bytes:32 ()
+      ~max_global_bytes:8 ~max_arena_bytes:39 ()
   in
   rejected
     "one-byte-short executable-owner arena stops before address publication"
     (Source.outcome short);
   Alcotest.(check (list (pair int int)))
     "rejected owner includes both native entry cells"
-    [ (0, 0); (8, 33) ]
+    [ (0, 0); (8, 40) ]
     extents;
   Alcotest.(check int)
     "only the earlier definition command entered" 1 budget.executed_steps

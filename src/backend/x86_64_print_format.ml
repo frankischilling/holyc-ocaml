@@ -201,9 +201,6 @@ let emit_internal ?provider emitter (call : t) =
     out (E.Test E.R8);
     jump Equal initialized;
     out (E.Mov (E.Rcx, E.Rax));
-    for _ = 1 to 3 do
-      out (E.Binary (E.Add, E.Rcx, E.Rcx))
-    done;
     out (E.Binary (E.Sub, E.R8, E.Rcx));
     out (E.Load_indirect_narrow (E.Rcx, E.R8, E.Frame8, E.Zero_extend));
     out (E.Test E.Rcx);

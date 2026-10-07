@@ -85,7 +85,7 @@ let original_definition_and_call () =
   Alcotest.(check int)
     "initializer, definition and resumed call" 3 (List.length fragments);
   Alcotest.(check (list int))
-    "all fragments share the original arena" [ 9; 9; 9 ]
+    "all fragments share the original arena" [ 16; 16; 16 ]
     (List.map
        (fun (fragment : Native.fragment) -> fragment.image.global_arena_bytes)
        fragments);

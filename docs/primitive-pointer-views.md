@@ -1,6 +1,6 @@
-# Primitive pointer views in the interpreter
+# Owned primitive pointer views
 
-The interpreter accepts explicit postfix casts between owned, one-level
+The interpreter and native executor accept explicit postfix casts between owned, one-level
 Bool, I8, U8, I16, U16, I32, U32, I64 and U64 pointers. A cast changes the
 pointee width and signedness while retaining the original object, its extent,
 current byte offset and lifetime. Array values decay through the existing
@@ -16,7 +16,8 @@ I64 F() {
 F();
 ```
 
-`holyc run --target=ir` runs this source in both JIT and AOT mode. Views work
+`holyc run --target=ir` and `holyc run --target=host-jit` run this source in
+both JIT and AOT mode. Views work
 on parameters, automatic and static objects, globals, ordinary arrays, owned
 byte literals and a source function's `argv` storage. Copies and calls retain
 the same object. Indexing and pointer arithmetic scale by the view's width;
@@ -76,15 +77,39 @@ oracle capture. Maintained tests cover every admitted source/view class
 pair, unaligned and overlapping windows, aliases, initialization, task
 retention, providers, malformed IR and exact resource limits.
 
-Native pointer casts remain unfinished. Its current canonical descriptor
-tables and initialization flags assume the original element width. Native
-preflight rejects these cast graphs before entry. Completing that path
-requires a reference representation that retains original storage geometry
-alongside the view and supports byte initialization without losing aliases.
+Native references contain the original data address, byte-flag address,
+current byte offset and extent in a private 32-byte descriptor. Each reached
+pointer producer has a snapshot. Pointer cells and captured arguments copy
+the descriptor's fields; rebinding a pointer or reusing a producer in a loop
+cannot retarget a stored alias. Recursive calls have separate snapshot homes.
+The original initialization region tracks each byte independently. Whole
+original scalar reads require all their bytes, while a narrower view reads
+and initializes only its own window. Literals and scalar parameters have no
+unknown-byte flags. No descriptor table expands with the object's extent.
+
+Snapshots, pointer-cell homes and argument captures count against measured
+private frame and active stack limits. Global/static flag regions reserve
+eight bytes per original element; scalar objects also reserve eight bytes.
+The accessible flags are packed in descending byte order within each
+object's original region. A literal needs one 32-byte arena descriptor.
+Logical source storage, IR instruction steps and initialization-work charges
+retain their existing meaning. Native bit operations quantize relative to
+the current view, including an unaligned view start, and check the complete
+read window before touching data. Print, StrLen, Swap and ModU64 use the
+same byte initialization and extent checks.
+
+The native suite checks all 81 read and write class pairings in both modes,
+cross-cell and overlapping windows, saved aliases across loops, parameter
+rebinding, recursive calls, byte scans, provider callbacks and retained task
+storage. It also compiles both private status ABIs, checks exact physical
+frame/code limits and executes fresh images on the host ABI. The full-byte
+matrix has independent expected values and fresh interpreter comparisons.
 Integer/null address conversions, pointer returns and escapes, deeper
 indirection, F64 and aggregate views, exported ABI integration and the full
 guest memory model remain requirements of the compiler.
 
-The native task target can retain earlier successful declaration commands
-before rejecting a later cast graph. It currently requires JIT source mode.
-The CLI tests check both that retained progress and isolated native rejection.
+`host-jit-task` preserves original byte flags and source function bodies
+across commands in its JIT source task. It currently requires JIT mode.
+Source variadic pointer tails and pointer-valued saved defaults remain outside
+the admitted native call domain. This does not complete raw pointer bits,
+escaping lifetimes, the exported HolyC ABI or the compiler.

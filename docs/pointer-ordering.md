@@ -46,7 +46,7 @@ The VM validates both references and requires the same original storage,
 base, count and scalar width before comparing offsets. Native code compares
 original data-base, initialization-region and extent fields before reading
 the offset fields. Separate source address sites can allocate distinct
-canonical tables for the same object; record addresses do not determine order.
+descriptor snapshots for the same object; record addresses do not determine order.
 Existing synchronous call lifetimes and original owner checks remain required.
 
 The completed source context seals original ordering instructions and their

@@ -2154,9 +2154,9 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
   if (prefix <= 0 || (uintnat)prefix > HOLYC_NATIVE_MAX_ARENA_BYTES
       || data < 0 || data >= prefix || count == 0
       || count > (uintnat)(prefix - data)
-      || flag < 0 || flag >= prefix || count - 1 > (uintnat)flag / 8)
+      || flag < 0 || flag >= prefix || count - 1 > (uintnat)flag)
     caml_invalid_argument("native static byte copy leaves its admitted extent");
-  lowest_flag = (size_t)flag - (count - 1) * 8;
+  lowest_flag = (size_t)flag - (count - 1);
   if (lowest_flag < (size_t)data + count)
     caml_invalid_argument("native static byte copy overlaps its initialization flags");
   if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
@@ -2173,13 +2173,13 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
   /* Earlier original expressions may already have written these elements.
      Validate the flag representation without treating initialization as replay. */
   for (i = 0; i < count; ++i) {
-    if (mapping[(size_t)flag - i * 8] > 1) {
+    if (mapping[(size_t)flag - i] > 1) {
       atomic_store(&arena->active, 0);
       caml_invalid_argument("native static byte copy has a malformed initialization flag");
     }
   }
   memcpy(mapping + data, String_val(payload), count);
-  for (i = 0; i < count; ++i) mapping[(size_t)flag - i * 8] = 1;
+  for (i = 0; i < count; ++i) mapping[(size_t)flag - i] = 1;
   atomic_store(&arena->active, 0);
   CAMLreturn(Val_long((intnat)count));
 #endif

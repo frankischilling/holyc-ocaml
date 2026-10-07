@@ -111,7 +111,7 @@ round each declared width up to eight bytes. Unused objects count.
 The compiler checks this bound before allocating the private image; execution
 checks it again before native entry. Scalars retain one initialization byte per
 object; arrays add eight-byte per-element flag slots. Literal objects have a
-separate data quota and arena reference tables. All private metadata is charged
+separate data quota and arena descriptors. All private metadata is charged
 in an arena capped at 33,554,432 bytes. The private
 layout does not expose static padding or raw pointers.
 

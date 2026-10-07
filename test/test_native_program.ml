@@ -1611,7 +1611,7 @@ let native_array_compilation_limits () =
           let twice = loop 2 in
           let many = loop 2000 in
           Alcotest.(check int)
-            "reference tables do not grow with the loop trip count"
+            "reference snapshots do not grow with the loop trip count"
             (Program.frame_bytes twice)
             (Program.frame_bytes many))
         [ Program.Windows_x64; Program.System_v_x64 ];
@@ -1619,18 +1619,10 @@ let native_array_compilation_limits () =
         (source_program_compile ~mode
            "I64 F(){I64 a[100];return sizeof(a);}F();"
         |> require_ok diagnostics_text);
-      match
-        source_program_compile ~mode
-          "I64 F(){I64 a[100];I64 *p=a;return 42;}F();"
-      with
-      | Ok _ -> Alcotest.fail "unbounded canonical reference table was accepted"
-      | Error diagnostics ->
-          Alcotest.(check bool)
-            "descriptor expansion is charged before allocation" true
-            (List.exists
-               (fun (diagnostic : Diagnostic.t) ->
-                 diagnostic.code = "HCBACK0004")
-               diagnostics))
+      ignore
+        (source_program_compile ~mode
+           "I64 F(){I64 a[100];I64 *p=a;return 42;}F();"
+        |> require_ok diagnostics_text))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let native_output_authority () =

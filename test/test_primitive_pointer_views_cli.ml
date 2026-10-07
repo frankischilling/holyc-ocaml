@@ -127,21 +127,19 @@ let () =
         (invoke ~status:1 ~options:[ "--call-depth-limit=1" ] "ir" mode example);
       List.iter
         (fun target ->
-          let native = invoke ~status:1 target mode example in
-          error
-            (if target = "host-jit-task" && mode = "aot" then "HCRUN0001"
-             else "HCBACK0002")
-            native;
-          require
-            (member "output_hex" native = `String "")
-            "native view rejection has no output effects";
-          require
-            (member "executed_steps" native
-            =
-            if target = "host-jit-task" then
-              `Int (if mode = "jit" then 1 else 0)
-            else `Null)
-            "native task retains only its earlier declaration command")
+          if target = "host-jit-task" && mode = "aot" then (
+            let report = invoke ~status:1 target mode example in
+            error "HCRUN0001" report;
+            require
+              (member "executed_steps" report = `Int 0)
+              "native source tasks require JIT")
+          else
+            let report = invoke target mode example in
+            word "42" report;
+            require
+              (member "output_hex" report = `String "4142"
+              && member "output_work" report = `Int 8)
+              "native view byte scans retain exact output")
         (if native then [ "host-jit"; "host-jit-task" ] else []);
       with_file ".hc"
         "extern U0 Print(U8 *fmt,...);I64 F(){U64 n;U8 \

@@ -30,8 +30,8 @@ Joined source-body replacement rejects provider fallback while native extern-slo
 dispatch remains unfinished. StreamPrint and StreamExePrint remain separate
 source-generation consumers.
 
-Original task string producers append stable byte regions and canonical
-reference tables. Retained functions reuse those same mutable bytes after later
+Original task string producers append stable byte regions and descriptor
+snapshots. Retained functions reuse those same mutable bytes after later
 globals, arrays or function bodies append storage. Distinct producers remain
 distinct objects. Literal bytes include their NUL terminators and are charged
 once; private reference metadata has its own arena bound. This does not admit

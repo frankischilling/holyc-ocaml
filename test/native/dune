@@ -1,3 +1,13 @@
+(executable
+ (name test_primitive_pointer_views_execution)
+ (modules test_primitive_pointer_views_execution)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_primitive_pointer_views_execution.exe})))
+
 (rule
  (alias native-tests)
  (deps ../../examples/primitive-pointer-views.hc)

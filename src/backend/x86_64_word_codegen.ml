@@ -153,8 +153,8 @@ let checked_scalar ?(allow_public = false) description type_ =
            "native callable programs require nonzero scalar integer values"
          else "native expressions require internal I64 or U64 values")
 
-(* Runtime references never share the integer producer path. The descriptor's
-   pointee class is fixed by the original checked object and cannot be cast. *)
+(* Runtime references retain the original object and its byte initialization
+   state. Each reached view has its own descriptor snapshot. *)
 let checked_reference description type_ =
   if Type.pointer_depth type_ <> 1 then
     unsupported description "native references require one scalar indirection";
@@ -164,7 +164,8 @@ let checked_reference description type_ =
   | Error message -> malformed description message
 
 let compatible_reference target source =
-  Type.compatible_u8_pointer target source
+  Type.equal target source
+  || Type.compatible_u8_pointer target source
   || Type.pointer_depth target = 1
      && Type.pointer_depth source = 1
      &&
@@ -198,6 +199,7 @@ type value = {
   computation_type : Type.t;
   mutable last_use : int;
   mutable code_owner_offset : int option;
+  mutable reference_descriptor_offset : int option;
 }
 
 type frame_access = {
@@ -336,8 +338,10 @@ type operation =
       * word_type
       * fault_site option
   | Load_frame_value of frame_access * value
+  | Load_reference_frame of frame_access * value
   | Load_code_frame of frame_access * int * value
   | Store_frame_value of frame_access * value * value
+  | Store_reference_frame of frame_access * int * value * value
   | Store_code_frame of frame_access * int * value * value
   | Update_frame_value of
       frame_access
@@ -398,7 +402,7 @@ type prepared_instruction = {
   operation : operation;
   span : Common.Span.t option;
   site : int option;
-  push_stage : (value * int * int option) option;
+  push_stage : (value * int * int option * int option) option;
 }
 
 type kind =
@@ -503,6 +507,7 @@ let define values description position (result : Sequence.value_definition)
       computation_type;
       last_use = position;
       code_owner_offset = None;
+      reference_descriptor_offset = None;
     }
   in
   values := Value_map.add result.value_id value !values;
@@ -1113,17 +1118,12 @@ let store_arena_scalar span access source =
         source )
 
 let load_arena_flag span destination access =
-  Encoder.Load_arena_narrow
-    ( destination,
-      encoder_arena_slot span access.initialized_flag_offset,
-      Encoder.Frame8,
-      Encoder.Zero_extend )
+  Encoder.Load_arena
+    (destination, encoder_arena_slot span access.initialized_flag_offset)
 
 let store_arena_flag span source access =
-  Encoder.Store_arena_narrow
-    ( encoder_arena_slot span access.initialized_flag_offset,
-      Encoder.Frame8,
-      source )
+  Encoder.Store_arena
+    (encoder_arena_slot span access.initialized_flag_offset, source)
 
 let load_reference_scalar span destination base scalar =
   if scalar.byte_size = 8 then Encoder.Load_indirect (destination, base, 0)
@@ -1660,22 +1660,6 @@ let allocate_body ?callable_frame ?(shared_values = [])
       emit span (Encoder.Binary (Encoder.Add, register, register))
     done
   in
-  let flag_scale_doubles scalar =
-    match scalar.byte_size with
-    | 1 -> 3
-    | 2 -> 2
-    | 4 -> 1
-    | 8 -> 0
-    | _ -> reject "HCBACK0003" "native reference scalar width is invalid"
-  in
-  let descriptor_scale_doubles scalar =
-    match scalar.byte_size with
-    | 1 -> 5
-    | 2 -> 4
-    | 4 -> 3
-    | 8 -> 2
-    | _ -> reject "HCBACK0003" "native reference scalar width is invalid"
-  in
   let emit_bounds span site ~one_past ~scalar ~offset ~extent =
     let bounds_fault = fault_label 10 site in
     emit span (Encoder.Test offset);
@@ -1692,27 +1676,51 @@ let allocate_body ?callable_frame ?(shared_values = [])
     let uninitialized = fault_label 7 site in
     emit span (Encoder.Test flag_base);
     emit_branch Equal initialized;
-    emit span (Encoder.Mov (Encoder.Rax, offset));
-    emit_doubles span Encoder.Rax (flag_scale_doubles scalar);
-    emit span (Encoder.Binary (Encoder.Sub, flag_base, Encoder.Rax));
-    emit span
-      (Encoder.Load_indirect_narrow
-         (Encoder.Rax, flag_base, Encoder.Frame8, Encoder.Zero_extend));
-    emit span (Encoder.Test Encoder.Rax);
-    emit_branch Equal uninitialized;
+    emit span (Encoder.Binary (Encoder.Sub, flag_base, offset));
+    for byte = 0 to scalar.byte_size - 1 do
+      if byte > 0 then emit span (Encoder.Dec flag_base);
+      emit span
+        (Encoder.Load_indirect_narrow
+           (Encoder.Rax, flag_base, Encoder.Frame8, Encoder.Zero_extend));
+      emit span (Encoder.Test Encoder.Rax);
+      emit_branch Equal uninitialized
+    done;
     mark initialized
   in
   let emit_flag_store span scalar ~flag_base ~offset =
     let no_flag = fresh_label supply in
     emit span (Encoder.Test flag_base);
     emit_branch Equal no_flag;
-    emit span (Encoder.Mov (Encoder.Rax, offset));
-    emit_doubles span Encoder.Rax (flag_scale_doubles scalar);
-    emit span (Encoder.Binary (Encoder.Sub, flag_base, Encoder.Rax));
+    emit span (Encoder.Binary (Encoder.Sub, flag_base, offset));
     emit span (Encoder.Mov_imm64 (Encoder.Rax, 1L));
-    emit span
-      (Encoder.Store_indirect_narrow (flag_base, Encoder.Frame8, Encoder.Rax));
+    for byte = 0 to scalar.byte_size - 1 do
+      if byte > 0 then emit span (Encoder.Dec flag_base);
+      emit span
+        (Encoder.Store_indirect_narrow (flag_base, Encoder.Frame8, Encoder.Rax))
+    done;
     mark no_flag
+  in
+  let initialized_pattern bytes =
+    let pattern = ref 0L in
+    for byte = 0 to bytes - 1 do
+      pattern := Int64.logor !pattern (Int64.shift_left 1L ((7 - byte) * 8))
+    done;
+    !pattern
+  in
+  let check_full_flag span target bytes uninitialized =
+    (* Whole original scalar reads need every byte, including after partial
+       stores through a narrower view. No source-visible flag bits are exposed. *)
+    let target_index =
+      Array.to_list registers
+      |> List.find_index (fun register -> register = target)
+      |> Option.get
+    in
+    let scratch = acquire_empty span ~protected:[ target_index ] ~excluded:[] in
+    emit span
+      (Encoder.Mov_imm64 (registers.(scratch), initialized_pattern bytes));
+    emit span (Encoder.Cmp (target, registers.(scratch)));
+    emit_branch Not_equal uninitialized;
+    owners.(scratch) <- None
   in
   let emit_reference_data span target = function
     | Variadic_reference origin ->
@@ -1738,12 +1746,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
         match origin.access.initialized_flag_offset with
         | Some offset ->
             emit span
-              (Encoder.Address_frame (target, encoder_frame_slot span offset))
+              (Encoder.Address_frame
+                 (target, encoder_scalar_frame_slot span (offset + 7)))
         | None -> emit span (Encoder.Mov_imm64 (target, 0L)))
     | Arena_reference access ->
         emit span
           (Encoder.Address_arena
-             (target, encoder_arena_slot span access.initialized_flag_offset))
+             ( target,
+               encoder_arena_slot span (access.initialized_flag_offset + 7) ))
     | Literal_reference _ | Variadic_reference _ ->
         emit span (Encoder.Mov_imm64 (target, 0L))
   in
@@ -1762,7 +1772,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
     (fun position (instruction : prepared_instruction) ->
       release_before position;
       active_push :=
-        Option.map (fun (value, _, _) -> value) instruction.push_stage;
+        Option.map (fun (value, _, _, _) -> value) instruction.push_stage;
       let emit = emit instruction.span in
       let load_owner target value =
         match value.code_owner_offset with
@@ -2117,7 +2127,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
           copy_value_to instruction.span right rcx;
           let different = fresh_label supply in
           let complete = fresh_label supply in
-          (* Separate address sites can own separate canonical tables. The
+          (* Separate address sites can own separate descriptor snapshots. The
              original data/flags/offset/extent identify the same live object
              independently of which table produced its descriptor. *)
           List.iter
@@ -2291,10 +2301,6 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit
                 (Encoder.Address_arena
                    (Encoder.Rdx, encoder_arena_slot instruction.span offset)));
-          emit (Encoder.Mov (Encoder.Rax, Encoder.Rcx));
-          emit_doubles instruction.span Encoder.Rax
-            (descriptor_scale_doubles scalar);
-          emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rax));
           emit_reference_data instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
           emit_reference_flag instruction.span Encoder.Rax origin;
@@ -2308,31 +2314,28 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
           (match access.offset with
-          | None -> ()
+          | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
           | Some offset ->
               copy_value_to instruction.span offset rcx;
               emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
               emit_bounds instruction.span
                 (Option.get instruction.site)
                 ~one_past:true ~scalar:access.scalar ~offset:Encoder.Rcx
-                ~extent:Encoder.R8;
-              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 16));
-              emit (Encoder.Mov (Encoder.Rax, Encoder.Rcx));
-              emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.R8));
-              emit_doubles instruction.span Encoder.Rax
-                (descriptor_scale_doubles access.scalar);
-              emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rdx));
-              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 0));
-              emit (Encoder.Store_indirect_offset (Encoder.Rax, 0, Encoder.R8));
-              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
-              emit (Encoder.Store_indirect_offset (Encoder.Rax, 8, Encoder.R8));
+                ~extent:Encoder.R8);
+          emit
+            (Encoder.Address_frame
+               ( Encoder.R8,
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
               emit
-                (Encoder.Store_indirect_offset (Encoder.Rax, 16, Encoder.Rcx));
-              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
-              emit (Encoder.Store_indirect_offset (Encoder.Rax, 24, Encoder.R8));
-              emit (Encoder.Mov (Encoder.Rdx, Encoder.Rax)));
+                (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
+            [ 0; 8; 24 ];
+          emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
-          assign position rdx result
+          assign position r8 result
       | Load_reference_value (access, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
@@ -2421,6 +2424,63 @@ let allocate_body ?callable_frame ?(shared_values = [])
           publish_indexed_owner (Some input) result;
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rax result
+      | Load_reference_frame (access, result) ->
+          spill_all_registers instruction.span;
+          Option.iter
+            (fun offset ->
+              let uninitialized = fault_label 7 (Option.get instruction.site) in
+              emit
+                (Encoder.Load_frame
+                   (Encoder.Rax, encoder_frame_slot instruction.span offset));
+              check_full_flag instruction.span Encoder.Rax 8 uninitialized)
+            access.initialized_flag_offset;
+          emit (load_frame_scalar instruction.span Encoder.Rdx access);
+          emit
+            (Encoder.Address_frame
+               ( Encoder.R8,
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24 ];
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position r8 result
+      | Store_reference_frame (access, home, input, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span input rdx;
+          emit
+            (Encoder.Address_frame
+               (Encoder.R8, encoder_frame_slot instruction.span home));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24 ];
+          emit (store_frame_scalar instruction.span access Encoder.R8);
+          Option.iter
+            (fun offset ->
+              emit (Encoder.Mov_imm64 (Encoder.Rax, initialized_pattern 8));
+              emit
+                (Encoder.Store_frame
+                   (encoder_frame_slot instruction.span offset, Encoder.Rax)))
+            access.initialized_flag_offset;
+          emit
+            (Encoder.Address_frame
+               ( Encoder.R8,
+                 encoder_frame_slot instruction.span
+                   (Option.get result.reference_descriptor_offset) ));
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.R8, offset, Encoder.Rax)))
+            [ 0; 8; 16; 24 ];
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position r8 result
       | Load_frame_value (access, result) | Load_code_frame (access, _, result)
         ->
           let destination =
@@ -2438,8 +2498,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit
                 (Encoder.Load_frame
                    (target, encoder_frame_slot instruction.span flag_offset));
-              emit (Encoder.Test target);
-              emit_branch Equal uninitialized)
+              check_full_flag instruction.span target access.frame_bytes
+                uninitialized)
             access.initialized_flag_offset;
           emit (load_frame_scalar instruction.span target access);
           assign position destination result
@@ -2461,7 +2521,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 acquire_empty instruction.span ~protected:[ destination ]
                   ~excluded:[]
               in
-              emit (Encoder.Mov_imm64 (registers.(scratch), 1L));
+              emit
+                (Encoder.Mov_imm64
+                   (registers.(scratch), initialized_pattern access.frame_bytes));
               emit
                 (Encoder.Store_frame
                    ( encoder_frame_slot instruction.span flag_offset,
@@ -2482,8 +2544,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
             { label = uninitialized; kind_value = 7; site_value = site }
             :: !fault_blocks;
           emit (load_arena_flag instruction.span target access);
-          emit (Encoder.Test target);
-          emit_branch Equal uninitialized;
+          check_full_flag instruction.span target access.arena_bytes
+            uninitialized;
           emit (load_arena_scalar instruction.span target access);
           assign position destination result
       | Store_arena_value (access, input, result)
@@ -2502,7 +2564,9 @@ let allocate_body ?callable_frame ?(shared_values = [])
             acquire_empty instruction.span ~protected:[ destination ]
               ~excluded:[]
           in
-          emit (Encoder.Mov_imm64 (registers.(scratch), 1L));
+          emit
+            (Encoder.Mov_imm64
+               (registers.(scratch), initialized_pattern access.arena_bytes));
           emit (store_arena_flag instruction.span registers.(scratch) access);
           owners.(scratch) <- None;
           assign position destination result
@@ -2519,8 +2583,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit
                 (Encoder.Load_frame
                    (Encoder.Rax, encoder_frame_slot instruction.span flag_offset));
-              emit (Encoder.Test Encoder.Rax);
-              emit_branch Equal uninitialized)
+              check_full_flag instruction.span Encoder.Rax access.frame_bytes
+                uninitialized)
             access.initialized_flag_offset;
           emit (load_frame_scalar instruction.span Encoder.Rax access);
           if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
@@ -2560,8 +2624,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
                   emit
                     (Encoder.Load_frame
                        (Encoder.Rax, encoder_frame_slot instruction.span offset));
-                  emit (Encoder.Test Encoder.Rax);
-                  emit_branch Equal uninitialized)
+                  check_full_flag instruction.span Encoder.Rax
+                    access.frame_bytes uninitialized)
                 access.initialized_flag_offset;
               emit
                 (Encoder.Address_frame
@@ -2575,8 +2639,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
           | Callback_arena (access, owner_offset) ->
               let uninitialized = fault_label 7 site in
               emit (load_arena_flag instruction.span Encoder.Rax access);
-              emit (Encoder.Test Encoder.Rax);
-              emit_branch Equal uninitialized;
+              check_full_flag instruction.span Encoder.Rax access.arena_bytes
+                uninitialized;
               emit
                 (Encoder.Address_arena
                    ( Encoder.Rdx,
@@ -2640,8 +2704,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
             { label = uninitialized; kind_value = 7; site_value = site }
             :: !fault_blocks;
           emit (load_arena_flag instruction.span Encoder.Rax access);
-          emit (Encoder.Test Encoder.Rax);
-          emit_branch Equal uninitialized;
+          check_full_flag instruction.span Encoder.Rax access.arena_bytes
+            uninitialized;
           emit (load_arena_scalar instruction.span Encoder.Rax access);
           if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
           Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
@@ -2853,6 +2917,19 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Store_stack (stage, Encoder.R8));
           emit (Encoder.Mov_imm64 (Encoder.Rcx, 3L));
           emit (Encoder.Shift_cl (Encoder.Shr, Encoder.Rax));
+          (* Quantize relative to the current view, which may begin at an
+             unaligned byte inside its original object. *)
+          emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          emit
+            (Encoder.Mov_imm64 (Encoder.Rcx, Int64.of_int (scalar.byte_size - 1)));
+          emit (Encoder.Binary (Encoder.And, Encoder.R8, Encoder.Rcx));
+          emit_doubles instruction.span Encoder.R8 3;
+          emit (Encoder.Load_stack (Encoder.Rcx, stage));
+          emit (Encoder.Binary (Encoder.Or, Encoder.R8, Encoder.Rcx));
+          emit (Encoder.Store_stack (stage, Encoder.R8));
+          emit
+            (Encoder.Mov_imm64 (Encoder.Rcx, Int64.of_int (-scalar.byte_size)));
+          emit (Encoder.Binary (Encoder.And, Encoder.Rax, Encoder.Rcx));
           copy_value_to instruction.span reference rdx;
           emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
@@ -2860,22 +2937,8 @@ let allocate_body ?callable_frame ?(shared_values = [])
             ~offset:Encoder.Rcx ~extent:Encoder.R8;
           emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rax));
           emit_branch Overflow (fault_label 9 site);
-          emit_bounds instruction.span site ~one_past:false
-            ~scalar:{ word_type = U64; byte_size = 1 }
+          emit_bounds instruction.span site ~one_past:false ~scalar
             ~offset:Encoder.Rcx ~extent:Encoder.R8;
-          (* Select the actual cell and bit before looking up its initialization
-             flag. A byte inside a wider object shares that original cell. *)
-          emit (Encoder.Mov (Encoder.R8, Encoder.Rcx));
-          emit
-            (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int (scalar.byte_size - 1)));
-          emit (Encoder.Binary (Encoder.And, Encoder.R8, Encoder.Rax));
-          emit_doubles instruction.span Encoder.R8 3;
-          emit (Encoder.Load_stack (Encoder.Rax, stage));
-          emit (Encoder.Binary (Encoder.Or, Encoder.R8, Encoder.Rax));
-          emit (Encoder.Store_stack (stage, Encoder.R8));
-          emit
-            (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int (-scalar.byte_size)));
-          emit (Encoder.Binary (Encoder.And, Encoder.Rcx, Encoder.Rax));
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
           emit_flag_check instruction.span site scalar ~flag_base:Encoder.R8
             ~offset:Encoder.Rcx;
@@ -3664,13 +3727,31 @@ let allocate_body ?callable_frame ?(shared_values = [])
           publish_owner result (fun target -> load_owner target input)
       | _ -> ());
       Option.iter
-        (fun (value, stage, owner_stage) ->
+        (fun (value, stage, owner_stage, reference_stage) ->
           if Option.is_none owner_stage then require_numeric_owner value;
           let inputs, _ = ensure_inputs instruction.span [ value ] in
           let source = List.hd inputs in
-          emit
-            (Encoder.Store_stack
-               (staged_stack_slot instruction.span stage, registers.(source)));
+          (match reference_stage with
+          | None ->
+              emit
+                (Encoder.Store_stack
+                   (staged_stack_slot instruction.span stage, registers.(source)))
+          | Some offset ->
+              spill_all_registers instruction.span;
+              copy_value_to instruction.span value rdx;
+              emit
+                (Encoder.Address_frame
+                   (Encoder.R8, encoder_frame_slot instruction.span offset));
+              List.iter
+                (fun byte ->
+                  emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, byte));
+                  emit
+                    (Encoder.Store_indirect_offset
+                       (Encoder.R8, byte, Encoder.Rax)))
+                [ 0; 8; 16; 24 ];
+              emit
+                (Encoder.Store_stack
+                   (staged_stack_slot instruction.span stage, Encoder.R8)));
           Option.iter
             (fun stage ->
               let scratch =
@@ -4216,6 +4297,7 @@ type callable_slot = {
   access : frame_access;
   callback : Headers.function_pointer option;
   slot_owner_offset : int option;
+  slot_reference_offset : int option;
   owned_targets : int list ref option;
 }
 
@@ -4731,6 +4813,13 @@ let prepare_callable_function ~max_stack_bytes ~maximum_variadic_count
           slot_extent_bytes = scalar.byte_size;
           callback;
           slot_owner_offset = Option.map (fun _ -> reserve_metadata ()) callback;
+          slot_reference_offset =
+            (if Option.is_none callback && Type.pointer_depth type_ > 0 then (
+               for _ = 1 to 3 do
+                 ignore (reserve_metadata ())
+               done;
+               Some (reserve_metadata ()))
+             else None);
           owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
@@ -4811,6 +4900,7 @@ let prepare_callable_function ~max_stack_bytes ~maximum_variadic_count
             slot_extent_bytes = 8;
             callback = None;
             slot_owner_offset = None;
+            slot_reference_offset = None;
             owned_targets = None;
             access =
               {
@@ -4981,6 +5071,13 @@ let prepare_callable_function ~max_stack_bytes ~maximum_variadic_count
           slot_extent_bytes = object_bytes;
           callback;
           slot_owner_offset;
+          slot_reference_offset =
+            (if Option.is_none callback && Type.pointer_depth type_ > 0 then (
+               for _ = 1 to 3 do
+                 ignore (reserve_metadata ())
+               done;
+               Some (reserve_metadata ()))
+             else None);
           owned_targets = Option.map (fun _ -> ref []) callback;
           access =
             {
@@ -5279,29 +5376,29 @@ let preflight_callable_graph ~runtime_calls ~source_globals
         computation_type = target_type;
         last_use = position;
         code_owner_offset = None;
+        reference_descriptor_offset = None;
       }
     in
     define_frame frame_values values void_values description result
       (make_term value);
     value
   in
-  let reserve_reference_table (description : Sequence.description) element_count
-      =
+  let reserve_reference_table (description : Sequence.description) =
     let descriptor_bytes = 32 in
     let available = max_stack_bytes - rbp_bytes - !reference_bytes in
-    if
-      element_count < 0
-      || available < descriptor_bytes
-      || element_count > (available / descriptor_bytes) - 1
-    then
+    if available < descriptor_bytes then
       reject ?span:description.span "HCBACK0004"
-        (Printf.sprintf
-           "native reference descriptor table exceeds max_stack_bytes (%d)"
+        (Printf.sprintf "native reference snapshot exceeds max_stack_bytes (%d)"
            max_stack_bytes);
-    let bytes = (element_count + 1) * descriptor_bytes in
+    let bytes = descriptor_bytes in
     let table_offset = -(rbp_bytes + !reference_bytes + bytes) in
     reference_bytes := !reference_bytes + bytes;
     table_offset
+  in
+  let mark_reference description value =
+    if Option.is_none value.reference_descriptor_offset then
+      value.reference_descriptor_offset <-
+        Some (reserve_reference_table description)
   in
   let frame_reference_origin slot =
     { access = slot.access; extent_bytes = slot.slot_extent_bytes }
@@ -5659,10 +5756,39 @@ let preflight_callable_graph ~runtime_calls ~source_globals
           | Opcode.Ic_holyc_typecast
             when Option.fold ~none:false
                    ~some:(fun type_ -> Type.pointer_depth type_ > 0)
-                   description.target_type ->
-              unsupported description
-                "native primitive pointer casts require descriptors with byte \
-                 initialization"
+                   description.target_type -> (
+              if description.flags <> 0L then
+                malformed description "invalid primitive pointer cast flags";
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [ id ],
+                  Some result,
+                  Some target_type,
+                  Some (Sequence.Integer (0L | 1L)) ) ->
+                  let input = operand values description position id in
+                  if
+                    Option.is_none input.reference_descriptor_offset
+                    || Option.is_some input.code_owner_offset
+                  then
+                    unsupported description
+                      "native primitive pointer casts require an owned data \
+                       reference";
+                  ignore (checked_reference description input.declared_type);
+                  let _, scalar = checked_reference description target_type in
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  mark_reference description value;
+                  ( Materialize_existing_reference
+                      ({ reference = input; scalar; offset = None }, value),
+                    None )
+              | _ ->
+                  malformed description "invalid primitive pointer cast shape")
           | Opcode.Ic_nop2
             when List.exists
                    (fun callback ->
@@ -6815,6 +6941,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     define values description position result target_type
                       (Computation.forward target_type)
                   in
+                  mark_reference description value;
                   ( Materialize_reference
                       ( Literal_reference region,
                         Arena_table (Literal_storage.table_offset region),
@@ -7436,9 +7563,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     define values description position result target_type
                       (Computation.forward target_type)
                   in
-                  let materialize origin element_count offset =
+                  mark_reference description value;
+                  let materialize origin _element_count offset =
                     let table_offset =
-                      reserve_reference_table description element_count
+                      Option.get value.reference_descriptor_offset
                     in
                     ( Materialize_reference
                         (origin, Frame_table table_offset, offset, value),
@@ -7570,7 +7698,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         define values description position result target_type
                           (Computation.forward target_type)
                       in
-                      (Load_frame_value (slot.access, value), None)
+                      if Type.pointer_depth target_type = 0 then
+                        (Load_frame_value (slot.access, value), None)
+                      else (
+                        mark_reference description value;
+                        (Load_reference_frame (slot.access, value), None))
                   | Global_address slot
                     when Global_storage.dimensions slot = []
                          && Type.equal target_type (Global_storage.type_ slot)
@@ -7715,7 +7847,16 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         define values description position result target_type
                           (Computation.forward target_type)
                       in
-                      (Store_frame_value (slot.access, input, value), None)
+                      if Type.pointer_depth target_type = 0 then
+                        (Store_frame_value (slot.access, input, value), None)
+                      else (
+                        mark_reference description value;
+                        ( Store_reference_frame
+                            ( slot.access,
+                              Option.get slot.slot_reference_offset,
+                              input,
+                              value ),
+                          None ))
                   | Global_address slot
                     when Global_storage.dimensions slot = []
                          && Type.equal target_type (Global_storage.type_ slot)
@@ -8568,7 +8709,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         Some
                           ( value,
                             scope.argument_stages.(index),
-                            scope.argument_owner_stages.(index) )
+                            scope.argument_owner_stages.(index),
+                            if Option.is_some value.reference_descriptor_offset
+                            then Some (reserve_reference_table raw)
+                            else None )
                     | Some _ | None ->
                         malformed raw "pushed argument role is inconsistent")
                 | _ ->
@@ -8680,7 +8824,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       input
                 | _ -> false)
               || Option.fold ~none:false
-                   ~some:(fun (value, _, owner_stage) ->
+                   ~some:(fun (value, _, owner_stage, _) ->
                      Option.is_none owner_stage
                      && Option.is_some value.code_owner_offset)
                    push_stage;
@@ -8691,6 +8835,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             uninitialized_read_site =
               (match operation with
               | Load_frame_value ({ initialized_flag_offset = Some _; _ }, _)
+              | Load_reference_frame ({ initialized_flag_offset = Some _; _ }, _)
               | Load_code_frame ({ initialized_flag_offset = Some _; _ }, _, _)
                 -> true
               | Update_frame_value

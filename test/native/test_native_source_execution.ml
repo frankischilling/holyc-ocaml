@@ -104,7 +104,7 @@ let original_live_initializers () =
        (fun (fragment : Native.fragment) -> fragment.image.global_bytes)
        fragments);
   Alcotest.(check (list int))
-    "stable data and flags" [ 9; 18; 18 ]
+    "stable data and byte flags" [ 16; 32; 32 ]
     (List.map
        (fun (fragment : Native.fragment) -> fragment.image.global_arena_bytes)
        fragments);
@@ -192,7 +192,7 @@ let original_array_leaves () =
        (fun (fragment : Native.fragment) -> fragment.image.global_bytes)
        fragments);
   Alcotest.(check (list int))
-    "stable array flags and appended scalar" [ 32; 32; 41; 41 ]
+    "stable array flags and appended scalar" [ 32; 32; 48; 48 ]
     (List.map
        (fun (fragment : Native.fragment) -> fragment.image.global_arena_bytes)
        fragments);

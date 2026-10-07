@@ -188,8 +188,8 @@ let () =
     (List.map
        (fun fragment -> fragment |> member "global_arena_bytes" |> to_int)
        array_fragments
-    = [ 32; 32; 41; 41 ])
-    "array initialization flags retain their original offsets";
+    = [ 32; 32; 48; 48 ])
+    "array byte flags retain their original offsets";
   require
     (final_bits (json_path ~target:"ir" array_fixture) = final_bits arrays)
     "independent interpreted array result";

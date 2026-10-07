@@ -339,7 +339,7 @@ let arena_and_original_allocation () =
                 (Result.is_error
                    (Runtime.allocate_task_static arena (Option.get !saved)))))
         [ arena_bytes; arena_bytes - 1 ])
-    [ ("", 8, 17); ("[2]", 16, 48) ]
+    [ ("", 8, 24); ("[2]", 16, 48) ]
 
 let () =
   Alcotest.run "Live native static callback allocations"
