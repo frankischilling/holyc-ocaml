@@ -172,6 +172,7 @@ and runtime_address = {
   pointer_storage : runtime_storage;
   pointer_base : int;
   pointer_count : int;
+  pointer_storage_pointee : Type.t;
   pointer_element_bytes : int;
   pointer_extent_bytes : int64;
   pointer_offset : int64;
@@ -180,6 +181,9 @@ and runtime_address = {
 
 and runtime_storage = {
   cells : runtime_value option array;
+  (* Unknown scalar cells can acquire individual bytes through a cast view.
+     A cell enters [cells] only when all of its original bytes are known. *)
+  partial_words : (int, int64 * int) Hashtbl.t;
   mutable live : bool;
   unknown_message : string;
 }
@@ -245,6 +249,7 @@ and prepared_operation =
   | Constant_shift of
       binary_operation * prepared_operand * int64 * Value_id.t * word_type
   | Word_view of prepared_operand * Value_id.t * word_type
+  | Pointer_view of prepared_pointer * Value_id.t * Type.t
   | Compare_pointers of
       comparison_operation * prepared_pointer * prepared_pointer * Value_id.t
   | Subtract_pointers of prepared_pointer * prepared_pointer * Value_id.t
@@ -2116,6 +2121,7 @@ let admit_declared_global task declaration =
        let storage =
          {
            cells = Array.make (Integer_globals.cell_count globals) None;
+           partial_words = Hashtbl.create 0;
            live = true;
            unknown_message =
              "hosted execution reached an uninitialized JIT persistent object";
@@ -2158,6 +2164,7 @@ let admit_static_allocation task allocation =
         let storage =
           {
             cells = Array.make (Integer_globals.cell_count globals) None;
+            partial_words = Hashtbl.create 0;
             live = true;
             unknown_message =
               "hosted execution reached an uninitialized JIT persistent object";
@@ -4559,7 +4566,8 @@ let declared_types ?frame ?globals ?literals ?initialization
                          memory_enabled && scalar_pointer_type type_
                          && (description.opcode = Opcode.Ic_addr
                             || description.opcode = Opcode.Ic_deref
-                            || description.opcode = Opcode.Ic_assign)
+                            || description.opcode = Opcode.Ic_assign
+                            || description.opcode = Opcode.Ic_holyc_typecast)
                        then Pointer_value type_
                        else if
                          allow_calls && description.opcode = Opcode.Ic_call_end
@@ -5285,6 +5293,30 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  result.value_id,
                                  result_type ))
                       | _ -> Error (invalid_type_matrix block_id description)))
+              | _ -> Error (malformed block_id description))
+          | Word_view_kind
+            when memory_enabled
+                 && Option.fold ~none:false ~some:scalar_pointer_type
+                      description.target_type -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [ operand_id ],
+                  Some result,
+                  Some target_type,
+                  Some (Sequence.Integer (0L | 1L)) )
+                when description.flags = 0L -> (
+                  match
+                    ( pointer_operand_of_value types operand_id,
+                      Type.dereference target_type )
+                  with
+                  | Some operand, Ok pointee
+                    when scalar_pointer_type operand.pointer_type ->
+                      Ok (Pointer_view (operand, result.value_id, pointee))
+                  | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
           | Word_view_kind -> (
               match
@@ -7014,7 +7046,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
   let make_storage cells unknown_message =
-    { cells = Array.copy cells; live = true; unknown_message }
+    {
+      cells = Array.copy cells;
+      partial_words = Hashtbl.create 0;
+      live = true;
+      unknown_message;
+    }
   in
   let frame_storage cells =
     make_storage cells "the reached frame slot has not been initialized"
@@ -7107,6 +7144,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     in
     {
       cells;
+      partial_words = Hashtbl.create 0;
       live = true;
       unknown_message =
         "owned string literal byte is unexpectedly uninitialized";
@@ -7161,10 +7199,11 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let address_bounds ~one_past block instruction address =
     let offset = address.pointer_offset in
-    let width = Int64.of_int address.pointer_element_bytes in
+    let width =
+      Int64.of_int (Option.get (scalar_element_bytes address.pointer_pointee))
+    in
     if
       offset < 0L
-      || Int64.rem offset width <> 0L
       ||
       if one_past then offset > address.pointer_extent_bytes
       else offset > Int64.sub address.pointer_extent_bytes width
@@ -7182,7 +7221,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         match Type.dereference operand.pointer_type with
         | Ok expected
           when Type.equal expected address.pointer_pointee
-               && scalar_element_bytes expected
+               && Option.is_some (scalar_element_bytes expected)
+               && scalar_element_bytes address.pointer_storage_pointee
                   = Some address.pointer_element_bytes
                && address.pointer_element_bytes > 0
                && Int64.of_int address.pointer_count
@@ -7419,6 +7459,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             pointer_storage;
             pointer_base;
             pointer_count;
+            pointer_storage_pointee = pointer_pointee;
             pointer_element_bytes;
             pointer_extent_bytes =
               Int64.mul
@@ -7444,20 +7485,191 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let resolve_location block instruction = function
     | Variadic_slot -> None
-    | Frame_slot (index, _) -> Some (!slots, index)
-    | Global_slot slot -> Some (global_region slot)
-    | Literal_slot (index, _) -> Some (!owner.owner_literals, index)
+    | Frame_slot (index, _) -> Some (`Cell (!slots, index))
+    | Global_slot slot -> Some (`Cell (global_region slot))
+    | Literal_slot (index, _) -> Some (`Cell (!owner.owner_literals, index))
     | Indirect_slot operand | Indexed_slot operand ->
         Option.bind (require_pointer ~bounded:false block instruction operand)
           (fun address ->
             if address_bounds ~one_past:false block instruction address then
-              Some
-                ( address.pointer_storage,
-                  address.pointer_base
-                  + Int64.to_int
-                      (Int64.div address.pointer_offset
-                         (Int64.of_int address.pointer_element_bytes)) )
+              Some (`View address)
             else None)
+  in
+  let full_byte_mask width = (1 lsl width) - 1 in
+  let original_cell address offset =
+    let width = Int64.of_int address.pointer_element_bytes in
+    ( address.pointer_base + Int64.to_int (Int64.div offset width),
+      Int64.to_int (Int64.rem offset width) )
+  in
+  let read_view_bits address width =
+    let ( let* ) = Result.bind in
+    let storage = address.pointer_storage in
+    let* original =
+      match Scalar.of_type address.pointer_storage_pointee with
+      | Some scalar -> Ok scalar
+      | None -> Error ("HCIRVM0008", "byte view has no original scalar object")
+    in
+    let rec bytes byte bits =
+      if byte = width then Ok bits
+      else
+        let cell, within =
+          original_cell address
+            (Int64.add address.pointer_offset (Int64.of_int byte))
+        in
+        let* stored_bits, known =
+          match storage.cells.(cell) with
+          | Some (Runtime_word word)
+            when word.type_ = scalar_runtime_type original ->
+              Ok (word.bits, full_byte_mask address.pointer_element_bytes)
+          | None ->
+              Ok
+                (Hashtbl.find_opt storage.partial_words cell
+                |> Option.value ~default:(0L, 0))
+          | Some _ ->
+              Error ("HCIRVM0008", "byte view reached an invalid scalar cell")
+        in
+        if known land (1 lsl within) = 0 then
+          Error ("HCIRVM0012", storage.unknown_message)
+        else
+          let octet =
+            Int64.logand
+              (Int64.shift_right_logical stored_bits (within * 8))
+              255L
+          in
+          bytes (byte + 1)
+            (Int64.logor bits (Int64.shift_left octet (byte * 8)))
+    in
+    bytes 0 0L
+  in
+  let write_view_bits address width bits =
+    let ( let* ) = Result.bind in
+    let storage = address.pointer_storage in
+    let* original =
+      match Scalar.of_type address.pointer_storage_pointee with
+      | Some scalar -> Ok scalar
+      | None -> Error ("HCIRVM0008", "byte view has no original scalar object")
+    in
+    (* Validate all affected original cells before changing any byte. *)
+    let first, _ = original_cell address address.pointer_offset in
+    let last, _ =
+      original_cell address
+        (Int64.add address.pointer_offset (Int64.of_int (width - 1)))
+    in
+    let rec validate cell =
+      if cell > last then Ok ()
+      else
+        match storage.cells.(cell) with
+        | None -> validate (cell + 1)
+        | Some (Runtime_word word)
+          when word.type_ = scalar_runtime_type original -> validate (cell + 1)
+        | Some _ ->
+            Error ("HCIRVM0008", "byte view reached an invalid scalar cell")
+    in
+    let* () = validate first in
+    for byte = 0 to width - 1 do
+      let cell, within =
+        original_cell address
+          (Int64.add address.pointer_offset (Int64.of_int byte))
+      in
+      let old_bits, known =
+        match storage.cells.(cell) with
+        | Some (Runtime_word word) ->
+            (word.bits, full_byte_mask address.pointer_element_bytes)
+        | None ->
+            Hashtbl.find_opt storage.partial_words cell
+            |> Option.value ~default:(0L, 0)
+        | Some _ -> assert false
+      in
+      let octet =
+        Int64.logand (Int64.shift_right_logical bits (byte * 8)) 255L
+      in
+      let shift = within * 8 in
+      let updated =
+        Int64.logor
+          (Int64.logand old_bits (Int64.lognot (Int64.shift_left 255L shift)))
+          (Int64.shift_left octet shift)
+      and known = known lor (1 lsl within) in
+      if known = full_byte_mask address.pointer_element_bytes then (
+        storage.cells.(cell) <-
+          Some
+            (Runtime_word
+               {
+                 type_ = scalar_runtime_type original;
+                 bits = Scalar.normalize original updated;
+               });
+        Hashtbl.remove storage.partial_words cell)
+      else Hashtbl.replace storage.partial_words cell (updated, known)
+    done;
+    Ok ()
+  in
+  let location_error block instruction code message =
+    failed := Some (runtime_error ~instruction block !steps code message);
+    None
+  in
+  let original_view_cell address =
+    if
+      Type.equal address.pointer_pointee address.pointer_storage_pointee
+      && Int64.rem address.pointer_offset
+           (Int64.of_int address.pointer_element_bytes)
+         = 0L
+    then Some (fst (original_cell address address.pointer_offset))
+    else None
+  in
+  let read_cell block instruction storage index =
+    match storage.cells.(index) with
+    | Some value -> Some value
+    | None ->
+        location_error block instruction "HCIRVM0012" storage.unknown_message
+  in
+  let read_location block instruction = function
+    | `Cell (storage, index) -> read_cell block instruction storage index
+    | `View address -> (
+        match original_view_cell address with
+        | Some index ->
+            read_cell block instruction address.pointer_storage index
+        | None -> (
+            match Scalar.of_type address.pointer_pointee with
+            | None ->
+                location_error block instruction "HCIRVM0008"
+                  "view does not identify a scalar object"
+            | Some scalar -> (
+                match read_view_bits address (Scalar.byte_size scalar) with
+                | Ok bits ->
+                    Some
+                      (Runtime_word
+                         {
+                           type_ = scalar_runtime_type scalar;
+                           bits = Scalar.normalize scalar bits;
+                         })
+                | Error (code, message) ->
+                    location_error block instruction code message)))
+  in
+  let write_location block instruction location value =
+    let write_cell storage index =
+      storage.cells.(index) <- Some value;
+      Hashtbl.remove storage.partial_words index;
+      true
+    in
+    match location with
+    | `Cell (storage, index) -> write_cell storage index
+    | `View address -> (
+        match original_view_cell address with
+        | Some index -> write_cell address.pointer_storage index
+        | None -> (
+            match (Scalar.of_type address.pointer_pointee, value) with
+            | Some scalar, Runtime_word word -> (
+                match
+                  write_view_bits address (Scalar.byte_size scalar) word.bits
+                with
+                | Ok () -> true
+                | Error (code, message) ->
+                    ignore (location_error block instruction code message);
+                    false)
+            | _ ->
+                ignore
+                  (location_error block instruction "HCIRVM0008"
+                     "byte view requires a scalar word");
+                false))
   in
   let read_owned_byte ~purpose block instruction address relative =
     let error code message =
@@ -7466,13 +7678,17 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     let storage = address.pointer_storage in
     if
       (not storage.live)
-      || address.pointer_element_bytes <> 1
       || scalar_element_bytes address.pointer_pointee <> Some 1
+      || scalar_element_bytes address.pointer_storage_pointee
+         <> Some address.pointer_element_bytes
       || address.pointer_base < 0 || address.pointer_count <= 0
       || address.pointer_count > Array.length storage.cells
       || address.pointer_base
          > Array.length storage.cells - address.pointer_count
-      || address.pointer_extent_bytes <> Int64.of_int address.pointer_count
+      || address.pointer_extent_bytes
+         <> Int64.mul
+              (Int64.of_int address.pointer_count)
+              (Int64.of_int address.pointer_element_bytes)
     then
       error "HCIRVM0018"
         (purpose ^ " pointer does not identify a live owned U8 object")
@@ -7488,11 +7704,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         error "HCIRVM0019"
           (purpose ^ " scan is outside its declared object extent")
       else
-        match storage.cells.(address.pointer_base + Int64.to_int offset) with
-        | Some (Runtime_word { type_ = U64; bits })
-          when bits >= 0L && bits <= 255L -> Ok (Char.chr (Int64.to_int bits))
-        | None -> error "HCIRVM0012" storage.unknown_message
-        | Some _ ->
+        match Scalar.of_type address.pointer_pointee with
+        | Some scalar when Scalar.is_unsigned scalar -> (
+            match read_view_bits { address with pointer_offset = offset } 1 with
+            | Ok bits -> Ok (Char.chr (Int64.to_int bits))
+            | Error (code, message) -> error code message)
+        | _ ->
             error "HCIRVM0008" (purpose ^ " scan reached an invalid byte cell")
   in
   let read_output_byte = read_owned_byte ~purpose:"output" in
@@ -7804,48 +8021,59 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     error "HCIRVM0019"
                       "bit index is outside its declared object extent"
                   else
-                    let offset = Int64.add address.pointer_offset relative in
-                    let width = Int64.of_int address.pointer_element_bytes in
-                    let cell =
-                      address.pointer_base
-                      + Int64.to_int (Int64.div offset width)
-                    in
-                    let bit =
-                      (8 * Int64.to_int (Int64.rem offset width))
-                      + Int64.to_int (Int64.logand index.bits 7L)
-                    in
-                    match
-                      ( Scalar.of_type address.pointer_pointee,
-                        address.pointer_storage.cells.(cell) )
-                    with
-                    | Some scalar, Some (Runtime_word word)
-                      when word.type_ = scalar_runtime_type scalar ->
-                        let previous, updated =
-                          Integer_intrinsic.apply_bit operation ~index:bit
-                            word.bits
-                        in
-                        if operation <> Integer_intrinsic.Test_bit then
-                          address.pointer_storage.cells.(cell) <-
-                            Some
-                              (Runtime_word
-                                 {
-                                   word with
-                                   bits = Scalar.normalize scalar updated;
-                                 });
-                        calls :=
-                          {
-                            scope with
-                            completion =
-                              Completed_word { type_ = I64; bits = previous };
-                          }
-                          :: rest
-                    | _, None ->
-                        error "HCIRVM0012"
-                          address.pointer_storage.unknown_message
-                    | _ ->
+                    match Scalar.of_type address.pointer_pointee with
+                    | None ->
                         error "HCIRVM0008"
-                          "pointed bit operation reached an invalid scalar cell"
-                  )
+                          "pointed bit operation has no scalar view"
+                    | Some scalar -> (
+                        let width = Int64.of_int (Scalar.byte_size scalar) in
+                        let within = Int64.rem relative width in
+                        let address =
+                          {
+                            address with
+                            pointer_offset =
+                              Int64.add address.pointer_offset
+                                (Int64.sub relative within);
+                          }
+                        in
+                        if
+                          address_bounds ~one_past:false block instruction
+                            address
+                        then
+                          let location = `View address in
+                          match read_location block instruction location with
+                          | Some (Runtime_word word)
+                            when word.type_ = scalar_runtime_type scalar ->
+                              let bit =
+                                (8 * Int64.to_int within)
+                                + Int64.to_int (Int64.logand index.bits 7L)
+                              in
+                              let previous, updated =
+                                Integer_intrinsic.apply_bit operation ~index:bit
+                                  word.bits
+                              in
+                              if
+                                operation = Integer_intrinsic.Test_bit
+                                || write_location block instruction location
+                                     (Runtime_word
+                                        {
+                                          word with
+                                          bits = Scalar.normalize scalar updated;
+                                        })
+                              then
+                                calls :=
+                                  {
+                                    scope with
+                                    completion =
+                                      Completed_word
+                                        { type_ = I64; bits = previous };
+                                  }
+                                  :: rest
+                          | None -> ()
+                          | Some _ ->
+                              error "HCIRVM0008"
+                                "pointed bit operation reached an invalid \
+                                 scalar cell"))
               | _, None, _ | _, _, None -> ()
               | _ ->
                   failed :=
@@ -7863,26 +8091,14 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                            address)
                     then None
                     else
-                      let cell =
-                        address.pointer_base
-                        + Int64.to_int
-                            (Int64.div address.pointer_offset
-                               (Int64.of_int address.pointer_element_bytes))
-                      in
                       match
                         ( Scalar.of_type address.pointer_pointee,
-                          address.pointer_storage.cells.(cell) )
+                          read_location block instruction (`View address) )
                       with
                       | Some scalar, Some (Runtime_word word)
                         when word.type_ = scalar_runtime_type scalar ->
-                          Some (address.pointer_storage, cell, scalar, word)
-                      | _, None ->
-                          failed :=
-                            Some
-                              (runtime_error ~instruction block !steps
-                                 "HCIRVM0012"
-                                 address.pointer_storage.unknown_message);
-                          None
+                          Some (address, scalar, word)
+                      | _, None -> None
                       | _ ->
                           failed :=
                             Some
@@ -7896,24 +8112,24 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               match (!calls, left_cell, right_cell) with
               | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
                   :: rest,
-                  Some (left_storage, left_cell, left_scalar, left_word),
-                  Some (right_storage, right_cell, right_scalar, right_word) )
-                ->
-                  right_storage.cells.(right_cell) <-
-                    Some
+                  Some (left_address, left_scalar, left_word),
+                  Some (right_address, right_scalar, right_word) ) ->
+                  if
+                    write_location block instruction (`View right_address)
                       (Runtime_word
                          {
                            right_word with
                            bits = Scalar.normalize right_scalar left_word.bits;
-                         });
-                  left_storage.cells.(left_cell) <-
-                    Some
-                      (Runtime_word
-                         {
-                           left_word with
-                           bits = Scalar.normalize left_scalar right_word.bits;
-                         });
-                  calls := { scope with completion = Completed_void } :: rest
+                         })
+                    && write_location block instruction (`View left_address)
+                         (Runtime_word
+                            {
+                              left_word with
+                              bits =
+                                Scalar.normalize left_scalar right_word.bits;
+                            })
+                  then
+                    calls := { scope with completion = Completed_void } :: rest
               | _, None, _ | _, _, None -> ()
               | _ ->
                   failed :=
@@ -7930,8 +8146,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
                   :: rest,
                   Some right,
-                  Some (storage, index) ) -> (
-                  match storage.cells.(index) with
+                  Some location ) -> (
+                  match read_location block instruction location with
                   | Some (Runtime_word left) -> (
                       match
                         divide_bits ~opcode:"IC_MOD_U64" ~remainder:true U64
@@ -7946,19 +8162,18 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                           let quotient =
                             Int64.unsigned_div left.bits right.bits
                           in
-                          storage.cells.(index) <-
-                            Some (Runtime_word { left with bits = quotient });
-                          calls :=
-                            {
-                              scope with
-                              completion = Completed_word { type_ = U64; bits };
-                            }
-                            :: rest)
-                  | None ->
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0012"
-                             storage.unknown_message)
+                          if
+                            write_location block instruction location
+                              (Runtime_word { left with bits = quotient })
+                          then
+                            calls :=
+                              {
+                                scope with
+                                completion =
+                                  Completed_word { type_ = U64; bits };
+                              }
+                              :: rest)
+                  | None -> ()
                   | Some _ ->
                       failed :=
                         Some
@@ -8299,16 +8514,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Value_map.add result (Runtime_pointer address) !values
               | _ -> ())
           | Load_slot (location, result) -> (
-              match resolve_location block instruction location with
+              match
+                Option.bind
+                  (resolve_location block instruction location)
+                  (read_location block instruction)
+              with
               | None -> ()
-              | Some (storage, index) -> (
-                  match storage.cells.(index) with
-                  | Some value -> values := Value_map.add result value !values
-                  | None ->
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0012"
-                             storage.unknown_message)))
+              | Some value -> values := Value_map.add result value !values)
           | Store_slot (location, operand, result, type_) -> (
               match require_value block instruction operand with
               | None -> ()
@@ -8317,8 +8529,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     ( coerce_value type_ operand,
                       resolve_location block instruction location )
                   with
-                  | Some value, Some (storage, index) ->
-                      storage.cells.(index) <- Some value;
+                  | Some value, Some location
+                    when write_location block instruction location value ->
                       let expression_value =
                         match (type_, operand) with
                         | Stored_narrow scalar, Runtime_word word ->
@@ -8330,6 +8542,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         | _ -> value
                       in
                       values := Value_map.add result expression_value !values
+                  | Some _, Some _ -> ()
                   | _, None -> ()
                   | None, _ ->
                       failed :=
@@ -8361,13 +8574,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               | Some right -> (
                   match resolve_location block instruction location with
                   | None -> ()
-                  | Some (storage, index) -> (
-                      match storage.cells.(index) with
-                      | None ->
-                          failed :=
-                            Some
-                              (runtime_error ~instruction block !steps
-                                 "HCIRVM0012" storage.unknown_message)
+                  | Some location -> (
+                      match read_location block instruction location with
+                      | None -> ()
                       | Some (Runtime_code _ | Runtime_undefined_code _)
                         when callback ->
                           failed :=
@@ -8410,15 +8619,18 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                 | Stored_word _ -> computed
                                 | Stored_pointer _ -> assert false
                               in
-                              storage.cells.(index) <- Some (Runtime_word word);
-                              values :=
-                                Value_map.add result
-                                  (Runtime_word
-                                     (if old_result then old
-                                      else if Option.is_some operand then
-                                        computed
-                                      else word))
-                                  !values))))
+                              if
+                                write_location block instruction location
+                                  (Runtime_word word)
+                              then
+                                values :=
+                                  Value_map.add result
+                                    (Runtime_word
+                                       (if old_result then old
+                                        else if Option.is_some operand then
+                                          computed
+                                        else word))
+                                    !values))))
           | Immediate (result, word) ->
               values := Value_map.add result (Runtime_word word) !values
           | Undefined_function_address result ->
@@ -8667,6 +8879,14 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   values :=
                     Value_map.add result
                       (Runtime_word { type_ = result_type; bits })
+                      !values)
+          | Pointer_view (operand, result, pointer_pointee) -> (
+              match require_pointer block instruction operand with
+              | None -> ()
+              | Some address ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_pointer { address with pointer_pointee })
                       !values)
           | Word_view (operand, result, result_type) -> (
               match require_value block instruction (Word_operand operand) with

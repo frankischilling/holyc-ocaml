@@ -57,7 +57,10 @@ captured before later effects have the same protection.
 
 The accepted language prevents references from escaping their owners. Pointer
 returns, persistent pointer storage, pointer-to-pointer objects, integer/null
-casts and indirect calls all reject before native entry.
+casts all reject before native entry. The interpreter's
+[primitive pointer views](primitive-pointer-views.md) preserve storage across
+explicit casts; native descriptors and initialization flags still require
+that integration. Owned callback calls have their separate execution path.
 [Scalar pointer addition](pointer-addition.md) and
 [subtraction](pointer-subtraction.md) scale original integer offsets and preserve
 captured objects; other pointer arithmetic remains unsupported.

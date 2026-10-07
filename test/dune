@@ -1,4 +1,15 @@
 (test
+ (name test_primitive_pointer_views_cli)
+ (modules test_primitive_pointer_views_cli)
+ (libraries unix yojson)
+ (deps ../examples/primitive-pointer-views.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/primitive-pointer-views.hc})))
+
+(test
  (name test_conditional_comparison_chains_cli)
  (modules test_conditional_comparison_chains_cli)
  (libraries unix yojson)
@@ -445,6 +456,7 @@
   test_integer_statics
   test_integer_static_initializers
   test_integer_pointers
+  test_primitive_pointer_views
   test_integer_arrays
   test_integer_variadic
   test_integer_extern_calls

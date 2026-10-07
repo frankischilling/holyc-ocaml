@@ -423,6 +423,10 @@ including a following comparison.
 a pointer parameter and returns the updated 42 in 43 runtime instructions.
 [Scalar pointer aliases](docs/integer-pointers.md) retain actual local, global
 and static objects through copies, indirect updates and recursive calls.
+[Explicit primitive pointer views](docs/primitive-pointer-views.md) let the
+interpreter read and write the same owned bytes at a different integer width.
+Partial byte stores preserve initialization state and the original extent.
+Native casts remain unfinished.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,

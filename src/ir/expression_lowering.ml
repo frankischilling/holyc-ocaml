@@ -1407,6 +1407,16 @@ let checked_cast_types result operand target =
         Error
           (metadata_error ?span:(result_span result)
              "postfix cast result type does not match its checked target")
+      else if
+        scalar_pointer_type result_type
+        && (match checked_frame_value operand with
+          | Ok (Checked_type type_) -> scalar_pointer_type type_
+          | _ -> false)
+        && (not (Semantic_result.result_is_callback_storage operand))
+        && (not (Semantic_result.result_is_callback_storage result))
+        && Option.is_none (Semantic_result.result_callback_pointer operand)
+        && Option.is_none (Semantic_result.result_callback_pointer result)
+      then Ok true
       else
         match (checked_numeric_type operand, checked_numeric_type result) with
         | Error item, _ | _, Error item -> Error item

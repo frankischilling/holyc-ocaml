@@ -1,5 +1,10 @@
 # Scalar pointer aliases
 
+[Explicit primitive pointer casts](primitive-pointer-views.md) give an owned
+object a different scalar view in the interpreter. Reads, writes and byte
+initialization preserve the original object and extent; native casts remain
+unfinished.
+
 Two matching owned scalar references can subtract within one original live
 object and extent. Aligned byte offsets feed original IC_SUB and, above byte
 size, original size/IC_DIV. The numeric I64 result carries no pointer authority.
@@ -101,7 +106,8 @@ All source locations refer to `c26482bb6ad3f80106d28504ec5db3c6a360732c`:
   `Compiler/CInit.HC:49` marks `IC_ADDR` as a constant barrier.
 
 Pointer returns and escapes, pointer-valued global/static initial images,
-integer/null address conversions, casts, other pointer arithmetic, deeper
+integer/null address conversions, casts beyond owned primitive data views,
+other pointer arithmetic, deeper
 pointers and other pointee shapes remain explicit boundaries. General memory/runtime output,
 stateful compilation and `#exe`, optimizer parity, native backends, BIN/loader
 acceptance and bootstrap remain requirements of the full compiler. The tests

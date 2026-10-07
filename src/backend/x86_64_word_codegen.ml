@@ -5656,6 +5656,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                    (Runtime.find_callback_capture runtime_calls
                       ~owner:runtime_owner description.instruction_id) ->
               (Frame_tick, None)
+          | Opcode.Ic_holyc_typecast
+            when Option.fold ~none:false
+                   ~some:(fun type_ -> Type.pointer_depth type_ > 0)
+                   description.target_type ->
+              unsupported description
+                "native primitive pointer casts require descriptors with byte \
+                 initialization"
           | Opcode.Ic_nop2
             when List.exists
                    (fun callback ->

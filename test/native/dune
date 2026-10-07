@@ -1,5 +1,15 @@
 (rule
  (alias native-tests)
+ (deps ../../examples/primitive-pointer-views.hc)
+ (action
+  (run
+   %{exe:../test_primitive_pointer_views_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/primitive-pointer-views.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
  (deps
   ../oracle/conditional-comparison-chains.json
   ../../examples/conditional-comparison-chains.hc)

@@ -201,6 +201,7 @@ let () =
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);
       ("source integer pointers", Test_integer_pointers.tests);
+      ("primitive pointer views", Test_primitive_pointer_views.tests);
       ("source integer arrays", Test_integer_arrays.tests);
       ("source integer variadic", Test_integer_variadic.tests);
       ("source extern calls", Test_integer_extern_calls.tests);
