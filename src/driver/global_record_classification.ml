@@ -15,8 +15,8 @@ let declarator ~item_index ~modifiers declarator_index
   }
 
 let ast_records (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item ->
+  Frontend.Ast.declaration_items module_
+  |> List.map (fun (item_index, item) ->
       match item with
       | Frontend.Ast.Global_variable variable ->
           [

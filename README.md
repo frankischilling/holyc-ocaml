@@ -1,5 +1,12 @@
 # holyc-ocaml
 
+Classes and unions inside function bodies now publish their types when the
+parser reaches them, including in uncalled functions. The
+[local aggregate example](examples/local-aggregate-declarations.hc) prints and
+returns 42 with IR in either mode and native JIT. See
+[statement aggregate declarations](docs/local-aggregate-declarations.md) for
+source order, saved type selections, runtime bounds and remaining object limits.
+
 Ordinary JIT `_intern` targets now execute at their original source phase in
 both IR and native tasks, including effectful calls and saved-data defaults in
 their callers. The maintained example prints `bind` once and returns 42. See

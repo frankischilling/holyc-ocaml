@@ -286,7 +286,7 @@ type aggregate_forward_declaration = private {
   aggregate_keyword_spelling : string;
   aggregate_keyword_location : location;
   name : identifier;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
@@ -684,6 +684,7 @@ type inline_assembly_item =
   | Inline_assembly_directive of inline_assembly_directive
 
 type statement =
+  | Aggregate_declaration_statement of aggregate_statement
   | Assembly_block_statement of assembly_block_statement
   | Inline_assembly_statement of inline_assembly_statement
   | Block_statement of block_statement
@@ -704,6 +705,11 @@ type statement =
   | Switch_statement of switch_statement
   | Try_catch_statement of try_catch_statement
   | While_statement of while_statement
+
+and aggregate_statement = private {
+  aggregate_statement_item : item;
+  aggregate_statement_location : location;
+}
 
 and assembly_block_statement = private {
   assembly_keyword : location;
@@ -865,7 +871,7 @@ and statement_sequence = private {
   sequence_location : location;
 }
 
-type function_definition = private {
+and function_definition = private {
   modifiers : declaration_modifier list;
   return_type : type_specifier;
   return_pointer_layers : pointer_layer list;
@@ -879,7 +885,7 @@ type function_definition = private {
   location : location;
 }
 
-type item =
+and item =
   | Aggregate_forward_declaration of aggregate_forward_declaration
   | Aggregate_definition of aggregate_definition
   | Global_variable of global_variable
@@ -923,6 +929,16 @@ val make_aggregate_forward_declaration :
   aggregate_keyword_location:location ->
   name:identifier ->
   semicolon:location ->
+  location:location ->
+  aggregate_forward_declaration
+
+val make_aggregate_forward_before_comma :
+  modifiers:declaration_modifier list ->
+  binding:declaration_binding ->
+  aggregate_kind:aggregate_kind ->
+  aggregate_keyword_spelling:string ->
+  aggregate_keyword_location:location ->
+  name:identifier ->
   location:location ->
   aggregate_forward_declaration
 
@@ -1597,6 +1613,12 @@ val make_function_definition :
   function_definition
 
 val statement_location : statement -> location
+val make_aggregate_statement : item -> (aggregate_statement, string) result
+
+val declaration_items : module_ -> (int * item) list
+(** Original module items and class/union declarations reached inside statement
+    bodies, in lexical declaration order. Indices include the nested
+    declarations; each entry retains its exact original item object. *)
 
 val make_module :
   source:Common.Source_id.t -> span:Common.Span.t -> items:item list -> module_

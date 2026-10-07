@@ -607,7 +607,7 @@ let pinned_parser_reference () =
     "prelude parser failures" 372
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 20_981
+    "prelude diagnostics" 20_946
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0

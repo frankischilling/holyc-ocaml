@@ -381,7 +381,6 @@ let captures () =
   offset_capture_authority_case true
 
 let effects () =
-  List.iter (fun (text, code) -> failure code (run text)) Cases.unsupported;
   let report = run Cases.output in
   value 42L report;
   Alcotest.(check string)

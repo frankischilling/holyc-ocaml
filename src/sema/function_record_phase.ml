@@ -548,6 +548,7 @@ let rec body_preserves_members locals = function
   | Ast.Implicit_output_statement _
   | Ast.Label_statement _
   | Ast.No_warn_statement _
+  | Ast.Aggregate_declaration_statement _
   | Ast.Return_statement _ -> true
   | Ast.Assembly_block_statement _
   | Ast.Inline_assembly_statement _

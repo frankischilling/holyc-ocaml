@@ -1329,6 +1329,28 @@
 
 (copy_files ../stream_generation_cases.ml)
 
+(copy_files ../local_aggregate_cases.ml)
+
+(executable
+ (name test_native_local_aggregates)
+ (modules test_native_local_aggregates local_aggregate_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_local_aggregates.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/local-aggregate-declarations.hc)
+ (action
+  (run
+   %{exe:../test_local_aggregates_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/local-aggregate-declarations.hc}
+   --native)))
+
 (executable
  (name test_native_stream_generation)
  (modules test_native_stream_generation stream_generation_cases)

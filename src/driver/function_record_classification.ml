@@ -33,8 +33,8 @@ let prototype_has_underscore_target
       false
 
 let ast_declarations (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item ->
+  Frontend.Ast.declaration_items module_
+  |> List.map (fun (item_index, item) ->
       match item with
       | Frontend.Ast.Function_prototype prototype ->
           Some

@@ -3219,8 +3219,9 @@ let seal ledger (ast : Ast.module_) =
               claimed := assigned :: !claimed;
               facts := (assigned.publication, fact) :: !facts
             in
-            List.iteri
-              (fun item_index -> function
+            List.iter
+              (fun (item_index, item) ->
+                match item with
                 | Ast.Global_variable variable -> (
                     let assigned = find ledger variable.name in
                     match assigned.source with
@@ -3339,7 +3340,7 @@ let seal ledger (ast : Ast.module_) =
                         fail name.location.span
                           "aggregate command lacks its original completed \
                            declaration"))
-              ast.items;
+              (Ast.declaration_items ast);
             (match ledger.authority with
             | Source_compilation _ ->
                 List.iter

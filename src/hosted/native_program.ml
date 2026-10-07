@@ -469,7 +469,9 @@ let ast_errors (ast : Ast.module_) =
                      "native programs do not admit member storage"))
         | Gate_statement (in_function, statement) -> (
             match statement with
-            | Ast.Empty_statement _ | Ast.Break_statement _ -> ()
+            | Ast.Aggregate_declaration_statement _
+            | Ast.Empty_statement _
+            | Ast.Break_statement _ -> ()
             | Ast.Expression_statement statement ->
                 work :=
                   Gate_expression

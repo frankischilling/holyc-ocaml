@@ -352,7 +352,9 @@ let contains_global command ~(publication : Parser.global_publication)
       == publication.global_header.declaration_command)
     command.nodes
   &&
-  match List.nth_opt command.ast.items item_index with
+  match
+    List.assoc_opt item_index (Frontend.Ast.declaration_items command.ast)
+  with
   | Some (Global_declaration declaration) ->
       Option.fold ~none:false
         ~some:(fun index ->

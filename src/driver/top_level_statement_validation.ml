@@ -93,6 +93,7 @@ and validate_statement = function
   | Frontend.Ast.Implicit_output_statement _
   | Frontend.Ast.Label_statement _
   | Frontend.Ast.Local_declaration_statement _
+  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.No_warn_statement _ -> Ok ()
 
 let validate (module_ : Frontend.Ast.module_) =

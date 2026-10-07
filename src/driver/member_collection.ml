@@ -52,8 +52,7 @@ let aggregate_definition_entries declarations =
       = Sema.Declaration_collection.Aggregate_definition)
 
 let aggregate_definitions (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Aggregate_definition definition ->
         Some (item_index, definition)

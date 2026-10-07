@@ -1130,6 +1130,7 @@ let rec statement state = function
   | Frontend.Ast.Empty_statement _
   | Frontend.Ast.Goto_statement _
   | Frontend.Ast.Label_statement _
+  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.No_warn_statement _ -> Ok state
 
 and switch_elements state elements = fold_result switch_element state elements
@@ -1144,8 +1145,7 @@ and switch_element state = function
 
 let ast_statements ~table source (module_ : Frontend.Ast.module_) =
   let ordinary =
-    module_.items
-    |> List.mapi (fun item_index item -> (item_index, item))
+    Frontend.Ast.declaration_items module_
     |> List.filter_map (function
       | item_index, Frontend.Ast.Top_level_statement statement ->
           Some (item_index, `Statement statement)

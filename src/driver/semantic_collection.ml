@@ -73,15 +73,14 @@ let declarations_for_item item_index = function
   | Frontend.Ast.Top_level_statement _ -> Ok []
 
 let all_declarations (module_ : Frontend.Ast.module_) =
-  let rec collect item_index declarations_rev = function
+  let rec collect declarations_rev = function
     | [] -> Ok (List.rev declarations_rev |> List.concat)
-    | item :: rest -> (
+    | (item_index, item) :: rest -> (
         match declarations_for_item item_index item with
         | Error _ as error -> error
-        | Ok declarations ->
-            collect (item_index + 1) (declarations :: declarations_rev) rest)
+        | Ok declarations -> collect (declarations :: declarations_rev) rest)
   in
-  collect 0 [] module_.items
+  collect [] (Frontend.Ast.declaration_items module_)
 
 let module_name sources (module_ : Frontend.Ast.module_) =
   match Common.Source_manager.find sources module_.source with

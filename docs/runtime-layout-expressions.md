@@ -42,6 +42,8 @@ checks them against the owning task's successful original executions. Standalone
 callable compilation continues to reject runtime-derived frames.
 
 Automatic bounds have no live function invocation frame while the declaration
-is parsed. AOT runtime relocation, runtime floating bounds, aggregate object
-execution, class declarations inside function bodies, native `#exe` and stream
-services, exported ABI, loader acceptance and bootstrap remain separate work.
+is parsed. [Class declarations inside function bodies](local-aggregate-declarations.md)
+also evaluate original runtime bounds and offsets during parsing, including in
+uncalled functions. AOT runtime relocation, runtime floating bounds, aggregate
+object execution, synchronous native StreamExePrint, exported ABI, loader
+acceptance and bootstrap remain separate work.

@@ -281,7 +281,7 @@ type aggregate_forward_declaration = {
   aggregate_keyword_spelling : string;
   aggregate_keyword_location : location;
   name : identifier;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
@@ -679,6 +679,7 @@ type inline_assembly_item =
   | Inline_assembly_directive of inline_assembly_directive
 
 type statement =
+  | Aggregate_declaration_statement of aggregate_statement
   | Assembly_block_statement of assembly_block_statement
   | Inline_assembly_statement of inline_assembly_statement
   | Block_statement of block_statement
@@ -699,6 +700,11 @@ type statement =
   | Switch_statement of switch_statement
   | Try_catch_statement of try_catch_statement
   | While_statement of while_statement
+
+and aggregate_statement = {
+  aggregate_statement_item : item;
+  aggregate_statement_location : location;
+}
 
 and assembly_block_statement = {
   assembly_keyword : location;
@@ -860,7 +866,7 @@ and statement_sequence = {
   sequence_location : location;
 }
 
-type function_definition = {
+and function_definition = {
   modifiers : declaration_modifier list;
   return_type : type_specifier;
   return_pointer_layers : pointer_layer list;
@@ -874,7 +880,7 @@ type function_definition = {
   location : location;
 }
 
-type item =
+and item =
   | Aggregate_forward_declaration of aggregate_forward_declaration
   | Aggregate_definition of aggregate_definition
   | Global_variable of global_variable
@@ -905,7 +911,7 @@ let make_declaration_binding ~(kind : declaration_binding_kind) ~spelling
     ~location ~(target : declaration_binding_target) : declaration_binding =
   { kind; spelling; location; target }
 
-let make_aggregate_forward_declaration ~modifiers ~binding ~aggregate_kind
+let make_aggregate_forward_internal ~modifiers ~binding ~aggregate_kind
     ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~semicolon
     ~location =
   {
@@ -918,6 +924,19 @@ let make_aggregate_forward_declaration ~modifiers ~binding ~aggregate_kind
     semicolon;
     location;
   }
+
+let make_aggregate_forward_declaration ~modifiers ~binding ~aggregate_kind
+    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~semicolon
+    ~location =
+  make_aggregate_forward_internal ~modifiers ~binding ~aggregate_kind
+    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name
+    ~semicolon:(Some semicolon) ~location
+
+let make_aggregate_forward_before_comma ~modifiers ~binding ~aggregate_kind
+    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~location =
+  make_aggregate_forward_internal ~modifiers ~binding ~aggregate_kind
+    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name
+    ~semicolon:None ~location
 
 let make_primitive_type ~primitive ~spelling ~location : primitive_type =
   { primitive; spelling; location }
@@ -1733,6 +1752,8 @@ let make_function_definition ~modifiers ~return_type ~return_pointer_layers
   }
 
 let statement_location = function
+  | Aggregate_declaration_statement statement ->
+      statement.aggregate_statement_location
   | Assembly_block_statement statement -> statement.assembly_block_location
   | Inline_assembly_statement statement -> statement.inline_assembly_location
   | Block_statement statement -> statement.block_location
@@ -1756,6 +1777,75 @@ let statement_location = function
   | While_statement statement -> statement.while_location
 
 let make_module ~source ~span ~items = { source; span; items }
+
+let make_aggregate_statement item =
+  let location =
+    match item with
+    | Aggregate_forward_declaration declaration -> Ok declaration.location
+    | Aggregate_definition definition -> Ok definition.location
+    | _ -> Error "aggregate statement requires a class or union declaration"
+  in
+  Result.map
+    (fun aggregate_statement_location ->
+      { aggregate_statement_item = item; aggregate_statement_location })
+    location
+
+let declaration_items (module_ : module_) =
+  let collected = ref [] in
+  let add item = collected := item :: !collected in
+  let rec statement = function
+    | Aggregate_declaration_statement declaration ->
+        add declaration.aggregate_statement_item
+    | Block_statement block -> List.iter statement block.block_statements
+    | Do_while_statement loop -> statement loop.do_body
+    | For_statement loop ->
+        statement loop.for_initializer;
+        Option.iter statement loop.for_update;
+        statement loop.for_body
+    | If_statement branch ->
+        statement branch.if_then_branch;
+        Option.iter
+          (fun clause -> statement clause.else_branch)
+          branch.if_else_clause
+    | Lock_statement lock -> statement lock.lock_body
+    | Sequence_statement sequence ->
+        List.iter
+          (fun element -> statement element.sequence_statement)
+          sequence.sequence_elements
+    | Switch_statement switch -> elements switch.switch_elements
+    | Try_catch_statement block ->
+        statement block.try_body;
+        statement block.catch_body
+    | While_statement loop -> statement loop.while_body
+    | Assembly_block_statement _
+    | Inline_assembly_statement _
+    | Break_statement _
+    | Empty_statement _
+    | Expression_statement _
+    | Goto_statement _
+    | Implicit_output_statement _
+    | Label_statement _
+    | Local_declaration_statement _
+    | No_warn_statement _
+    | Return_statement _ -> ()
+  and elements entries =
+    List.iter
+      (function
+        | Switch_statement_element child -> statement child
+        | Switch_subswitch_element subswitch ->
+            elements subswitch.subswitch_elements
+        | Switch_case_element _ | Switch_default_element _ -> ())
+      entries
+  in
+  List.iter
+    (fun item ->
+      add item;
+      match item with
+      | Function_definition definition -> Option.iter statement definition.body
+      | Top_level_statement child -> statement child
+      | _ -> ())
+    module_.items;
+  List.rev !collected |> List.mapi (fun item_index item -> (item_index, item))
 
 let rec statement_implicit_outputs = function
   | Implicit_output_statement output -> [ output ]
@@ -1781,6 +1871,7 @@ let rec statement_implicit_outputs = function
       statement_implicit_outputs block.try_body
       @ statement_implicit_outputs block.catch_body
   | While_statement loop -> statement_implicit_outputs loop.while_body
+  | Aggregate_declaration_statement _
   | Assembly_block_statement _
   | Inline_assembly_statement _
   | Break_statement _

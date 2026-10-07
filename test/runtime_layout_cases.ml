@@ -53,12 +53,7 @@ let values =
       42L );
     ("42;I64 N=2;I64 A[N];", 42L);
     ("42;I64 N=16;class C{U8 a;$$=N;I64 b;};", 42L);
-  ]
-
-let unsupported =
-  [
-    ( "I64 N=16;I64 F(){class C{U8 a;$$=N;I64 b;};return sizeof(C)+18;}F();",
-      "HCPARSE0048" );
+    ("I64 N=16;I64 F(){class C{U8 a;$$=N;I64 b;};return sizeof(C)+18;}F();", 42L);
   ]
 
 let output =

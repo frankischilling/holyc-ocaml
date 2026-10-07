@@ -332,7 +332,9 @@ let make_source_declaration_with_options ~table ~declarations ~module_
   let scope = H.function_scope function_ in
   let parent = Declaration_collection.scope declarations in
   let return_type = H.function_return_type function_ in
-  let source_item = List.nth_opt module_.Frontend.Ast.items item_index in
+  let source_item =
+    List.assoc_opt item_index (Frontend.Ast.declaration_items module_)
+  in
   let matching_entries =
     Declaration_collection.entries declarations
     |> List.filter (fun entry ->

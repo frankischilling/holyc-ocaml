@@ -36,15 +36,6 @@ let effects () =
     "once-only dimension and offset output" "dimoff"
     (integer_program_report_output_bytes report);
   List.iter
-    (fun (text, code) ->
-      match run text |> integer_program_report_outcome with
-      | Error errors ->
-          Alcotest.(check bool)
-            (describe errors) true
-            (List.exists (fun (d : Diagnostic.t) -> d.code = code) errors)
-      | Ok _ -> Alcotest.fail ("expected " ^ code))
-    Cases.unsupported;
-  List.iter
     (fun text ->
       let report = run text in
       Alcotest.(check bool)

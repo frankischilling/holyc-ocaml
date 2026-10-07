@@ -87,8 +87,8 @@ type ast_function = {
 }
 
 let ast_functions (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item ->
+  Frontend.Ast.declaration_items module_
+  |> List.map (fun (item_index, item) ->
       match item with
       | Frontend.Ast.Function_prototype prototype ->
           Some

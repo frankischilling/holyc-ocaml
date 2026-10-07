@@ -91,7 +91,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             | Ast.Implicit_output_statement _
             | Ast.Break_statement _
             | Ast.Goto_statement _
-            | Ast.Label_statement _ -> ()
+            | Ast.Label_statement _
+            | Ast.Aggregate_declaration_statement _ -> ()
             | Ast.Block_statement block ->
                 List.iter (validate ~in_function) block.block_statements
             | Ast.Sequence_statement sequence ->
@@ -654,6 +655,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       "implicit output does not own its checked fixed and \
                        trailing roots";
                   lowered
+              | Ast.Aggregate_declaration_statement _ -> Lower.Block []
               | Ast.Local_declaration_statement declaration ->
                   Lower.Block
                     (List.filter_map
@@ -881,8 +883,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           in
           let function_contexts = ref [] in
           let* definitions =
-            ast.items
-            |> List.mapi (fun index item -> (index, item))
+            Ast.declaration_items ast
             |> List.filter_map (function
               | index, Ast.Function_definition definition ->
                   Some (index, definition)
@@ -1196,8 +1197,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     else None))
           in
           let statements =
-            ast.items
-            |> List.mapi (fun item_index item ->
+            Ast.declaration_items ast
+            |> List.map (fun (item_index, item) ->
                 match item with
                 | Ast.Top_level_statement _ -> (
                     match !ordinary with

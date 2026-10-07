@@ -2174,7 +2174,7 @@ let direct_aggregate_forward_declarations () =
       Alcotest.(check int)
         "declaration begins at modifier" 0 first.location.span.start;
       Alcotest.(check int)
-        "declaration ends at semicolon" first.semicolon.span.stop
+        "declaration ends at semicolon" (Option.get first.semicolon).span.stop
         first.location.span.stop;
       Alcotest.(check bool)
         "keyword precedes name" true
@@ -17492,6 +17492,7 @@ let pinned_inline_assembly_snippets () =
             | Ast.Label_statement _
             | Ast.Local_declaration_statement _
             | Ast.No_warn_statement _
+            | Ast.Aggregate_declaration_statement _
             | Ast.Return_statement _ -> 0
           in
           Alcotest.(check bool)
