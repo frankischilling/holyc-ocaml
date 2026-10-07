@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed IR StreamExePrint lookup and publication through the original saved
+  compiler namespace in both outer modes. Child declarations, completed type
+  metadata and replacements persist there while directive-only names stay in
+  their task. Distinct storage catalogs share cumulative resources and the live
+  caller's frame. Pending AOT runtime imports, compiler-local metadata and
+  synchronous native reentry retain their existing execution boundaries.
+
 - Connected explicit indexed callback dereferences to their original storage
   and callee. Calls, reads, stores and numeric updates evaluate each index once;
   calls capture the selected value before reverse argument effects. The

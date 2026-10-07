@@ -331,7 +331,8 @@
    %{dep:../examples/stateful-exe-function-positions.hc}
    %{dep:../examples/stateful-exe-frame-positions.hc}
    %{dep:../examples/stateful-exe-runtime-frame-positions.hc}
-   %{dep:../examples/stateful-exe-named-type-selection.hc})))
+   %{dep:../examples/stateful-exe-named-type-selection.hc}
+   %{dep:../examples/stream-exe-compiler-context.hc})))
 
 (test
  (name test_integer_program_cli)

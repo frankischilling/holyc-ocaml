@@ -86,10 +86,12 @@ outer compilation mode. The IR task executes the formatted source, returns its
 word, and shares runtime, output-work and nested execution limits. Inactive
 calls report `HCIRVM0027` after formatting, including calls through a retained
 body or saved callback. Ordinary child source has no inherited `#exe` permission;
-a child directive establishes and closes its own context. JIT nested source
-uses the retained task namespace with caller locals hidden. The AOT child still
-needs the saved enclosing compiler table instead of the directive task table.
-Ordinary output remains separate from generated text.
+a child directive establishes and closes its own context. Nested source selects
+the saved enclosing compiler namespace in both modes. Its original completed
+types, replacements and reached child publications remain visible there, while
+directive-only names stay in their own task. Directive caller locals are hidden;
+saved compiler-local shadows remain checked. Ordinary output remains separate
+from generated text.
 
 The provider writes packed nonzero bytes to the hosted output buffer. TempleOS
 `PutKey` device hooks, scheduling and display behavior remain outside this hosted
@@ -97,8 +99,8 @@ contract. Native entries use the existing private status/arena convention;
 the exported HolyC ABI is separate work.
 
 The isolated `host-jit` path still rejects original extern slot addresses
-without task storage. Native synchronous StreamExePrint execution, AOT saved
-namespace selection, callback members, wider indirection and full compiler
+without task storage. Native synchronous StreamExePrint execution, original AOT
+runtime data/function imports, compiler-local metadata, callback members, wider indirection and full compiler
 acceptance remain open. Native AOT source sessions execute their separate
 directive tasks and outer module. Unresolved ordinary AOT extern addresses still report
 `HCSEMA0046` outside assembly.

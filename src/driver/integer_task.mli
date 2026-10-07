@@ -1,6 +1,7 @@
 type t
 type command
 type stream
+type saved_compiler
 
 module Native_dispatch : sig
   type word = I64 of int64 | U64 of int64
@@ -522,7 +523,8 @@ val progress : t -> progress
 
 val compiled_units : t -> Integer_unit.compiled list
 (** Immutable collection in compilation order, including checked units whose
-    later execution failed. The collection is not one isolated program. *)
+    later execution failed and separate saved-compiler child units. The
+    collection is not one isolated program. *)
 
 val compile_isolated :
   t ->
@@ -578,6 +580,16 @@ val frontend : t -> Session.t
 (** The task's persistent frontend view, also usable for callback-free parsing.
     Sources and semantic table are shared with the caller session; declarations,
     definitions and local contexts have this task's visibility owner. *)
+
+val saved_compiler : Session.t -> ledger:Task_declarations.t -> saved_compiler
+(** Retain the original enclosing namespace for a directive adapter. Each use
+    still requires its exact live parser suspension and observed source ledger;
+    constructing this handle grants no execution authority. *)
+
+val provider_source : t -> Common.Source_file.t option
+(** Register source headers for missing hosted providers in this exact frontend.
+    The caller must parse and execute those headers at its original source
+    boundary; this function does not publish runtime provider entries. *)
 
 val admit_global :
   t ->
@@ -761,6 +773,7 @@ val run :
     [compile_ast] retains its separate callback-free collection path. *)
 
 val stream_executor :
+  ?saved_compiler:saved_compiler ->
   ?allow_stream_exe_print:bool ->
   t ->
   Common.Span.t ->
@@ -772,12 +785,16 @@ val stream_executor :
 
     The task must already own checked provider declarations. Its ledger observes
     only stream commands; an unobserved outer parser must use a distinct
-    frontend environment. Within the stream, original initializer leaves finish
-    before later leaves and reuse their retained storage at command completion.
-    [allow_stream_exe_print] defaults to [true] for this active [#exe] block in
-    both outer compilation modes. Ordinary nested source does not inherit that
-    permission; a nested [#exe] establishes its own active context. This does
-    not execute the outer unit or provide a whole-invocation report. *)
+    frontend environment. [saved_compiler] retains that outer parser's original
+    ledger for synchronous child input; the source driver supplies it when the
+    enclosing namespace differs from the directive task. A bare adapter cannot
+    reconstruct a foreign enclosing ledger. Within the stream, original
+    initializer leaves finish before later leaves and reuse their retained
+    storage at command completion. [allow_stream_exe_print] defaults to [true]
+    for this active [#exe] block in both outer compilation modes. Ordinary
+    nested source does not inherit that permission; a nested [#exe] establishes
+    its own active context. This does not execute the outer unit or provide a
+    whole-invocation report. *)
 
 val run_suspended :
   t -> source:Common.Source_file.t -> (unit, Common.Diagnostic.t list) result

@@ -45,8 +45,10 @@ open. AOT StreamExePrint currently reaches its native formatter and then reports
 caller, parser/frame ownership and reentrant arena and budget leases. Running
 generated source after the caller returns would change that behavior.
 The reference also allows StreamExePrint in JIT `#exe`, since both modes set
-`CCF_EXE_BLK`. Its AOT child uses the saved enclosing compiler table; the IR
-child's current use of the detached task table still needs correction.
+`CCF_EXE_BLK`. The IR bridge now selects the saved enclosing compiler table,
+preserves original completed type metadata and publishes reached child
+declarations there. That namespace selection grants no native reentry or
+execution authority over original AOT data and functions awaiting relocation.
 
 This path adds no TempleOS runtime capture, exported HolyC ABI, object/BIN
 output, loader acceptance, whole-tree compilation or bootstrap evidence.

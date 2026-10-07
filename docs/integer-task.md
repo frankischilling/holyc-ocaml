@@ -516,11 +516,14 @@ compiler hash-table context. `PrsStreamBlk` sets `CCF_EXE_BLK` in both JIT and A
 outer modes; `StreamExePrint` checks that bit after formatting. The wording of
 the reference error does not impose an AOT-only condition.
 
-The IR service creates a `<StreamExePrint>` source and resumes the original task
-parser with function locals hidden. JIT nested source sees the task's original
-declarations and replacements, and its reached declarations remain published in
-that task. Its final integer value is returned to the caller, or zero when it
-has no final value. The child starts without `CCF_EXE_BLK`; its ordinary commands
+The IR service creates a `<StreamExePrint>` source at the original directive
+suspension and selects the saved enclosing compiler namespace. JIT source uses
+its original retained task. AOT source uses the original enclosing symbol table,
+declaration ledger, replacements and completed type metadata. Directive-only
+names are not visible there. Reached child declarations publish into that saved
+namespace and are visible to subsequent child calls and resumed outer parsing.
+Its final integer value is returned to the caller, or zero when it has no final
+value. The child starts in JIT mode without `CCF_EXE_BLK`; its ordinary commands
 cannot call StreamExePrint again. A child `#exe` establishes its own permission,
 which ends when that directive returns. Retained bodies and callbacks use the
 active invocation's context.
@@ -528,8 +531,10 @@ active invocation's context.
 StreamExePrint text is executed directly and is never injected into the active
 StreamPrint buffer. Formatting shares the task output-work budget and is bounded
 by `max_generated_bytes`, but those bytes do not increment `generated_bytes`.
-Nested execution shares cumulative instruction, frame-byte and call-depth
-limits. Reached ordinary output and task effects remain visible when nested
+Each namespace keeps its own storage catalog and command admissions. They share
+one resource owner for cumulative instructions, preparation, storage bytes,
+live frame bytes, call depth, stream buffers and output. Reached ordinary output
+and task effects remain visible when nested
 execution later fails. Inactive calls perform checked formatting first, then
 report HCIRVM0027. Original initializer, saved-default, dimension and offset
 evaluations can suspend for nested commands without releasing the caller's
@@ -540,12 +545,20 @@ and remains rejected by this path.
 Suspended parser ownership remains exact, so stale, foreign or reconstructed
 completion evidence cannot authorize the nested source.
 
-AOT nested source still uses the detached directive task's table. The reference
-selects the saved enclosing compiler table through `cc->htc.next`. Outer AOT
-types are therefore unavailable to this hosted child, while directive-only
-names can be exposed incorrectly. Correct saved-table lookup and publication
-remain required before claiming AOT StreamExePrint namespace parity. Native
-synchronous execution in either outer mode also remains open.
+The saved compiler snapshot preserves original lexical local shadows while
+hiding the directive caller's locals. It does not supply an invocation frame or
+the original compiler-local `sizeof` metadata; unsupported local queries report
+`HCRUN0004` instead of selecting a same-name global. Original AOT globals and
+functions still pending runtime publication cannot execute through this bridge.
+Child-created cells, functions, defaults and statics have their own checked JIT
+execution and persist across later directives. Native synchronous execution in
+either outer mode still needs its original machine caller and reentrant leases.
+
+The maintained [example](../examples/stream-exe-compiler-context.hc) derives a
+child class from an enclosing class, creates a child array and function, and
+calls that function from a later directive. In both modes it prints
+`before;child;after;` and returns 42. This is hosted IR coverage; it adds no
+TempleOS runtime capture or full compiler acceptance.
 
 ## Bounds
 

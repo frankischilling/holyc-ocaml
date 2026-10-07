@@ -11,11 +11,15 @@ type compiler_position_state = {
 }
 
 type command_context = {
+  context_domain : Domain.id;
   context_sources : Common.Source_manager.t;
   context_source : Common.Source_file.t;
   context_environment : Symbol_visibility.Environment.t;
   context_mode : Preprocessor.compilation_mode;
   context_parent : command_position option;
+  context_parent_events : int option;
+  context_stream : bool;
+  context_stream_locals : Symbol_visibility.Environment.local_snapshot option;
   mutable context_active : bool;
   mutable context_event_count : int;
   context_compiler_position : compiler_position_state;
@@ -41,6 +45,11 @@ and command_position =
   | Reading_command of command_start
   | Awaiting_resume of completed_command
 
+let position_context = function
+  | Before_first_command context -> context
+  | Reading_command start -> start.command_context
+  | Awaiting_resume command -> command.command_start.command_context
+
 type suspension = {
   suspended_context : command_context;
   suspended_position : command_position;
@@ -52,8 +61,9 @@ type suspension = {
 
 let suspend_context context =
   match (context.context_position, !(context.context_stack)) with
-  | Some position, active :: _ when context.context_active && active == position
-    ->
+  | Some position, active :: _
+    when context.context_active && active == position
+         && context.context_domain = Domain.self () ->
       Ok
         {
           suspended_context = context;
@@ -64,6 +74,35 @@ let suspend_context context =
           suspended_ast = None;
         }
   | _ -> Error "parser suspension requires its current active context"
+
+let suspension_is_current suspension =
+  let context = suspension.suspended_context in
+  (not suspension.suspension_consumed)
+  && context.context_domain = Domain.self ()
+  && context.context_active
+  && context.context_event_count = suspension.suspended_events
+  && !(suspension.suspended_ref) == suspension.suspended_position
+  &&
+  match !(context.context_stack) with
+  | active :: _ -> active == suspension.suspended_ref
+  | [] -> false
+
+let suspension_enclosing_context suspension =
+  let context = suspension.suspended_context in
+  if not (suspension_is_current suspension && context.context_stream) then
+    Error "saved compiler tables require their active original #exe context"
+  else
+    match (context.context_parent, !(context.context_stack)) with
+    | Some original, _ :: parent :: _ when !parent == original ->
+        let enclosing = position_context original in
+        if
+          enclosing.context_active
+          && Option.fold ~none:false ~some:(( == ) parent)
+               enclosing.context_position
+          && context.context_parent_events = Some enclosing.context_event_count
+        then Ok enclosing
+        else Error "saved compiler tables have an advanced or closed parent"
+    | _ -> Error "saved compiler tables lack their original enclosing position"
 
 type completed_sequence = {
   sequence_context : command_context;
@@ -90,10 +129,33 @@ let context_is_current context ~observed_events =
 
 let context_has_focus context =
   context.context_active
+  && context.context_domain = Domain.self ()
   &&
   match (context.context_position, !(context.context_stack)) with
   | Some position, active :: _ -> position == active
   | _ -> false
+
+let context_parent_in_environment context ~environment =
+  let rec parent current stack =
+    match (current.context_parent, stack) with
+    | None, [] -> Ok None
+    | Some original, position :: rest when !position == original ->
+        let enclosing = position_context original in
+        if
+          (not enclosing.context_active)
+          || (not
+                (Option.fold ~none:false ~some:(( == ) position)
+                   enclosing.context_position))
+          || current.context_parent_events <> Some enclosing.context_event_count
+        then Error "parser ancestor has advanced or closed"
+        else if enclosing.context_environment == environment then
+          Ok (Some original)
+        else parent enclosing rest
+    | _ -> Error "parser ancestor has another original stack position"
+  in
+  if not (context_has_focus context) then
+    Error "parser ancestry requires its current original context"
+  else parent context (List.tl !(context.context_stack))
 
 let sequence_accepted sequence =
   match sequence.sequence_context.context_accepted_ast with
@@ -10262,7 +10324,7 @@ let read_command cursor =
       parse_global cursor ~parse_function_definition
   | _ -> statement ()
 
-let read_commands ?commands ?stream_opener cursor =
+let read_commands ?commands ?stream_opener ?saved_locals cursor =
   let span =
     Common.Span.unsafe_make
       ~source:(Common.Source_file.id cursor.source)
@@ -10294,6 +10356,7 @@ let read_commands ?commands ?stream_opener cursor =
   let saved_stack = !(cursor.command_stack) in
   let context =
     {
+      context_domain = Domain.self ();
       context_sources = cursor.sources;
       context_source = cursor.source;
       context_environment = cursor.symbols;
@@ -10302,6 +10365,12 @@ let read_commands ?commands ?stream_opener cursor =
         (match saved_stack with
         | [] -> None
         | parent :: _ -> Some !parent);
+      context_parent_events =
+        (match saved_stack with
+        | [] -> None
+        | parent :: _ -> Some (position_context !parent).context_event_count);
+      context_stream = Option.is_some stream_opener;
+      context_stream_locals = saved_locals;
       context_accepted_ast = None;
       context_active = true;
       context_event_count = 0;
@@ -10484,6 +10553,14 @@ let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
           if opening.token.kind <> Token_kind.Punctuation '{' then
             report opening_cursor opening ~code:"HCPARSE0163"
               ~message:"expected '{' after #exe";
+          let saved_locals =
+            match !command_stack with
+            | parent :: _ ->
+                Some
+                  (Symbol_visibility.Environment.capture_locals
+                     (position_context !parent).context_environment)
+            | [] -> None
+          in
           let entered =
             Result.map_error
               (fun diagnostics ->
@@ -10520,7 +10597,7 @@ let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
                           (try
                              ignore
                                (read_commands ~commands:execution.commands
-                                  ~stream_opener:opener cursor)
+                                  ~stream_opener:opener ?saved_locals cursor)
                            with Stop_command -> ());
                           let diagnostics = List.rev cursor.diagnostics_rev in
                           if has_error diagnostics then Error diagnostics
@@ -10571,31 +10648,48 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
   parse_with_stack ~command_stack:(ref []) ?commands ?execute_stream ~sources
     ~definitions ~symbols ~config source
 
+let parse_suspended_input suspension ?commands ?execute_stream ~sources
+    ~definitions ~symbols ~config source =
+  let context = suspension.suspended_context in
+  suspension.suspension_consumed <- true;
+  let output =
+    parse_with_stack ~command_stack:context.context_stack ?commands
+      ?execute_stream ~sources ~definitions ~symbols ~config source
+  in
+  suspension.suspended_ast <- output.ast;
+  Ok output
+
 let parse_suspended suspension ?commands ?execute_stream ~sources ~definitions
     ~symbols ~config source =
   let context = suspension.suspended_context in
-  let current =
-    match !(context.context_stack) with
-    | active :: _ -> active == suspension.suspended_ref
-    | [] -> false
-  in
   if
-    suspension.suspension_consumed
-    || (not (context.context_active && current))
+    (not (suspension_is_current suspension))
     || context.context_sources != sources
     || context.context_environment != symbols
     || context.context_mode <> Preprocessor.Config.compilation_mode config
-    || context.context_event_count <> suspension.suspended_events
-    || !(suspension.suspended_ref) != suspension.suspended_position
   then Error "nested source requires its original live parser suspension"
-  else (
-    suspension.suspension_consumed <- true;
-    let output =
-      parse_with_stack ~command_stack:context.context_stack ?commands
-        ?execute_stream ~sources ~definitions ~symbols ~config source
-    in
-    suspension.suspended_ast <- output.ast;
-    Ok output)
+  else
+    parse_suspended_input suspension ?commands ?execute_stream ~sources
+      ~definitions ~symbols ~config source
+
+let parse_suspended_enclosing suspension ~enclosing ?commands ?execute_stream
+    ~sources ~definitions ~symbols ~config source =
+  Result.bind (suspension_enclosing_context suspension) (fun original ->
+      if
+        original != enclosing
+        || original.context_sources != sources
+        || original.context_environment != symbols
+        || Preprocessor.Config.compilation_mode config <> Preprocessor.Jit
+      then Error "nested source has another saved compiler context or JIT mode"
+      else
+        match suspension.suspended_context.context_stream_locals with
+        | None -> Error "nested source has no original saved compiler locals"
+        | Some locals ->
+            Symbol_visibility.Environment.with_saved_locals symbols locals
+              (fun () ->
+                parse_suspended_input suspension ?commands ?execute_stream
+                  ~sources ~definitions ~symbols ~config source)
+            |> Result.join)
 
 let suspension_owns_sequence suspension sequence =
   suspension.suspension_consumed && sequence_accepted sequence

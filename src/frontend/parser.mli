@@ -22,6 +22,12 @@ val suspend_context : command_context -> (suspension, string) result
 (** Capture the current stack position of a live parser context for one nested
     input. A suspended ancestor cannot issue a token while a child is active. *)
 
+val suspension_enclosing_context :
+  suspension -> (command_context, string) result
+(** The unchanged enclosing compiler position saved by this active original
+    [#exe] sequence. Ordinary inputs, inactive directives, advanced parents and
+    consumed or foreign-domain tokens cannot supply saved compiler tables. *)
+
 type command_start = private {
   command_context : command_context;
   command_ordinal : int;
@@ -61,6 +67,15 @@ val context_parent : command_context -> command_position option
 (** Exact input and environment ownership, with the parent's suspended parser
     phase at nested entry. Contexts from distinct parse calls remain distinct.
 *)
+
+val context_parent_in_environment :
+  command_context ->
+  environment:Symbol_visibility.Environment.t ->
+  (command_position option, string) result
+(** The nearest unchanged original ancestor using this exact environment.
+    Intermediate saved-compiler inputs may use different tables. Every link must
+    retain its live parser position and event count; inactive, advanced or
+    unrelated contexts cannot connect declaration sequences. *)
 
 val context_is_current : command_context -> observed_events:int -> bool
 (** The parser still owns this live context and has issued exactly this many
@@ -945,5 +960,25 @@ val parse_suspended :
 val suspension_owns_sequence : suspension -> completed_sequence -> bool
 (** Only the exact accepted nested sequence belongs to a consumed token. This
     establishes syntax ownership; runtime admission remains separate. *)
+
+val parse_suspended_enclosing :
+  suspension ->
+  enclosing:command_context ->
+  ?commands:command_sink ->
+  ?execute_stream:
+    (Common.Span.t -> (stream_execution, Common.Diagnostic.t list) result) ->
+  sources:Common.Source_manager.t ->
+  definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
+  config:Preprocessor.Config.t ->
+  Common.Source_file.t ->
+  (output, string) result
+(** Execute the parser part of [StreamExePrint] at its original directive
+    suspension with the exact saved enclosing symbols and source manager.
+    Original enclosing lexical local shadows are restored for child parsing; the
+    directive caller's locals supply no compiler-local frame authority. The
+    child starts in JIT mode, independently of the enclosing mode, and has no
+    inherited [#exe] permission. The original token and accepted sequence retain
+    the same consumption and completion rules as [parse_suspended]. *)
 
 val callback_position_is_current : callback_position_write -> bool

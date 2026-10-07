@@ -495,6 +495,27 @@ type task_implicit_call_start = {
   mutable implicit_completed : bool;
 }
 
+type task_resources = {
+  domain : Domain.id;
+  mutable global_bytes : int;
+  mutable literal_bytes : int;
+  mutable steps : int;
+  mutable initializer_steps : int;
+  max_steps : int;
+  max_initializer_steps : int;
+  max_global_bytes : int;
+  max_literal_bytes : int;
+  max_frame_bytes : int;
+  max_call_depth : int;
+  mutable nested_frame_bytes : int;
+  mutable nested_call_depth : int;
+  mutable nested_source_depth : int;
+  output : Output.t;
+  generated : Output.t;
+  max_stream_depth : int;
+  mutable streams : task_stream list;
+}
+
 type task_state = {
   mutable implicit_selections :
     (Frontend.Parser.implicit_output_selection * Retained_function.t) list;
@@ -536,29 +557,58 @@ type task_state = {
     (Retained_function.t * Runtime.function_slot_address) list;
   mutable native_function_sources :
     (Retained_function.t * task_function_source) list;
-  mutable global_bytes : int;
-  mutable literal_bytes : int;
-  mutable steps : int;
-  mutable initializer_steps : int;
   mutable outer_value : word option;
-  max_steps : int;
-  max_initializer_steps : int;
-  max_global_bytes : int;
-  max_literal_bytes : int;
-  max_frame_bytes : int;
-  max_call_depth : int;
-  mutable nested_frame_bytes : int;
-  mutable nested_call_depth : int;
-  mutable nested_source_depth : int;
-  output : Output.t;
-  generated : Output.t;
-  max_stream_depth : int;
-  mutable streams : task_stream list;
   mutable admissions : task_admission list;
   mutable native_program_attempts : native_program_attempt list;
   mutable source_programs : task_source_program list;
   mutable isolated_programs : task_source_program list;
+  resources : task_resources;
 }
+
+let make_task_state ~resources ~native_storage_authority ~table =
+  {
+    call_starts = [];
+    call_selections = [];
+    implicit_selections = [];
+    implicit_starts = [];
+    call_phases = [];
+    defaults = [];
+    default_constants = [];
+    saved_data_values = [];
+    internal_bindings = [];
+    dimensions = [];
+    runtime_offsets = [];
+    initializers = [];
+    declared_admissions = [];
+    source_promotion_open = true;
+    source_activation = None;
+    deferred_dimensions = [];
+    deferred_offsets = [];
+    charged_offsets = [];
+    attempted_offsets = [];
+    seen_dimensions = [];
+    closed_dimensions = [];
+    completed_dimensions = [];
+    source_execution_failed = false;
+    inputs = [];
+    failure_generation = ref ();
+    source_result = None;
+    catalog = Integer_globals.create_task_catalog ~table;
+    native_storage_authority;
+    arenas = [];
+    static_attempts = [];
+    literal_arenas = [];
+    started = [];
+    functions = [];
+    native_function_sources = [];
+    provider_entries = [];
+    outer_value = None;
+    resources;
+    admissions = [];
+    native_program_attempts = [];
+    source_programs = [];
+    isolated_programs = [];
+  }
 
 let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
@@ -589,48 +639,13 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
        and output capacities must fit host strings"
   else
     let output = Output.create ~max_output_bytes ~max_output_work in
-    Ok
+    let resources =
       {
-        call_starts = [];
-        call_selections = [];
-        implicit_selections = [];
-        implicit_starts = [];
-        call_phases = [];
-        defaults = [];
-        default_constants = [];
-        saved_data_values = [];
-        internal_bindings = [];
-        dimensions = [];
-        runtime_offsets = [];
-        initializers = [];
-        declared_admissions = [];
-        source_promotion_open = true;
-        source_activation = None;
-        deferred_dimensions = [];
-        deferred_offsets = [];
-        charged_offsets = [];
-        attempted_offsets = [];
-        seen_dimensions = [];
-        closed_dimensions = [];
-        completed_dimensions = [];
-        source_execution_failed = false;
-        inputs = [];
-        failure_generation = ref ();
-        source_result = None;
-        catalog = Integer_globals.create_task_catalog ~table;
-        native_storage_authority;
-        arenas = [];
-        static_attempts = [];
-        literal_arenas = [];
-        started = [];
-        functions = [];
-        native_function_sources = [];
-        provider_entries = [];
+        domain = Domain.self ();
         global_bytes = 0;
         literal_bytes = 0;
         steps = 0;
         initializer_steps = 0;
-        outer_value = None;
         max_steps;
         max_initializer_steps;
         max_global_bytes;
@@ -645,38 +660,50 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
           Output.share_work output ~max_output_bytes:max_generated_bytes;
         max_stream_depth;
         streams = [];
-        admissions = [];
-        native_program_attempts = [];
-        source_programs = [];
-        isolated_programs = [];
       }
+    in
+    Ok (make_task_state ~resources ~native_storage_authority ~table)
+
+let create_compiler_namespace_task task ~table =
+  if task.native_storage_authority then
+    Error "native saved compiler input requires its synchronous machine bridge"
+  else if
+    Domain.self () <> task.resources.domain
+    || task.resources.nested_source_depth = 0
+  then Error "saved compiler input requires its original suspended execution"
+  else
+    Ok
+      (make_task_state ~resources:task.resources ~native_storage_authority:false
+         ~table)
+
+let task_shares_resources left right = left.resources == right.resources
 
 let begin_task_stream task =
   task.source_promotion_open <- false;
-  if List.length task.streams >= task.max_stream_depth then
+  if List.length task.resources.streams >= task.resources.max_stream_depth then
     Error "HCIRVM0029: the task generation nesting limit was exhausted"
   else
-    let stream = { stream_output = Output.fork task.generated } in
-    task.streams <- stream :: task.streams;
+    let stream = { stream_output = Output.fork task.resources.generated } in
+    task.resources.streams <- stream :: task.resources.streams;
     Ok stream
 
 let task_stream_is_active task stream =
-  match task.streams with
+  match task.resources.streams with
   | active :: _ -> active == stream
   | [] -> false
 
 let finish_task_stream task stream =
-  match task.streams with
+  match task.resources.streams with
   | active :: rest when active == stream ->
       let contents = Output.contents stream.stream_output in
-      task.streams <- rest;
+      task.resources.streams <- rest;
       Ok contents
   | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
 
 let abort_task_stream task stream =
-  match task.streams with
+  match task.resources.streams with
   | active :: rest when active == stream ->
-      task.streams <- rest;
+      task.resources.streams <- rest;
       Ok ()
   | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
 
@@ -691,13 +718,13 @@ type native_generation = {
 
 let native_task_generation task =
   let output =
-    match task.streams with
+    match task.resources.streams with
     | active :: _ -> active.stream_output
-    | [] -> task.generated
+    | [] -> task.resources.generated
   in
   {
     generation_task = task;
-    generation_streams = task.streams;
+    generation_streams = task.resources.streams;
     generation_output = output;
     generation_before = Output.committed_bytes output;
     generation_domain = Domain.self ();
@@ -709,7 +736,9 @@ let check_native_generation generation =
     Error "native generation belongs to another execution domain"
   else if generation.generation_closed then
     Error "native generation was already completed"
-  else if generation.generation_task.streams != generation.generation_streams
+  else if
+    generation.generation_task.resources.streams
+    != generation.generation_streams
   then Error "native generation no longer owns its original active stream"
   else if
     Output.committed_bytes generation.generation_output
@@ -769,7 +798,7 @@ let input_has_active_work task =
 let completed_input task input =
   input.input_ready
   && input.input_failure == task.failure_generation
-  && input.input_streams == task.streams
+  && input.input_streams == task.resources.streams
   && Sema.Source_activation.finished task.source_activation
   && task.deferred_dimensions = []
   && task.deferred_offsets = []
@@ -803,7 +832,7 @@ let observe_task_source_event task event =
           task.inputs <-
             {
               input_context = context;
-              input_streams = task.streams;
+              input_streams = task.resources.streams;
               input_failure = task.failure_generation;
               input_seen_dimensions = task.seen_dimensions;
               input_internal_bindings = task.internal_bindings;
@@ -828,8 +857,8 @@ let observe_task_source_event task event =
           let result =
             {
               termination_ = Stream_end;
-              executed_steps_ = task.steps;
-              compiled_initializer_steps_ = task.initializer_steps;
+              executed_steps_ = task.resources.steps;
+              compiled_initializer_steps_ = task.resources.initializer_steps;
               final_value_ = task.outer_value;
               final_callback_ = None;
               final_pointer_ = None;
@@ -944,8 +973,8 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
     Error "source promotion requires a fresh task runtime"
   else if
     dimension_steps < 0
-    || dimension_steps > task.max_initializer_steps
-    || offset_work > task.max_initializer_steps - dimension_steps
+    || dimension_steps > task.resources.max_initializer_steps
+    || offset_work > task.resources.max_initializer_steps - dimension_steps
   then Error "source dimension work exceeds the task preparation allowance"
   else if (not manifest_valid) || not offsets_valid then
     Error "source promotion requires its original closed dimension manifest"
@@ -957,7 +986,7 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
     |> fun result ->
     Result.bind result (fun () -> bind_task_namespace task namespace)
     |> Result.map (fun () ->
-        task.initializer_steps <- dimension_steps + offset_work;
+        task.resources.initializer_steps <- dimension_steps + offset_work;
         task.charged_offsets <- offsets;
         task.seen_dimensions <- originals;
         task.closed_dimensions <- dimensions;
@@ -1060,8 +1089,11 @@ let charge_source_aggregate_offset task phase =
          && Sema.Source_activation.aggregate_offset_preparing
               task.source_activation phase ->
       let work = Sema.Compiler_record.aggregate_offset_work offset in
-      let remaining = task.max_initializer_steps - task.initializer_steps in
-      task.initializer_steps <- task.initializer_steps + min work remaining;
+      let remaining =
+        task.resources.max_initializer_steps - task.resources.initializer_steps
+      in
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + min work remaining;
       task.deferred_offsets <- rest;
       task.charged_offsets <- offset :: task.charged_offsets;
       if work > remaining then (
@@ -1115,8 +1147,12 @@ let charge_isolated_aggregate_offsets task ~table offsets =
       | [] -> Ok ()
       | offset :: rest ->
           let work = Record.aggregate_offset_work offset in
-          let remaining = task.max_initializer_steps - task.initializer_steps in
-          task.initializer_steps <- task.initializer_steps + min work remaining;
+          let remaining =
+            task.resources.max_initializer_steps
+            - task.resources.initializer_steps
+          in
+          task.resources.initializer_steps <-
+            task.resources.initializer_steps + min work remaining;
           if work > remaining then
             Error
               "HCIRVM0007: the bounded aggregate offset preparation work limit \
@@ -1147,8 +1183,11 @@ let charge_source_dimension task preparation =
               preparation ->
       let work = Sema.Compiler_record.dimension_preparation_work next in
       task.seen_dimensions <- preparation :: task.seen_dimensions;
-      let remaining = task.max_initializer_steps - task.initializer_steps in
-      task.initializer_steps <- task.initializer_steps + min work remaining;
+      let remaining =
+        task.resources.max_initializer_steps - task.resources.initializer_steps
+      in
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + min work remaining;
       if work > remaining then (
         task.source_execution_failed <- true;
         task.failure_generation <- ref ();
@@ -1556,7 +1595,7 @@ let complete_native_task_program task attempt ~captured ~final_value =
       "native source command cannot publish a value without a reached capture"
   else
     let value = Option.map (fun (type_, bits) -> { type_; bits }) final_value in
-    if captured && task.streams = [] then task.outer_value <- value;
+    if captured && task.resources.streams = [] then task.outer_value <- value;
     let receipts =
       Integer_globals.source_command_receipts
         attempt.native_program_source.source_storage
@@ -2205,7 +2244,7 @@ let admit_declared_global task declaration =
     Integer_globals.prepare_declared task.catalog declaration
   in
   let bytes = Integer_globals.byte_size globals in
-  if bytes > task.max_global_bytes - task.global_bytes then
+  if bytes > task.resources.max_global_bytes - task.resources.global_bytes then
     Error "HCIRVM0016: task global storage exceeds the cumulative byte limit"
   else
     let publication =
@@ -2226,7 +2265,7 @@ let admit_declared_global task declaration =
        in
        task.arenas <- (globals, storage) :: task.arenas);
     task.declared_admissions <- publication :: task.declared_admissions;
-    task.global_bytes <- task.global_bytes + bytes;
+    task.resources.global_bytes <- task.resources.global_bytes + bytes;
     task.source_promotion_open <- false;
     Ok ()
 
@@ -2244,7 +2283,7 @@ let admit_static_allocation task allocation =
     | Some bytes -> Ok bytes
     | None -> Error "HCIRVM0016: task static allocation extent overflows"
   in
-  if bytes > task.max_global_bytes - task.global_bytes then
+  if bytes > task.resources.max_global_bytes - task.resources.global_bytes then
     Error "HCIRVM0016: task static storage exceeds the cumulative byte limit"
   else
     let* () =
@@ -2270,7 +2309,7 @@ let admit_static_allocation task allocation =
         task.arenas <- (globals, storage) :: task.arenas;
         Ok ()
     in
-    task.global_bytes <- task.global_bytes + bytes;
+    task.resources.global_bytes <- task.resources.global_bytes + bytes;
     task.source_promotion_open <- false;
     Ok ()
 
@@ -2363,7 +2402,11 @@ let check_native_static_copy task destination =
   match Static_initializer_destination.copy_byte_count destination with
   | None -> Error "native static copy requires an original string-copy leaf"
   | Some count ->
-      if count > task.max_initializer_steps - task.initializer_steps then
+      if
+        count
+        > task.resources.max_initializer_steps
+          - task.resources.initializer_steps
+      then
         Error
           "HCIRVM0007: the bounded initializer copy work limit was exhausted"
       else Ok ()
@@ -2375,7 +2418,8 @@ let begin_native_static_copy task destination =
   | None -> assert false
   | Some count ->
       task.source_promotion_open <- false;
-      task.initializer_steps <- task.initializer_steps + count;
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + count;
       Ok ()
 
 let complete_native_static_copy task destination =
@@ -2429,7 +2473,7 @@ let begin_task_default task ~namespace ~publication receipt =
       {
         default_catalog = task.catalog;
         default_source = Sema.Default_fragment.Named (publication, receipt);
-        default_preparation_before = task.initializer_steps;
+        default_preparation_before = task.resources.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
         default_value = None;
@@ -2491,7 +2535,7 @@ let check_native_task_default task attempt program =
           (Integer_globals.is_default_fragment
              (Destination.globals destination)))
     || Integer_globals.byte_size (Destination.globals destination) <> 0
-    || task.initializer_steps <> attempt.default_preparation_before
+    || task.resources.initializer_steps <> attempt.default_preparation_before
   then
     Error
       "native default requires its original live task, attempt and expression"
@@ -2519,11 +2563,12 @@ let record_native_default_steps task attempt steps =
     || steps < 0
     || Option.is_some attempt.default_native_work
     || Option.is_none attempt.default_native_program
-    || steps > task.max_initializer_steps - task.initializer_steps
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
   then
     Error "native default work has another task, attempt or exhausted allowance"
   else (
-    task.initializer_steps <- task.initializer_steps + steps;
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
     attempt.default_native_work <- Some steps;
     Ok ())
 
@@ -2683,9 +2728,12 @@ let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
             task.seen_dimensions <- preparation :: task.seen_dimensions;
             let result, work =
               Record.prepare_dimension ~table ~namespace ~preparation ~queries
-                ~max_work:(task.max_initializer_steps - task.initializer_steps)
+                ~max_work:
+                  (task.resources.max_initializer_steps
+                 - task.resources.initializer_steps)
             in
-            task.initializer_steps <- task.initializer_steps + work;
+            task.resources.initializer_steps <-
+              task.resources.initializer_steps + work;
             (match result with
             | Ok checked ->
                 task.closed_dimensions <- checked :: task.closed_dimensions
@@ -2728,10 +2776,13 @@ let prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
         let result, work =
           Sema.Compiler_record.prepare_aggregate_offset ~table ~namespace
             ~queries
-            ~max_work:(task.max_initializer_steps - task.initializer_steps)
+            ~max_work:
+              (task.resources.max_initializer_steps
+             - task.resources.initializer_steps)
             progress phase
         in
-        task.initializer_steps <- task.initializer_steps + work;
+        task.resources.initializer_steps <-
+          task.resources.initializer_steps + work;
         (match result with
         | Ok offset -> task.charged_offsets <- offset :: task.charged_offsets
         | Error _ -> ());
@@ -2843,7 +2894,7 @@ let begin_task_offset task authority =
         offset_catalog = task.catalog;
         offset_authority = authority;
         offset_receipt = receipt;
-        offset_preparation_before = task.initializer_steps;
+        offset_preparation_before = task.resources.initializer_steps;
         offset_state = Preparing_initializer;
         offset_result = None;
         offset_native_program = None;
@@ -2899,7 +2950,7 @@ let begin_task_dimension task authority =
         dimension_catalog = task.catalog;
         dimension_authority = authority;
         dimension_receipt = receipt;
-        dimension_preparation_before = task.initializer_steps;
+        dimension_preparation_before = task.resources.initializer_steps;
         dimension_state = Preparing_initializer;
         dimension_bits = None;
         dimension_work = None;
@@ -2959,7 +3010,8 @@ let check_native_task_internal_binding task attempt program =
           (Integer_globals.is_internal_binding_fragment
              (Destination.globals destination)))
     || Integer_globals.byte_size (Destination.globals destination) <> 0
-    || task.initializer_steps <> attempt.internal_binding_preparation_before
+    || task.resources.initializer_steps
+       <> attempt.internal_binding_preparation_before
   then
     Error
       "native internal binding requires its original live task, attempt and \
@@ -2988,13 +3040,14 @@ let record_native_internal_binding_steps task attempt steps =
     || steps < 0
     || Option.is_some attempt.internal_binding_native_work
     || Option.is_none attempt.internal_binding_native_program
-    || steps > task.max_initializer_steps - task.initializer_steps
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
   then
     Error
       "native internal binding work has another task, attempt or exhausted \
        allowance"
   else (
-    task.initializer_steps <- task.initializer_steps + steps;
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
     attempt.internal_binding_native_work <- Some steps;
     Ok ())
 
@@ -3034,7 +3087,8 @@ let complete_native_task_internal_binding task attempt program capture =
       ~namespace:(Sema.Internal_binding_fragment.namespace fragment)
       ~receipt:attempt.internal_binding_receipt ~bits
       ~work:
-        (task.initializer_steps - attempt.internal_binding_preparation_before)
+        (task.resources.initializer_steps
+       - attempt.internal_binding_preparation_before)
   in
   attempt.internal_binding_prepared <- Some prepared;
   attempt.internal_binding_state <- Successful_initializer;
@@ -3065,7 +3119,7 @@ let check_native_task_dimension task attempt program =
           (Integer_globals.is_dimension_fragment
              (Destination.globals destination)))
     || Integer_globals.byte_size (Destination.globals destination) <> 0
-    || task.initializer_steps <> attempt.dimension_preparation_before
+    || task.resources.initializer_steps <> attempt.dimension_preparation_before
   then
     Error
       "native dimension requires its original live task, attempt and expression"
@@ -3093,12 +3147,13 @@ let record_native_dimension_steps task attempt steps =
     || steps < 0
     || Option.is_some attempt.dimension_native_work
     || Option.is_none attempt.dimension_native_program
-    || steps > task.max_initializer_steps - task.initializer_steps
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
   then
     Error
       "native dimension work has another task, attempt or exhausted allowance"
   else (
-    task.initializer_steps <- task.initializer_steps + steps;
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
     attempt.dimension_native_work <- Some steps;
     Ok ())
 
@@ -3129,7 +3184,8 @@ let complete_native_task_dimension task attempt program capture =
   in
   attempt.dimension_bits <- Some bits;
   attempt.dimension_work <-
-    Some (task.initializer_steps - attempt.dimension_preparation_before);
+    Some
+      (task.resources.initializer_steps - attempt.dimension_preparation_before);
   attempt.dimension_state <- Successful_initializer;
   Ok ()
 
@@ -3161,7 +3217,7 @@ let check_native_task_offset task attempt program =
     || (not
           (Integer_globals.is_offset_fragment (Destination.globals destination)))
     || Integer_globals.byte_size (Destination.globals destination) <> 0
-    || task.initializer_steps <> attempt.offset_preparation_before
+    || task.resources.initializer_steps <> attempt.offset_preparation_before
   then
     Error
       "native offset requires its original live task, attempt and expression"
@@ -3198,11 +3254,12 @@ let record_native_offset_steps task attempt steps =
     || steps < 0
     || Option.is_some attempt.offset_native_work
     || Option.is_none attempt.offset_native_program
-    || steps > task.max_initializer_steps - task.initializer_steps
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
   then
     Error "native offset work has another task, attempt or exhausted allowance"
   else (
-    task.initializer_steps <- task.initializer_steps + steps;
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
     attempt.offset_native_work <- Some steps;
     Ok ())
 
@@ -3233,7 +3290,8 @@ let complete_native_task_offset task attempt program capture =
     Sema.Compiler_record.finish_runtime_aggregate_offset
       (Sema.Offset_fragment.preparation attempt.offset_authority)
       ~value:bits
-      ~work:(task.initializer_steps - attempt.offset_preparation_before)
+      ~work:
+        (task.resources.initializer_steps - attempt.offset_preparation_before)
   in
   attempt.offset_result <- Some offset;
   attempt.offset_state <- Successful_initializer;
@@ -3267,7 +3325,7 @@ let begin_task_internal_binding task authority =
         internal_binding_catalog = task.catalog;
         internal_binding_authority = authority;
         internal_binding_receipt = receipt;
-        internal_binding_preparation_before = task.initializer_steps;
+        internal_binding_preparation_before = task.resources.initializer_steps;
         internal_binding_state = Preparing_initializer;
         internal_binding_prepared = None;
         internal_binding_native_program = None;
@@ -3474,7 +3532,7 @@ let begin_task_initializer_leaf task ~namespace leaf =
             attempt_receipt = receipt;
             attempt_next;
             attempt_destination;
-            attempt_preparation_before = task.initializer_steps;
+            attempt_preparation_before = task.resources.initializer_steps;
             attempt_state = Preparing_initializer;
           }
         in
@@ -3518,7 +3576,7 @@ let native_initializer_matches task attempt execution program expected_state =
        (Destination.globals destination)
   && Integer_globals.is_initializer_fragment (Destination.globals destination)
   && Program.execution_steps execution
-     = task.initializer_steps - attempt.attempt_preparation_before
+     = task.resources.initializer_steps - attempt.attempt_preparation_before
   && Integer_globals.byte_size (Destination.globals destination) = 0
 
 let check_native_task_initializer task attempt execution program =
@@ -3614,7 +3672,8 @@ let complete_task_initializer task ~namespace start source =
 
 let task_result task ~sequence =
   if
-    task.streams <> [] || task.source_execution_failed
+    task.resources.streams <> []
+    || task.source_execution_failed
     || task.deferred_dimensions <> []
     || task.deferred_offsets <> []
     || List.exists
@@ -4010,36 +4069,36 @@ let task_function_source task link =
         task.functions
       |> Option.map (fun executable -> executable.function_source)
 
-let task_output_bytes task = Output.contents task.output
-let task_output_work task = Output.work task.output
-let task_generated_bytes task = Output.committed_bytes task.generated
-let task_executed_steps task = task.steps
-let task_initializer_steps task = task.initializer_steps
-let task_initializer_limit task = task.max_initializer_steps
+let task_output_bytes task = Output.contents task.resources.output
+let task_output_work task = Output.work task.resources.output
+let task_generated_bytes task = Output.committed_bytes task.resources.generated
+let task_executed_steps task = task.resources.steps
+let task_initializer_steps task = task.resources.initializer_steps
+let task_initializer_limit task = task.resources.max_initializer_steps
 
 let task_progress (task : task_state) =
   {
-    executed_steps = task.steps;
-    initializer_steps = task.initializer_steps;
-    global_bytes = task.global_bytes;
-    literal_bytes = task.literal_bytes;
-    output_bytes = Output.contents task.output;
-    output_work = Output.work task.output;
-    generated_bytes = Output.committed_bytes task.generated;
+    executed_steps = task.resources.steps;
+    initializer_steps = task.resources.initializer_steps;
+    global_bytes = task.resources.global_bytes;
+    literal_bytes = task.resources.literal_bytes;
+    output_bytes = Output.contents task.resources.output;
+    output_work = Output.work task.resources.output;
+    generated_bytes = Output.committed_bytes task.resources.generated;
     final_value = task.outer_value;
   }
 
 let record_task_preparation task ~before ~steps =
   if
     before < 0 || steps < 0
-    || before > task.initializer_steps
-    || steps > task.max_initializer_steps - before
-    || before + steps < task.initializer_steps
+    || before > task.resources.initializer_steps
+    || steps > task.resources.max_initializer_steps - before
+    || before + steps < task.resources.initializer_steps
   then
     invalid_arg
       "task preparation progress is inconsistent with its cumulative budget";
   task.source_promotion_open <- false;
-  task.initializer_steps <- before + steps
+  task.resources.initializer_steps <- before + steps
 
 let begin_isolated_preparation task =
   if task.native_storage_authority then
@@ -4059,10 +4118,10 @@ let record_isolated_preparation task preparation ~steps =
     || preparation.preparation_closed
     || steps < preparation.preparation_steps
     || steps - preparation.preparation_steps
-       > task.max_initializer_steps - task.initializer_steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
   then invalid_arg "isolated preparation does not match its owning allowance";
-  task.initializer_steps <-
-    task.initializer_steps + steps - preparation.preparation_steps;
+  task.resources.initializer_steps <-
+    task.resources.initializer_steps + steps - preparation.preparation_steps;
   preparation.preparation_steps <- steps
 
 let abort_isolated_preparation task preparation =
@@ -9855,24 +9914,25 @@ let execute_program_with_output ?task ?isolated_budget
             if steps < !accounted_steps then
               invalid_arg
                 "nested source execution moved its step boundary backwards";
-            task.steps <- task.steps + (steps - !accounted_steps);
+            task.resources.steps <-
+              task.resources.steps + (steps - !accounted_steps);
             accounted_steps := steps;
-            let before_nested = task.steps in
-            let saved_frame_bytes = task.nested_frame_bytes in
-            let saved_call_depth = task.nested_call_depth in
-            let saved_source_depth = task.nested_source_depth in
-            task.nested_frame_bytes <- saved_frame_bytes + frame_bytes;
-            task.nested_call_depth <- saved_call_depth + call_depth;
-            task.nested_source_depth <- saved_source_depth + 1;
+            let before_nested = task.resources.steps in
+            let saved_frame_bytes = task.resources.nested_frame_bytes in
+            let saved_call_depth = task.resources.nested_call_depth in
+            let saved_source_depth = task.resources.nested_source_depth in
+            task.resources.nested_frame_bytes <- saved_frame_bytes + frame_bytes;
+            task.resources.nested_call_depth <- saved_call_depth + call_depth;
+            task.resources.nested_source_depth <- saved_source_depth + 1;
             let nested_steps = ref 0 in
             let result =
               Fun.protect
                 ~finally:(fun () ->
-                  nested_steps := task.steps - before_nested;
-                  task.steps <- before_nested;
-                  task.nested_frame_bytes <- saved_frame_bytes;
-                  task.nested_call_depth <- saved_call_depth;
-                  task.nested_source_depth <- saved_source_depth)
+                  nested_steps := task.resources.steps - before_nested;
+                  task.resources.steps <- before_nested;
+                  task.resources.nested_frame_bytes <- saved_frame_bytes;
+                  task.resources.nested_call_depth <- saved_call_depth;
+                  task.resources.nested_source_depth <- saved_source_depth)
                 (fun () -> execute source)
             in
             (result, !nested_steps))
@@ -9929,7 +9989,7 @@ let execute_program_with_output ?task ?isolated_budget
         Integer_globals.byte_size globals
         > max_global_bytes
           - Option.fold ~none:0
-              ~some:(fun task -> task.global_bytes)
+              ~some:(fun task -> task.resources.global_bytes)
               isolated_budget)
       globals
   then
@@ -9983,7 +10043,7 @@ let execute_program_with_output ?task ?isolated_budget
             invalid "HCIRVM0026" "task command has already started"
           else if
             Integer_globals.byte_size globals
-            > max_global_bytes - task.global_bytes
+            > max_global_bytes - task.resources.global_bytes
           then
             invalid "HCIRVM0016"
               "task global storage exceeds the cumulative byte limit"
@@ -10206,7 +10266,9 @@ let execute_program_with_output ?task ?isolated_budget
     let literal_image = fresh_literal_image () in
     let max_literal_bytes =
       max_literal_bytes
-      - Option.fold ~none:0 ~some:(fun task -> task.literal_bytes) accounting
+      - Option.fold ~none:0
+          ~some:(fun task -> task.resources.literal_bytes)
+          accounting
     in
     let rec bodies rev = function
       | [] -> Ok (Array.of_list (List.rev rev))
@@ -10348,11 +10410,11 @@ let execute_program_with_output ?task ?isolated_budget
           Option.iter (fun retain -> retain storage owner) admit;
           if Option.is_some isolated_budget then
             account.started <- checked :: account.started;
-          account.global_bytes <-
-            account.global_bytes
+          account.resources.global_bytes <-
+            account.resources.global_bytes
             + Option.fold ~none:0 ~some:Integer_globals.byte_size globals;
-          account.literal_bytes <-
-            account.literal_bytes + literal_image.literal_byte_count)
+          account.resources.literal_bytes <-
+            account.resources.literal_bytes + literal_image.literal_byte_count)
         accounting
     in
     let outcome =
@@ -10360,19 +10422,19 @@ let execute_program_with_output ?task ?isolated_budget
         if not use_active_stream then None
         else
           Option.bind task (fun task ->
-              match task.streams with
+              match task.resources.streams with
               | active :: _ -> Some active.stream_output
               | [] -> None)
       in
       let generation_output =
-        Option.map (fun task -> task.generated) accounting
+        Option.map (fun task -> task.resources.generated) accounting
       in
       let on_capture =
         Option.bind accounting (fun task ->
             if not initializer_mode then
               Some
                 (fun value ->
-                  if task.streams = [] then task.outer_value <- value;
+                  if task.resources.streams = [] then task.outer_value <- value;
                   Option.iter
                     (fun globals ->
                       let receipts =
@@ -10433,7 +10495,7 @@ let execute_program_with_output ?task ?isolated_budget
         in
         if steps < !accounted_steps then
           invalid_arg "execution reported fewer steps than its nested boundary";
-        task.steps <- task.steps + (steps - !accounted_steps))
+        task.resources.steps <- task.resources.steps + (steps - !accounted_steps))
       accounting;
     outcome
 
@@ -10487,14 +10549,16 @@ let execute_task_static_initializer ?(use_active_stream = true)
     execute_program_with_output ~task ~initializer_mode:true ~use_active_stream
       ?stream_exe_print
       ~runtime_calls:(Program.runtime_calls program)
-      ~output:task.output
+      ~output:task.resources.output
       ~globals:(Destination.globals destination)
       ~initialization:(Program.initialization program)
-      ~max_global_bytes:task.max_global_bytes
-      ~max_literal_bytes:task.max_literal_bytes
-      ~max_steps:(task.max_steps - task.steps)
-      ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-      ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+      ~max_global_bytes:task.resources.max_global_bytes
+      ~max_literal_bytes:task.resources.max_literal_bytes
+      ~max_steps:(task.resources.max_steps - task.resources.steps)
+      ~max_frame_bytes:
+        (task.resources.max_frame_bytes - task.resources.nested_frame_bytes)
+      ~max_call_depth:
+        (task.resources.max_call_depth - task.resources.nested_call_depth)
       ~functions:[] (Program.entry program)
   in
   record_interpreted_static task destination |> diagnose
@@ -10508,7 +10572,9 @@ let execute_task_static_copy task destination =
     | Integer_initializer_layout.Copy_bytes bytes -> Ok bytes
     | Scalar_store -> Error "static copy requires an original byte-copy leaf"
   in
-  if String.length bytes > task.max_initializer_steps - task.initializer_steps
+  if
+    String.length bytes
+    > task.resources.max_initializer_steps - task.resources.initializer_steps
   then Error "HCIRVM0007: the bounded initializer copy work limit was exhausted"
   else
     let slot = Destination.storage destination in
@@ -10528,7 +10594,8 @@ let execute_task_static_copy task destination =
       | Some storage when storage.live -> Ok storage
       | _ -> Error "static copy destination has no original live storage"
     in
-    task.initializer_steps <- task.initializer_steps + String.length bytes;
+    task.resources.initializer_steps <-
+      task.resources.initializer_steps + String.length bytes;
     publish_array_payload ~slot
       ~cell_offset:(Destination.cell_offset destination)
       (Integer_array_initializers.Bytes bytes) (fun cell word ->
@@ -10575,7 +10642,8 @@ let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
             (Integer_globals.is_initializer_fragment
                (Destination.globals destination)))
       || Program.execution_steps execution
-         <> task.initializer_steps - attempt.attempt_preparation_before
+         <> task.resources.initializer_steps
+            - attempt.attempt_preparation_before
       || Integer_globals.byte_size (Destination.globals destination) <> 0
     then
       invalid "HCIRVM0026"
@@ -10621,21 +10689,24 @@ let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
             storage.cells.(cell) <- Some (Runtime_word word));
         Ok ()
     | Program.Scheduled program ->
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           invalid "HCIRVM0007"
             "the task cumulative execution step limit was exhausted"
         else
           execute_program_with_output ~task ~initializer_mode:true
             ~use_active_stream ?stream_exe_print
             ~runtime_calls:(Program.runtime_calls program)
-            ~output:task.output
+            ~output:task.resources.output
             ~globals:(Destination.globals destination)
             ~initialization:(Program.initialization program)
-            ~max_global_bytes:task.max_global_bytes
-            ~max_literal_bytes:task.max_literal_bytes
-            ~max_steps:(task.max_steps - task.steps)
-            ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-            ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+            ~max_global_bytes:task.resources.max_global_bytes
+            ~max_literal_bytes:task.resources.max_literal_bytes
+            ~max_steps:(task.resources.max_steps - task.resources.steps)
+            ~max_frame_bytes:
+              (task.resources.max_frame_bytes
+             - task.resources.nested_frame_bytes)
+            ~max_call_depth:
+              (task.resources.max_call_depth - task.resources.nested_call_depth)
             ~functions:[] (Program.entry program)
           |> Result.map ignore
   in
@@ -10689,7 +10760,7 @@ let consume_default_constant task value =
                      (Default_fragment_destination.globals
                         value.constant_destination)))
              ~activation:task.source_activation source))
-    || task.initializer_steps
+    || task.resources.initializer_steps
        <> value.constant_preparation_before + value.constant_steps
   then
     Error "constant default requires its original successful owning evaluation"
@@ -10737,11 +10808,15 @@ let save_default_data task ~destination ~entry ~executed_steps address =
     else
       let bytes = Buffer.create 32 in
       let rec copy offset =
-        if task.initializer_steps >= task.max_initializer_steps then
+        if
+          task.resources.initializer_steps
+          >= task.resources.max_initializer_steps
+        then
           fail "HCIRVM0007"
             "saved string default copy exceeds the initializer work limit"
         else if
-          Buffer.length bytes >= task.max_literal_bytes - task.literal_bytes
+          Buffer.length bytes
+          >= task.resources.max_literal_bytes - task.resources.literal_bytes
         then
           fail "HCIRVM0011"
             "saved string default copy exceeds the cumulative literal byte \
@@ -10750,7 +10825,8 @@ let save_default_data task ~destination ~entry ~executed_steps address =
           fail "HCIRVM0019"
             "saved string default has no terminator in its original object"
         else (
-          task.initializer_steps <- task.initializer_steps + 1;
+          task.resources.initializer_steps <-
+            task.resources.initializer_steps + 1;
           let width = address.pointer_element_bytes in
           let cell =
             address.pointer_base
@@ -10802,7 +10878,7 @@ let save_default_data task ~destination ~entry ~executed_steps address =
           unknown_message = "saved string default byte is uninitialized";
         }
       in
-      task.literal_bytes <- task.literal_bytes + count;
+      task.resources.literal_bytes <- task.resources.literal_bytes + count;
       task.literal_arenas <- storage :: task.literal_arenas;
       let storage_pointee =
         Type.make_primitive ~form:Internal_storage
@@ -10881,7 +10957,9 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
             (Integer_globals.is_default_fragment
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
-      || steps <> task.initializer_steps - attempt.default_preparation_before
+      || steps
+         <> task.resources.initializer_steps
+            - attempt.default_preparation_before
     then
       invalid
         "default execution has another task, source attempt or preparation"
@@ -10909,7 +10987,7 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
             ])
     | Scheduled_default execution -> (
         let (Program.Scheduled program) = Program.code execution in
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           Error
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
@@ -10920,14 +10998,18 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
             execute_program_with_output ~task ~initializer_mode:true
               ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
-              ~output:task.output
+              ~output:task.resources.output
               ~globals:(Destination.globals destination)
               ~initialization:(Program.initialization program)
-              ~max_global_bytes:task.max_global_bytes
-              ~max_literal_bytes:task.max_literal_bytes
-              ~max_steps:(task.max_steps - task.steps)
-              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:(task.resources.max_steps - task.resources.steps)
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
           match
@@ -11011,7 +11093,8 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
       || Program.steps execution
-         <> task.initializer_steps - attempt.dimension_preparation_before
+         <> task.resources.initializer_steps
+            - attempt.dimension_preparation_before
     then
       invalid
         "dimension execution has another task, source attempt or preparation"
@@ -11030,7 +11113,7 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
     in
     match Program.code execution with
     | Program.Scheduled program -> (
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           Error
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
@@ -11041,14 +11124,18 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
             execute_program_with_output ~task ~initializer_mode:true
               ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
-              ~output:task.output
+              ~output:task.resources.output
               ~globals:(Destination.globals destination)
               ~initialization:(Program.initialization program)
-              ~max_global_bytes:task.max_global_bytes
-              ~max_literal_bytes:task.max_literal_bytes
-              ~max_steps:(task.max_steps - task.steps)
-              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:(task.resources.max_steps - task.resources.steps)
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
           match result.final_value_ with
@@ -11064,7 +11151,9 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
   | Ok bits ->
       attempt.dimension_bits <- Some bits;
       attempt.dimension_work <-
-        Some (task.initializer_steps - attempt.dimension_preparation_before);
+        Some
+          (task.resources.initializer_steps
+         - attempt.dimension_preparation_before);
       attempt.dimension_state <- Successful_initializer;
       Ok ()
 
@@ -11104,7 +11193,8 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
       || Program.steps execution
-         <> task.initializer_steps - attempt.internal_binding_preparation_before
+         <> task.resources.initializer_steps
+            - attempt.internal_binding_preparation_before
     then
       invalid
         "internal binding execution has another task, source attempt or \
@@ -11124,7 +11214,7 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
     in
     match Program.code execution with
     | Program.Scheduled program -> (
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           Error
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
@@ -11135,14 +11225,18 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
             execute_program_with_output ~task ~initializer_mode:true
               ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
-              ~output:task.output
+              ~output:task.resources.output
               ~globals:(Destination.globals destination)
               ~initialization:(Program.initialization program)
-              ~max_global_bytes:task.max_global_bytes
-              ~max_literal_bytes:task.max_literal_bytes
-              ~max_steps:(task.max_steps - task.steps)
-              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:(task.resources.max_steps - task.resources.steps)
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
           match result.final_value_ with
@@ -11158,7 +11252,8 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
       Error errors
   | Ok bits ->
       let work =
-        task.initializer_steps - attempt.internal_binding_preparation_before
+        task.resources.initializer_steps
+        - attempt.internal_binding_preparation_before
       in
       let namespace = Sema.Internal_binding_fragment.namespace fragment in
       let table = Sema.Internal_binding_fragment.table fragment in
@@ -11218,7 +11313,7 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
       || Program.steps execution
-         <> task.initializer_steps - attempt.offset_preparation_before
+         <> task.resources.initializer_steps - attempt.offset_preparation_before
     then
       invalid "offset execution has another task, source attempt or preparation"
     else Ok ()
@@ -11249,7 +11344,7 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
     in
     match Program.code execution with
     | Program.Scheduled program -> (
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           Error
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
@@ -11260,14 +11355,18 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
             execute_program_with_output ~task ~initializer_mode:true
               ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
-              ~output:task.output
+              ~output:task.resources.output
               ~globals:(Destination.globals destination)
               ~initialization:(Program.initialization program)
-              ~max_global_bytes:task.max_global_bytes
-              ~max_literal_bytes:task.max_literal_bytes
-              ~max_steps:(task.max_steps - task.steps)
-              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:(task.resources.max_steps - task.resources.steps)
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
           match result.final_value_ with
@@ -11284,7 +11383,9 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
         Sema.Compiler_record.finish_runtime_aggregate_offset
           (Sema.Offset_fragment.preparation attempt.offset_authority)
           ~value:bits
-          ~work:(task.initializer_steps - attempt.offset_preparation_before)
+          ~work:
+            (task.resources.initializer_steps
+           - attempt.offset_preparation_before)
       in
       match result with
       | Error message ->
@@ -11302,8 +11403,12 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
   (* The synchronous stream callback alone reserves nested source depth.
      Original child parser receipts still govern admission while the caller's
      declaration-time evaluation remains suspended. *)
-  let available_frame_bytes = task.max_frame_bytes - task.nested_frame_bytes in
-  let available_call_depth = task.max_call_depth - task.nested_call_depth in
+  let available_frame_bytes =
+    task.resources.max_frame_bytes - task.resources.nested_frame_bytes
+  in
+  let available_call_depth =
+    task.resources.max_call_depth - task.resources.nested_call_depth
+  in
   let result =
     if task.native_storage_authority then
       Error
@@ -11318,7 +11423,7 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
             (List.for_all
                (Sema.Source_activation.command_admission task.source_activation)
                (Integer_globals.source_command_receipts globals)))
-      || task.nested_source_depth = 0
+      || task.resources.nested_source_depth = 0
          && List.exists
               (fun attempt ->
                 attempt.offset_state = Preparing_initializer
@@ -11331,7 +11436,7 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
             "deferred source command is outside its original activation event";
         ]
     else if
-      task.nested_source_depth = 0
+      task.resources.nested_source_depth = 0
       && (List.exists
             (fun state ->
               (not (initializer_is_idle state))
@@ -11360,7 +11465,7 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
           make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
             "ordinary command cannot interleave an active initializer attempt";
         ]
-    else if task.steps >= task.max_steps then
+    else if task.resources.steps >= task.resources.max_steps then
       Error
         [
           make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0007"
@@ -11380,10 +11485,10 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
         ]
     else
       execute_program_with_output ~task ~use_active_stream ?stream_exe_print
-        ~runtime_calls ~output:task.output ~globals ~initialization
-        ~max_global_bytes:task.max_global_bytes
-        ~max_literal_bytes:task.max_literal_bytes
-        ~max_steps:(task.max_steps - task.steps)
+        ~runtime_calls ~output:task.resources.output ~globals ~initialization
+        ~max_global_bytes:task.resources.max_global_bytes
+        ~max_literal_bytes:task.resources.max_literal_bytes
+        ~max_steps:(task.resources.max_steps - task.resources.steps)
         ~max_frame_bytes:available_frame_bytes
         ~max_call_depth:available_call_depth ~functions checked
   in
@@ -11397,7 +11502,10 @@ let execute_isolated_program_in_task task ~runtime_calls ~globals
   task.source_promotion_open <- false;
   let invalid code message =
     Error
-      [ make_error ~stage:Preflight ~executed_steps:task.steps code message ]
+      [
+        make_error ~stage:Preflight ~executed_steps:task.resources.steps code
+          message;
+      ]
   in
   let result =
     if task.native_storage_authority then
@@ -11413,28 +11521,28 @@ let execute_isolated_program_in_task task ~runtime_calls ~globals
     then
       invalid "HCIRVM0026"
         "isolated output lacks its owning preparation and compiled bundle"
-    else if task.streams <> [] then
+    else if task.resources.streams <> [] then
       invalid "HCIRVM0027"
         "isolated output cannot execute inside an active stream"
     else if List.exists (fun entry -> entry == checked) task.started then
       invalid "HCIRVM0026"
         "isolated output has already started in this invocation"
-    else if task.steps >= task.max_steps then
+    else if task.resources.steps >= task.resources.max_steps then
       invalid "HCIRVM0007" "the invocation execution step limit was exhausted"
     else
-      let before = task.steps in
+      let before = task.resources.steps in
       execute_program_with_output ~isolated_budget:task ~runtime_calls
-        ~output:task.output ~globals ~initialization
-        ~max_global_bytes:task.max_global_bytes
-        ~max_literal_bytes:task.max_literal_bytes
-        ~max_steps:(task.max_steps - before)
-        ~max_frame_bytes:task.max_frame_bytes
-        ~max_call_depth:task.max_call_depth ~functions checked
+        ~output:task.resources.output ~globals ~initialization
+        ~max_global_bytes:task.resources.max_global_bytes
+        ~max_literal_bytes:task.resources.max_literal_bytes
+        ~max_steps:(task.resources.max_steps - before)
+        ~max_frame_bytes:task.resources.max_frame_bytes
+        ~max_call_depth:task.resources.max_call_depth ~functions checked
       |> Result.map (fun result ->
           {
             result with
-            executed_steps_ = task.steps;
-            compiled_initializer_steps_ = task.initializer_steps;
+            executed_steps_ = task.resources.steps;
+            compiled_initializer_steps_ = task.resources.initializer_steps;
           })
       |> Result.map_error
            (List.map (fun (error : error) ->
@@ -11575,7 +11683,7 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
         constant_authority = authority;
         constant_destination = destination;
         constant_lowered = lowered;
-        constant_preparation_before = task.initializer_steps;
+        constant_preparation_before = task.resources.initializer_steps;
         constant_state = Executing_initializer;
         constant_bits = None;
         constant_steps = 0;
@@ -11584,7 +11692,8 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
     in
     task.default_constants <- proof :: task.default_constants;
     let remaining =
-      min max_steps (task.max_initializer_steps - task.initializer_steps)
+      min max_steps
+        (task.resources.max_initializer_steps - task.resources.initializer_steps)
     in
     let outcome =
       if remaining <= 0 then
@@ -11603,13 +11712,15 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
             0 errors
         in
         proof.constant_steps <- work;
-        task.initializer_steps <- proof.constant_preparation_before + work;
+        task.resources.initializer_steps <-
+          proof.constant_preparation_before + work;
         proof.constant_state <- Failed_initializer;
         Error errors
     | Ok result -> (
         let work = executed_steps result in
         proof.constant_steps <- work;
-        task.initializer_steps <- proof.constant_preparation_before + work;
+        task.resources.initializer_steps <-
+          proof.constant_preparation_before + work;
         match final_value result with
         | None ->
             proof.constant_state <- Failed_initializer;
@@ -11659,7 +11770,7 @@ let begin_task_callback_default task ~namespace receipt =
       {
         default_catalog = task.catalog;
         default_source = source;
-        default_preparation_before = task.initializer_steps;
+        default_preparation_before = task.resources.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
         default_value = None;

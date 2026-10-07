@@ -680,6 +680,27 @@ val observe_implicit_emission :
   (unit, Common.Diagnostic.t list) result
 
 val parser_suspension : t -> (Frontend.Parser.suspension, string) result
+
+val saved_compiler_context :
+  t ->
+  session:Session.t ->
+  suspension:Frontend.Parser.suspension ->
+  (Frontend.Parser.command_context, string) result
+(** Validate this original ledger against the unchanged enclosing position of
+    the active directive. Environment equality alone grants no authority. *)
+
+val create_saved_compiler_runtime :
+  t ->
+  session:Session.t ->
+  suspension:Frontend.Parser.suspension ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  (t, string) result
+(** Observe JIT child input in the saved original namespace. Declarations and
+    completed type metadata stay in that namespace; source sequences, command
+    admission and executable/storage publications stay in the child's distinct
+    runtime catalog. The enclosing source is not replayed or promoted into
+    execution. *)
+
 val offset_work : t -> int
 val source_offset_work : source_command -> int
 

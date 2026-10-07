@@ -172,8 +172,8 @@ let parameter_delimiters_source =
 
 let () =
   require
-    (Array.length Sys.argv = 13)
-    "stateful CLI tests require the executable and eleven source fixtures";
+    (Array.length Sys.argv = 14)
+    "stateful CLI tests require the executable and twelve source fixtures";
   let executable = Sys.argv.(1) in
   let implementation_commit, executable_reference_commit =
     executable_identities executable
@@ -181,6 +181,69 @@ let () =
   require
     (executable_reference_commit = pinned_reference_commit)
     "CLI executable must identify the pinned TempleOS reference";
+  List.iter
+    (fun mode ->
+      let invoke limits =
+        let status, output, errors =
+          capture executable
+            ([ "run"; "--format=json"; "--report-version=2"; "--mode=" ^ mode ]
+            @ limits
+            @ [ Sys.argv.(13) ])
+        in
+        require (errors = "") ("saved compiler fixture stderr: " ^ errors);
+        (status, Yojson.Basic.from_string output)
+      in
+      let open Yojson.Basic.Util in
+      let status, measured = invoke [] in
+      require (status = Unix.WEXITED 0) "saved compiler fixture failed";
+      require
+        (measured
+        |> member "implementation_commit"
+        |> to_string = implementation_commit)
+        "saved compiler fixture revision";
+      require
+        (measured |> member "final_value" |> member "value" |> to_string = "42")
+        "saved compiler fixture result";
+      require
+        (measured |> member "output_hex" |> to_string
+       = "6265666f72653b6368696c643b61667465723b")
+        "saved compiler fixture output order";
+      let steps = measured |> member "executed_steps" |> to_int
+      and preparation =
+        measured |> member "compiled_initializer_steps" |> to_int
+      and work = measured |> member "output_work" |> to_int in
+      let exact =
+        [
+          "--step-limit=" ^ string_of_int steps;
+          "--initializer-step-limit=" ^ string_of_int preparation;
+          "--output-work-limit=" ^ string_of_int work;
+        ]
+      in
+      let status, report = invoke exact in
+      require
+        (status = Unix.WEXITED 0
+        && report |> member "final_value" = (measured |> member "final_value")
+        && report |> member "output_hex" = (measured |> member "output_hex")
+        && report |> member "executed_steps" |> to_int = steps
+        && report |> member "compiled_initializer_steps" |> to_int = preparation
+        && report |> member "output_work" |> to_int = work)
+        "saved compiler fixture exact limits";
+      List.iter
+        (fun (limits, code) ->
+          let status, report = invoke limits in
+          require (status = Unix.WEXITED 1)
+            "saved compiler fixture below-limit status";
+          require
+            (report |> member "diagnostics" |> to_list |> List.hd
+           |> member "code" |> to_string = code)
+            "saved compiler fixture below-limit diagnostic")
+        [
+          ([ "--step-limit=" ^ string_of_int (steps - 1) ], "HCIRVM0007");
+          ( [ "--initializer-step-limit=" ^ string_of_int (preparation - 1) ],
+            "HCIRVM0007" );
+          ([ "--output-work-limit=" ^ string_of_int (work - 1) ], "HCIRVM0023");
+        ])
+    [ "jit"; "aot" ];
   List.iter
     (fun mode ->
       let status, output, errors =

@@ -951,6 +951,8 @@ type t = {
   native_offset : Native_offset.t option;
   native_internal_binding : Native_internal_binding.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
+  compiled_rev : Integer_unit.compiled list ref;
+  compiler_tasks : t list ref;
 }
 
 and command = {
@@ -960,6 +962,19 @@ and command = {
   source_metadata_only : bool;
   mutable frontend_pending : bool;
 }
+
+type saved_compiler = {
+  compiler_session : Session.t;
+  compiler_declarations : Task_declarations.t;
+  mutable compiler_task : t option;
+}
+
+let saved_compiler session ~ledger =
+  {
+    compiler_session = session;
+    compiler_declarations = ledger;
+    compiler_task = None;
+  }
 
 let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_initializer_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
@@ -999,9 +1014,46 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             native_offset;
             native_internal_binding;
             commands = [];
+            compiled_rev = ref [];
+            compiler_tasks = ref [];
           }))
 
 let frontend task = task.session
+
+let provider_source task =
+  let session = task.session in
+  let symbols = Session.symbols session in
+  Frontend.Symbol_visibility.Environment.without_locals symbols (fun () ->
+      let storage primitive =
+        (Common.Primitive_type.info primitive).storage_spelling
+      in
+      let i64 = storage Common.Primitive_type.I64
+      and u0 = storage Common.Primitive_type.U0
+      and u8 = storage Common.Primitive_type.U8
+      and u64 = storage Common.Primitive_type.U64 in
+      let headers =
+        [
+          ( "StreamExePrint",
+            Printf.sprintf "extern %s StreamExePrint(%s *fmt,...);" i64 u8 );
+          ( "StreamPrint",
+            Printf.sprintf "extern %s StreamPrint(%s *fmt,...);" u0 u8 );
+          ("Print", Printf.sprintf "extern %s Print(%s *fmt,...);" u0 u8);
+          ("PutChars", Printf.sprintf "extern %s PutChars(%s ch);" u0 u64);
+        ]
+        |> List.filter_map (fun (name, header) ->
+            match
+              Frontend.Symbol_visibility.Environment.find_preprocessor symbols
+                name
+            with
+            | Absent -> Some header
+            | Present _ | Shadowed_by_local -> None)
+        |> String.concat "\n"
+      in
+      if headers = "" then None
+      else
+        Some
+          (Session.add_source session ~path:"<hosted-task-providers>"
+             ~contents:headers))
 
 let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
@@ -1036,6 +1088,8 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       native_offset;
       native_internal_binding;
       commands = [];
+      compiled_rev = ref [];
+      compiler_tasks = ref [];
     }
 
 let adopt_source = adopt_source_with_promotion Task_declarations.promote_source
@@ -1900,9 +1954,7 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
             else error))
 
 let observe_initializer task event = observe_initializer_internal task event
-
-let compiled_units task =
-  List.rev_map (fun (_, command) -> command.program) task.commands
+let compiled_units task = List.rev !(task.compiled_rev)
 
 let compile_isolated task ~source_command session ~config parsed =
   match task.native_dispatch with
@@ -1996,6 +2048,7 @@ let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
         }
       in
       task.commands <- (ast, command) :: task.commands;
+      task.compiled_rev := command.program :: !(task.compiled_rev);
       Ok command
 
 let compile_ast task ast = compile_ast_internal task ast
@@ -2452,7 +2505,8 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
             (stream_diagnostics span
                "HCIRVM0027: source sequence has not been accepted") )
 
-let rec stream_executor ?(allow_stream_exe_print = true) task span =
+let rec stream_executor ?saved_compiler ?(allow_stream_exe_print = true) task
+    span =
   let ( let* ) = Result.bind in
   let* stream =
     begin_stream task |> Result.map_error (stream_diagnostics span)
@@ -2467,7 +2521,7 @@ let rec stream_executor ?(allow_stream_exe_print = true) task span =
   in
   let stream_exe_print =
     if allow_stream_exe_print then
-      Some (run_stream_exe_source task ~active ~span)
+      Some (run_stream_exe_source ?saved_compiler task ~active ~span)
     else None
   in
   let execute_command command =
@@ -2503,40 +2557,108 @@ let rec stream_executor ?(allow_stream_exe_print = true) task span =
             | Error _ -> ());
       }
 
-and run_stream_exe_source task ~active ~span contents =
+and run_stream_exe_source ?saved_compiler task ~active ~span contents =
   let ( let* ) = Result.bind in
   let* () = active () in
   let* suspension =
     Task_declarations.parser_suspension task.declarations
     |> Result.map_error (stream_diagnostics span)
   in
+  let* enclosing =
+    Frontend.Parser.suspension_enclosing_context suspension
+    |> Result.map_error (stream_diagnostics span)
+  in
+  let* target =
+    match saved_compiler with
+    | None ->
+        if
+          Frontend.Parser.context_environment enclosing
+          == Session.symbols task.session
+        then Ok task
+        else
+          Error
+            (stream_diagnostics span
+               "saved compiler tables require their original namespace adapter")
+    | Some saved -> (
+        let* _ =
+          Task_declarations.saved_compiler_context saved.compiler_declarations
+            ~session:saved.compiler_session ~suspension
+          |> Result.map_error (stream_diagnostics span)
+        in
+        match saved.compiler_task with
+        | Some target when VM.task_shares_resources task.state target.state ->
+            Ok target
+        | Some _ ->
+            Error
+              (stream_diagnostics span
+                 "saved compiler execution has another original resource owner")
+        | None ->
+            let* state =
+              VM.create_compiler_namespace_task task.state
+                ~table:(Session.semantic_symbols saved.compiler_session)
+              |> Result.map_error (stream_diagnostics span)
+            in
+            let* declarations =
+              Task_declarations.create_saved_compiler_runtime
+                saved.compiler_declarations ~session:saved.compiler_session
+                ~suspension ~runtime:state
+              |> Result.map_error (stream_diagnostics span)
+            in
+            let target =
+              {
+                task with
+                session = saved.compiler_session;
+                state;
+                declarations;
+                identity = ref ();
+                commands = [];
+              }
+            in
+            saved.compiler_task <- Some target;
+            task.compiler_tasks := target :: !(task.compiler_tasks);
+            Ok target)
+  in
+  let execute suspension source =
+    let* sequence, final_value =
+      run_input_execution ~suspension ~enclosing ~stream_task:task
+        ~use_active_stream:false ~active target ~source
+    in
+    let* () =
+      VM.check_task_suspended_completion target.state ~suspension sequence
+      |> Result.map_error (fun message ->
+          [
+            Integer_source.diagnostic
+              ~span:(Integer_source.source_span source)
+              "HCRUN0004" message;
+          ])
+    in
+    let* () = active () in
+    Ok final_value
+  in
+  let* suspension =
+    if target == task then Ok suspension
+    else
+      match provider_source target with
+      | None -> Ok suspension
+      | Some providers ->
+          let* _ = execute suspension providers in
+          Task_declarations.parser_suspension task.declarations
+          |> Result.map_error (stream_diagnostics span)
+  in
   let source =
-    Session.add_source task.session ~path:"<StreamExePrint>" ~contents
+    Session.add_source target.session ~path:"<StreamExePrint>" ~contents
   in
   Frontend.Symbol_visibility.Environment.without_locals
-    (Session.symbols task.session) (fun () ->
-      let* sequence, final_value =
-        run_input_execution ~suspension ~use_active_stream:false ~active task
-          ~source
-      in
-      let* () =
-        VM.check_task_suspended_completion task.state ~suspension sequence
-        |> Result.map_error (fun message ->
-            [
-              Integer_source.diagnostic
-                ~span:(Integer_source.source_span source)
-                "HCRUN0004" message;
-            ])
-      in
-      let* () = active () in
+    (Session.symbols target.session) (fun () ->
+      let* final_value = execute suspension source in
       Ok
         (Option.fold ~none:0L
            ~some:(function
              | Native_dispatch.I64 bits | Native_dispatch.U64 bits -> bits)
            final_value))
 
-and run_input_execution ?suspension ?(use_active_stream = true)
-    ?(active = fun () -> Ok ()) task ~source =
+and run_input_execution ?suspension ?enclosing ?stream_task
+    ?(use_active_stream = true) ?(active = fun () -> Ok ()) task ~source =
   let ( let* ) = Result.bind in
   let* () =
     match
@@ -2566,19 +2688,44 @@ and run_input_execution ?suspension ?(use_active_stream = true)
       (Integer_source.source_span source)
       ~use_active_stream ~active ~execute_command
   in
+  let execute_stream =
+    match stream_task with
+    | None -> stream_executor task
+    | Some stream_task when stream_task == task -> stream_executor task
+    | Some stream_task ->
+        let saved =
+          {
+            compiler_session = task.session;
+            compiler_declarations = task.declarations;
+            compiler_task = Some task;
+          }
+        in
+        stream_executor ~saved_compiler:saved stream_task
+  in
   let* parsed =
-    match suspension with
-    | None ->
+    match (suspension, enclosing) with
+    | None, _ ->
         Ok
-          (Frontend.Parser.parse ~commands
-             ~execute_stream:(stream_executor task)
+          (Frontend.Parser.parse ~commands ~execute_stream
              ~sources:(Session.sources task.session)
              ~definitions:(Session.definitions task.session)
              ~symbols:(Session.symbols task.session)
              ~config:task.config source)
-    | Some suspension ->
-        Frontend.Parser.parse_suspended suspension ~commands
-          ~execute_stream:(stream_executor task)
+    | Some suspension, None ->
+        Frontend.Parser.parse_suspended suspension ~commands ~execute_stream
+          ~sources:(Session.sources task.session)
+          ~definitions:(Session.definitions task.session)
+          ~symbols:(Session.symbols task.session)
+          ~config:task.config source
+        |> Result.map_error (fun message ->
+            [
+              Integer_source.diagnostic
+                ~span:(Integer_source.source_span source)
+                "HCRUN0004" message;
+            ])
+    | Some suspension, Some enclosing ->
+        Frontend.Parser.parse_suspended_enclosing suspension ~enclosing
+          ~commands ~execute_stream
           ~sources:(Session.sources task.session)
           ~definitions:(Session.definitions task.session)
           ~symbols:(Session.symbols task.session)

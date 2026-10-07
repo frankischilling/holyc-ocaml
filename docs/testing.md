@@ -1725,7 +1725,26 @@ isolated boundary.
 
 IR stream callback tests cover active generation, installed internal/public
 primitive signatures, inactive formatting order, saved captures and defaults,
-indexed copies, replacement bodies and task-owned nested buffers. AOT
-StreamExePrint callbacks execute nested source with shared exact and one-below
-step/work limits. JIT contexts retain their reached rejection. Native stream
-callbacks and the full compiler remain required.
+indexed copies, replacement bodies and task-owned nested buffers. StreamExePrint
+callbacks execute nested source in active blocks of either outer mode. Ordinary
+children start inactive; their own directives establish separate permission.
+Native synchronous execution and the full compiler remain required.
+
+Saved compiler namespace tests cover original enclosing types and replacements,
+directive-only name exclusion, child publication, successive calls, inherited
+metadata, retained child cells/functions/defaults/statics and nested switches
+back to the directive task. Parser controls reject foreign tables, managers,
+contexts and domains, wrong child modes, advanced ancestors, expired or replayed
+tokens, and reconstructed completion evidence. Saved local shadows survive
+child parse failures and exceptions. Original pending AOT runtime imports and
+compiler-local `sizeof` retain explicit unsupported diagnostics.
+
+The shared-resource case keeps the caller live across child execution. Its
+minimum frame allowance is 40 bytes and its minimum call depth is three; each
+one-below failure preserves only the reached `before;` output. Instruction,
+preparation, global storage, literal storage and formatting-work tests measure
+their exact success limits and check each one-below failure. Ordinary output
+succeeds at 19 bytes; at 18 it preserves `before;child;` and rejects the final
+draft. The CLI harness runs
+`examples/stream-exe-compiler-context.hc` in both modes, checks its value and
+`before;child;after;` output, and repeats the measured resource edges.

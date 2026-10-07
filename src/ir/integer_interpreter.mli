@@ -445,6 +445,18 @@ val create_task_state :
   unit ->
   (task_state, string) result
 
+val create_compiler_namespace_task :
+  task_state -> table:Sema.Symbol_table.t -> (task_state, string) result
+(** Create a separate declaration and execution catalog during the original
+    suspended IR source callback. Both catalogs retain the same counters,
+    limits, output/generation buffers and live frame/depth reservations. Sharing
+    resources grants no declaration, storage or source authority. Native tasks
+    require their own synchronous machine bridge. *)
+
+val task_shares_resources : task_state -> task_state -> bool
+(** Physical shared-counter/buffer identity, without source or storage
+    authority. *)
+
 val begin_task_stream : task_state -> (task_stream, string) result
 
 type native_generation

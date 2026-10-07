@@ -65,6 +65,15 @@ type lookup = Absent | Present of entry | Shadowed_by_local
 module Environment : sig
   type t
   type local_context
+  type local_snapshot
+
+  val capture_locals : t -> local_snapshot
+
+  val with_saved_locals :
+    t -> local_snapshot -> (unit -> 'a) -> ('a, string) result
+  (** Restore a snapshot only in its physical original environment and restore
+      the current visibility on every exit. Local names do not grant frame,
+      storage, declaration or parser-position authority. *)
 
   val create : unit -> t
 

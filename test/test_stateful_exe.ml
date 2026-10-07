@@ -279,11 +279,140 @@ let stream_exe_print_source_limit () =
     "rejected StreamExePrint source bytes remain unpublished" 0
     below_progress.runtime.generated_bytes
 
+let saved_compiler_cases =
+  [
+    ( "saved compiler sizeof uses the original outer class",
+      {|class Outer{I64 n;};#exe {I64 N=StreamExePrint("sizeof(Outer)+34;");StreamPrint("%d;",N);}|}
+    );
+    ( "saved compiler class survives a same-name task class",
+      {|class C{I64 n;};#exe {class C{U8 n;};I64 N=StreamExePrint("sizeof(C)+34;");StreamPrint("%d;",N);}|}
+    );
+    ( "saved compiler defined excludes directive-only names",
+      {|#exe {class TaskOnly{I64 n;};I64 F(){return 42;}I64 N=StreamExePrint("defined(TaskOnly)+defined(F)+42;");StreamPrint("%d;",N);}|}
+    );
+    ( "saved compiler macros use the enclosing definition table",
+      "#define Saved 40+2\n\
+       #exe {\n\
+       #define Saved 17\n\
+       I64 N=StreamExePrint(\"Saved;\");StreamPrint(\"%d;\",N);}" );
+    ( "saved compiler child macros publish to outer input",
+      {|#exe {StreamExePrint("#define ChildValue 40+2\n");}ChildValue;|} );
+    ( "saved compiler child type publishes to outer input",
+      {|#exe {StreamExePrint("class Child{I64 n;};");}sizeof(Child)+34;|} );
+    ( "saved compiler child type survives successive directives",
+      {|#exe {StreamExePrint("class Child{I64 n;};");}#exe {I64 N=StreamExePrint("sizeof(Child)+34;");StreamPrint("%d;",N);}|}
+    );
+    ( "saved compiler retains its own child cells",
+      {|#exe {StreamExePrint("I64 ChildN=40;");I64 N=StreamExePrint("ChildN+=2;ChildN;");StreamPrint("%d;",N);}|}
+    );
+    ( "saved compiler retains original child functions and statics",
+      {|#exe {StreamExePrint("I64 F(I64 n=40){static I64 x=2;return n+x;}");I64 N=StreamExePrint("F();");StreamPrint("%d;",N);}|}
+    );
+    ( "saved compiler child inheritance keeps the outer base",
+      {|class Base{I64 n;};#exe {I64 N=StreamExePrint("class Child:Base{I64 n;};sizeof(Child)+26;");StreamPrint("%d;",N);}|}
+    );
+    ( "saved compiler child directive returns to task tables",
+      {|#exe {I64 TaskN=2;I64 N=StreamExePrint("I64 ChildN=40;#exe {StreamPrint(\"ChildN+%%d;\",TaskN);}");StreamPrint("%d;",N);}|}
+    );
+    ( "saved compiler nested directive saves its child tables",
+      {|#exe {I64 N=StreamExePrint("class C{I64 n;};#exe {I64 N=StreamExePrint(\"sizeof(C)+34;\");StreamPrint(\"%%d;\",N);}");StreamPrint("%d;",N);}|}
+    );
+  ]
+
+let saved_compiler_limits () =
+  let source =
+    {|#exe {I64 F(){Print("before;");I64 N=StreamExePrint("I64 Values[2]={20,22};I64 G(){I64 N=Values[0]+Values[1];return N;}Print(\"child;\");G();");Print("after;");return N;}StreamPrint("%d;",F());}|}
+  in
+  List.iter
+    (fun mode ->
+      let measured = Output.run ~mode source in
+      ignore (Output.expect "before;child;after;" measured);
+      let progress = Option.get (integer_program_report_progress measured) in
+      let steps = progress.runtime.executed_steps
+      and work = integer_program_report_output_work measured
+      and globals = progress.runtime.global_bytes
+      and literals = progress.runtime.literal_bytes
+      and preparation =
+        Option.get (integer_program_report_preparation_work measured)
+      in
+      Alcotest.(check bool)
+        "child initialization has reached preparation" true (preparation > 1);
+      ignore
+        (Output.run ~mode ~max_steps:steps ~max_output_work:work
+           ~max_initializer_steps:preparation ~max_frame_bytes:40
+           ~max_call_depth:3 ~max_global_bytes:globals
+           ~max_literal_bytes:literals ~max_output_bytes:19 source
+        |> Output.expect "before;child;after;");
+      ignore
+        (Output.run ~mode ~max_steps:(steps - 1) source
+        |> Output.fault ~output:"before;child;after;" "HCIRVM0007");
+      ignore
+        (Output.run ~mode ~max_output_work:(work - 1) source
+        |> Output.fault ~output:"before;child;after;" "HCIRVM0023");
+      ignore
+        (Output.run ~mode ~max_initializer_steps:(preparation - 1) source
+        |> Output.fault ~output:"before;" "HCIRVM0007");
+      ignore
+        (Output.run ~mode ~max_frame_bytes:39 source
+        |> Output.fault ~output:"before;" "HCIRVM0011");
+      ignore
+        (Output.run ~mode ~max_call_depth:2 source
+        |> Output.fault ~output:"before;" "HCIRVM0015");
+      ignore
+        (Output.run ~mode ~max_global_bytes:(globals - 1) source
+        |> Output.fault ~output:"before;" "HCIRVM0016");
+      ignore
+        (Output.run ~mode ~max_literal_bytes:(literals - 1) source
+        |> Output.fault ~output:"before;" "HCIRVM0021");
+      ignore
+        (Output.run ~mode ~max_output_bytes:18 source
+        |> Output.fault ~output:"before;child;" "HCIRVM0022"))
+    G.modes
+
+let saved_compiler_unsupported_original_storage () =
+  List.iter
+    (fun source ->
+      ignore
+        (Output.run ~mode:Preprocessor.Aot source |> Output.fault "HCRUN0003");
+      ignore (Output.run ~mode:Preprocessor.Jit source |> Output.expect ""))
+    [
+      {|I64 N=40;#exe {I64 V=StreamExePrint("N+2;");StreamPrint("%d;",V);}|};
+      {|I64 F(){return 42;}0;#exe {I64 V=StreamExePrint("F();");StreamPrint("%d;",V);}|};
+    ];
+  ignore
+    (Output.run ~mode:Preprocessor.Jit
+       {|I64 F(){return 42;}#exe {I64 V=StreamExePrint("F();");StreamPrint("%d;",V);}|}
+    |> Output.fault "HCIRVM0030");
+  List.iter
+    (fun mode ->
+      let error =
+        Output.run ~mode
+          {|I64 N;I64 F(){U8 N;#exe {I64 V=StreamExePrint("sizeof(N);");StreamPrint("%d;",V);}return 0;}42;|}
+        |> Output.fault "HCRUN0004"
+      in
+      Alcotest.(check bool)
+        "saved local cannot fall through to same-name global" true
+        (String.ends_with
+           ~suffix:"local sizeof has no original function publication"
+           error.message))
+    G.modes
+
 let tests =
   List.map
     (fun (name, source) -> Alcotest.test_case name `Quick (expect 42L source))
     (gates @ stream_exe_print_contexts)
+  @ List.map
+      (fun (name, source) ->
+        Alcotest.test_case name `Quick
+          (expect ~modes:[ Preprocessor.Aot ] 42L source))
+      saved_compiler_cases
   @ [
+      Alcotest.test_case
+        "saved compiler execution shares original work and frames" `Quick
+        saved_compiler_limits;
+      Alcotest.test_case
+        "saved compiler keeps original runtime and local boundaries" `Quick
+        saved_compiler_unsupported_original_storage;
       Alcotest.test_case "StreamExePrint requires an active parser context"
         `Quick stream_exe_print_bridge;
       Alcotest.test_case "StreamExePrint keeps JIT callers and output order"

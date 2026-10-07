@@ -94,42 +94,11 @@ let task_units (report : report) = report.task_units_
 let ( let* ) = Result.bind
 
 let install_providers ?(suspended = false) task =
-  let session = Task.frontend task in
-  let symbols = Session.symbols session in
-  Frontend.Symbol_visibility.Environment.without_locals symbols (fun () ->
-      let storage primitive =
-        (Common.Primitive_type.info primitive).storage_spelling
-      in
-      let i64 = storage Common.Primitive_type.I64 in
-      let u0 = storage Common.Primitive_type.U0 in
-      let u8 = storage Common.Primitive_type.U8 in
-      let u64 = storage Common.Primitive_type.U64 in
-      let headers =
-        [
-          ( "StreamExePrint",
-            Printf.sprintf "extern %s StreamExePrint(%s *fmt,...);" i64 u8 );
-          ( "StreamPrint",
-            Printf.sprintf "extern %s StreamPrint(%s *fmt,...);" u0 u8 );
-          ("Print", Printf.sprintf "extern %s Print(%s *fmt,...);" u0 u8);
-          ("PutChars", Printf.sprintf "extern %s PutChars(%s ch);" u0 u64);
-        ]
-        |> List.filter_map (fun (name, header) ->
-            match
-              Frontend.Symbol_visibility.Environment.find_preprocessor symbols
-                name
-            with
-            | Absent -> Some header
-            | Present _ | Shadowed_by_local -> None)
-        |> String.concat "\n"
-      in
-      if headers = "" then Ok ()
-      else
-        let source =
-          Session.add_source session ~path:"<hosted-task-providers>"
-            ~contents:headers
-        in
-        if suspended then Task.run_suspended task ~source
-        else Task.run task ~source |> Result.map ignore)
+  match Task.provider_source task with
+  | None -> Ok ()
+  | Some source ->
+      if suspended then Task.run_suspended task ~source
+      else Task.run task ~source |> Result.map ignore
 
 let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_initializer_steps = 100_000) ?(max_steps = 100_000)
@@ -204,6 +173,9 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
         else None
       in
       let is_jit = Option.is_none task_session in
+      let saved_compiler =
+        Option.map (fun _ -> Task.saved_compiler session ~ledger) task_session
+      in
       let ensure_task directive =
         match !task with
         | Some task -> Ok task
@@ -258,7 +230,7 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
             providers_installed := true;
             Ok ()
         in
-        Task.stream_executor retained directive
+        Task.stream_executor ?saved_compiler retained directive
       in
       let commands : Parser.command_sink =
         {

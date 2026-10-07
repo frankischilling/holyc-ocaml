@@ -286,9 +286,10 @@ type t = {
   names : assigned Names.t;
   entries : assigned Entries.t;
   mutable commands : command list;
-  mutable next_ordinal : int;
+  next_ordinal : int ref;
   mutable sequences : command_sequence list;
   mutable active : command_sequence list;
+  saved_parent : Parser.command_context option;
   mutable views : (Ast.module_ * parsed_command list) list;
   mutable sequence_views : (Ast.module_ * Parser.completed_sequence) list;
   mutable authority : authority;
@@ -346,9 +347,9 @@ let origin (name : Ast.identifier) =
       defined_at = location.defined_at;
     }
 
-let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
-    ?(max_dimension_work = 100_000) ?(max_offset_work = 100_000) authority
-    session =
+let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
+    ?max_switch_work ?switch_budget ?(max_dimension_work = 100_000)
+    ?(max_offset_work = 100_000) authority session =
   let runtime =
     match authority with
     | Task_runtime runtime -> Some runtime
@@ -388,7 +389,10 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
               Some (Common.Source_file.display_path source)
           | _ -> None
         in
-        Collection.create_namespace ~table ?module_name () |> fun result ->
+        (match enclosing_ledger with
+          | None -> Collection.create_namespace ~table ?module_name ()
+          | Some enclosing -> Ok enclosing.namespace)
+        |> fun result ->
         Result.bind result (fun namespace ->
             let binding =
               match authority with
@@ -424,12 +428,22 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   namespace;
                   sources = Session.sources session;
                   symbols = Session.symbols session;
-                  names = Names.create 32;
-                  entries = Entries.create 32;
+                  names =
+                    Option.fold ~none:(Names.create 32)
+                      ~some:(fun enclosing -> enclosing.names)
+                      enclosing_ledger;
+                  entries =
+                    Option.fold ~none:(Entries.create 32)
+                      ~some:(fun enclosing -> enclosing.entries)
+                      enclosing_ledger;
                   commands = [];
-                  next_ordinal = 0;
+                  next_ordinal =
+                    Option.fold ~none:(ref 0)
+                      ~some:(fun enclosing -> enclosing.next_ordinal)
+                      enclosing_ledger;
                   sequences = [];
                   active = [];
+                  saved_parent;
                   views = [];
                   sequence_views = [];
                   authority;
@@ -454,9 +468,20 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   query_roots = Query_roots.create 16;
                   queries = Query_expressions.create 16;
                   dimension_owners = Names.create 16;
-                  dimensions = Dimensions.create 16;
-                  checked_dimensions = Dimensions.create 16;
-                  selected_aggregate_types = Type_specifiers.create 16;
+                  dimensions =
+                    Option.fold ~none:(Dimensions.create 16)
+                      ~some:(fun enclosing -> enclosing.dimensions)
+                      enclosing_ledger;
+                  checked_dimensions =
+                    Option.fold ~none:(Dimensions.create 16)
+                      ~some:(fun enclosing -> enclosing.checked_dimensions)
+                      enclosing_ledger;
+                  selected_aggregate_types =
+                    Option.fold
+                      ~none:(Type_specifiers.create 16)
+                      ~some:(fun enclosing ->
+                        enclosing.selected_aggregate_types)
+                      enclosing_ledger;
                   initializers = Names.create 16;
                 })
               binding))
@@ -890,8 +915,28 @@ let observe_command_source ledger event =
               (fun sequence -> sequence.context == context)
               ledger.sequences
           then fail span "parser command context was already consumed";
-          let parent_context, matches =
+          let parent =
             match Parser.context_parent context with
+            | None -> None
+            | Some position ->
+                let parent =
+                  match position with
+                  | Parser.Before_first_command parent -> parent
+                  | Parser.Reading_command start -> start.command_context
+                  | Parser.Awaiting_resume completed ->
+                      completed.command_start.command_context
+                in
+                (* Historical events in this namespace remain observations.
+                   Crossing compiler tables requires the live original stack. *)
+                if Parser.context_environment parent == ledger.symbols then
+                  Some position
+                else
+                  Parser.context_parent_in_environment context
+                    ~environment:ledger.symbols
+                  |> checked span
+          in
+          let parent_context, matches =
+            match parent with
             | None -> (None, fun _ -> false)
             | Some (Parser.Before_first_command parent) ->
                 ( Some parent,
@@ -919,7 +964,8 @@ let observe_command_source ledger event =
           | Some parent, sequence :: _
             when sequence.context == parent && matches sequence -> ()
           | Some parent, []
-            when Parser.context_environment parent != ledger.symbols -> ()
+            when Option.fold ~none:false ~some:(( == ) parent)
+                   ledger.saved_parent -> ()
           | _ ->
               fail span
                 "nested parser context does not match the suspended parent \
@@ -1900,7 +1946,7 @@ let assign ledger (name : Ast.identifier) kind source entry =
   if Names.mem ledger.names name || Entries.mem ledger.entries entry then
     fail name.Ast.location.span
       "parser declaration publication was already consumed";
-  if ledger.next_ordinal = max_int then
+  if !(ledger.next_ordinal) = max_int then
     fail name.location.span "task declaration publication order is exhausted";
   let publication =
     (match source with
@@ -1954,9 +2000,9 @@ let assign ledger (name : Ast.identifier) kind source entry =
             |> checked name.location.span)
   | _ -> ());
   let assigned =
-    { publication; source; ordinal = ledger.next_ordinal; claimed = false }
+    { publication; source; ordinal = !(ledger.next_ordinal); claimed = false }
   in
-  ledger.next_ordinal <- ledger.next_ordinal + 1;
+  incr ledger.next_ordinal;
   Names.add ledger.names name assigned;
   Entries.add ledger.entries entry assigned
 
@@ -5790,6 +5836,48 @@ let parser_suspension ledger =
   match ledger.active with
   | active :: _ -> Parser.suspend_context active.context
   | [] -> Error "task has no suspended parser source"
+
+let saved_compiler_context ledger ~session ~suspension =
+  let ( let* ) = Result.bind in
+  let* context = Parser.suspension_enclosing_context suspension in
+  let observed_events =
+    List.fold_left
+      (fun count event ->
+        let original =
+          match event with
+          | Parser.Sequence_started original | Parser.Sequence_aborted original
+            -> original
+          | Parser.Command_started start -> start.command_context
+          | Parser.Command_completed completed
+          | Parser.Command_resumed completed ->
+              completed.command_start.command_context
+          | Parser.Sequence_completed completed -> completed.sequence_context
+        in
+        if original == context then count + 1 else count)
+      0 ledger.source_events_rev
+  in
+  if
+    ledger.session != session
+    || ledger.sources != Session.sources session
+    || ledger.symbols != Session.symbols session
+    || ledger.table != Session.semantic_symbols session
+    || Parser.context_environment context != ledger.symbols
+    || (not (Parser.context_is_current context ~observed_events))
+    || not
+         (match ledger.active with
+         | active :: _ -> active.context == context
+         | [] -> false)
+  then Error "saved compiler context has another original source ledger"
+  else Ok context
+
+let create_saved_compiler_runtime ledger ~session ~suspension ~runtime =
+  let ( let* ) = Result.bind in
+  let* saved_parent = saved_compiler_context ledger ~session ~suspension in
+  create_with_authority ~enclosing_ledger:ledger ~saved_parent
+    ~compiler_positions:ledger.compiler_positions
+    ~switch_budget:ledger.switch_budget
+    ~max_dimension_work:ledger.max_dimension_work
+    ~max_offset_work:ledger.max_offset_work (Task_runtime runtime) session
 
 let require_observed_callback_default ledger receipt =
   let span = receipt.Parser.callback_default_ast.location.span in

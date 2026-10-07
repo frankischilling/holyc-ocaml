@@ -11548,19 +11548,19 @@ native_oracle_status = "pinned-source audit and hosted adapter execution; no new
 
 [[feature]]
 id = "HC-STREAM-EXE-PRINT"
-description = "Checked StreamExePrint formats source and executes it through the retained outer task context for compiled AOT #exe commands."
-sources = ["Compiler/CMain.HC:673-688", "Compiler/CompilerB.HH:21", "Compiler/CMain.HC:60-75"]
+description = "Checked StreamExePrint formats source and executes it through the saved enclosing compiler context in active #exe blocks of either outer mode."
+sources = ["Compiler/CMain.HC:673-690", "Compiler/CompilerB.HH:21", "Compiler/CMain.HC:572-604", "Compiler/PrsStmt.HC:805-840"]
 implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_output.ml", "src/ir/runtime_call_context.ml"]
 tests = ["test/test_stateful_exe.ml", "test/test_stateful_exe_cli.ml", "test/test_task_parser_executor.ml", "test/test_task_command_order.ml"]
 documentation = ["docs/integer-task.md", "docs/retained-aggregates.md", "docs/reference-source-map.md", "CHANGELOG.md"]
 status = "implemented"
 issue = 684
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-semantics = "AOT calls format their variadic arguments, execute the resulting tracked source with current outer task declarations and replacements, and return its final I64 bits or zero when no final value exists. Nested declarations stay in the task. JIT performs the formatting work before HCIRVM0027 because the pinned service requires compiled #exe mode."
-ownership = "Nested parsing resumes from the exact live suspension and command history. Function locals are hidden while the outer task namespace remains visible. Stale, foreign or reconstructed completion evidence cannot authorize execution. Reached ordinary output and task effects survive a later nested fault."
+semantics = "Active calls in both outer modes format their variadic arguments and execute the tracked source in the saved enclosing compiler namespace, returning its final I64 bits or zero when no final value exists. Reached child declarations publish there. Ordinary child commands start in JIT mode without inherited EXE permission; a child's own directive supplies its separate context."
+ownership = "Nested parsing resumes from the exact live suspension and command history with the original enclosing table and local shadows. Directive caller locals supply no compiler-local frame authority. Stale, foreign or reconstructed completion evidence cannot authorize execution. Reached ordinary output and task effects survive a later nested fault."
 limits = "Nested execution shares cumulative instruction, active-frame, call-depth and output-work budgets. Formatted source is bounded by max_generated_bytes but is executed directly, so it does not increment generated_bytes. Exact and one-below tests cover source bytes, execution steps, frame bytes, call depth and output work."
-source_gate = "Public AOT source executes StreamExePrint(\"40+2;\") and returns 42 through a following StreamPrint fragment. Focused tests cover nested calls, same-name replacement, generated declarations and failure effects. Public JIT source reaches formatting work and then reports HCIRVM0027."
-excluded = ["remaining sizeof/offset/lastclass/defined/$$ consumers", "remaining compiler-option consumers", "other compiler-task stream services", "native/BIN/loader acceptance", "bootstrap"]
+source_gate = "Public source in both modes executes StreamExePrint(\"40+2;\") and returns 42 through a following StreamPrint fragment. Focused tests cover nested calls, saved enclosing types and replacements, child publication and persistence, directive-only name exclusion, caller lifetime, failure effects and resource edges. Inactive calls reach formatting before HCIRVM0027."
+excluded = ["pending original AOT runtime data and function imports", "original compiler-local metadata and frames", "remaining sizeof/offset/lastclass/defined/$$ consumers", "remaining compiler-option consumers", "other compiler-task stream services", "synchronous native execution", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
 
 [[feature]]
@@ -13592,8 +13592,8 @@ excluded = ["source variadic pointer-tail bodies", "cross-image provider-code re
 
 [[feature]]
 id = "HC-IR-STREAM-CALLBACK-ENTRIES"
-description = "Original stream-provider captures invoke their checked IR task generation and AOT source contexts."
-sources = ["Compiler/PrsExp.HC:624-652 original extern capture", "Compiler/CMisc.HC:68-81 StreamPrint formatting and active block", "Compiler/CMain.HC:673-690 StreamExePrint AOT context and source execution", "Compiler/CompilerB.HH:21-22 public stream signatures"]
+description = "Original stream-provider captures invoke checked IR generation and saved compiler input in active blocks of either outer mode."
+sources = ["Compiler/PrsExp.HC:624-652 original extern capture", "Compiler/CMisc.HC:68-81 StreamPrint formatting and active block", "Compiler/CMain.HC:673-690 StreamExePrint saved context and source execution", "Compiler/PrsStmt.HC:805-840 active flag in both outer modes", "Compiler/CompilerB.HH:21-22 public stream signatures"]
 implementation = ["src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_provider_callbacks.ml", "test/test_task_stream.ml", "test/test_stateful_exe.ml"]
 documentation = ["docs/provider-callback-entries.md", "docs/testing.md", "docs/reference-source-map.md"]
@@ -13601,7 +13601,7 @@ status = "implemented"
 issue = 705
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source_identity = "Provider selection retains the complete original declaration/link/slot pair and current task publication. Primitive ABI compatibility does not grant aggregate, source-body or executable ownership."
-execution = "StreamPrint callbacks format before active-buffer checks and publish into the original task-owned LIFO buffer. Saved defaults and earlier captures survive later directives or body replacement. StreamExePrint callbacks format before checking the enclosing compiled AOT context, execute nested source in that task, return its word and share execution/work bounds. Inactive or JIT contexts retain their reached faults after formatting."
+execution = "StreamPrint callbacks format before active-buffer checks and publish into the original task-owned LIFO buffer. Saved defaults and earlier captures survive later directives or body replacement. StreamExePrint callbacks format before checking the active block, execute nested source through the saved enclosing compiler namespace, return its word and share execution/work bounds. Inactive ordinary children and expired contexts retain their reached faults after formatting."
 verification = "Maintained tests cover installed signatures, active and inactive contexts, arrays, history, defaults, replacement, nested buffers, generated capacity, failed drafts, nested source faults and exact/one-below cumulative execution and work. Existing direct stream tests remain required."
 verification_boundary = "This is checked hosted IR execution; native stream-provider entries and the original TempleOS runtime services remain open. These tests add no TempleOS capture, exported ABI, loader or full-compiler acceptance."
 excluded = ["native stream-provider callback entries", "native #exe", "native AOT source tasks", "TempleOS runtime services", "exported HolyC ABI", "full compiler and release"]
@@ -13700,3 +13700,19 @@ execution = "Native directives complete during parsing and inject only committed
 verification = "Seventeen shared source-derived fixtures check JIT directive mode, hidden function locals, task/module visibility, zero storage, original load calls, retained defaults and callbacks, task statics, historical bodies, inherited task layouts, nested streams and output order against fresh IR runs. API and CLI tests check exact and one-below instruction, preparation, default-byte, generated-byte, output, code, IR and combined global/literal limits, plus reached directive/module faults and malformed generated source. Native reports preserve distinct original fragment outcomes."
 verification_boundary = "Hosted integer AOT source orchestration retains the existing native outer module language boundary. These tests add no TempleOS runtime capture, exported HolyC ABI, BIN loader or whole-tree compiler acceptance."
 excluded = ["synchronous native StreamExePrint and reentrant parser/frame/arena/budget leases", "general outer aggregate declarations and object execution", "runtime AOT dimensions", "AOT reference-default relocation", "floating execution and wider signatures", "exported HolyC ABI", "object/BIN output and actual loader acceptance", "whole-tree compilation and bootstrap", "complete compiler and release"]
+
+[[feature]]
+id = "HC-IR-SAVED-COMPILER-STREAM-INPUT"
+description = "Original StreamExePrint suspensions select the saved enclosing compiler namespace and retain reached child publications under one resource owner."
+sources = ["Compiler/PrsStmt.HC:805-840 saved enclosing tables, task switch and active flag", "Compiler/CMain.HC:673-690 formatted source and htc.next selection", "Compiler/CMain.HC:572-604 child JIT context and saved tables", "Kernel/KTask.HC:302-357 reached child command compilation and execution"]
+implementation = ["src/frontend/parser.ml", "src/frontend/symbol_visibility.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/integer_source_execution.ml", "src/driver/public_integer_task.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_direct_call_phases.ml", "test/test_stateful_exe.ml", "test/test_stateful_exe_cli.ml", "examples/stream-exe-compiler-context.hc"]
+documentation = ["docs/integer-task.md", "docs/provider-callback-entries.md", "docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/native-aot-source-sessions.md", "docs/testing.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "A live original directive supplies a one-use suspension and its unchanged direct enclosing context. Child parsing requires that context's original sources, symbols, local shadows, domain and observed declaration ledger. The child runtime reuses the canonical namespace and original completed metadata, with its own command lifecycle and storage catalog. No unrelated declaration graphs are merged."
+execution = "Child input starts in JIT mode without inherited EXE permission. Reached types, replacements, cells, functions, defaults and statics publish into the original saved namespace and persist for later child inputs. A child's own directive switches back to the retained task and restores its compiler context afterward. Separate catalogs share actual cumulative instruction, preparation, global/literal, output and generation counters, exact stream stack, suspended frame bytes and call depth."
+verification = "Source cases cover enclosing type and replacement selection, directive-only type/function exclusion, child publication and persistence, original inherited metadata, nested table switches and saved local shadows. Parser controls reject ordinary contexts, foreign managers/symbols/contexts/domains, wrong modes, advanced parents, replay and expiry; failure and exception paths preserve one-use consumption and restore local visibility. API and CLI tests check exact and one-below instructions, preparation and work, including a live caller with a 40-byte frame limit and call depth three."
+verification_boundary = "This is source-backed hosted IR execution. Correct namespace selection does not make pending original AOT data/functions executable or supply original compiler-local metadata. These tests add no TempleOS runtime capture, native synchronous reentry, exported ABI or full compiler acceptance."
+excluded = ["pending original AOT runtime data and function imports", "original compiler-local metadata and invocation frames", "synchronous native StreamExePrint and reentrant leases", "floating and aggregate object execution", "AOT runtime relocation", "wider ABI", "object/BIN output and actual loader", "whole-tree compilation and bootstrap", "complete compiler and release"]

@@ -485,12 +485,18 @@ formatting, despite the AOT wording in its diagnostic. `ExePutS` at
 `Compiler/CMain.HC:572-604` copies the saved tables but inherits only the assembly
 flag, so ordinary child source has no active-block permission.
 
-The IR service executes a separately tracked `<StreamExePrint>` source with
-function locals hidden. Its nested parser retains original suspension and
-command-order ownership. JIT namespace lookup and declaration-time execution
-use the retained task. AOT saved-table lookup and publication remain unfinished:
-the hosted child currently uses the detached task table. Native synchronous
-execution in both modes remains unfinished as well.
+`Kernel/KTask.HC:302-357` supplies the child command loop: it compiles and
+executes reached commands in order, retaining earlier effects when a later
+command fails. The IR service tracks `<StreamExePrint>` separately and uses the
+saved enclosing compiler's original namespace, declaration ledger and completed
+metadata in both modes. Reached child declarations publish there. The exact
+live suspension, unchanged ancestor position, source manager, symbol environment
+and domain authorize child parsing; copied or expired evidence cannot do so.
+The saved compiler's lexical local shadows survive the directive's switch to
+task tables. Unsupported compiler-local metadata and original pending AOT
+runtime imports remain checked boundaries. Distinct storage catalogs share one
+resource owner, including the suspended caller's live frame and call depth.
+Native synchronous execution still needs its original machine bridge.
 
 [Partial task storage](integer-task.md) follows the pinned
 `Compiler/PrsStmt.HC:334-435` allocation and publication path. Global storage

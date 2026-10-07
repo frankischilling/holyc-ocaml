@@ -67,7 +67,10 @@ let abort_stream = Integer_task.abort_stream
 let compile_ast = Integer_task.compile_ast
 let execute = Integer_task.execute
 let run = Integer_task.run
-let stream_executor = Integer_task.stream_executor
+
+let stream_executor ?allow_stream_exe_print task span =
+  Integer_task.stream_executor ?allow_stream_exe_print task span
+
 let run_suspended = Integer_task.run_suspended
 
 let prepare_source_callback_default =

@@ -119,6 +119,27 @@ module Environment = struct
     mutable next_local_context_id : int;
   }
 
+  type local_snapshot = {
+    snapshot_environment : t;
+    snapshot_contexts : (local_context * String_set.t) list;
+  }
+
+  let capture_locals environment =
+    {
+      snapshot_environment = environment;
+      snapshot_contexts = environment.local_contexts;
+    }
+
+  let with_saved_locals environment snapshot run =
+    if snapshot.snapshot_environment != environment then
+      Error "saved compiler locals have another original environment"
+    else
+      let current = environment.local_contexts in
+      environment.local_contexts <- snapshot.snapshot_contexts;
+      Fun.protect
+        ~finally:(fun () -> environment.local_contexts <- current)
+        (fun () -> Ok (run ()))
+
   let create () =
     {
       store =
