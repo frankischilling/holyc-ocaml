@@ -175,16 +175,19 @@ let reached_slot_guards () =
     (Native.output_bytes provider);
   match
     Native.outcome
-      (run "extern U0 Print(U8 *fmt,...);U0 (*p)(U8 *fmt,...)=&Print;p(\"A\");")
+      (run
+         "extern U0 StreamPrint(U8 *fmt,...);U0 (*p)(U8 \
+          *fmt,...)=&StreamPrint;p(\"A\");")
   with
   | Error errors ->
       Alcotest.(check bool)
-        "Print provider still requires its own checked entry" true
+        "StreamPrint provider still requires its own checked entry" true
         (List.exists
            (fun (error : Diagnostic.t) -> error.code = "HCBACK0002")
            errors)
   | Ok _ ->
-      Alcotest.fail "Print callback requires its own original native entry"
+      Alcotest.fail
+        "StreamPrint callback requires its own original native entry"
 
 let independent_interpreter () =
   List.iter

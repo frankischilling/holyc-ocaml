@@ -20,6 +20,7 @@ let temporary suffix contents action =
 
 let compiler = Sys.argv.(1)
 let fixture = Sys.argv.(2)
+let print_fixture = Sys.argv.(3)
 let count = ref 0
 
 let run expected target options path =
@@ -107,4 +108,64 @@ let () =
       require
         (has "HCBACK0002" (run 1 "host-jit" [] path))
         "isolated provider slot boundary");
+  List.iter
+    (fun target ->
+      let options = [ "--code-byte-limit=262144" ] in
+      let report = run 0 target options print_fixture in
+      require
+        (report |> member "final_value" |> member "bits" |> to_string
+       = "0x000000000000002a")
+        "Print provider CLI word";
+      require
+        (report |> member "output_hex" |> to_string = "4142")
+        "Print provider CLI saved entry bytes";
+      require
+        (report |> member "reference_commit" |> to_string
+       = "c26482bb6ad3f80106d28504ec5db3c6a360732c")
+        "Print provider CLI reference";
+      require
+        (String.length (report |> member "implementation_commit" |> to_string)
+        = 40)
+        "Print provider CLI implementation identity";
+      let steps = report |> member "executed_steps" |> to_int in
+      let work = report |> member "output_work" |> to_int in
+      ignore
+        (run 0 target
+           (options
+           @ [
+               "--step-limit=" ^ string_of_int steps;
+               "--output-byte-limit=2";
+               "--output-work-limit=" ^ string_of_int work;
+             ])
+           print_fixture);
+      List.iter
+        (fun (option, code) ->
+          let fault = run 1 target (options @ [ option ]) print_fixture in
+          require (has code fault) ("Print provider CLI fault " ^ code);
+          require
+            (fault |> member "output_hex" |> to_string = "")
+            "Print provider CLI atomic draft")
+        [
+          ("--output-byte-limit=1", "HCIRVM0022");
+          ("--output-work-limit=" ^ string_of_int (work - 1), "HCIRVM0023");
+        ];
+      temporary ".hc"
+        "extern U0 Print(U8 *fmt,...);I64 (*p)(U8 *fmt,...)=&Print;p(\"A\");42;"
+        (fun path ->
+          require
+            (has "HCIRVM0014" (run 1 target options path))
+            "Print provider CLI signature");
+      temporary ".hc"
+        "extern U0 Print(U8 *fmt,...);U0 (*p)(U8 \
+         *fmt,...)=&Print;p(\"%s\",42);42;" (fun path ->
+          require
+            (has "HCIRVM0025" (run 1 target options path))
+            "Print provider CLI original argument kind"))
+    [ "ir"; "host-jit-task" ];
+  temporary ".hc"
+    "extern U0 Print(U8 *fmt,...);U0 (*p)(U8 *fmt,...);p=&Print;p(\"A\");42;"
+    (fun path ->
+      require
+        (has "HCBACK0002" (run 1 "host-jit" [] path))
+        "isolated Print provider slot boundary");
   Printf.printf "Verified %d provider callback CLI executions.\n" !count

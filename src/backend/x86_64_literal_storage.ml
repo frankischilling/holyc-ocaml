@@ -115,23 +115,29 @@ let append storage ~max_literal_bytes ~max_arena_bytes ~arena_prefix_bytes
                   if description.opcode <> Ir.Opcode.Ic_call_start then
                     Ok arguments
                   else
-                    match
-                      Runtime.find_start runtime_calls ~owner
-                        description.instruction_id
-                    with
-                    | None -> Ok arguments
-                    | Some call ->
-                        List.fold_left
-                          (fun result argument ->
-                            let* arguments = result in
-                            let producer = Runtime.argument_producer argument in
-                            if Instruction_map.mem producer arguments then
-                              error ?span:description.span "HCBACK0003"
-                                "native call repeats a pushed argument producer"
-                            else
-                              Ok
-                                (Instruction_map.add producer argument arguments))
-                          (Ok arguments) (Runtime.arguments call))
+                    let original_arguments =
+                      match
+                        Runtime.find_start runtime_calls ~owner
+                          description.instruction_id
+                      with
+                      | Some call -> Runtime.arguments call
+                      | None ->
+                          Option.fold ~none:[]
+                            ~some:(fun callback ->
+                              callback.Runtime.callback_arguments)
+                            (Runtime.find_callback_start runtime_calls ~owner
+                               description.instruction_id)
+                    in
+                    List.fold_left
+                      (fun result argument ->
+                        let* arguments = result in
+                        let producer = Runtime.argument_producer argument in
+                        if Instruction_map.mem producer arguments then
+                          error ?span:description.span "HCBACK0003"
+                            "native call repeats a pushed argument producer"
+                        else
+                          Ok (Instruction_map.add producer argument arguments))
+                      (Ok arguments) original_arguments)
                 (Ok arguments)
                 (Graph.instructions block |> Sequence.instructions))
             (Ok Instruction_map.empty) (Graph.blocks graph)

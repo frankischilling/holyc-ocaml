@@ -146,7 +146,7 @@ val append_task_provider_code_owners :
   task_snapshot ->
   Ir.Integer_interpreter.native_slot_address_binding list ->
   (task_snapshot, error list) result
-(** Reserve distinct PutChars entry owners from current original task bindings.
+(** Reserve distinct PutChars and Print entry owners from current task bindings.
     Entries retain the original extern declaration after a joined source body
     replaces its slot. Reservation grants no machine entry or call admission. *)
 

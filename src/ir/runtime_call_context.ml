@@ -394,6 +394,19 @@ let function_slot_address_item_index address = address.slot_address_item_index
 let function_slot_address_provider address = address.slot_address_provider
 
 let function_slot_address_matches_callback address callback =
+  (* Installed task providers use the intrinsic storage spellings so that a
+     user declaration cannot change their ABI. A checked public primitive has
+     the same provider ABI; a user aggregate with that spelling does not. Keep
+     exact producer/type identity checks at the receipt boundaries. *)
+  let provider_type_matches actual expected =
+    Type.equal actual expected
+    || Type.pointer_depth actual = Type.pointer_depth expected
+       &&
+       match (Type.base actual, Type.base expected) with
+       | Type.Primitive (_, actual), Type.Primitive (_, expected) ->
+           Sema.Primitive_type.equal actual expected
+       | _ -> false
+  in
   let header =
     Functions.resolved_declaration_header address.slot_address_declaration
   in
@@ -413,7 +426,7 @@ let function_slot_address_matches_callback address callback =
         Headers.function_pointer_storage_type pointer |> Result.get_ok
   in
   Option.is_some address.slot_address_provider
-  && Type.equal
+  && provider_type_matches
        (Sema.Type_reference.resolved_type (Headers.function_return_type header))
        callback.callback_return_type
   && address.slot_address_provider = Some Put_chars
@@ -422,7 +435,8 @@ let function_slot_address_matches_callback address callback =
      = Option.is_some callback.callback_variadic_count
   && List.length parameters = List.length callback.callback_fixed_types
   && List.for_all2
-       (fun parameter type_ -> Type.equal (parameter_type parameter) type_)
+       (fun parameter type_ ->
+         provider_type_matches (parameter_type parameter) type_)
        parameters callback.callback_fixed_types
   && List.length parameters = List.length expected
   && List.for_all2

@@ -1353,8 +1353,10 @@ let append_task_provider_code_owners snapshot bindings =
         let* state = checked in
         let receipt = VM.native_slot_address_binding_receipt binding in
         if
-          Runtime.function_slot_address_provider receipt
-          <> Some Runtime.Put_chars
+          not
+            (List.mem
+               (Runtime.function_slot_address_provider receipt)
+               [ Some Runtime.Put_chars; Some Runtime.Print ])
         then Ok state
         else if
           not

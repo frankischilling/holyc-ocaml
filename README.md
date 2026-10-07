@@ -9,10 +9,13 @@ Direct functions retain their original source across commands;
 `I64 A=41; I64 F(){return A+1;} F();`.
 Retained functions can also call the checked Print and PutChars providers.
 `examples/native-source-output.hc` prints `A42;` and returns 42.
-JIT tasks can capture PutChars through its original extern slot and invoke it
+JIT tasks can capture Print or PutChars through its original extern slot and invoke it
 as a callback. [Provider entries](docs/provider-callback-entries.md) retain
 captures and saved defaults after a later source body replaces that slot.
 `examples/provider-callback-entries.hc` prints `AB` and returns 42.
+The saved Print example also prints `AB` and returns 42:
+`holyc run --target=host-jit-task --code-byte-limit=262144 examples/print-callback-entries.hc`.
+The IR runner also executes stream callbacks in their checked task contexts.
 Task strings retain their original mutable bytes across fragments;
 `examples/native-source-literals.hc` prints `42;` from a retained format.
 Function statics use that same arena and initialize at their original source

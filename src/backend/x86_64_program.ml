@@ -573,7 +573,11 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        IC_CALL"
                   else make_fault Frame_limit_exceeded None
                 else if Int64.equal kind 6L then
-                  if (not candidate.call_site) || candidate.output_site then
+                  if
+                    (not candidate.call_site)
+                    || candidate.output_site
+                       && not candidate.callback_call_site
+                  then
                     Error
                       "native program native-stack status names a non-call site"
                   else if executed_steps_int < 1 then

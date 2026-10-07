@@ -14,6 +14,14 @@ type t = {
   activation_bytes : int;
 }
 
+type provider_input = {
+  format_stage : int;
+  count_stage : int;
+  arguments_stage : int;
+  kinds_stage : int;
+  scratch_stage : int;
+}
+
 type branch = Always | Equal | Not_equal | Below | Less | Overflow
 
 type 'label emitter = {
@@ -79,24 +87,28 @@ let scratch_slots count =
     invalid_arg "native Print argument count exceeds its scratch representation";
   fixed_scratch_slots + count
 
-let kind_tag = function
+let argument_kind_tag = function
   | Word -> 0L
   | Unsigned_byte_pointer -> 1L
   | Signed_byte_pointer -> 2L
   | Other_pointer -> 3L
 
-let emit emitter call =
+let provider_scratch_slots = fixed_scratch_slots
+
+let emit_internal ?provider emitter (call : t) =
   let count = Array.length call.argument_kinds in
   let scratch_count = scratch_slots count in
   if
-    call.format_stage < 0 || call.arguments_stage < 0 || call.scratch_stage < 0
-    || count > (max_int / 8) - 2
-    || call.format_stage > max_int - 2
-    || call.arguments_stage <> call.format_stage + 2
-    || call.arguments_stage > max_int - count
-    || call.scratch_stage <> call.arguments_stage + count
-    || call.scratch_stage > max_int - scratch_count
-    || call.activation_bytes <> (count + 2) * 8
+    Option.is_none provider
+    && (call.format_stage < 0 || call.arguments_stage < 0
+      || call.scratch_stage < 0
+       || count > (max_int / 8) - 2
+       || call.format_stage > max_int - 2
+       || call.arguments_stage <> call.format_stage + 2
+       || call.arguments_stage > max_int - count
+       || call.scratch_stage <> call.arguments_stage + count
+       || call.scratch_stage > max_int - scratch_count
+       || call.activation_bytes <> (count + 2) * 8)
   then invalid_arg "native Print has inconsistent staged call storage";
   let out = emitter.instruction in
   let jump = emitter.branch in
@@ -216,10 +228,12 @@ let emit emitter call =
     load E.Rax current_byte
   in
   let take_argument ~pointer =
-    if count = 0 then jump Always argument_fault
+    if count = 0 && Option.is_none provider then jump Always argument_fault
     else (
       load E.Rax argument_index;
-      out (E.Mov_imm64 (E.Rcx, Int64.of_int count));
+      (match provider with
+      | None -> out (E.Mov_imm64 (E.Rcx, Int64.of_int count))
+      | Some input -> out (E.Load_stack (E.Rcx, emitter.slot input.count_stage)));
       out (E.Cmp (E.Rax, E.Rcx));
       let present = fresh () in
       jump Below present;
@@ -229,23 +243,34 @@ let emit emitter call =
       for _ = 1 to 3 do
         out (E.Binary (E.Add, E.Rcx, E.Rcx))
       done;
-      out (E.Address_stack (E.Rdx, stage fixed_scratch_slots));
+      (match provider with
+      | None -> out (E.Address_stack (E.Rdx, stage fixed_scratch_slots))
+      | Some input -> out (E.Load_stack (E.Rdx, emitter.slot input.kinds_stage)));
       out (E.Binary (E.Add, E.Rdx, E.Rcx));
       out (E.Load_indirect (E.R8, E.Rdx, 0));
       out (E.Test E.R8);
       jump (if pointer then Equal else Not_equal) argument_fault;
       store current_kind E.R8;
-      out (E.Address_stack (E.Rdx, emitter.slot call.arguments_stage));
+      (match provider with
+      | None -> out (E.Address_stack (E.Rdx, emitter.slot call.arguments_stage))
+      | Some input ->
+          out (E.Load_stack (E.Rdx, emitter.slot input.arguments_stage)));
       out (E.Binary (E.Add, E.Rdx, E.Rcx));
       out (E.Load_indirect (E.Rax, E.Rdx, 0));
       store (if pointer then current_pointer else current_word) E.Rax;
       increment argument_index)
   in
   let require_two_arguments () =
-    if count < 2 then jump Always argument_fault
+    if count < 2 && Option.is_none provider then jump Always argument_fault
     else (
       load E.Rax argument_index;
-      out (E.Mov_imm64 (E.Rcx, Int64.of_int (count - 1)));
+      (match provider with
+      | None -> out (E.Mov_imm64 (E.Rcx, Int64.of_int (count - 1)))
+      | Some input ->
+          out (E.Load_stack (E.Rcx, emitter.slot input.count_stage));
+          out (E.Test E.Rcx);
+          jump Equal argument_fault;
+          out (E.Dec E.Rcx));
       out (E.Cmp (E.Rax, E.Rcx));
       let present = fresh () in
       jump Below present;
@@ -459,7 +484,7 @@ let emit emitter call =
     jump Always stream_loop
   in
   let emit_list_string measured_label layout_label =
-    if count < 2 then jump Always argument_fault
+    if count < 2 && Option.is_none provider then jump Always argument_fault
     else (
       require_two_arguments ();
       take_argument ~pointer:false;
@@ -1277,18 +1302,20 @@ let emit emitter call =
     jump Always loop;
     mark done_
   in
-  out (E.Load_context (E.Rcx, 56));
-  out (E.Test E.Rcx);
-  jump Equal depth_fault;
-  out (E.Load_context (E.Rcx, 48));
-  out (E.Mov_imm64 (E.Rax, Int64.of_int call.activation_bytes));
-  out (E.Cmp (E.Rcx, E.Rax));
-  jump Below frame_fault;
+  if Option.is_none provider then (
+    out (E.Load_context (E.Rcx, 56));
+    out (E.Test E.Rcx);
+    jump Equal depth_fault;
+    out (E.Load_context (E.Rcx, 48));
+    out (E.Mov_imm64 (E.Rax, Int64.of_int call.activation_bytes));
+    out (E.Cmp (E.Rcx, E.Rax));
+    jump Below frame_fault);
   constant format_offset 0L;
   constant argument_index 0L;
   constant draft_length 0L;
   Array.iteri
-    (fun index kind -> constant (fixed_scratch_slots + index) (kind_tag kind))
+    (fun index kind ->
+      constant (fixed_scratch_slots + index) (argument_kind_tag kind))
     call.argument_kinds;
   let format_loop = fresh () in
   let format_conversion = fresh () in
@@ -1474,3 +1501,20 @@ let emit emitter call =
   out (E.Load_context (E.Rcx, 104));
   out (E.Binary (E.Add, E.Rcx, E.Rax));
   out (E.Store_context (104, E.Rcx))
+
+let emit emitter call = emit_internal emitter call
+
+let emit_provider emitter (input : provider_input) =
+  if
+    input.format_stage < 0 || input.count_stage < 0 || input.arguments_stage < 0
+    || input.kinds_stage < 0 || input.scratch_stage < 0
+    || input.scratch_stage > max_int - provider_scratch_slots
+  then invalid_arg "native Print provider has invalid private input storage";
+  emit_internal ~provider:input emitter
+    {
+      format_stage = input.format_stage;
+      arguments_stage = 0;
+      argument_kinds = [||];
+      scratch_stage = input.scratch_stage;
+      activation_bytes = 0;
+    }

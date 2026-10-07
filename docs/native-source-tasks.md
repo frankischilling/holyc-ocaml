@@ -518,6 +518,10 @@ Dynamic executable owners are checked at reached integer consumers; callback
 copies and calls keep their existing owner path.
 
 [Provider callback entries](provider-callback-entries.md) give the approved
-PutChars extern its own private entry. Original captures, copies and saved
+Print and PutChars externs their own private entries. Original captures, copies and saved
 defaults retain that entry after a later source body replaces the extern slot.
 The immutable provider owner and mutable slot have separate native cells.
+Print accepts checked primitive pointer tails and shares the native formatter's
+atomic drafts. Fragment histories currently re-emit the provider; larger saved
+default examples use an explicit cumulative code allowance. Native stream
+provider entries remain required; the IR task executes their original contexts.

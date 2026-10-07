@@ -267,6 +267,7 @@ type direct_call = {
   argument_owner_stages : int option array;
   result_stage_slot : int option;
   named_slot_stage : int option;
+  provider_arguments : (int * Print_codegen.argument_kind array) option;
 }
 
 type indirect_call = {
@@ -1145,6 +1146,14 @@ type callable_code_owner = {
   callable_owner_address : int;
   callable_owner_target : int;
 }
+
+let print_argument_kind type_ =
+  if Type.pointer_depth type_ = 0 then Print_codegen.Word
+  else
+    match Type.base type_ with
+    | Type.Primitive (_, Primitive.U8) -> Print_codegen.Unsigned_byte_pointer
+    | Type.Primitive (_, Primitive.I8) -> Print_codegen.Signed_byte_pointer
+    | _ -> Print_codegen.Other_pointer
 
 let allocate_body ?callable_frame ?(shared_values = [])
     ?(provider_entry_start = Int.max_int) ?(function_code_owners = [||])
@@ -3188,6 +3197,29 @@ let allocate_body ?callable_frame ?(shared_values = [])
             emit (Encoder.Store_context (64, Encoder.Rax));
             if call.callee_index >= provider_entry_start then
               emit (Encoder.Store_context_imm (8, site));
+            Option.iter
+              (fun (kind_stage, kinds) ->
+                Array.iteri
+                  (fun index kind ->
+                    emit
+                      (Encoder.Mov_imm64
+                         (Encoder.Rax, Print_codegen.argument_kind_tag kind));
+                    emit
+                      (Encoder.Store_stack
+                         ( staged_stack_slot instruction.span
+                             (kind_stage + index),
+                           Encoder.Rax )))
+                  kinds;
+                emit
+                  (Encoder.Address_stack
+                     (Encoder.Rdx, fixed_stack_slot instruction.span 0));
+                emit
+                  (Encoder.Address_stack
+                     (Encoder.R8, staged_stack_slot instruction.span kind_stage));
+                emit
+                  (Encoder.Mov_imm64
+                     (Encoder.Rcx, Int64.of_int (Array.length kinds))))
+              call.provider_arguments;
             (match captured_stage with
             | None -> (
                 match call.named_slot_stage with
@@ -4307,8 +4339,24 @@ let call_argument_index ~fixed_count ~variadic_count = function
       | _ -> None)
   | Runtime.Fixed _ | Runtime.Variadic_count | Runtime.Variadic _ -> None
 
-let callable_argument_types description ~max_stack_bytes ~fixed ~variadic_count
-    arguments =
+let callback_print_shape (callback : Runtime.callback_call) =
+  let primitive type_ depth primitive =
+    Type.pointer_depth type_ = depth
+    &&
+    match Type.base type_ with
+    | Type.Primitive (_, actual) -> Sema.Primitive_type.equal actual primitive
+    | _ -> false
+  in
+  Option.is_some callback.callback_variadic_count
+  && (not callback.callback_callee_pop)
+  && primitive callback.callback_return_type 0 Sema.Primitive_type.U0
+  &&
+  match callback.callback_fixed_types with
+  | [ type_ ] -> primitive type_ 1 Sema.Primitive_type.U8
+  | _ -> false
+
+let callable_argument_types ?(allow_pointer_tail = false) description
+    ~max_stack_bytes ~fixed ~variadic_count arguments =
   let fixed_count = Array.length fixed in
   let count =
     match variadic_count with
@@ -4339,6 +4387,10 @@ let callable_argument_types description ~max_stack_bytes ~fixed ~variadic_count
              if not (Type.equal type_ fixed.(index)) then
                malformed description
                  "native fixed argument type disagrees with its parameter")
+           else if
+             allow_pointer_tail && index > fixed_count
+             && Type.pointer_depth type_ > 0
+           then ignore (checked_reference description type_)
            else
              let scalar = checked_scalar ~allow_public:true description type_ in
              if
@@ -4428,6 +4480,11 @@ let callable_callback_matches (callback : Runtime.callback_call) ~argument_types
        (fun actual expected -> Option.is_some actual = Option.is_some expected)
        callee.parameter_callbacks
        (Array.sub argument_callbacks 0 fixed_count)
+  && (Option.is_none callee.variadic
+     || Array.for_all
+          (fun type_ -> Type.pointer_depth type_ = 0)
+          (Array.sub argument_types (fixed_count + 1)
+             (Array.length argument_types - fixed_count - 1)))
 
 type prepared_callable_body = {
   callable_blocks : prepared_program_block list;
@@ -5638,6 +5695,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               in
               let parameter_types =
                 callable_argument_types description ~max_stack_bytes
+                  ~allow_pointer_tail:true
                   ~fixed:(Array.of_list callback.callback_fixed_types)
                   ~variadic_count:callback.callback_variadic_count
                   callback.callback_arguments
@@ -5667,9 +5725,14 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 | Callable_word_return _ -> Some (captured_stage + 2)
                 | Callable_void_return -> None
               in
-              stage_cursor :=
+              let kind_stage =
                 captured_stage + 2
-                + Option.fold ~none:0 ~some:(fun _ -> 1) result_stage;
+                + Option.fold ~none:0 ~some:(fun _ -> 1) result_stage
+              in
+              let kind_count =
+                if callback_print_shape callback then max 0 (count - 2) else 0
+              in
+              stage_cursor := kind_stage + kind_count;
               if !stage_cursor > max_stack_bytes / 8 then
                 reject ?span:description.span "HCBACK0004"
                   "native callback staging exceeds the private frame limit";
@@ -5692,7 +5755,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   argument_callbacks;
                   fixed_count = List.length callback.callback_fixed_types;
                   variadic_count = callback.callback_variadic_count;
-                  scratch_stage = !stage_cursor;
+                  scratch_stage = kind_stage;
                   pushed = Array.make count false;
                   phase = Collecting;
                 }
@@ -5734,7 +5797,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         in
                         ( Runtime.function_slot_address_matches_callback receipt
                             callback,
-                          8 )
+                          Array.length scope.argument_types * 8 )
                     in
                     ( matches,
                       {
@@ -5745,6 +5808,21 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           Array.copy scope.argument_owner_stages;
                         result_stage_slot = scope.result_stage;
                         named_slot_stage = None;
+                        provider_arguments =
+                          (if
+                             matches
+                             && callee_index >= Array.length functions
+                             && Runtime.function_slot_address_provider
+                                  provider_entries.(callee_index
+                                                    - Array.length functions)
+                                = Some Runtime.Print
+                           then
+                             Some
+                               ( scope.scratch_stage,
+                                 Array.sub scope.argument_types 2
+                                   (Array.length scope.argument_types - 2)
+                                 |> Array.map print_argument_kind )
+                           else None);
                       } )
                   in
                   scope.phase <- Needs_cleanup;
@@ -6520,6 +6598,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             argument_owner_stages =
                               Array.copy scope.argument_owner_stages;
                             result_stage_slot = scope.result_stage;
+                            provider_arguments = None;
                             named_slot_stage =
                               (if
                                  List.exists
@@ -8509,6 +8588,19 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               Some (arithmetic_operation, word = I64)
           | _ -> None
         in
+        let provider_print_site =
+          match operation with
+          | Indirect_call indirect ->
+              Array.exists
+                (fun (index, receipt) ->
+                  Runtime.function_slot_address_provider receipt
+                  = Some Runtime.Print
+                  && fst (indirect.target_call (Array.length functions + index)))
+                (Array.mapi
+                   (fun index receipt -> (index, receipt))
+                   provider_entries)
+          | _ -> false
+        in
         sites_rev :=
           {
             site;
@@ -8620,6 +8712,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Internal_swap _
               | Internal_strlen _
               | Print_output _ -> true
+              | Indirect_call _ when provider_print_site -> true
               | _ -> false);
             index_scale_site =
               (match operation with
@@ -8628,6 +8721,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             index_addition_site =
               (match operation with
               | Apply_index_offset _ | Internal_bit _ | Print_output _ -> true
+              | Indirect_call _ when provider_print_site -> true
               | _ -> false);
             address_bounds_site =
               (match operation with
@@ -8648,6 +8742,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Internal_swap _
               | Internal_strlen _
               | Print_output _ -> true
+              | Indirect_call _ when provider_print_site -> true
               | Materialize_reference (_, _, None, _)
               | Materialize_existing_reference ({ offset = None; _ }, _)
               | _ -> false);
@@ -8667,6 +8762,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             atomic_output_site =
               (match operation with
               | Print_output _ -> true
+              | Indirect_call _ when provider_print_site -> true
               | _ -> false);
           }
           :: !sites_rev;
@@ -8991,8 +9087,10 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
         if
           Option.is_none (VM.native_slot_address_binding_local_owner binding)
           && Option.is_some (Runtime.function_slot_address_provider receipt)
-          && Runtime.function_slot_address_provider receipt
-             <> Some Runtime.Put_chars
+          && not
+               (List.mem
+                  (Runtime.function_slot_address_provider receipt)
+                  [ Some Runtime.Put_chars; Some Runtime.Print ])
         then
           reject "HCBACK0002"
             "native callback addresses for hosted output providers require \
@@ -10423,73 +10521,166 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       in
       let provider_allocated =
         Array.mapi
-          (fun index _ ->
-            let loop = fresh_label supply in
-            let shift = fresh_label supply in
-            let complete = fresh_label supply in
-            let output_fault = fresh_label supply in
-            let work_fault = fresh_label supply in
-            let plan = ref [] in
-            let emit instruction =
-              plan := Planned_instruction instruction :: !plan
-            in
-            let mark label = plan := Planned_label label :: !plan in
-            let branch kind label =
-              plan := Planned_branch (kind, label) :: !plan
-            in
-            let charge () =
-              emit (Encoder.Load_context (Encoder.Rcx, 96));
+          (fun index receipt ->
+            if
+              Runtime.function_slot_address_provider receipt
+              = Some Runtime.Print
+            then (
+              let frame_size =
+                align_up ((4 + Print_codegen.provider_scratch_slots) * 8) 16
+              in
+              if frame_size > max_stack_bytes || frame_size > 4080 then
+                reject "HCBACK0004"
+                  "native Print entry exceeds its private scratch frame";
+              let frame = encoder_call_frame None frame_size in
+              let complete = fresh_label supply in
+              let faults = ref [] in
+              let plan = ref [] in
+              let emit instruction =
+                plan := Planned_instruction instruction :: !plan
+              in
+              let mark label = plan := Planned_label label :: !plan in
+              let branch kind label =
+                plan := Planned_branch (kind, label) :: !plan
+              in
+              let slot index =
+                Encoder.stack_slot ~offset:(index * 8) |> Result.get_ok
+              in
+              let fault kind =
+                match List.assoc_opt kind !faults with
+                | Some label -> label
+                | None ->
+                    let label = fresh_label supply in
+                    faults := (kind, label) :: !faults;
+                    label
+              in
+              mark function_labels.(Array.length function_infos + index);
+              emit Encoder.Push_rbp;
+              emit Encoder.Mov_rbp_rsp;
+              emit (Encoder.Alloc_call_frame frame);
+              (* RDX names this caller's original outgoing format/count/tail
+                 table, R8 its checked kind tags, RCX the sealed tail count. *)
+              emit (Encoder.Store_stack (slot 1, Encoder.Rcx));
+              emit (Encoder.Store_stack (slot 3, Encoder.R8));
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 8));
+              emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+              branch Not_equal (fault 14);
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
+              emit (Encoder.Store_stack (slot 0, Encoder.Rax));
+              emit (Encoder.Mov_imm64 (Encoder.Rax, 16L));
+              emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rax));
+              emit (Encoder.Store_stack (slot 2, Encoder.Rdx));
+              Print_codegen.emit_provider
+                {
+                  instruction = emit;
+                  fresh = (fun () -> fresh_label supply);
+                  mark;
+                  branch =
+                    (fun kind label ->
+                      branch
+                        (match kind with
+                        | Print_codegen.Always -> Unconditional
+                        | Print_codegen.Equal -> Equal
+                        | Print_codegen.Not_equal -> Not_equal
+                        | Print_codegen.Below -> Below
+                        | Print_codegen.Less -> Less
+                        | Print_codegen.Overflow -> Overflow)
+                        label);
+                  fault;
+                  slot;
+                }
+                {
+                  Print_codegen.format_stage = 0;
+                  count_stage = 1;
+                  arguments_stage = 2;
+                  kinds_stage = 3;
+                  scratch_stage = 4;
+                };
+              branch Unconditional complete;
+              List.iter
+                (fun (kind, label) ->
+                  mark label;
+                  emit (Encoder.Store_context_imm (0, kind));
+                  branch Unconditional complete)
+                !faults;
+              mark complete;
+              emit (Encoder.Free_call_frame frame);
+              emit Encoder.Pop_rbp;
+              emit Encoder.Ret;
+              {
+                body_plan = List.rev !plan;
+                body_frame_size = frame_size;
+                body_peak = 4;
+                body_unwind = build_callable_windows_unwind_info frame_size;
+              })
+            else
+              let loop = fresh_label supply in
+              let shift = fresh_label supply in
+              let complete = fresh_label supply in
+              let output_fault = fresh_label supply in
+              let work_fault = fresh_label supply in
+              let plan = ref [] in
+              let emit instruction =
+                plan := Planned_instruction instruction :: !plan
+              in
+              let mark label = plan := Planned_label label :: !plan in
+              let branch kind label =
+                plan := Planned_branch (kind, label) :: !plan
+              in
+              let charge () =
+                emit (Encoder.Load_context (Encoder.Rcx, 96));
+                emit (Encoder.Test Encoder.Rcx);
+                branch Equal work_fault;
+                emit (Encoder.Dec Encoder.Rcx);
+                emit (Encoder.Store_context (96, Encoder.Rcx))
+              in
+              mark function_labels.(Array.length function_infos + index);
+              emit Encoder.Push_rbp;
+              emit Encoder.Mov_rbp_rsp;
+              emit
+                (Encoder.Load_frame (Encoder.Rax, encoder_frame_slot None 16));
+              mark loop;
+              emit (Encoder.Test Encoder.Rax);
+              branch Equal complete;
+              charge ();
+              emit (Encoder.Mov (Encoder.Rdx, Encoder.Rax));
+              emit (Encoder.Mov_imm64 (Encoder.R8, 255L));
+              emit (Encoder.Binary (Encoder.And, Encoder.Rdx, Encoder.R8));
+              emit (Encoder.Test Encoder.Rdx);
+              branch Equal shift;
+              charge ();
+              emit (Encoder.Load_context (Encoder.Rcx, 88));
               emit (Encoder.Test Encoder.Rcx);
-              branch Equal work_fault;
+              branch Equal output_fault;
               emit (Encoder.Dec Encoder.Rcx);
-              emit (Encoder.Store_context (96, Encoder.Rcx))
-            in
-            mark function_labels.(Array.length function_infos + index);
-            emit Encoder.Push_rbp;
-            emit Encoder.Mov_rbp_rsp;
-            emit (Encoder.Load_frame (Encoder.Rax, encoder_frame_slot None 16));
-            mark loop;
-            emit (Encoder.Test Encoder.Rax);
-            branch Equal complete;
-            charge ();
-            emit (Encoder.Mov (Encoder.Rdx, Encoder.Rax));
-            emit (Encoder.Mov_imm64 (Encoder.R8, 255L));
-            emit (Encoder.Binary (Encoder.And, Encoder.Rdx, Encoder.R8));
-            emit (Encoder.Test Encoder.Rdx);
-            branch Equal shift;
-            charge ();
-            emit (Encoder.Load_context (Encoder.Rcx, 88));
-            emit (Encoder.Test Encoder.Rcx);
-            branch Equal output_fault;
-            emit (Encoder.Dec Encoder.Rcx);
-            emit (Encoder.Store_context (88, Encoder.Rcx));
-            emit (Encoder.Load_context (Encoder.R8, 80));
-            emit (Encoder.Load_context (Encoder.Rcx, 104));
-            emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx));
-            emit
-              (Encoder.Store_indirect_narrow
-                 (Encoder.R8, Encoder.Frame8, Encoder.Rdx));
-            emit (Encoder.Mov_imm64 (Encoder.Rdx, 1L));
-            emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rdx));
-            emit (Encoder.Store_context (104, Encoder.Rcx));
-            mark shift;
-            emit (Encoder.Mov_imm64 (Encoder.Rcx, 8L));
-            emit (Encoder.Shift_cl (Encoder.Shr, Encoder.Rax));
-            branch Unconditional loop;
-            mark output_fault;
-            emit (Encoder.Store_context_imm (0, 11));
-            branch Unconditional complete;
-            mark work_fault;
-            emit (Encoder.Store_context_imm (0, 12));
-            mark complete;
-            emit Encoder.Pop_rbp;
-            emit Encoder.Ret;
-            {
-              body_plan = List.rev !plan;
-              body_frame_size = 0;
-              body_peak = 4;
-              body_unwind = build_callable_windows_unwind_info 0;
-            })
+              emit (Encoder.Store_context (88, Encoder.Rcx));
+              emit (Encoder.Load_context (Encoder.R8, 80));
+              emit (Encoder.Load_context (Encoder.Rcx, 104));
+              emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx));
+              emit
+                (Encoder.Store_indirect_narrow
+                   (Encoder.R8, Encoder.Frame8, Encoder.Rdx));
+              emit (Encoder.Mov_imm64 (Encoder.Rdx, 1L));
+              emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rdx));
+              emit (Encoder.Store_context (104, Encoder.Rcx));
+              mark shift;
+              emit (Encoder.Mov_imm64 (Encoder.Rcx, 8L));
+              emit (Encoder.Shift_cl (Encoder.Shr, Encoder.Rax));
+              branch Unconditional loop;
+              mark output_fault;
+              emit (Encoder.Store_context_imm (0, 11));
+              branch Unconditional complete;
+              mark work_fault;
+              emit (Encoder.Store_context_imm (0, 12));
+              mark complete;
+              emit Encoder.Pop_rbp;
+              emit Encoder.Ret;
+              {
+                body_plan = List.rev !plan;
+                body_frame_size = 0;
+                body_peak = 4;
+                body_unwind = build_callable_windows_unwind_info 0;
+              })
           provider_entries
       in
       let functions_allocated =

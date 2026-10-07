@@ -1646,7 +1646,7 @@ Native owner guards preserve earlier operand output. Exact and one-below code,
 IR, frame and execution limits use measured work. The original source authority
 suite compiles these consumers for both private ABIs and executes the host ABI.
 
-Provider callback tests run the same original PutChars captures through the IR
+Provider callback tests run the same original Print and PutChars captures through the IR
 and actual native task consumers. Fixtures cover globals, automatic and static
 cells, indexed copies, fixed parameters, recursive forwarding, saved defaults,
 callee capture before argument effects and a later joined source definition.
@@ -1656,3 +1656,19 @@ and one-below output, frame, code and IR allowances check cumulative limits.
 Source authority tests compile both private ABIs and reject copied receipts,
 malformed host mapping tables, released owners and expired requests. These
 checks add no TempleOS runtime capture or exported ABI proof.
+
+Print callback tests cover runtime argument counts and kinds, owned pointer
+tails, mutable formats, shared numeric/string grammar and exact format work.
+Faults retain prior output and discard the current draft. Measured minimum
+physical stack and one-below code, IR, frame, depth, output and work bounds
+execute real native entries. The saved Print example uses an explicit 256 KiB
+cumulative code allowance because fragments currently re-emit the provider.
+The provider CLI harness runs 24 executions across both task targets and the
+isolated boundary.
+
+IR stream callback tests cover active generation, installed internal/public
+primitive signatures, inactive formatting order, saved captures and defaults,
+indexed copies, replacement bodies and task-owned nested buffers. AOT
+StreamExePrint callbacks execute nested source with shared exact and one-below
+step/work limits. JIT contexts retain their reached rejection. Native stream
+callbacks and the full compiler remain required.

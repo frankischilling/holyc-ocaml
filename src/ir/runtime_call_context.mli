@@ -191,8 +191,10 @@ val function_slot_address_provider : function_slot_address -> provider option
 val function_slot_address_matches_callback :
   function_slot_address -> callback_call -> bool
 (** Compare an approved provider's captured slot declaration with a callback's
-    return, fixed arguments, variadic shape and cleanup policy. This comparison
-    grants no source or executable ownership. *)
+    return, fixed arguments, variadic shape and cleanup policy. Public and
+    internal spellings of the same checked primitive have the provider ABI; user
+    aggregates retain their own identities. This comparison grants no source or
+    executable ownership. *)
 
 type pointer_difference_divisions
 

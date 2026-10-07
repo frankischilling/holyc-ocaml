@@ -13572,4 +13572,36 @@ source_identity = "The complete sealed IMM-slot/DEREF pair retains the approved 
 execution = "IR and native JIT source tasks invoke the packed-byte provider through automatic, static, global, indexed and parameter callback cells. Callee capture precedes arguments. Saved defaults and earlier copies retain the provider after a later source body replaces the extern slot. Native compilation emits separate private entries, stable owner cells and Windows unwind records without a fabricated source body."
 verification = "Independent IR and native executions cover captures, recursion, defaults, byte values, historical replacement and reached signature, output and numeric-owner faults. Measured limits cover cumulative work and machine-code, IR, frame and output allowances. Original entry tests compile both private ABIs and exercise malformed host tables, copied receipts, released owners and request expiry. Maintained CLI tests verify the example and fault prefixes."
 verification_boundary = "Packed-byte output is a bounded hosted contract. Source admission, machine mapping and reached saved-default capture remain separate. These checks add no TempleOS runtime capture, exported ABI, device scheduling, actual-loader, bootstrap or full-compiler acceptance."
-excluded = ["isolated native extern slot addresses", "Print and stream-provider callback entries", "native AOT source tasks", "callback members", "wider indirection", "TempleOS device hooks", "exported HolyC ABI", "full compiler and release"]
+excluded = ["isolated native extern slot addresses", "native stream-provider callback entries", "native AOT source tasks", "callback members", "wider indirection", "TempleOS device hooks", "exported HolyC ABI", "full compiler and release"]
+
+[[feature]]
+id = "HC-PRINT-CALLBACK-ENTRIES"
+description = "Original Print extern captures execute through checked IR and separate native formatting entries."
+sources = ["Compiler/PrsExp.HC:624-652 original extern exe_addr capture", "Compiler/PrsStmt.HC:95-114,181-191 placeholder and body installation", "Kernel/StrPrint.HC:890-895 complete draft before publication"]
+implementation = ["src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_literal_storage.ml", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml"]
+tests = ["test/provider_callback_cases.ml", "test/integer_format_fixture.ml", "test/test_provider_callbacks.ml", "test/native/test_native_provider_callbacks.ml", "test/native/test_native_source_authority.ml", "test/native/test_provider_callback_cli.ml", "examples/print-callback-entries.hc"]
+documentation = ["docs/provider-callback-entries.md", "docs/native-print.md", "docs/native-source-tasks.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Exact original slot captures retain approved primitive return/fixed classes, variadic shape and cleanup. Installed internal storage spellings share the ABI of the same checked public primitive; named user aggregates remain distinct. Source receipt identity, task admission, reached capture and native mapping stay separate."
+execution = "Print captures, copies, indexed storage, callback parameters and saved JIT defaults retain their original executable owner after source replacement. Runtime tables carry exact counts and primitive pointer kinds. The native fixed-scratch entry uses the shared formatter, bounded scans and atomic drafts without a host formatting call or VM execution. Callback shape permits a retained function's argument staging before later provider publication."
+verification = "Independent IR and real native task executions cover source history, shared format grammar and exact work, pointer tails, signatures, original memory faults and draft atomicity. Measured physical stack and exact/one-below cumulative code, IR, frame, depth, work and output bounds remain checked. Both private ABIs compile; host execution rejects malformed mappings, copied receipts, released owners and expired requests. The maintained saved-default example and CLI faults execute through both task targets."
+verification_boundary = "Fragments currently re-emit admitted provider code; larger histories need an explicit allowance above the unchanged 64 KiB cumulative default. These hosted executions add no TempleOS runtime capture, exported ABI, actual-loader, bootstrap or full-compiler acceptance."
+excluded = ["source variadic pointer-tail bodies", "cross-image provider-code reuse", "isolated native extern slot addresses", "native stream-provider entries", "native AOT source tasks", "callback members", "wider indirection", "exported HolyC ABI", "full compiler and release"]
+
+[[feature]]
+id = "HC-IR-STREAM-CALLBACK-ENTRIES"
+description = "Original stream-provider captures invoke their checked IR task generation and AOT source contexts."
+sources = ["Compiler/PrsExp.HC:624-652 original extern capture", "Compiler/CMisc.HC:68-81 StreamPrint formatting and active block", "Compiler/CMain.HC:673-690 StreamExePrint AOT context and source execution", "Compiler/CompilerB.HH:21-22 public stream signatures"]
+implementation = ["src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_provider_callbacks.ml", "test/test_task_stream.ml", "test/test_stateful_exe.ml"]
+documentation = ["docs/provider-callback-entries.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 705
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Provider selection retains the complete original declaration/link/slot pair and current task publication. Primitive ABI compatibility does not grant aggregate, source-body or executable ownership."
+execution = "StreamPrint callbacks format before active-buffer checks and publish into the original task-owned LIFO buffer. Saved defaults and earlier captures survive later directives or body replacement. StreamExePrint callbacks format before checking the enclosing compiled AOT context, execute nested source in that task, return its word and share execution/work bounds. Inactive or JIT contexts retain their reached faults after formatting."
+verification = "Maintained tests cover installed signatures, active and inactive contexts, arrays, history, defaults, replacement, nested buffers, generated capacity, failed drafts, nested source faults and exact/one-below cumulative execution and work. Existing direct stream tests remain required."
+verification_boundary = "This is checked hosted IR execution; native stream-provider entries and the original TempleOS runtime services remain open. These tests add no TempleOS capture, exported ABI, loader or full-compiler acceptance."
+excluded = ["native stream-provider callback entries", "native #exe", "native AOT source tasks", "TempleOS runtime services", "exported HolyC ABI", "full compiler and release"]

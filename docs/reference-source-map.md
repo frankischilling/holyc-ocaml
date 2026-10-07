@@ -1904,3 +1904,13 @@ entry and bounds its output work; original task admission retains the source
 contract separately from machine mapping and reached saved-default capture.
 See [provider callback entries](provider-callback-entries.md) for execution and
 remaining compiler boundaries. This audit adds no TempleOS runtime capture.
+
+Print provider callbacks use `Kernel/StrPrint.HC:890-895` for complete draft
+formatting before publication. StreamPrint follows `Compiler/CMisc.HC:68-81`'s
+format-before-context check and active stream block; StreamExePrint follows
+`Compiler/CMain.HC:673-690`'s enclosing AOT context and source execution.
+`Compiler/CompilerB.HH:21-22` supplies their public signatures. Callback entry
+selection still comes from the original sealed IMM-slot/DEREF receipt and
+current publication. Native Print emits the shared formatter as a separate
+fixed-scratch entry with bounded runtime argument tables; IR streams use the
+original task contexts. These hosted checks add no TempleOS runtime capture.

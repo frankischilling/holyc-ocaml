@@ -14,6 +14,17 @@ type t = {
 
 type branch = Always | Equal | Not_equal | Below | Less | Overflow
 
+type provider_input = {
+  format_stage : int;
+  count_stage : int;
+  arguments_stage : int;
+  kinds_stage : int;
+  scratch_stage : int;
+}
+
+val argument_kind_tag : argument_kind -> int64
+val provider_scratch_slots : int
+
 type 'label emitter = {
   instruction : X86_64_encoder.instruction -> unit;
   fresh : unit -> 'label;
@@ -37,3 +48,10 @@ val emit : 'label emitter -> t -> unit
     R9/R10/R11 retain their arena, instruction-budget and context roles. Draft
     bytes are committed only after the entire format succeeds; charged work
     survives a fault. *)
+
+val emit_provider : 'label emitter -> provider_input -> unit
+(** Emit the same formatter from original caller-supplied count and
+    argument/kind tables. The private entry has already reserved semantic
+    depth/frame and physical stack; it owns the fixed bounded scratch frame.
+    Argument indexing checks the count before reading either caller table. This
+    emits no host formatter call and grants no call or executable authority. *)

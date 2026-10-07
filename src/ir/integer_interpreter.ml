@@ -207,7 +207,7 @@ and prepared_operation =
   | Call_start of int option
   | Call of int
   | Callback_start of prepared_value
-  | Callback_call of Runtime.callback_call
+  | Callback_call of Runtime.callback_call * stored_type array
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
@@ -320,7 +320,7 @@ and runtime_code = {
 
 and runtime_code_entry =
   | Source_entry of callee * prepared * executable_owner
-  | Put_chars_entry of Runtime.function_slot_address
+  | Provider_entry of Runtime.function_slot_address
 
 type task_stream = { stream_output : Output.t }
 type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
@@ -1307,8 +1307,9 @@ let retain_native_provider_sources task runtime_calls owner graph =
               Option.iter
                 (fun receipt ->
                   if
-                    Runtime.function_slot_address_provider receipt
-                    = Some Runtime.Put_chars
+                    List.mem
+                      (Runtime.function_slot_address_provider receipt)
+                      [ Some Runtime.Put_chars; Some Runtime.Print ]
                   then
                     Option.iter
                       (fun link ->
@@ -5738,21 +5739,41 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 callback.Runtime.callback_arguments |> List.rev
                 |> List.map (fun argument ->
                     let type_ = Runtime.argument_target_type argument in
-                    match
-                      scalar_value_type ~allow_byte:true ~allow_public:true
-                        type_
-                    with
-                    | Some word -> Some (Stored_word word)
-                    | None
-                      when Type.pointer_depth type_ = 1
-                           && Type.base type_
-                              = Type.Primitive
-                                  ( Type.Internal_storage,
-                                    Sema.Primitive_type.I64 ) ->
-                        Some (Stored_word I64)
-                    | None when scalar_pointer_type type_ ->
-                        Some (Stored_pointer type_)
-                    | _ -> None)
+                    let module Headers = Sema.Function_type_resolution in
+                    let callback_parameter =
+                      match Runtime.argument_role argument with
+                      | Runtime.Fixed index ->
+                          Option.bind
+                            (List.nth_opt
+                               (Headers.signature_parameters
+                                  (Headers.function_pointer_signature
+                                     callback.callback_pointer))
+                               index)
+                            (fun parameter ->
+                              match
+                                Headers.parameter_declarator_kind parameter
+                              with
+                              | Headers.Function_pointer pointer ->
+                                  Some
+                                    (Headers.function_pointer_storage_type
+                                       pointer
+                                    |> Result.get_ok)
+                              | Headers.Object -> None)
+                      | _ -> None
+                    in
+                    if
+                      Option.fold ~none:false ~some:(Type.equal type_)
+                        callback_parameter
+                    then Some (Stored_word I64)
+                    else
+                      match
+                        scalar_value_type ~allow_byte:true ~allow_public:true
+                          type_
+                      with
+                      | Some word -> Some (Stored_word word)
+                      | None when scalar_pointer_type type_ ->
+                          Some (Stored_pointer type_)
+                      | _ -> None)
               in
               let symbol =
                 let local =
@@ -5826,7 +5847,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                    callback.callback_instruction
                  && count = Array.length callee.parameter_types ->
               calls := { scope with phase = Needs_cleanup } :: rest;
-              call_instruction description (Callback_call callback)
+              call_instruction description
+                (Callback_call (callback, callee.parameter_types))
           | ( (Opcode.Ic_add_rsp | Ic_add_rsp1),
               ({ callback = Some callback; phase = Needs_cleanup; _ } as scope)
               :: rest )
@@ -8027,14 +8049,15 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               in
               match (!calls, target) with
               | ( ({ completion = Pending; _ } as scope) :: rest,
-                  Some (Put_chars_entry receipt) ) -> (
+                  Some (Provider_entry receipt) ) -> (
                   match operation with
-                  | Callback_call callback
+                  | Callback_call (callback, parameter_types)
                     when Runtime.function_slot_address_matches_callback receipt
                            callback -> (
                       match
-                        invoke_output block instruction (Some Runtime.Put_chars)
-                          [| Stored_word U64 |] scope
+                        invoke_output block instruction
+                          (Runtime.function_slot_address_provider receipt)
+                          parameter_types scope
                       with
                       | Ok completion ->
                           calls := { scope with completion } :: rest
@@ -8094,7 +8117,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   in
                   if
                     match operation with
-                    | Callback_call callback ->
+                    | Callback_call (callback, _) ->
                         not (callback_signature_matches callback callee)
                     | Extern_call (site, _) ->
                         not (extern_signature_matches site callee)
@@ -8481,8 +8504,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   let value =
                     match executable with
                     | None
-                      when Runtime.function_slot_address_provider receipt
-                           = Some Runtime.Put_chars -> (
+                      when Option.is_some
+                             (Runtime.function_slot_address_provider receipt)
+                      -> (
                         match Runtime.function_slot_address_link receipt with
                         | Some link
                           when Option.fold ~none:false
@@ -8504,7 +8528,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                               {
                                 code_type = I64;
                                 code_link = link;
-                                code_entry = Put_chars_entry receipt;
+                                code_entry = Provider_entry receipt;
                               }
                         | _ ->
                             failed :=
@@ -8602,7 +8626,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                          {
                            code_type = I64;
                            code_link = Runtime.function_address_link address;
-                           code_entry = Put_chars_entry receipt;
+                           code_entry = Provider_entry receipt;
                          })
                       !values
               | None ->
@@ -8775,7 +8799,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                           match (left.code_entry, right.code_entry) with
                           | Source_entry (lc, lp, lo), Source_entry (rc, rp, ro)
                             -> lc == rc && lp == rp && lo == ro
-                          | Put_chars_entry left, Put_chars_entry right ->
+                          | Provider_entry left, Provider_entry right ->
                               Runtime.function_slot_address_declaration left
                               == Runtime.function_slot_address_declaration right
                           | _ -> false)

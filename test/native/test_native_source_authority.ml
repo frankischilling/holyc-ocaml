@@ -2458,10 +2458,13 @@ let callback_executable_storage_authority () =
   Alcotest.(check int)
     "only the earlier definition command entered" 1 budget.executed_steps
 
-let slot_address_host_bounds ?(provider = false) () =
+let slot_address_host_bounds ?(provider = false) ?(formatting = false) () =
   let session, config, source =
     inputs
-      (if provider then "extern U0 PutChars(U64 ch);U0 (*p)(U64 ch)=&PutChars;"
+      (if formatting then
+         "extern U0 Print(U8 *fmt,...);U0 (*p)(U8 *fmt,...)=&Print;"
+       else if provider then
+         "extern U0 PutChars(U64 ch);U0 (*p)(U64 ch)=&PutChars;"
        else "extern I64 F();I64 (*p)()=&F;")
   in
   let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
@@ -2666,6 +2669,30 @@ let provider_callback_entry_abis () =
        ch);p=&PutChars;U0 PutChars(U64 ch){N=ch;}q=&PutChars;p('A');q(42);N;";
     ]
 
+let print_callback_entry_abis () =
+  List.iter
+    (fun text ->
+      let report, _, _, budget =
+        array_source ~both_abis:true ~max_global_bytes:24 ~max_arena_bytes:2048
+          ~text ()
+      in
+      Source.outcome report |> Result.map_error describe |> checked |> ignore;
+      Alcotest.(check bool)
+        "Print callback executes original host ABI" true
+        (Source.native_final_value report = Some (Dispatch.I64 42L));
+      Alcotest.(check bool)
+        "Print callback consumes native output work" true
+        (budget.output_work > 0))
+    [
+      "extern U0 Print(U8 *fmt,...);U0 (*p)(U8 \
+       *fmt,...)=&Print;p(\"%s%d\",\"A\",42);42;";
+      "extern U0 Print(U8 *fmt,...);I64 Run(U0 (*p)(U8 \
+       *fmt,...)){p(\"%*s\",3,\"A\");return 42;}Run(&Print);";
+      "extern U0 Print(U8 *fmt,...);I64 N;U0 (*p)(U8 *fmt,...),(*q)(U8 \
+       *fmt,...);p=&Print;U0 Print(U8 \
+       *fmt,...){N=42;}q=&Print;p(\"A\");q(\"B\");N;";
+    ]
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -2675,6 +2702,11 @@ let () =
             numeric_callback_expression_abis;
           Alcotest.test_case "provider callback entries and both private ABIs"
             `Quick provider_callback_entry_abis;
+          Alcotest.test_case "Print callback entries and both private ABIs"
+            `Quick print_callback_entry_abis;
+          Alcotest.test_case "Print entry mappings, copied receipts and expiry"
+            `Quick (fun () ->
+              slot_address_host_bounds ~provider:true ~formatting:true ());
           Alcotest.test_case
             "provider entry host mappings, copied receipts and expiry" `Quick
             (fun () -> slot_address_host_bounds ~provider:true ());
