@@ -694,6 +694,9 @@ val native_slot_address_binding_owner :
 val native_slot_address_binding_globals :
   native_slot_address_binding -> Integer_globals.t
 
+val native_slot_address_binding_root_runtime_calls :
+  native_slot_address_binding -> Runtime_call_context.t
+
 val refresh_native_slot_address_binding :
   task_state ->
   root_runtime_calls:Runtime_call_context.t ->

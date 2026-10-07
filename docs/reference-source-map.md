@@ -1893,3 +1893,14 @@ optimizer passes in order; later class changes do not restore removed scaling.
 The original typed AST supplies parser and computation provenance; physical cells and dynamic
 executable owners remain intact through numeric views. Hosted owner guards add
 no TempleOS runtime capture. See [callback expressions](callback-expressions.md).
+
+Provider callbacks retain the original JIT extern IMM-slot/DEREF capture from
+`Compiler/PrsExp.HC:624-652`. `PrsStmt.HC:95-114,181-191` keeps capture before
+later body installation distinct from a new lookup. `Kernel/KeyDev.HC:20-28`
+defines the U0/U64 packed-byte loop and `Kernel/KExts.HC:84` declares its extern.
+The hosted PutChars callback uses a checked entry with its own immutable owner,
+separate from the mutable source slot. Native compilation emits the private
+entry and bounds its output work; original task admission retains the source
+contract separately from machine mapping and reached saved-default capture.
+See [provider callback entries](provider-callback-entries.md) for execution and
+remaining compiler boundaries. This audit adds no TempleOS runtime capture.

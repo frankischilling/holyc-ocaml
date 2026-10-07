@@ -2458,8 +2458,12 @@ let callback_executable_storage_authority () =
   Alcotest.(check int)
     "only the earlier definition command entered" 1 budget.executed_steps
 
-let slot_address_host_bounds () =
-  let session, config, source = inputs "extern I64 F();I64 (*p)()=&F;" in
+let slot_address_host_bounds ?(provider = false) () =
+  let session, config, source =
+    inputs
+      (if provider then "extern U0 PutChars(U64 ch);U0 (*p)(U64 ch)=&PutChars;"
+       else "extern I64 F();I64 (*p)()=&F;")
+  in
   let layout = Image.create_task_layout ~max_global_bytes:8 |> compiled in
   let observed = ref false in
   let expired = ref None in
@@ -2516,7 +2520,8 @@ let slot_address_host_bounds () =
           let bindings = Array.of_list (Image.code_owner_bindings image) in
           let slots = Array.of_list (Image.function_slot_bindings image) in
           Alcotest.(check int)
-            "real shared private entry" 1
+            "real private entries"
+            (if provider then 2 else 1)
             (Image.private_function_count image);
           Alcotest.(check int)
             "placeholder has no source function" 0
@@ -2563,7 +2568,7 @@ let slot_address_host_bounds () =
               Obj.repr [| (-1, id) |];
               Obj.repr [| (extent - 15, id) |];
               Obj.repr [| (address, 0) |];
-              Obj.repr [| (address, id + 1) |];
+              Obj.repr [| (address, id + 100) |];
               Obj.repr [| (owner_address, id) |];
               Obj.repr [| (address, id); (address, id) |];
             ];
@@ -2639,6 +2644,28 @@ let numeric_callback_expression_abis () =
       "I64 (*p)()=84;I64 Run(){return p>>1;}Run();";
     ]
 
+let provider_callback_entry_abis () =
+  List.iter
+    (fun text ->
+      let report, _, _, budget =
+        array_source ~both_abis:true ~max_global_bytes:24 ~max_arena_bytes:2048
+          ~text ()
+      in
+      Source.outcome report |> Result.map_error describe |> checked |> ignore;
+      Alcotest.(check bool)
+        "provider callback executes original host ABI" true
+        (Source.native_final_value report = Some (Dispatch.I64 42L));
+      Alcotest.(check bool)
+        "provider callback consumes native work" true
+        (budget.executed_steps > 0))
+    [
+      "extern U0 PutChars(U64 ch);U0 (*p)(U64 ch)=&PutChars;p('AB');42;";
+      "extern U0 PutChars(U64 ch);I64 Run(U0 (*p)(U64 ch)){p('AB');return \
+       42;}Run(&PutChars);";
+      "extern U0 PutChars(U64 ch);I64 N;U0 (*p)(U64 ch),(*q)(U64 \
+       ch);p=&PutChars;U0 PutChars(U64 ch){N=ch;}q=&PutChars;p('A');q(42);N;";
+    ]
+
 let () =
   Alcotest.run "Native source authority"
     [
@@ -2646,6 +2673,11 @@ let () =
         [
           Alcotest.test_case "numeric callback expression private ABIs" `Quick
             numeric_callback_expression_abis;
+          Alcotest.test_case "provider callback entries and both private ABIs"
+            `Quick provider_callback_entry_abis;
+          Alcotest.test_case
+            "provider entry host mappings, copied receipts and expiry" `Quick
+            (fun () -> slot_address_host_bounds ~provider:true ());
           Alcotest.test_case
             "original extern slots, both ABIs, status and lifetime" `Quick
             native_extern_slot_authority;
@@ -2664,7 +2696,7 @@ let () =
             callback_host_entry_bounds;
           Alcotest.test_case
             "original slot receipts, native bindings and expiry" `Quick
-            slot_address_host_bounds;
+            (fun () -> slot_address_host_bounds ());
           Alcotest.test_case
             "persistent native code ownership, exact arena and expiry" `Quick
             callback_executable_storage_authority;

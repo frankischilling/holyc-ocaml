@@ -304,15 +304,15 @@ source function count. The bridge checks every slot range and owner before
 publishing its cells. Original graph receipts, task ownership and the current body
 generation still govern source selection; names and numeric bits grant no entry.
 The IR consumer preserves the same declaration-time capture and source-position
-rules. Hosted output-provider callback addresses still require their own checked
-entries and receive a diagnostic rather than an unresolved capture.
+rules. PutChars callback addresses use a separate checked private entry.
+Print and stream-provider addresses still report a missing-entry diagnostic.
 
 Live anonymous expression defaults and nested saved callback owners use the
 same native completion path. See [anonymous defaults](native-anonymous-defaults.md)
 and `examples/native-source-anonymous-defaults.hc`. Callback calls inside defaults
 retain their original typed sources; integer static initializers can consume
-these saved arguments. Static callback allocations in the streaming native task
-still require their separate connection. Direct automatic
+these saved arguments. Static callback allocations and their initializer leaves
+retain the original live allocation and anonymous header. Direct automatic
 callback initializers remain rejected at the pinned `Grid.HC` restriction.
 
 Numeric callback words can supply all ten compound update operators for integer
@@ -384,9 +384,10 @@ in OCaml.
 This source-task path supports integer globals, fixed integer arrays,
 integer and one-star callback function statics, retained direct and joined JIT
 extern calls, their original literals, numeric and owned callback storage, and
-named or anonymous integer and one-star callback defaults. Runtime-dependent
+named or anonymous integer and one-star callback defaults, and original PutChars
+callback entries. Runtime-dependent
 dimensions, wider callback defaults,
-hosted-provider callback entries, native `#exe` and AOT source-task execution
+Print and stream-provider callback entries, native `#exe` and AOT source-task execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.
 The compiler retains each successful live JIT static allocation, including
@@ -515,3 +516,8 @@ and assignment results through signed RT_PTR word views. Parser pointer scaling
 and difference division remain separate from numeric computation classes.
 Dynamic executable owners are checked at reached integer consumers; callback
 copies and calls keep their existing owner path.
+
+[Provider callback entries](provider-callback-entries.md) give the approved
+PutChars extern its own private entry. Original captures, copies and saved
+defaults retain that entry after a later source body replaces the extern slot.
+The immutable provider owner and mutable slot have separate native cells.

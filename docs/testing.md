@@ -1645,3 +1645,14 @@ results, comparison chains, unsigned computation and selected return metadata.
 Native owner guards preserve earlier operand output. Exact and one-below code,
 IR, frame and execution limits use measured work. The original source authority
 suite compiles these consumers for both private ABIs and executes the host ABI.
+
+Provider callback tests run the same original PutChars captures through the IR
+and actual native task consumers. Fixtures cover globals, automatic and static
+cells, indexed copies, fixed parameters, recursive forwarding, saved defaults,
+callee capture before argument effects and a later joined source definition.
+Packed-byte values include zero and high bytes. Reached signature, output and
+owned-word faults preserve prior effects. Measured native and IR work and exact
+and one-below output, frame, code and IR allowances check cumulative limits.
+Source authority tests compile both private ABIs and reject copied receipts,
+malformed host mapping tables, released owners and expired requests. These
+checks add no TempleOS runtime capture or exported ABI proof.

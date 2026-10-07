@@ -524,6 +524,8 @@
   test_callback_updates
   callback_expression_cases
   test_callback_expressions
+  provider_callback_cases
+  test_provider_callbacks
   test_implicit_output_target_resolution
   test_top_level_implicit_output_target_resolution
   test_top_level_implicit_output_argument_binding

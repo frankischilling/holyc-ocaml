@@ -393,6 +393,49 @@ let function_slot_address_link address = address.slot_address_link
 let function_slot_address_item_index address = address.slot_address_item_index
 let function_slot_address_provider address = address.slot_address_provider
 
+let function_slot_address_matches_callback address callback =
+  let header =
+    Functions.resolved_declaration_header address.slot_address_declaration
+  in
+  let parameters =
+    Headers.signature_parameters (Headers.function_signature header)
+  in
+  let expected =
+    Headers.signature_parameters
+      (Headers.function_pointer_signature callback.callback_pointer)
+  in
+  let parameter_type parameter =
+    match Headers.parameter_declarator_kind parameter with
+    | Headers.Object ->
+        Sema.Type_reference.resolved_type
+          (Headers.parameter_type_reference parameter)
+    | Headers.Function_pointer pointer ->
+        Headers.function_pointer_storage_type pointer |> Result.get_ok
+  in
+  Option.is_some address.slot_address_provider
+  && Type.equal
+       (Sema.Type_reference.resolved_type (Headers.function_return_type header))
+       callback.callback_return_type
+  && address.slot_address_provider = Some Put_chars
+     = callback.callback_callee_pop
+  && Option.is_some (Headers.function_variadic_count_type header)
+     = Option.is_some callback.callback_variadic_count
+  && List.length parameters = List.length callback.callback_fixed_types
+  && List.for_all2
+       (fun parameter type_ -> Type.equal (parameter_type parameter) type_)
+       parameters callback.callback_fixed_types
+  && List.length parameters = List.length expected
+  && List.for_all2
+       (fun actual expected ->
+         match
+           ( Headers.parameter_declarator_kind actual,
+             Headers.parameter_declarator_kind expected )
+         with
+         | Headers.Object, Headers.Object -> true
+         | Headers.Function_pointer _, Headers.Function_pointer _ -> true
+         | _ -> false)
+       parameters expected
+
 type pointer_difference_divisions = Seq.description Instructions.t
 
 let original_pointer_difference_divisions context ~owner =

@@ -315,10 +315,12 @@ and retained_executable = {
 and runtime_code = {
   code_type : word_type;
   code_link : Retained_function.t;
-  code_callee : callee;
-  code_program : prepared;
-  code_owner : executable_owner;
+  code_entry : runtime_code_entry;
 }
+
+and runtime_code_entry =
+  | Source_entry of callee * prepared * executable_owner
+  | Put_chars_entry of Runtime.function_slot_address
 
 type task_stream = { stream_output : Output.t }
 type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
@@ -514,6 +516,8 @@ type task_state = {
   mutable literal_arenas : runtime_storage list;
   mutable started : X87.t list;
   mutable functions : retained_executable list;
+  mutable provider_entries :
+    (Retained_function.t * Runtime.function_slot_address) list;
   mutable native_function_sources :
     (Retained_function.t * task_function_source) list;
   mutable global_bytes : int;
@@ -604,6 +608,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         started = [];
         functions = [];
         native_function_sources = [];
+        provider_entries = [];
         global_bytes = 0;
         literal_bytes = 0;
         steps = 0;
@@ -1290,6 +1295,39 @@ let check_native_task_program task ~runtime_calls ~globals ~initialization
           (fun _ -> ())
           (native_function_sources_for_program task source))
 
+let retain_native_provider_sources task runtime_calls owner graph =
+  (* Retain logical source contracts at the same admission as function bodies.
+     Native mapping, stable entry cells and reached captures remain separate. *)
+  Option.iter
+    (fun addresses ->
+      Graph.blocks graph
+      |> List.iter (fun block ->
+          Graph.instructions block |> Sequence.instructions
+          |> List.iter (fun instruction ->
+              Option.iter
+                (fun receipt ->
+                  if
+                    Runtime.function_slot_address_provider receipt
+                    = Some Runtime.Put_chars
+                  then
+                    Option.iter
+                      (fun link ->
+                        if
+                          Integer_globals.task_catalog_contains_function
+                            task.catalog link
+                          && not
+                               (List.exists
+                                  (fun (original, _) ->
+                                    Retained_function.same original link)
+                                  task.provider_entries)
+                        then
+                          task.provider_entries <-
+                            (link, receipt) :: task.provider_entries)
+                      (Runtime.function_slot_address_link receipt))
+                (Runtime.original_function_slot_address addresses
+                   (Sequence.description instruction)))))
+    (Runtime.original_function_slot_addresses runtime_calls ~owner)
+
 let claim_native_task_program task ~runtime_calls ~globals ~initialization
     ~functions entry =
   let ( let* ) = Result.bind in
@@ -1336,6 +1374,14 @@ let claim_native_task_program task ~runtime_calls ~globals ~initialization
   task.native_program_attempts <- attempt :: task.native_program_attempts;
   task.native_function_sources <-
     native_function_sources @ task.native_function_sources;
+  retain_native_provider_sources task runtime_calls Runtime.Entry
+    (X87.graph entry);
+  List.iter
+    (fun (definition : function_definition) ->
+      retain_native_provider_sources task runtime_calls
+        (Runtime.Function definition.body)
+        (Function.body definition.body))
+    functions;
   Ok attempt
 
 let owns_active_native_task_program task attempt =
@@ -2352,7 +2398,11 @@ let claim_native_task_default task attempt program =
   Result.map
     (fun () ->
       attempt.default_state <- Executing_initializer;
-      attempt.default_native_program <- Some program)
+      attempt.default_native_program <- Some program;
+      retain_native_provider_sources task
+        (Default_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Default_fragment_program.entry program)))
     (check_native_task_default task attempt program)
 
 let record_native_default_steps task attempt steps =
@@ -2400,7 +2450,11 @@ let complete_native_task_default task attempt program value =
                 (Default_fragment_destination.root destination)
         || (not
               (Integer_globals.task_catalog_contains_function task.catalog link))
-        || Option.is_none (exact_native_function_source task link))
+        || Option.is_none (exact_native_function_source task link)
+           && not
+                (List.exists
+                   (fun (original, _) -> Retained_function.same original link)
+                   task.provider_entries))
       (Saved_parameter_value.callback_source value)
     || Option.fold ~none:false
          ~some:(fun source ->
@@ -3054,7 +3108,12 @@ let check_native_task_initializer task attempt execution program =
 
 let claim_native_task_initializer task attempt execution program =
   Result.map
-    (fun () -> attempt.attempt_state <- Executing_initializer)
+    (fun () ->
+      attempt.attempt_state <- Executing_initializer;
+      retain_native_provider_sources task
+        (Initializer_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Initializer_fragment_program.entry program)))
     (check_native_task_initializer task attempt execution program)
 
 let complete_native_task_initializer task attempt execution program =
@@ -3323,6 +3382,9 @@ let native_slot_address_binding_runtime_calls binding =
 
 let native_slot_address_binding_owner binding = binding.address_slot_owner
 let native_slot_address_binding_globals binding = binding.address_slot_globals
+
+let native_slot_address_binding_root_runtime_calls binding =
+  binding.address_slot_root_calls
 
 let refresh_native_slot_address_binding task ~root_runtime_calls ~root_globals
     binding =
@@ -5476,7 +5538,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
           operation
 
 let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
-    ?(retained_functions = []) ?(runtime_owner = Runtime.Entry) graph =
+    ?(retained_functions = []) ?(retained_provider_entries = [])
+    ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
   let callbacks =
     Option.bind runtime_calls (fun context ->
@@ -6670,7 +6733,17 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                                        .callee_definition)
                               retained_functions
                           in
-                          if local || retained then
+                          let provider =
+                            List.exists
+                              (fun (link, receipt) ->
+                                Retained_function.same link
+                                  (Runtime.function_address_link address)
+                                && Runtime.function_slot_address_declaration
+                                     receipt
+                                   == declaration)
+                              retained_provider_entries
+                          in
+                          if local || retained || provider then
                             call_instruction description
                               (Function_address
                                  ( (Option.get description.result).value_id,
@@ -6912,7 +6985,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     ?(capture_last = false) ?on_capture ?initialization ?globals
     ?(global_words = [||]) ?literal_image ?output ?stream_output
     ?generation_output ?stream_exe_print ?admit ?(retained_regions = [])
-    ?(retained_functions = []) ~max_steps program =
+    ?(retained_functions = []) ?(retained_provider_entries = [])
+    ?on_provider_entry ~max_steps program =
   let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
@@ -7400,9 +7474,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             error "HCIRVM0008" (purpose ^ " scan reached an invalid byte cell")
   in
   let read_output_byte = read_owned_byte ~purpose:"output" in
-  let invoke_output block instruction site parameter_types scope =
+  let invoke_output block instruction provider parameter_types scope =
     let provider_name =
-      match Runtime.provider site with
+      match provider with
       | Some Runtime.Print -> "Print"
       | Some Runtime.Put_chars -> "PutChars"
       | Some Runtime.Stream_print -> "StreamPrint"
@@ -7449,7 +7523,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
       let ( let* ) = Result.bind in
       let* arguments = arguments 0 [] scope.arguments_rev in
       let selected_output =
-        match Runtime.provider site with
+        match provider with
         | Some Runtime.Stream_print -> (
             match stream_output with
             | Some _ -> stream_output
@@ -7480,11 +7554,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             | Output.Memory error ->
                 { error with message = provider_message error.message }
             | Output.Output_limit ->
-                if Runtime.provider site = Some Runtime.Stream_print then
+                if provider = Some Runtime.Stream_print then
                   make_provider_error "HCIRVM0028"
                     "generated output exceeds the task generated byte limit"
-                else if Runtime.provider site = Some Runtime.Stream_exe_print
-                then
+                else if provider = Some Runtime.Stream_exe_print then
                   make_provider_error "HCIRVM0028"
                     "formatted source exceeds the hosted source byte limit"
                 else
@@ -7501,7 +7574,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             | Output.Invalid_argument message ->
                 make_provider_error "HCIRVM0025" message
           in
-          match (Runtime.provider site, arguments) with
+          match (provider, arguments) with
           | Some Runtime.Put_chars, [ Runtime_word word ] ->
               Output.put_chars output word.bits
               |> Result.map_error provider_error
@@ -7527,7 +7600,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       "prepared variadic output argument is invalid"
               in
               let* arguments = variadic [] tail in
-              let provider = Runtime.provider site in
+              let provider = provider in
               let inactive =
                 provider = Some Runtime.Stream_print
                 && Option.is_none stream_output
@@ -7924,21 +7997,21 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   when index >= 0 && index < Array.length !owner.owner_callees
                   ->
                     let callee, body = !owner.owner_callees.(index) in
-                    Some (callee, body, !owner)
+                    Some (Source_entry (callee, body, !owner))
                 | Retained_call link ->
                     List.find_opt
                       (fun executable ->
                         Retained_function.same executable.function_link link)
                       retained_functions
                     |> Option.map (fun executable ->
-                        ( executable.function_callee,
-                          executable.function_program,
-                          executable.function_owner ))
+                        Source_entry
+                          ( executable.function_callee,
+                            executable.function_program,
+                            executable.function_owner ))
                 | Callback_call _ -> (
                     match !calls with
                     | { callback_value = Some (Runtime_code code); _ } :: _ ->
-                        Some
-                          (code.code_callee, code.code_program, code.code_owner)
+                        Some code.code_entry
                     | _ -> None)
                 | Extern_call (site, _) ->
                     let visible_item =
@@ -7946,10 +8019,32 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       | scope :: _ -> scope.publication_item
                       | [] -> None
                     in
-                    extern_target site visible_item
+                    Option.map
+                      (fun (callee, body, owner) ->
+                        Source_entry (callee, body, owner))
+                      (extern_target site visible_item)
                 | _ -> None
               in
               match (!calls, target) with
+              | ( ({ completion = Pending; _ } as scope) :: rest,
+                  Some (Put_chars_entry receipt) ) -> (
+                  match operation with
+                  | Callback_call callback
+                    when Runtime.function_slot_address_matches_callback receipt
+                           callback -> (
+                      match
+                        invoke_output block instruction (Some Runtime.Put_chars)
+                          [| Stored_word U64 |] scope
+                      with
+                      | Ok completion ->
+                          calls := { scope with completion } :: rest
+                      | Error error -> failed := Some error)
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0014"
+                             "the captured provider entry disagrees with the \
+                              original callback signature or cleanup policy"))
               | ({ completion = Pending; _ } as scope) :: rest, None -> (
                   match operation with
                   | Callback_call _ ->
@@ -7969,8 +8064,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   | Extern_call (site, parameter_types) ->
                       if Option.is_some (Runtime.provider site) then
                         match
-                          invoke_output block instruction site parameter_types
-                            scope
+                          invoke_output block instruction
+                            (Runtime.provider site) parameter_types scope
                         with
                         | Ok completion ->
                             calls := { scope with completion } :: rest
@@ -7989,7 +8084,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                              "prepared direct call has no available caller \
                               scope"))
               | ( ({ completion = Pending; _ } as scope) :: _,
-                  Some (callee, body, callee_owner) ) -> (
+                  Some (Source_entry (callee, body, callee_owner)) ) -> (
                   let tail_count =
                     if callee.variadic then
                       List.length scope.arguments_rev
@@ -8385,6 +8480,40 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   in
                   let value =
                     match executable with
+                    | None
+                      when Runtime.function_slot_address_provider receipt
+                           = Some Runtime.Put_chars -> (
+                        match Runtime.function_slot_address_link receipt with
+                        | Some link
+                          when Option.fold ~none:false
+                                 ~some:(fun globals ->
+                                   List.exists
+                                     (Retained_function.same link)
+                                     (Integer_globals.function_publications
+                                        globals)
+                                   || Option.fold ~none:false
+                                        ~some:(Retained_function.same link)
+                                        (Integer_globals
+                                         .retained_function_declaration globals
+                                           selected))
+                                 globals ->
+                            Option.iter
+                              (fun retain -> retain link receipt)
+                              on_provider_entry;
+                            Runtime_code
+                              {
+                                code_type = I64;
+                                code_link = link;
+                                code_entry = Put_chars_entry receipt;
+                              }
+                        | _ ->
+                            failed :=
+                              Some
+                                (runtime_error ~instruction block !steps
+                                   "HCIRVM0024"
+                                   "provider entry lacks its original task \
+                                    publication");
+                            Runtime_undefined_code I64)
                     | None ->
                         if
                           Option.is_some
@@ -8402,9 +8531,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                           {
                             code_type = I64;
                             code_link;
-                            code_callee;
-                            code_program;
-                            code_owner;
+                            code_entry =
+                              Source_entry
+                                (code_callee, code_program, code_owner);
                           }
                   in
                   values := Value_map.add result value !values
@@ -8450,9 +8579,30 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                          {
                            code_type = I64;
                            code_link = Runtime.function_address_link address;
-                           code_callee;
-                           code_program;
-                           code_owner;
+                           code_entry =
+                             Source_entry (code_callee, code_program, code_owner);
+                         })
+                      !values
+              | None
+                when List.exists
+                       (fun (link, _) ->
+                         Retained_function.same link
+                           (Runtime.function_address_link address))
+                       retained_provider_entries ->
+                  let _, receipt =
+                    List.find
+                      (fun (link, _) ->
+                        Retained_function.same link
+                          (Runtime.function_address_link address))
+                      retained_provider_entries
+                  in
+                  values :=
+                    Value_map.add result
+                      (Runtime_code
+                         {
+                           code_type = I64;
+                           code_link = Runtime.function_address_link address;
+                           code_entry = Put_chars_entry receipt;
                          })
                       !values
               | None ->
@@ -8621,9 +8771,14 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     | Runtime_code left, Runtime_code right ->
                         Some
                           (Retained_function.same left.code_link right.code_link
-                          && left.code_program == right.code_program
-                          && left.code_callee == right.code_callee
-                          && left.code_owner == right.code_owner)
+                          &&
+                          match (left.code_entry, right.code_entry) with
+                          | Source_entry (lc, lp, lo), Source_entry (rc, rp, ro)
+                            -> lc == rc && lp == rp && lo == ro
+                          | Put_chars_entry left, Put_chars_entry right ->
+                              Runtime.function_slot_address_declaration left
+                              == Runtime.function_slot_address_declaration right
+                          | _ -> false)
                     | Runtime_code _, Runtime_word { bits = 0L; _ }
                     | Runtime_word { bits = 0L; _ }, Runtime_code _ ->
                         Some false
@@ -9211,6 +9366,9 @@ let execute_program_with_output ?task ?isolated_budget
     let retained_functions =
       Option.fold ~none:[] ~some:(fun task -> task.functions) task
     in
+    let retained_provider_entries =
+      Option.fold ~none:[] ~some:(fun task -> task.provider_entries) task
+    in
     let calls ?caller graph =
       let runtime_owner =
         Option.fold ~none:Runtime.Entry
@@ -9337,8 +9495,8 @@ let execute_program_with_output ?task ?isolated_budget
           in
           let* program =
             prepare ~frame ?globals ~literals ~callees ?runtime_calls
-              ~retained_functions ~runtime_owner:(Runtime.Function body)
-              (Function.body body)
+              ~retained_functions ~retained_provider_entries
+              ~runtime_owner:(Runtime.Function body) (Function.body body)
             |> Result.map_error (List.map (identify body))
           in
           bodies
@@ -9362,7 +9520,7 @@ let execute_program_with_output ?task ?isolated_budget
     in
     let* entry =
       prepare ?globals ~literals ?initialization ~callees ?runtime_calls
-        ~retained_functions (X87.graph checked)
+        ~retained_functions ~retained_provider_entries (X87.graph checked)
       |> Result.map_error (List.map identify_entry)
     in
     let global_words =
@@ -9521,8 +9679,22 @@ let execute_program_with_output ?task ?isolated_budget
         ~literal_image ~output ?stream_output ?generation_output
         ?stream_exe_print:nested_stream_exe_print
         ~capture_last:((not initializer_mode) || capture_fragment_value)
-        ?on_capture ?admit ~retained_regions ~retained_functions ~max_steps
-        entry
+        ?on_capture ?admit ~retained_regions ~retained_functions
+        ~retained_provider_entries
+        ?on_provider_entry:
+          (Option.map
+             (fun task link receipt ->
+               if
+                 not
+                   (List.exists
+                      (fun (original, _) ->
+                        Retained_function.same original link)
+                      task.provider_entries)
+               then
+                 task.provider_entries <-
+                   (link, receipt) :: task.provider_entries)
+             task)
+        ~max_steps entry
     in
     Option.iter
       (fun task ->

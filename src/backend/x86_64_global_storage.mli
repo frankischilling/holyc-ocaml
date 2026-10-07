@@ -131,6 +131,25 @@ val append_task_code_owners :
 (** Reserve immutable original-body identities and two private native address
     cells per owner. No runtime address or executable authority is published. *)
 
+type provider_code_owner
+
+val task_provider_code_owners : task_snapshot -> provider_code_owner list
+
+val provider_code_owner_binding :
+  provider_code_owner -> Ir.Integer_interpreter.native_slot_address_binding
+
+val provider_code_owner_id : provider_code_owner -> int
+val provider_code_owner_address : provider_code_owner -> int
+val provider_code_owner_target : provider_code_owner -> int
+
+val append_task_provider_code_owners :
+  task_snapshot ->
+  Ir.Integer_interpreter.native_slot_address_binding list ->
+  (task_snapshot, error list) result
+(** Reserve distinct PutChars entry owners from current original task bindings.
+    Entries retain the original extern declaration after a joined source body
+    replaces its slot. Reservation grants no machine entry or call admission. *)
+
 val task_snapshot_matches_layout : task_snapshot -> task_layout -> bool
 
 type undefined_code_owner

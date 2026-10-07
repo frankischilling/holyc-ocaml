@@ -47,6 +47,13 @@ type code_owner = {
   owner_target : int;
 }
 
+type provider_code_owner = {
+  provider_binding : Ir.Integer_interpreter.native_slot_address_binding;
+  provider_id : int;
+  provider_address : int;
+  provider_target : int;
+}
+
 type undefined_code_owner = {
   undefined_id : int;
   undefined_address : int;
@@ -69,6 +76,7 @@ type task_layout_state = {
   task_layout_work : int;
   task_literals : Literals.t;
   task_code_owners : code_owner list;
+  task_provider_code_owners : provider_code_owner list;
   task_next_code_owner : int;
   task_undefined_code_owner : undefined_code_owner option;
   task_function_slots : function_slot Symbol_map.t;
@@ -712,6 +720,7 @@ let create_task_layout ?(max_layout_work = hard_max_task_layout_work)
             task_layout_work = 0;
             task_literals = Literals.empty;
             task_code_owners = [];
+            task_provider_code_owners = [];
             task_next_code_owner = 1;
             task_undefined_code_owner = None;
             task_function_slots = Symbol_map.empty;
@@ -1318,6 +1327,101 @@ let code_owner_definition owner = owner.owner_definition
 let code_owner_id owner = owner.owner_id
 let code_owner_address owner = owner.owner_address
 let code_owner_target owner = owner.owner_target
+
+let task_provider_code_owners snapshot =
+  snapshot.task_state_snapshot.task_provider_code_owners
+
+let provider_code_owner_binding owner = owner.provider_binding
+let provider_code_owner_id owner = owner.provider_id
+let provider_code_owner_address owner = owner.provider_address
+let provider_code_owner_target owner = owner.provider_target
+
+let append_task_provider_code_owners snapshot bindings =
+  let ( let* ) = Result.bind in
+  let module VM = Ir.Integer_interpreter in
+  let module Runtime = Ir.Runtime_call_context in
+  let layout = snapshot.task_layout in
+  let before = snapshot.task_state_snapshot in
+  let* () =
+    if Atomic.get layout.task_state != before then
+      error "HCBACK0003" "native provider snapshot precedes current admission"
+    else Ok ()
+  in
+  let* after =
+    List.fold_left
+      (fun checked binding ->
+        let* state = checked in
+        let receipt = VM.native_slot_address_binding_receipt binding in
+        if
+          Runtime.function_slot_address_provider receipt
+          <> Some Runtime.Put_chars
+        then Ok state
+        else if
+          not
+            (VM.native_slot_address_binding_matches binding
+               ~root_runtime_calls:
+                 (VM.native_slot_address_binding_root_runtime_calls binding)
+               ~runtime_calls:
+                 (VM.native_slot_address_binding_runtime_calls binding)
+               ~owner:(VM.native_slot_address_binding_owner binding)
+               ~globals:snapshot.task_storage.globals receipt
+            && Option.is_some (Runtime.function_slot_address_link receipt))
+        then
+          error "HCBACK0003" "native provider lacks its original task binding"
+        else
+          match
+            List.find_opt
+              (fun owner ->
+                let original =
+                  VM.native_slot_address_binding_receipt owner.provider_binding
+                in
+                Runtime.function_slot_address_declaration original
+                == Runtime.function_slot_address_declaration receipt)
+              state.task_provider_code_owners
+          with
+          | Some _ -> Ok state
+          | None ->
+              if state.task_next_code_owner > 100_000 then
+                error "HCBACK0001"
+                  "native provider owners exceed the identity bound"
+              else if state.task_arena_bytes > hard_max_arena_bytes - 16 then
+                error "HCBACK0001" "native provider cells exceed the task arena"
+              else if state.task_layout_work = layout.max_task_layout_work then
+                error "HCBACK0001"
+                  "native provider owners exceed cumulative layout work"
+              else
+                Ok
+                  {
+                    state with
+                    task_provider_code_owners =
+                      state.task_provider_code_owners
+                      @ [
+                          {
+                            provider_binding = binding;
+                            provider_id = state.task_next_code_owner;
+                            provider_address = state.task_arena_bytes;
+                            provider_target = state.task_arena_bytes + 8;
+                          };
+                        ];
+                    task_next_code_owner = state.task_next_code_owner + 1;
+                    task_arena_bytes = state.task_arena_bytes + 16;
+                    task_layout_work = state.task_layout_work + 1;
+                  })
+      (Ok before) bindings
+  in
+  if after == before || Atomic.compare_and_set layout.task_state before after
+  then
+    Ok
+      {
+        snapshot with
+        task_state_snapshot = after;
+        task_storage =
+          {
+            snapshot.task_storage with
+            zero_bytes = Some after.task_arena_bytes;
+          };
+      }
+  else error "HCBACK0003" "native provider ownership changed during admission"
 
 let append_task_code_owners snapshot sources =
   let ( let* ) = Result.bind in

@@ -166,18 +166,25 @@ let reached_slot_guards () =
   fault Image.Callback_update_owned_address
     (run "extern I64 F();I64 (*p)()=&F;p++;");
   fault Image.Code_comparison_invalid_word (run "extern I64 F();&F==42;");
+  let provider =
+    run "extern U0 PutChars(U64 ch);U0 (*p)(U64 ch)=&PutChars;p(65);42;"
+  in
+  value 42L provider;
+  Alcotest.(check string)
+    "original provider callback bytes" "A"
+    (Native.output_bytes provider);
   match
     Native.outcome
-      (run "extern U0 PutChars(U64 ch);U0 (*p)(U64 ch)=&PutChars;p(65);")
+      (run "extern U0 Print(U8 *fmt,...);U0 (*p)(U8 *fmt,...)=&Print;p(\"A\");")
   with
   | Error errors ->
       Alcotest.(check bool)
-        "hosted provider cannot become UndefinedExtern" true
+        "Print provider still requires its own checked entry" true
         (List.exists
            (fun (error : Diagnostic.t) -> error.code = "HCBACK0002")
            errors)
   | Ok _ ->
-      Alcotest.fail "provider callback requires its own original native entry"
+      Alcotest.fail "Print callback requires its own original native entry"
 
 let independent_interpreter () =
   List.iter

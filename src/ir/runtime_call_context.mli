@@ -188,6 +188,12 @@ val function_slot_address_link :
 val function_slot_address_item_index : function_slot_address -> int option
 val function_slot_address_provider : function_slot_address -> provider option
 
+val function_slot_address_matches_callback :
+  function_slot_address -> callback_call -> bool
+(** Compare an approved provider's captured slot declaration with a callback's
+    return, fixed arguments, variadic shape and cleanup policy. This comparison
+    grants no source or executable ownership. *)
+
 type pointer_difference_divisions
 
 val original_pointer_difference_divisions :

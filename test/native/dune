@@ -1135,6 +1135,32 @@
 
 (copy_files ../callback_expression_cases.ml)
 
+(copy_files ../provider_callback_cases.ml)
+
+(executable
+ (name test_provider_callback_cli)
+ (modules test_provider_callback_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/provider-callback-entries.hc)
+ (action
+  (run
+   %{exe:test_provider_callback_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/provider-callback-entries.hc})))
+
+(executable
+ (name test_native_provider_callbacks)
+ (modules test_native_provider_callbacks provider_callback_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_provider_callbacks.exe})))
+
 (executable
  (name test_native_source_callback_expressions)
  (modules test_native_source_callback_expressions callback_expression_cases)

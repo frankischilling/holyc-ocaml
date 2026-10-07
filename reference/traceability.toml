@@ -13557,3 +13557,19 @@ execution = "One-star words and assignment results support integer unary, arithm
 verification = "Shared source-derived cases cover JIT/AOT IR and actual native JIT tasks, all storage shapes, selected return metadata, signedness, nested scaling, comparison chains, effects, ownership faults and exact cumulative code, IR, frame and work limits. Original source requests compile for both private ABIs; the host ABI executes. Maintained examples and CLI reports check success and reached output."
 verification_boundary = "These pinned source audits and hosted executions add no TempleOS runtime capture, exported HolyC ABI, actual-loader, bootstrap or full-compiler acceptance."
 excluded = ["arithmetic on owned code addresses", "callback members", "wider callback indirection", "F64 or aggregate callback invocation", "AOT source tasks", "native #exe", "full compiler and release"]
+
+[[feature]]
+id = "HC-PUTCHARS-CALLBACK-ENTRIES"
+description = "Original JIT PutChars extern captures execute through distinct checked hosted provider entries."
+sources = ["Compiler/PrsExp.HC:624-652 original extern exe_addr capture", "Compiler/PrsStmt.HC:95-114,181-191 placeholder and body installation", "Kernel/KeyDev.HC:20-28 U0/U64 packed-byte loop", "Kernel/KExts.HC:84 extern declaration"]
+implementation = ["src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml"]
+tests = ["test/provider_callback_cases.ml", "test/test_provider_callbacks.ml", "test/native/test_native_provider_callbacks.ml", "test/native/test_native_source_authority.ml", "test/native/test_provider_callback_cli.ml", "examples/provider-callback-entries.hc"]
+documentation = ["docs/provider-callback-entries.md", "docs/native-source-tasks.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The complete sealed IMM-slot/DEREF pair retains the approved original extern declaration, link, U0/U64 signature and RET1 cleanup. Native owners require exact task bindings and source generations; a copied receipt or expired request supplies no entry authority."
+execution = "IR and native JIT source tasks invoke the packed-byte provider through automatic, static, global, indexed and parameter callback cells. Callee capture precedes arguments. Saved defaults and earlier copies retain the provider after a later source body replaces the extern slot. Native compilation emits separate private entries, stable owner cells and Windows unwind records without a fabricated source body."
+verification = "Independent IR and native executions cover captures, recursion, defaults, byte values, historical replacement and reached signature, output and numeric-owner faults. Measured limits cover cumulative work and machine-code, IR, frame and output allowances. Original entry tests compile both private ABIs and exercise malformed host tables, copied receipts, released owners and request expiry. Maintained CLI tests verify the example and fault prefixes."
+verification_boundary = "Packed-byte output is a bounded hosted contract. Source admission, machine mapping and reached saved-default capture remain separate. These checks add no TempleOS runtime capture, exported ABI, device scheduling, actual-loader, bootstrap or full-compiler acceptance."
+excluded = ["isolated native extern slot addresses", "Print and stream-provider callback entries", "native AOT source tasks", "callback members", "wider indirection", "TempleOS device hooks", "exported HolyC ABI", "full compiler and release"]

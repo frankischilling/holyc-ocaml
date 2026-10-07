@@ -383,28 +383,64 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                           Ok None
                       | Error _ as error -> error)
                   | None -> (
-                      match Task_storage.task_undefined_code_owner snapshot with
-                      | Some owner
-                        when Int64.equal bits
-                               (Int64.of_int
-                                  (Task_storage.undefined_code_owner_id owner))
-                        -> (
+                      let provider =
+                        List.find_opt
+                          (fun owner ->
+                            Int64.equal bits
+                              (Int64.of_int
+                                 (Task_storage.provider_code_owner_id owner)))
+                          (Task_storage.task_provider_code_owners snapshot)
+                      in
+                      match provider with
+                      | Some owner -> (
+                          let receipt =
+                            Task_storage.provider_code_owner_binding owner
+                            |> Ir.Integer_interpreter
+                               .native_slot_address_binding_receipt
+                          in
+                          let link =
+                            Ir.Runtime_call_context.function_slot_address_link
+                              receipt
+                            |> Option.get
+                          in
                           match
-                            Ir.Saved_parameter_value.undefined_callback
+                            Ir.Saved_parameter_value.callback
                               ~source:
                                 (Sema.Function_call_expression_result
                                  .top_level_root_value
                                    (Ir.Default_fragment_destination.root
                                       destination))
+                              ~link
                           with
                           | Ok value ->
                               captured_callback := Some value;
                               Ok None
                           | Error _ as error -> error)
-                      | _ ->
-                          Error
-                            "native default capture has an unknown original \
-                             code owner"))
+                      | None -> (
+                          match
+                            Task_storage.task_undefined_code_owner snapshot
+                          with
+                          | Some owner
+                            when Int64.equal bits
+                                   (Int64.of_int
+                                      (Task_storage.undefined_code_owner_id
+                                         owner)) -> (
+                              match
+                                Ir.Saved_parameter_value.undefined_callback
+                                  ~source:
+                                    (Sema.Function_call_expression_result
+                                     .top_level_root_value
+                                       (Ir.Default_fragment_destination.root
+                                          destination))
+                              with
+                              | Ok value ->
+                                  captured_callback := Some value;
+                                  Ok None
+                              | Error _ as error -> error)
+                          | _ ->
+                              Error
+                                "native default capture has an unknown \
+                                 original code owner")))
               | Ok _ ->
                   Error "native default capture has another original entry site"
               | Error _ as error -> error)
