@@ -1,5 +1,13 @@
 # holyc-ocaml architecture
 
+`Ir.Saved_parameter_value` separates numeric words, executable callback owners
+and opaque data-default identities. Interpreted tasks retain the evaluated data
+address under that identity. Native fragments save a four-word descriptor in
+the shared task arena; runtime completion requires the successful original
+image capture before copying miscellaneous-data defaults or publishing the
+saved value. Calls consume the exact published header receipt. See
+[saved data-pointer defaults](docs/data-pointer-defaults.md).
+
 `Hosted.Native_source_execution` connects original live JIT source requests to
 the backend through an internal synchronous driver dispatch. The public source
 API accepts source and configuration; it exposes actual native fragment reports.

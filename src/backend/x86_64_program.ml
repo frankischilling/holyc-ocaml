@@ -62,6 +62,7 @@ type execution = {
   executed_steps : int;
   final_value : word option;
   captured_callback : Ir.Saved_parameter_value.t option;
+  captured_data : Ir.Saved_parameter_value.t option;
 }
 
 type outcome = Completed of execution | Fault of fault
@@ -73,8 +74,12 @@ type t = {
   task_check_ : (unit -> (unit, string) result) option;
   task_claim_ : (unit -> (unit, string) result) option;
   callback_default_ : Ir.Default_fragment_destination.t option;
+  data_default_ : Ir.Saved_parameter_value.t option;
+  data_default_misc_ : bool;
 }
 
+let data_default value = value.data_default_
+let data_default_has_misc_data value = value.data_default_misc_
 let hard_max_stack_bytes = Codegen.hard_max_stack_bytes
 
 let project_error (error : Codegen.error) : error =
@@ -105,6 +110,8 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         task_check_ = None;
         task_claim_ = None;
         callback_default_ = None;
+        data_default_ = None;
+        data_default_misc_ = false;
       })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
@@ -123,6 +130,8 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         task_check_ = None;
         task_claim_ = None;
         callback_default_ = None;
+        data_default_ = None;
+        data_default_misc_ = false;
       })
 
 let project_storage_errors errors =
@@ -140,11 +149,11 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
   |> Result.map_error project_storage_errors
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
-    ?callback_default ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim
-    ~runtime_calls ~retained_function_source ~retained_slot_binding
-    ~retained_slot_address_binding ~retained_slot_address_refresh
-    ~retained_parameter_default ~retained_callback_default ~initialization
-    ~entry ~functions () =
+    ?callback_default ?data_default ~max_ir_instructions ~max_code_bytes ~layout
+    ~check ~claim ~runtime_calls ~retained_function_source
+    ~retained_slot_binding ~retained_slot_address_binding
+    ~retained_slot_address_refresh ~retained_parameter_default
+    ~retained_callback_default ~initialization ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -161,6 +170,8 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
   let* image =
     Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
       ~capture_callback_default:(Option.is_some callback_default)
+      ?capture_data_default:
+        (Option.bind data_default Ir.Saved_parameter_value.data_source)
       ~task_snapshot:snapshot ~max_ir_instructions ~max_code_bytes
       ~runtime_calls ~retained_function_source ~retained_slot_binding
       ~retained_slot_address_binding ~retained_slot_address_refresh
@@ -185,6 +196,16 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         task_check_ = Some check;
         task_claim_ = Some claim;
         callback_default_ = callback_default;
+        data_default_ = data_default;
+        data_default_misc_ =
+          Option.is_some data_default
+          && Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
+             |> List.exists (fun block ->
+                 Ir.Block_graph.instructions block
+                 |> Ir.Instruction_sequence.instructions
+                 |> List.exists (fun instruction ->
+                     (Ir.Instruction_sequence.description instruction).opcode
+                     = Ir.Opcode.Ic_str_const));
       }
 
 let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
@@ -240,8 +261,32 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
       Some destination
     else None
   in
+  let ( let* ) = Result.bind in
+  let* data_default =
+    if
+      (not (Ir.Default_fragment_destination.is_callback destination))
+      && Sema.Type.pointer_depth
+           (Ir.Default_fragment_destination.type_ destination)
+         = 1
+    then
+      Ir.Saved_parameter_value.data
+        ~source:
+          (Sema.Function_call_expression_result.top_level_root_value
+             (Ir.Default_fragment_destination.root destination))
+        ~type_:(Ir.Default_fragment_destination.type_ destination)
+      |> Result.map Option.some
+      |> Result.map_error (fun message ->
+          [
+            {
+              code = "HCBACK0003";
+              message;
+              span = Some (Ir.Default_fragment_destination.span destination);
+            };
+          ])
+    else Ok None
+  in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
-    ?callback_default ~max_ir_instructions ~max_code_bytes ~layout
+    ?callback_default ?data_default ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~runtime_calls:(Program.runtime_calls program)
@@ -349,10 +394,33 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
     else
       let executed_steps_int = Int64.to_int executed_steps in
       let captured_callback = ref None in
+      let captured_data = ref None in
       let final_value =
         if Int64.equal value_site 0L then
           if Int64.equal bits 0L then Ok None
           else Error "native program status has bits without a value site"
+        else if Int64.compare value_site (-200_000L) < 0 then
+          match (compiled.data_default_, compiled.task_snapshot_) with
+          | Some value, Some snapshot -> (
+              let data =
+                Option.get (Ir.Saved_parameter_value.data_source value)
+              in
+              let original_site = Int64.sub (Int64.neg value_site) 200_000L in
+              match
+                ( site_by_value compiled original_site,
+                  Task_storage.find_saved_data snapshot data )
+              with
+              | Ok candidate, Some offset
+                when candidate.owner = Codegen.Entry_owner
+                     && candidate.data_capture_site && executed_steps_int > 0
+                     && Int64.equal bits (Int64.of_int offset) ->
+                  captured_data := Some value;
+                  Ok None
+              | _ ->
+                  Error
+                    "native data default capture has another original site or \
+                     task descriptor")
+          | _ -> Error "native data capture has no original default destination"
         else if Int64.compare value_site (-100_000L) < 0 then
           match (compiled.callback_default_, compiled.task_snapshot_) with
           | Some destination, Some snapshot -> (
@@ -489,6 +557,7 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                      executed_steps = executed_steps_int;
                      final_value;
                      captured_callback = !captured_callback;
+                     captured_data = !captured_data;
                    })
           else if Int64.equal site 0L then
             Error "native program fault status has no execution site"

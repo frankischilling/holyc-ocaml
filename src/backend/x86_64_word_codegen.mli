@@ -37,6 +37,7 @@ type program_site = {
   code_word_escape_site : bool;
   no_value_capture_site : bool;
   callback_capture_site : bool;
+  data_capture_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -123,6 +124,7 @@ val compile_task_fragment :
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
   ?capture_callback_default:bool ->
+  ?capture_data_default:Ir.Saved_parameter_value.data ->
   task_snapshot:X86_64_global_storage.task_snapshot ->
   max_ir_instructions:int ->
   max_code_bytes:int ->

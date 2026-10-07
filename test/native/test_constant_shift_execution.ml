@@ -26,6 +26,7 @@ let native_fields () =
                  final_value = Some word;
                  executed_steps;
                  captured_callback = None;
+                 captured_data = None;
                }) ->
             Alcotest.(check int64) "native program bits" expected word.bits;
             Alcotest.(check int)

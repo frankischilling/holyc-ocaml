@@ -75,9 +75,24 @@ let create_with_globals globals typed =
              Option.is_some (Integer_scalar_storage.of_type type_))
            (Typed.result_type value)
     then Ok ()
+    else if
+      Option.is_none function_pointer
+      && Sema.Type.pointer_depth type_ = 1
+      && Option.is_some
+           (Option.bind
+              (Result.to_option (Sema.Type.dereference type_))
+              Integer_scalar_storage.of_type)
+      && Option.fold ~none:false
+           ~some:(Integer_scalar_storage.compatible_pointer type_)
+           (Option.bind (Typed.result_type value) (fun source ->
+                if Typed.result_is_array_address value then
+                  Result.to_option (Sema.Type.pointer_to source)
+                else Some source))
+    then Ok ()
     else
       Error
-        "HCRUN0001: default preparation requires a checked scalar integer value"
+        "HCRUN0001: default preparation requires a checked scalar integer or \
+         owned data-pointer value"
   in
   let* globals_ = globals fragment_ in
   Ok

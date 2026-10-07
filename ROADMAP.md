@@ -1,5 +1,11 @@
 # holyc-ocaml roadmap
 
+Issue #704 now connects one-level primitive data-pointer defaults to original
+JIT headers, saved calls and native task storage. Miscellaneous-data expressions
+copy their resulting terminated string. AOT relocation, pointer returns,
+persistent pointer variables, source variadic pointer ownership and the wider
+memory model remain open. See [saved data defaults](docs/data-pointer-defaults.md).
+
 Issue #704 connects original scalar and fixed-array JIT initializer leaves,
 retained direct functions and resumed commands to one native arena through
 `host-jit-task`. Source requests execute once under a shared native budget.

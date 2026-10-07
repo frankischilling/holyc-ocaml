@@ -110,6 +110,7 @@ guest memory model remain requirements of the compiler.
 
 `host-jit-task` preserves original byte flags and source function bodies
 across commands in its JIT source task. It currently requires JIT mode.
-Source variadic pointer tails and pointer-valued saved defaults remain outside
+[Pointer-valued saved defaults](data-pointer-defaults.md) keep the original
+object and view at their JIT header. Source variadic pointer tails remain outside
 the admitted native call domain. This does not complete raw pointer bits,
 escaping lifetimes, the exported HolyC ABI or the compiler.

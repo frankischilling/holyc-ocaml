@@ -22,6 +22,9 @@ named and anonymous integer defaults containing live storage reads, updates and
 retained calls. One-star callback parameters can also save original owned values.
 It uses original native expression fragments and saved-header receipts. See
 [live anonymous defaults](native-anonymous-defaults.md).
+One-level primitive [data-pointer defaults](data-pointer-defaults.md) retain
+original task objects and views; string-producing expressions copy their
+terminated result into fresh mutable storage.
 The closed-default rules below describe the isolated `host-jit` target.
 
 ## Supported domain

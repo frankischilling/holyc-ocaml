@@ -80,6 +80,9 @@ type task_layout_state = {
   task_next_code_owner : int;
   task_undefined_code_owner : undefined_code_owner option;
   task_function_slots : function_slot Symbol_map.t;
+  task_saved_data : (Ir.Saved_parameter_value.data * int) list;
+  task_saved_literal_bytes : int;
+  task_saved_chunks : (int * string) list;
 }
 
 type task_layout = {
@@ -726,6 +729,9 @@ let create_task_layout ?(max_layout_work = hard_max_task_layout_work)
             task_next_code_owner = 1;
             task_undefined_code_owner = None;
             task_function_slots = Symbol_map.empty;
+            task_saved_data = [];
+            task_saved_literal_bytes = 0;
+            task_saved_chunks = [];
           };
     }
 
@@ -1300,19 +1306,27 @@ let append_task_literals snapshot ~sources ~work =
     else Ok ()
   in
   let* literals =
-    Literals.append before.task_literals
-      ~max_literal_bytes:layout.max_task_literal_bytes
-      ~max_arena_bytes:hard_max_arena_bytes
-      ~arena_prefix_bytes:before.task_arena_bytes ~sources
-    |> Result.map_error
-         (List.map (fun (error : Literals.error) ->
-              { code = error.code; message = error.message; span = error.span }))
+    if sources = [] then Ok before.task_literals
+    else
+      Literals.append before.task_literals
+        ~max_literal_bytes:
+          (layout.max_task_literal_bytes - before.task_saved_literal_bytes)
+        ~max_arena_bytes:hard_max_arena_bytes
+        ~arena_prefix_bytes:before.task_arena_bytes ~sources
+      |> Result.map_error
+           (List.map (fun (error : Literals.error) ->
+                {
+                  code = error.code;
+                  message = error.message;
+                  span = error.span;
+                }))
   in
   let after =
     {
       before with
       task_literals = literals;
-      task_arena_bytes = Literals.arena_bytes literals;
+      task_arena_bytes =
+        max before.task_arena_bytes (Literals.arena_bytes literals);
       task_layout_work = before.task_layout_work + work;
     }
   in
@@ -1322,6 +1336,99 @@ let append_task_literals snapshot ~sources ~work =
   if Atomic.compare_and_set layout.task_state before after then
     Ok { snapshot with task_storage; task_state_snapshot = after }
   else error "HCBACK0003" "native task storage changed during literal admission"
+
+let find_saved_data snapshot data =
+  List.find_opt
+    (fun (original, _) -> Ir.Saved_parameter_value.same_data original data)
+    snapshot.task_state_snapshot.task_saved_data
+  |> Option.map snd
+
+let append_task_saved_data snapshot data =
+  let layout = snapshot.task_layout in
+  let before = snapshot.task_state_snapshot in
+  if Atomic.get layout.task_state != before then
+    error "HCBACK0003" "native saved data snapshot precedes current admission"
+  else if Option.is_some (find_saved_data snapshot data) then
+    error "HCBACK0003" "native saved data repeats its original capture"
+  else if before.task_arena_bytes > hard_max_arena_bytes - 32 then
+    error "HCBACK0001" "native saved data exceeds the task arena"
+  else if before.task_layout_work >= layout.max_task_layout_work then
+    error "HCBACK0001" "native saved data exceeds cumulative layout work"
+  else
+    let after =
+      {
+        before with
+        task_saved_data =
+          (data, before.task_arena_bytes) :: before.task_saved_data;
+        task_arena_bytes = before.task_arena_bytes + 32;
+        task_layout_work = before.task_layout_work + 1;
+      }
+    in
+    if Atomic.compare_and_set layout.task_state before after then
+      Ok
+        {
+          snapshot with
+          task_state_snapshot = after;
+          task_storage =
+            {
+              snapshot.task_storage with
+              zero_bytes = Some after.task_arena_bytes;
+            };
+        }
+    else error "HCBACK0003" "native saved data changed during admission"
+
+let append_task_saved_string snapshot ~data ~bytes =
+  let layout = snapshot.task_layout in
+  let before = snapshot.task_state_snapshot in
+  let count = String.length bytes in
+  if
+    Atomic.get layout.task_state != before
+    || Option.is_none (find_saved_data snapshot data)
+  then
+    error "HCBACK0003"
+      "native saved string has another original capture or current snapshot"
+  else if count = 0 || bytes.[count - 1] <> '\000' then
+    error "HCBACK0003" "native saved string has no copied terminator"
+  else if
+    count
+    > layout.max_task_literal_bytes - before.task_saved_literal_bytes
+      - Literals.literal_bytes before.task_literals
+  then
+    error "HCIRVM0011"
+      "saved string default copy exceeds the cumulative literal byte limit"
+  else if count > hard_max_arena_bytes - before.task_arena_bytes then
+    error "HCBACK0001" "native saved string exceeds the task arena"
+  else if before.task_layout_work >= layout.max_task_layout_work then
+    error "HCBACK0001" "native saved string exceeds cumulative layout work"
+  else
+    let offset = before.task_arena_bytes in
+    let after =
+      {
+        before with
+        task_arena_bytes = offset + count;
+        task_saved_literal_bytes = before.task_saved_literal_bytes + count;
+        task_saved_chunks = (offset, bytes) :: before.task_saved_chunks;
+        task_layout_work = before.task_layout_work + 1;
+      }
+    in
+    if Atomic.compare_and_set layout.task_state before after then
+      Ok
+        ( {
+            snapshot with
+            task_state_snapshot = after;
+            task_storage =
+              {
+                snapshot.task_storage with
+                zero_bytes = Some after.task_arena_bytes;
+              };
+          },
+          offset )
+    else error "HCBACK0003" "native saved string changed during admission"
+
+let saved_literal_remaining snapshot =
+  snapshot.task_layout.max_task_literal_bytes
+  - snapshot.task_state_snapshot.task_saved_literal_bytes
+  - Literals.literal_bytes snapshot.task_state_snapshot.task_literals
 
 let task_code_owners snapshot = snapshot.task_state_snapshot.task_code_owners
 let code_owner_link owner = owner.owner_link
@@ -1643,11 +1750,16 @@ let task_snapshot_literals snapshot = snapshot.task_state_snapshot.task_literals
 
 let task_snapshot_literal_bytes snapshot =
   Literals.literal_bytes (task_snapshot_literals snapshot)
+  + snapshot.task_state_snapshot.task_saved_literal_bytes
 
 let task_snapshot_initializations_since snapshot ~arena_prefix_bytes =
   Literals.initializations_since
     (task_snapshot_literals snapshot)
     ~arena_prefix_bytes
+  @ (List.filter
+       (fun (offset, _) -> offset >= arena_prefix_bytes)
+       snapshot.task_state_snapshot.task_saved_chunks
+    |> List.rev)
 
 let task_snapshot_storage snapshot = snapshot.task_storage
 

@@ -62,8 +62,20 @@ let create_value ~namespace ~header ~receipt ~value =
   in
   let* () =
     if
+      Option.fold ~none:false
+        ~some:(fun data ->
+          Option.is_some source.function_pointer
+          || not (Sema.Type.equal type_ (Saved_parameter_value.data_type data)))
+        (Saved_parameter_value.data_source value)
+    then Error "saved data default requires its original data-pointer parameter"
+    else if
       Option.is_none (Saved_parameter_value.word_bits value)
       && Option.is_none source.function_pointer
+      && not
+           (Option.fold ~none:false
+              ~some:(fun data ->
+                Sema.Type.equal type_ (Saved_parameter_value.data_type data))
+              (Saved_parameter_value.data_source value))
     then
       Error "owned anonymous default requires its original callback parameter"
     else Ok ()

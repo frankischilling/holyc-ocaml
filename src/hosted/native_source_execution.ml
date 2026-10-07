@@ -166,10 +166,14 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       let literal_bound =
         min Native.hard_max_arena_bytes (65 * max_literal_bytes)
       in
+      let saved_bound =
+        32 * min (Native.hard_max_arena_bytes / 32) (max_default_bytes / 8)
+      in
       global_bound
       + min
           (Native.hard_max_arena_bytes - global_bound)
-          (literal_bound + min 1_600_000 (16 * max_ir_instructions))
+          (literal_bound + saved_bound
+          + min 1_600_000 (16 * max_ir_instructions))
     in
     let* arena =
       Native.create_task_arena ~max_arena_bytes layout
@@ -337,28 +341,43 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             let steps =
               (Native.budget_progress budget).executed_steps - before
             in
+            let copy_steps = ref 0 in
+            let saved =
+              let* completed, captured = outcome in
+              match
+                ( captured,
+                  completed.final_value,
+                  completed.captured_callback,
+                  completed.captured_data )
+              with
+              | true, None, None, Some value ->
+                  let result, work =
+                    Native.finish_task_data_default arena image value
+                      ~max_copy_steps:(allowance - steps)
+                  in
+                  copy_steps := work;
+                  result
+                  |> Result.map_error (fun message ->
+                      [ Driver.Integer_source.message_diagnostic ~span message ])
+              | true, None, Some value, None -> Ok value
+              | true, Some word, None, None ->
+                  Ok (Ir.Saved_parameter_value.word word.bits)
+              | _ ->
+                  Error
+                    [
+                      diagnostic ~span "HCIRVM0026"
+                        "native default produced no captured expression value";
+                    ]
+            in
             let* () =
               (if steps = 0 && Result.is_error outcome then Ok ()
-               else Request.record_steps request steps)
+               else Request.record_steps request (steps + !copy_steps))
               |> Result.map_error (fun message ->
                   [ Driver.Integer_source.message_diagnostic ~span message ])
             in
-            let* completed, captured = outcome in
-            match
-              (captured, completed.final_value, completed.captured_callback)
-            with
-            | true, None, Some value ->
-                default_bytes := !default_bytes + 8;
-                Ok value
-            | true, Some word, None ->
-                default_bytes := !default_bytes + 8;
-                Ok (Ir.Saved_parameter_value.word word.bits)
-            | _ ->
-                Error
-                  [
-                    diagnostic ~span "HCIRVM0026"
-                      "native default produced no captured expression word";
-                  ]
+            let* value = saved in
+            default_bytes := !default_bytes + 8;
+            Ok value
         in
         let native_static_allocation request =
           Native.allocate_task_static arena request

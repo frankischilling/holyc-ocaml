@@ -1,23 +1,57 @@
 module Typed = Sema.Function_call_expression_result
 
+type data = {
+  source : Typed.expression_result;
+  type_ : Sema.Type.t;
+  identity : unit ref;
+}
+
 type t =
   | Word of int64
   | Callback of Retained_function.t * Typed.expression_result
   | Undefined_callback of Typed.expression_result
+  | Data of data
 
 let word bits = Word bits
 
 let word_bits = function
   | Word bits -> Some bits
-  | Callback _ | Undefined_callback _ -> None
+  | Callback _ | Undefined_callback _ | Data _ -> None
 
 let callback_source = function
-  | Word _ | Undefined_callback _ -> None
+  | Word _ | Undefined_callback _ | Data _ -> None
   | Callback (link, source) -> Some (link, source)
 
 let undefined_callback_source = function
   | Undefined_callback source -> Some source
-  | Word _ | Callback _ -> None
+  | Word _ | Callback _ | Data _ -> None
+
+let data ~source ~type_ =
+  if
+    Sema.Type.pointer_depth type_ = 1
+    && Option.is_some
+         (Option.bind
+            (Result.to_option (Sema.Type.dereference type_))
+            Integer_scalar_storage.of_type)
+    && (not (Typed.result_is_numeric_callback source))
+    && (not (Typed.result_is_callback_storage source))
+    && Option.is_none (Typed.result_function_declaration source)
+    && Option.fold ~none:false
+         ~some:(Integer_scalar_storage.compatible_pointer type_)
+         (Option.bind (Typed.result_type source) (fun original ->
+              if Typed.result_is_array_address source then
+                Result.to_option (Sema.Type.pointer_to original)
+              else Some original))
+  then Ok (Data { source; type_; identity = ref () })
+  else Error "saved data requires a one-level scalar data-pointer parameter"
+
+let data_source = function
+  | Data data -> Some data
+  | _ -> None
+
+let data_expression data = data.source
+let data_type data = data.type_
+let same_data left right = left.identity == right.identity
 
 let rec accepts_callback_expression source =
   let module Resolution = Sema.Function_call_resolution in
@@ -73,4 +107,5 @@ let same left right =
   | Callback (left, source), Callback (right, other) ->
       source == other && Retained_function.same left right
   | Undefined_callback source, Undefined_callback other -> source == other
+  | Data left, Data right -> same_data left right
   | _ -> false

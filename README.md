@@ -27,6 +27,11 @@ array allocation.
 Named integer defaults execute their original expressions once during header
 parsing. `examples/native-source-defaults.hc` returns 42 again after its source
 counter changes; omitted arguments reuse the original saved word.
+[Saved data-pointer defaults](docs/data-pointer-defaults.md) retain their
+original object and primitive view. String-producing defaults copy their
+terminated result into mutable task storage. The maintained
+[example](examples/data-pointer-defaults.hc) prints `AB` and returns 42 through
+IR and `host-jit-task` execution.
 JIT function-slot addresses preserve capture timing and the original record.
 `examples/native-source-slot-addresses.hc` returns 42 after a same-name
 replacement; its saved default keeps the earlier unresolved entry.

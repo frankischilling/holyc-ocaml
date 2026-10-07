@@ -72,7 +72,7 @@ let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
 
-let supported_parameter parameter =
+let supported_parameter ?(allow_data = false) parameter =
   let stack_register =
     match Headers.parameter_register_selection parameter with
     | Sema.Register_request.Unspecified | Sema.Register_request.Disabled -> true
@@ -82,7 +82,15 @@ let supported_parameter parameter =
   stack_register
   &&
   match Headers.parameter_declarator_kind parameter with
-  | Headers.Object -> scalar_word (parameter_type parameter)
+  | Headers.Object ->
+      let type_ = parameter_type parameter in
+      scalar_word type_
+      || allow_data
+         && Type.pointer_depth type_ = 1
+         && Option.is_some
+              (Option.bind
+                 (Result.to_option (Type.dereference type_))
+                 Ir.Integer_scalar_storage.of_type)
   | Headers.Function_pointer pointer ->
       List.length (Headers.function_pointer_indirection_origins pointer) = 1
 
@@ -108,7 +116,8 @@ let execution_type_matches fragment prepared_type destination =
 let same_requirement left_header left_parameter right_header right_parameter =
   left_header == right_header && left_parameter == right_parameter
 
-let add_requirements globals prepared requirements header =
+let add_requirements ?(allow_data = false) globals prepared requirements header
+    =
   let parameters =
     header |> Headers.function_signature |> Headers.signature_parameters
   in
@@ -121,9 +130,10 @@ let add_requirements globals prepared requirements header =
       | Some (Headers.Lastclass_default _) ->
           Error "native parameter defaults do not admit lastclass"
       | Some (Headers.Expression_default { contains_string_literal = true; _ })
-        -> Error "native parameter defaults do not admit string-backed values"
+        when not allow_data ->
+          Error "native parameter defaults do not admit string-backed values"
       | Some (Headers.Expression_default _) ->
-          if not (supported_parameter parameter) then
+          if not (supported_parameter ~allow_data parameter) then
             Error
               "native parameter defaults require scalar integer objects or \
                original one-star callback-word parameters"
@@ -219,7 +229,8 @@ let callback_pointers globals functions =
     functions;
   !pointers
 
-let add_callback_requirements globals prepared requirements pointer =
+let add_callback_requirements ?(allow_data = false) globals prepared
+    requirements pointer =
   let ( let* ) = Result.bind in
   List.fold_left
     (fun result parameter ->
@@ -229,9 +240,10 @@ let add_callback_requirements globals prepared requirements pointer =
       | Some (Headers.Lastclass_default _) ->
           Error "native callback defaults do not admit lastclass"
       | Some (Headers.Expression_default { contains_string_literal = true; _ })
-        -> Error "native callback defaults do not admit string-backed values"
+        when not allow_data ->
+          Error "native callback defaults do not admit string-backed values"
       | Some (Headers.Expression_default _) ->
-          if not (supported_parameter parameter) then
+          if not (supported_parameter ~allow_data parameter) then
             Error
               "native callback defaults require scalar integer objects or \
                original one-star callback-word parameters"
@@ -458,7 +470,8 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
         parameters
     in
     let* requirements =
-      add_requirements source_globals prepared requirements header
+      add_requirements ~allow_data:true source_globals prepared requirements
+        header
     in
     let* () =
       List.fold_left
@@ -548,7 +561,8 @@ let create_task ~globals ~runtime_calls ~initialization ~entry ~functions
         parameters
     in
     let* requirements =
-      add_callback_requirements source_globals prepared requirements pointer
+      add_callback_requirements ~allow_data:true source_globals prepared
+        requirements pointer
     in
     let* () =
       List.fold_left

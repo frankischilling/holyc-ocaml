@@ -197,6 +197,7 @@ let () =
       ("function alias", Test_function_alias.tests);
       ("task function alias", Test_task_function_alias.tests);
       ("parameter default execution", Test_parameter_default_execution.tests);
+      ("data pointer defaults", Test_data_pointer_defaults.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);

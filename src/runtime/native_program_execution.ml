@@ -83,6 +83,14 @@ external copy_task_static_bytes :
   task_arena_handle -> int * int * int * string -> int
   = "holyc_native_task_static_copy"
 
+external read_task_default_string :
+  task_arena_handle -> int * int * int * int -> int * int * string
+  = "holyc_native_read_task_default_string"
+
+external bind_task_default_string :
+  task_arena_handle -> int * int * int * int -> unit
+  = "holyc_native_bind_task_default_string"
+
 external execute_retained_budget_task_program :
   retained_handle ->
   task_arena_handle * int ->
@@ -105,6 +113,7 @@ type task_arena = {
   arena_revoked_ : bool Atomic.t;
   arena_released_ : bool Atomic.t;
   code_mappings_ : (retained_handle * Image.t * bool) list Atomic.t;
+  data_capture_ : (Image.t * Ir.Saved_parameter_value.t) option Atomic.t;
 }
 
 type task_execution_binding = {
@@ -491,6 +500,19 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                     else
                       match decoded with
                       | Ok outcome_ ->
+                          (match task_binding with
+                          | Some binding ->
+                              let capture =
+                                match outcome_ with
+                                | Image.Completed completed ->
+                                    Option.map
+                                      (fun value -> (image, value))
+                                      completed.captured_data
+                                | Image.Fault _ -> None
+                              in
+                              Atomic.set binding.task_arena_.data_capture_
+                                capture
+                          | None -> ());
                           {
                             outcome_ = Ok outcome_;
                             output_bytes_ = captured;
@@ -653,6 +675,7 @@ let create_task_arena ?(max_arena_bytes = hard_max_arena_bytes) layout =
                   arena_revoked_ = Atomic.make false;
                   arena_released_ = Atomic.make false;
                   code_mappings_ = Atomic.make [];
+                  data_capture_ = Atomic.make None;
                 }
           | Error message ->
               let release_error =
@@ -727,6 +750,101 @@ let admit_task_snapshot_locked arena snapshot =
             Atomic.set arena.admitted_bytes_ observed;
             Ok observed)
         with Failure message | Invalid_argument message -> Error message
+
+let finish_task_data_default arena image captured ~max_copy_steps =
+  let failure message = (Error message, 0) in
+  match
+    acquire_lease arena.arena_lease_ "native task arena is already active"
+  with
+  | Error message -> failure message
+  | Ok () ->
+      Fun.protect
+        ~finally:(fun () -> release_lease arena.arena_lease_)
+        (fun () ->
+          let reached = Atomic.get arena.data_capture_ in
+          match (Image.task_snapshot image, Image.data_default image) with
+          | Some snapshot, Some original
+            when (not (Atomic.get arena.arena_revoked_))
+                 && Task_storage.task_snapshot_matches_layout snapshot
+                      arena.layout_
+                 && Ir.Saved_parameter_value.same original captured
+                 && Option.fold ~none:false
+                      ~some:(fun (entered, value) ->
+                        entered == image
+                        && Ir.Saved_parameter_value.same value captured)
+                      reached
+                 && Atomic.compare_and_set arena.data_capture_ reached None -> (
+              let data =
+                Option.get (Ir.Saved_parameter_value.data_source original)
+              in
+              match Task_storage.find_saved_data snapshot data with
+              | None ->
+                  failure
+                    "HCIRVM0026: native saved data lost its original task \
+                     descriptor"
+              | Some descriptor -> (
+                  if not (Image.data_default_has_misc_data image) then
+                    (Ok original, 0)
+                  else
+                    let attempted_work = ref 0 in
+                    try
+                      let code, work, bytes =
+                        read_task_default_string arena.handle_
+                          ( Atomic.get arena.admitted_bytes_,
+                            descriptor,
+                            max_copy_steps,
+                            Task_storage.saved_literal_remaining snapshot )
+                      in
+                      attempted_work := work;
+                      let result =
+                        let ( let* ) = Result.bind in
+                        let* () =
+                          match code with
+                          | 0 -> Ok ()
+                          | 1 ->
+                              Error
+                                "HCIRVM0007: saved string default copy exceeds \
+                                 the initializer work limit"
+                          | 2 ->
+                              Error
+                                "HCIRVM0011: saved string default copy exceeds \
+                                 the cumulative literal byte limit"
+                          | 3 ->
+                              Error
+                                "HCIRVM0019: saved string default has no \
+                                 terminator in its original object"
+                          | 4 ->
+                              Error
+                                "HCIRVM0012: saved string default reads an \
+                                 uninitialized original byte"
+                          | _ ->
+                              Error
+                                "HCIRVM0026: native saved string returned an \
+                                 invalid capture status"
+                        in
+                        let* snapshot, offset =
+                          Task_storage.append_task_saved_string snapshot ~data
+                            ~bytes
+                          |> Result.map_error (fun errors ->
+                              errors
+                              |> List.map (fun (error : Task_storage.error) ->
+                                  error.code ^ ": " ^ error.message)
+                              |> String.concat "; ")
+                        in
+                        let* prefix =
+                          admit_task_snapshot_locked arena snapshot
+                        in
+                        bind_task_default_string arena.handle_
+                          (prefix, descriptor, offset, String.length bytes);
+                        Ok original
+                      in
+                      (result, work)
+                    with Failure message | Invalid_argument message ->
+                      (Error message, !attempted_work)))
+          | _ ->
+              failure
+                "HCIRVM0026: native saved data has another original image, \
+                 capture or arena")
 
 let allocate_task_static arena request =
   let module Request = Driver.Integer_task.Native_static_allocation in

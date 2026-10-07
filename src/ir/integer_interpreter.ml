@@ -70,35 +70,6 @@ type callback_capture =
   | Captured_body of Retained_function.t
   | Captured_undefined
 
-type t = {
-  termination_ : termination;
-  executed_steps_ : int;
-  final_value_ : word option;
-  final_callback_ : callback_capture option;
-  compiled_initializer_steps_ : int;
-}
-
-type report = {
-  outcome_ : (t, error list) result;
-  output_bytes_ : string;
-  output_work_ : int;
-}
-
-type task_progress = {
-  executed_steps : int;
-  initializer_steps : int;
-  global_bytes : int;
-  literal_bytes : int;
-  output_bytes : string;
-  output_work : int;
-  generated_bytes : int;
-  final_value : word option;
-}
-
-let report_outcome report = report.outcome_
-let report_output_bytes report = report.output_bytes_
-let report_output_work report = report.output_work_
-
 type literal_region = { literal_base : int; literal_count : int }
 
 type literal_context = {
@@ -240,6 +211,7 @@ and prepared_operation =
       * stored_type
       * bool
   | Immediate of Value_id.t * word
+  | Saved_data_address of Value_id.t * Saved_parameter_value.data * Type.t
   | Function_address of Value_id.t * Runtime.function_address
   | Function_slot_cursor of Value_id.t * Runtime.function_slot_address
   | Function_slot_load of
@@ -326,6 +298,36 @@ and runtime_code = {
 and runtime_code_entry =
   | Source_entry of callee * prepared * executable_owner
   | Provider_entry of Runtime.function_slot_address
+
+type t = {
+  termination_ : termination;
+  executed_steps_ : int;
+  final_value_ : word option;
+  final_callback_ : callback_capture option;
+  final_pointer_ : runtime_address option;
+  compiled_initializer_steps_ : int;
+}
+
+type report = {
+  outcome_ : (t, error list) result;
+  output_bytes_ : string;
+  output_work_ : int;
+}
+
+type task_progress = {
+  executed_steps : int;
+  initializer_steps : int;
+  global_bytes : int;
+  literal_bytes : int;
+  output_bytes : string;
+  output_work : int;
+  generated_bytes : int;
+  final_value : word option;
+}
+
+let report_outcome report = report.outcome_
+let report_output_bytes report = report.output_bytes_
+let report_output_work report = report.output_work_
 
 type task_stream = { stream_output : Output.t }
 type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
@@ -504,6 +506,8 @@ type task_state = {
   mutable runtime_offsets : offset_attempt list;
   mutable defaults : default_attempt list;
   mutable default_constants : default_constant list;
+  mutable saved_data_values :
+    (Saved_parameter_value.data * runtime_address) list;
   mutable initializers : task_initializer list;
   mutable declared_admissions : admitted_publication list;
   mutable source_promotion_open : bool;
@@ -587,6 +591,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         call_phases = [];
         defaults = [];
         default_constants = [];
+        saved_data_values = [];
         internal_bindings = [];
         dimensions = [];
         runtime_offsets = [];
@@ -764,6 +769,7 @@ let observe_task_source_event task event =
               compiled_initializer_steps_ = task.initializer_steps;
               final_value_ = task.outer_value;
               final_callback_ = None;
+              final_pointer_ = None;
             }
           in
           task.source_result <- Some (sequence, result);
@@ -2451,19 +2457,32 @@ let complete_native_task_default task attempt program value =
   then Error "native default completion has another task or expired expression"
   else if
     Option.fold ~none:false
-      ~some:(fun (link, source) ->
-        (not (Default_fragment_destination.is_callback destination))
-        || source
+      ~some:(fun data ->
+        Default_fragment_destination.is_callback destination
+        || Saved_parameter_value.data_expression data
            != Sema.Function_call_expression_result.top_level_root_value
                 (Default_fragment_destination.root destination)
-        || (not
-              (Integer_globals.task_catalog_contains_function task.catalog link))
-        || Option.is_none (exact_native_function_source task link)
-           && not
-                (List.exists
-                   (fun (original, _) -> Retained_function.same original link)
-                   task.provider_entries))
-      (Saved_parameter_value.callback_source value)
+        || not
+             (Type.equal
+                (Saved_parameter_value.data_type data)
+                (Default_fragment_destination.type_ destination)))
+      (Saved_parameter_value.data_source value)
+    || Option.fold ~none:false
+         ~some:(fun (link, source) ->
+           (not (Default_fragment_destination.is_callback destination))
+           || source
+              != Sema.Function_call_expression_result.top_level_root_value
+                   (Default_fragment_destination.root destination)
+           || (not
+                 (Integer_globals.task_catalog_contains_function task.catalog
+                    link))
+           || Option.is_none (exact_native_function_source task link)
+              && not
+                   (List.exists
+                      (fun (original, _) ->
+                        Retained_function.same original link)
+                      task.provider_entries))
+         (Saved_parameter_value.callback_source value)
     || Option.fold ~none:false
          ~some:(fun source ->
            (not (Default_fragment_destination.is_callback destination))
@@ -4456,6 +4475,14 @@ let indexed_address frame types (description : Sequence.description) =
       | _ -> Unsupported)
   | _ -> Unsupported
 
+let saved_data_payload (description : Sequence.description) =
+  match description.payload with
+  | Some (Sequence.Saved_parameter_default value) ->
+      Saved_parameter_value.data_source (Prepared_parameter_default.value value)
+  | Some (Sequence.Saved_callback_default value) ->
+      Saved_parameter_value.data_source (Prepared_callback_default.value value)
+  | _ -> None
+
 let declared_types ?frame ?globals ?literals ?initialization
     ?(allow_calls = false) ?(is_default = fun _ -> false)
     ?(is_function_slot = fun _ -> false) ~types block =
@@ -4557,6 +4584,10 @@ let declared_types ?frame ?globals ?literals ?initialization
                                ~pointer_depth:0
                              |> Result.get_ok )
                        else if callback_array_pointer then Pointer_value type_
+                       else if
+                         is_default description
+                         && Option.is_some (saved_data_payload description)
+                       then Pointer_value type_
                        else if
                          Option.is_some literals
                          && description.opcode = Opcode.Ic_str_const
@@ -5222,6 +5253,18 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   description.target_type,
                   description.payload )
               with
+              | [], Some result, Some type_, _
+                when is_default
+                     && Option.is_some (saved_data_payload description)
+                     && scalar_pointer_type type_
+                     && Type.equal type_
+                          (Saved_parameter_value.data_type
+                             (Option.get (saved_data_payload description))) ->
+                  Ok
+                    (Saved_data_address
+                       ( result.value_id,
+                         Option.get (saved_data_payload description),
+                         type_ ))
               | [], Some result, Some type_, Some (Sequence.Integer bits) -> (
                   match
                     if is_default then prepared_default_word_type type_
@@ -7036,8 +7079,8 @@ let publish_array_payload ~slot ~cell_offset payload write =
 
 let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     ?(max_frame_bytes = Int.max_int) ?(max_call_depth = Int.max_int)
-    ?(capture_last = false) ?on_capture ?initialization ?globals
-    ?(global_words = [||]) ?literal_image ?output ?stream_output
+    ?(capture_last = false) ?(saved_data = []) ?on_capture ?initialization
+    ?globals ?(global_words = [||]) ?literal_image ?output ?stream_output
     ?generation_output ?stream_exe_print ?admit ?(retained_regions = [])
     ?(retained_functions = []) ?(retained_provider_entries = [])
     ?on_provider_entry ~max_steps program =
@@ -7164,8 +7207,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let live_frame_bytes = ref !program.initial_frame_bytes in
   let final_value = ref None in
   let final_callback = ref None in
+  let final_pointer = ref None in
   let capture value =
     final_callback := None;
+    final_pointer := None;
     final_value := value;
     Option.iter (fun observe -> observe value) on_capture
   in
@@ -9075,6 +9120,27 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                             Some
                               (runtime_error ~instruction block !steps code
                                  message))))
+          | Saved_data_address (result, data, type_) -> (
+              match
+                List.find_opt
+                  (fun (original, _) ->
+                    Saved_parameter_value.same_data original data)
+                  saved_data
+              with
+              | Some (_, address) when address.pointer_storage.live -> (
+                  match Type.dereference type_ with
+                  | Ok pointer_pointee ->
+                      values :=
+                        Value_map.add result
+                          (Runtime_pointer { address with pointer_pointee })
+                          !values
+                  | Error _ -> assert false)
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0026"
+                         "saved data default has no live original task-owned \
+                          value"))
           | Discard operand ->
               let runtime_value = require_value block instruction operand in
               let value =
@@ -9098,6 +9164,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   Option.bind runtime_value (function
                     | Runtime_code code -> Some (Captured_body code.code_link)
                     | Runtime_undefined_code _ -> Some Captured_undefined
+                    | _ -> None);
+                final_pointer :=
+                  Option.bind runtime_value (function
+                    | Runtime_pointer address -> Some address
                     | _ -> None))
           | Discard_void value_id -> (
               match Value_map.find_opt value_id !values with
@@ -9251,6 +9321,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
           executed_steps_ = !steps;
           final_value_ = !final_value;
           final_callback_ = !final_callback;
+          final_pointer_ = !final_pointer;
           compiled_initializer_steps_ =
             Option.fold ~none:0 ~some:Global_initialization.prepared_steps
               initialization;
@@ -9923,6 +9994,8 @@ let execute_program_with_output ?task ?isolated_budget
         ~literal_image ~output ?stream_output ?generation_output
         ?stream_exe_print:nested_stream_exe_print
         ~capture_last:((not initializer_mode) || capture_fragment_value)
+        ~saved_data:
+          (Option.fold ~none:[] ~some:(fun task -> task.saved_data_values) task)
         ?on_capture ?admit ~retained_regions ~retained_functions
         ~retained_provider_entries
         ?on_provider_entry:
@@ -10216,6 +10289,146 @@ let consume_default_constant task value =
     value.constant_consumed <- true;
     Ok (default_constant_bits value))
 
+let save_default_data task ~destination ~entry ~executed_steps address =
+  let span = Default_fragment_destination.span destination in
+  let fail code message =
+    Error [ make_error ~stage:Execution ~span ~executed_steps code message ]
+  in
+  let ( let* ) = Result.bind in
+  let type_ = Default_fragment_destination.type_ destination in
+  let* pointee =
+    Type.dereference type_
+    |> Result.map_error (fun message ->
+        [
+          make_error ~stage:Execution ~span ~executed_steps "HCIRVM0026" message;
+        ])
+  in
+  let* () =
+    if
+      address.pointer_storage.live
+      && address.pointer_element_bytes > 0
+      && address.pointer_offset >= 0L
+      && address.pointer_offset <= address.pointer_extent_bytes
+      && Scalar.compatible_pointer type_
+           (Type.pointer_to address.pointer_pointee |> Result.get_ok)
+    then Ok ()
+    else
+      fail "HCIRVM0018"
+        "saved data default requires its original live object and compatible \
+         view"
+  in
+  let has_misc_data =
+    Graph.blocks (X87.graph entry)
+    |> List.exists (fun block ->
+        Graph.instructions block |> Sequence.instructions
+        |> List.exists (fun instruction ->
+            (Sequence.description instruction).opcode = Opcode.Ic_str_const))
+  in
+  let* address =
+    if not has_misc_data then Ok { address with pointer_pointee = pointee }
+    else
+      let bytes = Buffer.create 32 in
+      let rec copy offset =
+        if task.initializer_steps >= task.max_initializer_steps then
+          fail "HCIRVM0007"
+            "saved string default copy exceeds the initializer work limit"
+        else if
+          Buffer.length bytes >= task.max_literal_bytes - task.literal_bytes
+        then
+          fail "HCIRVM0011"
+            "saved string default copy exceeds the cumulative literal byte \
+             limit"
+        else if offset < 0L || offset >= address.pointer_extent_bytes then
+          fail "HCIRVM0019"
+            "saved string default has no terminator in its original object"
+        else (
+          task.initializer_steps <- task.initializer_steps + 1;
+          let width = address.pointer_element_bytes in
+          let cell =
+            address.pointer_base
+            + Int64.to_int (Int64.div offset (Int64.of_int width))
+          in
+          let byte = Int64.to_int (Int64.rem offset (Int64.of_int width)) in
+          let* bits =
+            if cell < 0 || cell >= Array.length address.pointer_storage.cells
+            then
+              fail "HCIRVM0018"
+                "saved string default leaves its original storage"
+            else
+              match address.pointer_storage.cells.(cell) with
+              | Some (Runtime_word word) -> Ok word.bits
+              | None -> (
+                  match
+                    Hashtbl.find_opt address.pointer_storage.partial_words cell
+                  with
+                  | Some (bits, mask) when mask land (1 lsl byte) <> 0 ->
+                      Ok bits
+                  | _ ->
+                      fail "HCIRVM0012"
+                        "saved string default reads an uninitialized original \
+                         byte")
+              | Some _ ->
+                  fail "HCIRVM0018"
+                    "saved string default cannot copy callback or reference \
+                     cells"
+          in
+          let byte =
+            Int64.to_int
+              (Int64.logand 255L (Int64.shift_right_logical bits (8 * byte)))
+          in
+          Buffer.add_char bytes (Char.chr byte);
+          if byte = 0 then Ok () else copy (Int64.succ offset))
+      in
+      let* () = copy address.pointer_offset in
+      let bytes = Buffer.contents bytes in
+      let count = String.length bytes in
+      let storage =
+        {
+          cells =
+            Array.init count (fun i ->
+                Some
+                  (Runtime_word
+                     { type_ = U64; bits = Int64.of_int (Char.code bytes.[i]) }));
+          partial_words = Hashtbl.create 0;
+          live = true;
+          unknown_message = "saved string default byte is uninitialized";
+        }
+      in
+      task.literal_bytes <- task.literal_bytes + count;
+      task.literal_arenas <- storage :: task.literal_arenas;
+      let storage_pointee =
+        Type.make_primitive ~form:Internal_storage
+          ~primitive:Sema.Primitive_type.U8 ~pointer_depth:0
+        |> Result.get_ok
+      in
+      Ok
+        {
+          pointer_storage = storage;
+          pointer_base = 0;
+          pointer_count = count;
+          pointer_storage_pointee = storage_pointee;
+          pointer_element_bytes = 1;
+          pointer_extent_bytes = Int64.of_int count;
+          pointer_offset = 0L;
+          pointer_pointee = pointee;
+        }
+  in
+  let source =
+    Sema.Function_call_expression_result.top_level_root_value
+      (Default_fragment_destination.root destination)
+  in
+  let* value =
+    Saved_parameter_value.data ~source ~type_
+    |> Result.map_error (fun message ->
+        [
+          make_error ~stage:Execution ~span ~executed_steps "HCIRVM0026" message;
+        ])
+  in
+  task.saved_data_values <-
+    (Option.get (Saved_parameter_value.data_source value), address)
+    :: task.saved_data_values;
+  Ok value
+
 let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
     attempt evaluation =
   let module Program = Default_fragment_program in
@@ -10309,9 +10522,15 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
               ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
-          match (result.final_value_, result.final_callback_) with
-          | Some word, None -> Ok (Saved_parameter_value.word word.bits)
-          | None, Some (Captured_body link)
+          match
+            (result.final_value_, result.final_callback_, result.final_pointer_)
+          with
+          | Some word, None, None -> Ok (Saved_parameter_value.word word.bits)
+          | None, None, Some address
+            when not (Destination.is_callback destination) ->
+              save_default_data task ~destination ~entry:(Program.entry program)
+                ~executed_steps:result.executed_steps_ address
+          | None, Some (Captured_body link), None
             when Destination.is_callback destination ->
               Saved_parameter_value.callback
                 ~source:
@@ -10324,7 +10543,7 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
                       ~executed_steps:result.executed_steps_ "HCIRVM0026"
                       message;
                   ])
-          | None, Some Captured_undefined
+          | None, Some Captured_undefined, None
             when Destination.is_callback destination ->
               Saved_parameter_value.undefined_callback
                 ~source:

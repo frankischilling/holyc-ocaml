@@ -112,6 +112,26 @@ val create_task_snapshot :
     bound. This allocates layout metadata, not runtime values, and grants no
     source entry or executable ownership. *)
 
+val append_task_saved_data :
+  task_snapshot ->
+  Ir.Saved_parameter_value.data ->
+  (task_snapshot, error list) result
+
+val find_saved_data :
+  task_snapshot -> Ir.Saved_parameter_value.data -> int option
+
+val append_task_saved_string :
+  task_snapshot ->
+  data:Ir.Saved_parameter_value.data ->
+  bytes:string ->
+  (task_snapshot * int, error list) result
+
+val saved_literal_remaining : task_snapshot -> int
+(** Private native captures keep an immutable four-word object descriptor in the
+    task arena. A string default appends its copied bytes without moving that
+    descriptor or any earlier object. These offsets grant no source admission.
+*)
+
 type code_owner
 
 val task_code_owners : task_snapshot -> code_owner list

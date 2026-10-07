@@ -1,7 +1,24 @@
 type t
+type data
 
 val word : int64 -> t
 val word_bits : t -> int64 option
+
+val data :
+  source:Sema.Function_call_expression_result.expression_result ->
+  type_:Sema.Type.t ->
+  (t, string) result
+(** Create an immutable descriptor for a checked data result. It grants no
+    memory authority; the owning interpreter or native arena must retain the
+    actual evaluated address under this descriptor's identity. *)
+
+val data_source : t -> data option
+
+val data_expression :
+  data -> Sema.Function_call_expression_result.expression_result
+
+val data_type : data -> Sema.Type.t
+val same_data : data -> data -> bool
 
 val accepts_callback_expression :
   Sema.Function_call_expression_result.expression_result -> bool

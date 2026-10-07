@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+JIT [data-pointer defaults](data-pointer-defaults.md) retain original primitive
+objects and views at named and anonymous headers. The IR and native task paths
+reuse their saved aliases and copy miscellaneous-data string results once.
+The maintained example prints `AB` and returns 42. AOT reference relocation,
+raw/null pointers, escaping storage and the exported ABI remain separate work.
+
 The `host-jit-task` target executes original integer scalar and fixed-array JIT
 initializer leaves, retained direct functions and resumed commands in one native
 arena. Exact retained references preserve earlier writes and initialization

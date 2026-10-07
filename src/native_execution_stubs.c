@@ -2088,8 +2088,11 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
         || length > (uintnat)(extent - expected_prefix) - payload_bytes)
       caml_invalid_argument("native task literal initialization exceeds its suffix bound");
     payload_bytes += length;
+    /* Source chunks leave an implicit NUL; copied defaults include it. */
     if (offset < expected_prefix || offset >= extent
-        || length >= (uintnat)(extent - offset))
+        || length > (uintnat)(extent - offset)
+        || (length == (uintnat)(extent - offset)
+            && (length == 0 || Byte_u(Field(chunk, 1), length - 1) != 0)))
       caml_invalid_argument("native task literal initialization leaves the new suffix");
   }
   if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
@@ -2123,6 +2126,135 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
   arena->used = target;
   atomic_store(&arena->active, 0);
   CAMLreturn(Val_long((intnat)target));
+#endif
+  CAMLreturn(Val_unit);
+}
+
+/* Read the source result of PrsVar's miscellaneous-data default branch. The
+   descriptor stays private to the original task arena; no host address crosses
+   this API. The first pass measures attempted scan work, and the second pass
+   copies into an exactly sized OCaml buffer under the arena lease. */
+CAMLprim value holyc_native_read_task_default_string(value handle, value request)
+{
+  CAMLparam2(handle, request);
+  CAMLlocal2(result, bytes);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_task_arena *arena = native_task_arena_get(handle);
+  intnat prefix, descriptor, maximum_work, maximum_bytes;
+  uint64_t fields[4], current[4];
+  uintptr_t base, data, flag;
+  size_t extent, offset, count = 0, work = 0, i;
+  int expected = 0, code = 0;
+  if (!Is_block(request) || Tag_val(request) != 0 || Wosize_val(request) != 4)
+    caml_invalid_argument("native saved string request is malformed");
+  for (i = 0; i < 4; ++i)
+    if (!Is_long(Field(request, i)))
+      caml_invalid_argument("native saved string request has noninteger limits");
+  prefix = Long_val(Field(request, 0));
+  descriptor = Long_val(Field(request, 1));
+  maximum_work = Long_val(Field(request, 2));
+  maximum_bytes = Long_val(Field(request, 3));
+  if (prefix < 0 || descriptor < 0 || maximum_work < 0 || maximum_bytes < 0 ||
+      (uintnat)maximum_bytes > HOLYC_NATIVE_MAX_LITERAL_BYTES)
+    caml_invalid_argument("native saved string request has invalid bounds");
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_failwith("native task arena is already active");
+  if (arena->closing || arena->mapping == NULL || arena->used != (size_t)prefix ||
+      (uintnat)descriptor > arena->used || arena->used - (uintnat)descriptor < 32) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("native saved string has another live arena prefix or descriptor");
+  }
+  memcpy(fields, (char *)arena->mapping + descriptor, 32);
+  base = (uintptr_t)arena->mapping;
+  data = (uintptr_t)fields[0]; flag = (uintptr_t)fields[1];
+  offset = (size_t)fields[2]; extent = (size_t)fields[3];
+  if (data < base || data - base > arena->used ||
+      extent > arena->used - (data - base) || offset > extent ||
+      (flag != 0 && (flag < base || flag - base >= arena->used ||
+                    extent > flag - base + 1))) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("native saved string descriptor leaves its original task arena");
+  }
+  for (;;) {
+    unsigned char byte;
+    if (work == (size_t)maximum_work) { code = 1; break; }
+    if (count == (size_t)maximum_bytes) { code = 2; break; }
+    if (count >= extent - offset) { code = 3; break; }
+    ++work;
+    if (flag != 0 && *(unsigned char *)(flag - offset - count) == 0) {
+      code = 4; break;
+    }
+    byte = *(unsigned char *)(data + offset + count++);
+    if (byte == 0) break;
+  }
+  atomic_store(&arena->active, 0);
+  bytes = caml_alloc_string(code == 0 ? count : 0);
+  if (code == 0) {
+    expected = 0;
+    if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+      caml_failwith("native task arena is already active");
+    if (arena->closing || arena->mapping == NULL || arena->used != (size_t)prefix) {
+      atomic_store(&arena->active, 0);
+      caml_failwith("native saved string arena expired during allocation");
+    }
+    memcpy(current, (char *)arena->mapping + descriptor, 32);
+    if (memcmp(current, fields, 32) != 0) {
+      atomic_store(&arena->active, 0);
+      caml_failwith("native saved string descriptor changed during allocation");
+    }
+    for (i = 0; i < count; ++i) {
+      if (flag != 0 && *(unsigned char *)(flag - offset - i) == 0) {
+        code = 4; break;
+      }
+      Bytes_val(bytes)[i] = *(unsigned char *)(data + offset + i);
+    }
+    if (code == 0 && Byte_u(bytes, count - 1) != 0) code = 3;
+    atomic_store(&arena->active, 0);
+  }
+  result = caml_alloc_tuple(3);
+  Store_field(result, 0, Val_int(code));
+  Store_field(result, 1, Val_long((intnat)work));
+  Store_field(result, 2, bytes);
+  CAMLreturn(result);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_bind_task_default_string(value handle, value request)
+{
+  CAMLparam2(handle, request);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_task_arena *arena = native_task_arena_get(handle);
+  intnat prefix, descriptor, data, count;
+  uint64_t fields[4];
+  int expected = 0;
+  size_t i;
+  if (!Is_block(request) || Tag_val(request) != 0 || Wosize_val(request) != 4)
+    caml_invalid_argument("native copied default request is malformed");
+  for (i = 0; i < 4; ++i)
+    if (!Is_long(Field(request, i)))
+      caml_invalid_argument("native copied default request has a noninteger offset");
+  prefix = Long_val(Field(request, 0)); descriptor = Long_val(Field(request, 1));
+  data = Long_val(Field(request, 2)); count = Long_val(Field(request, 3));
+  if (prefix < 0 || descriptor < 0 || data < 0 || count <= 0 ||
+      descriptor > data || data - descriptor < 32 || data > prefix ||
+      count != prefix - data)
+    caml_invalid_argument("native copied default leaves its appended suffix");
+  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_failwith("native task arena is already active");
+  if (arena->closing || arena->mapping == NULL || arena->used != (size_t)prefix ||
+      *((unsigned char *)arena->mapping + prefix - 1) != 0) {
+    atomic_store(&arena->active, 0);
+    caml_invalid_argument("native copied default has another arena prefix or terminator");
+  }
+  fields[0] = (uint64_t)(uintptr_t)((char *)arena->mapping + data);
+  fields[1] = 0; fields[2] = 0; fields[3] = (uint64_t)count;
+  memcpy((char *)arena->mapping + descriptor, fields, 32);
+  atomic_store(&arena->active, 0);
 #endif
   CAMLreturn(Val_unit);
 }

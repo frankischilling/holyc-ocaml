@@ -1,5 +1,16 @@
 # Reference source map
 
+Saved data-pointer defaults follow `Compiler/PrsVar.HC:629-656`: clear the
+miscellaneous-data flag, compile/call the original expression, copy its resulting
+string with `StrNew` when that flag was set, and retain the member's saved
+default. `PrsExp.HC:457-469` consumes that original member during omitted
+arguments and keeps AOT string emission separate. The checked default
+destination, saved value, task interpreter, append-only native descriptor and
+runtime capture connect this behavior to primitive owned objects and views.
+Bounds, byte initialization and work limits are hosted policy. See
+[saved data defaults](data-pointer-defaults.md); no new TempleOS runtime capture
+is claimed.
+
 Native scalar and array source tasks follow `Compiler/PrsVar.HC:53-107`, which
 compiles and calls each initializer expression before storing its declared-width result.
 `PrsVar.HC:123-212` follows original dimensions and visits fixed-count array

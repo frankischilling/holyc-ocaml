@@ -1,5 +1,17 @@
 # Testing holyc-ocaml
 
+Saved data defaults have shared source fixtures in
+`test/data_pointer_default_cases.ml`, six interpreter groups and seven native
+groups. Both paths exercise 81 original/view read pairs and 81 write pairs,
+once-only header effects, explicit/unused defaults, anonymous signatures,
+recursive frames, historical objects, one-past values, copied string suffixes,
+embedded NULs, unknown bytes and reached bounds faults. Native tests compile
+both private ABIs and reject metadata-only, foreign-arena, substituted and
+replayed captures before accepting the authentic completion. Exact and
+one-below work, literal, saved-byte, code and IR limits remain checked. The
+maintained CLI example exercises a saved array alias and copied string together.
+See [saved data defaults](data-pointer-defaults.md) for remaining domains.
+
 `test/native/test_native_source_static_callbacks.ml` checks live function-owned
 callback allocation, scalar and fixed-array copies, saved anonymous defaults,
 declaration effects, historical bodies, recursion and reached faults against

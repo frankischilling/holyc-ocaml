@@ -1,3 +1,25 @@
+(copy_files ../data_pointer_default_cases.ml)
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/data-pointer-defaults.hc)
+ (action
+  (run
+   %{exe:../test_data_pointer_defaults_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/data-pointer-defaults.hc}
+   --native)))
+
+(executable
+ (name test_native_data_pointer_defaults)
+ (modules test_native_data_pointer_defaults data_pointer_default_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_data_pointer_defaults.exe})))
+
 (executable
  (name test_primitive_pointer_views_execution)
  (modules test_primitive_pointer_views_execution)

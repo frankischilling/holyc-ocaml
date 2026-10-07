@@ -63,11 +63,17 @@ type execution = private {
       (** Only an original callback parameter's default image can return this
           checked owner capture. It carries source identity, not a machine PC;
           [final_value] is [None] for that capture. *)
+  captured_data : Ir.Saved_parameter_value.t option;
+      (** Original task-owned data default capture. No host address is exposed.
+      *)
 }
 
 type outcome = Completed of execution | Fault of fault
 type t
 type task_layout = X86_64_global_storage.task_layout
+
+val data_default : t -> Ir.Saved_parameter_value.t option
+val data_default_has_misc_data : t -> bool
 
 val hard_max_stack_bytes : int
 (** Maximum shared spill frame size: 4088 bytes. *)

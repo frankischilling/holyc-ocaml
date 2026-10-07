@@ -15,6 +15,7 @@ let lower_native ~context ~authority destination =
     if
       Expression_facts.contains_string_literal
         (Sema.Default_fragment.expression (Destination.fragment destination))
+      && Sema.Type.pointer_depth (Destination.type_ destination) = 0
     then
       diagnose
         (Error
@@ -79,6 +80,7 @@ let prepare ~context ~authority ~runtime destination =
       Destination.fragment destination
       |> Sema.Default_fragment.expression
       |> Expression_facts.contains_string_literal
+      && Sema.Type.pointer_depth (Destination.type_ destination) = 0
     then
       Error
         "HCRUN0006: defaults containing string storage require native \

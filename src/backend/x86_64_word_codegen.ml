@@ -290,6 +290,7 @@ type callback_access =
 
 type operation =
   | Load_immediate of value * int64
+  | Load_saved_data of int * value
   | Load_function_address of value * int
   | Load_function_slot_cursor of value * Global_storage.function_slot
   | Load_function_slot of value * Global_storage.function_slot * value
@@ -391,6 +392,7 @@ type operation =
   | Return
   | Discard_value of value * word_type
   | Discard_callback_default of value
+  | Discard_data_default of value * int
   | Discard_void
   | Jump_to of Sequence.Block_id.t
   | Branch_zero of value * Sequence.Block_id.t
@@ -3466,6 +3468,34 @@ let allocate_body ?callable_frame ?(shared_values = [])
           | Program_control _ | Callable_control { is_entry = true; _ } ->
               reject ?span:instruction.span "HCBACK0003"
                 "native program contains expression return")
+      | Load_saved_data (offset, result) ->
+          let destination =
+            acquire_destination instruction.span position ~protected:[]
+              ~excluded:[]
+          in
+          emit
+            (Encoder.Address_arena
+               ( registers.(destination),
+                 encoder_arena_slot instruction.span offset ));
+          assign position destination result
+      | Discard_data_default (input, offset) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span input rdx;
+          emit
+            (Encoder.Address_arena
+               (Encoder.R8, encoder_arena_slot instruction.span offset));
+          List.iter
+            (fun field ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, field));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.R8, field, Encoder.Rax)))
+            [ 0; 8; 16; 24 ];
+          emit (Encoder.Store_context_imm (40, offset));
+          emit
+            (Encoder.Store_context_imm
+               (32, -(200_000 + Option.get instruction.site)));
+          note_peak ~temporaries:[ rax; rdx; r8 ] ();
+          release_through position
       | Discard_callback_default input -> (
           match mode with
           | Callable_control { is_entry = true; _ } ->
@@ -3890,6 +3920,7 @@ type program_site = {
   code_word_escape_site : bool;
   no_value_capture_site : bool;
   callback_capture_site : bool;
+  data_capture_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -4204,6 +4235,7 @@ let preflight_program graph =
                   | _ -> false);
                 code_word_escape_site = false;
                 callback_capture_site = false;
+                data_capture_site = false;
                 uninitialized_read_site = false;
                 index_scale_site = false;
                 index_addition_site = false;
@@ -5265,11 +5297,12 @@ let validate_callable_returns graph return_kind =
 
 let preflight_callable_graph ~runtime_calls ~source_globals
     ~allow_retained_functions ~task_dynamic_code_words ~task_owned_targets
-    ~capture_callback_default ~slot_root_runtime_calls ~slot_bindings
-    ~task_snapshot ~parameter_defaults ~functions ~provider_entries ~code_edges
-    ~indirect_code_edges ~arena_code_cells ~global_storage ~literal_storage
-    ~runtime_owner ~owner ~(frame_slots : callable_slot Int_map.t) ~variadic
-    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~capture_callback_default ~capture_data_default ~slot_root_runtime_calls
+    ~slot_bindings ~task_snapshot ~parameter_defaults ~functions
+    ~provider_entries ~code_edges ~indirect_code_edges ~arena_code_cells
+    ~global_storage ~literal_storage ~runtime_owner ~owner
+    ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
+    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -7082,6 +7115,62 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             when match raw.payload with
                  | Some (Sequence.Saved_parameter_default prepared) ->
                      Option.is_some
+                       (Ir.Saved_parameter_value.data_source
+                          (Prepared_default.value prepared))
+                 | Some (Sequence.Saved_callback_default prepared) ->
+                     Option.is_some
+                       (Ir.Saved_parameter_value.data_source
+                          (Prepared_callback_default.value prepared))
+                 | _ -> false -> (
+              if
+                not
+                  (List.exists
+                     (fun original -> original == raw)
+                     (Option.value ~default:[]
+                        (Runtime.original_prepared_defaults runtime_calls
+                           ~owner:runtime_owner)))
+              then
+                malformed description
+                  "native saved data has no original producer";
+              let saved =
+                match raw.payload with
+                | Some (Sequence.Saved_parameter_default prepared) ->
+                    Prepared_default.value prepared
+                | Some (Sequence.Saved_callback_default prepared) ->
+                    Prepared_callback_default.value prepared
+                | _ -> assert false
+              in
+              let data =
+                Option.get (Ir.Saved_parameter_value.data_source saved)
+              in
+              let offset =
+                match
+                  Option.bind task_snapshot (fun snapshot ->
+                      Global_storage.find_saved_data snapshot data)
+                with
+                | Some offset -> offset
+                | None ->
+                    malformed description
+                      "native saved data lost its original task-owned capture"
+              in
+              match (description.result, description.target_type) with
+              | Some result, Some target_type
+                when Type.equal target_type
+                       (Ir.Saved_parameter_value.data_type data) ->
+                  ignore (checked_reference description target_type);
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  mark_reference description value;
+                  (Load_saved_data (offset, value), None)
+              | _ ->
+                  malformed description
+                    "native saved data lost its original pointer view")
+          | Opcode.Ic_imm_i64
+            when match raw.payload with
+                 | Some (Sequence.Saved_parameter_default prepared) ->
+                     Option.is_some
                        (Prepared_default.undefined_callback_source prepared)
                  | Some (Sequence.Saved_callback_default prepared) ->
                      Option.is_some
@@ -8335,7 +8424,14 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       else if Type.pointer_depth input.declared_type <> 0 then (
                         ignore
                           (checked_reference description input.declared_type);
-                        (Discard_void, None))
+                        match (capture_data_default, task_snapshot) with
+                        | Some data, Some snapshot when is_entry ->
+                            let offset =
+                              Option.get
+                                (Global_storage.find_saved_data snapshot data)
+                            in
+                            (Discard_data_default (input, offset), None)
+                        | _ -> (Discard_void, None))
                       else
                         let word =
                           (checked_scalar ~allow_public:true description
@@ -8791,6 +8887,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
             callback_capture_site =
               (match operation with
               | Discard_callback_default _ -> true
+              | _ -> false);
+            data_capture_site =
+              (match operation with
+              | Discard_data_default _ -> true
               | _ -> false);
             no_value_capture_site =
               (match operation with
@@ -9856,7 +9956,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
 
 let compile_callable_internal ?task_snapshot ?retained_parameter_default
     ?retained_callback_default ?(capture_callback_default = false)
-    ?retained_function_source ?retained_slot_binding
+    ?capture_data_default ?retained_function_source ?retained_slot_binding
     ?retained_slot_address_binding ?retained_slot_address_refresh ?status_abi
     ?(max_stack_bytes = hard_max_stack_bytes) ?(max_blocks = 4096)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
@@ -10101,6 +10201,19 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                       span = error.span;
                     }))
         in
+        let* snapshot =
+          match capture_data_default with
+          | None -> Ok snapshot
+          | Some data ->
+              Global_storage.append_task_saved_data snapshot data
+              |> Result.map_error
+                   (List.map (fun (error : Global_storage.error) ->
+                        {
+                          code = error.code;
+                          message = error.message;
+                          span = error.span;
+                        }))
+        in
         Ok
           ( Some snapshot,
             Global_storage.task_snapshot_storage snapshot,
@@ -10325,7 +10438,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         preflight_callable_graph ~runtime_calls ~source_globals:globals
           ~allow_retained_functions:(Option.is_some task_snapshot)
           ~task_dynamic_code_words:(Option.is_some task_snapshot)
-          ~task_owned_targets ~capture_callback_default
+          ~task_owned_targets ~capture_callback_default ~capture_data_default
           ~slot_root_runtime_calls:runtime_calls ~slot_bindings ~task_snapshot
           ~parameter_defaults ~code_edges ~indirect_code_edges ~arena_code_cells
           ~functions:function_infos ~provider_entries ~global_storage
@@ -10342,8 +10455,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ~allow_retained_functions:(Option.is_some task_snapshot)
               ~task_dynamic_code_words:(Option.is_some task_snapshot)
               ~task_owned_targets ~capture_callback_default:false
-              ~slot_root_runtime_calls:runtime_calls ~slot_bindings
-              ~task_snapshot ~parameter_defaults ~code_edges
+              ~capture_data_default:None ~slot_root_runtime_calls:runtime_calls
+              ~slot_bindings ~task_snapshot ~parameter_defaults ~code_edges
               ~indirect_code_edges ~arena_code_cells ~functions:function_infos
               ~provider_entries ~global_storage ~literal_storage
               ~runtime_owner:(Runtime.Function body) ~owner:info.owner
@@ -11079,13 +11192,19 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               private_function_count;
               entry_stack_bytes = 16 + entry_allocated.body_frame_size;
               global_bytes = Global_storage.global_bytes global_storage;
-              literal_bytes = Literal_storage.literal_bytes literal_storage;
+              literal_bytes =
+                Option.fold
+                  ~none:(Literal_storage.literal_bytes literal_storage)
+                  ~some:Global_storage.task_snapshot_literal_bytes task_snapshot;
               arena_metadata_bytes =
                 (global_arena_bytes
                 - Global_storage.global_bytes global_storage
                 +
                 if Option.is_some task_snapshot then
-                  -Literal_storage.literal_bytes literal_storage
+                  -Option.fold
+                     ~none:(Literal_storage.literal_bytes literal_storage)
+                     ~some:Global_storage.task_snapshot_literal_bytes
+                     task_snapshot
                 else Literal_storage.metadata_bytes literal_storage);
               global_image =
                 (if Option.is_some task_snapshot then ""
@@ -11110,13 +11229,13 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ~initialization ~entry ~functions ()
 
 let compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
-    ?capture_callback_default ~task_snapshot ~max_ir_instructions
-    ~max_code_bytes ~runtime_calls ~retained_function_source
-    ~retained_slot_binding ~retained_parameter_default
+    ?capture_callback_default ?capture_data_default ~task_snapshot
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ~retained_function_source ~retained_slot_binding ~retained_parameter_default
     ~retained_callback_default ~retained_slot_address_binding
     ~retained_slot_address_refresh ~initialization ~entry ~functions () =
   compile_callable_internal ~task_snapshot ~retained_parameter_default
-    ~retained_callback_default ?capture_callback_default
+    ~retained_callback_default ?capture_callback_default ?capture_data_default
     ~retained_function_source ~retained_slot_binding
     ~retained_slot_address_binding ~retained_slot_address_refresh ?status_abi
     ?max_stack_bytes ?max_blocks

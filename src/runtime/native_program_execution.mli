@@ -230,6 +230,16 @@ val value_captured : report -> bool
     command leaves an earlier task value alone; an explicit no-value capture can
     clear it. This observes the returned native site, not source syntax. *)
 
+val finish_task_data_default :
+  task_arena ->
+  Backend.X86_64_program.t ->
+  Ir.Saved_parameter_value.t ->
+  max_copy_steps:int ->
+  (Ir.Saved_parameter_value.t, string) result * int
+(** Retain the exact native data capture. Miscellaneous-data defaults copy the
+    bounded resulting string into fresh task storage and return attempted copy
+    work even when the scan fails. The caller settles the original request. *)
+
 val execute :
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->

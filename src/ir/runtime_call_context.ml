@@ -3200,7 +3200,9 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
         match Saved_parameter_value.callback_source value with
         | None
           when Option.is_some
-                 (Saved_parameter_value.undefined_callback_source value) -> None
+                 (Saved_parameter_value.undefined_callback_source value)
+               || Option.is_some (Saved_parameter_value.data_source value) ->
+            None
         | None ->
             fail ?span:instruction.Seq.span
               "saved callback producer contains an ordinary word"

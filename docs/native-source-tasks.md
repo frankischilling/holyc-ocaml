@@ -1,5 +1,10 @@
 # Native source tasks
 
+[Saved data-pointer defaults](data-pointer-defaults.md) execute at their original
+JIT headers. Native calls reuse the original object/view capture or the copied
+terminated string. The maintained `examples/data-pointer-defaults.hc` prints
+`AB` and returns 42 after two mutations through the same saved alias.
+
 `holyc run --target=host-jit-task --mode=jit` executes integer scalar and fixed
 array initializer leaves during their original parser callbacks. Later source
 commands use the same native storage. The scalar example is:

@@ -1,4 +1,15 @@
 (test
+ (name test_data_pointer_defaults_cli)
+ (modules test_data_pointer_defaults_cli)
+ (libraries unix yojson)
+ (deps ../examples/data-pointer-defaults.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/data-pointer-defaults.hc})))
+
+(test
  (name test_primitive_pointer_views_cli)
  (modules test_primitive_pointer_views_cli)
  (libraries unix yojson)
@@ -451,6 +462,8 @@
   test_provisional_function_runtime
   test_function_record_phase
   test_parameter_default_execution
+  data_pointer_default_cases
+  test_data_pointer_defaults
   test_task_command_order
   test_stream_parser
   test_integer_statics
