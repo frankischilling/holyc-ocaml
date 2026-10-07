@@ -9,6 +9,7 @@ val create :
   runtime_calls:Runtime_call_context.t ->
   (t, string) result
 
+val source_authority : t -> Sema.Offset_fragment.authority
 val destination : t -> Offset_fragment_destination.t
 val lowered : t -> Integer_program_lowering.t
 val entry : t -> X87_stack.t

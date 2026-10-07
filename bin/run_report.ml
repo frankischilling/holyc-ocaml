@@ -265,6 +265,8 @@ let native_fragment_json (fragment : Holyc_lib.Native_source_execution.fragment)
           | Initializer -> "initializer"
           | Default -> "default"
           | Internal_binding -> "internal-binding"
+          | Dimension -> "dimension"
+          | Offset -> "offset"
           | Command -> "command") );
       ("outcome", `String outcome);
       ("executed_steps", steps);

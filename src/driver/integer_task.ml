@@ -634,6 +634,248 @@ module Native_internal_binding = struct
   let close request = Atomic.set request.phase Closed
 end
 
+module Native_dimension = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.dimension_attempt;
+    program_ : Ir.Dimension_fragment_program.t;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t =
+    request ->
+    ( Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error "native dimension belongs to another domain or was already claimed"
+    else
+      VM.check_native_task_dimension request.task request.attempt
+        request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_dimension request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native dimension was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native dimension lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Dimension_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Dimension_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Dimension_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Dimension_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Dimension_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Dimension_fragment_program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let initializer_remaining request =
+    VM.task_initializer_limit request.task
+    - VM.task_initializer_steps request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native dimension work requires its entered original request"
+    else VM.record_native_dimension_steps request.task request.attempt steps
+
+  let create task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_offset = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.offset_attempt;
+    program_ : Ir.Offset_fragment_program.t;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t =
+    request ->
+    ( Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then Error "native offset belongs to another domain or was already claimed"
+    else
+      VM.check_native_task_offset request.task request.attempt request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_offset request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native offset was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native offset lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Offset_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Offset_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Offset_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Offset_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Offset_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Offset_fragment_program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let initializer_remaining request =
+    VM.task_initializer_limit request.task
+    - VM.task_initializer_steps request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native offset work requires its entered original request"
+    else VM.record_native_offset_steps request.task request.attempt steps
+
+  let create task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+  let close request = Atomic.set request.phase Closed
+end
+
 module Native_static_copy = struct
   type phase = Offered | Claiming | Entered | Closed
 
@@ -694,6 +936,8 @@ type t = {
   native_static_initializer : Native_static_initializer.t option;
   native_static_copy : Native_static_copy.t option;
   native_default : Native_default.t option;
+  native_dimension : Native_dimension.t option;
+  native_offset : Native_offset.t option;
   native_internal_binding : Native_internal_binding.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
 }
@@ -711,7 +955,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
     ?max_stream_depth ?native_dispatch ?native_static_allocation
     ?native_static_initializer ?native_static_copy ?native_default
-    ?native_internal_binding session =
+    ?native_dimension ?native_offset ?native_internal_binding session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -740,6 +984,8 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             native_static_initializer;
             native_static_copy;
             native_default;
+            native_dimension;
+            native_offset;
             native_internal_binding;
             commands = [];
           }))
@@ -750,8 +996,8 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
     ?native_dispatch ?native_static_allocation ?native_static_initializer
-    ?native_static_copy ?native_default ?native_internal_binding session ~source
-    ~ledger =
+    ?native_static_copy ?native_default ?native_dimension ?native_offset
+    ?native_internal_binding session ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
@@ -775,6 +1021,8 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       native_static_initializer;
       native_static_copy;
       native_default;
+      native_dimension;
+      native_offset;
       native_internal_binding;
       commands = [];
     }
@@ -1238,13 +1486,42 @@ let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
     let* destination =
       Ir.Dimension_fragment_destination.create ~task_view typed |> diagnose
     in
-    let* execution =
-      Dimension_fragment_lowering.prepare ~context ~authority
-        ~runtime:task.state destination
-    in
-    VM.execute_task_dimension ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    match task.native_dimension with
+    | Some evaluate ->
+        let* program =
+          Dimension_fragment_lowering.lower_native ~context ~authority
+            destination
+        in
+        let request = Native_dimension.create task.state attempt program in
+        Fun.protect
+          ~finally:(fun () -> Native_dimension.close request)
+          (fun () ->
+            let* capture = evaluate request in
+            if Native_dimension.entered request then
+              VM.complete_native_task_dimension task.state attempt program
+                capture
+              |> diagnose
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native dimension returned without claiming its original \
+                     expression";
+                ])
+    | None when Option.is_some task.native_dispatch ->
+        Error
+          [
+            Integer_source.diagnostic ~span "HCRUN0006"
+              "native task execution requires its dimension adapter";
+          ]
+    | None ->
+        let* execution =
+          Dimension_fragment_lowering.prepare ~context ~authority
+            ~runtime:task.state destination
+        in
+        VM.execute_task_dimension ~use_active_stream ?stream_exe_print
+          task.state attempt execution
+        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_dimension task.state attempt)
@@ -1366,13 +1643,40 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
     let* destination =
       Ir.Offset_fragment_destination.create ~task_view typed |> diagnose
     in
-    let* execution =
-      Offset_fragment_lowering.prepare ~context ~authority ~runtime:task.state
-        destination
-    in
-    VM.execute_task_offset ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    match task.native_offset with
+    | Some evaluate ->
+        let* program =
+          Offset_fragment_lowering.lower_native ~context ~authority destination
+        in
+        let request = Native_offset.create task.state attempt program in
+        Fun.protect
+          ~finally:(fun () -> Native_offset.close request)
+          (fun () ->
+            let* capture = evaluate request in
+            if Native_offset.entered request then
+              VM.complete_native_task_offset task.state attempt program capture
+              |> diagnose
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native offset returned without claiming its original \
+                     expression";
+                ])
+    | None when Option.is_some task.native_dispatch ->
+        Error
+          [
+            Integer_source.diagnostic ~span "HCRUN0006"
+              "native task execution requires its offset adapter";
+          ]
+    | None ->
+        let* execution =
+          Offset_fragment_lowering.prepare ~context ~authority
+            ~runtime:task.state destination
+        in
+        VM.execute_task_offset ~use_active_stream ?stream_exe_print task.state
+          attempt execution
+        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_offset task.state attempt)
@@ -1486,16 +1790,8 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
         execute_runtime_internal_binding ~use_active_stream ?stream_exe_print
           task receipt
     | Frontend.Parser.Aggregate_advanced receipt
-      when Option.is_some task.native_dispatch
-           && Task_declarations.offset_requires_runtime receipt ->
-        native_reject receipt.phase_location.span "runtime aggregate offsets"
-    | Frontend.Parser.Aggregate_advanced receipt
       when Task_declarations.offset_requires_runtime receipt ->
         execute_runtime_offset ~use_active_stream ?stream_exe_print task receipt
-    | Frontend.Parser.Array_dimension_preparing receipt
-      when Option.is_some task.native_dispatch
-           && Task_declarations.dimension_requires_runtime receipt ->
-        native_reject receipt.dimension_opening.span "runtime array dimensions"
     | Frontend.Parser.Array_dimension_preparing receipt
       when Task_declarations.dimension_requires_runtime receipt ->
         execute_runtime_dimension ~use_active_stream ?stream_exe_print task

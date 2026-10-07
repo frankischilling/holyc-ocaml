@@ -1,5 +1,7 @@
 # holyc-ocaml compatibility status
 
+Ordinary JIT [runtime layout expressions](runtime-layout-expressions.md) execute integer array bounds and aggregate offsets in IR and native tasks. Global, automatic, static and primitive member extents keep their original counts and execution dependencies. Native completion requires the actual original scalar capture; AOT runtime relocation, floating bounds and aggregate object execution remain open.
+
 Ordinary JIT [live internal bindings](native-internal-bindings.md) evaluate
 integer targets before type validation in both IR and native tasks. Supported
 numeric and pointed internal operations retain original call authority and

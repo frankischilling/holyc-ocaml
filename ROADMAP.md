@@ -1,5 +1,11 @@
 # holyc-ocaml roadmap
 
+Issue #704 now connects integer runtime array bounds and aggregate `$$` offsets
+to original IR and native JIT task execution. Primitive member layouts retain
+runtime dependencies through completed sizes and derived frames. AOT relocation,
+floating bounds, aggregate object execution and native stream services remain
+open. See [runtime layout expressions](docs/runtime-layout-expressions.md).
+
 Issue #704 now connects integer `_intern` target expressions to original JIT
 task execution in IR and native code. Supported internal calls share the native
 task's owned storage and budgets. Floating targets, native stream services,
@@ -28,8 +34,7 @@ array statics under the same task ownership and initializer allowance.
 Named integer defaults now execute once at their original live header callback,
 including storage effects and calls to retained functions. Later and historical
 calls require the exact original saved word and native completion receipt.
-Persistent executable addresses, task callbacks, runtime dimensions,
-wider and anonymous defaults, native `#exe` and AOT task execution remain open. See
+Wider defaults, native `#exe` and AOT task execution remain open. See
 [native source tasks](docs/native-source-tasks.md).
 
 Issue #797 adds [conditional integer chains](docs/conditional-comparison-chains.md)

@@ -171,6 +171,7 @@ let () =
       ("AOT source execution", Test_aot_source_execution.tests);
       ("task declarations", Test_task_declarations.tests);
       ("retained aggregates", Test_retained_aggregates.tests);
+      ("runtime layout expressions", Test_runtime_layout_expressions.tests);
       ("retained named aggregate", Test_retained_named_aggregate.tests);
       ("runtime frame positions", Test_runtime_frame_positions.tests);
       ("source promotion", Test_source_promotion.tests);

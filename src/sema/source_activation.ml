@@ -84,6 +84,14 @@ let trailing_dimension_preparation t =
       Some preparation
   | _ -> None
 
+let trailing_aggregate_offset t =
+  match List.rev t.events with
+  | Declaration
+      (Parser.Aggregate_advanced
+         ({ phase_step = Parser.Aggregate_offset_reached _; _ } as phase))
+    :: _ -> Some phase
+  | _ -> None
+
 let before_event t matches =
   if not (current t) then false
   else

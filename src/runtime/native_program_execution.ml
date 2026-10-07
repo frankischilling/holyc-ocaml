@@ -100,18 +100,24 @@ external execute_retained_budget_task_program :
   (int64 * int64 * int64 * int64 * int64) * string * int
   = "holyc_native_execute_retained_budget_task_program"
 
-external execute_retained_budget_binding_program :
+external execute_retained_budget_scalar_program :
   retained_handle ->
   task_arena_handle * int ->
   int * int * int * int * int * int * int * int * int ->
   int * int * int ->
-  bool ref * Ir.Internal_binding_fragment_program.t ->
+  bool ref * 'program ->
   ((int64 * int64 * int64 * int64 * int64) * string * int)
-  * Ir.Native_internal_binding_capture.t option
+  * 'program Ir.Native_scalar_capture.t option
   = "holyc_native_execute_retained_budget_binding_program"
 
 external bind_task_entries : retained_handle -> task_arena_handle * int -> bool
   = "holyc_native_bind_task_entries"
+
+type scalar_capture =
+  | Binding_capture of Ir.Native_internal_binding_capture.t
+  | Dimension_capture of
+      Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t
+  | Offset_capture of Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t
 
 type task_arena = {
   layout_ : Task_storage.task_layout;
@@ -124,8 +130,7 @@ type task_arena = {
   arena_released_ : bool Atomic.t;
   code_mappings_ : (retained_handle * Image.t * bool) list Atomic.t;
   data_capture_ : (Image.t * Ir.Saved_parameter_value.t) option Atomic.t;
-  internal_capture_ :
-    (Image.t * Ir.Native_internal_binding_capture.t) option Atomic.t;
+  scalar_capture_ : (Image.t * scalar_capture) option Atomic.t;
 }
 
 type task_execution_binding = {
@@ -393,7 +398,7 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                 match activation with
                 | Error message -> error_report message
                 | Ok () -> (
-                    let internal_capture = ref None in
+                    let scalar_capture = ref None in
                     let status, captured, work =
                       if Option.is_some retained then
                         let limits =
@@ -420,18 +425,43 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                               ( binding.task_arena_.handle_,
                                 binding.task_required_arena_bytes_ )
                             in
-                            match Image.internal_binding image with
+                            match Image.scalar_program image with
                             | None ->
                                 execute_retained_budget_task_program
                                   (Option.get retained) task limits consumed
                                   (Option.get entered)
-                            | Some program ->
+                            | Some (Image.Internal_binding program) ->
                                 let report, capture =
-                                  execute_retained_budget_binding_program
+                                  execute_retained_budget_scalar_program
                                     (Option.get retained) task limits consumed
                                     (Option.get entered, program)
                                 in
-                                internal_capture := capture;
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value -> Binding_capture value)
+                                    capture;
+                                report
+                            | Some (Image.Dimension program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value -> Dimension_capture value)
+                                    capture;
+                                report
+                            | Some (Image.Offset program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value -> Offset_capture value)
+                                    capture;
                                 report)
                         | None, Some _ ->
                             invalid_arg
@@ -542,10 +572,10 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                                 | Image.Completed { final_value = Some _; _ } ->
                                     Option.map
                                       (fun value -> (image, value))
-                                      !internal_capture
+                                      !scalar_capture
                                 | _ -> None
                               in
-                              Atomic.set binding.task_arena_.internal_capture_
+                              Atomic.set binding.task_arena_.scalar_capture_
                                 internal
                           | None -> ());
                           {
@@ -711,7 +741,7 @@ let create_task_arena ?(max_arena_bytes = hard_max_arena_bytes) layout =
                   arena_released_ = Atomic.make false;
                   code_mappings_ = Atomic.make [];
                   data_capture_ = Atomic.make None;
-                  internal_capture_ = Atomic.make None;
+                  scalar_capture_ = Atomic.make None;
                 }
           | Error message ->
               let release_error =
@@ -795,20 +825,59 @@ let finish_task_internal_binding arena image =
   Fun.protect
     ~finally:(fun () -> release_lease arena.arena_lease_)
     (fun () ->
-      let reached = Atomic.get arena.internal_capture_ in
+      let reached = Atomic.get arena.scalar_capture_ in
       match
         (Image.task_snapshot image, Image.internal_binding image, reached)
       with
-      | Some snapshot, Some _, Some (entered, captured)
+      | Some snapshot, Some _, Some (entered, Binding_capture captured)
         when (not (Atomic.get arena.arena_revoked_))
              && entered == image
              && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
-             && Atomic.compare_and_set arena.internal_capture_ reached None ->
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
           Ok captured
       | _ ->
           Error
-            "native internal binding has another original image, capture or \
-             arena")
+            "native scalar capture has another original image, kind or arena")
+
+let finish_task_dimension arena image =
+  let ( let* ) = Result.bind in
+  let* () =
+    acquire_lease arena.arena_lease_ "native task arena is already active"
+  in
+  Fun.protect
+    ~finally:(fun () -> release_lease arena.arena_lease_)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match (Image.task_snapshot image, Image.dimension image, reached) with
+      | Some snapshot, Some _, Some (entered, Dimension_capture captured)
+        when (not (Atomic.get arena.arena_revoked_))
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok captured
+      | _ ->
+          Error
+            "native scalar capture has another original image, kind or arena")
+
+let finish_task_offset arena image =
+  let ( let* ) = Result.bind in
+  let* () =
+    acquire_lease arena.arena_lease_ "native task arena is already active"
+  in
+  Fun.protect
+    ~finally:(fun () -> release_lease arena.arena_lease_)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match (Image.task_snapshot image, Image.offset image, reached) with
+      | Some snapshot, Some _, Some (entered, Offset_capture captured)
+        when (not (Atomic.get arena.arena_revoked_))
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok captured
+      | _ ->
+          Error
+            "native scalar capture has another original image, kind or arena")
 
 let finish_task_data_default arena image captured ~max_copy_steps =
   let failure message = (Error message, 0) in

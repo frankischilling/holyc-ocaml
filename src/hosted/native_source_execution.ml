@@ -7,7 +7,14 @@ module Native = Runtime.Native_program_execution
 type word = { type_ : Image.word_type; bits : int64 }
 type result = { final_value : word option }
 type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
-type fragment_kind = Initializer | Default | Internal_binding | Command
+
+type fragment_kind =
+  | Initializer
+  | Default
+  | Internal_binding
+  | Dimension
+  | Offset
+  | Command
 
 type image = {
   status_abi : Image.status_abi;
@@ -439,6 +446,120 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                        expression";
                   ]
         in
+        let native_dimension request =
+          let module Request = Task.Native_dimension in
+          let dimension_span =
+            Request.program request |> Ir.Dimension_fragment_program.destination
+            |> Ir.Dimension_fragment_destination.span
+          in
+          let allowance = Request.initializer_remaining request in
+          if allowance <= 0 then
+            Error
+              [
+                diagnostic ~span:dimension_span "HCIRVM0007"
+                  "the task dimension preparation step limit was exhausted";
+              ]
+          else
+            let* image =
+              remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                  Image.compile_task_dimension ?status_abi ~max_stack_bytes
+                    ~max_blocks ~max_ir_instructions ~max_code_bytes ~layout
+                    request)
+            in
+            let before = (Native.budget_progress budget).executed_steps in
+            let outcome =
+              execute ~max_activation_steps:allowance Dimension image
+            in
+            let steps =
+              (Native.budget_progress budget).executed_steps - before
+            in
+            let* () =
+              (if steps = 0 && Result.is_error outcome then Ok ()
+               else Request.record_steps request steps)
+              |> Result.map_error (fun message ->
+                  [
+                    Driver.Integer_source.message_diagnostic
+                      ~span:dimension_span message;
+                  ])
+            in
+            let* completed, captured = outcome in
+            match
+              ( captured,
+                completed.final_value,
+                completed.captured_callback,
+                completed.captured_data )
+            with
+            | true, Some _, None, None ->
+                Native.finish_task_dimension arena image
+                |> Result.map_error (fun message ->
+                    [
+                      Driver.Integer_source.message_diagnostic
+                        ~span:dimension_span message;
+                    ])
+            | _ ->
+                Error
+                  [
+                    diagnostic ~span:dimension_span "HCIRVM0026"
+                      "native dimension produced no captured scalar expression";
+                  ]
+        in
+        let native_offset request =
+          let module Request = Task.Native_offset in
+          let offset_span =
+            Request.program request |> Ir.Offset_fragment_program.destination
+            |> Ir.Offset_fragment_destination.span
+          in
+          let allowance = Request.initializer_remaining request in
+          if allowance <= 0 then
+            Error
+              [
+                diagnostic ~span:offset_span "HCIRVM0007"
+                  "the task offset preparation step limit was exhausted";
+              ]
+          else
+            let* image =
+              remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                  Image.compile_task_offset ?status_abi ~max_stack_bytes
+                    ~max_blocks ~max_ir_instructions ~max_code_bytes ~layout
+                    request)
+            in
+            let before = (Native.budget_progress budget).executed_steps in
+            let outcome =
+              execute ~max_activation_steps:allowance Offset image
+            in
+            let steps =
+              (Native.budget_progress budget).executed_steps - before
+            in
+            let* () =
+              (if steps = 0 && Result.is_error outcome then Ok ()
+               else Request.record_steps request steps)
+              |> Result.map_error (fun message ->
+                  [
+                    Driver.Integer_source.message_diagnostic ~span:offset_span
+                      message;
+                  ])
+            in
+            let* completed, captured = outcome in
+            match
+              ( captured,
+                completed.final_value,
+                completed.captured_callback,
+                completed.captured_data )
+            with
+            | true, Some _, None, None ->
+                Native.finish_task_offset arena image
+                |> Result.map_error (fun message ->
+                    [
+                      Driver.Integer_source.message_diagnostic ~span:offset_span
+                        message;
+                    ])
+            | _ ->
+                Error
+                  [
+                    diagnostic ~span:offset_span "HCIRVM0026"
+                      "native offset produced no captured scalar expression";
+                  ]
+        in
         let native_static_allocation request =
           Native.allocate_task_static arena request
           |> Result.map_error (fun message ->
@@ -476,10 +597,11 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             let report =
               Source.run ~native_dispatch ~native_static_allocation
                 ~native_static_initializer ~native_static_copy ~native_default
-                ~native_internal_binding ~max_dimension_work ~max_switch_work
-                ~max_initializer_steps ~max_global_bytes ~max_literal_bytes
-                ~max_frame_bytes ~max_call_depth ~max_output_bytes
-                ~max_output_work session ~config ~source ~max_steps
+                ~native_dimension ~native_offset ~native_internal_binding
+                ~max_dimension_work ~max_switch_work ~max_initializer_steps
+                ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
+                ~max_call_depth ~max_output_bytes ~max_output_work session
+                ~config ~source ~max_steps
             in
             source_report := Some report;
             let* checked = Source.outcome report in

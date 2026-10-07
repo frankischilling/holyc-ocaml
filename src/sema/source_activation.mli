@@ -73,6 +73,8 @@ val aggregate_offset_preparing :
 
 val trailing_dimension_preparation :
   t -> Frontend.Parser.array_dimension_preparation option
+
+val trailing_aggregate_offset : t -> Frontend.Parser.aggregate_phase option
 (** The exact final observation, only if it is a dimension preparation. This
     structural query grants no evaluation or activation authority. *)
 

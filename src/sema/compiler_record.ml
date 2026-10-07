@@ -796,35 +796,29 @@ let advance_aggregate ?(callbacks = fun _ -> None) ~dimensions progress
                 ~name:member.member_name ~dimensions:member.member_dimensions
                 ~checked 1L
             in
-            if
-              List.exists
-                (fun dimension -> dimension.prepared.runtime_dependencies <> [])
-                checked
-            then
-              Error
-                "retained aggregate runtime bounds require original runtime \
-                 layout admission"
-            else
-              let origin =
-                Closed_numeric_expression.origin member.member_name.location
-              in
-              let* member_size =
-                Source_aggregate_layout.member_extent ~origin ~element_size
-                  ~counts:(List.map dimension_count checked)
-              in
-              let kind, union_base = List.hd scopes in
-              let* byte_size =
-                Source_aggregate_layout.place_member ~origin ~kind ~union_base
-                  ~current_size:record.byte_size ~member_size
-              in
-              Ok
-                {
-                  record with
-                  byte_size;
-                  runtime_offsets =
-                    record.runtime_offsets
-                    @ List.concat_map dimension_offset_dependencies checked;
-                }
+            let origin =
+              Closed_numeric_expression.origin member.member_name.location
+            in
+            let* member_size =
+              Source_aggregate_layout.member_extent ~origin ~element_size
+                ~counts:(List.map dimension_count checked)
+            in
+            let kind, union_base = List.hd scopes in
+            let* byte_size =
+              Source_aggregate_layout.place_member ~origin ~kind ~union_base
+                ~current_size:record.byte_size ~member_size
+            in
+            Ok
+              {
+                record with
+                byte_size;
+                runtime_dimensions =
+                  record.runtime_dimensions
+                  @ List.concat_map dimension_runtime_dependencies checked;
+                runtime_offsets =
+                  record.runtime_offsets
+                  @ List.concat_map dimension_offset_dependencies checked;
+              }
           in
           Ok (record, scopes)
     in
@@ -914,15 +908,7 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
                 ~name:member.member_name
                 ~dimensions:member.member_array_dimensions ~checked 1L
             in
-            if
-              List.exists
-                (fun dimension -> dimension.prepared.runtime_dependencies <> [])
-                checked
-            then
-              Error
-                "retained aggregate runtime bounds require original runtime \
-                 layout admission"
-            else Ok (List.map dimension_count checked)
+            Ok (List.map dimension_count checked)
           in
           let offsets expression =
             match

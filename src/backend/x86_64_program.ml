@@ -68,6 +68,11 @@ type execution = {
 type outcome = Completed of execution | Fault of fault
 type task_layout = Task_storage.task_layout
 
+type scalar_program =
+  | Internal_binding of Ir.Internal_binding_fragment_program.t
+  | Dimension of Ir.Dimension_fragment_program.t
+  | Offset of Ir.Offset_fragment_program.t
+
 type t = {
   image : Codegen.program_image;
   task_snapshot_ : Task_storage.task_snapshot option;
@@ -76,10 +81,22 @@ type t = {
   callback_default_ : Ir.Default_fragment_destination.t option;
   data_default_ : Ir.Saved_parameter_value.t option;
   data_default_misc_ : bool;
+  dimension_ : Ir.Dimension_fragment_program.t option;
+  offset_ : Ir.Offset_fragment_program.t option;
   internal_binding_ : Ir.Internal_binding_fragment_program.t option;
 }
 
 let internal_binding value = value.internal_binding_
+let dimension value = value.dimension_
+let offset value = value.offset_
+
+let scalar_program value =
+  match (value.internal_binding_, value.dimension_, value.offset_) with
+  | Some program, None, None -> Some (Internal_binding program)
+  | None, Some program, None -> Some (Dimension program)
+  | None, None, Some program -> Some (Offset program)
+  | _ -> None
+
 let data_default value = value.data_default_
 let data_default_has_misc_data value = value.data_default_misc_
 let hard_max_stack_bytes = Codegen.hard_max_stack_bytes
@@ -114,6 +131,8 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         callback_default_ = None;
         data_default_ = None;
         data_default_misc_ = false;
+        dimension_ = None;
+        offset_ = None;
         internal_binding_ = None;
       })
 
@@ -135,6 +154,8 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         callback_default_ = None;
         data_default_ = None;
         data_default_misc_ = false;
+        dimension_ = None;
+        offset_ = None;
         internal_binding_ = None;
       })
 
@@ -153,8 +174,8 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
   |> Result.map_error project_storage_errors
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
-    ?callback_default ?data_default ?internal_binding ~max_ir_instructions
-    ~max_code_bytes ~layout ~check ~claim ~runtime_calls
+    ?callback_default ?data_default ?dimension ?offset ?internal_binding
+    ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~runtime_calls
     ~retained_function_source ~retained_slot_binding
     ~retained_slot_address_binding ~retained_slot_address_refresh
     ~retained_parameter_default ~retained_callback_default ~initialization
@@ -202,6 +223,8 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         task_claim_ = Some claim;
         callback_default_ = callback_default;
         data_default_ = data_default;
+        dimension_ = dimension;
+        offset_ = offset;
         internal_binding_ = internal_binding;
         data_default_misc_ =
           Option.is_some data_default
@@ -312,6 +335,44 @@ let compile_task_internal_binding ?status_abi ?max_stack_bytes ?max_blocks
   let program = Request.program request in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ~internal_binding:program ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_dimension ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_dimension in
+  let module Program = Ir.Dimension_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~dimension:program ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_offset ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_offset in
+  let module Program = Ir.Offset_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks ~offset:program
+    ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~runtime_calls:(Program.runtime_calls program)

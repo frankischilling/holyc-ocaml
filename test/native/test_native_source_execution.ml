@@ -536,6 +536,7 @@ let exact_native_limits () =
     (List.length (Native.fragments invalid))
 
 let unsupported_domains () =
+  ignore (expect_value 42L (run "I64 N=2; I64 A[N]; A[0]=42; A[0];"));
   let aot = run ~mode:Preprocessor.Aot source in
   expect_rejection aot;
   Alcotest.(check int)
@@ -556,7 +557,6 @@ let unsupported_domains () =
     (fun text -> expect_rejection (run text))
     [
       "F64 F(){return 42.0;} F();";
-      "I64 N=2; I64 A[N]; A[0]=42; A[0];";
       "I64 *A; A;";
       "F64 A=42.0; A;";
       "\"unsupported\";";

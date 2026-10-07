@@ -1,5 +1,11 @@
 # Native source tasks
 
+[Runtime layout expressions](runtime-layout-expressions.md) execute integer
+array bounds and aggregate `$$` offsets at their original JIT parser callbacks.
+Global, automatic, static and primitive member extents retain their original
+results, including supported direct and callback calls. Derived layouts and
+frames require the owning task's successful execution proofs.
+
 Original integer `_intern` targets execute as native fragments before their
 type and header are read. Target calls share this task's storage and output;
 completed headers install their once-evaluated operation. Supported internal

@@ -4699,8 +4699,8 @@ let callable_frame_update opcode word =
   | Opcode.Ic__mm -> Some (Update_binary Encoder.Sub, true, false)
   | _ -> None
 
-let prepare_callable_function ~max_stack_bytes ~maximum_variadic_count
-    (source : callable_function_source) =
+let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
+    ~maximum_variadic_count (source : callable_function_source) =
   let definition = source.source_definition in
   let body = definition.body in
   let frame = definition.frame in
@@ -4988,12 +4988,14 @@ let prepare_callable_function ~max_stack_bytes ~maximum_variadic_count
             || List.exists
                  (fun dimension ->
                    Frame.dimension_kind dimension <> Frame.Source_extent
-                   || Frame.dimension_runtime_dependencies dimension <> []
-                   || Frame.dimension_offset_dependencies dimension <> [])
+                   || (not allow_runtime_layout)
+                      && (Frame.dimension_runtime_dependencies dimension <> []
+                         || Frame.dimension_offset_dependencies dimension <> []
+                         ))
                  dimensions
           then
             reject ?span "HCBACK0002"
-              "native automatic arrays require original closed scalar \
+              "native automatic arrays require original admitted scalar \
                dimensions";
           let shape_type =
             if Option.is_some callback then
@@ -10368,8 +10370,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
       let function_infos =
         callable_sources
         |> List.map
-             (prepare_callable_function ~max_stack_bytes
-                ~maximum_variadic_count:!maximum_variadic_count)
+             (prepare_callable_function
+                ~allow_runtime_layout:(Option.is_some task_snapshot)
+                ~max_stack_bytes ~maximum_variadic_count:!maximum_variadic_count)
         |> Array.of_list
       in
       let function_code_owners =

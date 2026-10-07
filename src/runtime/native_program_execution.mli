@@ -300,3 +300,17 @@ val finish_task_internal_binding :
   (Ir.Native_internal_binding_capture.t, string) result
 (** Take the actual successful scalar capture from this original image and arena
     once. Metadata, a different image or arena, and replay are rejected. *)
+
+val finish_task_dimension :
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t, string) result
+(** Take this original image's actual scalar capture once while its arena lives.
+*)
+
+val finish_task_offset :
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t, string) result
+(** Take this original image's actual scalar capture once while its arena lives.
+*)

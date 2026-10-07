@@ -18,6 +18,7 @@ val prepare_default :
   (default_preparation * int, Common.Diagnostic.t list) result
 
 val prepare_dimension :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->
@@ -164,6 +165,7 @@ val item_steps : item -> int
 val human : t -> string
 
 val prepare_offset :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->

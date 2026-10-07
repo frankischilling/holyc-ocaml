@@ -293,6 +293,7 @@ type t = {
   mutable authority : authority;
   mutable source_events_rev : Parser.command_event list;
   mutable activation_events_rev : Sema.Source_activation.event list;
+  mutable pending_runtime_offset : Parser.aggregate_phase option;
   mutable activation : Sema.Source_activation.t option;
   switch_budget : Switch.budget;
   switch_tracker : Switch.tracker;
@@ -433,6 +434,7 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   authority;
                   source_events_rev = [];
                   activation_events_rev = [];
+                  pending_runtime_offset = None;
                   activation = None;
                   switch_budget;
                   switch_tracker = Switch.create_tracker ~budget:switch_budget;
@@ -534,6 +536,7 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
                Result.bind pending_runtime_dimension
                  (fun pending_runtime_dimension ->
                    VM.promote_task_source_activation ?pending_runtime_dimension
+                     ?pending_runtime_offset:ledger.pending_runtime_offset
                      ~offsets:(List.rev ledger.offsets_rev)
                      runtime ~namespace:ledger.namespace ~activation
                      ~dimensions:(List.rev ledger.source_dimensions_rev)
@@ -3022,6 +3025,38 @@ let defer_source_runtime_dimension ledger ~preparation event =
           fail preparation.dimension_opening.span
             "deferred runtime dimension requires its exact preparation event")
 
+let defer_source_runtime_offset ledger ~phase event =
+  protect (fun () ->
+      let span = phase.Parser.phase_location.span in
+      match event with
+      | Parser.Aggregate_advanced original when original == phase ->
+          let context =
+            phase.phase_aggregate.aggregate_header.declaration_command
+              .command_context
+          in
+          if
+            (match ledger.authority with
+              | Source_compilation _ -> false
+              | _ -> true)
+            || (not (offset_requires_runtime phase))
+            || Parser.context_mode context <> Frontend.Preprocessor.Jit
+            || Option.is_some (Parser.context_parent context)
+            || not (Parser.aggregate_phase_is_current phase)
+          then
+            fail span "deferred offset requires its original live JIT callback";
+          validate_command ledger phase.phase_aggregate.aggregate_header;
+          (match (find ledger phase.phase_aggregate.aggregate_name).source with
+          | Aggregate { publication; progress = Some _; _ }
+            when publication == phase.phase_aggregate -> ()
+          | _ ->
+              fail span "deferred offset lacks its original aggregate progress");
+          if Option.is_some ledger.pending_runtime_offset then
+            fail span "source offset was already deferred";
+          ledger.pending_runtime_offset <- Some phase;
+          record_activation_event ledger
+            (Sema.Source_activation.Declaration event)
+      | _ -> fail span "deferred offset requires its exact original phase event")
+
 let admit_global ledger ~runtime (publication : Parser.global_publication) =
   protect (fun () ->
       let span = publication.global_name.location.span in
@@ -5190,6 +5225,13 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
         let* () =
           protect (fun () ->
               match event with
+              | Parser.Aggregate_advanced phase
+                when Option.fold ~none:false ~some:(( == ) phase)
+                       ledger.pending_runtime_offset ->
+                  if not (Parser.aggregate_phase_is_current phase) then
+                    fail phase.phase_location.span
+                      "deferred source offset expired";
+                  ledger.pending_runtime_offset <- None
               | Parser.Aggregate_advanced
                   ({ phase_step = Parser.Aggregate_offset_reached _; _ } as
                    phase) -> (

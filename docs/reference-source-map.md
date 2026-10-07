@@ -1,5 +1,7 @@
 # Reference source map
 
+Runtime layout expressions follow `Compiler/PrsVar.HC:247-283` bound execution before bracket validation, `PrsVar.HC:408-449` offset execution before semicolon validation, and `PrsVar.HC:660-721` member placement and completed layout. IR and native tasks retain original receipts, counts and dependencies. Their ownership and resource guards are hosted policy; this connection adds no TempleOS runtime capture. See [runtime layout expressions](runtime-layout-expressions.md).
+
 Live internal bindings follow `Compiler/PrsStmt.HC:1055-1061`: evaluate the
 target through LexExpressionI64 before validating the type. The original header
 then installs `exe_addr`, sets `Ff_INTERNAL` and clears `Cf_EXTERN` at

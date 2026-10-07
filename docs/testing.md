@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+Runtime layout tests share original integer bounds and offsets between fresh IR
+and native source tasks. They cover strides, automatic and static timing, unused
+declarations, callbacks, saved arguments, primitive member layouts, historical
+classes, nested unions, compiler positions and derived frames. Native tests also
+check actual capture identity, equal metadata, wrong work, foreign domains and
+arenas, collection, expiration and replay. The maintained
+`runtime-layout-expressions.hc` CLI test checks exact and one-below instruction,
+initializer, global and output limits; API tests check cumulative code and IR
+limits too. Class declarations inside functions keep their parser diagnostic.
+
 Live internal bindings share fixtures in `test/internal_binding_cases.ml`.
 Three IR groups and four native groups exercise every supported integer
 operation, effectful and function-pointer targets, unused declarations,

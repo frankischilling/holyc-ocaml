@@ -95,6 +95,28 @@ type native_program_attempt
 type internal_binding_attempt
 type dimension_attempt
 
+val check_native_task_dimension :
+  task_state ->
+  dimension_attempt ->
+  Dimension_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_dimension :
+  task_state ->
+  dimension_attempt ->
+  Dimension_fragment_program.t ->
+  (unit, string) result
+
+val record_native_dimension_steps :
+  task_state -> dimension_attempt -> int -> (unit, string) result
+
+val complete_native_task_dimension :
+  task_state ->
+  dimension_attempt ->
+  Dimension_fragment_program.t ->
+  Dimension_fragment_program.t Native_scalar_capture.t ->
+  (unit, string) result
+
 val admit_static_allocation :
   task_state -> Integer_static_allocation.t -> (unit, string) result
 (** Charge one original live private static declaration. Interpreter tasks
@@ -508,6 +530,7 @@ val promote_task_source :
 val promote_task_source_activation :
   ?offsets:Sema.Compiler_record.aggregate_offset list ->
   ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
+  ?pending_runtime_offset:Frontend.Parser.aggregate_phase ->
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
   activation:Sema.Source_activation.t ->
@@ -1042,6 +1065,28 @@ val check_task_suspended_completion :
   (unit, string) result
 
 type offset_attempt
+
+val check_native_task_offset :
+  task_state ->
+  offset_attempt ->
+  Offset_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_offset :
+  task_state ->
+  offset_attempt ->
+  Offset_fragment_program.t ->
+  (unit, string) result
+
+val record_native_offset_steps :
+  task_state -> offset_attempt -> int -> (unit, string) result
+
+val complete_native_task_offset :
+  task_state ->
+  offset_attempt ->
+  Offset_fragment_program.t ->
+  Offset_fragment_program.t Native_scalar_capture.t ->
+  (unit, string) result
 
 val begin_task_offset :
   task_state ->

@@ -1712,11 +1712,11 @@ let prepare_default ?top_callback_calls ?retained_function_source ?on_progress
       | _ -> invalid_arg "default preparation lost its original evaluation")
   | _ -> invalid_arg "default preparation lost its unique original work item"
 
-let prepare_dimension ?retained_function_source ?on_progress ~max_steps
-    ~top_calls destination =
+let prepare_dimension ?top_callback_calls ?retained_function_source ?on_progress
+    ~max_steps ~top_calls destination =
   let* prepared =
     prepare_internal ~dimension:destination ~allow_zero_budget:true
-      ?retained_function_source ?on_progress ~max_steps
+      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
       ~span:(Dimension.span destination)
       ~globals:(Dimension.globals destination)
       ~top_calls ~functions:[] ()
@@ -1740,11 +1740,11 @@ let prepare_internal_binding ?top_callback_calls ?retained_function_source
       Ok (item.classification_, prepared.steps)
   | _ -> invalid_arg "internal binding preparation lost its original work item"
 
-let prepare_offset ?retained_function_source ?on_progress ~max_steps ~top_calls
-    destination =
+let prepare_offset ?top_callback_calls ?retained_function_source ?on_progress
+    ~max_steps ~top_calls destination =
   let* prepared =
     prepare_internal ~offset:destination ~allow_zero_budget:true
-      ?retained_function_source ?on_progress ~max_steps
+      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
       ~span:(Offset.span destination)
       ~globals:(Offset.globals destination)
       ~top_calls ~functions:[] ()

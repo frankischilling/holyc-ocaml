@@ -18,7 +18,7 @@ each bound expression and before checking its closing bracket. The hosted path
 preserves that ordering: directives reached during expression lookahead run
 first, and bound effects survive a negative extent, missing bracket, or later
 failure. Each later bound requires successful completion of its predecessor.
-This is checked against the pinned source; no native execution trace was captured.
+This is checked against the pinned source; no TempleOS runtime trace was captured.
 
 Closed numeric bounds keep their existing numeric-visit preparation charges.
 Runtime bounds share their task's initializer, instruction, storage and output
@@ -47,5 +47,6 @@ returns 42 in both outer modes with 74 runtime steps and six preparation steps.
 
 Ordinary AOT runtime bounds still report `HCRUN0006`: output relocation and
 callable address authority remain unresolved. Closed AOT bounds retain their
-existing path. Runtime F64 bounds, aggregate-member bounds, general callbacks
-and the remaining initializer optimizer cases are outside this implementation.
+existing path. Runtime F64 bounds and the remaining initializer optimizer cases
+are outside this implementation. [Runtime layout expressions](runtime-layout-expressions.md)
+connect integer member bounds, supported callbacks and original native JIT tasks.

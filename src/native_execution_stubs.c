@@ -2581,8 +2581,9 @@ static struct custom_operations native_internal_binding_capture_operations = {
   custom_fixed_length_default
 };
 
-/* The result is minted here after the actual original native entry returns.
-   There is no separate constructor accepting caller-provided status or bits. */
+/* Binding, dimension and offset adapters retain distinct typed programs in
+   OCaml. This bridge roots their opaque original identity after the actual
+   native entry returns. No constructor accepts caller-provided status or bits. */
 CAMLprim value holyc_native_execute_retained_budget_binding_program(
   value handle, value task, value limits, value consumed, value binding)
 {

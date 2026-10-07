@@ -190,6 +190,26 @@ val compile_task_internal_binding :
   Driver.Integer_task.Native_internal_binding.request ->
   (t, error list) result
 
+val compile_task_dimension :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_dimension.request ->
+  (t, error list) result
+
+val compile_task_offset :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_offset.request ->
+  (t, error list) result
+
 val compile_task_command :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
@@ -300,3 +320,12 @@ val code_owner_bindings : t -> (int * int * int * int * int) list
 val private_function_count : t -> int
 val function_slot_bindings : t -> (int * int) list
 val internal_binding : t -> Ir.Internal_binding_fragment_program.t option
+
+type scalar_program =
+  | Internal_binding of Ir.Internal_binding_fragment_program.t
+  | Dimension of Ir.Dimension_fragment_program.t
+  | Offset of Ir.Offset_fragment_program.t
+
+val scalar_program : t -> scalar_program option
+val dimension : t -> Ir.Dimension_fragment_program.t option
+val offset : t -> Ir.Offset_fragment_program.t option

@@ -2,6 +2,33 @@
 
 (copy_files ../internal_binding_cases.ml)
 
+(copy_files ../runtime_layout_cases.ml)
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/runtime-layout-expressions.hc)
+ (action
+  (run
+   %{exe:../test_runtime_layout_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/runtime-layout-expressions.hc}
+   --native)))
+
+(library
+ (name runtime_layout_fixture)
+ (wrapped false)
+ (modules runtime_layout_cases))
+
+(executable
+ (name test_native_runtime_layout)
+ (modules test_native_runtime_layout)
+ (libraries holyc_lib runtime_layout_fixture alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_runtime_layout.exe})))
+
 (library
  (name internal_binding_fixture)
  (wrapped false)

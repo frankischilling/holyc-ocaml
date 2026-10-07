@@ -433,6 +433,8 @@ type dimension_attempt = {
   mutable dimension_state : initializer_attempt_state;
   mutable dimension_bits : int64 option;
   mutable dimension_work : int option;
+  mutable dimension_native_program : Dimension_fragment_program.t option;
+  mutable dimension_native_work : int option;
 }
 
 type internal_binding_attempt = {
@@ -454,6 +456,8 @@ type offset_attempt = {
   offset_preparation_before : int;
   mutable offset_state : initializer_attempt_state;
   mutable offset_result : Sema.Compiler_record.aggregate_offset option;
+  mutable offset_native_program : Offset_fragment_program.t option;
+  mutable offset_native_work : int option;
 }
 
 type task_input = {
@@ -915,7 +919,7 @@ let bind_source_activation task ~namespace activation =
     Ok ())
 
 let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
-    task ~namespace ~activation ~dimensions =
+    ?pending_runtime_offset task ~namespace ~activation ~dimensions =
   let originals = Sema.Source_activation.dimension_preparations activation in
   let pending_valid, closed_originals =
     match pending_runtime_dimension with
@@ -935,14 +939,27 @@ let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
         | last :: rest when valid && last == pending -> (true, List.rev rest)
         | _ -> (false, originals))
   in
+  let pending_offset_valid, closed_offsets =
+    let phases = Sema.Source_activation.aggregate_offset_phases activation in
+    match pending_runtime_offset with
+    | None -> (true, phases)
+    | Some pending -> (
+        let valid =
+          Option.is_none pending_runtime_dimension
+          && Frontend.Parser.aggregate_phase_is_current pending
+          && Option.fold ~none:false ~some:(( == ) pending)
+               (Sema.Source_activation.trailing_aggregate_offset activation)
+        in
+        match List.rev phases with
+        | last :: rest when valid && last == pending -> (true, List.rev rest)
+        | _ -> (false, phases))
+  in
   if
     Option.is_some task.source_activation
     || (not (Sema.Source_activation.available activation))
     || (not (Sema.Source_activation.owns_namespace activation namespace))
-    || (not pending_valid)
-    || (let phases =
-          Sema.Source_activation.aggregate_offset_phases activation
-        in
+    || (not pending_valid) || (not pending_offset_valid)
+    || (let phases = closed_offsets in
         List.length phases <> List.length offsets
         || not
              (List.for_all2
@@ -1150,6 +1167,57 @@ let exact_native_function_source task link =
       if Retained_function.same candidate link then Some source else None)
     task.native_function_sources
 
+let validate_dimension_dependencies task dependencies =
+  let module Record = Sema.Compiler_record in
+  if
+    List.for_all
+      (fun dependency ->
+        Option.fold ~none:false
+          ~some:(fun task ->
+            Integer_globals.task_catalog_owns_namespace task.catalog
+              (Record.runtime_dimension_namespace dependency)
+            && List.exists
+                 (fun attempt ->
+                   attempt.dimension_catalog == task.catalog
+                   && attempt.dimension_receipt
+                      == Record.runtime_dimension_source dependency
+                   && attempt.dimension_state = Successful_initializer
+                   && attempt.dimension_bits
+                      = Some (Record.runtime_dimension_count dependency)
+                   && attempt.dimension_work
+                      = Some (Record.runtime_dimension_work dependency))
+                 task.dimensions)
+          task)
+      dependencies
+  then Ok ()
+  else
+    Error
+      "runtime array extent requires its owning task's successful original \
+       evaluation"
+
+let validate_offset_dependencies task dependencies =
+  if
+    List.for_all
+      (fun dependency ->
+        Option.fold ~none:false
+          ~some:(fun task ->
+            Integer_globals.task_catalog_owns_namespace task.catalog
+              (Sema.Compiler_record.aggregate_offset_namespace dependency)
+            && List.exists
+                 (fun attempt ->
+                   attempt.offset_catalog == task.catalog
+                   && attempt.offset_state = Successful_initializer
+                   && Option.fold ~none:false ~some:(( == ) dependency)
+                        attempt.offset_result)
+                 task.runtime_offsets)
+          task)
+      dependencies
+  then Ok ()
+  else
+    Error
+      "runtime aggregate layout requires its owning task's successful original \
+       evaluation"
+
 let native_function_sources_for_program task source =
   let module Functions = Sema.Function_resolution in
   let ( let* ) = Result.bind in
@@ -1225,6 +1293,16 @@ let native_function_sources_for_program task source =
     List.fold_left
       (fun checked (definition : function_definition) ->
         let* () = checked in
+        let* () =
+          validate_dimension_dependencies (Some task)
+            (Dimension_requirements.frame definition.frame
+            @ Function.dimension_dependencies definition.body)
+        in
+        let* () =
+          validate_offset_dependencies (Some task)
+            (Offset_requirements.frame definition.frame
+            @ Function.offset_dependencies definition.body)
+        in
         match Function.definition_declaration definition.body with
         | None ->
             Error "native task function source body has no bound definition"
@@ -2042,57 +2120,6 @@ let admit_function_header task ~namespace ~source ~records =
         (Integer_globals.publish_function_header task.catalog ~namespace ~source
            ~records))
 
-let validate_dimension_dependencies task dependencies =
-  let module Record = Sema.Compiler_record in
-  if
-    List.for_all
-      (fun dependency ->
-        Option.fold ~none:false
-          ~some:(fun task ->
-            Integer_globals.task_catalog_owns_namespace task.catalog
-              (Record.runtime_dimension_namespace dependency)
-            && List.exists
-                 (fun attempt ->
-                   attempt.dimension_catalog == task.catalog
-                   && attempt.dimension_receipt
-                      == Record.runtime_dimension_source dependency
-                   && attempt.dimension_state = Successful_initializer
-                   && attempt.dimension_bits
-                      = Some (Record.runtime_dimension_count dependency)
-                   && attempt.dimension_work
-                      = Some (Record.runtime_dimension_work dependency))
-                 task.dimensions)
-          task)
-      dependencies
-  then Ok ()
-  else
-    Error
-      "runtime array extent requires its owning task's successful original \
-       evaluation"
-
-let validate_offset_dependencies task dependencies =
-  if
-    List.for_all
-      (fun dependency ->
-        Option.fold ~none:false
-          ~some:(fun task ->
-            Integer_globals.task_catalog_owns_namespace task.catalog
-              (Sema.Compiler_record.aggregate_offset_namespace dependency)
-            && List.exists
-                 (fun attempt ->
-                   attempt.offset_catalog == task.catalog
-                   && attempt.offset_state = Successful_initializer
-                   && Option.fold ~none:false ~some:(( == ) dependency)
-                        attempt.offset_result)
-                 task.runtime_offsets)
-          task)
-      dependencies
-  then Ok ()
-  else
-    Error
-      "runtime aggregate layout requires its owning task's successful original \
-       evaluation"
-
 let admit_declared_global task declaration =
   let ( let* ) = Result.bind in
   let* () =
@@ -2758,6 +2785,8 @@ let begin_task_offset task authority =
         offset_preparation_before = task.initializer_steps;
         offset_state = Preparing_initializer;
         offset_result = None;
+        offset_native_program = None;
+        offset_native_work = None;
       }
     in
     task.runtime_offsets <- attempt :: task.runtime_offsets;
@@ -2813,6 +2842,8 @@ let begin_task_dimension task authority =
         dimension_state = Preparing_initializer;
         dimension_bits = None;
         dimension_work = None;
+        dimension_native_program = None;
+        dimension_native_work = None;
       }
     in
     task.dimensions <- attempt :: task.dimensions;
@@ -2946,6 +2977,206 @@ let complete_native_task_internal_binding task attempt program capture =
   in
   attempt.internal_binding_prepared <- Some prepared;
   attempt.internal_binding_state <- Successful_initializer;
+  Ok ()
+
+let check_native_task_dimension task attempt program =
+  let module Program = Dimension_fragment_program in
+  let module Destination = Dimension_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.dimension_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.dimensions))
+    || attempt.dimension_state <> Preparing_initializer
+    || (not
+          (Frontend.Parser.dimension_preparation_is_current
+             attempt.dimension_receipt))
+    || Program.source_authority program != attempt.dimension_authority
+    || Sema.Dimension_fragment.receipt fragment != attempt.dimension_receipt
+    || Sema.Dimension_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_dimension_fragment
+             (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.initializer_steps <> attempt.dimension_preparation_before
+  then
+    Error
+      "native dimension requires its original live task, attempt and expression"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_dimension task attempt program =
+  Result.map
+    (fun () ->
+      attempt.dimension_state <- Executing_initializer;
+      attempt.dimension_native_program <- Some program;
+      retain_native_provider_sources task
+        (Dimension_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Dimension_fragment_program.entry program)))
+    (check_native_task_dimension task attempt program)
+
+let record_native_dimension_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.dimension_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.dimensions))
+    || attempt.dimension_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.dimension_native_work
+    || Option.is_none attempt.dimension_native_program
+    || steps > task.max_initializer_steps - task.initializer_steps
+  then
+    Error
+      "native dimension work has another task, attempt or exhausted allowance"
+  else (
+    task.initializer_steps <- task.initializer_steps + steps;
+    attempt.dimension_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_dimension task attempt program capture =
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      (not task.native_storage_authority)
+      || attempt.dimension_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.dimensions))
+      || attempt.dimension_state <> Executing_initializer
+      || Option.is_none attempt.dimension_native_work
+      || (not
+            (Option.fold ~none:false ~some:(( == ) program)
+               attempt.dimension_native_program))
+      || not
+           (Frontend.Parser.dimension_preparation_is_current
+              attempt.dimension_receipt)
+    then
+      Error
+        "native dimension completion has another task or expired original \
+         expression"
+    else Ok ()
+  in
+  let* bits =
+    Native_scalar_capture.consume capture ~program
+      ~work:(Option.get attempt.dimension_native_work)
+  in
+  attempt.dimension_bits <- Some bits;
+  attempt.dimension_work <-
+    Some (task.initializer_steps - attempt.dimension_preparation_before);
+  attempt.dimension_state <- Successful_initializer;
+  Ok ()
+
+let check_native_task_offset task attempt program =
+  let module Program = Offset_fragment_program in
+  let module Destination = Offset_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.offset_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.runtime_offsets))
+    || attempt.offset_state <> Preparing_initializer
+    || (not (Frontend.Parser.aggregate_phase_is_current attempt.offset_receipt))
+    || (not
+          (Sema.Source_activation.offset_admission task.source_activation
+             attempt.offset_receipt))
+    || (not
+          (Sema.Compiler_record.runtime_aggregate_offset_is_current
+             (Sema.Offset_fragment.preparation attempt.offset_authority)))
+    || Program.source_authority program != attempt.offset_authority
+    || Sema.Offset_fragment.receipt fragment != attempt.offset_receipt
+    || Sema.Offset_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_offset_fragment (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.initializer_steps <> attempt.offset_preparation_before
+  then
+    Error
+      "native offset requires its original live task, attempt and expression"
+  else
+    let ( let* ) = Result.bind in
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Sema.Compiler_record.runtime_aggregate_offset_dimension_dependencies
+           (Sema.Offset_fragment.preparation attempt.offset_authority)
+        @ Dimension_requirements.top_level (Destination.typed destination))
+    in
+    validate_offset_dependencies (Some task)
+      (Sema.Compiler_record.runtime_aggregate_offset_dependencies
+         (Sema.Offset_fragment.preparation attempt.offset_authority)
+      @ Offset_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_offset task attempt program =
+  Result.map
+    (fun () ->
+      attempt.offset_state <- Executing_initializer;
+      attempt.offset_native_program <- Some program;
+      retain_native_provider_sources task
+        (Offset_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Offset_fragment_program.entry program)))
+    (check_native_task_offset task attempt program)
+
+let record_native_offset_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.offset_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.runtime_offsets))
+    || attempt.offset_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.offset_native_work
+    || Option.is_none attempt.offset_native_program
+    || steps > task.max_initializer_steps - task.initializer_steps
+  then
+    Error "native offset work has another task, attempt or exhausted allowance"
+  else (
+    task.initializer_steps <- task.initializer_steps + steps;
+    attempt.offset_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_offset task attempt program capture =
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      (not task.native_storage_authority)
+      || attempt.offset_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.runtime_offsets))
+      || attempt.offset_state <> Executing_initializer
+      || Option.is_none attempt.offset_native_work
+      || (not
+            (Option.fold ~none:false ~some:(( == ) program)
+               attempt.offset_native_program))
+      || not (Frontend.Parser.aggregate_phase_is_current attempt.offset_receipt)
+    then
+      Error
+        "native offset completion has another task or expired original \
+         expression"
+    else Ok ()
+  in
+  let* bits =
+    Native_scalar_capture.consume capture ~program
+      ~work:(Option.get attempt.offset_native_work)
+  in
+  let* offset =
+    Sema.Compiler_record.finish_runtime_aggregate_offset
+      (Sema.Offset_fragment.preparation attempt.offset_authority)
+      ~value:bits
+      ~work:(task.initializer_steps - attempt.offset_preparation_before)
+  in
+  attempt.offset_result <- Some offset;
+  attempt.offset_state <- Successful_initializer;
+  task.charged_offsets <- offset :: task.charged_offsets;
   Ok ()
 
 let begin_task_internal_binding task authority =

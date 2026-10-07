@@ -433,6 +433,8 @@
   test_retained_internal
   internal_binding_cases
   test_live_internal_bindings
+  runtime_layout_cases
+  test_runtime_layout_expressions
   test_internal_strlen_authority
   test_internal_strlen_source
   test_integer_program
@@ -5080,3 +5082,14 @@
    %{test}
    %{exe:../bin/holyc.exe}
    %{dep:../examples/native-internal-bindings.hc})))
+
+(test
+ (name test_runtime_layout_cli)
+ (modules test_runtime_layout_cli)
+ (libraries unix yojson)
+ (deps ../examples/runtime-layout-expressions.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/runtime-layout-expressions.hc})))

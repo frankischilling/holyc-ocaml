@@ -6,6 +6,11 @@ parser read, including in a later `#exe` block or a retained function body.
 Replacing the type does not change a size already consumed by an expression.
 This supports metadata queries, not aggregate object execution.
 
+[Runtime member bounds and offsets](runtime-layout-expressions.md) now use their
+original integer JIT expressions in both IR and native tasks. Each intermediate
+size, completed layout and derived bound retains its owning task's successful
+execution dependencies.
+
 `examples/stateful-exe-aggregates.hc` defines a sixteen-byte class and uses its
 size as a member array bound. A retained function returns that array's size.
 A second stream replaces the first class with a one-byte definition; the saved

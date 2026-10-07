@@ -7,6 +7,7 @@ type t = {
   runtime_calls_ : Runtime_call_context.t;
 }
 
+let source_authority (value : t) = value.authority_
 let destination value = value.destination_
 let lowered value = value.lowered_
 let entry value = value.entry_
