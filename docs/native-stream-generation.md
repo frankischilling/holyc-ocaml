@@ -70,6 +70,17 @@ compact while its buffers are live, and check its resumed suffix. They also
 exercise repeated callbacks, captured provider calls, rejection and exception
 cleanup with zero interpreted instructions.
 
+Custom finalizers can run while OCaml 5.3 holds its global-root lock during
+promotion. Removing capture roots there deadlocked the native AOT session tests
+after the new buffers increased collection pressure. Finalizers now detach
+generation and internal-binding captures, callback bridges, retained images and
+arenas into a lock-free C queue. Their roots and mappings stay owned until the
+next native mutator entry drains that batch. Explicit release retains its entry
+and borrower guards. A closed callback bridge releases its roots after checked
+capture; callback exceptions are decoded before becoming OCaml roots. Tests
+collect discarded callback closures after normal, rejected and exceptional
+returns, with deferred cleanup from another domain.
+
 The private generation context does not implement the exported HolyC ABI,
 TempleOS task scheduling or arbitrary compile-time execution. Module functions
 outside an executing `#exe` task keep their existing visibility boundary. Native

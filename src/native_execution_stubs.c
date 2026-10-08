@@ -37,9 +37,49 @@
 #define HOLYC_NATIVE_PLATFORM 0
 #endif
 
+/* A custom finalizer can run while OCaml promotes a global root and holds its
+   root-table lock. Root-owning finalizers must not remove roots there. They
+   detach C owners with lock-free operations and retain the roots and mappings
+   until a mutator entry drains this queue. Each batch has one cleanup owner. */
+struct native_deferred_cleanup {
+  struct native_deferred_cleanup *next;
+  void (*dispose)(struct native_deferred_cleanup *);
+};
+
+#if HOLYC_NATIVE_PLATFORM != 0
+_Static_assert(ATOMIC_POINTER_LOCK_FREE == 2 && ATOMIC_INT_LOCK_FREE == 2,
+               "native finalizer cleanup requires lock-free atomics");
+#endif
+
+static _Atomic(struct native_deferred_cleanup *) native_deferred_pending;
+
+static void native_defer_cleanup(struct native_deferred_cleanup *owner,
+                                  void (*dispose)(struct native_deferred_cleanup *))
+{
+  struct native_deferred_cleanup *previous =
+    atomic_load_explicit(&native_deferred_pending, memory_order_relaxed);
+  owner->dispose = dispose;
+  do {
+    owner->next = previous;
+  } while (!atomic_compare_exchange_weak_explicit(&native_deferred_pending,
+             &previous, owner, memory_order_release, memory_order_relaxed));
+}
+
+static void native_collect_deferred(void)
+{
+  struct native_deferred_cleanup *owner =
+    atomic_exchange_explicit(&native_deferred_pending, NULL, memory_order_acquire);
+  while (owner != NULL) {
+    struct native_deferred_cleanup *next = owner->next;
+    owner->dispose(owner);
+    owner = next;
+  }
+}
+
 CAMLprim value holyc_native_platform(value unit)
 {
   CAMLparam1(unit);
+  native_collect_deferred();
   CAMLreturn(Val_int(HOLYC_NATIVE_PLATFORM));
 }
 
@@ -694,6 +734,7 @@ static uint64_t native_execute_checked_program_storage_image(
 /* Retained mappings are opaque host resources. Their original sealed OCaml
    image stays rooted; no address, arena pointer or foreign mapping is exported. */
 struct native_retained_program {
+  struct native_deferred_cleanup cleanup;
   value identity;
   void *mapping;
   size_t mapping_length;
@@ -720,6 +761,7 @@ struct native_task_code_owner {
 };
 
 struct native_task_arena {
+  struct native_deferred_cleanup cleanup;
   void *mapping;
   size_t capacity;
   size_t used;
@@ -767,6 +809,12 @@ static int native_task_arena_close(struct native_task_arena *arena)
   return 1;
 }
 
+static void native_task_arena_dispose(struct native_deferred_cleanup *cleanup)
+{
+  struct native_task_arena *arena = (struct native_task_arena *)cleanup;
+  if (native_task_arena_close(arena)) free(arena);
+}
+
 static void native_task_arena_finalize(value handle)
 {
   struct native_task_arena *arena =
@@ -774,8 +822,8 @@ static void native_task_arena_finalize(value handle)
   int expected = 0;
   if (arena == NULL) return;
   if (!atomic_compare_exchange_strong(&arena->active, &expected, 1)) return;
-  if (native_task_arena_close(arena)) free(arena);
   *((struct native_task_arena **)Data_custom_val(handle)) = NULL;
+  native_defer_cleanup(&arena->cleanup, native_task_arena_dispose);
 }
 
 static struct custom_operations native_task_arena_operations = {
@@ -952,6 +1000,15 @@ static int native_retained_close(struct native_retained_program *program)
   return 1;
 }
 
+static void native_retained_dispose(struct native_deferred_cleanup *cleanup)
+{
+  struct native_retained_program *program =
+    (struct native_retained_program *)cleanup;
+  caml_remove_generational_global_root(&program->identity);
+  if (native_retained_close(program)) free(program);
+  /* Failed OS release retains its allocation and registered unwind table. */
+}
+
 static void native_retained_finalize(value handle)
 {
   struct native_retained_program *program =
@@ -959,11 +1016,8 @@ static void native_retained_finalize(value handle)
   int expected = 0;
   if (program == NULL) return;
   if (!atomic_compare_exchange_strong(&program->active, &expected, 1)) return;
-  caml_remove_generational_global_root(&program->identity);
-  if (native_retained_close(program)) free(program);
-  /* A failed OS release retains its allocation and registered unwind table.
-     Finalizers cannot raise or let Windows retain a dangling table reference. */
   *((struct native_retained_program **)Data_custom_val(handle)) = NULL;
+  native_defer_cleanup(&program->cleanup, native_retained_dispose);
 }
 
 static struct custom_operations native_retained_operations = {
@@ -1248,6 +1302,7 @@ static value native_box_word(uint64_t word)
 CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
 {
   CAMLparam3(code, unwind, abi);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -1275,6 +1330,7 @@ CAMLprim value holyc_native_execute_program(value code, value unwind, value abi,
                                            value max_steps)
 {
   CAMLparam4(code, unwind, abi, max_steps);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -1318,6 +1374,7 @@ CAMLprim value holyc_native_execute_program_functions(value code, value function
                                                      value abi, value limits)
 {
   CAMLparam4(code, functions, abi, limits);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -1399,6 +1456,7 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
                                                    value storage)
 {
   CAMLparam5(code, functions, abi, limits, storage);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -1518,20 +1576,28 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
 /* Only the actual native entry can construct a generation capture. Its
    original target, captured bytes and arena stay rooted across collection. */
 struct native_generation_capture {
+  struct native_deferred_cleanup cleanup;
   value target, bytes, arena;
   _Atomic int consumed;
 };
+
+static void native_generation_capture_dispose(struct native_deferred_cleanup *cleanup)
+{
+  struct native_generation_capture *capture =
+    (struct native_generation_capture *)cleanup;
+  caml_remove_generational_global_root(&capture->target);
+  caml_remove_generational_global_root(&capture->bytes);
+  caml_remove_generational_global_root(&capture->arena);
+  free(capture);
+}
 
 static void native_generation_capture_finalize(value handle)
 {
   struct native_generation_capture *capture =
     *((struct native_generation_capture **)Data_custom_val(handle));
   if (capture == NULL) return;
-  caml_remove_generational_global_root(&capture->target);
-  caml_remove_generational_global_root(&capture->bytes);
-  caml_remove_generational_global_root(&capture->arena);
-  free(capture);
   *((struct native_generation_capture **)Data_custom_val(handle)) = NULL;
+  native_defer_cleanup(&capture->cleanup, native_generation_capture_dispose);
 }
 
 static struct custom_operations native_generation_capture_operations = {
@@ -1614,6 +1680,7 @@ struct native_source_frame {
 };
 
 struct native_source_bridge {
+  struct native_deferred_cleanup cleanup;
   value callback, exception_seen, exception_value;
   value generation, arena, program, budget, handle;
   struct native_source_frame *frame;
@@ -1660,11 +1727,10 @@ static struct native_source_scope *native_source_scope_get(value handle)
   return scope;
 }
 
-static void native_source_bridge_finalize(value handle)
+static void native_source_bridge_dispose(struct native_deferred_cleanup *cleanup)
 {
   struct native_source_bridge *bridge =
-    *((struct native_source_bridge **)Data_custom_val(handle));
-  if (bridge == NULL) return;
+    (struct native_source_bridge *)cleanup;
   caml_remove_generational_global_root(&bridge->callback);
   caml_remove_generational_global_root(&bridge->exception_seen);
   caml_remove_generational_global_root(&bridge->exception_value);
@@ -1673,7 +1739,27 @@ static void native_source_bridge_finalize(value handle)
   caml_remove_generational_global_root(&bridge->program);
   caml_remove_generational_global_root(&bridge->budget);
   free(bridge);
+}
+
+static void native_source_bridge_finalize(value handle)
+{
+  struct native_source_bridge *bridge =
+    *((struct native_source_bridge **)Data_custom_val(handle));
+  if (bridge == NULL) return;
   *((struct native_source_bridge **)Data_custom_val(handle)) = NULL;
+  native_defer_cleanup(&bridge->cleanup, native_source_bridge_dispose);
+}
+
+static void native_source_bridge_close(value handle)
+{
+  CAMLparam1(handle);
+  struct native_source_bridge *bridge =
+    *((struct native_source_bridge **)Data_custom_val(handle));
+  if (bridge != NULL) {
+    *((struct native_source_bridge **)Data_custom_val(handle)) = NULL;
+    native_source_bridge_dispose(&bridge->cleanup);
+  }
+  CAMLreturn0;
 }
 
 static struct custom_operations native_source_bridge_operations = {
@@ -1748,7 +1834,10 @@ static uint64_t native_source_callback(uint64_t *context)
      unwind through the suspended generated machine frames. */
   result = caml_callback_exn(bridge->callback, bridge->handle);
   if (Is_exception_result(result)) {
-    caml_modify(&Field(bridge->exception_value, 0), Extract_exception(result));
+    /* The encoded exception result is not an OCaml root. Decode it before
+       any root-table operation can wait for another domain's collection. */
+    result = Extract_exception(result);
+    caml_modify(&Field(bridge->exception_value, 0), result);
     caml_modify(&Field(bridge->exception_seen, 0), Val_true);
     context[0] = 29;
   } else if (frame.scope == NULL || !Is_block(result) || Tag_val(result) != 0 ||
@@ -1770,6 +1859,7 @@ static uint64_t native_source_callback(uint64_t *context)
 CAMLprim value holyc_native_source_suspension_open(value owner)
 {
   CAMLparam1(owner);
+  native_collect_deferred();
   CAMLlocal3(handle, source, result);
   struct native_source_bridge *bridge;
   struct native_source_scope *scope;
@@ -1802,6 +1892,7 @@ CAMLprim value holyc_native_source_suspension_open(value owner)
 CAMLprim value holyc_native_source_suspension_check(value handle)
 {
   CAMLparam1(handle);
+  native_collect_deferred();
   (void)native_source_scope_get(handle);
   CAMLreturn(Val_unit);
 }
@@ -1809,6 +1900,7 @@ CAMLprim value holyc_native_source_suspension_check(value handle)
 CAMLprim value holyc_native_source_suspension_limits(value handle)
 {
   CAMLparam1(handle);
+  native_collect_deferred();
   CAMLlocal1(result);
   uint64_t *context = native_source_scope_get(handle)->frame->context;
   result = caml_alloc_tuple(4);
@@ -1822,12 +1914,14 @@ CAMLprim value holyc_native_source_suspension_limits(value handle)
 CAMLprim value holyc_native_source_suspension_owns_generation(value handle, value target)
 {
   CAMLparam2(handle, target);
+  native_collect_deferred();
   CAMLreturn(Val_bool(native_source_scope_get(handle)->frame->bridge->generation == target));
 }
 
 CAMLprim value holyc_native_source_suspension_owns_budget(value handle, value budget)
 {
   CAMLparam2(handle, budget);
+  native_collect_deferred();
   CAMLreturn(Val_bool(native_source_scope_get(handle)->frame->bridge->budget == budget));
 }
 
@@ -1854,6 +1948,7 @@ static void native_source_leave(uint64_t *context)
 CAMLprim value holyc_native_consume_generation_capture(value handle, value target)
 {
   CAMLparam2(handle, target);
+  native_collect_deferred();
   CAMLlocal1(bytes);
   struct native_generation_capture *capture;
   struct native_task_arena *arena;
@@ -1894,6 +1989,7 @@ static value native_execute_program_output(value code, value functions,
   CAMLxparam5(retained, consumed, entered, task_arena,
               required_arena_bytes);
   CAMLxparam1(generation);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2230,6 +2326,7 @@ static value native_execute_program_output(value code, value functions,
   Store_field(result, 0, status);
   Store_field(result, 1, captured);
   Store_field(result, 2, Val_long((intnat)work));
+  if (bridge_owner != Val_unit) native_source_bridge_close(bridge_owner);
   native_output_buffers_finalize(buffer_owner);
   CAMLreturn(result);
 #endif
@@ -2337,6 +2434,7 @@ static size_t native_validate_task_bindings(value identity, size_t prefix)
 static value native_retain_program_identity(value identity, int task_fragment)
 {
   CAMLparam1(identity);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2438,6 +2536,7 @@ CAMLprim value holyc_native_retain_task_fragment(value identity)
 CAMLprim value holyc_native_create_task_arena(value capacity)
 {
   CAMLparam1(capacity);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2518,6 +2617,7 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
                                              value required_extent, value literal_chunks)
 {
   CAMLparam4(handle, expected_used, required_extent, literal_chunks);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2603,6 +2703,7 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
 CAMLprim value holyc_native_read_task_default_string(value handle, value request)
 {
   CAMLparam2(handle, request);
+  native_collect_deferred();
   CAMLlocal2(result, bytes);
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -2691,6 +2792,7 @@ CAMLprim value holyc_native_read_task_default_string(value handle, value request
 CAMLprim value holyc_native_bind_task_default_string(value handle, value request)
 {
   CAMLparam2(handle, request);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2728,6 +2830,7 @@ CAMLprim value holyc_native_bind_task_default_string(value handle, value request
 CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
 {
   CAMLparam2(handle, descriptor);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2787,6 +2890,7 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
 CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
 {
   CAMLparam2(retained, descriptor);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2922,6 +3026,7 @@ CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
 CAMLprim value holyc_native_release_task_arena(value handle)
 {
   CAMLparam1(handle);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2942,6 +3047,7 @@ CAMLprim value holyc_native_release_task_arena(value handle)
 CAMLprim value holyc_native_release_program(value handle)
 {
   CAMLparam1(handle);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2962,6 +3068,7 @@ CAMLprim value holyc_native_release_program(value handle)
 CAMLprim value holyc_native_execute_retained_program(value handle, value limits)
 {
   CAMLparam2(handle, limits);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -2981,6 +3088,7 @@ CAMLprim value holyc_native_execute_retained_budget_program(value handle,
                                                            value entered)
 {
   CAMLparam4(handle, limits, consumed, entered);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -3000,6 +3108,7 @@ CAMLprim value holyc_native_execute_retained_budget_task_program(
   value handle, value task, value limits, value consumed, value entered)
 {
   CAMLparam5(handle, task, limits, consumed, entered);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
@@ -3019,21 +3128,29 @@ CAMLprim value holyc_native_execute_retained_budget_task_program(
 }
 
 struct native_internal_binding_capture {
+  struct native_deferred_cleanup cleanup;
   value program, arena;
   uint64_t bits;
   intnat work;
   _Atomic int consumed;
 };
 
+static void native_internal_binding_capture_dispose(struct native_deferred_cleanup *cleanup)
+{
+  struct native_internal_binding_capture *capture =
+    (struct native_internal_binding_capture *)cleanup;
+  caml_remove_generational_global_root(&capture->program);
+  caml_remove_generational_global_root(&capture->arena);
+  free(capture);
+}
+
 static void native_internal_binding_capture_finalize(value handle)
 {
   struct native_internal_binding_capture *capture =
     *((struct native_internal_binding_capture **)Data_custom_val(handle));
   if (capture == NULL) return;
-  caml_remove_generational_global_root(&capture->program);
-  caml_remove_generational_global_root(&capture->arena);
-  free(capture);
   *((struct native_internal_binding_capture **)Data_custom_val(handle)) = NULL;
+  native_defer_cleanup(&capture->cleanup, native_internal_binding_capture_dispose);
 }
 
 static struct custom_operations native_internal_binding_capture_operations = {
@@ -3054,6 +3171,7 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
   value handle, value task, value limits, value consumed, value binding)
 {
   CAMLparam5(handle, task, limits, consumed, binding);
+  native_collect_deferred();
   CAMLlocal5(report, result, status, capture_handle, saved);
   struct native_internal_binding_capture *capture;
   int64_t steps;
@@ -3094,6 +3212,7 @@ CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
                                                            value request)
 {
   CAMLparam2(handle, request);
+  native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else

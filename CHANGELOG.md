@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed native resource collection deadlocks exposed by the stable output
+  buffers on OCaml 5.3. Custom finalizers detach owners into a lock-free queue;
+  native mutator entries remove their roots and release mappings afterward.
+  Closed source callbacks release their roots after checked capture. Tests also
+  verify that discarded callbacks become collectible after normal, rejected and
+  exceptional returns, including cleanup from another domain. CI streams native
+  test output as each case runs.
+
 - Added the native source callback boundary and C-owned output buffers. An
   active formatted-source site can suspend its physical caller, preserve live
   buffers across collection, and resume with the callback's integer result.

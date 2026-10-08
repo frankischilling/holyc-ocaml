@@ -319,6 +319,7 @@ let capture_authority () =
            error))
 
 let native_source_callback_scope ?(failure = `None)
+    ?(on_callback = fun () -> ())
     ?(fixture =
       {|#exe {I64 Emit(){Print("before;");StreamPrint("40;");Print("%d;%d;after;",StreamExePrint("payload%d",42),StreamExePrint("payload%d",42));StreamPrint("42;");return 42;}Emit;}42;|})
     () =
@@ -361,6 +362,7 @@ let native_source_callback_scope ?(failure = `None)
     in
     let retained = Runtime.retain_task_fragment arena image |> unwrap in
     let source_callback scope source =
+      on_callback ();
       incr calls;
       Alcotest.(check string) "actual formatted source" "payload42" source;
       Scope.check scope |> unwrap;
@@ -509,6 +511,43 @@ let native_source_callbacks () =
     [ `None; `Reject; `Raise ];
   ()
 
+let native_callback_resource_collection () =
+  let module Runtime = Native_program_execution in
+  let run failure fixture =
+    let cookie = ref 0 in
+    let weak = Weak.create 1 in
+    Weak.set weak 0 (Some cookie);
+    native_source_callback_scope ~failure ?fixture
+      ~on_callback:(fun () -> incr cookie)
+      ();
+    weak
+  in
+  let callbacks =
+    List.concat_map
+      (fun failure ->
+        [
+          run failure None;
+          run failure
+            (Some
+               {|#exe {I64 Emit(I64 (*p)(U8 *fmt,...)){Print("before;");StreamPrint("40;");Print("%d;%d;after;",p("payload%d",42),p("payload%d",42));StreamPrint("42;");return 42;}Emit(&StreamExePrint);}42;|});
+        ])
+      [ `None; `Reject; `Raise ]
+  in
+  (* Dead native captures can still root their original task and dispatch.
+     Collect them, drain their C resources on another mutator domain, and
+     collect the now-unrooted closures. The observer holds only weak cookies. *)
+  for _ = 1 to 4 do
+    Gc.full_major ();
+    Domain.join (Domain.spawn (fun () -> Runtime.platform ())) |> ignore
+  done;
+  Gc.compact ();
+  List.iteri
+    (fun index weak ->
+      Alcotest.(check bool)
+        (Printf.sprintf "discarded callback %d is collectible" index)
+        false (Weak.check weak 0))
+    callbacks
+
 let () =
   Alcotest.run "Native original stream generation"
     [
@@ -523,5 +562,7 @@ let () =
             capture_authority;
           Alcotest.test_case "native source callback scope and collection"
             `Quick native_source_callbacks;
+          Alcotest.test_case "discarded native callback closures collect" `Quick
+            native_callback_resource_collection;
         ] );
     ]
