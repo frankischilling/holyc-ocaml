@@ -59,6 +59,7 @@ type registry = {
   mutable count_environment : Visibility.Environment.t option;
   mutable count_sources : Common.Source_manager.t option;
   mutable count_frontier : Visibility.lexical_generation option;
+  mutable count_table : H.Table.t option;
   mutable implicit_finds : Parser.implicit_output_selection list;
 }
 
@@ -112,6 +113,22 @@ let owned_hash record =
 
 let use_count record = Option.map H.use_count (owned_hash record)
 
+(* This table contains only the original function allocations admitted by this
+   registry. It is not a reconstruction of Fs, cmp.asm_hash or an AOT chain. A
+   source receipt remains mandatory, and disagreement invalidates knowledge. *)
+let table_selects registry record name =
+  match (registry.count_table, record.native.hash_prefix) with
+  | Some table, Some prefix ->
+      H.Table.selects table ~expected:prefix ~name ~mask:0x40l
+  | _ -> false
+
+let count_selected registry record name =
+  match (registry.count_table, record.native.hash_prefix) with
+  | Some table, Some prefix ->
+      if not (H.Table.find table ~expected:prefix ~name ~mask:0x40l) then
+        invalidate_counts registry
+  | _ -> ()
+
 let record_for_entry registry entry =
   let rec original entries entry =
     List.exists (( == ) entry) entries
@@ -159,13 +176,7 @@ let observe_lexical_lookup registry context lookup =
     (match Frontend.Preprocessor.lexical_lookup_selection lookup with
     | Visibility.Present entry ->
         Option.iter
-          (fun record ->
-            Option.iter
-              (fun prefix ->
-                if not (H.matches_function prefix ~name:(Visibility.name entry))
-                then invalid_arg "owned hash prefix has another source function";
-                H.increment prefix)
-              record.native.hash_prefix)
+          (fun record -> count_selected registry record (Visibility.name entry))
           (record_for_entry registry entry)
     | Visibility.Absent | Visibility.Shadowed_by_local -> ());
     registry.count_frontier <- Some generation;
@@ -499,7 +510,8 @@ let capture_implicit_arguments record receipt =
         if owns_source then (
           if not (count_frontier_is_current registry) then
             invalidate_counts registry;
-          Option.iter H.increment record.native.hash_prefix;
+          count_selected registry record
+            (source captured).function_name.spelling;
           registry.count_frontier <-
             Some
               (Visibility.Environment.lexical_generation
@@ -541,6 +553,7 @@ let create_registry ~mode ~table ~namespace =
         count_environment = None;
         count_sources = None;
         count_frontier = None;
+        count_table = None;
         implicit_finds = [];
       }
 
@@ -624,6 +637,7 @@ let begin_header ?activation ?internal_target registry publication source =
                 | None, None ->
                     registry.count_environment <- Some environment;
                     registry.count_sources <- Some sources;
+                    registry.count_table <- Some (H.Table.create ~size:1024);
                     registry.count_frontier <-
                       Some
                         (Visibility.Environment.lexical_generation environment);
@@ -646,7 +660,8 @@ let begin_header ?activation ?internal_target registry publication source =
               else None
             in
             Option.iter
-              (fun record -> Option.iter H.increment record.native.hash_prefix)
+              (fun record ->
+                count_selected registry record source.function_name.spelling)
               joined;
             (match (previous, joined) with
             | Some prior, Some selected
@@ -674,7 +689,7 @@ let begin_header ?activation ?internal_target registry publication source =
                   if count_owner then (
                     Option.iter H.reset prior.native.hash_prefix;
                     prior.native.count_known <-
-                      Option.is_some prior.native.hash_prefix)
+                      table_selects registry prior source.function_name.spelling)
                   else prior.native.count_known <- false;
                   let old = prior.native.state in
                   let state =
@@ -733,6 +748,13 @@ let begin_header ?activation ?internal_target registry publication source =
                     None,
                     None )
             in
+            (match (registry.count_table, native.hash_prefix) with
+            | Some table, Some prefix
+              when not
+                     (Option.fold ~none:false
+                        ~some:(fun prior -> prior.native == native)
+                        previous) -> H.Table.add table prefix
+            | _ -> ());
             let record =
               {
                 registry;

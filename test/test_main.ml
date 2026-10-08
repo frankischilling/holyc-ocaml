@@ -43,6 +43,7 @@ let () =
       ("definition selection", Test_definition_selection.tests);
       ("lexical consumers", Test_lexical_consumers.tests);
       ("owned function counts", Test_owned_function_counts.tests);
+      ("native hash tables", Test_native_hash_tables.tests);
       ("conditional recovery", Test_conditional_recovery.tests);
       ("parser", Test_parser.tests);
       ("primitive type shadowing", Test_primitive_type_shadowing.tests);

@@ -374,6 +374,36 @@ let missing_shared_view_read () =
     "missing other-view lookup cannot produce an unused warning" 0
     (List.length (warnings output))
 
+let native_bucket_source_counts () =
+  let module H = Holyc_lib__Common.Native_hash_record in
+  Alcotest.(check int64)
+    "different source names collide in the native bucket" (H.hash_string "AC")
+    (H.hash_string "BA");
+  let _, _, records, output =
+    fixture
+      "extern I64 AC(); extern I64 BA(); AC; extern I64 AC(); extern I64 BA();"
+  in
+  Alcotest.(check (list string))
+    "only the unused colliding function warns" [ "Unused extern 'BA'" ]
+    (List.map (fun d -> d.Diagnostic.message) (warnings output));
+  let get name =
+    List.filter
+      (fun (source, _) -> source.Parser.function_name.spelling = name)
+      records
+  in
+  List.iter
+    (fun name ->
+      let selected = get name in
+      let first = N.snapshot (snd (List.hd selected)) in
+      List.iter
+        (fun (_, record) ->
+          check "joined source preserves native record identity" true
+            (N.same_identity first (N.snapshot record));
+          Alcotest.(check (option int64))
+            "original joined allocation reset" (Some 0L) (N.use_count record))
+        selected)
+    [ "AC"; "BA" ]
+
 let tests =
   [
     Alcotest.test_case "original unused threshold, early warning and reset"
@@ -396,4 +426,6 @@ let tests =
       `Quick untracked_predecessor;
     Alcotest.test_case "omitted lookup in copied original entry view" `Quick
       missing_shared_view_read;
+    Alcotest.test_case "native bucket collision preserves source counts" `Quick
+      native_bucket_source_counts;
   ]

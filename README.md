@@ -8,6 +8,9 @@ option mask. The [header example](examples/compiler-header-warnings.hc) and
 native tasks in both outer modes. Owned JIT function prefixes now count original
 source lookups and warn before resetting an unused joined extern, as shown by
 the [unused-extern example](examples/compiler-unused-extern.hc).
+Those admitted allocations now use native buckets and the pinned byte hash.
+Original source receipts still check each selected record; full task, assembler
+and AOT table setup remains required.
 [The warning notes](docs/compiler-warnings.md)
 describe counting, child contexts, retained diagnostics and the remaining
 warning phase boundaries.

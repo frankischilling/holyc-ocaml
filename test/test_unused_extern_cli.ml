@@ -121,6 +121,11 @@ let () =
                  extern I64 OwnedExternUnused();}42;",
                 [] );
               ("#exe {U0 OwnedExternUnused(); U0 OwnedExternUnused();}42;", []);
+              ( "#exe {extern I64 AC(); extern I64 BA();\n\
+                 #if defined(AC)\n\
+                 #endif\n\
+                 extern I64 AC(); extern I64 BA();}42;",
+                [ ("HCSEMA0075", "Unused extern 'BA'") ] );
             ];
           temporary ".hc"
             "#exe {extern I64 OwnedExternUnused(); extern I64 \

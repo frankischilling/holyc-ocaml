@@ -136,7 +136,12 @@ original focused declaration callback, including on a later parser failure.
 Owned JIT function records now allocate the 24-byte `CHash` prefix with the
 pinned name, function type and U32 `use_cnt` field. Original lexer selections,
 function joins and admitted implicit-output selections increment that shared
-field. Explicit function aliases follow their physical source ancestry; copied
+field through native bucket selection. Each registry owns a table containing
+only its admitted function allocations. Fresh publications insert at the head
+of their native bucket; extern reuse retains the allocation and insertion.
+The original source receipt supplies the expected physical record. A different
+native selection invalidates count knowledge and increments neither record.
+Explicit function aliases follow their physical source ancestry; copied
 names, origins and call shapes do not establish shared storage. Local member
 selections skip hash counting. A parameter name is read before `MemberAdd`, so
 that initial read can still select an existing function of the same name.
@@ -169,11 +174,20 @@ and selected nondefinition symbols suppress expansion. Predefined fallbacks and
 library definitions injected without a symbol entry remain separate metadata;
 the frontend selection does not establish native hash-record ownership.
 
-This allocation covers the function prefix and these admitted lookup producers.
-It is not a complete `CHashFun`, `CHashTable` or `CCmpCtrl`, and it does not
-implement native hash arithmetic or table-chain lookup. Full counts still need
-the remaining compiler, assembler and loader producers, native table ownership,
-and class/global/member records. Reached `try`, `catch` or `asm` input invalidates
+The native primitives also provide the original 32-byte `CHashTable` layout,
+byte hash, head insertion, low-U32 type masks, selected instances and successor
+search. The remaining instance spans table boundaries, and only the selected
+record receives a wrapping U32 increment. Native leases keep buckets, records
+and successors alive after their OCaml handles are collected. Duplicate record
+insertion and cyclic table chains reject before mutation. The arithmetic and
+selection are independently compared with the pinned x86-64 instructions,
+including collisions, masks, misses, chain priority and U32 wrapping.
+
+This registry table covers the function prefix and these admitted producers.
+It does not reconstruct `Fs->hash_table`, `cmp.asm_hash` or an AOT chain, and is
+not a complete `CHashFun`, `CCmpCtrl` or exported HolyC ABI. Full counts still
+need the remaining compiler, assembler and loader producers, original task and
+compiler table setup, and class/global/member records. Reached `try`, `catch` or `asm` input invalidates
 the current admitted totals because those additional consumers are unfinished.
 Ordinary AOT joins do not use this registry. The original sites are
 Kernel/KHashA.HC:31-70, Compiler/Lex.HC:492-513 and Compiler/PrsStmt.HC:62-112.
