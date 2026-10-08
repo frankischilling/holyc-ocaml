@@ -416,6 +416,21 @@ val initializer_delimiter_is_current : completed_initializer_delimiter -> bool
     predecessor chains retain ordering with leaves and other delimiters. *)
 
 type function_activity
+type join_lookup
+
+val join_lookup_environment : join_lookup -> Symbol_visibility.Environment.t
+val join_lookup_mode : join_lookup -> Preprocessor.compilation_mode
+val join_lookup_scope : join_lookup -> Symbol_visibility.table_scope
+val join_lookup_kind : join_lookup -> Symbol_visibility.kind
+val join_lookup_name : join_lookup -> Ast.identifier
+val join_lookup_selection : join_lookup -> Symbol_visibility.entry option
+
+val join_lookup_is_current : join_lookup -> bool
+(** Original kind-filtered declaration lookup before publication and parameter
+    or aggregate-body input. JIT selects the current writer's table; AOT also
+    searches visible baseline entries. This records selection before extern or
+    import filtering by a native record consumer. It is read-only and current
+    only in the original focused declaration callback. *)
 
 type function_publication = private {
   function_activity : function_activity;
@@ -424,6 +439,7 @@ type function_publication = private {
   function_environment : Symbol_visibility.Environment.t;
   function_entry : Symbol_visibility.entry;
   function_previous : Symbol_visibility.lookup;
+  function_join_lookup : join_lookup;
   function_name : Ast.identifier;
   function_pointer_layers : Ast.pointer_layer list;
   function_opening_parenthesis : Ast.location;
@@ -795,13 +811,16 @@ type aggregate_publication = private {
   aggregate_environment : Symbol_visibility.Environment.t;
   aggregate_entry : Symbol_visibility.entry;
   aggregate_previous : Symbol_visibility.entry option;
+  aggregate_join_lookup : join_lookup option;
   aggregate_name : Ast.identifier;
   aggregate_kind : Ast.aggregate_kind;
   aggregate_activity : aggregate_activity;
 }
 (** [aggregate_previous] is the class-filtered entry selected in the original
     parser environment immediately before [aggregate_entry] is published.
-    Same-name entries of other kinds do not mask it. *)
+    Same-name entries of other kinds do not mask it. [aggregate_join_lookup]
+    records the separate declaration lookup; extern forward declarations have
+    none because the original compiler publishes a fresh class directly. *)
 
 type aggregate_phase = private {
   phase_aggregate : aggregate_publication;
@@ -966,6 +985,7 @@ type stream_execution = {
 
 val parse :
   ?commands:command_sink ->
+  ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
   ?execute_stream:
     (Common.Span.t -> (stream_execution, Common.Diagnostic.t list) result) ->
   sources:Common.Source_manager.t ->
@@ -975,11 +995,17 @@ val parse :
   Common.Source_file.t ->
   output
 
+(** [lexical_lookup] observes original raw lexer reads throughout this input,
+    including directives consumed before a syntax token is returned. A [#exe]
+    body shares the stream and observer while selecting its own JIT writer.
+    Supplying an observer does not enable a declaration or execution sink. *)
+
 val has_errors : output -> bool
 
 val parse_suspended :
   suspension ->
   ?commands:command_sink ->
+  ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
   ?execute_stream:
     (Common.Span.t -> (stream_execution, Common.Diagnostic.t list) result) ->
   sources:Common.Source_manager.t ->
@@ -1004,6 +1030,7 @@ val parse_suspended_enclosing :
   suspension ->
   enclosing:command_context ->
   ?commands:command_sink ->
+  ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
   ?execute_stream:
     (Common.Span.t -> (stream_execution, Common.Diagnostic.t list) result) ->
   sources:Common.Source_manager.t ->

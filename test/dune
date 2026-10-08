@@ -509,6 +509,7 @@
   test_source
   test_lexer
   test_preprocessor
+  test_hash_lookup_observations
   test_parser
   test_conditional_expression
   test_assert_directive

@@ -520,6 +520,26 @@ let initializer_delimiter_is_current delimiter =
 
 type function_activity = { mutable function_active : bool }
 
+type join_lookup = {
+  join_environment : Symbol_visibility.Environment.t;
+  join_context : command_context;
+  join_scope : Symbol_visibility.table_scope;
+  join_kind : Symbol_visibility.kind;
+  join_name : Ast.identifier;
+  join_selection : Symbol_visibility.entry option;
+  mutable join_active : bool;
+}
+
+let join_lookup_environment lookup = lookup.join_environment
+let join_lookup_mode lookup = lookup.join_context.context_mode
+let join_lookup_scope lookup = lookup.join_scope
+let join_lookup_kind lookup = lookup.join_kind
+let join_lookup_name lookup = lookup.join_name
+let join_lookup_selection lookup = lookup.join_selection
+
+let join_lookup_is_current lookup =
+  lookup.join_active && context_has_focus lookup.join_context
+
 type function_publication = {
   function_activity : function_activity;
   function_header : declaration_header;
@@ -527,6 +547,7 @@ type function_publication = {
   function_environment : Symbol_visibility.Environment.t;
   function_entry : Symbol_visibility.entry;
   function_previous : Symbol_visibility.lookup;
+  function_join_lookup : join_lookup;
   function_name : Ast.identifier;
   function_pointer_layers : Ast.pointer_layer list;
   function_opening_parenthesis : Ast.location;
@@ -1037,6 +1058,7 @@ and aggregate_publication = {
   aggregate_environment : Symbol_visibility.Environment.t;
   aggregate_entry : Symbol_visibility.entry;
   aggregate_previous : Symbol_visibility.entry option;
+  aggregate_join_lookup : join_lookup option;
   aggregate_name : Ast.identifier;
   aggregate_kind : Ast.aggregate_kind;
   aggregate_activity : aggregate_activity;
@@ -2417,10 +2439,33 @@ let declaration_header ?type_selection cursor ~modifiers ~binding
     declaration_type_selection = type_selection;
   }
 
+let observe_join_lookup cursor ~kind name =
+  let context = (Option.get cursor.current_command).command_context in
+  let scope =
+    match context.context_mode with
+    | Preprocessor.Jit -> Symbol_visibility.Current_table
+    | Preprocessor.Aot -> Symbol_visibility.Visible_tables
+  in
+  {
+    join_environment = cursor.symbols;
+    join_context = context;
+    join_scope = scope;
+    join_kind = kind;
+    join_name = name;
+    join_selection =
+      Symbol_visibility.Environment.find_kind cursor.symbols ~scope ~kind
+        name.Ast.spelling;
+    join_active = true;
+  }
+
 let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind
     (name : Ast.identifier) =
   let aggregate_previous =
     Symbol_visibility.Environment.find_class cursor.symbols name.spelling
+  in
+  let aggregate_join_lookup =
+    if Option.is_some binding then None
+    else Some (observe_join_lookup cursor ~kind:Symbol_visibility.Class name)
   in
   let source =
     {
@@ -2430,6 +2475,7 @@ let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind
       aggregate_environment = cursor.symbols;
       aggregate_entry = publish_class cursor name;
       aggregate_previous;
+      aggregate_join_lookup;
       aggregate_name = name;
       aggregate_kind;
       aggregate_activity =
@@ -2437,7 +2483,11 @@ let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind
     }
   in
   Fun.protect
-    ~finally:(fun () -> source.aggregate_activity.aggregate_active <- false)
+    ~finally:(fun () ->
+      source.aggregate_activity.aggregate_active <- false;
+      Option.iter
+        (fun lookup -> lookup.join_active <- false)
+        aggregate_join_lookup)
     (fun () -> publish_declaration cursor at (Aggregate_declared source));
   source
 
@@ -2493,6 +2543,9 @@ let declare_function cursor header ~return_selection
     (prefix : parsed_declarator_prefix) opening =
   if not cursor.stop_on_error then None
   else
+    let function_join_lookup =
+      observe_join_lookup cursor ~kind:Symbol_visibility.Function prefix.name
+    in
     let function_previous =
       match
         Symbol_visibility.Environment.find_function cursor.symbols
@@ -2515,6 +2568,7 @@ let declare_function cursor header ~return_selection
         function_environment = cursor.symbols;
         function_entry;
         function_previous;
+        function_join_lookup;
         function_name = prefix.name;
         function_pointer_layers = prefix.pointer_layers;
         function_opening_parenthesis = token_location opening.token;
@@ -2522,7 +2576,8 @@ let declare_function cursor header ~return_selection
     in
     Fun.protect
       ~finally:(fun () ->
-        publication.function_activity.function_active <- false)
+        publication.function_activity.function_active <- false;
+        function_join_lookup.join_active <- false)
       (fun () ->
         publish_declaration cursor opening (Function_declared publication));
     Some publication
@@ -10660,8 +10715,8 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     local_publications = [];
   }
 
-let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
-    ~definitions ~symbols ~config source =
+let parse_with_stack ~command_stack ?commands ?lexical_lookup ?execute_stream
+    ~sources ~definitions ~symbols ~config source =
   let execute_stream =
     Option.map
       (fun enter stream opener ->
@@ -10737,8 +10792,8 @@ let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
       execute_stream
   in
   let stream =
-    Preprocessor.create ?execute_stream ~sources ~definitions ~symbols ~config
-      source
+    Preprocessor.create ?execute_stream ?lexical_lookup ~sources ~definitions
+      ~symbols ~config source
   in
   let cursor =
     make_cursor ~command_stack ~stream ~sources ~source ~symbols
@@ -10769,24 +10824,25 @@ let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
   let ast = if has_error diagnostics then None else ast in
   { ast; diagnostics }
 
-let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
-    source =
-  parse_with_stack ~command_stack:(ref []) ?commands ?execute_stream ~sources
-    ~definitions ~symbols ~config source
+let parse ?commands ?lexical_lookup ?execute_stream ~sources ~definitions
+    ~symbols ~config source =
+  parse_with_stack ~command_stack:(ref []) ?commands ?lexical_lookup
+    ?execute_stream ~sources ~definitions ~symbols ~config source
 
-let parse_suspended_input suspension ?commands ?execute_stream ~sources
-    ~definitions ~symbols ~config source =
+let parse_suspended_input suspension ?commands ?lexical_lookup ?execute_stream
+    ~sources ~definitions ~symbols ~config source =
   let context = suspension.suspended_context in
   suspension.suspension_consumed <- true;
   let output =
     parse_with_stack ~command_stack:context.context_stack ?commands
-      ?execute_stream ~sources ~definitions ~symbols ~config source
+      ?execute_stream ?lexical_lookup ~sources ~definitions ~symbols ~config
+      source
   in
   suspension.suspended_ast <- output.ast;
   Ok output
 
-let parse_suspended suspension ?commands ?execute_stream ~sources ~definitions
-    ~symbols ~config source =
+let parse_suspended suspension ?commands ?lexical_lookup ?execute_stream
+    ~sources ~definitions ~symbols ~config source =
   let context = suspension.suspended_context in
   if
     (not (suspension_is_current suspension))
@@ -10795,11 +10851,11 @@ let parse_suspended suspension ?commands ?execute_stream ~sources ~definitions
     || context.context_mode <> Preprocessor.Config.compilation_mode config
   then Error "nested source requires its original live parser suspension"
   else
-    parse_suspended_input suspension ?commands ?execute_stream ~sources
-      ~definitions ~symbols ~config source
+    parse_suspended_input suspension ?commands ?lexical_lookup ?execute_stream
+      ~sources ~definitions ~symbols ~config source
 
-let parse_suspended_enclosing suspension ~enclosing ?commands ?execute_stream
-    ~sources ~definitions ~symbols ~config source =
+let parse_suspended_enclosing suspension ~enclosing ?commands ?lexical_lookup
+    ?execute_stream ~sources ~definitions ~symbols ~config source =
   Result.bind (suspension_enclosing_context suspension) (fun original ->
       if
         original != enclosing
@@ -10813,8 +10869,8 @@ let parse_suspended_enclosing suspension ~enclosing ?commands ?execute_stream
         | Some locals ->
             Symbol_visibility.Environment.with_saved_locals symbols locals
               (fun () ->
-                parse_suspended_input suspension ?commands ?execute_stream
-                  ~sources ~definitions ~symbols ~config source)
+                parse_suspended_input suspension ?commands ?lexical_lookup
+                  ?execute_stream ~sources ~definitions ~symbols ~config source)
             |> Result.join)
 
 let suspension_owns_sequence suspension sequence =

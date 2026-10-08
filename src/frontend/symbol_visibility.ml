@@ -100,6 +100,7 @@ let kind_bit = function
   | Frame_pointer -> 0x10000
 
 type lookup = Absent | Present of entry | Shadowed_by_local
+type table_scope = Current_table | Visible_tables
 
 module String_set = Set.Make (String)
 
@@ -328,6 +329,16 @@ module Environment = struct
       (Hashtbl.find_opt environment.store.entries_by_name name)
       (List.find_opt (fun entry ->
            visible environment entry && entry.kind = Function))
+
+  let find_kind environment ~scope ~kind name =
+    Option.bind
+      (Hashtbl.find_opt environment.store.entries_by_name name)
+      (List.find_opt (fun entry ->
+           entry.kind = kind
+           &&
+           match scope with
+           | Current_table -> same_owner environment.owner entry.owner
+           | Visible_tables -> visible environment entry))
 
   let begin_local_context environment =
     if environment.next_local_context_id = max_int then

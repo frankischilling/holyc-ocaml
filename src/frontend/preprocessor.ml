@@ -125,7 +125,40 @@ type t = {
   mutable conditional_poisoned : bool;
   mutable pending_diagnostics : Common.Diagnostic.t list;
   mutable help_metadata : Help_metadata.t;
+  lexical_lookup : (lexical_lookup -> unit) option;
+  mutable current_lookup : lexical_lookup option;
+  mutable next_lookup_ordinal : int;
 }
+
+and lexical_lookup = {
+  lookup_stream : t;
+  lookup_domain : Domain.id;
+  lookup_environment : Symbol_visibility.Environment.t;
+  lookup_mode : compilation_mode;
+  lookup_token : Token.t;
+  lookup_selection : Symbol_visibility.lookup;
+  lookup_definition : Definition.t option;
+  lookup_predefined : Predefined.t option;
+  lookup_ordinal : int;
+}
+
+let lexical_lookup_environment lookup = lookup.lookup_environment
+let lexical_lookup_mode lookup = lookup.lookup_mode
+let lexical_lookup_token lookup = lookup.lookup_token
+let lexical_lookup_selection lookup = lookup.lookup_selection
+let lexical_lookup_definition lookup = lookup.lookup_definition
+let lexical_lookup_predefined lookup = lookup.lookup_predefined
+let lexical_lookup_ordinal lookup = lookup.lookup_ordinal
+
+let lexical_lookup_is_current lookup =
+  lookup.lookup_domain = Domain.self ()
+  && Option.fold ~none:false ~some:(( == ) lookup)
+       lookup.lookup_stream.current_lookup
+  && lookup.lookup_stream.symbols == lookup.lookup_environment
+  && lookup.lookup_stream.compilation_mode = lookup.lookup_mode
+
+let same_lexical_lookup_stream left right =
+  left.lookup_stream == right.lookup_stream
 
 type diagnostic_context = {
   include_stack : Common.Diagnostic.related list;
@@ -139,7 +172,8 @@ type output = {
   conditional_recovery : conditional_recovery;
 }
 
-let create ?execute_stream ~sources ~definitions ~symbols ~config source =
+let create ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
+    ~config source =
   {
     sources;
     definitions;
@@ -160,9 +194,13 @@ let create ?execute_stream ~sources ~definitions ~symbols ~config source =
     conditional_poisoned = false;
     pending_diagnostics = [];
     help_metadata = Help_metadata.empty;
+    lexical_lookup;
+    current_lookup = None;
+    next_lookup_ordinal = 0;
   }
 
 let with_environment stream ~definitions ~symbols ~compilation_mode run =
+  stream.current_lookup <- None;
   let old_definitions = stream.definitions in
   let old_symbols = stream.symbols in
   let old_mode = stream.compilation_mode in
@@ -203,6 +241,7 @@ let rec align_current_to_source stream source =
         align_current_to_source stream source
 
 let next_lexer_item stream =
+  stream.current_lookup <- None;
   discard_exhausted_frames stream;
   let item = Lexer.next (Lexer_frame.lexer stream.current) in
   let source =
@@ -211,6 +250,39 @@ let next_lexer_item stream =
     | Lexer.Diagnostic diagnostic -> diagnostic.Common.Diagnostic.primary.source
   in
   align_current_to_source stream source;
+  (match (stream.lexical_lookup, item) with
+  | Some observe, Lexer.Token token
+    when match token.Token.kind with
+         | Token_kind.Identifier | Token_kind.Keyword _ -> true
+         | _ -> false ->
+      if stream.next_lookup_ordinal = max_int then
+        invalid_arg "lexical lookup observation identity space is exhausted";
+      let name =
+        match token.value with
+        | Token.Text name -> name
+        | _ -> token.raw
+      in
+      let lookup =
+        {
+          lookup_stream = stream;
+          lookup_domain = Domain.self ();
+          lookup_environment = stream.symbols;
+          lookup_mode = stream.compilation_mode;
+          lookup_token = token;
+          lookup_selection =
+            Symbol_visibility.Environment.find_preprocessor stream.symbols name;
+          lookup_definition =
+            Definition.Environment.find stream.definitions name;
+          lookup_predefined = Predefined.find name;
+          lookup_ordinal = stream.next_lookup_ordinal;
+        }
+      in
+      stream.next_lookup_ordinal <- stream.next_lookup_ordinal + 1;
+      stream.current_lookup <- Some lookup;
+      Fun.protect
+        ~finally:(fun () -> stream.current_lookup <- None)
+        (fun () -> observe lookup)
+  | _ -> ());
   item
 
 let zero_span source =

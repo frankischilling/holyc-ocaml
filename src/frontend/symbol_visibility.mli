@@ -61,6 +61,7 @@ val kind_name : kind -> string
 val kind_bit : kind -> int
 
 type lookup = Absent | Present of entry | Shadowed_by_local
+type table_scope = Current_table | Visible_tables
 
 module Environment : sig
   type t
@@ -145,6 +146,11 @@ module Environment : sig
 
   val find_function : t -> string -> entry option
   (** Function-kind-filtered table lookup used at function publication. *)
+
+  val find_kind : t -> scope:table_scope -> kind:kind -> string -> entry option
+  (** Pure kind-filtered lookup. [Current_table] selects this writer's entries;
+      [Visible_tables] also includes visible baseline entries. Neither lookup
+      observes a lexer read or increments a native hash use count. *)
 
   val begin_local_context : t -> local_context
 

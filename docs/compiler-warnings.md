@@ -92,3 +92,32 @@ does not establish original executable-PC or exported-ABI parity. The remaining
 compiler options, typed compiler exceptions, wider
 execution, exported ABI, object/BIN loader, bootstrap and release requirements
 remain open.
+
+The frontend now exposes opaque lookup observations for the unused-extern
+work. `Preprocessor.create` and the parser entry points accept a lexical
+observer. It sees each identifier or keyword read once, including directive
+operands and definition-expansion input. Captured definition replacements and
+raw inactive-branch scans create no observations. Lookahead already read while
+evaluating a directive retains its original observation. Each receipt retains
+the physical token, writer environment, compilation mode, selected symbol and
+stream ordinal. It expires when the callback returns, raises, reads another
+token or switches environments; restoring an environment cannot revive it.
+Repeated semantic queries create no observations.
+
+Function publications and non-extern aggregate publications retain a separate
+kind-filtered join receipt before parameter or body input. JIT searches the
+current writer's table; AOT also searches visible baseline entries. Extern class
+forward declarations have no join receipt because `PrsClass` publishes them
+directly. The selection precedes native extern/import filtering and does not
+assert that the selected record will be reused. These receipts expire with the
+original focused declaration callback, including on a later parser failure.
+
+These observations do not yet increment native `CHash.use_cnt` or emit unused
+extern warnings. The frontend keeps definitions and predefined expansion
+candidates separately from symbol visibility; those facts alone cannot prove
+the winner in a unified native hash table. The remaining consumer must validate
+record ownership, share counts across actual reused records and aliases, wrap
+increments as U32, and warn before resetting a joined record's count. The
+original sites are Kernel/KHashA.HC:31-70, Compiler/Lex.HC:492-513 and
+Compiler/PrsStmt.HC:1-112. Runtime calls and AST reference totals cannot replace
+these source-phase observations.

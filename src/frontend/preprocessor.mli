@@ -58,6 +58,30 @@ module Config : sig
 end
 
 type t
+type lexical_lookup
+
+val lexical_lookup_environment :
+  lexical_lookup -> Symbol_visibility.Environment.t
+
+val lexical_lookup_mode : lexical_lookup -> compilation_mode
+val lexical_lookup_token : lexical_lookup -> Token.t
+val lexical_lookup_selection : lexical_lookup -> Symbol_visibility.lookup
+val lexical_lookup_definition : lexical_lookup -> Definition.t option
+val lexical_lookup_predefined : lexical_lookup -> Predefined.t option
+val lexical_lookup_ordinal : lexical_lookup -> int
+val lexical_lookup_is_current : lexical_lookup -> bool
+
+val same_lexical_lookup_stream : lexical_lookup -> lexical_lookup -> bool
+(** A read-only observation of one original identifier or keyword lexer read,
+    including reads consumed by directives and definition expansion. The symbol
+    selection uses the preprocessor mask and original local visibility.
+    Definition and predefined metadata retain the separate frontend expansion
+    candidates; they do not establish a unified native hash-table winner. The
+    ordinal is stream-local and increases once per observation. The opaque
+    receipt is current only in its original domain during its synchronous
+    callback; a saved receipt, copied token or another stream cannot grant
+    original lookup authority. These observations do not increment a native hash
+    use count. *)
 
 type stream_output = {
   generated : string;
@@ -82,6 +106,7 @@ type output = {
     scoped to this stream. *)
 
 val create :
+  ?lexical_lookup:(lexical_lookup -> unit) ->
   ?execute_stream:
     (t -> Common.Span.t -> (stream_output, Common.Diagnostic.t list) result) ->
   sources:Common.Source_manager.t ->
