@@ -486,6 +486,14 @@ val complete_native_generation :
     LIFO stream state. Equal metadata and caller-provided bytes grant no
     authority. *)
 
+val admit_native_generation_prefix :
+  native_generation ->
+  scope:Native_source_suspension.t ->
+  native_generation Native_generation_capture.t ->
+  (unit, string) result
+(** Admit the C caller's actual generated prefix while its exact source scope is
+    live. Keep this generation open for its resumed suffix. *)
+
 val task_stream_is_active : task_state -> task_stream -> bool
 (** Read-only exact top-buffer ownership check for parser callback admission. *)
 

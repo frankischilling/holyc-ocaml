@@ -63,6 +63,7 @@ val committed_bytes : t -> int
 val capacity : t -> int
 
 val admit_native_capture :
+  ?scope:Native_source_suspension.t ->
   t ->
   target:'target ->
   'target Native_generation_capture.t ->

@@ -888,11 +888,18 @@ let put_chars state bits =
   in
   loop bits
 
-let admit_native_capture state ~target capture =
-  let* bytes = Native_generation_capture.consume capture ~target in
-  if String.length bytes > state.bytes.capacity - state.bytes.committed then
-    Error "native generated capture exceeds its original byte budget"
-  else (
-    Buffer.add_string state.output bytes;
-    state.bytes.committed <- state.bytes.committed + String.length bytes;
-    Ok ())
+let admit_native_capture ?scope state ~target capture =
+  let* before, after = Native_generation_capture.bounds capture ~target in
+  if
+    before <> state.bytes.committed
+    || after < before
+    || after > state.bytes.capacity
+  then Error "native generated capture has another original byte frontier"
+  else
+    let* bytes = Native_generation_capture.consume ?scope capture ~target in
+    if String.length bytes <> after - before then
+      Error "native generated capture exceeds its original byte budget"
+    else (
+      Buffer.add_string state.output bytes;
+      state.bytes.committed <- state.bytes.committed + String.length bytes;
+      Ok ())

@@ -721,7 +721,7 @@ type native_generation = {
   generation_streams : task_stream list;
   generation_active : bool;
   generation_output : Output.t;
-  generation_before : int;
+  mutable generation_before : int;
   generation_domain : Domain.id;
   mutable generation_closed : bool;
 }
@@ -805,6 +805,21 @@ let with_native_source_suspension generation ~scope execute =
           task.resources.nested_source_depth <- saved_source_depth;
           task.resources.native_source_scopes <- saved_scopes)
         (fun () -> Ok (execute task))
+
+let admit_native_generation_prefix generation ~scope capture =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  let* owns = Native_source_suspension.owns_generation scope generation in
+  if not owns then
+    Error "native source checkpoint has another generation target"
+  else
+    let* () =
+      Output.admit_native_capture ~scope generation.generation_output
+        ~target:generation capture
+    in
+    generation.generation_before <-
+      Output.committed_bytes generation.generation_output;
+    Ok ()
 
 let complete_native_generation generation capture =
   let ( let* ) = Result.bind in

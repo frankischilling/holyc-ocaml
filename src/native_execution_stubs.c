@@ -1616,7 +1616,8 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
    original target, captured bytes and arena stay rooted across collection. */
 struct native_generation_capture {
   struct native_deferred_cleanup cleanup;
-  value target, bytes, arena;
+  value target, bytes, arena, scope;
+  uint64_t before, after;
   _Atomic int consumed;
 };
 
@@ -1627,6 +1628,7 @@ static void native_generation_capture_dispose(struct native_deferred_cleanup *cl
   caml_remove_generational_global_root(&capture->target);
   caml_remove_generational_global_root(&capture->bytes);
   caml_remove_generational_global_root(&capture->arena);
+  caml_remove_generational_global_root(&capture->scope);
   free(capture);
 }
 
@@ -1649,6 +1651,35 @@ static struct custom_operations native_generation_capture_operations = {
   custom_compare_ext_default,
   custom_fixed_length_default
 };
+
+static value native_generation_capture_create(value target, value bytes,
+                                               value arena, value scope,
+                                               uint64_t before, uint64_t after)
+{
+  CAMLparam4(target, bytes, arena, scope);
+  CAMLlocal1(handle);
+  struct native_generation_capture *capture;
+  if (after < before || after - before != caml_string_length(bytes))
+    caml_failwith("native generation capture has inconsistent byte frontiers");
+  handle = caml_alloc_custom_mem(&native_generation_capture_operations,
+    sizeof(capture), sizeof(*capture));
+  *((struct native_generation_capture **)Data_custom_val(handle)) = NULL;
+  capture = calloc(1, sizeof(*capture));
+  if (capture == NULL) caml_raise_out_of_memory();
+  capture->target = target;
+  capture->bytes = bytes;
+  capture->arena = arena;
+  capture->scope = scope;
+  capture->before = before;
+  capture->after = after;
+  atomic_init(&capture->consumed, 0);
+  caml_register_generational_global_root(&capture->target);
+  caml_register_generational_global_root(&capture->bytes);
+  caml_register_generational_global_root(&capture->arena);
+  caml_register_generational_global_root(&capture->scope);
+  *((struct native_generation_capture **)Data_custom_val(handle)) = capture;
+  CAMLreturn(handle);
+}
 
 /* Machine-visible buffers must keep their addresses when a suspended native
    entry calls back into OCaml. The custom owner remains rooted until all
@@ -1726,6 +1757,8 @@ struct native_source_bridge {
   uint64_t *context;
   struct native_output_buffers *buffers;
   const struct custom_operations *word_operations;
+  uint64_t consumed_steps, output_allowance, work_allowance, generation_before, generation_allowance;
+  uint64_t checkpoint_output, checkpoint_work, checkpoint_generation;
   int live;
 };
 
@@ -1764,6 +1797,149 @@ static struct native_source_scope *native_source_scope_get(value handle)
       scope->frame->context != scope->frame->bridge->context)
     caml_invalid_argument("native source suspension is foreign or expired");
   return scope;
+}
+
+struct native_source_checkpoint {
+  struct native_deferred_cleanup cleanup;
+  value scope, budget, output, generation;
+  uint64_t steps, work;
+  uint64_t output_before, work_before, generation_before;
+  uint64_t output_after, work_after, generation_after;
+  atomic_int consumed;
+};
+
+static void native_source_checkpoint_dispose(struct native_deferred_cleanup *cleanup)
+{
+  struct native_source_checkpoint *checkpoint =
+    (struct native_source_checkpoint *)cleanup;
+  caml_remove_generational_global_root(&checkpoint->scope);
+  caml_remove_generational_global_root(&checkpoint->budget);
+  caml_remove_generational_global_root(&checkpoint->output);
+  caml_remove_generational_global_root(&checkpoint->generation);
+  free(checkpoint);
+}
+
+static void native_source_checkpoint_finalize(value handle)
+{
+  struct native_source_checkpoint *checkpoint =
+    *((struct native_source_checkpoint **)Data_custom_val(handle));
+  if (checkpoint == NULL) return;
+  *((struct native_source_checkpoint **)Data_custom_val(handle)) = NULL;
+  native_defer_cleanup(&checkpoint->cleanup, native_source_checkpoint_dispose);
+}
+
+static struct custom_operations native_source_checkpoint_operations = {
+  "holyc.native.source-checkpoint.v1", native_source_checkpoint_finalize,
+  custom_compare_default, custom_hash_default, custom_serialize_default,
+  custom_deserialize_default, custom_compare_ext_default,
+  custom_fixed_length_default
+};
+
+static uint64_t native_source_own_work(struct native_source_bridge *bridge)
+{
+  uint64_t *context = bridge->context;
+  if (context[12] > bridge->work_allowance)
+    caml_failwith("native source checkpoint work exceeds its original allowance");
+  return bridge->work_allowance - context[12];
+}
+
+CAMLprim value holyc_native_source_checkpoint_create(value scope_handle, value budget)
+{
+  CAMLparam2(scope_handle, budget);
+  CAMLlocal4(handle, output, bytes, generation);
+  native_collect_deferred();
+  struct native_source_bridge *bridge = native_source_scope_get(scope_handle)->frame->bridge;
+  uint64_t *context = bridge->context;
+  uint64_t own_work = native_source_own_work(bridge);
+  if (bridge->budget != budget)
+    caml_invalid_argument("native source checkpoint belongs to another cumulative budget");
+  if (context[3] > context[2] || context[13] < bridge->checkpoint_output ||
+      context[13] > bridge->buffers->output_capacity ||
+      context[11] > bridge->output_allowance ||
+      context[13] != bridge->output_allowance - context[11] ||
+      context[16] < bridge->checkpoint_generation ||
+      context[16] > bridge->buffers->generation_capacity ||
+      context[15] > bridge->generation_allowance ||
+      context[16] != bridge->generation_allowance - context[15] ||
+      own_work < bridge->checkpoint_work ||
+      own_work < context[13] + context[16] ||
+      context[10] != (uint64_t)(uintptr_t)bridge->buffers->output ||
+      context[14] != (uint64_t)(uintptr_t)bridge->buffers->generation)
+    caml_failwith("native source checkpoint has inconsistent physical counters");
+  struct native_source_checkpoint snapshot = {
+    .steps = bridge->consumed_steps + context[3],
+    .work = own_work - bridge->checkpoint_work,
+    .output_before = bridge->checkpoint_output,
+    .work_before = bridge->checkpoint_work,
+    .generation_before = bridge->checkpoint_generation,
+    .output_after = context[13], .work_after = own_work,
+    .generation_after = context[16]
+  };
+  output = caml_alloc_string((mlsize_t)(snapshot.output_after - snapshot.output_before));
+  memcpy((char *)String_val(output), bridge->buffers->output + snapshot.output_before,
+    (size_t)(snapshot.output_after - snapshot.output_before));
+  bytes = caml_alloc_string((mlsize_t)(snapshot.generation_after - snapshot.generation_before));
+  memcpy((char *)String_val(bytes), bridge->buffers->generation + snapshot.generation_before,
+    (size_t)(snapshot.generation_after - snapshot.generation_before));
+  generation = native_generation_capture_create(bridge->generation, bytes, bridge->arena,
+    scope_handle, bridge->generation_before + snapshot.generation_before,
+    bridge->generation_before + snapshot.generation_after);
+  handle = caml_alloc_custom_mem(&native_source_checkpoint_operations,
+    sizeof(struct native_source_checkpoint *), sizeof(snapshot));
+  *((struct native_source_checkpoint **)Data_custom_val(handle)) = NULL;
+  struct native_source_checkpoint *checkpoint = calloc(1, sizeof(*checkpoint));
+  if (checkpoint == NULL) caml_raise_out_of_memory();
+  *checkpoint = snapshot;
+  checkpoint->scope = scope_handle;
+  checkpoint->budget = budget;
+  checkpoint->output = output;
+  checkpoint->generation = generation;
+  atomic_init(&checkpoint->consumed, 0);
+  caml_register_generational_global_root(&checkpoint->scope);
+  caml_register_generational_global_root(&checkpoint->budget);
+  caml_register_generational_global_root(&checkpoint->output);
+  caml_register_generational_global_root(&checkpoint->generation);
+  *((struct native_source_checkpoint **)Data_custom_val(handle)) = checkpoint;
+  CAMLreturn(handle);
+}
+
+CAMLprim value holyc_native_source_checkpoint_consume(value handle, value scope_handle, value budget)
+{
+  CAMLparam3(handle, scope_handle, budget);
+  CAMLlocal3(result, steps, output);
+  native_collect_deferred();
+  struct native_source_bridge *bridge = native_source_scope_get(scope_handle)->frame->bridge;
+  if (!Is_block(handle) || Tag_val(handle) != Custom_tag ||
+      Custom_ops_val(handle) != &native_source_checkpoint_operations)
+    caml_invalid_argument("native source checkpoint is not an original C capture");
+  struct native_source_checkpoint *checkpoint =
+    *((struct native_source_checkpoint **)Data_custom_val(handle));
+  if (checkpoint == NULL || checkpoint->scope != scope_handle ||
+      checkpoint->budget != budget || bridge->budget != budget)
+    caml_invalid_argument("native source checkpoint has another original scope or budget");
+  steps = native_box_word(checkpoint->steps);
+  output = caml_alloc_string(caml_string_length(checkpoint->output));
+  memcpy((char *)String_val(output), String_val(checkpoint->output), caml_string_length(checkpoint->output));
+  result = caml_alloc_tuple(4);
+  if (bridge->consumed_steps + bridge->context[3] != checkpoint->steps ||
+      bridge->checkpoint_output != checkpoint->output_before ||
+      bridge->checkpoint_work != checkpoint->work_before ||
+      bridge->checkpoint_generation != checkpoint->generation_before ||
+      bridge->context[13] != checkpoint->output_after ||
+      native_source_own_work(bridge) != checkpoint->work_after ||
+      bridge->context[16] != checkpoint->generation_after)
+    caml_invalid_argument("native source checkpoint no longer owns its original prefix");
+  int expected = 0;
+  if (!atomic_compare_exchange_strong(&checkpoint->consumed, &expected, 1))
+    caml_invalid_argument("native source checkpoint was already consumed");
+  bridge->checkpoint_output = checkpoint->output_after;
+  bridge->checkpoint_work = checkpoint->work_after;
+  bridge->checkpoint_generation = checkpoint->generation_after;
+  Store_field(result, 0, steps);
+  Store_field(result, 1, Val_long((intnat)checkpoint->work));
+  Store_field(result, 2, output);
+  Store_field(result, 3, checkpoint->generation);
+  CAMLreturn(result);
 }
 
 static void native_source_bridge_dispose(struct native_deferred_cleanup *cleanup)
@@ -1984,35 +2160,76 @@ static void native_source_leave(uint64_t *context)
   caml_remove_generational_global_root(&bridge->handle);
 }
 
-CAMLprim value holyc_native_consume_generation_capture(value handle, value target)
+static struct native_generation_capture *native_generation_capture_get(value handle, value target)
 {
-  CAMLparam2(handle, target);
-  native_collect_deferred();
-  CAMLlocal1(bytes);
-  struct native_generation_capture *capture;
-  struct native_task_arena *arena;
-  int expected = 0;
   if (!Is_block(handle) || Tag_val(handle) != Custom_tag ||
       Custom_ops_val(handle) != &native_generation_capture_operations)
     caml_invalid_argument("native generation has no executed capture");
-  capture = *((struct native_generation_capture **)Data_custom_val(handle));
+  struct native_generation_capture *capture =
+    *((struct native_generation_capture **)Data_custom_val(handle));
   if (capture == NULL || capture->target != target)
     caml_invalid_argument("native generation capture has another original target");
+  return capture;
+}
+
+CAMLprim value holyc_native_generation_capture_bounds(value handle, value target)
+{
+  CAMLparam2(handle, target);
+  CAMLlocal1(result);
+  native_collect_deferred();
+  struct native_generation_capture *capture = native_generation_capture_get(handle, target);
+  if (atomic_load(&capture->consumed))
+    caml_invalid_argument("native generation capture was already consumed");
+  if (capture->after > HOLYC_NATIVE_MAX_OUTPUT_BYTES)
+    caml_failwith("native generation capture frontier exceeds the host bound");
+  result = caml_alloc_tuple(2);
+  Store_field(result, 0, Val_long((intnat)capture->before));
+  Store_field(result, 1, Val_long((intnat)capture->after));
+  CAMLreturn(result);
+}
+
+CAMLprim value holyc_native_consume_generation_capture(value handle, value target, value scope_option)
+{
+  CAMLparam3(handle, target, scope_option);
+  native_collect_deferred();
+  CAMLlocal2(bytes, scope_handle);
+  scope_handle = Val_unit;
+  if (scope_option != Val_none) {
+    if (!Is_block(scope_option) || Tag_val(scope_option) != 0 || Wosize_val(scope_option) != 1)
+      caml_invalid_argument("native generation capture scope is not an option");
+    scope_handle = Field(scope_option, 0);
+  }
+  struct native_generation_capture *capture = native_generation_capture_get(handle, target);
+  struct native_task_arena *arena;
+  int borrowed = 0;
+  int expected = 0;
+  if (scope_handle != capture->scope)
+    caml_invalid_argument("native generation capture has another original source scope");
+  if (scope_handle != Val_unit) {
+    struct native_source_frame *frame = native_source_scope_get(scope_handle)->frame;
+    if (frame->bridge->arena != capture->arena || frame->bridge->generation != target)
+      caml_invalid_argument("native generation prefix has another physical caller");
+    borrowed = 1;
+  }
+  /* Allocation happens before consumption. Collection cannot move the C owner,
+     and a failed allocation leaves the original capture available. */
+  bytes = caml_alloc_string(caml_string_length(capture->bytes));
+  memcpy((char *)String_val(bytes), String_val(capture->bytes), caml_string_length(capture->bytes));
+  capture = native_generation_capture_get(handle, target);
+  if (scope_handle != Val_unit) (void)native_source_scope_get(scope_handle);
   arena = native_task_arena_get(capture->arena);
-  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+  if (!borrowed && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
     caml_failwith("native generation arena is already active");
-  if (arena->closing || arena->mapping == NULL) {
-    atomic_store(&arena->active, 0);
+  if (arena->closing || arena->mapping == NULL || (borrowed && !atomic_load(&arena->active))) {
+    if (!borrowed) atomic_store(&arena->active, 0);
     caml_failwith("native generation capture has an expired original arena");
   }
   expected = 0;
   if (!atomic_compare_exchange_strong(&capture->consumed, &expected, 1)) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed) atomic_store(&arena->active, 0);
     caml_failwith("native generation capture was already consumed");
   }
-  atomic_store(&arena->active, 0);
-  bytes = caml_alloc_string(caml_string_length(capture->bytes));
-  memcpy((char *)String_val(bytes), String_val(capture->bytes), caml_string_length(capture->bytes));
+  if (!borrowed) atomic_store(&arena->active, 0);
   CAMLreturn(bytes);
 }
 
@@ -2241,6 +2458,11 @@ static value native_execute_program_output(value code, value functions,
       Field(generation, 0), task_arena, retained);
     bridge = *((struct native_source_bridge **)Data_custom_val(bridge_owner));
     bridge->buffers = buffers;
+    bridge->consumed_steps = consumed_steps;
+    bridge->output_allowance = remaining_output;
+    bridge->work_allowance = remaining_work;
+    bridge->generation_before = (uint64_t)Long_val(Field(generation, 3)) - generation_limit;
+    bridge->generation_allowance = generation_limit;
   }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
@@ -2320,29 +2542,26 @@ static value native_execute_program_output(value code, value functions,
 
     /* Validate every native result before allocating the exact capture. The
        rooted custom owner retains the fixed source addresses across allocation. */
-    captured = caml_alloc_string((mlsize_t)written);
-    if (written != 0)
-      memcpy((char *)String_val(captured), buffers->output,
-             (size_t)written);
+    uint64_t output_before = bridge == NULL ? 0 : bridge->checkpoint_output;
+    uint64_t work_before = bridge == NULL ? 0 : bridge->checkpoint_work;
+    uint64_t generation_before = bridge == NULL ? 0 : bridge->checkpoint_generation;
+    if (output_before > written || work_before > work || generation_before > generation_written)
+      caml_failwith("native program capture precedes its admitted source checkpoint");
+    captured = caml_alloc_string((mlsize_t)(written - output_before));
+    if (written != output_before)
+      memcpy((char *)String_val(captured), buffers->output + output_before,
+             (size_t)(written - output_before));
+    work -= work_before;
 
     if (generation != Val_unit) {
-      struct native_generation_capture *capture;
-      generation_bytes = caml_alloc_string((mlsize_t)generation_written);
-      if (generation_written != 0)
-        memcpy((char *)String_val(generation_bytes), buffers->generation, (size_t)generation_written);
-      generation_handle = caml_alloc_custom_mem(&native_generation_capture_operations,
-        sizeof(capture), sizeof(struct native_generation_capture));
-      *((struct native_generation_capture **)Data_custom_val(generation_handle)) = NULL;
-      capture = calloc(1, sizeof(*capture));
-      if (capture == NULL) caml_raise_out_of_memory();
-      capture->target = Field(generation, 0);
-      capture->bytes = generation_bytes;
-      capture->arena = task_arena;
-      atomic_init(&capture->consumed, 0);
-      caml_register_generational_global_root(&capture->target);
-      caml_register_generational_global_root(&capture->bytes);
-      caml_register_generational_global_root(&capture->arena);
-      *((struct native_generation_capture **)Data_custom_val(generation_handle)) = capture;
+      uint64_t frontier = (uint64_t)Long_val(Field(generation, 3)) - generation_limit;
+      generation_bytes = caml_alloc_string((mlsize_t)(generation_written - generation_before));
+      if (generation_written != generation_before)
+        memcpy((char *)String_val(generation_bytes), buffers->generation + generation_before,
+          (size_t)(generation_written - generation_before));
+      generation_handle = native_generation_capture_create(Field(generation, 0),
+        generation_bytes, task_arena, Val_unit, frontier + generation_before,
+        frontier + generation_written);
       generation_saved = caml_alloc_small(1, 0);
       Field(generation_saved, 0) = generation_handle;
       caml_modify(&Field(Field(generation, 4), 0), generation_saved);

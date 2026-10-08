@@ -4,6 +4,24 @@ module Native = Native_source_execution
 module Image = X86_64_program
 module VM = Ir_integer_interpreter
 
+module Checkpoint = struct
+  type t
+
+  external create : Holyc_lib__Ir.Native_source_suspension.t -> unit ref -> t
+    = "holyc_native_source_checkpoint_create"
+
+  external consume :
+    t ->
+    Holyc_lib__Ir.Native_source_suspension.t ->
+    unit ref ->
+    int64
+    * int
+    * string
+    * Holyc_lib__Ir.Integer_interpreter.native_generation
+      Holyc_lib__Ir.Native_generation_capture.t
+    = "holyc_native_source_checkpoint_consume"
+end
+
 let describe errors =
   errors
   |> List.map (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
@@ -426,6 +444,7 @@ let native_source_callback_scope ?(failure = `None)
   in
   let budget = Runtime.create_budget ~max_steps:100_000 () |> unwrap in
   let saved = ref None in
+  let saved_checkpoint = ref None in
   let calls = ref 0 in
   let namespace = ref None in
   let foreign_budget = Runtime.create_budget ~max_steps:100_000 () |> unwrap in
@@ -456,6 +475,59 @@ let native_source_callback_scope ?(failure = `None)
         "equal allowances have another owner" false
         (Runtime.suspension_owns_budget scope foreign_budget |> unwrap);
       let target = Option.get (Image.generation image) in
+      let progress = Runtime.budget_progress budget in
+      Alcotest.(check string)
+        "caller prefix is admitted before the handler" "before;"
+        progress.output_bytes;
+      Alcotest.(check bool)
+        "caller steps and formatting work are already charged" true
+        (progress.executed_steps > 0 && progress.output_work > 7);
+      (* These raw calls attack the private FFI. Copying the budget record or
+         its counters cannot mint the physical identity held by the C caller. *)
+      let identity : unit ref = Obj.obj (Obj.field (Obj.repr budget) 0) in
+      let foreign = ref () in
+      let raw operation =
+        try
+          operation ();
+          Ok ()
+        with Failure message | Invalid_argument message -> Error message
+      in
+      rejects "checkpoint creation requires the original budget"
+        (raw (fun () -> ignore (Checkpoint.create scope foreign)));
+      let checkpoint = Checkpoint.create scope identity in
+      saved_checkpoint := Some (checkpoint, scope, identity);
+      rejects "checkpoint consumption rejects another budget"
+        (raw (fun () -> ignore (Checkpoint.consume checkpoint scope foreign)));
+      let malformed_scope = Obj.obj (Obj.repr (ref ())) in
+      rejects "checkpoint rejects fabricated scope metadata"
+        (raw (fun () ->
+             ignore (Checkpoint.consume checkpoint malformed_scope identity)));
+      rejects "checkpoint cannot cross execution domains"
+        (Domain.join
+           (Domain.spawn (fun () ->
+                raw (fun () ->
+                    ignore (Checkpoint.consume checkpoint scope identity)))));
+      Gc.full_major ();
+      Gc.compact ();
+      let steps, work, output, empty =
+        Checkpoint.consume checkpoint scope identity
+      in
+      Alcotest.(check int64)
+        "checkpoint has actual cumulative native steps"
+        (Int64.of_int progress.executed_steps)
+        steps;
+      Alcotest.(check int) "already admitted work is not charged again" 0 work;
+      Alcotest.(check string)
+        "already admitted output is not copied again" "" output;
+      Alcotest.(check (pair int int))
+        "capture retains the actual generated frontier" (3, 3)
+        (Holyc_lib__Ir.Native_generation_capture.bounds empty ~target |> unwrap);
+      rejects "active prefix cannot use ordinary capture permission"
+        (Holyc_lib__Ir.Native_generation_capture.consume empty ~target);
+      Holyc_lib__Ir.Native_generation_capture.consume ~scope empty ~target
+      |> unwrap |> ignore;
+      rejects "checkpoint cannot be replayed"
+        (raw (fun () -> ignore (Checkpoint.consume checkpoint scope identity)));
       Alcotest.(check bool)
         "original generation owner" true
         (Scope.owns_generation scope target |> unwrap);
@@ -554,6 +626,14 @@ let native_source_callback_scope ?(failure = `None)
         rejects "suspension expires before caller resumes" (Scope.check scope);
         rejects "expired scope cannot read caller limits" (Scope.limits scope))
       !saved;
+    Option.iter
+      (fun (checkpoint, scope, identity) ->
+        rejects "checkpoint expires with its physical callback"
+          (try
+             ignore (Checkpoint.consume checkpoint scope identity);
+             Ok ()
+           with Failure message | Invalid_argument message -> Error message))
+      !saved_checkpoint;
     match Runtime.outcome report |> unwrap with
     | Image.Fault fault when failure = `Reject ->
         Alcotest.(check bool)
@@ -637,6 +717,42 @@ let native_source_callbacks () =
     [ `None; `Reject; `Raise ];
   ()
 
+let checkpoint_quotas () =
+  let text =
+    {|#exe {Print("before;");StreamPrint("40;");StreamExePrint("class Made {I64 n;};");Print("after;");StreamPrint("42;");}42;|}
+  in
+  List.iter
+    (fun mode ->
+      let baseline = run ~mode text in
+      value baseline;
+      let work = Native.output_work baseline in
+      List.iter
+        (fun (max_output_bytes, max_output_work, expected_code) ->
+          let report = run ~mode ~max_output_bytes ~max_output_work text in
+          Option.iter (fun code -> failure code report) expected_code;
+          let session, source, config = inputs ~mode text in
+          let independent =
+            run_integer_program_report session ~source ~config ~max_output_bytes
+              ~max_output_work ~max_steps:100_000
+          in
+          Alcotest.(check string)
+            "checkpoint output matches independent IR"
+            (integer_program_report_output_bytes independent)
+            (Native.output_bytes report);
+          Alcotest.(check int)
+            "checkpoint work matches independent IR"
+            (integer_program_report_output_work independent)
+            (Native.output_work report);
+          Alcotest.(check int)
+            "checkpoint quotas never fall back to IR" 0
+            (Option.get (Native.source_progress report)).runtime.executed_steps)
+        [
+          (13, work, None);
+          (12, work, Some "HCIRVM0022");
+          (13, work - 1, Some "HCIRVM0023");
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let native_callback_resource_collection () =
   let module Runtime = Native_program_execution in
   let run failure fixture =
@@ -692,6 +808,8 @@ let () =
             capture_authority;
           Alcotest.test_case "native source callback scope and collection"
             `Quick native_source_callbacks;
+          Alcotest.test_case "source checkpoints preserve quota faults" `Quick
+            checkpoint_quotas;
           Alcotest.test_case "discarded native callback closures collect" `Quick
             native_callback_resource_collection;
         ] );

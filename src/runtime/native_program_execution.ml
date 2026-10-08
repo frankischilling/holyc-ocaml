@@ -38,6 +38,21 @@ external execute_program_output :
 type retained_handle
 type task_arena_handle
 type source_bridge
+type source_checkpoint
+
+external create_source_checkpoint :
+  Ir.Native_source_suspension.t -> unit ref -> source_checkpoint
+  = "holyc_native_source_checkpoint_create"
+
+external consume_source_checkpoint :
+  source_checkpoint ->
+  Ir.Native_source_suspension.t ->
+  unit ref ->
+  int64
+  * int
+  * string
+  * Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
+  = "holyc_native_source_checkpoint_consume"
 
 type source_callback_state =
   (source_bridge -> int64 option) * bool ref * exn ref * unit ref
@@ -230,7 +245,7 @@ let acquire_lease lease message =
 let release_lease lease = Atomic.set lease false
 
 let execute_report_internal ?retained ?consumed ?entered ?task_binding
-    ?source_callback_state ?(max_frame_bytes = 1_048_576)
+    ?source_callback_state ?consumed_after_source ?(max_frame_bytes = 1_048_576)
     ?(max_call_depth = 128)
     ?(max_active_stack_bytes = hard_max_active_stack_bytes)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
@@ -582,6 +597,11 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                       | Ok (Image.Completed _) | Error _ -> false
                     in
                     let captured_length = String.length captured in
+                    let prior_steps, prior_output, prior_work =
+                      match consumed_after_source with
+                      | None -> (prior_steps, prior_output, prior_work)
+                      | Some observe -> observe ()
+                    in
                     let available_output = max_output_bytes - prior_output in
                     let available_work = max_output_work - prior_work in
                     let output_status_valid =
@@ -1308,6 +1328,21 @@ let append_capture captured chunks =
     in
     append (copy_string captured) chunks
 
+let capture_suffix chunks length =
+  let bytes = Bytes.create length in
+  let rec copy remaining = function
+    | _ when remaining = 0 -> ()
+    | [] -> invalid_arg "native output history lost its admitted suffix"
+    | chunk :: rest ->
+        let count = min remaining (String.length chunk) in
+        Bytes.blit_string chunk
+          (String.length chunk - count)
+          bytes (remaining - count) count;
+        copy (remaining - count) rest
+  in
+  copy length chunks;
+  Bytes.to_string bytes
+
 let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
     ?max_call_depth ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
     ?source_callback budget retained =
@@ -1318,6 +1353,39 @@ let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
       (fun callback ->
         ( (fun owner ->
             let scope, contents = Ir.Native_source_suspension.open_raw owner in
+            let checkpoint = create_source_checkpoint scope budget.identity_ in
+            let steps, work, output, capture =
+              consume_source_checkpoint checkpoint scope budget.identity_
+            in
+            let state = Atomic.get budget.state_ in
+            if
+              Int64.compare steps (Int64.of_int state.steps_) < 0
+              || Int64.compare steps (Int64.of_int budget.max_steps_) > 0
+              || work < 0
+              || work > budget.max_output_work_ - state.work_
+              || String.length output > budget.max_output_bytes_ - state.bytes_
+            then
+              invalid_arg
+                "native source checkpoint exceeds its cumulative budget";
+            (match Image.generation retained.image_ with
+            | None ->
+                invalid_arg
+                  "native source checkpoint has no original generation"
+            | Some generation -> (
+                match
+                  Ir.Integer_interpreter.admit_native_generation_prefix
+                    generation ~scope capture
+                with
+                | Ok () -> ()
+                | Error message -> invalid_arg message));
+            Atomic.set budget.state_
+              {
+                steps_ = Int64.to_int steps;
+                bytes_ = state.bytes_ + String.length output;
+                work_ = state.work_ + work;
+                chunks_ = append_capture output state.chunks_;
+                error_ = None;
+              };
             callback scope contents),
           callback_exception_seen,
           callback_exception_value,
@@ -1355,6 +1423,9 @@ let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
                 let report =
                   execute_report_internal ~retained:retained.handle_
                     ?source_callback_state
+                    ~consumed_after_source:(fun () ->
+                      let current = Atomic.get budget.state_ in
+                      (current.steps_, current.bytes_, current.work_))
                     ~consumed:(state.steps_, state.bytes_, state.work_)
                     ~entered ?task_binding ?max_frame_bytes ?max_call_depth
                     ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
@@ -1368,31 +1439,51 @@ let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
                     ~max_output_work:budget.max_output_work_ retained.image_
                 in
                 (match report.outcome_ with
-                | Error _ -> if !entered then Atomic.set budget.state_ poisoned
+                | Error _ ->
+                    if !entered then
+                      Atomic.set budget.state_
+                        {
+                          (Atomic.get budget.state_) with
+                          error_ = poisoned.error_;
+                        }
                 | Ok outcome ->
                     let steps_ =
                       match outcome with
                       | Image.Completed execution -> execution.executed_steps
                       | Image.Fault fault -> fault.executed_steps
                     in
+                    let current = Atomic.get budget.state_ in
                     let next =
                       {
                         steps_;
                         bytes_ =
-                          state.bytes_ + String.length report.output_bytes_;
-                        work_ = state.work_ + report.output_work_;
+                          current.bytes_ + String.length report.output_bytes_;
+                        work_ = current.work_ + report.output_work_;
                         chunks_ =
-                          append_capture report.output_bytes_ state.chunks_;
+                          append_capture report.output_bytes_ current.chunks_;
                         error_ = None;
                       }
                     in
                     Atomic.set budget.state_ next;
                     verified := true);
                 if !callback_exception_seen then raise !callback_exception_value;
-                report
+                let current = Atomic.get budget.state_ in
+                let length = current.bytes_ - state.bytes_ in
+                let work = current.work_ - state.work_ in
+                if
+                  length = String.length report.output_bytes_
+                  && work = report.output_work_
+                then report
+                else
+                  {
+                    report with
+                    output_bytes_ = capture_suffix current.chunks_ length;
+                    output_work_ = work;
+                  }
               with exception_ ->
                 if !entered && not !verified then
-                  Atomic.set budget.state_ poisoned;
+                  Atomic.set budget.state_
+                    { (Atomic.get budget.state_) with error_ = poisoned.error_ };
                 raise exception_
             in
             let run_with_retained_lease () =
