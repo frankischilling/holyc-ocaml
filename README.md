@@ -5,7 +5,10 @@ parsing, using original saved members and evaluated defaults. It also emits
 unused-local and unneeded-`no_warn` diagnostics using each function's reached
 option mask. The [header example](examples/compiler-header-warnings.hc) and
 [warning example](examples/compiler-warning-options.hc) run through IR and
-native tasks in both outer modes. [The warning notes](docs/compiler-warnings.md)
+native tasks in both outer modes. Owned JIT function prefixes now count original
+source lookups and warn before resetting an unused joined extern, as shown by
+the [unused-extern example](examples/compiler-unused-extern.hc).
+[The warning notes](docs/compiler-warnings.md)
 describe counting, child contexts, retained diagnostics and the remaining
 warning phase boundaries.
 

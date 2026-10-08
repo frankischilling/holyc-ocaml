@@ -69,6 +69,10 @@ val lexical_lookup_selection : lexical_lookup -> Symbol_visibility.lookup
 val lexical_lookup_definition : lexical_lookup -> Definition.t option
 val lexical_lookup_predefined : lexical_lookup -> Predefined.t option
 val lexical_lookup_ordinal : lexical_lookup -> int
+
+val lexical_lookup_generation :
+  lexical_lookup -> Symbol_visibility.lexical_generation
+
 val lexical_lookup_is_current : lexical_lookup -> bool
 
 val same_lexical_lookup_stream : lexical_lookup -> lexical_lookup -> bool

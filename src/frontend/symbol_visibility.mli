@@ -66,11 +66,23 @@ val kind_bit : kind -> int
 
 type lookup = Absent | Present of entry | Shadowed_by_local
 type table_scope = Current_table | Visible_tables
+type lexical_generation
+
+val lexical_generation_follows :
+  earlier:lexical_generation -> later:lexical_generation -> bool
 
 module Environment : sig
   type t
   type local_context
   type local_snapshot
+
+  val lexical_generation : t -> lexical_generation
+
+  val mark_lexical_read : t -> lexical_generation
+  (** Advance the lexer journal. A generation cannot be copied or rewound to
+      conceal omitted original reads. This does not change a hash use count.
+      Views sharing or copying entry objects retain the same journal. Only the
+      current and preceding identities are retained. *)
 
   val capture_locals : t -> local_snapshot
 

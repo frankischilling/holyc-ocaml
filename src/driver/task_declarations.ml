@@ -1136,6 +1136,12 @@ let observe_lexical_lookup ledger context lookup =
       | _ -> ());
       if ledger.lexical_reads = max_int then
         fail span "source lexical observation identity space is exhausted";
+      Option.iter
+        (fun registry ->
+          Sema.Function_record_phase.observe_lexical_lookup registry context
+            lookup
+          |> checked span)
+        ledger.native_functions;
       ledger.lexical_frontiers <-
         lookup
         :: List.filter

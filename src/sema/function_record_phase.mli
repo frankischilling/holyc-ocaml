@@ -9,6 +9,23 @@ type call_emission_snapshot
 type implicit_arguments_snapshot
 type implicit_emission_snapshot
 
+val observe_lexical_lookup :
+  registry ->
+  Frontend.Parser.command_context ->
+  Frontend.Preprocessor.lexical_lookup ->
+  (unit, string) result
+(** Increment the exact owned function prefix selected by an original live lexer
+    read. Missing reads invalidate totals, including across task views and
+    copied metadata views. Foreign contexts, domains and replay reject. Counter
+    updates do not change executable revisions or call cursors. *)
+
+val use_count : t -> int64 option
+(** Shared U32 count for the admitted lexer, join and implicit-output lookups
+    when their source-read coverage remains known. Untracked predecessors and
+    omitted reads retain None. This prefix is not a complete native function
+    record or a native compiler hash table. Additional assembler, loader and
+    compiler lookup producers remain required. *)
+
 (** Original native allocation history. Local byte sizes are resolved from
     checked source evidence by Compiler_record, separately from call metadata.
 *)

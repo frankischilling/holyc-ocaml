@@ -1207,7 +1207,9 @@ let () =
             (report |> member "diagnostics" |> to_list
             |> List.map (fun diagnostic ->
                 diagnostic |> member "code" |> to_string)
-            = if mode = "jit" then [ "HCSEMA0038"; code ] else [ code ])
+            =
+            if mode = "jit" then [ "HCSEMA0075"; "HCSEMA0038"; code ]
+            else [ code ])
             "joined header warning precedes the actual resource fault")
         [
           ("--step-limit=28", "HCIRVM0007");
@@ -1218,6 +1220,7 @@ let () =
           ~warnings:
             (if mode = "jit" then
                [
+                 ("HCSEMA0075", "Unused extern 'Add'");
                  ( "HCSEMA0038",
                    "function \"Add\" argument list does not match the replaced \
                     header" );
@@ -1236,6 +1239,7 @@ let () =
           ~warnings:
             (if mode = "jit" then
                [
+                 ("HCSEMA0075", "Unused extern 'Add'");
                  ( "HCSEMA0038",
                    "function \"Add\" argument list does not match the replaced \
                     header" );

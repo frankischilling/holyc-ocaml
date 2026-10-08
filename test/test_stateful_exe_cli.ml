@@ -197,16 +197,19 @@ let stateful_omission_source =
   {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b,I64 c=1){Out=a+b+c;}"x",,1,;StreamPrint("%d;",Out);}|}
 
 let source_warnings source =
-  let header ?(return_type = true) name =
-    (if return_type then
-       [
-         ( "HCSEMA0037",
-           "warning",
-           Printf.sprintf
-             "function %S return type does not match the replaced header" name
-         );
-       ]
+  let header ?(return_type = true) ?(unused_extern = false) name =
+    (if unused_extern then
+       [ ("HCSEMA0075", "warning", Printf.sprintf "Unused extern '%s'" name) ]
      else [])
+    @ (if return_type then
+         [
+           ( "HCSEMA0037",
+             "warning",
+             Printf.sprintf
+               "function %S return type does not match the replaced header" name
+           );
+         ]
+       else [])
     @ [
         ( "HCSEMA0038",
           "warning",
@@ -219,12 +222,15 @@ let source_warnings source =
     List.mem source
       [ omission_source; parenthesized_source; stateful_omission_source ]
   then
-    header "Print"
+    header ~unused_extern:true "Print"
     @ unused_warnings "Print" [ "s" ]
-    @ if source = parenthesized_source then header "PutChars" else []
-  else if source = absent_source then header "Print" @ header "PutChars"
-  else if source = adjacent_source then header "PutChars"
-  else if source = variadic_source then header "Print"
+    @
+    if source = parenthesized_source then header ~unused_extern:true "PutChars"
+    else []
+  else if source = absent_source then
+    header ~unused_extern:true "Print" @ header ~unused_extern:true "PutChars"
+  else if source = adjacent_source then header ~unused_extern:true "PutChars"
+  else if source = variadic_source then header ~unused_extern:true "Print"
   else if source = extern_source then header ~return_type:false "F"
   else if source = function_versions_source then
     header ~return_type:false "F" @ unused_warnings "F" [ "n" ]
@@ -584,6 +590,7 @@ let () =
       require
         (diagnostic_signature report
         = [
+            ("HCSEMA0075", "warning", "Unused extern 'Print'");
             ( "HCSEMA0037",
               "warning",
               "function \"Print\" return type does not match the replaced \
@@ -592,10 +599,12 @@ let () =
               "warning",
               "function \"Print\" argument list does not match the replaced \
                header" );
+            ("HCSEMA0075", "warning", "Unused extern 'Print'");
             ( "HCSEMA0038",
               "warning",
               "function \"Print\" argument list does not match the replaced \
                header" );
+            ("HCSEMA0075", "warning", "Unused extern 'PutChars'");
             ( "HCSEMA0037",
               "warning",
               "function \"PutChars\" return type does not match the replaced \

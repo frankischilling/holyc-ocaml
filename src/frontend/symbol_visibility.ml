@@ -103,6 +103,13 @@ let kind_bit = function
 
 type lookup = Absent | Present of entry | Shadowed_by_local
 type table_scope = Current_table | Visible_tables
+type lexical_generation = { identity : unit ref; preceding : unit ref option }
+type lexical_journal = { mutable current_generation : lexical_generation }
+
+let lexical_generation_follows ~earlier ~later =
+  match later.preceding with
+  | Some preceding -> preceding == earlier.identity
+  | None -> false
 
 module String_set = Set.Make (String)
 
@@ -113,6 +120,7 @@ module Environment = struct
     entries_by_name : (string, entry list) Hashtbl.t;
     mutable entries_rev : entry list;
     mutable next_entry_id : int;
+    lexical_journal : lexical_journal;
   }
 
   type t = {
@@ -150,6 +158,8 @@ module Environment = struct
           entries_by_name = Hashtbl.create 128;
           entries_rev = [];
           next_entry_id = 0;
+          lexical_journal =
+            { current_generation = { identity = ref (); preceding = None } };
         };
       owner = None;
       local_contexts = [];
@@ -193,11 +203,21 @@ module Environment = struct
           entries_by_name;
           entries_rev;
           next_entry_id = environment.store.next_entry_id;
+          lexical_journal = environment.store.lexical_journal;
         };
       owner = environment.owner;
       local_contexts = environment.local_contexts;
       next_local_context_id = environment.next_local_context_id;
     }
+
+  let lexical_generation environment =
+    environment.store.lexical_journal.current_generation
+
+  let mark_lexical_read environment =
+    let preceding = (lexical_generation environment).identity in
+    let generation = { identity = ref (); preceding = Some preceding } in
+    environment.store.lexical_journal.current_generation <- generation;
+    generation
 
   let without_locals environment run =
     let contexts = environment.local_contexts in

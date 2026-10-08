@@ -3,6 +3,7 @@ module Ast = Frontend.Ast
 module Visibility = Frontend.Symbol_visibility
 module P = Provisional_function
 module C = Declaration_collection
+module H = Common.Native_hash_record
 
 type native_identity = unit ref
 type revision = { previous_revision : revision option }
@@ -46,12 +47,19 @@ type native = {
   identity : native_identity;
   mutable state : native_state;
   mutable revision : revision;
+  hash_prefix : H.t option;
+  mutable count_known : bool;
 }
 
 type registry = {
   table : Symbol_table.t;
   namespace : C.namespace;
   mutable records : t list;
+  domain : Domain.id;
+  mutable count_environment : Visibility.Environment.t option;
+  mutable count_sources : Common.Source_manager.t option;
+  mutable count_frontier : Visibility.lexical_generation option;
+  mutable implicit_finds : Parser.implicit_output_selection list;
 }
 
 and t = {
@@ -84,6 +92,84 @@ type transition = { earlier : snapshot; later : snapshot }
 
 let transition_earlier proof = proof.earlier
 let transition_later proof = proof.later
+
+let count_frontier_is_current registry =
+  match (registry.count_environment, registry.count_frontier) with
+  | Some environment, Some frontier ->
+      frontier == Visibility.Environment.lexical_generation environment
+  | _ -> false
+
+let invalidate_counts registry =
+  List.iter (fun record -> record.native.count_known <- false) registry.records
+
+let owned_hash record =
+  if
+    record.registry.domain = Domain.self ()
+    && record.native.count_known
+    && count_frontier_is_current record.registry
+  then record.native.hash_prefix
+  else None
+
+let use_count record = Option.map H.use_count (owned_hash record)
+
+let record_for_entry registry entry =
+  let rec original entries entry =
+    List.exists (( == ) entry) entries
+    || Option.fold ~none:false ~some:(original entries)
+         (Visibility.function_alias_original entry)
+  in
+  List.find_opt (fun record -> original record.aliases entry) registry.records
+
+let observe_lexical_lookup registry context lookup =
+  let generation = Frontend.Preprocessor.lexical_lookup_generation lookup in
+  if
+    registry.domain <> Domain.self ()
+    || (not (Parser.lexical_lookup_is_current context lookup))
+    || Parser.context_mode context <> Frontend.Preprocessor.Jit
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) (Parser.context_environment context))
+             registry.count_environment))
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) (Parser.context_sources context))
+             registry.count_sources))
+    || generation
+       != Visibility.Environment.lexical_generation
+            (Parser.context_environment context)
+  then Error "hash count requires its original current source table and read"
+  else if
+    Option.fold ~none:false ~some:(( == ) generation) registry.count_frontier
+  then Error "hash lookup was already consumed"
+  else (
+    if
+      not
+        (Option.fold ~none:false
+           ~some:(fun earlier ->
+             Visibility.lexical_generation_follows ~earlier ~later:generation)
+           registry.count_frontier)
+    then invalidate_counts registry;
+    (match
+       (Frontend.Preprocessor.lexical_lookup_token lookup).Frontend.Token.kind
+     with
+    | Frontend.Token_kind.Keyword
+        (Frontend.Keyword.Try | Frontend.Keyword.Catch | Frontend.Keyword.Asm)
+      -> invalidate_counts registry
+    | _ -> ());
+    (match Frontend.Preprocessor.lexical_lookup_selection lookup with
+    | Visibility.Present entry ->
+        Option.iter
+          (fun record ->
+            Option.iter
+              (fun prefix ->
+                if not (H.matches_function prefix ~name:(Visibility.name entry))
+                then invalid_arg "owned hash prefix has another source function";
+                H.increment prefix)
+              record.native.hash_prefix)
+          (record_for_entry registry entry)
+    | Visibility.Absent | Visibility.Shadowed_by_local -> ());
+    registry.count_frontier <- Some generation;
+    Ok ())
 
 let transition ~earlier ~later =
   let rec follows revision =
@@ -393,12 +479,39 @@ let capture_implicit_arguments record receipt =
     Error
       "implicit arguments require their original live selected native record"
   else
-    Ok
-      {
-        implicit_record = record;
-        implicit_receipt = receipt;
-        implicit_snapshot = captured;
-      }
+    let registry = record.registry in
+    if
+      Option.is_some record.native.hash_prefix
+      && registry.domain <> Domain.self ()
+    then Error "implicit hash lookup has another original record domain"
+    else (
+      if not (List.exists (( == ) receipt) registry.implicit_finds) then (
+        let context = (Parser.implicit_command receipt).command_context in
+        let owns_source =
+          Parser.context_mode context = Frontend.Preprocessor.Jit
+          && Option.fold ~none:false
+               ~some:(( == ) (Parser.implicit_environment receipt))
+               registry.count_environment
+          && Option.fold ~none:false
+               ~some:(( == ) (Parser.context_sources context))
+               registry.count_sources
+        in
+        if owns_source then (
+          if not (count_frontier_is_current registry) then
+            invalidate_counts registry;
+          Option.iter H.increment record.native.hash_prefix;
+          registry.count_frontier <-
+            Some
+              (Visibility.Environment.lexical_generation
+                 (Parser.implicit_environment receipt)))
+        else invalidate_counts registry;
+        registry.implicit_finds <- receipt :: registry.implicit_finds);
+      Ok
+        {
+          implicit_record = record;
+          implicit_receipt = receipt;
+          implicit_snapshot = captured;
+        })
 
 let capture_implicit_emission arguments receipt =
   if
@@ -418,7 +531,18 @@ let create_registry ~mode ~table ~namespace =
     Error "native function record phases require JIT compilation"
   else if not (C.namespace_owns_table namespace table) then
     Error "native function registry requires its exact namespace table"
-  else Ok { table; namespace; records = [] }
+  else
+    Ok
+      {
+        table;
+        namespace;
+        records = [];
+        domain = Domain.self ();
+        count_environment = None;
+        count_sources = None;
+        count_frontier = None;
+        implicit_finds = [];
+      }
 
 let same_source_owner left right =
   left.Parser.function_environment == right.Parser.function_environment
@@ -483,10 +607,75 @@ let begin_header ?activation ?internal_target registry publication source =
         with
         | Error message -> Error message
         | Ok transcript ->
+            let context =
+              source.function_header.declaration_command.command_context
+            in
+            let count_owner =
+              if
+                registry.domain <> Domain.self ()
+                || (not (Parser.function_publication_is_current source))
+                || not
+                     (Parser.join_lookup_is_current source.function_join_lookup)
+              then false
+              else
+                let environment = source.function_environment in
+                let sources = Parser.context_sources context in
+                match (registry.count_environment, registry.count_sources) with
+                | None, None ->
+                    registry.count_environment <- Some environment;
+                    registry.count_sources <- Some sources;
+                    registry.count_frontier <-
+                      Some
+                        (Visibility.Environment.lexical_generation environment);
+                    true
+                | Some original, Some original_sources
+                  when original == environment && original_sources == sources ->
+                    if not (count_frontier_is_current registry) then
+                      invalidate_counts registry;
+                    registry.count_frontier <-
+                      Some
+                        (Visibility.Environment.lexical_generation environment);
+                    true
+                | _ -> false
+            in
+            let joined =
+              if count_owner then
+                Option.bind
+                  (Parser.join_lookup_selection source.function_join_lookup)
+                  (record_for_entry registry)
+              else None
+            in
+            Option.iter
+              (fun record -> Option.iter H.increment record.native.hash_prefix)
+              joined;
+            (match (previous, joined) with
+            | Some prior, Some selected
+              when prior.native == selected.native
+                   && prior.native.state.extern = Some true -> (
+                match use_count prior with
+                | Some count when count < 3L -> (
+                    Common.Diagnostic.make ~code:"HCSEMA0075"
+                      ~severity:Common.Diagnostic.Warning
+                      ~primary:source.function_name.location.span
+                      ~message:
+                        (Printf.sprintf "Unused extern '%s'"
+                           source.function_name.spelling)
+                      ()
+                    |> Parser.context_emit_counted_compiler_warning context
+                    |> function
+                    | Ok () -> ()
+                    | Error message -> invalid_arg message)
+                | _ -> ())
+            | _ -> ());
             let native, saved_arguments, saved_header =
               match previous with
               | Some prior when prior.native.state.extern = Some true ->
                   let saved = snapshot prior in
+                  if count_owner then (
+                    Option.iter H.reset prior.native.hash_prefix;
+                    prior.native.count_known <-
+                      Option.is_some prior.native.hash_prefix)
+                  else prior.native.count_known <- false;
                   let old = prior.native.state in
                   let state =
                     {
@@ -533,6 +722,13 @@ let begin_header ?activation ?internal_target registry publication source =
                       identity = ref ();
                       state;
                       revision = { previous_revision = None };
+                      hash_prefix =
+                        (if count_owner && not unknown then
+                           Some
+                             (H.create_function
+                                ~name:source.function_name.spelling)
+                         else None);
+                      count_known = count_owner && not unknown;
                     },
                     None,
                     None )

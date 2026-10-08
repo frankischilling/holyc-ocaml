@@ -141,6 +141,7 @@ and lexical_lookup = {
   lookup_definition : Definition.t option;
   lookup_predefined : Predefined.t option;
   lookup_ordinal : int;
+  lookup_generation : Symbol_visibility.lexical_generation;
 }
 
 let lexical_lookup_environment lookup = lookup.lookup_environment
@@ -150,6 +151,7 @@ let lexical_lookup_selection lookup = lookup.lookup_selection
 let lexical_lookup_definition lookup = lookup.lookup_definition
 let lexical_lookup_predefined lookup = lookup.lookup_predefined
 let lexical_lookup_ordinal lookup = lookup.lookup_ordinal
+let lexical_lookup_generation lookup = lookup.lookup_generation
 
 let lexical_lookup_is_current lookup =
   lookup.lookup_domain = Domain.self ()
@@ -257,6 +259,7 @@ type raw_lookup = {
   raw_selection : Symbol_visibility.lookup;
   raw_definition : Definition.t option;
   raw_predefined : Predefined.t option;
+  raw_generation : Symbol_visibility.lexical_generation;
 }
 
 let read_lexer_item stream =
@@ -288,6 +291,8 @@ let read_lexer_item stream =
                 name;
             raw_definition = Definition.Environment.find stream.definitions name;
             raw_predefined = Predefined.find name;
+            raw_generation =
+              Symbol_visibility.Environment.mark_lexical_read stream.symbols;
           }
     | _ -> None
   in
@@ -308,6 +313,7 @@ let read_lexer_item stream =
           lookup_definition = raw.raw_definition;
           lookup_predefined = raw.raw_predefined;
           lookup_ordinal = stream.next_lookup_ordinal;
+          lookup_generation = raw.raw_generation;
         }
       in
       stream.next_lookup_ordinal <- stream.next_lookup_ordinal + 1;

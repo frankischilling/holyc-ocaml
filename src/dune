@@ -15,5 +15,5 @@
  (public_name holyc-ocaml.lib)
  (foreign_stubs
   (language c)
-  (names native_execution_stubs))
+  (names native_execution_stubs compiler_hash_stubs))
  (libraries dune-build-info unix yojson))

@@ -34,6 +34,8 @@ these payload reads.
 side effects, narrow values, data aliases and callback ownership visible. It
 prints five copies of 42 followed by semicolons and returns 42. Its four header
 warnings come from Count, Width and Both; Quiet uses the disabled header mask.
+Each of its six extern joins also emits an unused-extern warning, including
+Quiet, for ten diagnostics in total.
 Native execution of this combined example uses
 `run --target=host-jit-task --code-byte-limit=1048576`.
 
@@ -118,9 +120,10 @@ The IR and native source drivers route those reads into their active declaration
 ledger. Each ledger validates original source/runtime ownership, current
 context, environment, mode and domain, and rejects an already-consumed stream
 ordinal. Its read total records accepted source observations; it is not
-`CHash.use_cnt`. The next consumer still needs original hash-record ownership
-and shared counts before it can emit an unused-extern warning. The scoped
-service alone grants no execution or native counter authority.
+`CHash.use_cnt`. The owned JIT function consumer separately checks its original
+registry, source manager, writer environment, domain and selected entry before
+incrementing a native count. The scoped service alone grants no execution or
+native counter authority.
 
 Function publications and non-extern aggregate publications retain a separate
 kind-filtered join receipt before parameter or body input. JIT searches the
@@ -130,15 +133,48 @@ directly. The selection precedes native extern/import filtering and does not
 assert that the selected record will be reused. These receipts expire with the
 original focused declaration callback, including on a later parser failure.
 
-These observations do not yet increment native `CHash.use_cnt` or emit unused
-extern warnings. Source definitions now publish their exact replacement objects
+Owned JIT function records now allocate the 24-byte `CHash` prefix with the
+pinned name, function type and U32 `use_cnt` field. Original lexer selections,
+function joins and admitted implicit-output selections increment that shared
+field. Explicit function aliases follow their physical source ancestry; copied
+names, origins and call shapes do not establish shared storage. Local member
+selections skip hash counting. A parameter name is read before `MemberAdd`, so
+that initial read can still select an existing function of the same name.
+
+A joined explicit extern emits `HCSEMA0075`, `Unused extern '<name>'`, when its
+known count is below three. The declaration-name read and join each increment
+before this check. The warning precedes parameter input, increments the focused
+warning counter, and survives a later parameter error. It ignores option 19.
+The reused prefix then resets to zero before parameters are read. Bare
+`I64 F();` defines an empty function: its record receives the join lookup count
+before the non-extern filter, but is not reused or warned about as an extern.
+Count updates do not advance executable revisions or grant call authority.
+
+[The unused-extern example](../examples/compiler-unused-extern.hc) disables
+option 19, emits one unused-extern warning, prints `42;` and returns 42. Its CLI
+checks run through IR and native tasks in both outer modes. Reached `defined`
+operands count; captured macro replacement text and skipped branch text do not.
+The lookahead already read before skipping a branch still counts.
+Warnings remain in the diagnostic stream when later source fails.
+
+Every identifier or keyword read advances a source journal, even without a
+consumer. Omitted reads invalidate count knowledge, including reads through
+views that share or copy original entries. An untracked predecessor retains an
+unavailable count; it cannot warn from an assumed zero. Reuse resets a known
+owned prefix for the new header even when the preceding total was unavailable.
+
+Source definitions publish their exact replacement objects
 in symbol order, and expansion consumes the original lexer selection. Locals
 and selected nondefinition symbols suppress expansion. Predefined fallbacks and
 library definitions injected without a symbol entry remain separate metadata;
-the frontend selection does not establish native hash-record ownership. The
-remaining consumer must validate
-record ownership, share counts across actual reused records and aliases, wrap
-increments as U32, and warn before resetting a joined record's count. The
-original sites are Kernel/KHashA.HC:31-70, Compiler/Lex.HC:492-513 and
-Compiler/PrsStmt.HC:1-112. Runtime calls and AST reference totals cannot replace
-these source-phase observations.
+the frontend selection does not establish native hash-record ownership.
+
+This allocation covers the function prefix and these admitted lookup producers.
+It is not a complete `CHashFun`, `CHashTable` or `CCmpCtrl`, and it does not
+implement native hash arithmetic or table-chain lookup. Full counts still need
+the remaining compiler, assembler and loader producers, native table ownership,
+and class/global/member records. Reached `try`, `catch` or `asm` input invalidates
+the current admitted totals because those additional consumers are unfinished.
+Ordinary AOT joins do not use this registry. The original sites are
+Kernel/KHashA.HC:31-70, Compiler/Lex.HC:492-513 and Compiler/PrsStmt.HC:62-112.
+Runtime calls and AST reference totals cannot replace these source observations.

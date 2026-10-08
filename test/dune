@@ -1,4 +1,15 @@
 (test
+ (name test_unused_extern_cli)
+ (modules test_unused_extern_cli)
+ (libraries unix yojson)
+ (deps ../examples/compiler-unused-extern.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/compiler-unused-extern.hc})))
+
+(test
  (name test_definition_selection_cli)
  (modules test_definition_selection_cli)
  (libraries unix yojson)
@@ -523,6 +534,7 @@
   test_hash_lookup_observations
   test_definition_selection
   test_lexical_consumers
+  test_owned_function_counts
   test_parser
   test_conditional_expression
   test_assert_directive
