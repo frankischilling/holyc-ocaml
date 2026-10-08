@@ -3,4 +3,8 @@ type 'program t
     requires its exact original program, actual work and live task arena. *)
 
 val consume :
-  'program t -> program:'program -> work:int -> (int64, string) result
+  ?scope:Native_source_suspension.t ->
+  'program t ->
+  program:'program ->
+  work:int ->
+  (int64, string) result

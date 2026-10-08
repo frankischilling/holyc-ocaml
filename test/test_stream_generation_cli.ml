@@ -83,6 +83,22 @@ let () =
     (fun target ->
       List.iter
         (fun mode ->
+          temporary ".hc"
+            {|#exe {Print("before;");I64 N=StreamExePrint("I64 Count=2;I64 Values[Count]={20,22};I64 ChildFn(){return Values[0]+Values[1];}Print(\"child;\");ChildFn();");Print("after;");StreamPrint("%d;",N);}|}
+            (fun path ->
+              let child = invoke ~mode target path in
+              require
+                (child |> member "final_value" |> member "value" |> to_string
+                 = "42"
+                && child |> member "output_hex" |> to_string
+                   = "6265666f72653b6368696c643b61667465723b")
+                "original child machine result or ordered output changed";
+              if native_only then
+                require
+                  (child |> member "native" |> member "fragments" |> to_list
+                  |> List.for_all (fun fragment ->
+                      fragment |> member "outcome" |> to_string = "success"))
+                  "actual child lacks completed native fragments");
           let declarations = invoke ~mode target declarations_example in
           require
             (declarations |> member "final_value" |> member "value" |> to_string

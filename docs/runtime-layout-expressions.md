@@ -47,5 +47,5 @@ Automatic bounds have no live function invocation frame while the declaration
 is parsed. [Class declarations inside function bodies](local-aggregate-declarations.md)
 also evaluate original runtime bounds and offsets during parsing, including in
 uncalled functions. AOT runtime relocation, runtime floating bounds, aggregate
-object execution, synchronous native StreamExePrint, exported ABI, loader
+object execution, exported ABI, loader
 acceptance and bootstrap remain separate work.

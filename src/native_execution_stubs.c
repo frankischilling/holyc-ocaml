@@ -1156,6 +1156,9 @@ static void native_retained_map(struct native_retained_program *program,
 
 static void native_source_enter(uint64_t *context);
 static void native_source_leave(uint64_t *context);
+static int native_source_borrows_arena(value scope_option, value arena_handle);
+static int native_source_borrows_program(value scope_option,
+                                          struct native_retained_program *program);
 
 static uint64_t native_retained_run(value handle, uint64_t *context, value entered)
 {
@@ -1187,11 +1190,15 @@ static uint64_t native_retained_run(value handle, uint64_t *context, value enter
 }
 
 static int native_task_borrow_code(struct native_retained_program *code,
-                                   struct native_retained_program *entry)
+                                   struct native_retained_program *entry, value scope_option)
 {
   int expected = 0;
   if (code == entry) return 1;
-  if (!atomic_compare_exchange_strong(&code->active, &expected, 1)) return 0;
+  if (!atomic_compare_exchange_strong(&code->active, &expected, 1)) {
+    if (!native_source_borrows_program(scope_option, code)) return 0;
+    atomic_fetch_add(&code->task_readers, 1);
+    return 1;
+  }
   if (code->closing || code->mapping == NULL) {
     atomic_store(&code->active, 0);
     return 0;
@@ -1209,9 +1216,9 @@ static void native_task_return_code(struct native_retained_program *code,
 
 static uint64_t native_retained_run_task(value handle, value arena_handle,
                                          uintnat required_arena_bytes,
-                                         uint64_t *context, value entered)
+                                         uint64_t *context, value entered, value scope_option)
 {
-  CAMLparam3(handle, arena_handle, entered);
+  CAMLparam4(handle, arena_handle, entered, scope_option);
   CAMLlocal1(borrowed_handles);
   struct native_retained_program *program = native_retained_get(handle);
   struct native_task_arena *arena = native_task_arena_get(arena_handle);
@@ -1219,6 +1226,7 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
   size_t owner_capacity, borrowed = 0;
   int program_expected = 0;
   int arena_expected = 0;
+  int borrowed_arena = native_source_borrows_arena(scope_option, arena_handle);
   uint64_t (*entry)(uint64_t *);
   uint64_t bits;
   uint64_t arena_address;
@@ -1235,17 +1243,17 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
     atomic_store(&program->active, 0);
     caml_invalid_argument("retained native image has been released");
   }
-  if (!atomic_compare_exchange_strong(&arena->active, &arena_expected, 1)) {
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &arena_expected, 1)) {
     atomic_store(&program->active, 0);
     caml_invalid_argument("native task arena is already active");
   }
   if (arena->closing || arena->mapping == NULL) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     atomic_store(&program->active, 0);
     caml_invalid_argument("native task arena has been released");
   }
   owner_capacity = arena->owner_capacity;
-  atomic_store(&arena->active, 0);
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
   atomic_store(&program->active, 0);
   if (owner_capacity > Max_wosize / 2 ||
       owner_capacity > SIZE_MAX / (2 * sizeof(*borrowed_codes)))
@@ -1253,6 +1261,7 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
   borrowed_handles = caml_alloc_tuple(2 * owner_capacity);
   for (size_t index = 0; index < 2 * owner_capacity; ++index)
     Store_field(borrowed_handles, index, Val_unit);
+  borrowed_arena = native_source_borrows_arena(scope_option, arena_handle);
   borrowed_codes = owner_capacity == 0 ? NULL :
     calloc(2 * owner_capacity, sizeof(*borrowed_codes));
   if (owner_capacity != 0 && borrowed_codes == NULL) caml_raise_out_of_memory();
@@ -1267,7 +1276,7 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
     caml_invalid_argument("retained native image has been released");
   }
   arena_expected = 0;
-  if (!atomic_compare_exchange_strong(&arena->active, &arena_expected, 1)) {
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &arena_expected, 1)) {
     free(borrowed_codes);
     atomic_store(&program->active, 0);
     caml_invalid_argument("native task arena is already active");
@@ -1276,7 +1285,8 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
     for (size_t index = 0; index < borrowed; ++index) \
       native_task_return_code(borrowed_codes[index], program); \
     free(borrowed_codes); \
-    atomic_store(&arena->active, 0); atomic_store(&program->active, 0); \
+    if (!borrowed_arena) { atomic_store(&arena->active, 0); } \
+    atomic_store(&program->active, 0); \
     caml_invalid_argument(message); \
   } while (0)
   if (arena->closing || arena->mapping == NULL)
@@ -1297,12 +1307,12 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
     memcpy(&address, (char *)arena->mapping + owner->address, 8);
     memcpy(&target, (char *)arena->mapping + owner->target, 8);
     if (address != owner->canonical || target != owner->current_target ||
-        !native_task_borrow_code(owner->program, program))
+        !native_task_borrow_code(owner->program, program, scope_option))
       BORROW_FAIL("native task code owner is corrupt, released or active");
     borrowed_codes[borrowed] = owner->program;
     Store_field(borrowed_handles, borrowed, owner->canonical_handle);
     ++borrowed;
-    if (!native_task_borrow_code(owner->current_program, program)) {
+    if (!native_task_borrow_code(owner->current_program, program, scope_option)) {
       BORROW_FAIL("native task code owner is corrupt, released or active");
     }
     borrowed_codes[borrowed] = owner->current_program;
@@ -1322,7 +1332,7 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
     native_task_return_code(borrowed_codes[index], program);
   }
   free(borrowed_codes);
-  atomic_store(&arena->active, 0);
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
   atomic_store(&program->active, 0);
   if (!pointer_ok)
     caml_failwith("retained native task status integrity failure: arena pointer was modified");
@@ -1618,6 +1628,7 @@ struct native_generation_capture {
   struct native_deferred_cleanup cleanup;
   value target, bytes, arena, scope;
   uint64_t before, after;
+  int prefix;
   _Atomic int consumed;
 };
 
@@ -1654,7 +1665,7 @@ static struct custom_operations native_generation_capture_operations = {
 
 static value native_generation_capture_create(value target, value bytes,
                                                value arena, value scope,
-                                               uint64_t before, uint64_t after)
+                                               uint64_t before, uint64_t after, int prefix)
 {
   CAMLparam4(target, bytes, arena, scope);
   CAMLlocal1(handle);
@@ -1672,6 +1683,7 @@ static value native_generation_capture_create(value target, value bytes,
   capture->scope = scope;
   capture->before = before;
   capture->after = after;
+  capture->prefix = prefix;
   atomic_init(&capture->consumed, 0);
   caml_register_generational_global_root(&capture->target);
   caml_register_generational_global_root(&capture->bytes);
@@ -1752,13 +1764,15 @@ struct native_source_frame {
 struct native_source_bridge {
   struct native_deferred_cleanup cleanup;
   value callback, exception_seen, exception_value;
-  value generation, arena, program, budget, handle;
+  value generation, arena, program, budget, byte_budget, handle;
   struct native_source_frame *frame;
   uint64_t *context;
   struct native_output_buffers *buffers;
   const struct custom_operations *word_operations;
   uint64_t consumed_steps, output_allowance, work_allowance, generation_before, generation_allowance;
   uint64_t checkpoint_output, checkpoint_work, checkpoint_generation;
+  uint64_t consumed_output, consumed_work;
+  uint64_t child_steps, child_output, child_work, child_generation;
   int live;
 };
 
@@ -1799,12 +1813,64 @@ static struct native_source_scope *native_source_scope_get(value handle)
   return scope;
 }
 
+static struct native_source_scope *native_source_scope_option(value option)
+{
+  if (option == Val_none) return NULL;
+  if (!Is_block(option) || Tag_val(option) != 0 || Wosize_val(option) != 1)
+    caml_invalid_argument("native source entry scope is not an option");
+  return native_source_scope_get(Field(option, 0));
+}
+
+static int native_source_frame_owns_arena(struct native_source_frame *current,
+                                          value arena_handle)
+{
+  for (struct native_source_frame *frame = current; frame != NULL; frame = frame->previous) {
+    if (frame->bridge->budget == current->bridge->budget && frame->bridge->arena == arena_handle) {
+      struct native_task_arena *arena = native_task_arena_get(arena_handle);
+      if (!atomic_load(&arena->active) || arena->closing || arena->mapping == NULL ||
+          frame->context[9] != (uint64_t)(uintptr_t)arena->mapping)
+        caml_invalid_argument("native source ancestor lost its original active arena");
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int native_source_borrows_arena(value scope_option, value arena_handle)
+{
+  struct native_source_scope *scope = native_source_scope_option(scope_option);
+  return scope != NULL && native_source_frame_owns_arena(scope->frame, arena_handle);
+}
+
+static int native_source_borrows_program(value scope_option,
+                                          struct native_retained_program *program)
+{
+  struct native_source_scope *scope = native_source_scope_option(scope_option);
+  if (scope == NULL) return 0;
+  for (struct native_source_frame *frame = scope->frame; frame != NULL; frame = frame->previous) {
+    if (frame->bridge->budget == scope->frame->bridge->budget &&
+        native_retained_get(frame->bridge->program) == program &&
+        atomic_load(&program->active) && !program->closing && program->mapping != NULL)
+      return 1;
+  }
+  return 0;
+}
+
+CAMLprim value holyc_native_source_suspension_owns_arena(value scope_handle, value arena_handle)
+{
+  CAMLparam2(scope_handle, arena_handle);
+  native_collect_deferred();
+  CAMLreturn(Val_bool(native_source_frame_owns_arena(
+    native_source_scope_get(scope_handle)->frame, arena_handle)));
+}
+
 struct native_source_checkpoint {
   struct native_deferred_cleanup cleanup;
   value scope, budget, output, generation;
   uint64_t steps, work;
   uint64_t output_before, work_before, generation_before;
   uint64_t output_after, work_after, generation_after;
+  uint64_t child_steps, child_output, child_work, child_generation;
   atomic_int consumed;
 };
 
@@ -1838,9 +1904,10 @@ static struct custom_operations native_source_checkpoint_operations = {
 static uint64_t native_source_own_work(struct native_source_bridge *bridge)
 {
   uint64_t *context = bridge->context;
-  if (context[12] > bridge->work_allowance)
+  if (context[12] > bridge->work_allowance ||
+      bridge->child_work > bridge->work_allowance - context[12])
     caml_failwith("native source checkpoint work exceeds its original allowance");
-  return bridge->work_allowance - context[12];
+  return bridge->work_allowance - context[12] - bridge->child_work;
 }
 
 CAMLprim value holyc_native_source_checkpoint_create(value scope_handle, value budget)
@@ -1856,24 +1923,28 @@ CAMLprim value holyc_native_source_checkpoint_create(value scope_handle, value b
   if (context[3] > context[2] || context[13] < bridge->checkpoint_output ||
       context[13] > bridge->buffers->output_capacity ||
       context[11] > bridge->output_allowance ||
-      context[13] != bridge->output_allowance - context[11] ||
+      bridge->child_output > bridge->output_allowance - context[11] ||
+      context[13] != bridge->output_allowance - context[11] - bridge->child_output ||
       context[16] < bridge->checkpoint_generation ||
       context[16] > bridge->buffers->generation_capacity ||
       context[15] > bridge->generation_allowance ||
-      context[16] != bridge->generation_allowance - context[15] ||
+      bridge->child_generation > bridge->generation_allowance - context[15] ||
+      context[16] != bridge->generation_allowance - context[15] - bridge->child_generation ||
       own_work < bridge->checkpoint_work ||
       own_work < context[13] + context[16] ||
       context[10] != (uint64_t)(uintptr_t)bridge->buffers->output ||
       context[14] != (uint64_t)(uintptr_t)bridge->buffers->generation)
     caml_failwith("native source checkpoint has inconsistent physical counters");
   struct native_source_checkpoint snapshot = {
-    .steps = bridge->consumed_steps + context[3],
+    .steps = bridge->consumed_steps + context[3] + bridge->child_steps,
     .work = own_work - bridge->checkpoint_work,
     .output_before = bridge->checkpoint_output,
     .work_before = bridge->checkpoint_work,
     .generation_before = bridge->checkpoint_generation,
     .output_after = context[13], .work_after = own_work,
-    .generation_after = context[16]
+    .generation_after = context[16],
+    .child_steps = bridge->child_steps, .child_output = bridge->child_output,
+    .child_work = bridge->child_work, .child_generation = bridge->child_generation
   };
   output = caml_alloc_string((mlsize_t)(snapshot.output_after - snapshot.output_before));
   memcpy((char *)String_val(output), bridge->buffers->output + snapshot.output_before,
@@ -1882,8 +1953,8 @@ CAMLprim value holyc_native_source_checkpoint_create(value scope_handle, value b
   memcpy((char *)String_val(bytes), bridge->buffers->generation + snapshot.generation_before,
     (size_t)(snapshot.generation_after - snapshot.generation_before));
   generation = native_generation_capture_create(bridge->generation, bytes, bridge->arena,
-    scope_handle, bridge->generation_before + snapshot.generation_before,
-    bridge->generation_before + snapshot.generation_after);
+    scope_handle, bridge->generation_before + bridge->child_generation + snapshot.generation_before,
+    bridge->generation_before + bridge->child_generation + snapshot.generation_after, 1);
   handle = caml_alloc_custom_mem(&native_source_checkpoint_operations,
     sizeof(struct native_source_checkpoint *), sizeof(snapshot));
   *((struct native_source_checkpoint **)Data_custom_val(handle)) = NULL;
@@ -1921,13 +1992,17 @@ CAMLprim value holyc_native_source_checkpoint_consume(value handle, value scope_
   output = caml_alloc_string(caml_string_length(checkpoint->output));
   memcpy((char *)String_val(output), String_val(checkpoint->output), caml_string_length(checkpoint->output));
   result = caml_alloc_tuple(4);
-  if (bridge->consumed_steps + bridge->context[3] != checkpoint->steps ||
+  if (bridge->consumed_steps + bridge->context[3] + bridge->child_steps != checkpoint->steps ||
       bridge->checkpoint_output != checkpoint->output_before ||
       bridge->checkpoint_work != checkpoint->work_before ||
       bridge->checkpoint_generation != checkpoint->generation_before ||
       bridge->context[13] != checkpoint->output_after ||
       native_source_own_work(bridge) != checkpoint->work_after ||
-      bridge->context[16] != checkpoint->generation_after)
+      bridge->context[16] != checkpoint->generation_after ||
+      bridge->child_steps != checkpoint->child_steps ||
+      bridge->child_output != checkpoint->child_output ||
+      bridge->child_work != checkpoint->child_work ||
+      bridge->child_generation != checkpoint->child_generation)
     caml_invalid_argument("native source checkpoint no longer owns its original prefix");
   int expected = 0;
   if (!atomic_compare_exchange_strong(&checkpoint->consumed, &expected, 1))
@@ -1953,6 +2028,7 @@ static void native_source_bridge_dispose(struct native_deferred_cleanup *cleanup
   caml_remove_generational_global_root(&bridge->arena);
   caml_remove_generational_global_root(&bridge->program);
   caml_remove_generational_global_root(&bridge->budget);
+  caml_remove_generational_global_root(&bridge->byte_budget);
   free(bridge);
 }
 
@@ -1985,9 +2061,9 @@ static struct custom_operations native_source_bridge_operations = {
 };
 
 static value native_source_bridge_create(value callback, value generation,
-                                          value arena, value program)
+                                          value arena, value program, value byte_budget)
 {
-  CAMLparam4(callback, generation, arena, program);
+  CAMLparam5(callback, generation, arena, program, byte_budget);
   CAMLlocal2(handle, word);
   struct native_source_bridge *bridge;
   if (!Is_block(callback) || Tag_val(callback) != 0 || Wosize_val(callback) != 4 ||
@@ -2011,6 +2087,7 @@ static value native_source_bridge_create(value callback, value generation,
   bridge->arena = arena;
   bridge->program = program;
   bridge->budget = Field(callback, 3);
+  bridge->byte_budget = byte_budget;
   bridge->word_operations = Custom_ops_val(word);
   caml_register_generational_global_root(&bridge->callback);
   caml_register_generational_global_root(&bridge->exception_seen);
@@ -2019,6 +2096,7 @@ static value native_source_bridge_create(value callback, value generation,
   caml_register_generational_global_root(&bridge->arena);
   caml_register_generational_global_root(&bridge->program);
   caml_register_generational_global_root(&bridge->budget);
+  caml_register_generational_global_root(&bridge->byte_budget);
   *((struct native_source_bridge **)Data_custom_val(handle)) = bridge;
   CAMLreturn(handle);
 }
@@ -2207,9 +2285,12 @@ CAMLprim value holyc_native_consume_generation_capture(value handle, value targe
     caml_invalid_argument("native generation capture has another original source scope");
   if (scope_handle != Val_unit) {
     struct native_source_frame *frame = native_source_scope_get(scope_handle)->frame;
-    if (frame->bridge->arena != capture->arena || frame->bridge->generation != target)
+    if (capture->prefix &&
+        (frame->bridge->arena != capture->arena || frame->bridge->generation != target))
       caml_invalid_argument("native generation prefix has another physical caller");
-    borrowed = 1;
+    borrowed = native_source_frame_owns_arena(frame, capture->arena);
+    if (capture->prefix && !borrowed)
+      caml_invalid_argument("native generation prefix lost its physical arena");
   }
   /* Allocation happens before consumption. Collection cannot move the C owner,
      and a failed allocation leaves the original capture available. */
@@ -2239,12 +2320,12 @@ static value native_execute_program_output(value code, value functions,
                                             value consumed, value entered,
                                             value task_arena,
                                             value required_arena_bytes,
-                                            value generation)
+                                            value generation, value authority)
 {
   CAMLparam5(code, functions, abi, limits, storage);
   CAMLxparam5(retained, consumed, entered, task_arena,
               required_arena_bytes);
-  CAMLxparam1(generation);
+  CAMLxparam2(generation, authority);
   native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -2252,8 +2333,12 @@ static value native_execute_program_output(value code, value functions,
   CAMLlocal5(buffer_owner, captured, status, result, boxed_kind);
   CAMLlocal5(boxed_site, boxed_steps, boxed_value_site, boxed_bits, arena_image);
   CAMLlocal4(generation_bytes, generation_handle, generation_saved, bridge_owner);
+  CAMLlocal2(scope_option, scope_handle);
+  scope_option = Val_none;
+  scope_handle = Val_unit;
   struct native_output_buffers *buffers;
   struct native_source_bridge *bridge = NULL;
+  struct native_source_bridge *parent = NULL;
   intnat step_limit;
   intnat frame_limit;
   intnat depth_limit;
@@ -2276,6 +2361,7 @@ static value native_execute_program_output(value code, value functions,
   uint64_t written;
   uint64_t work;
   uint64_t consumed_steps = 0;
+  uint64_t consumed_output = 0, consumed_work = 0;
   uint64_t remaining_steps;
   uint64_t remaining_output;
   uint64_t remaining_work;
@@ -2288,7 +2374,7 @@ static value native_execute_program_output(value code, value functions,
 
   if (generation != Val_unit) {
     if (!Is_block(generation) || Tag_val(generation) != 0 ||
-        (Wosize_val(generation) != 5 && Wosize_val(generation) != 6) ||
+        Wosize_val(generation) != 7 ||
         !Is_long(Field(generation, 1)) || !Is_long(Field(generation, 2)) ||
         !Is_long(Field(generation, 3)) ||
         (Field(generation, 1) != Val_true && Field(generation, 1) != Val_false) ||
@@ -2391,9 +2477,40 @@ static value native_execute_program_output(value code, value functions,
         prior_output > prior_work)
       caml_invalid_argument("retained native consumed budget exceeds its limits");
     consumed_steps = (uint64_t)prior_steps;
+    consumed_output = (uint64_t)prior_output;
+    consumed_work = (uint64_t)prior_work;
     remaining_steps -= consumed_steps;
     remaining_output -= (uint64_t)prior_output;
     remaining_work -= (uint64_t)prior_work;
+  }
+  if (authority != Val_unit) {
+    if (!Is_block(authority) || Tag_val(authority) != 0 || Wosize_val(authority) != 2)
+      caml_invalid_argument("native task entry has no original scope and budget authority");
+    scope_option = Field(authority, 0);
+    struct native_source_scope *scope = native_source_scope_option(scope_option);
+    if (scope != NULL) {
+      scope_handle = Field(scope_option, 0);
+      parent = scope->frame->bridge;
+      uint64_t *caller = parent->context;
+      if (parent->budget != Field(authority, 1) || generation == Val_unit ||
+          parent->byte_budget != Field(generation, 6))
+        caml_invalid_argument("native child has another original cumulative or generation budget");
+      if (caller[3] > caller[2] || caller[13] != parent->checkpoint_output ||
+          caller[16] != parent->checkpoint_generation ||
+          native_source_own_work(parent) != parent->checkpoint_work ||
+          consumed_steps != parent->consumed_steps + caller[3] + parent->child_steps ||
+          consumed_output != parent->consumed_output + caller[13] + parent->child_output ||
+          consumed_work != parent->consumed_work + parent->checkpoint_work + parent->child_work)
+        caml_invalid_argument("native child does not follow the physical caller's admitted checkpoint");
+      if (remaining_steps > caller[2] - caller[3] || remaining_output > caller[11] ||
+          remaining_work > caller[12] || generation_limit > caller[15])
+        caml_invalid_argument("native child exceeds its physical caller's remaining allowance");
+      frame_limit = frame_limit < (intnat)caller[6] ? frame_limit : (intnat)caller[6];
+      depth_limit = depth_limit < (intnat)caller[7] ? depth_limit : (intnat)caller[7];
+      active_stack_limit = active_stack_limit < (intnat)caller[8] ? active_stack_limit : (intnat)caller[8];
+      if (entry_stack_bytes > active_stack_limit)
+        caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
+    }
   }
   if (task_storage) {
     if (retained == Val_unit || consumed == Val_unit || !Is_long(required_arena_bytes))
@@ -2448,17 +2565,19 @@ static value native_execute_program_output(value code, value functions,
   output_address = (uint64_t)(uintptr_t)buffers->output;
   generation_address = (uint64_t)(uintptr_t)buffers->generation;
   formatted_address = (uint64_t)(uintptr_t)buffers->formatted;
-  if (generation != Val_unit && Wosize_val(generation) == 6 &&
+  if (generation != Val_unit &&
       Field(generation, 5) != Val_none) {
     value callback = Field(generation, 5);
     if (!Is_block(callback) || Tag_val(callback) != 0 || Wosize_val(callback) != 1 ||
         retained == Val_unit)
       caml_invalid_argument("native source callback requires its original retained task entry");
     bridge_owner = native_source_bridge_create(Field(callback, 0),
-      Field(generation, 0), task_arena, retained);
+      Field(generation, 0), task_arena, retained, Field(generation, 6));
     bridge = *((struct native_source_bridge **)Data_custom_val(bridge_owner));
     bridge->buffers = buffers;
     bridge->consumed_steps = consumed_steps;
+    bridge->consumed_output = consumed_output;
+    bridge->consumed_work = consumed_work;
     bridge->output_allowance = remaining_output;
     bridge->work_allowance = remaining_work;
     bridge->generation_before = (uint64_t)Long_val(Field(generation, 3)) - generation_limit;
@@ -2486,7 +2605,7 @@ static value native_execute_program_output(value code, value functions,
         if (required < 0 || (uintnat)required != (uintnat)arena_length)
           caml_invalid_argument("native task fragment arena extent disagrees with its image");
         (void)native_retained_run_task(retained, task_arena,
-                                       (uintnat)required, context, entered);
+                                       (uintnat)required, context, entered, scope_option);
       } else {
         (void)native_retained_run(retained, context, entered);
       }
@@ -2504,13 +2623,17 @@ static value native_execute_program_output(value code, value functions,
     if (context[21] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_source_callback) ||
         context[22] != (uint64_t)(uintptr_t)bridge)
       caml_failwith("native source callback status integrity failure: owner was modified");
-    if (context[2] != remaining_steps)
+    uint64_t child_steps = bridge == NULL ? 0 : bridge->child_steps;
+    uint64_t child_output = bridge == NULL ? 0 : bridge->child_output;
+    uint64_t child_work = bridge == NULL ? 0 : bridge->child_work;
+    uint64_t child_generation = bridge == NULL ? 0 : bridge->child_generation;
+    if (context[2] > remaining_steps || child_steps != remaining_steps - context[2])
       caml_failwith("native program status integrity failure: budget was modified");
-    if (context[3] > remaining_steps)
+    if (context[3] > context[2])
       caml_failwith("native program status integrity failure: steps exceed the remaining budget");
     if (consumed != Val_unit &&
-        ((context[0] == 3 && context[3] != remaining_steps) ||
-         (context[3] == 0 && (context[0] != 3 || remaining_steps != 0))))
+        ((context[0] == 3 && context[3] != context[2]) ||
+         (context[3] == 0 && (context[0] != 3 || context[2] != 0))))
       caml_failwith("retained native status integrity failure: activation work disagrees with its fault");
     if (context[6] != (uint64_t)frame_limit)
       caml_failwith("native program status integrity failure: frame quota was not restored");
@@ -2525,13 +2648,17 @@ static value native_execute_program_output(value code, value functions,
         context[13] > remaining_output)
       caml_failwith("native program status integrity failure: output counters exceed their bounds");
 
-    written = remaining_output - context[11];
-    work = remaining_work - context[12];
+    if (child_output > remaining_output - context[11] ||
+        child_work > remaining_work - context[12])
+      caml_failwith("native child output exceeds its joined allowance");
+    written = remaining_output - context[11] - child_output;
+    work = remaining_work - context[12] - child_work;
     if (context[13] != written)
       caml_failwith("native program status integrity failure: output byte count is inconsistent");
 
     if (context[14] != generation_address || context[15] > generation_limit ||
-        context[16] != generation_limit - context[15] || context[17] != generation_active ||
+        child_generation > generation_limit - context[15] ||
+        context[16] != generation_limit - context[15] - child_generation || context[17] != generation_active ||
         context[18] != formatted_address || context[19] != formatted_limit || context[20] != 0)
       caml_failwith("native generation status integrity failure: capture context was modified");
     generation_written = context[16];
@@ -2539,6 +2666,22 @@ static value native_execute_program_output(value code, value functions,
         generation_written > buffers->generation_capacity ||
         work < written + generation_written)
       caml_failwith("native generation status integrity failure: bytes disagree with active work");
+
+    if (parent != NULL) {
+      uint64_t steps_used = context[3] + child_steps;
+      uint64_t output_used = written + child_output;
+      uint64_t work_used = work + child_work;
+      uint64_t generation_used = generation_written + child_generation;
+      uint64_t *caller = parent->context;
+      (void)native_source_scope_get(scope_handle);
+      if (steps_used > caller[2] - caller[3] || output_used > caller[11] ||
+          work_used > caller[12] || generation_used > caller[15])
+        caml_failwith("native child result exceeds its original physical caller");
+      caller[2] -= steps_used; caller[11] -= output_used;
+      caller[12] -= work_used; caller[15] -= generation_used;
+      parent->child_steps += steps_used; parent->child_output += output_used;
+      parent->child_work += work_used; parent->child_generation += generation_used;
+    }
 
     /* Validate every native result before allocating the exact capture. The
        rooted custom owner retains the fixed source addresses across allocation. */
@@ -2560,8 +2703,8 @@ static value native_execute_program_output(value code, value functions,
         memcpy((char *)String_val(generation_bytes), buffers->generation + generation_before,
           (size_t)(generation_written - generation_before));
       generation_handle = native_generation_capture_create(Field(generation, 0),
-        generation_bytes, task_arena, Val_unit, frontier + generation_before,
-        frontier + generation_written);
+        generation_bytes, task_arena, scope_handle, frontier + child_generation + generation_before,
+        frontier + child_generation + generation_written, 0);
       generation_saved = caml_alloc_small(1, 0);
       Field(generation_saved, 0) = generation_handle;
       caml_modify(&Field(Field(generation, 4), 0), generation_saved);
@@ -2569,7 +2712,7 @@ static value native_execute_program_output(value code, value functions,
 
     boxed_kind = native_box_word(context[0]);
     boxed_site = native_box_word(context[1]);
-    boxed_steps = native_box_word(consumed_steps + context[3]);
+    boxed_steps = native_box_word(consumed_steps + context[3] + child_steps);
     boxed_value_site = native_box_word(context[4]);
     boxed_bits = native_box_word(context[5]);
     status = caml_alloc_tuple(5);
@@ -2598,7 +2741,7 @@ CAMLprim value holyc_native_execute_program_output(value code, value functions,
 {
   return native_execute_program_output(code, functions, abi, limits, storage,
                                         Val_unit, Val_unit, Val_unit,
-                                        Val_unit, Val_unit, Val_unit);
+                                        Val_unit, Val_unit, Val_unit, Val_unit);
 }
 
 #if HOLYC_NATIVE_PLATFORM != 0
@@ -2872,9 +3015,9 @@ CAMLprim value holyc_native_create_task_arena(value capacity)
 }
 
 CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
-                                             value required_extent, value literal_chunks)
+                                             value required_extent, value literal_chunks, value scope_option)
 {
-  CAMLparam4(handle, expected_used, required_extent, literal_chunks);
+  CAMLparam5(handle, expected_used, required_extent, literal_chunks, scope_option);
   native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -2919,24 +3062,25 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
             && (length == 0 || Byte_u(Field(chunk, 1), length - 1) != 0)))
       caml_invalid_argument("native task literal initialization leaves the new suffix");
   }
-  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+  int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
     caml_invalid_argument("native task arena is already active");
   if (arena->closing || arena->mapping == NULL) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("native task arena has been released");
   }
   if ((size_t)expected_prefix != arena->used) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("native task arena admission does not extend its current prefix");
   }
   target = (size_t)extent;
   if (target < arena->used || target > arena->capacity) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("native task arena extent is outside its reserved capacity");
   }
   commit_error = native_task_arena_commit(arena, target);
   if (commit_error != 0) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     native_os_error("task arena commit", commit_error);
   }
   if (target > arena->used)
@@ -2948,7 +3092,7 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
            String_val(payload), caml_string_length(payload));
   }
   arena->used = target;
-  atomic_store(&arena->active, 0);
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
   CAMLreturn(Val_long((intnat)target));
 #endif
   CAMLreturn(Val_unit);
@@ -2958,9 +3102,9 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
    descriptor stays private to the original task arena; no host address crosses
    this API. The first pass measures attempted scan work, and the second pass
    copies into an exactly sized OCaml buffer under the arena lease. */
-CAMLprim value holyc_native_read_task_default_string(value handle, value request)
+CAMLprim value holyc_native_read_task_default_string(value handle, value request, value scope_option)
 {
-  CAMLparam2(handle, request);
+  CAMLparam3(handle, request, scope_option);
   native_collect_deferred();
   CAMLlocal2(result, bytes);
 #if HOLYC_NATIVE_PLATFORM == 0
@@ -2984,11 +3128,12 @@ CAMLprim value holyc_native_read_task_default_string(value handle, value request
   if (prefix < 0 || descriptor < 0 || maximum_work < 0 || maximum_bytes < 0 ||
       (uintnat)maximum_bytes > HOLYC_NATIVE_MAX_LITERAL_BYTES)
     caml_invalid_argument("native saved string request has invalid bounds");
-  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+  int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
     caml_failwith("native task arena is already active");
   if (arena->closing || arena->mapping == NULL || arena->used != (size_t)prefix ||
       (uintnat)descriptor > arena->used || arena->used - (uintnat)descriptor < 32) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("native saved string has another live arena prefix or descriptor");
   }
   memcpy(fields, (char *)arena->mapping + descriptor, 32);
@@ -2999,7 +3144,7 @@ CAMLprim value holyc_native_read_task_default_string(value handle, value request
       extent > arena->used - (data - base) || offset > extent ||
       (flag != 0 && (flag < base || flag - base >= arena->used ||
                     extent > flag - base + 1))) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("native saved string descriptor leaves its original task arena");
   }
   for (;;) {
@@ -3014,19 +3159,19 @@ CAMLprim value holyc_native_read_task_default_string(value handle, value request
     byte = *(unsigned char *)(data + offset + count++);
     if (byte == 0) break;
   }
-  atomic_store(&arena->active, 0);
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
   bytes = caml_alloc_string(code == 0 ? count : 0);
   if (code == 0) {
     expected = 0;
-    if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    if (!native_source_borrows_arena(scope_option, handle) && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
       caml_failwith("native task arena is already active");
     if (arena->closing || arena->mapping == NULL || arena->used != (size_t)prefix) {
-      atomic_store(&arena->active, 0);
+      if (!borrowed_arena) atomic_store(&arena->active, 0);
       caml_failwith("native saved string arena expired during allocation");
     }
     memcpy(current, (char *)arena->mapping + descriptor, 32);
     if (memcmp(current, fields, 32) != 0) {
-      atomic_store(&arena->active, 0);
+      if (!borrowed_arena) atomic_store(&arena->active, 0);
       caml_failwith("native saved string descriptor changed during allocation");
     }
     for (i = 0; i < count; ++i) {
@@ -3036,7 +3181,7 @@ CAMLprim value holyc_native_read_task_default_string(value handle, value request
       Bytes_val(bytes)[i] = *(unsigned char *)(data + offset + i);
     }
     if (code == 0 && Byte_u(bytes, count - 1) != 0) code = 3;
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
   }
   result = caml_alloc_tuple(3);
   Store_field(result, 0, Val_int(code));
@@ -3047,9 +3192,9 @@ CAMLprim value holyc_native_read_task_default_string(value handle, value request
   CAMLreturn(Val_unit);
 }
 
-CAMLprim value holyc_native_bind_task_default_string(value handle, value request)
+CAMLprim value holyc_native_bind_task_default_string(value handle, value request, value scope_option)
 {
-  CAMLparam2(handle, request);
+  CAMLparam3(handle, request, scope_option);
   native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -3070,24 +3215,25 @@ CAMLprim value holyc_native_bind_task_default_string(value handle, value request
       descriptor > data || data - descriptor < 32 || data > prefix ||
       count != prefix - data)
     caml_invalid_argument("native copied default leaves its appended suffix");
-  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+  int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
     caml_failwith("native task arena is already active");
   if (arena->closing || arena->mapping == NULL || arena->used != (size_t)prefix ||
       *((unsigned char *)arena->mapping + prefix - 1) != 0) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("native copied default has another arena prefix or terminator");
   }
   fields[0] = (uint64_t)(uintptr_t)((char *)arena->mapping + data);
   fields[1] = 0; fields[2] = 0; fields[3] = (uint64_t)count;
   memcpy((char *)arena->mapping + descriptor, fields, 32);
-  atomic_store(&arena->active, 0);
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
 #endif
   CAMLreturn(Val_unit);
 }
 
-CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
+CAMLprim value holyc_native_task_static_copy(value handle, value descriptor, value scope_option)
 {
-  CAMLparam2(handle, descriptor);
+  CAMLparam3(handle, descriptor, scope_option);
   native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -3118,14 +3264,15 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
   lowest_flag = (size_t)flag - (count - 1);
   if (lowest_flag < (size_t)data + count)
     caml_invalid_argument("native static byte copy overlaps its initialization flags");
-  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+  int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
     caml_invalid_argument("native task arena is already active");
   if (arena->closing || arena->mapping == NULL) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("native task arena has been released");
   }
   if ((size_t)prefix != arena->used || arena->used > arena->capacity) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("native static byte copy has another admitted arena prefix");
   }
   mapping = arena->mapping;
@@ -3133,21 +3280,21 @@ CAMLprim value holyc_native_task_static_copy(value handle, value descriptor)
      Validate the flag representation without treating initialization as replay. */
   for (i = 0; i < count; ++i) {
     if (mapping[(size_t)flag - i] > 1) {
-      atomic_store(&arena->active, 0);
+      if (!borrowed_arena) atomic_store(&arena->active, 0);
       caml_invalid_argument("native static byte copy has a malformed initialization flag");
     }
   }
   memcpy(mapping + data, String_val(payload), count);
   for (i = 0; i < count; ++i) mapping[(size_t)flag - i] = 1;
-  atomic_store(&arena->active, 0);
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
   CAMLreturn(Val_long((intnat)count));
 #endif
   CAMLreturn(Val_unit);
 }
 
-CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
+CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor, value scope_option)
 {
-  CAMLparam2(retained, descriptor);
+  CAMLparam3(retained, descriptor, scope_option);
   native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -3170,14 +3317,15 @@ CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
   functions = Field(program->identity, 1);
   maximum = native_validate_task_bindings(program->identity, prefix);
   count = Wosize_val(bindings);
-  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+  int borrowed_arena = native_source_borrows_arena(scope_option, Field(descriptor, 0));
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
     caml_invalid_argument("native task arena is already active");
   expected = 0;
   if (!atomic_compare_exchange_strong(&program->active, &expected, 1)) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_invalid_argument("retained native image is already active");
   }
-#define ENTRY_FAIL(message) do { atomic_store(&program->active, 0); atomic_store(&arena->active, 0); caml_invalid_argument(message); } while (0)
+#define ENTRY_FAIL(message) do { atomic_store(&program->active, 0); if (!borrowed_arena) atomic_store(&arena->active, 0); caml_invalid_argument(message); } while (0)
   if (arena->closing || arena->mapping == NULL || program->closing || program->mapping == NULL)
     ENTRY_FAIL("native task entry binding has a released resource");
   if (prefix != arena->used || arena->used > arena->capacity)
@@ -3186,7 +3334,7 @@ CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
     size_t capacity = maximum + 1;
     struct native_task_code_owner **owners = realloc(arena->owners, capacity * sizeof(*owners));
     if (owners == NULL) {
-      atomic_store(&program->active, 0); atomic_store(&arena->active, 0);
+      atomic_store(&program->active, 0); if (!borrowed_arena) atomic_store(&arena->active, 0);
       caml_raise_out_of_memory();
     }
     memset(owners + arena->owner_capacity, 0, (capacity - arena->owner_capacity) * sizeof(*owners));
@@ -3197,7 +3345,7 @@ CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
     if (arena->owners[id] == NULL) {
       struct native_task_code_owner *owner = calloc(1, sizeof(*owner));
       if (owner == NULL) {
-        atomic_store(&program->active, 0); atomic_store(&arena->active, 0);
+        atomic_store(&program->active, 0); if (!borrowed_arena) atomic_store(&arena->active, 0);
         caml_raise_out_of_memory();
       }
       owner->canonical_handle = Val_unit; owner->current_handle = Val_unit;
@@ -3274,7 +3422,7 @@ CAMLprim value holyc_native_bind_task_entries(value retained, value descriptor)
       memcpy((char *)arena->mapping + cell + 8, &id, 8);
     }
   }
-  atomic_store(&program->active, 0); atomic_store(&arena->active, 0);
+  atomic_store(&program->active, 0); if (!borrowed_arena) atomic_store(&arena->active, 0);
 #undef ENTRY_FAIL
   CAMLreturn(Val_bool(canonical));
 #endif
@@ -3335,7 +3483,7 @@ CAMLprim value holyc_native_execute_retained_program(value handle, value limits)
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle, Val_unit, Val_unit, Val_unit, Val_unit, Val_unit));
+    Field(identity, 4), handle, Val_unit, Val_unit, Val_unit, Val_unit, Val_unit, Val_unit));
 #endif
   CAMLreturn(Val_unit);
 }
@@ -3357,7 +3505,7 @@ CAMLprim value holyc_native_execute_retained_budget_program(value handle,
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle, consumed, entered, Val_unit, Val_unit, Val_unit));
+    Field(identity, 4), handle, consumed, entered, Val_unit, Val_unit, Val_unit, Val_unit));
 #endif
   CAMLreturn(Val_unit);
 }
@@ -3373,21 +3521,21 @@ CAMLprim value holyc_native_execute_retained_budget_task_program(
   CAMLlocal2(identity, arena_handle);
   struct native_retained_program *program = native_retained_get(handle);
   if (consumed == Val_unit || !Is_block(task) || Tag_val(task) != 0 ||
-      Wosize_val(task) != 3 || !Is_long(Field(task, 1)))
+      Wosize_val(task) != 4 || !Is_long(Field(task, 1)))
     caml_invalid_argument("retained native task execution state is malformed");
   arena_handle = Field(task, 0);
   (void)native_task_arena_get(arena_handle);
   identity = program->identity;
   CAMLreturn(native_execute_program_output(
     Field(identity, 0), Field(identity, 1), Field(identity, 2), limits,
-    Field(identity, 4), handle, consumed, entered, arena_handle, Field(task, 1), Field(task, 2)));
+    Field(identity, 4), handle, consumed, entered, arena_handle, Field(task, 1), Field(task, 2), Field(task, 3)));
 #endif
   CAMLreturn(Val_unit);
 }
 
 struct native_internal_binding_capture {
   struct native_deferred_cleanup cleanup;
-  value program, arena;
+  value program, arena, scope;
   uint64_t bits;
   intnat work;
   _Atomic int consumed;
@@ -3399,6 +3547,7 @@ static void native_internal_binding_capture_dispose(struct native_deferred_clean
     (struct native_internal_binding_capture *)cleanup;
   caml_remove_generational_global_root(&capture->program);
   caml_remove_generational_global_root(&capture->arena);
+  caml_remove_generational_global_root(&capture->scope);
   free(capture);
 }
 
@@ -3451,11 +3600,14 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
     if (capture == NULL) caml_raise_out_of_memory();
     capture->program = Field(binding, 1);
     capture->arena = Field(task, 0);
+    value scope_option = Field(Field(task, 3), 0);
+    capture->scope = scope_option == Val_none ? Val_unit : Field(scope_option, 0);
     capture->bits = (uint64_t)Int64_val(Field(status, 4));
     capture->work = (intnat)(steps - Long_val(Field(consumed, 0)));
     atomic_init(&capture->consumed, 0);
     caml_register_generational_global_root(&capture->program);
     caml_register_generational_global_root(&capture->arena);
+    caml_register_generational_global_root(&capture->scope);
     *((struct native_internal_binding_capture **)Data_custom_val(capture_handle)) = capture;
     saved = caml_alloc_small(1, 0);
     Field(saved, 0) = capture_handle;
@@ -3467,9 +3619,9 @@ CAMLprim value holyc_native_execute_retained_budget_binding_program(
 }
 
 CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
-                                                           value request)
+                                                           value request, value scope_option)
 {
-  CAMLparam2(handle, request);
+  CAMLparam3(handle, request, scope_option);
   native_collect_deferred();
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
@@ -3487,18 +3639,22 @@ CAMLprim value holyc_native_consume_internal_binding_capture(value handle,
       capture->work != Long_val(Field(request, 1)))
     caml_invalid_argument("native internal binding has another program or actual work");
   arena = native_task_arena_get(capture->arena);
-  if (!atomic_compare_exchange_strong(&arena->active, &expected, 1))
+  struct native_source_scope *source_scope = native_source_scope_option(scope_option);
+  if ((source_scope == NULL ? Val_unit : Field(scope_option, 0)) != capture->scope)
+    caml_invalid_argument("native scalar capture has another original entry scope");
+  int borrowed_arena = native_source_borrows_arena(scope_option, capture->arena);
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
     caml_failwith("native internal binding arena is already active");
   if (arena->closing || arena->mapping == NULL) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_failwith("native internal binding capture has an expired original arena");
   }
   expected = 0;
   if (!atomic_compare_exchange_strong(&capture->consumed, &expected, 1)) {
-    atomic_store(&arena->active, 0);
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
     caml_failwith("native internal binding capture was already consumed");
   }
-  atomic_store(&arena->active, 0);
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
   CAMLreturn(caml_copy_int64((int64_t)capture->bits));
 #endif
   CAMLreturn(Val_unit);

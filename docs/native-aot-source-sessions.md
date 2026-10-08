@@ -40,12 +40,15 @@ The existing native module boundary applies to the outer source: checked
 integer/void functions, supported integer storage, callbacks and load-time
 initializers. General outer aggregate declarations, runtime AOT dimensions,
 reference-default relocation, floating execution and wider signatures remain
-open. AOT StreamExePrint now resumes the original saved parser while its native
-caller is suspended. Declaration-only children publish into the enclosing
-namespace and return zero after accepted source completion. Executable children
-still reject at separate task storage ownership; scoped arena and budget entry
-and actual child machine outcomes remain required. Running generated source
-after the caller returns would change that behavior.
+open. AOT StreamExePrint resumes the original saved parser while its native
+caller is suspended. Original child commands, functions, defaults and statics
+execute through their live native requests and return the actual child word.
+Declaration-only children return zero after accepted source completion.
+Saved compiler catalogs keep separate layouts and arenas, share the original
+cumulative budget and inherit the physical caller's remaining quotas. The
+[child example](../examples/native-stream-children.hc) prints
+`before;child;after;` and returns 42 in both outer modes.
+
 The reference also allows StreamExePrint in JIT `#exe`, since both modes set
 `CCF_EXE_BLK`. The IR bridge now selects the saved enclosing compiler table,
 preserves original completed type metadata and publishes reached child

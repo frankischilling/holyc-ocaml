@@ -8,8 +8,16 @@ type raw_arena
 external raw_create_arena : Obj.t -> raw_arena
   = "holyc_native_create_task_arena"
 
-external raw_admit_arena_chunks : raw_arena -> Obj.t -> Obj.t -> Obj.t -> int
-  = "holyc_native_task_arena_admit"
+external raw_admit_arena_chunks_scoped :
+  raw_arena ->
+  Obj.t ->
+  Obj.t ->
+  Obj.t ->
+  Holyc_lib__Ir.Native_source_suspension.t option ->
+  int = "holyc_native_task_arena_admit"
+
+let raw_admit_arena_chunks arena prefix extent chunks =
+  raw_admit_arena_chunks_scoped arena prefix extent chunks None
 
 let raw_admit_arena arena prefix extent =
   raw_admit_arena_chunks arena prefix extent (Obj.repr [])

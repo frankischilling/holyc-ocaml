@@ -3,8 +3,10 @@
 [Native AOT sessions](native-aot-source-sessions.md) retain separate task and
 module namespaces. Original `#exe` commands run in machine code during parsing;
 the original module image runs afterward. Shared allowances and reached effects
-cover both stages. Outer aggregate execution, runtime AOT relocation,
-synchronous native StreamExePrint and the wider compiler remain open.
+cover both stages. Scoped native StreamExePrint executes original child requests
+while retaining its physical caller and cumulative allowance; see
+[native streams](native-stream-generation.md). Outer aggregate execution,
+runtime AOT relocation and the wider compiler remain open.
 
 [Inherited metadata](source-inherited-layouts.md) copies the original selected
 base's reached size after lookahead. A completed extern forward retains its
@@ -40,8 +42,7 @@ Original literal-copy leaves initialize fixed byte-array statics, including
 nested rows and truncated or terminating-zero copies. Automatic/parameter reads
 in static initializers and partial array initialization still reject. Original
 one-star callbacks, runtime dimensions, saved defaults and native `#exe` now
-execute in the retained task. Wider callback domains, synchronous native
-StreamExePrint and broader outer AOT execution remain open under #704.
+execute in the retained task. Wider callback domains, broader outer AOT execution remain open under #704.
 Named integer defaults execute once at their original header callback through
 a real native expression image. Storage effects and retained calls produce the
 saved full word; later calls require its original published object and completed
@@ -184,8 +185,8 @@ and StrLen declarations inside IR `#exe` tasks in both outer modes. Publication,
 header installation, shared allocation history and argument/emission captures
 retain their own source receipts. Supported retained integer binding expressions
 evaluate before type validation and publication, including calls with effects.
-Floating targets and synchronous native StreamExePrint remain under #701,
-#695 and #704. Ordinary JIT target expressions and native `#exe` now execute
+Floating targets remain under #701, #695 and #704. Ordinary JIT target
+expressions and native `#exe` now execute
 in the retained task paths.
 
 [Internal ASCII conversion](internal-toupper.md) supports the retained numeric

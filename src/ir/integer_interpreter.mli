@@ -467,6 +467,9 @@ val native_task_generation :
 val native_generation_limits :
   native_generation -> (bool * int * int, string) result
 
+val native_generation_byte_budget :
+  native_generation -> (Integer_output.byte_budget, string) result
+
 val with_native_source_suspension :
   native_generation ->
   scope:Native_source_suspension.t ->
@@ -479,6 +482,7 @@ val with_native_source_suspension :
     resources. This reservation grants no machine, arena or budget entry. *)
 
 val complete_native_generation :
+  ?scope:Native_source_suspension.t ->
   native_generation ->
   native_generation Native_generation_capture.t ->
   (unit, string) result

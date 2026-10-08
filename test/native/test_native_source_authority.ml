@@ -16,11 +16,25 @@ type raw_arena
 
 external raw_arena_create : int -> raw_arena = "holyc_native_create_task_arena"
 
-external raw_arena_admit : raw_arena -> int -> int -> (int * string) list -> int
-  = "holyc_native_task_arena_admit"
+external raw_arena_admit_scoped :
+  raw_arena ->
+  int ->
+  int ->
+  (int * string) list ->
+  Holyc_lib__Ir.Native_source_suspension.t option ->
+  int = "holyc_native_task_arena_admit"
 
-external raw_static_copy : raw_arena -> int * int * int * string -> int
-  = "holyc_native_task_static_copy"
+let raw_arena_admit arena prefix extent chunks =
+  raw_arena_admit_scoped arena prefix extent chunks None
+
+external raw_static_copy_scoped :
+  raw_arena ->
+  int * int * int * string ->
+  Holyc_lib__Ir.Native_source_suspension.t option ->
+  int = "holyc_native_task_static_copy"
+
+let raw_static_copy arena descriptor =
+  raw_static_copy_scoped arena descriptor None
 
 external raw_arena_release : raw_arena -> unit
   = "holyc_native_release_task_arena"
@@ -2283,8 +2297,11 @@ external raw_code_retain : Obj.t -> raw_code
 
 external raw_code_release : raw_code -> unit = "holyc_native_release_program"
 
-external raw_code_bind : raw_code -> Obj.t -> bool
+external raw_code_bind_scoped :
+  raw_code -> Obj.t -> Holyc_lib__Ir.Native_source_suspension.t option -> bool
   = "holyc_native_bind_task_entries"
+
+let raw_code_bind code descriptor = raw_code_bind_scoped code descriptor None
 
 let callback_host_entry_bounds () =
   let session, config, source =

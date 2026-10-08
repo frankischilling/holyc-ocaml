@@ -394,6 +394,7 @@ and initializer_attempt = {
   attempt_destination : Integer_initializer_layout.entry;
   attempt_next : Integer_initializer_layout.live;
   attempt_preparation_before : int;
+  mutable attempt_native_preparation : int option;
   mutable attempt_state : initializer_attempt_state;
 }
 
@@ -742,7 +743,7 @@ let native_task_generation ?(use_active_stream = true) task =
     generation_closed = false;
   }
 
-let check_native_generation generation =
+let check_native_generation_lifetime generation =
   if Domain.self () <> generation.generation_domain then
     Error "native generation belongs to another execution domain"
   else if generation.generation_closed then
@@ -751,7 +752,12 @@ let check_native_generation generation =
     generation.generation_task.resources.streams
     != generation.generation_streams
   then Error "native generation no longer owns its original active stream"
-  else if
+  else Ok ()
+
+let check_native_generation generation =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation_lifetime generation in
+  if
     Output.committed_bytes generation.generation_output
     <> generation.generation_before
   then Error "native generation byte budget changed before entry"
@@ -765,6 +771,11 @@ let native_generation_limits generation =
       Output.capacity generation.generation_output
       - generation.generation_before,
       Output.capacity generation.generation_output )
+
+let native_generation_byte_budget generation =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  Ok (Output.byte_budget generation.generation_output)
 
 let with_native_source_suspension generation ~scope execute =
   let ( let* ) = Result.bind in
@@ -808,7 +819,7 @@ let with_native_source_suspension generation ~scope execute =
 
 let admit_native_generation_prefix generation ~scope capture =
   let ( let* ) = Result.bind in
-  let* () = check_native_generation generation in
+  let* () = check_native_generation_lifetime generation in
   let* owns = Native_source_suspension.owns_generation scope generation in
   if not owns then
     Error "native source checkpoint has another generation target"
@@ -821,12 +832,12 @@ let admit_native_generation_prefix generation ~scope capture =
       Output.committed_bytes generation.generation_output;
     Ok ()
 
-let complete_native_generation generation capture =
+let complete_native_generation ?scope generation capture =
   let ( let* ) = Result.bind in
-  let* () = check_native_generation generation in
+  let* () = check_native_generation_lifetime generation in
   let* () =
-    Output.admit_native_capture generation.generation_output ~target:generation
-      capture
+    Output.admit_native_capture ?scope generation.generation_output
+      ~target:generation capture
   in
   generation.generation_closed <- true;
   Ok ()
@@ -3142,7 +3153,12 @@ let complete_native_task_internal_binding task attempt program capture =
     else Ok ()
   in
   let* bits =
-    Native_internal_binding_capture.consume capture ~program
+    Native_internal_binding_capture.consume
+      ?scope:
+        (match task.resources.native_source_scopes with
+        | [] -> None
+        | scope :: _ -> Some scope)
+      capture ~program
       ~work:(Option.get attempt.internal_binding_native_work)
   in
   let fragment =
@@ -3247,7 +3263,12 @@ let complete_native_task_dimension task attempt program capture =
     else Ok ()
   in
   let* bits =
-    Native_scalar_capture.consume capture ~program
+    Native_scalar_capture.consume
+      ?scope:
+        (match task.resources.native_source_scopes with
+        | [] -> None
+        | scope :: _ -> Some scope)
+      capture ~program
       ~work:(Option.get attempt.dimension_native_work)
   in
   attempt.dimension_bits <- Some bits;
@@ -3351,7 +3372,12 @@ let complete_native_task_offset task attempt program capture =
     else Ok ()
   in
   let* bits =
-    Native_scalar_capture.consume capture ~program
+    Native_scalar_capture.consume
+      ?scope:
+        (match task.resources.native_source_scopes with
+        | [] -> None
+        | scope :: _ -> Some scope)
+      capture ~program
       ~work:(Option.get attempt.offset_native_work)
   in
   let* offset =
@@ -3601,6 +3627,7 @@ let begin_task_initializer_leaf task ~namespace leaf =
             attempt_next;
             attempt_destination;
             attempt_preparation_before = task.resources.initializer_steps;
+            attempt_native_preparation = None;
             attempt_state = Preparing_initializer;
           }
         in
@@ -3643,8 +3670,13 @@ let native_initializer_matches task attempt execution program expected_state =
   && Integer_globals.owns_task_storage task.catalog
        (Destination.globals destination)
   && Integer_globals.is_initializer_fragment (Destination.globals destination)
-  && Program.execution_steps execution
-     = task.resources.initializer_steps - attempt.attempt_preparation_before
+  && (Program.execution_steps execution
+     =
+     match (expected_state, attempt.attempt_native_preparation) with
+     | Executing_initializer, Some preparation -> preparation
+     | Preparing_initializer, None ->
+         task.resources.initializer_steps - attempt.attempt_preparation_before
+     | _ -> -1)
   && Integer_globals.byte_size (Destination.globals destination) = 0
 
 let check_native_task_initializer task attempt execution program =
@@ -3667,6 +3699,8 @@ let claim_native_task_initializer task attempt execution program =
   Result.map
     (fun () ->
       attempt.attempt_state <- Executing_initializer;
+      attempt.attempt_native_preparation <-
+        Some (Initializer_fragment_program.execution_steps execution);
       retain_native_provider_sources task
         (Initializer_fragment_program.runtime_calls program)
         Runtime.Entry

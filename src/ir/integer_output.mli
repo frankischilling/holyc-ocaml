@@ -1,4 +1,5 @@
 type t
+type byte_budget
 type 'pointer argument = Word of int64 | Pointer of 'pointer
 
 type 'error failure =
@@ -61,6 +62,10 @@ val contents : t -> string
 val work : t -> int
 val committed_bytes : t -> int
 val capacity : t -> int
+
+val byte_budget : t -> byte_budget
+(** Identity of the original shared byte allowance. This observation grants no
+    output or native entry authority. *)
 
 val admit_native_capture :
   ?scope:Native_source_suspension.t ->

@@ -2,8 +2,8 @@
 
 [Native AOT sessions](native-aot-source-sessions.md) execute `#exe` blocks in a
 separate retained JIT task, then run the original checked module in native code.
-Their resource allowances cover both contexts. The remaining synchronous
-StreamExePrint bridge must retain the original caller and parser while nested
+Their resource allowances cover both contexts. The synchronous native
+StreamExePrint bridge retains the original caller and parser while nested
 source runs.
 
 [Runtime layout expressions](runtime-layout-expressions.md) execute integer
@@ -329,9 +329,10 @@ generation still govern source selection; names and numeric bits grant no entry.
 The IR consumer preserves the same declaration-time capture and source-position
 rules. PutChars, Print and stream callback addresses use checked private entries.
 StreamPrint writes to the original active generation buffer in native JIT
-`#exe`. Active StreamExePrint now parses declaration-only child input through its
-original synchronous callback. Executable children retain the native entry
-exclusion and report their child diagnostic plus the caller's source fault.
+`#exe`. Active StreamExePrint resumes its original parser and executes child commands
+through scoped native requests. The exact C scope and cumulative budget govern
+arena borrowing and actual child usage. Reached child diagnostics remain
+alongside the caller's source fault.
 Inactive calls still report `HCIRVM0027` after formatting. See
 [provider entries](provider-callback-entries.md) and
 [native stream generation](native-stream-generation.md).
@@ -416,8 +417,7 @@ extern calls, their original literals, numeric and owned callback storage, and
 named or anonymous integer and one-star callback defaults, original Print,
 PutChars and stream callback entries, and native JIT `#exe` generation.
 Runtime-dependent integer dimensions and aggregate offsets use their original
-native scalar captures. Wider callback defaults, synchronous native
-StreamExePrint and broader outer AOT module execution
+native scalar captures. Wider callback defaults and broader outer AOT module execution
 remain required work under #704. Full callback domains and the exported ABI remain
 required under #801 and the broader compiler acceptance scope.
 The compiler retains each successful live JIT static allocation, including
@@ -554,5 +554,5 @@ The immutable provider owner and mutable slot have separate native cells.
 Print accepts checked primitive pointer tails and shares the native formatter's
 atomic drafts. Fragment histories currently re-emit the provider; larger saved
 default examples use an explicit cumulative code allowance. Native StreamPrint
-executes its original generation context. Synchronous native StreamExePrint
-remains required.
+executes its original generation context. Synchronous native StreamExePrint executes original child machine requests
+while retaining the physical caller, parser, arenas and cumulative allowance.

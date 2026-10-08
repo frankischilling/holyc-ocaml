@@ -4,6 +4,7 @@ type t = Internal_binding_fragment_program.t Native_scalar_capture.t
     program and live arena across GC and image release. *)
 
 val consume :
+  ?scope:Native_source_suspension.t ->
   t ->
   program:Internal_binding_fragment_program.t ->
   work:int ->

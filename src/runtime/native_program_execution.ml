@@ -61,6 +61,10 @@ external suspension_owns_budget_raw :
   Ir.Native_source_suspension.t -> unit ref -> bool
   = "holyc_native_source_suspension_owns_budget"
 
+external suspension_owns_arena_raw :
+  Ir.Native_source_suspension.t -> task_arena_handle -> bool
+  = "holyc_native_source_suspension_owns_arena"
+
 external retain_program :
   string * (int * int * string) array * int * int * (int * int * int * string) ->
   retained_handle = "holyc_native_retain_program"
@@ -96,23 +100,33 @@ external create_task_arena_handle : int -> task_arena_handle
   = "holyc_native_create_task_arena"
 
 external admit_task_arena :
-  task_arena_handle -> int -> int -> (int * string) list -> int
-  = "holyc_native_task_arena_admit"
+  task_arena_handle ->
+  int ->
+  int ->
+  (int * string) list ->
+  Ir.Native_source_suspension.t option ->
+  int = "holyc_native_task_arena_admit"
 
 external release_task_arena_handle : task_arena_handle -> unit
   = "holyc_native_release_task_arena"
 
 external copy_task_static_bytes :
-  task_arena_handle -> int * int * int * string -> int
-  = "holyc_native_task_static_copy"
+  task_arena_handle ->
+  int * int * int * string ->
+  Ir.Native_source_suspension.t option ->
+  int = "holyc_native_task_static_copy"
 
 external read_task_default_string :
-  task_arena_handle -> int * int * int * int -> int * int * string
-  = "holyc_native_read_task_default_string"
+  task_arena_handle ->
+  int * int * int * int ->
+  Ir.Native_source_suspension.t option ->
+  int * int * string = "holyc_native_read_task_default_string"
 
 external bind_task_default_string :
-  task_arena_handle -> int * int * int * int -> unit
-  = "holyc_native_bind_task_default_string"
+  task_arena_handle ->
+  int * int * int * int ->
+  Ir.Native_source_suspension.t option ->
+  unit = "holyc_native_bind_task_default_string"
 
 external execute_retained_budget_task_program :
   retained_handle ->
@@ -125,7 +139,9 @@ external execute_retained_budget_task_program :
     * Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
       option
       ref
-    * source_callback_state option) ->
+    * source_callback_state option
+    * Ir.Integer_output.byte_budget)
+  * (Ir.Native_source_suspension.t option * unit ref) ->
   int * int * int * int * int * int * int * int * int ->
   int * int * int ->
   bool ref ->
@@ -143,7 +159,9 @@ external execute_retained_budget_scalar_program :
     * Ir.Integer_interpreter.native_generation Ir.Native_generation_capture.t
       option
       ref
-    * source_callback_state option) ->
+    * source_callback_state option
+    * Ir.Integer_output.byte_budget)
+  * (Ir.Native_source_suspension.t option * unit ref) ->
   int * int * int * int * int * int * int * int * int ->
   int * int * int ->
   bool ref * 'program ->
@@ -151,8 +169,11 @@ external execute_retained_budget_scalar_program :
   * 'program Ir.Native_scalar_capture.t option
   = "holyc_native_execute_retained_budget_binding_program"
 
-external bind_task_entries : retained_handle -> task_arena_handle * int -> bool
-  = "holyc_native_bind_task_entries"
+external bind_task_entries :
+  retained_handle ->
+  task_arena_handle * int ->
+  Ir.Native_source_suspension.t option ->
+  bool = "holyc_native_bind_task_entries"
 
 type scalar_capture =
   | Binding_capture of Ir.Native_internal_binding_capture.t
@@ -244,7 +265,26 @@ let acquire_lease lease message =
 
 let release_lease lease = Atomic.set lease false
 
-let execute_report_internal ?retained ?consumed ?entered ?task_binding
+let acquire_arena_lease ?scope (arena : task_arena) =
+  try
+    let borrowed =
+      Option.fold ~none:false
+        ~some:(fun scope -> suspension_owns_arena_raw scope arena.handle_)
+        scope
+    in
+    if borrowed then
+      if Atomic.get arena.arena_lease_ then Ok true
+      else Error "native suspended arena lost its runtime lease"
+    else
+      Result.map
+        (fun () -> false)
+        (acquire_lease arena.arena_lease_ "native task arena is already active")
+  with Failure message | Invalid_argument message -> Error message
+
+let release_arena_lease arena borrowed =
+  if not borrowed then release_lease arena.arena_lease_
+
+let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
     ?source_callback_state ?consumed_after_source ?(max_frame_bytes = 1_048_576)
     ?(max_call_depth = 128)
     ?(max_active_stack_bytes = hard_max_active_stack_bytes)
@@ -411,10 +451,8 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                               in
                               let canonical_bytes =
                                 List.fold_left
-                                  (fun size (_, image, canonical) ->
-                                    if canonical then
-                                      size + Image.code_bytes image
-                                    else size)
+                                  (fun size (_, image, _) ->
+                                    size + Image.code_bytes image)
                                   0 prior
                               in
                               if
@@ -429,17 +467,10 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                                   bind_task_entries handle
                                     ( binding.task_arena_.handle_,
                                       required_arena_bytes )
-                                in
-                                let keep, retire =
-                                  List.partition
-                                    (fun (_, _, canonical) -> canonical)
-                                    prior
+                                    scope
                                 in
                                 Atomic.set binding.task_arena_.code_mappings_
-                                  ((handle, image, canonical) :: keep);
-                                List.iter
-                                  (fun (handle, _, _) -> release_program handle)
-                                  retire;
+                                  ((handle, image, canonical) :: prior);
                                 Ok ())
                 in
                 match activation with
@@ -462,7 +493,13 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                                 available,
                                 capacity,
                                 generated_capture,
-                                source_callback_state ))
+                                source_callback_state,
+                                match
+                                  Ir.Integer_interpreter
+                                  .native_generation_byte_budget target
+                                with
+                                | Ok bytes -> bytes
+                                | Error message -> invalid_arg message ))
                         generation
                     in
                     let status, captured, work =
@@ -490,7 +527,8 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                             let task =
                               ( binding.task_arena_.handle_,
                                 binding.task_required_arena_bytes_,
-                                Option.get generation_state )
+                                Option.get generation_state,
+                                (scope, binding.task_budget_identity_) )
                             in
                             match Image.scalar_program image with
                             | None ->
@@ -631,7 +669,8 @@ let execute_report_internal ?retained ?consumed ?entered ?task_binding
                           | Some target, Some capture -> (
                               match
                                 Ir.Integer_interpreter
-                                .complete_native_generation target capture
+                                .complete_native_generation ?scope target
+                                  capture
                               with
                               | Ok () -> ()
                               | Error message -> invalid_arg message)
@@ -871,7 +910,7 @@ let release_task_arena arena =
                   Atomic.set arena.arena_revoked_ true;
                   Error message)
 
-let admit_task_snapshot_locked arena snapshot =
+let admit_task_snapshot_locked ?scope arena snapshot =
   if not (Task_storage.task_snapshot_matches_layout snapshot arena.layout_) then
     Error "native task fragment belongs to another task arena layout"
   else
@@ -893,6 +932,7 @@ let admit_task_snapshot_locked arena snapshot =
             admit_task_arena arena.handle_ admitted required_arena_bytes
               (Task_storage.task_snapshot_initializations_since snapshot
                  ~arena_prefix_bytes:admitted)
+              scope
           in
           if observed <> required_arena_bytes then
             Error
@@ -903,13 +943,11 @@ let admit_task_snapshot_locked arena snapshot =
             Ok observed)
         with Failure message | Invalid_argument message -> Error message
 
-let finish_task_internal_binding arena image =
+let finish_task_internal_binding ?scope arena image =
   let ( let* ) = Result.bind in
-  let* () =
-    acquire_lease arena.arena_lease_ "native task arena is already active"
-  in
+  let* borrowed = acquire_arena_lease ?scope arena in
   Fun.protect
-    ~finally:(fun () -> release_lease arena.arena_lease_)
+    ~finally:(fun () -> release_arena_lease arena borrowed)
     (fun () ->
       let reached = Atomic.get arena.scalar_capture_ in
       match
@@ -925,13 +963,11 @@ let finish_task_internal_binding arena image =
           Error
             "native scalar capture has another original image, kind or arena")
 
-let finish_task_dimension arena image =
+let finish_task_dimension ?scope arena image =
   let ( let* ) = Result.bind in
-  let* () =
-    acquire_lease arena.arena_lease_ "native task arena is already active"
-  in
+  let* borrowed = acquire_arena_lease ?scope arena in
   Fun.protect
-    ~finally:(fun () -> release_lease arena.arena_lease_)
+    ~finally:(fun () -> release_arena_lease arena borrowed)
     (fun () ->
       let reached = Atomic.get arena.scalar_capture_ in
       match (Image.task_snapshot image, Image.dimension image, reached) with
@@ -945,13 +981,11 @@ let finish_task_dimension arena image =
           Error
             "native scalar capture has another original image, kind or arena")
 
-let finish_task_offset arena image =
+let finish_task_offset ?scope arena image =
   let ( let* ) = Result.bind in
-  let* () =
-    acquire_lease arena.arena_lease_ "native task arena is already active"
-  in
+  let* borrowed = acquire_arena_lease ?scope arena in
   Fun.protect
-    ~finally:(fun () -> release_lease arena.arena_lease_)
+    ~finally:(fun () -> release_arena_lease arena borrowed)
     (fun () ->
       let reached = Atomic.get arena.scalar_capture_ in
       match (Image.task_snapshot image, Image.offset image, reached) with
@@ -965,15 +999,14 @@ let finish_task_offset arena image =
           Error
             "native scalar capture has another original image, kind or arena")
 
-let finish_task_data_default arena image captured ~max_copy_steps =
+let finish_task_data_default ?scope ?max_copy_bytes arena image captured
+    ~max_copy_steps =
   let failure message = (Error message, 0) in
-  match
-    acquire_lease arena.arena_lease_ "native task arena is already active"
-  with
+  match acquire_arena_lease ?scope arena with
   | Error message -> failure message
-  | Ok () ->
+  | Ok borrowed ->
       Fun.protect
-        ~finally:(fun () -> release_lease arena.arena_lease_)
+        ~finally:(fun () -> release_arena_lease arena borrowed)
         (fun () ->
           let reached = Atomic.get arena.data_capture_ in
           match (Image.task_snapshot image, Image.data_default image) with
@@ -1007,7 +1040,11 @@ let finish_task_data_default arena image captured ~max_copy_steps =
                           ( Atomic.get arena.admitted_bytes_,
                             descriptor,
                             max_copy_steps,
-                            Task_storage.saved_literal_remaining snapshot )
+                            min
+                              (Task_storage.saved_literal_remaining snapshot)
+                              (Option.value ~default:hard_max_literal_bytes
+                                 max_copy_bytes) )
+                          scope
                       in
                       attempted_work := work;
                       let result =
@@ -1046,10 +1083,11 @@ let finish_task_data_default arena image captured ~max_copy_steps =
                               |> String.concat "; ")
                         in
                         let* prefix =
-                          admit_task_snapshot_locked arena snapshot
+                          admit_task_snapshot_locked ?scope arena snapshot
                         in
                         bind_task_default_string arena.handle_
-                          (prefix, descriptor, offset, String.length bytes);
+                          (prefix, descriptor, offset, String.length bytes)
+                          scope;
                         Ok original
                       in
                       (result, work)
@@ -1060,14 +1098,12 @@ let finish_task_data_default arena image captured ~max_copy_steps =
                 "HCIRVM0026: native saved data has another original image, \
                  capture or arena")
 
-let allocate_task_static arena request =
+let allocate_task_static ?scope ?max_global_bytes arena request =
   let module Request = Driver.Integer_task.Native_static_allocation in
   let ( let* ) = Result.bind in
-  let* () =
-    acquire_lease arena.arena_lease_ "native task arena is already active"
-  in
+  let* borrowed = acquire_arena_lease ?scope arena in
   Fun.protect
-    ~finally:(fun () -> release_lease arena.arena_lease_)
+    ~finally:(fun () -> release_arena_lease arena borrowed)
     (fun () ->
       if Atomic.get arena.arena_revoked_ then
         Error "native task arena has been released"
@@ -1085,7 +1121,14 @@ let allocate_task_static arena request =
           Task_storage.static_reservation_arena_bytes reservation
         in
         let admitted = Atomic.get arena.admitted_bytes_ in
-        if required > arena.max_arena_bytes_ then
+        if
+          Task_storage.task_layout_global_bytes arena.layout_
+          > Option.value ~default:hard_max_global_bytes max_global_bytes
+        then
+          Error
+            "HCBACK0001: native source catalogs exceed the cumulative global \
+             byte limit"
+        else if required > arena.max_arena_bytes_ then
           Error "HCBACK0001: native static exceeds reserved arena capacity"
         else if required < admitted then
           Error "native static reservation precedes already admitted storage"
@@ -1100,6 +1143,7 @@ let allocate_task_static arena request =
               admit_task_arena arena.handle_ admitted required
                 (Task_storage.static_reservation_initializations_since
                    reservation ~arena_prefix_bytes:admitted)
+                scope
             in
             if observed <> required then (
               Atomic.set arena.arena_revoked_ true;
@@ -1110,14 +1154,12 @@ let allocate_task_static arena request =
               Ok ())
           with Failure message | Invalid_argument message -> Error message)
 
-let copy_task_static arena request =
+let copy_task_static ?scope arena request =
   let module Request = Driver.Integer_task.Native_static_copy in
   let ( let* ) = Result.bind in
-  let* () =
-    acquire_lease arena.arena_lease_ "native task arena is already active"
-  in
+  let* borrowed = acquire_arena_lease ?scope arena in
   Fun.protect
-    ~finally:(fun () -> release_lease arena.arena_lease_)
+    ~finally:(fun () -> release_arena_lease arena borrowed)
     (fun () ->
       if Atomic.get arena.arena_revoked_ then
         Error "native task arena has been released"
@@ -1134,25 +1176,23 @@ let copy_task_static arena request =
         let _, _, _, bytes = payload in
         let* () = Request.claim request in
         try
-          let observed = copy_task_static_bytes arena.handle_ payload in
+          let observed = copy_task_static_bytes arena.handle_ payload scope in
           if observed = String.length bytes then Ok ()
           else (
             Atomic.set arena.arena_revoked_ true;
             Error "native static copy returned an inconsistent byte count")
         with Failure message | Invalid_argument message -> Error message)
 
-let retain_task_fragment ?max_global_bytes ?max_literal_bytes
+let retain_task_fragment ?scope ?max_global_bytes ?max_literal_bytes
     ?max_active_stack_bytes arena image =
   match Image.task_snapshot image with
   | None -> Error "ordinary native image has no shared task storage snapshot"
   | Some snapshot -> (
-      match
-        acquire_lease arena.arena_lease_ "native task arena is already active"
-      with
+      match acquire_arena_lease ?scope arena with
       | Error _ as error -> error
-      | Ok () ->
+      | Ok borrowed ->
           Fun.protect
-            ~finally:(fun () -> release_lease arena.arena_lease_)
+            ~finally:(fun () -> release_arena_lease arena borrowed)
             (fun () ->
               if Atomic.get arena.arena_revoked_ then
                 Error "native task arena has been released"
@@ -1187,7 +1227,7 @@ let retain_task_fragment ?max_global_bytes ?max_literal_bytes
                     ?max_active_stack_bytes image
                 in
                 let* required_arena_bytes =
-                  admit_task_snapshot_locked arena snapshot
+                  admit_task_snapshot_locked ?scope arena snapshot
                 in
                 retain_identity
                   ~storage:(Shared_task_storage { arena; required_arena_bytes })
@@ -1343,7 +1383,7 @@ let capture_suffix chunks length =
   copy length chunks;
   Bytes.to_string bytes
 
-let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
+let execute_retained_budget_report ?scope ?max_activation_steps ?max_frame_bytes
     ?max_call_depth ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
     ?source_callback budget retained =
   let callback_exception_seen = ref false in
@@ -1384,7 +1424,7 @@ let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
                 bytes_ = state.bytes_ + String.length output;
                 work_ = state.work_ + work;
                 chunks_ = append_capture output state.chunks_;
-                error_ = None;
+                error_ = state.error_;
               };
             callback scope contents),
           callback_exception_seen,
@@ -1392,151 +1432,185 @@ let execute_retained_budget_report ?max_activation_steps ?max_frame_bytes
           budget.identity_ ))
       source_callback
   in
+  let admission () =
+    match scope with
+    | None ->
+        Result.map
+          (fun () -> (false, budget.max_steps_))
+          (acquire_lease budget.active_
+             "retained native budget is already active")
+    | Some scope ->
+        let ( let* ) = Result.bind in
+        let* () =
+          match retained.storage_ with
+          | Private_storage ->
+              Error "scoped native child requires its original task image"
+          | Shared_task_storage _ -> Ok ()
+        in
+        let* owned = suspension_owns_budget scope budget in
+        if not owned then
+          Error "native source scope belongs to another cumulative budget"
+        else if not (Atomic.get budget.active_) then
+          Error "native suspended budget lost its runtime lease"
+        else
+          let* remaining, _, _, _ = Ir.Native_source_suspension.limits scope in
+          Ok (true, remaining)
+  in
   if
     Option.fold ~none:false ~some:(fun limit -> limit <= 0) max_activation_steps
   then error_report "native activation step allowance must be positive"
-  else if not (Atomic.compare_and_set budget.active_ false true) then
-    error_report "retained native budget is already active"
   else
-    Fun.protect
-      ~finally:(fun () -> Atomic.set budget.active_ false)
-      (fun () ->
-        let state = Atomic.get budget.state_ in
-        match state.error_ with
-        | Some message -> error_report message
-        | None when Atomic.get retained.revoked_ ->
-            error_report "retained native image has been released"
-        | None -> (
-            let run task_binding =
-              let entered = ref false in
-              let verified = ref false in
-              let poisoned =
-                {
-                  state with
-                  error_ =
-                    Some
-                      "retained native budget is unavailable after an \
-                       unverified activation";
-                }
-              in
-              try
-                let report =
-                  execute_report_internal ~retained:retained.handle_
-                    ?source_callback_state
-                    ~consumed_after_source:(fun () ->
-                      let current = Atomic.get budget.state_ in
-                      (current.steps_, current.bytes_, current.work_))
-                    ~consumed:(state.steps_, state.bytes_, state.work_)
-                    ~entered ?task_binding ?max_frame_bytes ?max_call_depth
-                    ?max_active_stack_bytes ?max_global_bytes ?max_literal_bytes
-                    ~max_steps:
-                      (match max_activation_steps with
-                      | None -> budget.max_steps_
-                      | Some limit ->
-                          state.steps_
-                          + min limit (budget.max_steps_ - state.steps_))
-                    ~max_output_bytes:budget.max_output_bytes_
-                    ~max_output_work:budget.max_output_work_ retained.image_
-                in
-                (match report.outcome_ with
-                | Error _ ->
-                    if !entered then
+    match admission () with
+    | Error message -> error_report message
+    | Ok (borrowed_budget, physical_remaining) ->
+        Fun.protect
+          ~finally:(fun () ->
+            if not borrowed_budget then Atomic.set budget.active_ false)
+          (fun () ->
+            let state = Atomic.get budget.state_ in
+            match state.error_ with
+            | Some message -> error_report message
+            | None when Atomic.get retained.revoked_ ->
+                error_report "retained native image has been released"
+            | None -> (
+                let run task_binding =
+                  let entered = ref false in
+                  let verified = ref false in
+                  let poisoned =
+                    {
+                      state with
+                      error_ =
+                        Some
+                          "retained native budget is unavailable after an \
+                           unverified activation";
+                    }
+                  in
+                  try
+                    let report =
+                      execute_report_internal ?scope ~retained:retained.handle_
+                        ?source_callback_state
+                        ~consumed_after_source:(fun () ->
+                          let current = Atomic.get budget.state_ in
+                          (current.steps_, current.bytes_, current.work_))
+                        ~consumed:(state.steps_, state.bytes_, state.work_)
+                        ~entered ?task_binding ?max_frame_bytes ?max_call_depth
+                        ?max_active_stack_bytes ?max_global_bytes
+                        ?max_literal_bytes
+                        ~max_steps:
+                          (state.steps_
+                          + min physical_remaining
+                              (min
+                                 (budget.max_steps_ - state.steps_)
+                                 (Option.value ~default:budget.max_steps_
+                                    max_activation_steps)))
+                        ~max_output_bytes:budget.max_output_bytes_
+                        ~max_output_work:budget.max_output_work_ retained.image_
+                    in
+                    (match report.outcome_ with
+                    | Error _ ->
+                        if !entered then
+                          Atomic.set budget.state_
+                            {
+                              (Atomic.get budget.state_) with
+                              error_ = poisoned.error_;
+                            }
+                    | Ok outcome ->
+                        let steps_ =
+                          match outcome with
+                          | Image.Completed execution ->
+                              execution.executed_steps
+                          | Image.Fault fault -> fault.executed_steps
+                        in
+                        let current = Atomic.get budget.state_ in
+                        let next =
+                          {
+                            steps_;
+                            bytes_ =
+                              current.bytes_
+                              + String.length report.output_bytes_;
+                            work_ = current.work_ + report.output_work_;
+                            chunks_ =
+                              append_capture report.output_bytes_
+                                current.chunks_;
+                            error_ = current.error_;
+                          }
+                        in
+                        Atomic.set budget.state_ next;
+                        verified := true);
+                    if !callback_exception_seen then
+                      raise !callback_exception_value;
+                    let current = Atomic.get budget.state_ in
+                    let length = current.bytes_ - state.bytes_ in
+                    let work = current.work_ - state.work_ in
+                    if
+                      length = String.length report.output_bytes_
+                      && work = report.output_work_
+                    then report
+                    else
+                      {
+                        report with
+                        output_bytes_ = capture_suffix current.chunks_ length;
+                        output_work_ = work;
+                      }
+                  with exception_ ->
+                    if !entered && not !verified then
                       Atomic.set budget.state_
                         {
                           (Atomic.get budget.state_) with
                           error_ = poisoned.error_;
-                        }
-                | Ok outcome ->
-                    let steps_ =
-                      match outcome with
-                      | Image.Completed execution -> execution.executed_steps
-                      | Image.Fault fault -> fault.executed_steps
-                    in
-                    let current = Atomic.get budget.state_ in
-                    let next =
-                      {
-                        steps_;
-                        bytes_ =
-                          current.bytes_ + String.length report.output_bytes_;
-                        work_ = current.work_ + report.output_work_;
-                        chunks_ =
-                          append_capture report.output_bytes_ current.chunks_;
-                        error_ = None;
-                      }
-                    in
-                    Atomic.set budget.state_ next;
-                    verified := true);
-                if !callback_exception_seen then raise !callback_exception_value;
-                let current = Atomic.get budget.state_ in
-                let length = current.bytes_ - state.bytes_ in
-                let work = current.work_ - state.work_ in
-                if
-                  length = String.length report.output_bytes_
-                  && work = report.output_work_
-                then report
-                else
-                  {
-                    report with
-                    output_bytes_ = capture_suffix current.chunks_ length;
-                    output_work_ = work;
-                  }
-              with exception_ ->
-                if !entered && not !verified then
-                  Atomic.set budget.state_
-                    { (Atomic.get budget.state_) with error_ = poisoned.error_ };
-                raise exception_
-            in
-            let run_with_retained_lease () =
-              if Atomic.get retained.revoked_ then
-                error_report "retained native image has been released"
-              else
-                match retained.storage_ with
-                | Private_storage -> run None
-                | Shared_task_storage { arena; required_arena_bytes } -> (
-                    match
-                      acquire_lease arena.arena_lease_
-                        "native task arena is already active"
-                    with
-                    | Error message -> error_report message
-                    | Ok () ->
-                        Fun.protect
-                          ~finally:(fun () -> release_lease arena.arena_lease_)
-                          (fun () ->
-                            if Atomic.get arena.arena_revoked_ then
-                              error_report "native task arena has been released"
-                            else if
-                              Atomic.get arena.admitted_bytes_
-                              < required_arena_bytes
-                            then
-                              error_report
-                                "native task fragment requires unadmitted task \
-                                 storage"
-                            else
-                              match Atomic.get arena.budget_owner_ with
-                              | Some owner when owner != budget.identity_ ->
+                        };
+                    raise exception_
+                in
+                let run_with_retained_lease () =
+                  if Atomic.get retained.revoked_ then
+                    error_report "retained native image has been released"
+                  else
+                    match retained.storage_ with
+                    | Private_storage -> run None
+                    | Shared_task_storage { arena; required_arena_bytes } -> (
+                        match acquire_arena_lease ?scope arena with
+                        | Error message -> error_report message
+                        | Ok borrowed ->
+                            Fun.protect
+                              ~finally:(fun () ->
+                                release_arena_lease arena borrowed)
+                              (fun () ->
+                                if Atomic.get arena.arena_revoked_ then
                                   error_report
-                                    "native task arena belongs to another \
-                                     cumulative budget"
-                              | None | Some _ ->
-                                  run
-                                    (Some
-                                       {
-                                         task_arena_ = arena;
-                                         task_required_arena_bytes_ =
-                                           required_arena_bytes;
-                                         task_budget_identity_ =
-                                           budget.identity_;
-                                       })))
-            in
-            match
-              acquire_lease retained.lease_
-                "retained native image is already active"
-            with
-            | Error message -> error_report message
-            | Ok () ->
-                Fun.protect
-                  ~finally:(fun () -> release_lease retained.lease_)
-                  run_with_retained_lease))
+                                    "native task arena has been released"
+                                else if
+                                  Atomic.get arena.admitted_bytes_
+                                  < required_arena_bytes
+                                then
+                                  error_report
+                                    "native task fragment requires unadmitted \
+                                     task storage"
+                                else
+                                  match Atomic.get arena.budget_owner_ with
+                                  | Some owner when owner != budget.identity_ ->
+                                      error_report
+                                        "native task arena belongs to another \
+                                         cumulative budget"
+                                  | None | Some _ ->
+                                      run
+                                        (Some
+                                           {
+                                             task_arena_ = arena;
+                                             task_required_arena_bytes_ =
+                                               required_arena_bytes;
+                                             task_budget_identity_ =
+                                               budget.identity_;
+                                           })))
+                in
+                match
+                  acquire_lease retained.lease_
+                    "retained native image is already active"
+                with
+                | Error message -> error_report message
+                | Ok () ->
+                    Fun.protect
+                      ~finally:(fun () -> release_lease retained.lease_)
+                      run_with_retained_lease))
 
 let execute_report ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
     ?max_global_bytes ?max_literal_bytes ?max_output_bytes ?max_output_work

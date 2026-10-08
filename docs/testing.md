@@ -7,11 +7,13 @@ and output order. Every native fragment must complete in machine code; source
 task runtime counters remain zero. Exact and one-below instruction, declaration,
 default, generation, output, code, IR and combined storage limits retain reached
 effects. The maintained AOT example also runs through the CLI with resource
-reports. Native StreamExePrint now checks synchronous declaration-only children
-against independent IR runs in both modes, including captured calls, initializer
-leaves and runtime array bounds. Class publication and caller output survive a
-later executable-child rejection. Executable children retain checked native
-entry exclusions; scoped machine and budget execution remains open.
+reports. Native StreamExePrint checks actual synchronous child machine outcomes against
+independent IR effects in both modes. Captured calls, defaults, statics, internal
+bindings, runtime dimensions and offsets retain their original captures. Nested
+streams, suspended code rebinding, cumulative quotas and physical caller limits
+run through C-checked scopes. Class publication and caller output survive a
+later child arithmetic fault. Ordinary, foreign, copied, replayed and expired
+authority remains excluded, and actual children run under collection pressure.
 
 Inherited layout fixtures run in both IR modes and native JIT. They cover
 original selected entries, partial and forward bases, lookahead replacement,
@@ -1732,7 +1734,9 @@ primitive signatures, inactive formatting order, saved captures and defaults,
 indexed copies, replacement bodies and task-owned nested buffers. StreamExePrint
 callbacks execute nested source in active blocks of either outer mode. Ordinary
 children start inactive; their own directives establish separate permission.
-Native synchronous execution and the full compiler remain required.
+Native synchronous children now use the original C scope and budget; actual
+machine outcomes and quotas are checked as described above. Full compiler
+acceptance remains required.
 
 Saved compiler namespace tests cover original enclosing types and replacements,
 directive-only name exclusion, child publication, successive calls, inherited

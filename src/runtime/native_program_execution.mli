@@ -60,6 +60,8 @@ val release_task_arena : task_arena -> (unit, string) result
     or execute another fragment. Unreachable handles have a native finalizer. *)
 
 val allocate_task_static :
+  ?scope:Ir.Native_source_suspension.t ->
+  ?max_global_bytes:int ->
   task_arena ->
   Driver.Integer_task.Native_static_allocation.request ->
   (unit, string) result
@@ -69,6 +71,7 @@ val allocate_task_static :
     authoritative. This executes no initializer or function entry. *)
 
 val copy_task_static :
+  ?scope:Ir.Native_source_suspension.t ->
   task_arena ->
   Driver.Integer_task.Native_static_copy.request ->
   (unit, string) result
@@ -78,6 +81,7 @@ val copy_task_static :
     interprets an expression nor seeds storage from a prepared image. *)
 
 val retain_task_fragment :
+  ?scope:Ir.Native_source_suspension.t ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
   ?max_active_stack_bytes:int ->
@@ -160,6 +164,7 @@ val budget_output_bytes : budget -> string
     budget state. *)
 
 val execute_retained_budget_report :
+  ?scope:Ir.Native_source_suspension.t ->
   ?max_activation_steps:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
@@ -183,24 +188,29 @@ val execute_retained_budget_report :
     checking its lifetime. Once native entry begins, an unverified host/status
     failure revokes the allowance.
 
-    Concurrent use of one allowance rejects overlap. Ordinary retained images
-    may share an allowance while keeping independent private arenas. Task
-    fragments retained against the same [task_arena] instead use that single
-    authoritative mapping; code and arena exclusion are both acquired before
-    entry, and each fragment must name a snapshot already admitted to the exact
-    layout. The first task entry binds that arena to this exact cumulative
-    [budget]; later fragments reject another budget before consuming their live
-    source request. Its opaque live source activation is checked after OCaml
-    preflight and immediately before native dispatch. A rejected host admission
-    leaves the allowance verified; once native entry is marked, an unverified
-    host/status failure revokes it. Frame, call-depth, active-stack and
-    image-storage bounds keep their per-activation meanings. The existing
-    [execute_retained_report] keeps fresh limits only for ordinary retained
-    images.
+    Concurrent use of one allowance rejects overlap. An explicit [scope] may
+    borrow its original active budget while the physical caller is suspended. C
+    checks the exact scope, budget and generated-byte owner, inherits the
+    caller's remaining quotas and joins actual child usage before returning.
+    Ordinary retained images may share an allowance while keeping independent
+    private arenas. Task fragments retained against the same [task_arena]
+    instead use that single authoritative mapping; code and arena exclusion are
+    both acquired before entry, and each fragment must name a snapshot already
+    admitted to the exact layout. The first task entry binds that arena to this
+    exact cumulative [budget]; later fragments reject another budget before
+    consuming their live source request. Its opaque live source activation is
+    checked after OCaml preflight and immediately before native dispatch. A
+    rejected host admission leaves the allowance verified; once native entry is
+    marked, an unverified host/status failure revokes it. Frame, call-depth,
+    active-stack and image-storage bounds keep their per-activation meanings.
+    The existing [execute_retained_report] keeps fresh limits only for ordinary
+    retained images.
 
     An authenticated active task source site may invoke [source_callback] after
     formatting. Its C-created scope expires before native execution resumes;
     ordinary image, arena and budget entries remain excluded while it runs.
+    Scoped task preparation and execution may borrow an active arena only when
+    this caller or a suspended ancestor owns that exact mapping and budget.
     Callback exceptions are returned through C and raised after native cleanup
     and checked budget accounting. This low-level callback alone provides no
     parser, namespace or child-machine admission authority. *)
@@ -250,6 +260,8 @@ val value_captured : report -> bool
     clear it. This observes the returned native site, not source syntax. *)
 
 val finish_task_data_default :
+  ?scope:Ir.Native_source_suspension.t ->
+  ?max_copy_bytes:int ->
   task_arena ->
   Backend.X86_64_program.t ->
   Ir.Saved_parameter_value.t ->
@@ -314,6 +326,7 @@ val execute :
     arbitrary machine-code faults. *)
 
 val finish_task_internal_binding :
+  ?scope:Ir.Native_source_suspension.t ->
   task_arena ->
   Backend.X86_64_program.t ->
   (Ir.Native_internal_binding_capture.t, string) result
@@ -321,6 +334,7 @@ val finish_task_internal_binding :
     once. Metadata, a different image or arena, and replay are rejected. *)
 
 val finish_task_dimension :
+  ?scope:Ir.Native_source_suspension.t ->
   task_arena ->
   Backend.X86_64_program.t ->
   (Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t, string) result
@@ -328,6 +342,7 @@ val finish_task_dimension :
 *)
 
 val finish_task_offset :
+  ?scope:Ir.Native_source_suspension.t ->
   task_arena ->
   Backend.X86_64_program.t ->
   (Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t, string) result

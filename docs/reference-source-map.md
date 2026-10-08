@@ -496,7 +496,10 @@ The saved compiler's lexical local shadows survive the directive's switch to
 task tables. Unsupported compiler-local metadata and original pending AOT
 runtime imports remain checked boundaries. Distinct storage catalogs share one
 resource owner, including the suspended caller's live frame and call depth.
-Native synchronous execution still needs its original machine bridge.
+Native synchronous execution uses the exact physical C scope and original
+cumulative budget to enter child requests while the caller is suspended.
+Actual child usage is joined before the caller resumes; ordinary entry and
+release guards remain active. See [native streams](native-stream-generation.md).
 
 [Partial task storage](integer-task.md) follows the pinned
 `Compiler/PrsStmt.HC:334-435` allocation and publication path. Global storage

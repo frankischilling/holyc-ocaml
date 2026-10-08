@@ -45,7 +45,7 @@ let inputs ?(mode = Preprocessor.Jit) ?max_generated_bytes text =
       ~contents:
         ((match mode with
            | Preprocessor.Jit -> Cases.headers
-           | Preprocessor.Aot -> {|extern U0 Print(U8 *fmt,...);|})
+           | Preprocessor.Aot -> "")
         ^ text)
   in
   let config =
@@ -55,10 +55,12 @@ let inputs ?(mode = Preprocessor.Jit) ?max_generated_bytes text =
   (session, source, config)
 
 let run ?mode ?max_generated_bytes ?max_output_bytes ?max_output_work ?max_steps
-    text =
+    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ?max_global_bytes
+    ?max_literal_bytes ?max_initializer_steps text =
   let session, source, config = inputs ?mode ?max_generated_bytes text in
   Native.evaluate ~max_code_bytes:524_288 ?max_output_bytes ?max_output_work
-    session ~source ~config
+    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ?max_global_bytes
+    ?max_literal_bytes ?max_initializer_steps session ~source ~config
     ~max_steps:(Option.value ~default:100_000 max_steps)
 
 let value report =
@@ -173,44 +175,232 @@ let synchronous_boundary () =
   List.iter
     (fun mode ->
       List.iter
-        (fun source ->
-          let report = run ~mode source in
-          let code, message =
-            match mode with
-            | Preprocessor.Jit ->
-                ("HCNATIVE0002", "native task arena is already active")
-            | Preprocessor.Aot ->
-                ( "HCBACK0003",
-                  "native task storage belongs to another original task" )
+        (fun (text, output) ->
+          let report = run ~mode text in
+          value report;
+          Alcotest.(check string)
+            "ordered original native child output" output
+            (Native.output_bytes report);
+          let session, source, config = inputs ~mode text in
+          let independent =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000
           in
-          failure code report;
-          let errors = Native.outcome report |> Result.get_error in
-          Alcotest.(check bool)
-            "executable child retains the native arena exclusion" true
-            (List.exists
-               (fun (error : Diagnostic.t) -> error.message = message)
-               errors);
-          Alcotest.(check bool)
-            "native source formatting happens before child entry" true
-            (Native.output_work report > 0);
+          let result = integer_program_report_outcome independent |> checked in
+          Alcotest.(check (option int64))
+            "independent child value" (Some 42L)
+            (VM.final_value result.value
+            |> Option.map (fun word -> word.VM.bits));
+          Alcotest.(check string)
+            "independent child output" output
+            (integer_program_report_output_bytes independent);
           Alcotest.(check int)
-            "no interpreted child" 0
-            (Option.get (Native.source_progress report)).runtime.executed_steps;
-          Alcotest.(check bool)
-            "original entry reaches its machine boundary" true
-            (List.exists
-               (fun (fragment : Native.fragment) ->
-                 match fragment.native_outcome with
-                 | Some (Ok (Image.Fault fault)) ->
-                     fault.kind = Image.Stream_exe_source_failed
-                 | _ -> false)
-               (Native.fragments report)))
+            "original child formatting work"
+            (integer_program_report_output_work independent)
+            (Native.output_work report))
         [
-          {|#exe {StreamExePrint("40+2;");}|};
-          {|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;p("40+2;");}|};
-          {|#exe {I64 F(I64 (*p)(U8 *fmt,...)=&StreamExePrint){return p("40+2;");}F();}|};
+          ({|#exe {StreamExePrint("40+2;");}42;|}, "");
+          ({|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;p("40+2;");}42;|}, "");
+          ( {|#exe {I64 F(I64 (*p)(U8 *fmt,...)=&StreamExePrint){return p("40+2;");}F();}42;|},
+            "" );
+          ( {|#exe {Print("before;");I64 n=StreamExePrint("Print(\"child;\");42;");Print("after;%d;",n);}42;|},
+            "before;child;after;42;" );
+          ( {|#exe {I64 n=StreamExePrint("I64 N=2;I64 A[N]={40,2};I64 F(I64 n=A[0]){return n+2;}F();");Print("%d;",n);}42;|},
+            "42;" );
+          ( {|#exe {Print("before;");I64 n=StreamExePrint("I64 C=40;C+2;");Print("%d;",n);n=StreamExePrint("C+2;");Print("after;%d;",n);}42;|},
+            "before;42;after;42;" );
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let executable_children () =
+  let fixtures =
+    [
+      "I64 N=40;I64 F(I64 n=N){return n+2;}F();";
+      "I64 F(){static U8 a[3]=\"AB\";return a[0]-23;}F();";
+      "I64 N=2;I64 A[N]={40,2};A[0]+A[1];";
+      "I64 N=16;class C{U8 a;$$=N;I64 b;};sizeof(C)+18;";
+      "I64 Op=0x1e;_intern Op I64 Convert(U8 c);Convert(97)-23;";
+      "I64 F(){return 40;}I64 (*old)()=&F;I64 F(){return 2;}old()+F();";
+      "#exe {StreamPrint(\"I64 N=40;\");}N+2;";
+      "#exe {StreamExePrint(\"class Inner {I64 n;};40+2;\");}42;";
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun child ->
+          let text =
+            "#exe {Print(\"before;\");Print(\"%d;\",StreamExePrint("
+            ^ (Printf.sprintf "%S" child |> String.split_on_char '$'
+             |> String.concat "$$")
+            ^ "));Print(\"after;\");}42;"
+          in
+          let report = run ~mode text in
+          value report;
+          Alcotest.(check string)
+            child "before;42;after;"
+            (Native.output_bytes report);
+          let session, source, config = inputs ~mode text in
+          let independent =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000
+          in
+          integer_program_report_outcome independent |> checked |> ignore;
+          Alcotest.(check string)
+            "independent child effects"
+            (integer_program_report_output_bytes independent)
+            (Native.output_bytes report);
+          Alcotest.(check int)
+            "independent child work"
+            (integer_program_report_output_work independent)
+            (Native.output_work report))
+        fixtures)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let child_quotas () =
+  let text =
+    {|#exe {Print("before;");StreamExePrint("Print(\"child;\");42;");Print("after;");}42;|}
+  in
+  List.iter
+    (fun mode ->
+      let baseline = run ~mode text in
+      value baseline;
+      let steps = Native.executed_steps baseline in
+      let work = Native.output_work baseline in
+      value
+        (run ~mode ~max_steps:steps ~max_output_bytes:19 ~max_output_work:work
+           text);
+      failure "HCIRVM0007" (run ~mode ~max_steps:(steps - 1) text);
+      List.iter
+        (fun (bytes, work_limit, code) ->
+          let report =
+            run ~mode ~max_output_bytes:bytes ~max_output_work:work_limit text
+          in
+          Option.iter (fun code -> failure code report) code;
+          let session, source, config = inputs ~mode text in
+          let independent =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000 ~max_output_bytes:bytes
+              ~max_output_work:work_limit
+          in
+          Alcotest.(check string)
+            "child quota output"
+            (integer_program_report_output_bytes independent)
+            (Native.output_bytes report);
+          Alcotest.(check int)
+            "child quota work"
+            (integer_program_report_output_work independent)
+            (Native.output_work report);
+          Alcotest.(check int)
+            "child quotas have no VM fallback" 0
+            (Option.get (Native.source_progress report)).runtime.executed_steps)
+        [
+          (19, work, None);
+          (18, work, Some "HCIRVM0022");
+          (19, work - 1, Some "HCIRVM0023");
+        ];
+      let payload = String.concat "" (List.init 20 (fun _ -> "42;")) in
+      let child =
+        "#exe {StreamPrint(" ^ Printf.sprintf "%S" payload ^ ");}42;"
+      in
+      let generated_text =
+        "#exe {StreamExePrint(" ^ Printf.sprintf "%S" child ^ ");StreamPrint("
+        ^ Printf.sprintf "%S" payload
+        ^ ");}42;"
+      in
+      value (run ~mode ~max_generated_bytes:120 generated_text);
+      let short = run ~mode ~max_generated_bytes:119 generated_text in
+      failure "HCIRVM0028" short;
+      Alcotest.(check int)
+        "actual child generation remains charged" 60 (generated short))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let catalogs =
+    {|extern U0 Print(U8 *fmt,...);#exe {I64 D=1;Print("task");StreamExePrint("I64 C=2;42;");}I64 M=40;Print("outer");M+2;|}
+  in
+  value
+    (run ~mode:Preprocessor.Aot ~max_global_bytes:24 ~max_literal_bytes:23
+       catalogs);
+  failure "HCBACK0004"
+    (run ~mode:Preprocessor.Aot ~max_global_bytes:23 catalogs);
+  failure "HCBACK0004"
+    (run ~mode:Preprocessor.Aot ~max_literal_bytes:22 catalogs)
+
+let suspended_code_and_storage () =
+  List.iter
+    (fun text ->
+      let report = run text in
+      value report;
+      Alcotest.(check string)
+        "suspended original code output" "42;"
+        (Native.output_bytes report);
+      let session, source, config = inputs text in
+      let independent =
+        run_integer_program_report session ~source ~config ~max_steps:100_000
+      in
+      integer_program_report_outcome independent |> checked |> ignore;
+      Alcotest.(check string)
+        "independent suspended original code"
+        (integer_program_report_output_bytes independent)
+        (Native.output_bytes report))
+    [
+      {|#exe {I64 N=0;I64 F(){if(!N){N=1;StreamExePrint("F()+2;");}return 40;}Print("%d;",F()+2);}42;|};
+      {|#exe {I64 F(){StreamExePrint("I64 F(){return 2;}40+F();");return 42;}Print("%d;",F());}42;|};
+      {|#exe {I64 F(){static I64 N=StreamExePrint("I64 Added=40;Added+2;");return N;}Print("%d;",F());}42;|};
+    ]
+
+let physical_child_quotas () =
+  let text =
+    {|#exe {I64 Parent(){I64 a[2];return StreamExePrint("I64 Child(){I64 a[2];return 42;}Child();");}Print("%d;",Parent());}42;|}
+  in
+  List.iter
+    (fun mode ->
+      value (run ~mode ~max_call_depth:2 text);
+      failure "HCIRVM0015" (run ~mode ~max_call_depth:1 text);
+      value (run ~mode ~max_frame_bytes:32 text);
+      failure "HCIRVM0011" (run ~mode ~max_frame_bytes:31 text);
+      let rec minimum low high =
+        if low = high then low
+        else
+          let middle = (low + high) / 2 in
+          if
+            Result.is_ok
+              (Native.outcome (run ~mode ~max_active_stack_bytes:middle text))
+          then minimum low middle
+          else minimum (middle + 1) high
+      in
+      let stack = minimum 1 4096 in
+      let exact = run ~mode ~max_active_stack_bytes:stack text in
+      value exact;
+      rejects "physical caller stack remains charged during child entry"
+        (Native.outcome (run ~mode ~max_active_stack_bytes:(stack - 1) text));
+      let largest_entry =
+        List.fold_left
+          (fun largest (fragment : Native.fragment) ->
+            max largest fragment.image.entry_stack_bytes)
+          0 (Native.fragments exact)
+      in
+      Alcotest.(check bool)
+        "nested stack is stricter than every fresh entry" true
+        (stack > largest_entry))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let executable_child_collection () =
+  let saved = Gc.get () in
+  Fun.protect
+    ~finally:(fun () -> Gc.set saved)
+    (fun () ->
+      Gc.set
+        {
+          saved with
+          minor_heap_size = 1024;
+          space_overhead = 1;
+          max_overhead = 0;
+        };
+      executable_children ();
+      suspended_code_and_storage ();
+      Gc.full_major ();
+      Gc.compact ();
+      child_quotas ())
 
 let synchronous_declarations () =
   List.iter
@@ -254,15 +444,16 @@ let synchronous_failure_order () =
     (fun mode ->
       let session, source, config =
         inputs ~mode
-          {|#exe {Print("before;");StreamExePrint("class Reached {I64 n;};40+2;");Print("after;");}42;|}
+          {|#exe {Print("before;");StreamExePrint("class Reached {I64 n;};Print(\"child;\");1/0;");Print("after;");}42;|}
       in
       let report =
         Native.evaluate ~max_code_bytes:524_288 session ~source ~config
           ~max_steps:100_000
       in
-      rejects "executable child remains excluded" (Native.outcome report);
+      rejects "original child arithmetic fault propagates"
+        (Native.outcome report);
       Alcotest.(check string)
-        "caller output before the child fault survives" "before;"
+        "caller and child output before the fault survive" "before;child;"
         (Native.output_bytes report);
       Alcotest.(check bool)
         "reached original child declaration survives its later entry fault" true
@@ -275,7 +466,7 @@ let synchronous_failure_order () =
       let errors = Native.outcome report |> Result.get_error in
       Alcotest.(check bool)
         "child diagnostics and the caller source fault both survive" true
-        (List.exists (fun (d : Diagnostic.t) -> d.code = "HCRUN0004") errors
+        (List.exists (fun (d : Diagnostic.t) -> d.code = "HCIRVM0009") errors
         && List.length errors >= 2))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -555,6 +746,29 @@ let native_source_callback_scope ?(failure = `None)
         (Runtime.execute_retained_budget_report budget retained
         |> Runtime.outcome);
       rejects "original caller cannot be released" (Runtime.release retained);
+      let ordinary_session = Session.create () in
+      let ordinary_source =
+        Session.add_source ordinary_session ~path:"unscoped-image.hc"
+          ~contents:"42;"
+      in
+      let ordinary_config = Preprocessor.Config.create () |> unwrap in
+      let ordinary_image =
+        (Native_program.compile ordinary_session ~source:ordinary_source
+           ~config:ordinary_config
+        |> checked)
+          .value
+      in
+      let ordinary = Runtime.retain ordinary_image |> unwrap in
+      rejects "a scope grants no private-image child entry"
+        (Runtime.execute_retained_budget_report ~scope budget ordinary
+        |> Runtime.outcome);
+      Runtime.release ordinary |> unwrap;
+      rejects "scope cannot borrow another original budget"
+        (Runtime.execute_retained_budget_report ~scope foreign_budget retained
+        |> Runtime.outcome);
+      rejects "scope cannot reactivate the original running image"
+        (Runtime.execute_retained_budget_report ~scope budget retained
+        |> Runtime.outcome);
       rejects "original arena cannot be released"
         (Runtime.release_task_arena arena);
       Gc.full_major ();
@@ -798,8 +1012,20 @@ let () =
           Alcotest.test_case "values and retained owners" `Quick values;
           Alcotest.test_case "reached failures" `Quick failures;
           Alcotest.test_case "shared work and cumulative bytes" `Quick quotas;
-          Alcotest.test_case "executable children retain native entry exclusion"
+          Alcotest.test_case "synchronous original native child execution"
             `Quick synchronous_boundary;
+          Alcotest.test_case
+            "child defaults, statics, catalogs and nested streams" `Quick
+            executable_children;
+          Alcotest.test_case "actual child usage joins cumulative quotas" `Quick
+            child_quotas;
+          Alcotest.test_case
+            "suspended original code and storage survive children" `Quick
+            suspended_code_and_storage;
+          Alcotest.test_case "children inherit physical frame, depth and stack"
+            `Quick physical_child_quotas;
+          Alcotest.test_case "actual children survive collection and compaction"
+            `Quick executable_child_collection;
           Alcotest.test_case "synchronous child declarations publish" `Quick
             synchronous_declarations;
           Alcotest.test_case "synchronous child reached failure order" `Quick

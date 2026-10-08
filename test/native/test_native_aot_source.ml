@@ -213,14 +213,7 @@ let failure_order () =
   failure (run {|I64 Outer=40;#exe {StreamPrint("%d;",Outer+2);}|});
   failure (run {|I64 F(I64 n=40){#exe {StreamPrint("%d;",n+2);}return 0;}F;|});
   let synchronous = run {|#exe {StreamExePrint("42;");}42;|} in
-  failure ~code:"HCBACK0003" synchronous;
-  failure ~code:"HCRUN0004" synchronous;
-  Alcotest.(check bool)
-    "executable child retains separate AOT task ownership" true
-    (List.exists
-       (fun (d : Diagnostic.t) ->
-         d.message = "native task storage belongs to another original task")
-       (Native.outcome synchronous |> Result.get_error))
+  value synchronous
 
 let () =
   Alcotest.run "Native AOT source sessions"

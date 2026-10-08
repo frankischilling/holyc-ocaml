@@ -5,7 +5,10 @@ executing the separately compiled module. The
 [AOT example](examples/native-aot-streams.hc) prints `parse43;load1;` and returns
 42 while keeping task and module variables separate. See
 [native AOT sessions](docs/native-aot-source-sessions.md) for execution, shared
-limits and the remaining synchronous StreamExePrint dependency.
+limits. Synchronous native StreamExePrint now executes original child commands
+while the caller is suspended. The [child example](examples/native-stream-children.hc)
+prints `before;child;after;` and returns 42 in both outer modes;
+[native streams](docs/native-stream-generation.md) describe scope and quota checks.
 
 Inherited class and union sizes now retain the exact base selected by the
 original parser, including reached partial layouts and forward completion

@@ -551,8 +551,8 @@ the original compiler-local `sizeof` metadata; unsupported local queries report
 `HCRUN0004` instead of selecting a same-name global. Original AOT globals and
 functions still pending runtime publication cannot execute through this bridge.
 Child-created cells, functions, defaults and statics have their own checked JIT
-execution and persist across later directives. Native synchronous execution in
-either outer mode still needs its original machine caller and reentrant leases.
+execution and persist across later directives. Native synchronous execution now retains the original machine caller and
+borrows storage only under its exact C scope and cumulative budget.
 
 The maintained [example](../examples/stream-exe-compiler-context.hc) derives a
 child class from an enclosing class, creates a child array and function, and

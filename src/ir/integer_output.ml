@@ -44,6 +44,7 @@ let contents state = Buffer.contents state.output
 let work state = state.work_budget.count
 let committed_bytes state = state.bytes.committed
 let capacity state = state.bytes.capacity
+let byte_budget state = state.bytes
 let ( let* ) = Result.bind
 
 let charge state =

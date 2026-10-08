@@ -93,11 +93,12 @@ directive-only names stay in their own task. Directive caller locals are hidden;
 saved compiler-local shadows remain checked. Ordinary output remains separate
 from generated text.
 
-Native active calls now resume the same original parser for declaration-only
-children, including calls through a captured provider. Class publication is
-visible before the outer parser resumes, and accepted declaration completion
-returns zero. Executable children still require scoped machine, arena and budget
-entry; their rejection retains the original diagnostics and reached effects.
+Native active calls resume the same original parser and execute live child
+requests in machine code. C checks the exact scope and budget, permits arena
+borrowing only from an actual suspended owner and joins measured child usage.
+Class publication is visible before the outer parser resumes, and accepted
+declaration completion returns zero. Child failure retains original diagnostics
+and reached effects. See [native streams](native-stream-generation.md).
 
 The provider writes packed nonzero bytes to the hosted output buffer. TempleOS
 `PutKey` device hooks, scheduling and display behavior remain outside this hosted
@@ -105,7 +106,7 @@ contract. Native entries use the existing private status/arena convention;
 the exported HolyC ABI is separate work.
 
 The isolated `host-jit` path still rejects original extern slot addresses
-without task storage. Native synchronous StreamExePrint execution, original AOT
+without task storage. Original AOT
 runtime data/function imports, compiler-local metadata, callback members, wider indirection and full compiler
 acceptance remain open. Native AOT source sessions execute their separate
 directive tasks and outer module. Unresolved ordinary AOT extern addresses still report

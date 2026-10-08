@@ -51,7 +51,7 @@ provides backed inline types through the local declaration path.
 [Inherited size metadata](source-inherited-layouts.md) retains the original
 selected base and its reached layout. Executable aggregate objects still need
 their storage and member-index support. Runtime AOT dimensions and offsets retain
-their relocation and callable-authority limits; native AOT source execution and
-synchronous native StreamExePrint also remain open. Function `$$` addresses keep
+their relocation and callable-authority limits; broader native AOT aggregate execution and
+the exported ABI also remain open. Function `$$` addresses keep
 their code-address requirements. These parser and layout changes do not complete
 those execution paths or the full compiler.
