@@ -1,5 +1,12 @@
 # holyc-ocaml
 
+The bounded source pipeline now emits unused-local and unneeded-`no_warn`
+diagnostics using each function's reached option mask. The
+[warning example](examples/compiler-warning-options.hc) runs through IR and
+native tasks in both outer modes. [The warning notes](docs/compiler-warnings.md)
+describe counting, child contexts, retained diagnostics and the remaining
+warning phase boundaries.
+
 AOT source now runs `#exe` blocks in their original native JIT task before
 executing the separately compiled module. The
 [AOT example](examples/native-aot-streams.hc) prints `parse43;load1;` and returns
@@ -641,7 +648,7 @@ Top-level named function defaults bind after `PrsFunJoin` has published the curr
 
 Aggregate header resolution distinguishes public primitive spellings, intrinsic storage spellings, and aggregate identities at pointer depths zero through four. It resolves an optional backing against the state before the definition is published, then publishes the canonical identity before resolving an optional base. Definition, keyword, backing, pointer, colon, and base-name origins remain available to later diagnostics. This is a checked semantic header boundary, not class layout or general type checking.
 
-`no_warn` has its own AST node. It keeps each target and comma in order, including a trailing comma, and accepts only parameters or locals visible in the function-wide parser context. Empty forms follow the common statement boundary. A checked semantic pass binds each target to its stable function-local identity, derives an effective `MLF_NO_UNUSED_WARN` mask without mutating the symbol table, and retains ordinary uses, specialized name queries, suppression lookups, and initializer resets separately. Its library result classifies source-shaped unused-variable and unneeded-suppression warnings. A locally resolved root in `sizeof` or `offset`, or a name-shaped `defined` operand, contributes to that source count. Member-path spellings and non-name `defined` operands do not. These query facts do not resolve members or calculate the value of any of the three operators. Type roles, labels, assembly names, source-positioned `Option(...)` execution, and CLI warning rendering remain pending.
+`no_warn` has its own AST node. It keeps each target and comma in order, including a trailing comma, and accepts only parameters or locals visible in the function-wide parser context. Empty forms follow the common statement boundary. A checked semantic pass binds each target to its stable function-local identity, derives an effective `MLF_NO_UNUSED_WARN` mask without mutating the symbol table, and retains ordinary uses, specialized name queries, suppression lookups, and initializer resets separately. Its library result classifies source-shaped unused-variable and unneeded-suppression warnings. The bounded integer pipeline emits those warnings as source diagnostics and lowers `no_warn` without runtime instructions. Original function-body option snapshots retain changes reached through `Option(...)` during parsing. A locally resolved root in `sizeof` or `offset`, or a name-shaped `defined` operand, contributes to that source count. Member-path spellings and non-name `defined` operands do not. These query facts do not resolve members or calculate the value of any of the three operators. Type roles, labels, assembly names and full native warning timing remain pending; [the warning notes](docs/compiler-warnings.md) give the implemented boundary.
 
 ## What is not implemented
 

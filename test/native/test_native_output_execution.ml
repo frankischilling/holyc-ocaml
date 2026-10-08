@@ -1,4 +1,10 @@
 open Holyc_lib
+
+let error_diagnostic diagnostics =
+  List.find
+    (fun (diagnostic : Diagnostic.t) -> diagnostic.severity = Diagnostic.Error)
+    diagnostics
+
 module Program = X86_64_program
 module Runtime = Native_program_execution
 module VM = Ir_integer_interpreter
@@ -54,7 +60,7 @@ let interpreter_fault ?max_output_bytes ?max_output_work ?max_steps mode
     | Ok _ -> Alcotest.fail "shared interpreter unexpectedly completed"
     | Error diagnostics -> diagnostics
   in
-  (report, List.hd diagnostics)
+  (report, error_diagnostic diagnostics)
 
 let vm_errors_text errors =
   errors
@@ -114,7 +120,11 @@ let first_error report =
   match Native_program.outcome report with
   | Ok _ -> Alcotest.fail "native source unexpectedly completed"
   | Error [] -> Alcotest.fail "native source returned no diagnostic"
-  | Error (error :: _) -> error
+  | Error diagnostics ->
+      List.find
+        (fun (diagnostic : Diagnostic.t) ->
+          diagnostic.severity = Diagnostic.Error)
+        diagnostics
 
 let fault ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
     ?max_initializer_steps ?max_steps mode contents =

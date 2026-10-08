@@ -1,4 +1,10 @@
 open Holyc_lib
+
+let error_diagnostic diagnostics =
+  List.find
+    (fun (diagnostic : Diagnostic.t) -> diagnostic.severity = Diagnostic.Error)
+    diagnostics
+
 module Fixture = Test_native_program
 module Program = X86_64_program
 module Runtime = Native_program_execution
@@ -238,17 +244,24 @@ let source_report ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
     ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes session ~config
     ~source ~max_steps
 
-let source_success_report ?max_initializer_steps ?max_default_bytes
-    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps
-    contents =
+let source_success_report ?(expected_warnings = []) ?max_initializer_steps
+    ?max_default_bytes ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
+    ~mode ~max_steps contents =
   let report =
     source_report ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
       ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents
   in
   match Native_program.outcome report with
   | Ok checked ->
-      Alcotest.(check bool)
-        "successful source has no warning" true (checked.diagnostics = []);
+      Alcotest.(check (list (pair string string)))
+        "successful source has exact warnings" expected_warnings
+        (List.map
+           (fun (diagnostic : Diagnostic.t) ->
+             Alcotest.(check bool)
+               "nonfatal compiler warning" true
+               (diagnostic.severity = Diagnostic.Warning);
+             (diagnostic.code, diagnostic.message))
+           checked.diagnostics);
       (report, checked.value)
   | Error diagnostics ->
       Alcotest.fail
@@ -257,11 +270,12 @@ let source_success_report ?max_initializer_steps ?max_default_bytes
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
 
-let source_success ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
-    ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents =
-  source_success_report ?max_initializer_steps ?max_default_bytes
+let source_success ?expected_warnings ?max_initializer_steps ?max_default_bytes
     ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps
-    contents
+    contents =
+  source_success_report ?expected_warnings ?max_initializer_steps
+    ?max_default_bytes ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
+    ~mode ~max_steps contents
   |> snd
 
 let integer_source_success ~mode ~max_steps contents =
@@ -275,8 +289,9 @@ let integer_source_success ~mode ~max_steps contents =
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
 
-let compare_source_vm ?expected ~mode ~max_steps label contents =
-  let native = source_success ~mode ~max_steps contents in
+let compare_source_vm ?expected_warnings ?expected ~mode ~max_steps label
+    contents =
+  let native = source_success ?expected_warnings ~mode ~max_steps contents in
   Option.iter
     (fun (type_, bits) ->
       check_program_word
@@ -511,7 +526,7 @@ let source_functions_and_locals_both_modes () =
         (Fixture.kind_name one_below.kind);
       Alcotest.(check string)
         "Add(20,22) one-below diagnostic" "HCIRVM0007"
-        (List.hd diagnostics).code;
+        (error_diagnostic diagnostics).code;
       List.iter
         (fun (label, source, expected_type, expected_bits) ->
           let result = source_success ~mode ~max_steps:1000 source in
@@ -576,7 +591,10 @@ let source_parameter_defaults_both_modes () =
       check_program_word "supplied argument still wins at the call" "I64" 7L
         supplied.execution.final_value;
       let _, mixed =
-        source_success_report ~mode ~max_steps:1000
+        source_success_report
+          ~expected_warnings:
+            [ ("HCSEMA0034", "unused variable \"c\" in function \"Pick\"") ]
+          ~mode ~max_steps:1000
           "I64 Pick(I64 a=40,I64 b,I64 c){return a+b;}\n\
            I64 Probe(){I64 n=0;return Pick(,n,n=2);}\n\
            Probe();"
@@ -677,8 +695,16 @@ let source_parameter_defaults_vm_both_modes () =
     (fun mode ->
       List.iter
         (fun (label, contents, type_, bits) ->
-          compare_source_vm ~expected:(type_, bits) ~mode ~max_steps:1000 label
-            contents)
+          let expected_warnings =
+            if
+              label
+              = "non-trailing omission preserves supplied-argument effects"
+            then
+              [ ("HCSEMA0034", "unused variable \"c\" in function \"Pick\"") ]
+            else []
+          in
+          compare_source_vm ~expected_warnings ~expected:(type_, bits) ~mode
+            ~max_steps:1000 label contents)
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -1031,7 +1057,7 @@ let uninitialized_automatic_locals_match_hosted_policy () =
             (Fixture.kind_name fault.kind);
           Alcotest.(check string)
             "native uninitialized diagnostic" expected.code
-            (List.hd diagnostics).code;
+            (error_diagnostic diagnostics).code;
           Alcotest.(check int)
             "attempted load consumes the same exact step"
             expected.executed_steps fault.executed_steps;
@@ -1209,7 +1235,7 @@ let skipped_and_eager_faults () =
         (Fixture.kind_name fault.kind);
       Alcotest.(check string)
         "eager fault maps to VM semantic diagnostic" "HCIRVM0009"
-        (List.hd diagnostics).code)
+        (error_diagnostic diagnostics).code)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let source_arithmetic_fault_mapping () =
@@ -1236,7 +1262,7 @@ let source_arithmetic_fault_mapping () =
             source (Fixture.kind_name kind)
             (Fixture.kind_name fault.kind);
           Alcotest.(check string)
-            (source ^ " diagnostic") code (List.hd diagnostics).code)
+            (source ^ " diagnostic") code (error_diagnostic diagnostics).code)
         cases;
       List.iter
         (fun source ->
@@ -1273,7 +1299,8 @@ let exact_loop_budgets () =
             (Some 17)
             (Native_program.executed_steps report);
           Alcotest.(check string)
-            (source ^ " diagnostic") "HCIRVM0007" (List.hd diagnostics).code)
+            (source ^ " diagnostic") "HCIRVM0007"
+            (error_diagnostic diagnostics).code)
         [ "while(1);"; "for(0;1;0);" ])
     [ Preprocessor.Jit; Preprocessor.Aot ];
   List.iter
@@ -1282,7 +1309,8 @@ let exact_loop_budgets () =
       Alcotest.(check int)
         "multiply one-below consumed four" 4 fault.executed_steps;
       Alcotest.(check string)
-        "multiply one-below diagnostic" "HCIRVM0007" (List.hd diagnostics).code)
+        "multiply one-below diagnostic" "HCIRVM0007"
+        (error_diagnostic diagnostics).code)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let pressure_shift_graph () =
@@ -1596,7 +1624,7 @@ let compound_faults_restore_all_calls () =
             source_fault ~mode ~max_steps:1000 contents
           in
           Alcotest.(check string)
-            "compound fault diagnostic" code (List.hd diagnostics).code;
+            "compound fault diagnostic" code (error_diagnostic diagnostics).code;
           Alcotest.(check string)
             "compound fault kind" (Fixture.kind_name kind)
             (Fixture.kind_name actual.kind);

@@ -80,6 +80,12 @@ val context_set_option :
     require the exact current parser context; a numeric mask grants no entry
     authority. *)
 
+val context_emit_compiler_warning :
+  command_context -> Common.Diagnostic.t -> (unit, string) result
+(** Append a reached warning to the enclosing source diagnostic stream under the
+    original focused control. Child compiler warnings retain their order and
+    survive a later child or parent failure. *)
+
 val context_parent : command_context -> command_position option
 (** Exact input and environment ownership, with the parent's suspended parser
     phase at nested entry. Contexts from distinct parse calls remain distinct.
@@ -664,6 +670,12 @@ val function_header_is_current : completed_function_header -> bool
 val function_body_completion_is_current :
   completed_function_header -> Ast.function_definition -> bool
 (** Only the exact original body during its completion callback is current. *)
+
+val function_body_compiler_options :
+  completed_function_header -> Ast.function_definition -> (int64, string) result
+(** Immutable options reached after parsing this exact original body. The
+    receipt survives callback expiry; copies and substituted bodies reject. This
+    source evidence grants no execution authority. *)
 
 type array_dimensions_owner = private {
   dimensions_command : command_start;

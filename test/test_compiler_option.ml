@@ -390,6 +390,168 @@ let original_directive_and_child_controls () =
   ignore (parse_options ~execute_stream session aot "#exe {42;}42;" commands);
   Alcotest.(check int) "original directive entered" 1 !entered
 
+let original_body_option_snapshots () =
+  let session = Session.create () in
+  let config = Config.create () |> checked_control in
+  let bodies = ref [] in
+  let commands =
+    {
+      (option_sink (fun _ -> Ok ())) with
+      declaration =
+        Some
+          (function
+          | Parser.Function_header_completed header ->
+              let context =
+                header.function_publication.function_header.declaration_command
+                  .command_context
+              in
+              ignore
+                (Parser.context_set_option context ~bit_index:16L false
+                |> checked_control);
+              Ok ()
+          | Parser.Function_body_completed (header, body) ->
+              let context =
+                header.function_publication.function_header.declaration_command
+                  .command_context
+              in
+              let reached =
+                Parser.function_body_compiler_options header body
+                |> checked_control
+              in
+              Alcotest.(check int64)
+                "body retains its reached mask" 0x80000L reached;
+              ignore
+                (Parser.context_set_option context ~bit_index:16L true
+                |> checked_control);
+              bodies := (header, body) :: !bodies;
+              Ok ()
+          | _ -> Ok ());
+    }
+  in
+  ignore (parse_options session config "I64 F(I64 unused){return 42;}" commands);
+  let header, body = List.hd !bodies in
+  Gc.full_major ();
+  Gc.compact ();
+  Alcotest.(check int64)
+    "header retains its earlier mask" Option.initial_mask
+    header.header_compiler_options;
+  Alcotest.(check int64)
+    "expired snapshot remains immutable" 0x80000L
+    (Parser.function_body_compiler_options header body |> checked_control);
+  Alcotest.(check bool)
+    "closed body has no execution authority" false
+    (Parser.function_body_completion_is_current header body);
+  let copied_body : Holyc_lib.Ast.function_definition =
+    Obj.obj (Obj.dup (Obj.repr body))
+  in
+  Alcotest.(check bool)
+    "shallow body copy has no reached mask" true
+    (Result.is_error (Parser.function_body_compiler_options header copied_body));
+  let copied_header : Parser.completed_function_header =
+    Obj.obj (Obj.dup (Obj.repr header))
+  in
+  Alcotest.(check bool)
+    "shallow header copy has no original mask" true
+    (Result.is_error (Parser.function_body_compiler_options copied_header body))
+
+let source_warnings () =
+  let run mode text =
+    let session = Session.create () in
+    let config = Config.create ~compilation_mode:mode () |> checked_control in
+    let source =
+      Session.add_source session ~path:"source-warning-options.hc"
+        ~contents:text
+    in
+    Holyc_lib.run_integer_program_report ~max_steps:10000 session ~config
+      ~source
+  in
+  let success report =
+    match Holyc_lib.integer_program_report_outcome report with
+    | Ok _ -> ()
+    | Error diagnostics ->
+        Alcotest.fail
+          (diagnostics
+          |> List.map (fun diagnostic ->
+              diagnostic.Holyc_lib.Diagnostic.message)
+          |> String.concat "; ")
+  in
+  let diagnostics report =
+    match Holyc_lib.integer_program_report_outcome report with
+    | Ok checked -> checked.diagnostics
+    | Error diagnostics -> diagnostics
+  in
+  let warnings report =
+    diagnostics report
+    |> List.filter (fun diagnostic ->
+        diagnostic.Holyc_lib.Diagnostic.severity = Holyc_lib.Diagnostic.Warning)
+    |> List.map (fun diagnostic ->
+        (diagnostic.Holyc_lib.Diagnostic.code, diagnostic.message))
+  in
+  List.iter
+    (fun mode ->
+      let check text expected =
+        let report = run mode text in
+        success report;
+        Alcotest.(check (list (pair string string)))
+          "reached compiler warnings" expected (warnings report)
+      in
+      check
+        "#exe {Option(16,0);I64 Quiet(I64 unused){return 42;}Option(16,1);I64 \
+         Loud(I64 unused){return 42;}Option(16,0);}42;"
+        [ ("HCSEMA0034", "unused variable \"unused\" in function \"Loud\"") ];
+      check
+        "#exe {Option(16,0);I64 Suppression(I64 used,I64 _anon_){no_warn \
+         used;used;no_warn _anon_;_anon_;return 42;}}42;"
+        [
+          ( "HCSEMA0035",
+            "unneeded no_warn for \"used\" in function \"Suppression\"" );
+        ];
+      check
+        "#exe {I64 BodyOff(I64 unused){I64 a[Option(16,0)+1];return 42;}}42;" [];
+      check
+        "#exe {Option(16,0);I64 BodyOn(I64 unused){I64 \
+         a[Option(16,1)+1];return 42;}}42;"
+        [
+          ("HCSEMA0034", "unused variable \"unused\" in function \"BodyOn\"");
+          ("HCSEMA0034", "unused variable \"a\" in function \"BodyOn\"");
+        ];
+      check
+        {|#exe {Option(16,0);StreamExePrint("Option(16,1);I64 Child(I64 unused){return 42;}");I64 Parent(I64 unused){return 42;}}42;|}
+        [ ("HCSEMA0034", "unused variable \"unused\" in function \"Child\"") ];
+      let report =
+        run mode
+          "#exe {I64 Earlier(I64 unused){return 42;}I64 zero=0;42/zero;}42;"
+      in
+      Alcotest.(check bool)
+        "later execution fails" true
+        (Result.is_error (Holyc_lib.integer_program_report_outcome report));
+      Alcotest.(check (list (pair string string)))
+        "reached warning survives later failure"
+        [ ("HCSEMA0034", "unused variable \"unused\" in function \"Earlier\"") ]
+        (warnings report);
+      let report =
+        run mode "#exe {I64 Broken(I64 unused){return missing;}}42;"
+      in
+      Alcotest.(check bool)
+        "body compilation fails" true
+        (Result.is_error (Holyc_lib.integer_program_report_outcome report));
+      Alcotest.(check (list (pair string string)))
+        "failed body emits no unused warning" [] (warnings report))
+    [ Holyc_lib.Preprocessor.Jit; Holyc_lib.Preprocessor.Aot ];
+  List.iter
+    (fun mode ->
+      let report =
+        run mode "I64 Ordinary(I64 unused){return 42;}Ordinary(0);"
+      in
+      success report;
+      Alcotest.(check (list (pair string string)))
+        "default warning option is consumed"
+        [
+          ("HCSEMA0034", "unused variable \"unused\" in function \"Ordinary\"");
+        ]
+        (warnings report))
+    [ Holyc_lib.Preprocessor.Jit; Holyc_lib.Preprocessor.Aot ]
+
 let tests =
   [
     Alcotest.test_case "exact registry" `Quick exact_registry;
@@ -405,4 +567,7 @@ let tests =
       original_source_snapshots;
     Alcotest.test_case "directive and child option controls" `Quick
       original_directive_and_child_controls;
+    Alcotest.test_case "source warning option consumer" `Quick source_warnings;
+    Alcotest.test_case "original body option snapshots" `Quick
+      original_body_option_snapshots;
   ]

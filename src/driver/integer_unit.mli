@@ -59,4 +59,5 @@ val static_sources : compiled -> Sema.Static_local_source.t list
 
 val runtime_calls : compiled -> Ir.Runtime_call_context.t
 val has_entry_calls : compiled -> bool
+val compiler_warnings : compiled -> Common.Diagnostic.t list
 val human : compiled -> string

@@ -131,18 +131,32 @@ let ir_json ?(status = 0) ?(options = []) ~mode source =
 let diagnostics report = report |> member "diagnostics" |> to_list
 
 let first_code report =
-  match diagnostics report with
-  | first :: _ -> first |> member "code" |> to_string
-  | [] -> (
+  match
+    List.find_opt
+      (fun diagnostic -> diagnostic |> member "severity" |> to_string = "error")
+      (diagnostics report)
+  with
+  | Some first -> first |> member "code" |> to_string
+  | None -> (
       match member "command_error" report with
       | `Assoc _ as error -> error |> member "code" |> to_string
       | _ -> failwith "expected a diagnostic or command error")
 
-let check_success report =
+let diagnostic_signature diagnostic =
+  ( diagnostic |> member "code" |> to_string,
+    diagnostic |> member "severity" |> to_string,
+    diagnostic |> member "message" |> to_string )
+
+let unused_warning variable function_ =
+  ( "HCSEMA0034",
+    "warning",
+    Printf.sprintf "unused variable %S in function %S" variable function_ )
+
+let check_success ?(expected_warnings = []) report =
   require
     (report |> member "outcome" |> to_string = "success"
     && report |> member "termination" |> to_string = "stream-end"
-    && diagnostics report = []
+    && List.map diagnostic_signature (diagnostics report) = expected_warnings
     && member "command_error" report = `Null)
     "successful scalar report"
 
@@ -194,6 +208,11 @@ let batch_execution ~max_steps fixture =
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
 
+let fixture_warnings source =
+  if source = callbacks_fixture then [ unused_warning "n" "Visit" ]
+  else if source = word_tail_fixture then [ unused_warning "argc" "Apply" ]
+  else []
+
 let check_native_meter_with_preparation ~initializer_steps
     ~expected_source_preparation ~mode ~source ~expected_preparation
     ~expected_default_bytes ~check_final =
@@ -201,7 +220,8 @@ let check_native_meter_with_preparation ~initializer_steps
      defaults intentionally activate separate JIT task units, so its executed
      step count is not the native batch meter. *)
   let ir = ir_json ~mode source in
-  check_success ir;
+  let expected_warnings = fixture_warnings source in
+  check_success ~expected_warnings ir;
   check_final ir;
   require
     (preparation ir = expected_source_preparation)
@@ -222,7 +242,7 @@ let check_native_meter_with_preparation ~initializer_steps
   require (batch_steps > 1)
     "native-batch fixture needs a nontrivial one-below runtime boundary";
   let native = host_json ~mode source in
-  check_success native;
+  check_success ~expected_warnings native;
   check_final native;
   require
     (executed_steps native = batch_steps)
@@ -244,7 +264,7 @@ let check_native_meter_with_preparation ~initializer_steps
       ~options:[ "--step-limit=" ^ string_of_int batch_steps ]
       source
   in
-  check_success exact;
+  check_success ~expected_warnings exact;
   check_final exact;
   require
     (executed_steps exact = batch_steps)

@@ -43,6 +43,29 @@ let with_source contents run =
       run path)
 
 let require condition message = if not condition then failwith message
+
+let diagnostic_signature report =
+  let open Yojson.Basic.Util in
+  report |> member "diagnostics" |> to_list
+  |> List.map (fun diagnostic ->
+      ( diagnostic |> member "code" |> to_string,
+        diagnostic |> member "severity" |> to_string,
+        diagnostic |> member "message" |> to_string ))
+
+let first_error report =
+  let open Yojson.Basic.Util in
+  report |> member "diagnostics" |> to_list
+  |> List.find (fun diagnostic ->
+      diagnostic |> member "severity" |> to_string = "error")
+
+let unused_warnings function_name names =
+  List.map
+    (fun name ->
+      ( "HCSEMA0034",
+        "warning",
+        Printf.sprintf "unused variable %S in function %S" name function_name ))
+    names
+
 let pinned_reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 let acceptance_gates =
@@ -170,6 +193,17 @@ let variadic_termination_source =
 let parameter_delimiters_source =
   "I64 F(;;I64 n=40,;;I64 m=2,;;){return n+m;};F();"
 
+let stateful_omission_source =
+  {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b,I64 c=1){Out=a+b+c;}"x",,1,;StreamPrint("%d;",Out);}|}
+
+let source_warnings source =
+  if
+    List.mem source
+      [ omission_source; parenthesized_source; stateful_omission_source ]
+  then unused_warnings "Print" [ "s" ]
+  else if source = function_versions_source then unused_warnings "F" [ "n" ]
+  else []
+
 let () =
   require
     (Array.length Sys.argv = 14)
@@ -234,8 +268,7 @@ let () =
           require (status = Unix.WEXITED 1)
             "saved compiler fixture below-limit status";
           require
-            (report |> member "diagnostics" |> to_list |> List.hd
-           |> member "code" |> to_string = code)
+            (first_error report |> member "code" |> to_string = code)
             "saved compiler fixture below-limit diagnostic")
         [
           ([ "--step-limit=" ^ string_of_int (steps - 1) ], "HCIRVM0007");
@@ -271,7 +304,14 @@ let () =
         (report |> member "final_value" |> member "value" |> to_string = "42")
         "retained named type result";
       require
-        (report |> member "diagnostics" |> to_list = [])
+        (report |> member "diagnostics" |> to_list
+        |> List.map (fun diagnostic ->
+            ( diagnostic |> member "code" |> to_string,
+              diagnostic |> member "severity" |> to_string,
+              diagnostic |> member "message" |> to_string ))
+        = [
+            ("HCSEMA0034", "warning", "unused variable \"p\" in function \"F\"");
+          ])
         "retained named type diagnostics";
       require
         (report |> member "output_hex" |> to_string = "")
@@ -316,12 +356,17 @@ let () =
              = "42")
               "runtime offset result";
             require
-              (report |> member "diagnostics" |> to_list = [])
+              (diagnostic_signature report
+              =
+              if fixture = Sys.argv.(10) then
+                unused_warnings "Marker" [ "a"; "b"; "c"; "d"; "e" ]
+              else if fixture = Sys.argv.(11) then
+                unused_warnings "Marker" [ "head"; "tail" ]
+              else [])
               "runtime offset diagnostics")
           else
             require
-              (report |> member "diagnostics" |> to_list |> List.hd
-             |> member "code" |> to_string = "HCIRVM0007")
+              (first_error report |> member "code" |> to_string = "HCIRVM0007")
               "runtime offset bounded failure")
         limits)
     (List.concat_map
@@ -390,8 +435,7 @@ let () =
               "offset diagnostics")
           else
             require
-              (report |> member "diagnostics" |> to_list |> List.hd
-             |> member "code" |> to_string = "HCIRVM0007")
+              (first_error report |> member "code" |> to_string = "HCIRVM0007")
               "offset bounded failure")
         [ (30, 6, 0, 30); (29, 6, 1, 29); (30, 5, 1, 7) ])
     [ "jit"; "aot" ];
@@ -441,8 +485,7 @@ let () =
               "partial aggregate diagnostics")
           else
             require
-              (report |> member "diagnostics" |> to_list |> List.hd
-             |> member "code" |> to_string = "HCIRVM0007")
+              (first_error report |> member "code" |> to_string = "HCIRVM0007")
               "partial aggregate one-below diagnostic")
         [ (38, 3, 0, 38, 3); (37, 3, 1, 37, 3); (38, 2, 1, 6, 2) ])
     [ "jit"; "aot" ];
@@ -494,8 +537,7 @@ let () =
               "aggregate successful diagnostics")
           else
             require
-              (report |> member "diagnostics" |> to_list |> List.hd
-             |> member "code" |> to_string = "HCIRVM0007")
+              (first_error report |> member "code" |> to_string = "HCIRVM0007")
               "aggregate one-below diagnostic")
         [ (34, 3, 0, 34, 3); (33, 3, 1, 33, 3); (34, 2, 1, 7, 2) ])
     [ "jit"; "aot" ];
@@ -548,8 +590,7 @@ let () =
               (report |> member "final_value" = `Null)
               "failed implicit phase input has no successful result";
             require
-              (report |> member "diagnostics" |> to_list |> List.hd
-             |> member "code" |> to_string = "HCIRVM0007")
+              (first_error report |> member "code" |> to_string = "HCIRVM0007")
               "implicit phase one-below diagnostic"))
         [ (65, 0); (64, 1) ])
     [ "jit"; "aot" ];
@@ -620,18 +661,14 @@ let () =
            = "42")
             "stateful CLI result";
           require
-            (report |> member "diagnostics" |> to_list = [])
+            (diagnostic_signature report = source_warnings text)
             "stateful CLI diagnostics";
           require
             (report |> member "output_hex" |> to_string = "")
             "stream output leaked into ordinary output"))
     [
-      ( "jit",
-        {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b,I64 c=1){Out=a+b+c;}"x",,1,;StreamPrint("%d;",Out);}|}
-      );
-      ( "aot",
-        {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b,I64 c=1){Out=a+b+c;}"x",,1,;StreamPrint("%d;",Out);}|}
-      );
+      ("jit", stateful_omission_source);
+      ("aot", stateful_omission_source);
       ("jit", {|I64 N=40;#exe {StreamPrint("%d;",N+2);}|});
       ("jit", {|I64 F(I64 n=42){return n;};F();|});
       ("aot", {|I64 F(I64 n=42){return n;};F();|});
@@ -713,8 +750,7 @@ let () =
         && report |> member "output_work" |> to_int > 0)
         "StreamExePrint nested source formats before context rejection";
       require
-        (report |> member "diagnostics" |> to_list |> List.hd |> member "code"
-       |> to_string = "HCIRVM0027")
+        (first_error report |> member "code" |> to_string = "HCIRVM0027")
         "StreamExePrint JIT diagnostic");
   List.iter
     (fun (source, mode, steps, prep) ->
@@ -759,12 +795,12 @@ let () =
                  = "42")
                   "implicit omission exact-limit result";
                 require
-                  (report |> member "diagnostics" |> to_list = [])
+                  (diagnostic_signature report = source_warnings source)
                   "implicit omission exact-limit diagnostics")
               else
                 require
-                  (report |> member "diagnostics" |> to_list |> List.hd
-                 |> member "code" |> to_string = "HCIRVM0007")
+                  (first_error report |> member "code" |> to_string
+                 = "HCIRVM0007")
                   "implicit omission one-below diagnostic")
             [
               ( [

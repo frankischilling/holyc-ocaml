@@ -96,6 +96,7 @@ type source =
         * Sema.Function_type_resolution.resolved_function)
         option;
       mutable body : Ast.function_definition option;
+      mutable body_compiler_options : int64 option;
     }
 
 type assigned = {
@@ -178,6 +179,7 @@ type reading_query = {
 
 type command = {
   calls : Sema.Function_call_phase.t list;
+  function_compiler_options : (Sema.Symbol.t * int64) list;
   namespace : Collection.namespace;
   inherited_metadata : Sema.Compiler_record.inherited_metadata list;
   selected_aggregate_types :
@@ -2745,6 +2747,7 @@ let observe ?offset_runtime ledger event =
                  declared_header = None;
                  typed_header = None;
                  body = None;
+                 body_compiler_options = None;
                })
             publication.function_entry;
           retain_selected_aggregate ledger
@@ -3033,6 +3036,10 @@ let observe ?offset_runtime ledger event =
                   Sema.Function_record_phase.observe record event
                   |> checked body.location.span)
                 state.native_record;
+              state.body_compiler_options <-
+                Some
+                  (Parser.function_body_compiler_options header body
+                  |> checked body.location.span);
               state.body <- Some body
           | _ ->
               fail publication.function_name.location.span
@@ -3521,6 +3528,18 @@ let seal ledger (ast : Ast.module_) =
                         else None)
                       ledger.implicit_outputs;
                 namespace = ledger.namespace;
+                function_compiler_options =
+                  List.filter_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Function
+                          { header = Some header; body_compiler_options; _ } ->
+                          Some
+                            ( Collection.publication_symbol assigned.publication,
+                              Option.value body_compiler_options
+                                ~default:header.header_compiler_options )
+                      | _ -> None)
+                    !claimed;
                 inherited_metadata =
                   List.filter_map
                     (fun assigned ->
@@ -4524,6 +4543,25 @@ let retained_function_headers ~table ~ast (command : command) =
       if command.table != table || command.ast != ast then
         fail ast.Ast.span "retained headers belong to another source command";
       (command.namespace, command.function_headers))
+
+let function_compiler_options ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "function options belong to another source command";
+      fun symbol ->
+        if not (Sema.Symbol_table.owns_symbol table symbol) then
+          Error "function options have another symbol table"
+        else
+          match
+            List.find_opt
+              (fun (original, _) -> original == symbol)
+              command.function_compiler_options
+          with
+          | Some (_, mask) -> Ok mask
+          | None -> Error "function has no original reached option snapshot")
+
+let source_function_compiler_options ~table ~ast (Source_command command) =
+  function_compiler_options ~table ~ast command
 
 let selected_type_resolver ~table ~ast (command : command) =
   protect (fun () ->
@@ -5840,7 +5878,7 @@ let parser_suspension ledger =
   | active :: _ -> Parser.suspend_context active.context
   | [] -> Error "task has no suspended parser source"
 
-let execute_compiler_option ledger ~runtime index enabled =
+let compiler_control_context ledger ~runtime =
   let ( let* ) = Result.bind in
   let* () =
     match ledger.authority with
@@ -5875,10 +5913,24 @@ let execute_compiler_option ledger ~runtime index enabled =
   then
     Error
       "compiler option request lacks its original fully observed parser control"
-  else
-    match enabled with
-    | None -> Parser.context_get_option context ~bit_index:index
-    | Some value -> Parser.context_set_option context ~bit_index:index value
+  else Ok context
+
+let execute_compiler_option ledger ~runtime index enabled =
+  Result.bind (compiler_control_context ledger ~runtime) (fun context ->
+      match enabled with
+      | None -> Parser.context_get_option context ~bit_index:index
+      | Some value -> Parser.context_set_option context ~bit_index:index value)
+
+let emit_compiler_warnings ledger ~runtime diagnostics =
+  match diagnostics with
+  | [] -> Ok ()
+  | _ ->
+      Result.bind (compiler_control_context ledger ~runtime) (fun context ->
+          List.fold_left
+            (fun result diagnostic ->
+              Result.bind result (fun () ->
+                  Parser.context_emit_compiler_warning context diagnostic))
+            (Ok ()) diagnostics)
 
 let saved_compiler_context ledger ~session ~suspension =
   let ( let* ) = Result.bind in

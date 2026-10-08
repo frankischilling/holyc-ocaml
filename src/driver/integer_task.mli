@@ -600,6 +600,10 @@ val frontend : t -> Session.t
     Sources and semantic table are shared with the caller session; declarations,
     definitions and local contexts have this task's visibility owner. *)
 
+val compiler_diagnostics : t -> Common.Diagnostic.t list
+(** Local warnings from successfully compiled commands, in reached order.
+    Reading the list grants no parser or execution authority. *)
+
 val saved_compiler : Session.t -> ledger:Task_declarations.t -> saved_compiler
 (** Retain the original enclosing namespace for a directive adapter. Each use
     still requires its exact live parser suspension and observed source ledger;

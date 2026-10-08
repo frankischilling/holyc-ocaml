@@ -1,3 +1,13 @@
+(rule
+ (alias native-tests)
+ (deps ../../examples/compiler-warning-options.hc)
+ (action
+  (run
+   %{exe:../test_compiler_warnings_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/compiler-warning-options.hc}
+   --native)))
+
 (copy_files ../data_pointer_default_cases.ml)
 
 (copy_files ../internal_binding_cases.ml)

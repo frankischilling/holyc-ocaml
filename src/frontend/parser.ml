@@ -33,6 +33,7 @@ type command_context = {
   context_environment : Symbol_visibility.Environment.t;
   context_mode : Preprocessor.compilation_mode;
   context_compiler_options : int64 ref;
+  context_warnings_rev : Common.Diagnostic.t list ref;
   context_parent : command_position option;
   context_parent_events : int option;
   context_stream : bool;
@@ -173,6 +174,21 @@ let context_set_option context ~bit_index enabled =
             if enabled then Int64.logor mask bit
             else Int64.logand mask (Int64.lognot bit);
           Ok previous)
+
+let context_emit_compiler_warning context (diagnostic : Common.Diagnostic.t) =
+  if not (context_has_focus context) then
+    Error "compiler warnings require the original current parser control"
+  else if diagnostic.severity <> Common.Diagnostic.Warning then
+    Error "compiler warning emission requires a warning diagnostic"
+  else if
+    Option.is_none
+      (Common.Source_manager.find context.context_sources
+         diagnostic.primary.source)
+  then Error "compiler warning has another source manager"
+  else (
+    context.context_warnings_rev :=
+      diagnostic :: !(context.context_warnings_rev);
+    Ok ())
 
 let context_parent_in_environment context ~environment =
   let rec parent current stack =
@@ -846,9 +862,11 @@ let callback_signature_completion_is_current source =
 type function_header_activity = {
   mutable function_header_active : bool;
   mutable function_body_active : Ast.function_definition option;
+  mutable original_header : completed_function_header option;
+  mutable completed_body_options : (Ast.function_definition * int64) option;
 }
 
-type completed_function_header = {
+and completed_function_header = {
   function_publication : function_publication;
   header_compiler_options : int64;
   completed_entry : Symbol_visibility.entry;
@@ -862,17 +880,32 @@ type completed_function_header = {
 }
 
 let function_header_is_current receipt =
-  receipt.header_activity.function_header_active
+  Option.fold ~none:false ~some:(( == ) receipt)
+    receipt.header_activity.original_header
+  && receipt.header_activity.function_header_active
   && receipt.function_publication.function_header.declaration_command
        .command_context
        .context_active
 
 let function_body_completion_is_current receipt definition =
-  Option.fold ~none:false ~some:(( == ) definition)
-    receipt.header_activity.function_body_active
+  Option.fold ~none:false ~some:(( == ) receipt)
+    receipt.header_activity.original_header
+  && Option.fold ~none:false ~some:(( == ) definition)
+       receipt.header_activity.function_body_active
   && receipt.function_publication.function_header.declaration_command
        .command_context
        .context_active
+
+let function_body_compiler_options receipt definition =
+  if
+    not
+      (Option.fold ~none:false ~some:(( == ) receipt)
+         receipt.header_activity.original_header)
+  then Error "function body options require the original completed header"
+  else
+    match receipt.header_activity.completed_body_options with
+    | Some (original, mask) when original == definition -> Ok mask
+    | _ -> Error "function body options require the original completed body"
 
 type array_dimensions_owner = {
   dimensions_command : command_start;
@@ -1236,7 +1269,7 @@ type cursor = {
     option;
   dimension_counts : int64 Dimension_table.t;
   mutable lookahead : located_token list;
-  mutable diagnostics_rev : Common.Diagnostic.t list;
+  diagnostics_rev : Common.Diagnostic.t list ref;
   mutable local_context : Symbol_visibility.Environment.local_context option;
   mutable local_function : function_publication option;
   mutable local_allocations : function_local_allocation list;
@@ -1565,15 +1598,15 @@ let has_errors output = has_error output.diagnostics
 let rec pull cursor =
   match Preprocessor.next cursor.stream with
   | Lexer.Diagnostic diagnostic ->
-      cursor.diagnostics_rev <- diagnostic :: cursor.diagnostics_rev;
+      cursor.diagnostics_rev := diagnostic :: !(cursor.diagnostics_rev);
       if
         cursor.stop_on_error
         && diagnostic.Common.Diagnostic.severity = Common.Diagnostic.Error
       then (
-        cursor.diagnostics_rev <-
+        cursor.diagnostics_rev :=
           List.rev_append
             (Preprocessor.take_pending_diagnostics cursor.stream)
-            cursor.diagnostics_rev;
+            !(cursor.diagnostics_rev);
         raise Stop_command);
       pull cursor
   | Lexer.Token token ->
@@ -1744,7 +1777,7 @@ let report ?(secondary = []) cursor item ~code ~message =
       ~code ~severity:Common.Diagnostic.Error ~message ~primary:item.token.span
       ()
   in
-  cursor.diagnostics_rev <- diagnostic :: cursor.diagnostics_rev;
+  cursor.diagnostics_rev := diagnostic :: !(cursor.diagnostics_rev);
   if cursor.stop_on_error then raise Stop_command
 
 let publish_declaration cursor at event =
@@ -1760,8 +1793,8 @@ let publish_declaration cursor at event =
       match consume event with
       | Ok () -> ()
       | Error diagnostics ->
-          cursor.diagnostics_rev <-
-            List.rev_append diagnostics cursor.diagnostics_rev;
+          cursor.diagnostics_rev :=
+            List.rev_append diagnostics !(cursor.diagnostics_rev);
           if not (has_error diagnostics) then
             report cursor at ~code:"HCPARSE0161"
               ~message:"declaration consumer failed without an error diagnostic";
@@ -1781,8 +1814,8 @@ let cache_dimension_count cursor at receipt =
           Dimension_table.add cursor.dimension_counts receipt.dimension_ast
             count
       | Error diagnostics ->
-          cursor.diagnostics_rev <-
-            List.rev_append diagnostics cursor.diagnostics_rev;
+          cursor.diagnostics_rev :=
+            List.rev_append diagnostics !(cursor.diagnostics_rev);
           if not (has_error diagnostics) then
             report cursor at ~code:"HCPARSE0161"
               ~message:"array count reader failed without an error diagnostic";
@@ -1819,8 +1852,8 @@ let expression_identifier cursor item =
           with
           | Ok () -> ()
           | Error diagnostics ->
-              cursor.diagnostics_rev <-
-                List.rev_append diagnostics cursor.diagnostics_rev;
+              cursor.diagnostics_rev :=
+                List.rev_append diagnostics !(cursor.diagnostics_rev);
               if not (has_error diagnostics) then
                 report cursor item ~code:"HCPARSE0161"
                   ~message:
@@ -1840,8 +1873,8 @@ let identifier_lookup cursor identifier =
 let call_result cursor item = function
   | Ok value -> value
   | Error diagnostics ->
-      cursor.diagnostics_rev <-
-        List.rev_append diagnostics cursor.diagnostics_rev;
+      cursor.diagnostics_rev :=
+        List.rev_append diagnostics !(cursor.diagnostics_rev);
       if not (has_error diagnostics) then
         report cursor item ~code:"HCPARSE0161"
           ~message:"call consumer failed without an error diagnostic";
@@ -1910,8 +1943,8 @@ let publish_query cursor item event =
       match consume event with
       | Ok () -> ()
       | Error diagnostics ->
-          cursor.diagnostics_rev <-
-            List.rev_append diagnostics cursor.diagnostics_rev;
+          cursor.diagnostics_rev :=
+            List.rev_append diagnostics !(cursor.diagnostics_rev);
           if not (has_error diagnostics) then
             report cursor item ~code:"HCPARSE0161"
               ~message:"query consumer failed without an error diagnostic";
@@ -2527,9 +2560,15 @@ let complete_function_header cursor at publication
           variadic_publication = parsed.variadic_publication;
           closing_parenthesis = parsed.closing_parenthesis;
           header_activity =
-            { function_header_active = true; function_body_active = None };
+            {
+              function_header_active = true;
+              function_body_active = None;
+              original_header = None;
+              completed_body_options = None;
+            };
         }
       in
+      completed.header_activity.original_header <- Some completed;
       Fun.protect
         ~finally:(fun () ->
           completed.header_activity.function_header_active <- false)
@@ -6841,8 +6880,8 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
           match observe selection with
           | Ok () -> ()
           | Error diagnostics ->
-              cursor.diagnostics_rev <-
-                List.rev_append diagnostics cursor.diagnostics_rev;
+              cursor.diagnostics_rev :=
+                List.rev_append diagnostics !(cursor.diagnostics_rev);
               if not (has_error diagnostics) then
                 report cursor marker_item ~code:"HCPARSE0161"
                   ~message:
@@ -6874,8 +6913,8 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
         match callback selection with
         | Ok value -> value
         | Error diagnostics ->
-            cursor.diagnostics_rev <-
-              List.rev_append diagnostics cursor.diagnostics_rev;
+            cursor.diagnostics_rev :=
+              List.rev_append diagnostics !(cursor.diagnostics_rev);
             if not (has_error diagnostics) then
               report cursor marker_item ~code:"HCPARSE0161"
                 ~message:
@@ -10344,6 +10383,13 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
           in
           Option.iter
             (fun header ->
+              header.header_activity.completed_body_options <-
+                Some
+                  ( definition,
+                    !(header.function_publication.function_header
+                        .declaration_command
+                        .command_context
+                       .context_compiler_options) );
               header.header_activity.function_body_active <- Some definition;
               Fun.protect
                 ~finally:(fun () ->
@@ -10386,14 +10432,14 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
     match result with
     | Ok () -> true
     | Error diagnostics ->
-        cursor.diagnostics_rev <-
-          List.rev_append diagnostics cursor.diagnostics_rev;
+        cursor.diagnostics_rev :=
+          List.rev_append diagnostics !(cursor.diagnostics_rev);
         if not (has_error diagnostics) then
-          cursor.diagnostics_rev <-
+          cursor.diagnostics_rev :=
             Common.Diagnostic.make ~code:"HCPARSE0161"
               ~severity:Common.Diagnostic.Error ~primary:span
               ~message:"command executor failed without an error diagnostic" ()
-            :: cursor.diagnostics_rev;
+            :: !(cursor.diagnostics_rev);
         false
   in
   let consume_checkpoint event =
@@ -10415,6 +10461,10 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
         | parent :: _ ->
             let options = (position_context !parent).context_compiler_options in
             if Option.is_some stream_opener then options else ref !options);
+      context_warnings_rev =
+        (match saved_stack with
+        | [] -> cursor.diagnostics_rev
+        | parent :: _ -> (position_context !parent).context_warnings_rev);
       context_parent =
         (match saved_stack with
         | [] -> None
@@ -10480,7 +10530,7 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
           match commands with
           | None -> true
           | Some commands ->
-              (not (has_error cursor.diagnostics_rev))
+              (not (has_error !(cursor.diagnostics_rev)))
               &&
               (Option.iter
                  (fun command -> notify (Command_resumed command))
@@ -10536,7 +10586,7 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
                   Option.iter
                     (fun commands ->
                       if
-                        has_error cursor.diagnostics_rev
+                        has_error !(cursor.diagnostics_rev)
                         ||
                         (notify (Command_completed completed);
                          not (accept (commands.command parsed)))
@@ -10545,7 +10595,7 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
               | None -> if Option.is_some commands then finished := true)
       done;
       let ast = make_module (List.rev !items_rev) in
-      if not (has_error cursor.diagnostics_rev) then (
+      if not (has_error !(cursor.diagnostics_rev)) then (
         notify
           (Sequence_completed
              {
@@ -10585,7 +10635,7 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     dimension_count;
     dimension_counts = Dimension_table.create 16;
     lookahead = [];
-    diagnostics_rev = [];
+    diagnostics_rev = ref [];
     local_context = None;
     local_function = None;
     local_allocations = [];
@@ -10619,7 +10669,7 @@ let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
           let entered =
             Result.map_error
               (fun diagnostics ->
-                List.rev opening_cursor.diagnostics_rev @ diagnostics)
+                List.rev !(opening_cursor.diagnostics_rev) @ diagnostics)
               (enter opener)
           in
           Result.bind entered (fun (execution : stream_execution) ->
@@ -10647,14 +10697,16 @@ let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
                               ~compilation_mode:Preprocessor.Jit
                               ~stop_on_error:true ()
                           in
-                          cursor.diagnostics_rev <-
-                            opening_cursor.diagnostics_rev;
+                          cursor.diagnostics_rev :=
+                            !(opening_cursor.diagnostics_rev);
                           (try
                              ignore
                                (read_commands ~commands:execution.commands
                                   ~stream_opener:opener ?saved_locals cursor)
                            with Stop_command -> ());
-                          let diagnostics = List.rev cursor.diagnostics_rev in
+                          let diagnostics =
+                            List.rev !(cursor.diagnostics_rev)
+                          in
                           if has_error diagnostics then Error diagnostics
                           else
                             match execution.finish () with
@@ -10662,7 +10714,8 @@ let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
                             | Ok generated ->
                                 completed := true;
                                 Ok { Preprocessor.generated; diagnostics }))))
-        with Stop_command -> Error (List.rev opening_cursor.diagnostics_rev))
+        with Stop_command ->
+          Error (List.rev !(opening_cursor.diagnostics_rev)))
       execute_stream
   in
   let stream =
@@ -10694,7 +10747,7 @@ let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
   let ast =
     try Some (read_commands ?commands cursor) with Stop_command -> None
   in
-  let diagnostics = List.rev cursor.diagnostics_rev in
+  let diagnostics = List.rev !(cursor.diagnostics_rev) in
   let ast = if has_error diagnostics then None else ast in
   { ast; diagnostics }
 

@@ -35,8 +35,12 @@ let batch_fault ~mode contents =
   | Ok _ -> Alcotest.fail "checked batch unexpectedly accepted the fault case"
 
 let first_diagnostic = function
-  | Error (diagnostic :: _) -> diagnostic
   | Error [] -> Alcotest.fail "source execution failed without a diagnostic"
+  | Error diagnostics ->
+      List.find
+        (fun (diagnostic : Diagnostic.t) ->
+          diagnostic.severity = Diagnostic.Error)
+        diagnostics
   | Ok _ -> Alcotest.fail "source execution unexpectedly completed"
 
 let span_range = Option.map (fun (span : Span.t) -> (span.start, span.stop))

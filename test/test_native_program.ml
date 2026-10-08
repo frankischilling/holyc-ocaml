@@ -710,8 +710,23 @@ let source_gate_is_compile_only () =
           Alcotest.(check bool)
             "compile-only source emits a nonempty bounded image" true
             (Program.block_count checked.value > 0);
-          Alcotest.(check bool)
-            "compile-only source has no warnings" true (checked.diagnostics = []))
+          let expected =
+            if source = "I64 F(I64 n,...){return n;} F(42);" then
+              [
+                ("HCSEMA0034", "unused variable \"argc\" in function \"F\"");
+                ("HCSEMA0034", "unused variable \"argv\" in function \"F\"");
+              ]
+            else []
+          in
+          Alcotest.(check (list (pair string string)))
+            "compile-only source retains exact warning rules" expected
+            (List.map
+               (fun (diagnostic : Diagnostic.t) ->
+                 Alcotest.(check bool)
+                   "nonfatal compiler warning" true
+                   (diagnostic.severity = Diagnostic.Warning);
+                 (diagnostic.code, diagnostic.message))
+               checked.diagnostics))
         (accepted
         @
         if mode = Preprocessor.Aot then

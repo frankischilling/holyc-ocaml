@@ -23,6 +23,7 @@ type compiled = {
   static_sources_ : Sema.Static_local_source.t list;
   runtime_calls_ : Ir.Runtime_call_context.t;
   entry_has_calls_ : bool;
+  compiler_warnings_ : Common.Diagnostic.t list;
 }
 
 let entry compiled = compiled.entry_
@@ -35,6 +36,7 @@ let functions compiled = compiled.functions_
 let static_sources compiled = compiled.static_sources_
 let runtime_calls compiled = compiled.runtime_calls_
 let has_entry_calls compiled = compiled.entry_has_calls_
+let compiler_warnings compiled = compiled.compiler_warnings_
 
 let human compiled =
   let entry =
@@ -125,7 +127,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                         fail subswitch.subswitch_location.span "HCRUN0001"
                           "integer execution does not admit sub-switch regions")
                   switch.switch_elements
-            | (Ast.Local_declaration_statement _ | Ast.Return_statement _)
+            | Ast.Local_declaration_statement _
+            | Ast.Return_statement _
+            | Ast.No_warn_statement _
               when in_function -> ()
             | other ->
                 fail (Ast.statement_location other).span "HCRUN0001"
@@ -656,6 +660,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                        trailing roots";
                   lowered
               | Ast.Aggregate_declaration_statement _ -> Lower.Block []
+              | Ast.No_warn_statement _ when Option.is_some function_symbol ->
+                  Lower.Block []
               | Ast.Local_declaration_statement declaration ->
                   Lower.Block
                     (List.filter_map
@@ -1282,11 +1288,17 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               static_sources_;
               runtime_calls_;
               entry_has_calls_ = entry_calls <> [];
+              compiler_warnings_ = Integer_source.compiler_warnings prepared;
             }
         with Invalid diagnostics -> Error diagnostics
       in
       match lowered with
-      | Ok value -> Ok { value; diagnostics = parsed.diagnostics }
+      | Ok value ->
+          Ok
+            {
+              value;
+              diagnostics = parsed.diagnostics @ value.compiler_warnings_;
+            }
       | Error diagnostics -> Error (parsed.diagnostics @ diagnostics))
 
 let compile_ast_internal ?task_view ?initializer_progress ?declaration_command

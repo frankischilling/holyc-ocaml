@@ -1,4 +1,5 @@
 val analyze :
+  ?compiler_options:(Sema.Symbol.t -> (int64, string) result) ->
   ?compiler_option_mask:int64 ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->

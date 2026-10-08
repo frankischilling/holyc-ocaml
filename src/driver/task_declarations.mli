@@ -244,6 +244,14 @@ val retained_function_headers :
     Common.Diagnostic.t list )
   result
 
+val function_compiler_options :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  (Sema.Symbol.t -> (int64, string) result, Common.Diagnostic.t list) result
+(** Original per-function masks reached at body completion, or header completion
+    for declarations without a body, in this exact sealed command. *)
+
 val implicit_output_resolver :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -259,6 +267,12 @@ val implicit_output_resolver :
 *)
 
 type source_command
+
+val source_function_compiler_options :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Sema.Symbol.t -> (int64, string) result, Common.Diagnostic.t list) result
 
 val source_inherited_metadata :
   table:Sema.Symbol_table.t ->
@@ -690,6 +704,14 @@ val execute_compiler_option :
 (** Operate on the exact current original compiler control owned by this source
     runtime and its fully observed ledger. A saved namespace, another runtime,
     domain, advanced or closed context supplies no authority. *)
+
+val emit_compiler_warnings :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Common.Diagnostic.t list ->
+  (unit, string) result
+(** Emit reached warnings through this runtime's original fully observed active
+    parser control. Nested source contexts use their enclosing warning sink. *)
 
 val saved_compiler_context :
   t ->

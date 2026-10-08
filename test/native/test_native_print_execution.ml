@@ -58,7 +58,12 @@ let interpreter_fault ?max_output_bytes ?max_output_work ?max_frame_bytes
   match integer_program_report_outcome report with
   | Ok _ -> Alcotest.fail "shared interpreter unexpectedly completed"
   | Error [] -> Alcotest.fail "shared interpreter returned no diagnostic"
-  | Error (error :: _) -> (report, error)
+  | Error diagnostics ->
+      ( report,
+        List.find
+          (fun (diagnostic : Diagnostic.t) ->
+            diagnostic.severity = Diagnostic.Error)
+          diagnostics )
 
 let batch_fixture mode contents =
   Native_scalar_fixture.compile ~mode ~path:"native-print-batch.hc" ~contents ()
@@ -112,7 +117,11 @@ let first_error report =
   match Native_program.outcome report with
   | Ok _ -> Alcotest.fail "native source unexpectedly completed"
   | Error [] -> Alcotest.fail "native source returned no diagnostic"
-  | Error (error :: _) -> error
+  | Error diagnostics ->
+      List.find
+        (fun (diagnostic : Diagnostic.t) ->
+          diagnostic.severity = Diagnostic.Error)
+        diagnostics
 
 let fault ?max_output_bytes ?max_output_work ?max_frame_bytes ?max_call_depth
     ?max_initializer_steps ?max_steps mode contents =

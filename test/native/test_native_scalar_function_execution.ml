@@ -1,4 +1,10 @@
 open Holyc_lib
+
+let error_diagnostic diagnostics =
+  List.find
+    (fun (diagnostic : Diagnostic.t) -> diagnostic.severity = Diagnostic.Error)
+    diagnostics
+
 module Program = X86_64_program
 module Runtime = Native_program_execution
 module VM = Ir_integer_interpreter
@@ -880,7 +886,8 @@ let pointer_faults_and_limits () =
           in
           let fault = Option.get fault in
           Alcotest.(check string)
-            "pointer fault matches VM" batch.code (List.hd diagnostics).code;
+            "pointer fault matches VM" batch.code
+            (error_diagnostic diagnostics).code;
           Alcotest.(check int)
             "pointer fault exact work" batch.executed_steps fault.executed_steps)
         [
@@ -909,7 +916,8 @@ let pointer_faults_and_limits () =
           let _, fault, diagnostics = get_fault () in
           ignore (Option.get fault);
           Alcotest.(check string)
-            label expected_code (List.hd diagnostics : Diagnostic.t).code)
+            label expected_code
+            (error_diagnostic diagnostics : Diagnostic.t).code)
         [
           ( "pointer step quota",
             (fun () -> native_fault ~mode ~max_steps:(steps - 1) recursive),
@@ -1354,7 +1362,7 @@ let callback_storage_faults () =
             (label ^ " public code") code (List.hd public_errors).code;
           Alcotest.(check string)
             (label ^ " native code: " ^ diagnostics_text errors)
-            code (List.hd errors).code;
+            code (error_diagnostic errors).code;
           Alcotest.(check int)
             (label ^ " reached steps") batch.executed_steps
             (Option.get fault).executed_steps;
@@ -1662,7 +1670,7 @@ let owned_local_callback_faults () =
             code batch.code;
           Alcotest.(check string)
             (label ^ " native code: " ^ diagnostics_text errors)
-            code (List.hd errors).code;
+            code (error_diagnostic errors).code;
           Alcotest.(check int)
             (label ^ " exact reached steps")
             batch.executed_steps fault.executed_steps;
@@ -1959,7 +1967,7 @@ let callback_default_fault_order () =
           Alcotest.(check string) (label ^ " batch diagnostic") code batch.code;
           Alcotest.(check string)
             (label ^ " native diagnostic: " ^ diagnostics_text errors)
-            code (List.hd errors).code;
+            code (error_diagnostic errors).code;
           Alcotest.(check int)
             (label ^ " reached work") batch.executed_steps
             (Option.get fault).executed_steps;
@@ -1999,7 +2007,7 @@ let callback_default_preparation_limits () =
             "preparation quota prevents native entry" true
             (Option.is_none fault);
           Alcotest.(check string)
-            "preparation quota diagnostic" code (List.hd errors).code;
+            "preparation quota diagnostic" code (error_diagnostic errors).code;
           Alcotest.(check int)
             "preparation quota reached work" reached
             (Native_program.preparation_steps report);
@@ -2261,7 +2269,7 @@ let word_tail_faults_and_effects () =
           Alcotest.(check string) (label ^ " batch diagnostic") code batch.code;
           Alcotest.(check string)
             (label ^ " native diagnostic: " ^ diagnostics_text errors)
-            code (List.hd errors).code;
+            code (error_diagnostic errors).code;
           Alcotest.(check int)
             (label ^ " reached work") batch.executed_steps
             (Option.get fault).executed_steps;
@@ -2552,7 +2560,7 @@ let indirect_callback_argument_faults () =
             | Ok _ -> Alcotest.fail label
           in
           Alcotest.(check string)
-            (label ^ " public fault") code (List.hd errors).code;
+            (label ^ " public fault") code (error_diagnostic errors).code;
           Alcotest.(check string)
             (label ^ " public output") output
             (integer_program_report_output_bytes public);
@@ -2562,7 +2570,7 @@ let indirect_callback_argument_faults () =
           in
           let fault = Option.get fault in
           Alcotest.(check string)
-            (label ^ " native fault") code (List.hd errors).code;
+            (label ^ " native fault") code (error_diagnostic errors).code;
           Alcotest.(check string) (label ^ " batch fault") code batch.code;
           Alcotest.(check int)
             (label ^ " original reached work")
@@ -2647,7 +2655,7 @@ let indirect_callback_argument_quotas () =
           Alcotest.(check bool)
             "nested default quota prevents entry" true (Option.is_none fault);
           Alcotest.(check string)
-            "nested default quota code" code (List.hd errors).code)
+            "nested default quota code" code (error_diagnostic errors).code)
         [ (8, 24, "HCIRVM0007"); (9, 23, "HCIRVM0011") ])
     modes
 
@@ -2782,7 +2790,7 @@ let callback_word_default_faults () =
             | Ok _ -> Alcotest.fail label
           in
           Alcotest.(check string)
-            (label ^ " public code") code (List.hd errors).code;
+            (label ^ " public code") code (error_diagnostic errors).code;
           Alcotest.(check string)
             (label ^ " public output") output
             (integer_program_report_output_bytes public);
@@ -2792,7 +2800,7 @@ let callback_word_default_faults () =
           in
           let fault = Option.get fault in
           Alcotest.(check string)
-            (label ^ " native code") code (List.hd errors).code;
+            (label ^ " native code") code (error_diagnostic errors).code;
           Alcotest.(check string) (label ^ " batch code") code batch.code;
           Alcotest.(check int)
             (label ^ " reached work") batch.executed_steps fault.executed_steps;
@@ -2835,7 +2843,8 @@ let callback_word_default_quotas () =
             "callback word preparation prevents entry" true
             (Option.is_none fault);
           Alcotest.(check string)
-            "callback word preparation fault" code (List.hd errors).code;
+            "callback word preparation fault" code
+            (error_diagnostic errors).code;
           Alcotest.(check int)
             "callback word reached preparation" reached
             (Native_program.preparation_steps report);
@@ -2952,7 +2961,7 @@ let global_callback_word_faults () =
             "numeric callback reaches native fault" true (Option.is_some native);
           Alcotest.(check string)
             "numeric callback remains uncallable" "HCIRVM0024"
-            (List.hd diagnostics).code;
+            (error_diagnostic diagnostics).code;
           Alcotest.(check string)
             "arguments precede reached native fault" "arg"
             (Native_program.output_bytes native_report);
@@ -2966,7 +2975,7 @@ let global_callback_word_faults () =
           in
           Alcotest.(check string)
             "public IR numeric callback fault" "HCIRVM0024"
-            (List.hd errors).code)
+            (error_diagnostic errors).code)
         [ "0"; "17"; "0xFFFFFFFFFFFFFFFF" ];
       ignore
         (compare_source ~mode
@@ -3004,7 +3013,7 @@ let global_callback_word_preparation_limits () =
           in
           Alcotest.(check string)
             "one below callback preparation quota" code
-            (List.hd diagnostics).code;
+            (error_diagnostic diagnostics).code;
           Alcotest.(check bool)
             "preparation failure does not execute an image" true
             (Option.is_none fault);
@@ -3070,7 +3079,7 @@ let aot_function_versions_execute () =
   in
   Alcotest.(check string)
     "new callback spelling cannot replace reused AOT cleanup" "HCIRVM0014"
-    (List.hd errors).code;
+    (error_diagnostic errors).code;
   Alcotest.(check string)
     "checked batch rejects the same cleanup disagreement" "HCIRVM0014"
     batch.code;
@@ -3238,7 +3247,7 @@ let aot_load_faults_and_recovery () =
       let fault = Option.get fault in
       Alcotest.(check string)
         "load-time native fault matches independent checked IR" batch.code
-        (List.hd diagnostics).code;
+        (error_diagnostic diagnostics).code;
       Alcotest.(check int)
         "load-time fault consumes the same runtime work" batch.executed_steps
         fault.executed_steps;
@@ -3261,7 +3270,7 @@ let aot_load_faults_and_recovery () =
       in
       Alcotest.(check string)
         "fresh public IR preserves reached fault" batch.code
-        (List.hd errors).code;
+        (error_diagnostic errors).code;
       ignore
         (compare_source ~mode:Preprocessor.Aot ~label:"load fault recovery"
            ~expected_type:"I64" ~expected_bits:42L
@@ -3320,7 +3329,8 @@ let aot_load_runtime_limits () =
       in
       ignore (Option.get fault);
       Alcotest.(check string)
-        "one below load-time runtime quota" code (List.hd diagnostics).code;
+        "one below load-time runtime quota" code
+        (error_diagnostic diagnostics).code;
       exact ())
     [
       (63, 4, physical, steps, "HCIRVM0011");

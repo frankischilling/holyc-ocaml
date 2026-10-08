@@ -914,44 +914,50 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                     ~dimension_work:aot_dimension_work ~default_bytes session
                     ~config ~source
                 in
-                let image = checked.Native_program.value in
-                emitted_bytes := !emitted_bytes + Image.code_bytes image;
-                emitted_ir := !emitted_ir + Image.ir_instructions image;
-                let task_globals, task_literals = task_storage_bytes () in
-                let* () =
-                  if Image.global_bytes image > max_global_bytes - task_globals
-                  then
-                    Error
-                      [
-                        diagnostic ~span "HCBACK0004"
-                          "AOT module and directive task exceed the cumulative \
-                           global byte limit";
-                      ]
-                  else if
-                    Image.literal_bytes image
-                    > max_literal_bytes - task_literals
-                  then
-                    Error
-                      [
-                        diagnostic ~span "HCBACK0004"
-                          "AOT module and directive task exceed the cumulative \
-                           literal byte limit";
-                      ]
-                  else Ok ()
+                let complete_module =
+                  let image = checked.Native_program.value in
+                  emitted_bytes := !emitted_bytes + Image.code_bytes image;
+                  emitted_ir := !emitted_ir + Image.ir_instructions image;
+                  let task_globals, task_literals = task_storage_bytes () in
+                  let* () =
+                    if
+                      Image.global_bytes image > max_global_bytes - task_globals
+                    then
+                      Error
+                        [
+                          diagnostic ~span "HCBACK0004"
+                            "AOT module and directive task exceed the \
+                             cumulative global byte limit";
+                        ]
+                    else if
+                      Image.literal_bytes image
+                      > max_literal_bytes - task_literals
+                    then
+                      Error
+                        [
+                          diagnostic ~span "HCBACK0004"
+                            "AOT module and directive task exceed the \
+                             cumulative literal byte limit";
+                        ]
+                    else Ok ()
+                  in
+                  let* completed, _captured = execute Aot_module image in
+                  Ok
+                    {
+                      value =
+                        {
+                          final_value =
+                            Option.map
+                              (fun (word : Image.word) ->
+                                { type_ = word.type_; bits = word.bits })
+                              completed.final_value;
+                        };
+                      diagnostics = checked.diagnostics;
+                    }
                 in
-                let* completed, _captured = execute Aot_module image in
-                Ok
-                  {
-                    value =
-                      {
-                        final_value =
-                          Option.map
-                            (fun (word : Image.word) ->
-                              { type_ = word.type_; bits = word.bits })
-                            completed.final_value;
-                      };
-                    diagnostics = checked.diagnostics;
-                  })
+                Result.map_error
+                  (fun errors -> checked.diagnostics @ errors)
+                  complete_module)
       in
       let outcome_ =
         match (outcome_, !cleanup_errors) with

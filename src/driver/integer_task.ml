@@ -1095,6 +1095,7 @@ type t = {
   native_internal_binding : Native_internal_binding.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
   compiled_rev : Integer_unit.compiled list ref;
+  compiler_diagnostics_rev : Common.Diagnostic.t list ref;
   compiler_tasks : t list ref;
 }
 
@@ -1158,10 +1159,12 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             native_internal_binding;
             commands = [];
             compiled_rev = ref [];
+            compiler_diagnostics_rev = ref [];
             compiler_tasks = ref [];
           }))
 
 let frontend task = task.session
+let compiler_diagnostics task = List.rev !(task.compiler_diagnostics_rev)
 
 let compiler_options task ~span index enabled =
   Task_declarations.execute_compiler_option task.declarations
@@ -1240,6 +1243,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       native_internal_binding;
       commands = [];
       compiled_rev = ref [];
+      compiler_diagnostics_rev = ref [];
       compiler_tasks = ref [];
     }
 
@@ -2213,6 +2217,20 @@ let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
         Integer_unit.compile_task_ast ~task:task.state ?declaration_command
           task.session ~config:task.config ast
       in
+      let warnings =
+        Integer_unit.compiler_warnings checked.Integer_unit.value
+      in
+      let* () =
+        match declaration_command with
+        | None -> Ok ()
+        | Some _ ->
+            Task_declarations.emit_compiler_warnings task.declarations
+              ~runtime:task.state warnings
+            |> Result.map_error (fun message ->
+                [ Integer_source.message_diagnostic ~span:ast.span message ])
+      in
+      task.compiler_diagnostics_rev :=
+        List.rev_append warnings !(task.compiler_diagnostics_rev);
       let command =
         {
           owner = task.identity;
