@@ -321,6 +321,7 @@ let vm_live_phase_authority () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->
@@ -410,6 +411,7 @@ let vm_replayed_phase_authority revoke () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint = Some checkpoint;
     }
   in
@@ -514,6 +516,7 @@ let vm_replayed_header_authority revoke () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint = Some checkpoint;
     }
   in
@@ -661,6 +664,7 @@ let vm_reused_native_cannot_become_another_root () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->
@@ -820,6 +824,7 @@ let vm_tracked_native_cannot_use_legacy_header () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->
@@ -946,6 +951,7 @@ let vm_call_authority replay_failure () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->
@@ -1219,6 +1225,7 @@ let vm_implicit_authority ?(malformed = false) replay_failure () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->

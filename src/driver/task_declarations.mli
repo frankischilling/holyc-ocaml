@@ -1,5 +1,18 @@
 type t
 
+val observe_lexical_lookup :
+  t ->
+  Frontend.Parser.command_context ->
+  Frontend.Preprocessor.lexical_lookup ->
+  (unit, Common.Diagnostic.t list) result
+(** Consume one original scoped lexer receipt in this ledger's active source or
+    runtime context. Foreign sources, environments, domains, expired receipts,
+    suspended contexts and duplicate reads reject. This records a source read;
+    it does not admit execution or increment a native hash counter. *)
+
+val lexical_read_count : t -> int
+(** Number of original reads accepted by this ledger, not a native use count. *)
+
 val observe_call_start :
   t ->
   Frontend.Parser.call_start ->

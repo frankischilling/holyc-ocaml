@@ -155,6 +155,13 @@ let context_has_focus context =
   | Some position, active :: _ -> position == active
   | _ -> false
 
+let lexical_lookup_is_current context lookup =
+  context_has_focus context
+  && Preprocessor.lexical_lookup_is_current lookup
+  && Preprocessor.lexical_lookup_environment lookup
+     == context.context_environment
+  && Preprocessor.lexical_lookup_mode lookup = context.context_mode
+
 let context_compiler_options context =
   if context_has_focus context then Ok !(context.context_compiler_options)
   else Error "compiler options require their original current parser control"
@@ -1214,6 +1221,11 @@ let source_observation_count context =
     (Context_observations.find_opt context_observations context)
 
 type command_sink = {
+  lexical_lookup :
+    (command_context ->
+    Preprocessor.lexical_lookup ->
+    (unit, Common.Diagnostic.t list) result)
+    option;
   checkpoint :
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
@@ -10582,103 +10594,116 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
   context.context_position <- Some position;
   cursor.command_stack := position :: saved_stack;
   let succeeded = ref false in
-  Fun.protect
-    ~finally:(fun () ->
-      context.context_active <- false;
-      context.context_position <- None;
-      cursor.current_command <- None;
-      cursor.command_stack := saved_stack;
-      if not !succeeded then ignore (checkpoint (Sequence_aborted context)))
-    (fun () ->
-      notify (Sequence_started context);
-      let items_rev = ref [] in
-      let completed_rev = ref [] in
-      let previous = ref None in
-      let pending = ref None in
-      let ordinal = ref 0 in
-      let finished = ref false in
-      while not !finished do
-        let item = peek cursor in
-        let proceed =
-          match commands with
-          | None -> true
-          | Some commands ->
-              (not (has_error !(cursor.diagnostics_rev)))
-              &&
-              (Option.iter
-                 (fun command -> notify (Command_resumed command))
-                 !pending;
-               pending := None;
-               accept (commands.resume ()))
-        in
-        if not proceed then finished := true
-        else
-          match (item.token.Token.kind, stream_opener) with
-          | Token_kind.Eof, opener ->
-              Option.iter
-                (fun span ->
-                  report cursor item ~code:"HCPARSE0162"
-                    ~secondary:
-                      [
-                        { Common.Diagnostic.span; message = "#exe starts here" };
-                      ]
-                    ~message:"expected '}' to close the #exe block")
-                opener;
-              ignore (take cursor);
-              finished := true
-          | Token_kind.Punctuation '}', Some _ ->
-              ignore (take cursor);
-              finished := true
-          | _ -> (
-              let start =
-                {
-                  command_context = context;
-                  command_ordinal = !ordinal;
-                  command_compiler_options = !(context.context_compiler_options);
-                  command_predecessor = !previous;
-                }
-              in
-              incr ordinal;
-              cursor.current_command <- Some start;
-              position := Reading_command start;
-              notify (Command_started start);
-              match read_command cursor with
-              | Some parsed ->
-                  items_rev := parsed :: !items_rev;
-                  let completed =
+  let consume =
+    Option.map
+      (fun consume lookup ->
+        if not (lexical_lookup_is_current context lookup) then
+          invalid_arg "lexical consumer requires its original focused context";
+        if not (accept (consume context lookup)) then raise Stop_command)
+      (Option.bind commands (fun sink -> sink.lexical_lookup))
+  in
+  Preprocessor.with_lexical_consumer cursor.stream ~consume (fun () ->
+      Fun.protect
+        ~finally:(fun () ->
+          context.context_active <- false;
+          context.context_position <- None;
+          cursor.current_command <- None;
+          cursor.command_stack := saved_stack;
+          if not !succeeded then ignore (checkpoint (Sequence_aborted context)))
+        (fun () ->
+          notify (Sequence_started context);
+          let items_rev = ref [] in
+          let completed_rev = ref [] in
+          let previous = ref None in
+          let pending = ref None in
+          let ordinal = ref 0 in
+          let finished = ref false in
+          while not !finished do
+            let item = peek cursor in
+            let proceed =
+              match commands with
+              | None -> true
+              | Some commands ->
+                  (not (has_error !(cursor.diagnostics_rev)))
+                  &&
+                  (Option.iter
+                     (fun command -> notify (Command_resumed command))
+                     !pending;
+                   pending := None;
+                   accept (commands.resume ()))
+            in
+            if not proceed then finished := true
+            else
+              match (item.token.Token.kind, stream_opener) with
+              | Token_kind.Eof, opener ->
+                  Option.iter
+                    (fun span ->
+                      report cursor item ~code:"HCPARSE0162"
+                        ~secondary:
+                          [
+                            {
+                              Common.Diagnostic.span;
+                              message = "#exe starts here";
+                            };
+                          ]
+                        ~message:"expected '}' to close the #exe block")
+                    opener;
+                  ignore (take cursor);
+                  finished := true
+              | Token_kind.Punctuation '}', Some _ ->
+                  ignore (take cursor);
+                  finished := true
+              | _ -> (
+                  let start =
                     {
-                      command_start = start;
-                      command_ast = make_module [ parsed ];
+                      command_context = context;
+                      command_ordinal = !ordinal;
+                      command_compiler_options =
+                        !(context.context_compiler_options);
+                      command_predecessor = !previous;
                     }
                   in
-                  completed_rev := completed :: !completed_rev;
-                  previous := Some completed;
-                  pending := Some completed;
-                  cursor.current_command <- None;
-                  position := Awaiting_resume completed;
-                  Option.iter
-                    (fun commands ->
-                      if
-                        has_error !(cursor.diagnostics_rev)
-                        ||
-                        (notify (Command_completed completed);
-                         not (accept (commands.command parsed)))
-                      then finished := true)
-                    commands
-              | None -> if Option.is_some commands then finished := true)
-      done;
-      let ast = make_module (List.rev !items_rev) in
-      if not (has_error !(cursor.diagnostics_rev)) then (
-        notify
-          (Sequence_completed
-             {
-               sequence_context = context;
-               sequence_commands = List.rev !completed_rev;
-               sequence_ast = ast;
-             });
-        context.context_accepted_ast <- Some ast;
-        succeeded := true);
-      ast)
+                  incr ordinal;
+                  cursor.current_command <- Some start;
+                  position := Reading_command start;
+                  notify (Command_started start);
+                  match read_command cursor with
+                  | Some parsed ->
+                      items_rev := parsed :: !items_rev;
+                      let completed =
+                        {
+                          command_start = start;
+                          command_ast = make_module [ parsed ];
+                        }
+                      in
+                      completed_rev := completed :: !completed_rev;
+                      previous := Some completed;
+                      pending := Some completed;
+                      cursor.current_command <- None;
+                      position := Awaiting_resume completed;
+                      Option.iter
+                        (fun commands ->
+                          if
+                            has_error !(cursor.diagnostics_rev)
+                            ||
+                            (notify (Command_completed completed);
+                             not (accept (commands.command parsed)))
+                          then finished := true)
+                        commands
+                  | None -> if Option.is_some commands then finished := true)
+          done;
+          let ast = make_module (List.rev !items_rev) in
+          if not (has_error !(cursor.diagnostics_rev)) then (
+            notify
+              (Sequence_completed
+                 {
+                   sequence_context = context;
+                   sequence_commands = List.rev !completed_rev;
+                   sequence_ast = ast;
+                 });
+            context.context_accepted_ast <- Some ast;
+            succeeded := true);
+          ast))
 
 let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     ?dimension_count ~command_stack ~stream ~sources ~source ~symbols

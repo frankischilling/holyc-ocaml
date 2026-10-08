@@ -26,6 +26,7 @@ let parse ?(max_work = 100000) ?budget ~mode contents =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (fun _ -> Ok ());
       reference = None;
       call = None;

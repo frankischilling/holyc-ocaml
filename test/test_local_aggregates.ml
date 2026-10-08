@@ -214,6 +214,7 @@ let source_authority () =
       in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some (Ledger.observe_command ledger);
           reference = Some (Ledger.observe_reference ledger);
           query = Some (Ledger.observe_query ledger);

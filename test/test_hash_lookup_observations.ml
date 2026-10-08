@@ -10,6 +10,7 @@ let check = Alcotest.(check bool)
 
 let commands ?(declaration = fun _ -> Ok ()) () : Parser.command_sink =
   {
+    lexical_lookup = None;
     checkpoint = None;
     reference = None;
     call = None;

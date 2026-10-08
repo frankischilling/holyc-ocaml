@@ -625,6 +625,7 @@ let activation_replay () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint = Some checkpoint;
     }
   in

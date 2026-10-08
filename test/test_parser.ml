@@ -20621,6 +20621,7 @@ let variadic_header_completed_children () =
       let events = ref [] in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = None;
           reference = None;
           call = None;

@@ -131,6 +131,15 @@ val with_environment :
 
 val next : t -> Lexer.item
 
+val with_lexical_consumer :
+  t -> consume:(lexical_lookup -> unit) option -> (unit -> 'a) -> 'a
+(** Select the synchronous consumer for original lexer reads within this scope.
+    It runs before the input's inspection observer, under the same original
+    current receipt. [None] masks an enclosing consumer. Nested scopes restore
+    their predecessor on every exit and expire their last receipt; restoration
+    never revives an old receipt. This service supplies no native record or
+    executable authority by itself. *)
+
 val take_pending_diagnostics : t -> Common.Diagnostic.t list
 (** Drain already produced diagnostics without reading any further source. An
     execution-enabled parser uses this when stopping at the first error. *)

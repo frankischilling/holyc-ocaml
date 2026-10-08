@@ -101,6 +101,7 @@ let nested ?(aot = false) session ledger text =
   let parents = ref [] in
   let sink : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -278,6 +279,7 @@ let original_mode () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (D.observe_command ledger);
       declaration = Some (D.observe ledger);
       call = None;

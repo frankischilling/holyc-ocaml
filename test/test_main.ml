@@ -41,6 +41,7 @@ let () =
       ("preprocessor", Test_preprocessor.tests);
       ("hash lookup observations", Test_hash_lookup_observations.tests);
       ("definition selection", Test_definition_selection.tests);
+      ("lexical consumers", Test_lexical_consumers.tests);
       ("conditional recovery", Test_conditional_recovery.tests);
       ("parser", Test_parser.tests);
       ("primitive type shadowing", Test_primitive_type_shadowing.tests);

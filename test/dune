@@ -522,6 +522,7 @@
   test_preprocessor
   test_hash_lookup_observations
   test_definition_selection
+  test_lexical_consumers
   test_parser
   test_conditional_expression
   test_assert_directive

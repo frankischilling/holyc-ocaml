@@ -47,6 +47,7 @@ let compile ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (Declarations.observe_command ledger);
       query = Some (Declarations.observe_query ledger);
       reference = Some (Declarations.observe_reference ledger);

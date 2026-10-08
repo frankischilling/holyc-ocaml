@@ -72,6 +72,7 @@ let parse ?(session = Session.create ()) ?(mode = Preprocessor.Jit)
                    reference = None;
                    declaration = None;
                    dimension_count = None;
+                   lexical_lookup = None;
                    checkpoint = None;
                    command;
                    resume = (fun () -> Ok ());
@@ -263,6 +264,7 @@ let selected_occurrence () =
             Ok ());
       declaration = None;
       dimension_count = None;
+      lexical_lookup = None;
       checkpoint = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
@@ -440,6 +442,7 @@ let pending_command_order () =
       reference = None;
       declaration = None;
       dimension_count = None;
+      lexical_lookup = None;
       checkpoint = None;
       command =
         (function
@@ -493,6 +496,7 @@ let declaration_sink consume =
       reference = None;
       declaration = Some consume;
       dimension_count = None;
+      lexical_lookup = None;
       checkpoint = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
@@ -958,6 +962,7 @@ let command_receipt_ownership () =
            declarations := event :: !declarations;
            Ok ()))
       with
+      lexical_lookup = None;
       Parser.checkpoint = Some checkpoint;
       call = None;
       implicit_output = None;
@@ -1114,6 +1119,7 @@ let checkpoint_failure_cleanup () =
           let commands =
             {
               (declaration_sink (fun _ -> Ok ())) with
+              lexical_lookup = None;
               Parser.checkpoint = Some checkpoint;
             }
           in
@@ -1153,6 +1159,7 @@ let query_consumption_order () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       call = None;
       implicit_output = None;
@@ -1285,6 +1292,7 @@ let query_native_presence () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       call = None;
       implicit_output = None;
@@ -1320,6 +1328,7 @@ let query_rejection_order () =
       let reached = ref false in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = None;
           call = None;
           implicit_output = None;
@@ -1641,6 +1650,7 @@ let implicit_target_before_lookahead () =
   let replacement = ref None in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = None;

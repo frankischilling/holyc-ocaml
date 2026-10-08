@@ -153,6 +153,7 @@ let evaluation ?(publish = true) ?(tamper = false) ?(hold = false)
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (D.observe_command ledger);
       call = None;
       implicit_output = None;
@@ -198,6 +199,7 @@ let missing_preparation () =
       let ledger = D.create_source session ~source |> checked in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some (D.observe_command ledger);
           call = None;
           implicit_output = None;
@@ -314,6 +316,7 @@ let original_position_evidence () =
       in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some (D.observe_command ledger);
           call = None;
           implicit_output = None;
@@ -388,6 +391,7 @@ let class_callback_position_values () =
       in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some (D.observe_command ledger);
           call = None;
           implicit_output = None;

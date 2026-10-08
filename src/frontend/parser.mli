@@ -64,6 +64,12 @@ val context_source : command_context -> Common.Source_file.t
 val context_environment : command_context -> Symbol_visibility.Environment.t
 val context_mode : command_context -> Preprocessor.compilation_mode
 
+val lexical_lookup_is_current :
+  command_context -> Preprocessor.lexical_lookup -> bool
+(** Whether this is an original current lexer read under the exact focused
+    parser context, environment, mode and domain. This does not authorize a
+    record mutation or advance a command, declaration or executable cursor. *)
+
 val context_compiler_options : command_context -> (int64, string) result
 (** Read the original current control. A directive shares its enclosing control;
     a nested ordinary input copies the live caller's options before selecting
@@ -927,6 +933,11 @@ val source_observation_count : command_context -> int option
     Observations are recorded before each consumer is invoked. *)
 
 type command_sink = {
+  lexical_lookup :
+    (command_context ->
+    Preprocessor.lexical_lookup ->
+    (unit, Common.Diagnostic.t list) result)
+    option;
   checkpoint :
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
@@ -954,6 +965,13 @@ type command_sink = {
     failure or exception, an abort checkpoint releases the context. A failed
     sequence has no successful sequence view. Declarations and references retain
     their exact command start, including across nested parsing.
+
+    [lexical_lookup] consumes original raw lexer reads under this focused
+    command context, including before the first command and during lookahead. A
+    directive selects its own service; [None] masks the suspended parent's
+    service. Errors stop parsing and retain reached diagnostics. Reads do not
+    advance lifecycle observation counts. The optional parser inspection
+    observer still sees the whole input after its scoped consumer.
 
     [dimension_count] requires [declaration]. After that observer accepts a
     completed dimension, before the next lexer read, this service may return its

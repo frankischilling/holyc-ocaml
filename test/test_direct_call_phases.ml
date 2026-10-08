@@ -23,6 +23,7 @@ let parse ?(on_enter = fun () -> ()) ?(reference = fun _ -> Ok ())
        ~kind:Symbol_visibility.Function ?function_call_shape:selected_shape ());
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = Some reference;
       call = Some call;
@@ -509,6 +510,7 @@ let implicit_receipt_claims () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = Some call;
@@ -562,6 +564,7 @@ let parser_suspension_authority () =
   in
   let commands checkpoint : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some checkpoint;
       reference = None;
       call = None;
@@ -608,6 +611,7 @@ let parser_suspension_authority () =
         let nested_commands =
           {
             nested_commands with
+            lexical_lookup = None;
             checkpoint =
               Some
                 (fun event ->
@@ -699,6 +703,7 @@ let saved_compiler_parser_authority () =
   let root = ref None and accepted = ref None and expired = ref None in
   let sink checkpoint : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some checkpoint;
       reference = None;
       call = None;

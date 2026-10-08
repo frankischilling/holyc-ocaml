@@ -157,6 +157,7 @@ let publish_foreign_aggregate session ~namespace ~symbols ~path =
   let publication = ref None in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = None;
@@ -272,6 +273,7 @@ let parse_proofs ?(duplicate_before = false) ?(callbacks = false) source =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = None;

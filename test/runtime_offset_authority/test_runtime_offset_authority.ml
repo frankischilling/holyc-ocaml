@@ -50,6 +50,7 @@ let with_offset ?max_initializer_steps ?(contents = "class Span {$$=$$+8;};")
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -482,6 +483,7 @@ let completion_is_single_use () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (Ledger.observe_command ledger);
       call = None;
       implicit_output = None;

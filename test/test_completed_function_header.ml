@@ -47,6 +47,7 @@ let parse ?(observe = fun _ _ _ -> ()) ?type_header text =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = None;
@@ -339,6 +340,7 @@ let lookahead () =
       let headers = ref [] and bodies = ref 0 and reached = ref false in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = None;
           reference = None;
           call = None;
@@ -439,6 +441,7 @@ let activation () =
   let publication = ref None and header = ref None and reached = ref false in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->

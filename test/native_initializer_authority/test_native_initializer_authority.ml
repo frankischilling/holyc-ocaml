@@ -69,6 +69,7 @@ let initializer_failure_settles_once () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some checkpoint;
       call = None;
       implicit_output = None;
@@ -119,6 +120,7 @@ let fixture ?contents ?(statics = false) mode =
     in
     let commands : Parser.command_sink =
       {
+        lexical_lookup = None;
         checkpoint =
           Some
             (fun _ ->
@@ -153,6 +155,7 @@ let fixture ?contents ?(statics = false) mode =
   let static_receipts = ref [] in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (D.observe_command ledger);
       query = Some (D.observe_query ledger);
       reference = Some (D.observe_reference ledger);

@@ -24,6 +24,7 @@ let parse_source ?sources ?symbols ?observe ?checkpoint ?reference
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some (Option.value checkpoint ~default:(D.observe_command ledger));
       reference;
@@ -334,6 +335,7 @@ let nested_publication_views () =
   in
   let sink checkpoint : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -624,6 +626,7 @@ let nested_receipt_views () =
       let child_context = ref None in
       let sink checkpoint : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some checkpoint;
           query = None;
           call = None;
@@ -989,6 +992,7 @@ let selected_runtime_source session runtime ledger contents =
   in
   let sink run : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -2340,6 +2344,7 @@ let nested_dimension_receipts () =
   in
   let sink checkpoint : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -2966,6 +2971,7 @@ let nested_grammar_dimensions () =
       in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some (D.observe_command ledger);
           call = None;
           implicit_output = None;

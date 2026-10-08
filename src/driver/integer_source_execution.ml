@@ -234,6 +234,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
       in
       let commands : Parser.command_sink =
         {
+          lexical_lookup =
+            Some (Task_declarations.observe_lexical_lookup ledger);
           checkpoint =
             Some
               (fun event ->

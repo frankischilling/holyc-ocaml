@@ -145,6 +145,7 @@ let accepted_finish () =
       commands =
         {
           execution.commands with
+          lexical_lookup = None;
           checkpoint =
             Some
               (fun event ->
@@ -260,6 +261,7 @@ let exception_cleanup () =
       commands =
         {
           execution.commands with
+          lexical_lookup = None;
           checkpoint =
             Some
               (fun event ->
@@ -294,6 +296,7 @@ let early_abort_cleanup () =
           commands =
             {
               execution.commands with
+              lexical_lookup = None;
               checkpoint =
                 Some
                   (fun event ->

@@ -2595,6 +2595,8 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
   in
   let commands : Frontend.Parser.command_sink =
     {
+      lexical_lookup =
+        Some (Task_declarations.observe_lexical_lookup task.declarations);
       checkpoint =
         Some
           (fun event ->

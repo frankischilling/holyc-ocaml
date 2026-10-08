@@ -131,6 +131,7 @@ let checked_control = function
 
 let option_sink checkpoint : Parser.command_sink =
   {
+    lexical_lookup = None;
     checkpoint = Some checkpoint;
     reference = None;
     call = None;

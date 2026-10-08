@@ -29,6 +29,7 @@ let state_for entries source =
 
 let sink declaration : Parser.command_sink =
   {
+    lexical_lookup = None;
     checkpoint = None;
     reference = None;
     call = None;

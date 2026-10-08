@@ -259,6 +259,8 @@ type t = {
   compiler_positions : Sema.Compiler_record.compiler_positions;
   call_journal : Sema.Source_activation.call_journal;
   mutable calls : selected_call list;
+  mutable lexical_frontiers : Frontend.Preprocessor.lexical_lookup list;
+  mutable lexical_reads : int;
   mutable native_functions : Sema.Function_record_phase.registry option;
   mutable native_function_events :
     (Parser.declaration_event * Sema.Function_record_phase.snapshot) list;
@@ -409,6 +411,8 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   call_journal =
                     Sema.Source_activation.create_call_journal ~namespace ();
                   calls = [];
+                  lexical_frontiers = [];
+                  lexical_reads = 0;
                   native_functions = None;
                   native_function_events = [];
                   callback_states = [];
@@ -1104,6 +1108,42 @@ let validate_command ledger (header : Parser.declaration_header) =
       fail
         (context_span start.command_context)
         "declaration does not belong to the active parser command"
+
+let observe_lexical_lookup ledger context lookup =
+  protect (fun () ->
+      let span =
+        (Frontend.Preprocessor.lexical_lookup_token lookup).Frontend.Token.span
+      in
+      (match ledger.authority with
+      | Semantic_analysis ->
+          fail span
+            "lexical consumption requires original source or runtime ownership"
+      | Source_compilation _ | Task_runtime _ -> ());
+      ignore (active_sequence ledger context);
+      if
+        (not (Parser.lexical_lookup_is_current context lookup))
+        || Parser.context_environment context != ledger.symbols
+        || Parser.context_sources context != ledger.sources
+      then fail span "lexical lookup has a foreign or expired parser context";
+      let same_stream =
+        Frontend.Preprocessor.same_lexical_lookup_stream lookup
+      in
+      let ordinal = Frontend.Preprocessor.lexical_lookup_ordinal lookup in
+      (match List.find_opt same_stream ledger.lexical_frontiers with
+      | Some previous
+        when ordinal <= Frontend.Preprocessor.lexical_lookup_ordinal previous ->
+          fail span "original lexical lookup was already consumed"
+      | _ -> ());
+      if ledger.lexical_reads = max_int then
+        fail span "source lexical observation identity space is exhausted";
+      ledger.lexical_frontiers <-
+        lookup
+        :: List.filter
+             (fun previous -> not (same_stream previous))
+             ledger.lexical_frontiers;
+      ledger.lexical_reads <- ledger.lexical_reads + 1)
+
+let lexical_read_count ledger = ledger.lexical_reads
 
 let selection_target ledger span = function
   | Visibility.Absent -> Selected_absent

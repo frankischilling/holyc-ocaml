@@ -218,6 +218,7 @@ let prepare_isolated task contents =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (Task_declarations.observe_command ledger);
       call = None;
       implicit_output = None;

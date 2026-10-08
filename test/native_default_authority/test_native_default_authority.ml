@@ -38,6 +38,7 @@ let source_fixture mode contents =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (D.observe_command ledger);
       query = Some (D.observe_query ledger);
       reference = Some (D.observe_reference ledger);

@@ -104,6 +104,24 @@ stream ordinal. It expires when the callback returns, raises, reads another
 token or switches environments; restoring an environment cannot revive it.
 Repeated semantic queries create no observations.
 
+Execution-enabled parsers now select a scoped lexer consumer through
+`Parser.command_sink.lexical_lookup`. It receives the physically focused
+compiler context and original receipt before the input's inspection observer.
+The first lookahead occurs after sequence startup. A directive installs its
+own consumer; a missing child service masks its suspended parent's consumer.
+Every exit restores the predecessor and expires the last receipt. Consumer
+errors retain reached diagnostics and abort the sequence; exceptions propagate
+after cleanup. A lexer read does not advance command observation counts or
+executable cursors.
+
+The IR and native source drivers route those reads into their active declaration
+ledger. Each ledger validates original source/runtime ownership, current
+context, environment, mode and domain, and rejects an already-consumed stream
+ordinal. Its read total records accepted source observations; it is not
+`CHash.use_cnt`. The next consumer still needs original hash-record ownership
+and shared counts before it can emit an unused-extern warning. The scoped
+service alone grants no execution or native counter authority.
+
 Function publications and non-extern aggregate publications retain a separate
 kind-filtered join receipt before parameter or body input. JIT searches the
 current writer's table; AOT also searches visible baseline entries. Extern class

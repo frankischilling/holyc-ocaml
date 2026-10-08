@@ -14,6 +14,7 @@ let parse text =
   let starts = ref [] and emissions = ref [] in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (D.observe_command ledger);
       declaration = Some (D.observe ledger);
       reference = Some (D.observe_reference ledger);
@@ -114,6 +115,7 @@ let legacy_provider () =
   let emissions = ref [] in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (D.observe_command ledger);
       reference = Some (D.observe_execution_reference ledger);
       declaration =

@@ -126,6 +126,7 @@ type t = {
   mutable pending_diagnostics : Common.Diagnostic.t list;
   mutable help_metadata : Help_metadata.t;
   lexical_lookup : (lexical_lookup -> unit) option;
+  mutable lexical_consumer : (lexical_lookup -> unit) option;
   mutable current_lookup : lexical_lookup option;
   mutable next_lookup_ordinal : int;
 }
@@ -195,6 +196,7 @@ let create ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
     pending_diagnostics = [];
     help_metadata = Help_metadata.empty;
     lexical_lookup;
+    lexical_consumer = None;
     current_lookup = None;
     next_lookup_ordinal = 0;
   }
@@ -212,6 +214,16 @@ let with_environment stream ~definitions ~symbols ~compilation_mode run =
       stream.definitions <- old_definitions;
       stream.symbols <- old_symbols;
       stream.compilation_mode <- old_mode)
+    run
+
+let with_lexical_consumer stream ~consume run =
+  stream.current_lookup <- None;
+  let previous = stream.lexical_consumer in
+  stream.lexical_consumer <- consume;
+  Fun.protect
+    ~finally:(fun () ->
+      stream.current_lookup <- None;
+      stream.lexical_consumer <- previous)
     run
 
 let take_pending_diagnostics stream =
@@ -279,8 +291,10 @@ let read_lexer_item stream =
           }
     | _ -> None
   in
-  (match (stream.lexical_lookup, raw_lookup) with
-  | Some observe, Some raw ->
+  (match raw_lookup with
+  | Some raw
+    when Option.is_some stream.lexical_lookup
+         || Option.is_some stream.lexical_consumer ->
       if stream.next_lookup_ordinal = max_int then
         invalid_arg "lexical lookup observation identity space is exhausted";
       let lookup =
@@ -300,7 +314,9 @@ let read_lexer_item stream =
       stream.current_lookup <- Some lookup;
       Fun.protect
         ~finally:(fun () -> stream.current_lookup <- None)
-        (fun () -> observe lookup)
+        (fun () ->
+          Option.iter (fun consume -> consume lookup) stream.lexical_consumer;
+          Option.iter (fun observe -> observe lookup) stream.lexical_lookup)
   | _ -> ());
   (item, raw_lookup)
 

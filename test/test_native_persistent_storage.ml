@@ -144,6 +144,7 @@ let native_defaults mode =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (Declarations.observe_command ledger);
       query = Some (Declarations.observe_query ledger);
       reference = Some (Declarations.observe_reference ledger);

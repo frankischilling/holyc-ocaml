@@ -19,6 +19,7 @@ let accepted_root () =
   let sequence = ref None in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -111,6 +112,7 @@ let empty_input ?(before_completion = fun _ -> ()) session task =
   let sequence = ref None in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -171,6 +173,7 @@ let delayed_input_start () =
   let start = ref None in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->

@@ -44,6 +44,7 @@ let activation_lifetime () =
       in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some checkpoint;
           call = None;
           implicit_output = None;
@@ -84,6 +85,7 @@ let pending_dimension_manifest () =
       let calls = A.create_call_journal ~namespace () in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint =
             Some
               (fun event ->
@@ -296,6 +298,7 @@ let runtime_metadata_cannot_promote () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->

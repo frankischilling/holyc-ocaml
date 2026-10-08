@@ -691,6 +691,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
   let entry_statement_seen = ref false in
   let commands : Frontend.Parser.command_sink =
     {
+      lexical_lookup = Some (Task_declarations.observe_lexical_lookup ledger);
       checkpoint =
         Some
           (fun event ->

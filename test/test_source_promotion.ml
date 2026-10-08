@@ -20,6 +20,7 @@ let parse ?(mode = Preprocessor.Jit) ?checkpoint ?reference ?query ?declaration
     ?execute_stream session source ledger =
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some (Option.value checkpoint ~default:(D.observe_command ledger));
       call = None;
