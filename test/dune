@@ -536,6 +536,7 @@
   test_lexical_consumers
   test_owned_function_counts
   test_native_hash_tables
+  test_native_compiler_control
   test_parser
   test_conditional_expression
   test_assert_directive

@@ -11,6 +11,10 @@ the [unused-extern example](examples/compiler-unused-extern.hc).
 Those admitted allocations now use native buckets and the pinned byte hash.
 Original source receipts still check each selected record; full task, assembler
 and AOT table setup remains required.
+Original parser inputs also own native option and warning fields. Directives
+share their caller's allocation; ordinary child inputs copy live options into
+fresh storage. These fields retain the pinned offsets while the full compiler
+control and error producers remain unfinished.
 [The warning notes](docs/compiler-warnings.md)
 describe counting, child contexts, retained diagnostics and the remaining
 warning phase boundaries.

@@ -71,10 +71,10 @@ val lexical_lookup_is_current :
     record mutation or advance a command, declaration or executable cursor. *)
 
 val context_compiler_options : command_context -> (int64, string) result
-(** Read the original current control. A directive shares its enclosing control;
-    a nested ordinary input copies the live caller's options before selecting
-    its saved compiler tables. Suspended ancestors, closed inputs and other
-    domains cannot operate on the control. *)
+(** Read the native option field of the original current control. A directive
+    shares its enclosing allocation; a nested ordinary input copies the live
+    caller's options before selecting its saved compiler tables. Suspended
+    ancestors, closed inputs and other domains cannot operate on the control. *)
 
 val context_get_option :
   command_context -> bit_index:int64 -> (bool, string) result
@@ -96,9 +96,9 @@ val context_warning_count : command_context -> (int64, string) result
 
 val context_emit_counted_compiler_warning :
   command_context -> Common.Diagnostic.t -> (unit, string) result
-(** Emit a warning and increment this original control's warning_cnt. Directives
-    share the counter; ordinary child controls start at zero. PrintWarn-only
-    consumers use the uncounted emitter. *)
+(** Emit a warning and increment this original control's native warning_cnt.
+    Directives share the counter; ordinary child controls start at zero.
+    PrintWarn-only consumers use the uncounted emitter. *)
 
 val context_parent : command_context -> command_position option
 (** Exact input and environment ownership, with the parent's suspended parser

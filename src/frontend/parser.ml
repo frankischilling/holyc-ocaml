@@ -32,9 +32,8 @@ type command_context = {
   context_source : Common.Source_file.t;
   context_environment : Symbol_visibility.Environment.t;
   context_mode : Preprocessor.compilation_mode;
-  context_compiler_options : int64 ref;
+  context_compiler_control : Common.Native_compiler_control.t;
   context_warnings_rev : Common.Diagnostic.t list ref;
-  context_warning_count : int64 ref;
   context_parent : command_position option;
   context_parent_events : int option;
   context_stream : bool;
@@ -163,25 +162,29 @@ let lexical_lookup_is_current context lookup =
   && Preprocessor.lexical_lookup_mode lookup = context.context_mode
 
 let context_compiler_options context =
-  if context_has_focus context then Ok !(context.context_compiler_options)
+  if context_has_focus context then
+    Ok (Common.Native_compiler_control.options context.context_compiler_control)
   else Error "compiler options require their original current parser control"
 
 let context_get_option context ~bit_index =
-  Result.bind (context_compiler_options context) (fun mask ->
+  Result.bind (context_compiler_options context) (fun _ ->
       match compiler_option_bit bit_index with
       | None -> Error "compiler option index has no original checked option"
-      | Some bit -> Ok (not (Int64.equal (Int64.logand mask bit) 0L)))
+      | Some _ ->
+          Ok
+            (Common.Native_compiler_control.get_option
+               context.context_compiler_control
+               ~bit_index:(Int64.to_int bit_index)))
 
 let context_set_option context ~bit_index enabled =
-  Result.bind (context_compiler_options context) (fun mask ->
+  Result.bind (context_compiler_options context) (fun _ ->
       match compiler_option_bit bit_index with
       | None -> Error "compiler option index has no original checked option"
-      | Some bit ->
-          let previous = not (Int64.equal (Int64.logand mask bit) 0L) in
-          context.context_compiler_options :=
-            if enabled then Int64.logor mask bit
-            else Int64.logand mask (Int64.lognot bit);
-          Ok previous)
+      | Some _ ->
+          Ok
+            (Common.Native_compiler_control.set_option
+               context.context_compiler_control
+               ~bit_index:(Int64.to_int bit_index) enabled))
 
 let context_emit_compiler_warning context (diagnostic : Common.Diagnostic.t) =
   if not (context_has_focus context) then
@@ -199,15 +202,18 @@ let context_emit_compiler_warning context (diagnostic : Common.Diagnostic.t) =
     Ok ())
 
 let context_warning_count context =
-  if context_has_focus context then Ok !(context.context_warning_count)
+  if context_has_focus context then
+    Ok
+      (Common.Native_compiler_control.warning_count
+         context.context_compiler_control)
   else
     Error "compiler warning count requires the original current parser control"
 
 let context_emit_counted_compiler_warning context diagnostic =
   Result.map
     (fun () ->
-      context.context_warning_count :=
-        Int64.succ !(context.context_warning_count))
+      Common.Native_compiler_control.increment_warning
+        context.context_compiler_control)
     (context_emit_compiler_warning context diagnostic)
 
 let context_parent_in_environment context ~environment =
@@ -2438,8 +2444,9 @@ let declaration_header ?type_selection cursor ~modifiers ~binding
     declaration_source = cursor.source;
     declaration_command = Option.get cursor.current_command;
     declaration_compiler_options =
-      !((Option.get cursor.current_command).command_context
-         .context_compiler_options);
+      Common.Native_compiler_control.options
+        (Option.get cursor.current_command).command_context
+          .context_compiler_control;
     modifiers;
     binding;
     binding_preparation =
@@ -2629,9 +2636,10 @@ let complete_function_header cursor at publication
         {
           function_publication;
           header_compiler_options =
-            !(function_publication.function_header.declaration_command
+            Common.Native_compiler_control.options
+              function_publication.function_header.declaration_command
                 .command_context
-               .context_compiler_options);
+                .context_compiler_control;
           completed_entry;
           parameters = parsed.parameters;
           parameter_completions = parsed.parameter_completions;
@@ -10466,10 +10474,11 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
               header.header_activity.completed_body_options <-
                 Some
                   ( definition,
-                    !(header.function_publication.function_header
+                    Common.Native_compiler_control.options
+                      header.function_publication.function_header
                         .declaration_command
                         .command_context
-                       .context_compiler_options) );
+                        .context_compiler_control );
               header.header_activity.function_body_active <- Some definition;
               Fun.protect
                 ~finally:(fun () ->
@@ -10535,21 +10544,19 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
       context_source = cursor.source;
       context_environment = cursor.symbols;
       context_mode = cursor.compilation_mode;
-      context_compiler_options =
+      context_compiler_control =
         (match saved_stack with
-        | [] -> ref initial_compiler_options
+        | [] ->
+            Common.Native_compiler_control.create
+              ~options:initial_compiler_options
         | parent :: _ ->
-            let options = (position_context !parent).context_compiler_options in
-            if Option.is_some stream_opener then options else ref !options);
+            let control = (position_context !parent).context_compiler_control in
+            if Option.is_some stream_opener then control
+            else Common.Native_compiler_control.child control);
       context_warnings_rev =
         (match saved_stack with
         | [] -> cursor.diagnostics_rev
         | parent :: _ -> (position_context !parent).context_warnings_rev);
-      context_warning_count =
-        (match saved_stack with
-        | parent :: _ when Option.is_some stream_opener ->
-            (position_context !parent).context_warning_count
-        | _ -> ref 0L);
       context_parent =
         (match saved_stack with
         | [] -> None
@@ -10659,7 +10666,8 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
                       command_context = context;
                       command_ordinal = !ordinal;
                       command_compiler_options =
-                        !(context.context_compiler_options);
+                        Common.Native_compiler_control.options
+                          context.context_compiler_control;
                       command_predecessor = !previous;
                     }
                   in

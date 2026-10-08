@@ -80,8 +80,24 @@ calls do not increment warning_cnt. Header mismatches increment the focused
 parser control's counter once per warning. Directives share that counter;
 ordinary child controls start at zero while forwarding their diagnostics.
 Activation can admit an earlier observed header without replaying its warning
-phase. This counter does not provide a native CCmpCtrl object, the remaining
-LexWarn/LexExcept counters or TempleOS terminal formatting.
+phase.
+
+Each original parser input owns native field storage with the pinned CCmpCtrl
+prefix through `warning_cnt`. `opts` is at byte 320 and `warning_cnt` at byte
+352. Source GetOption/Option, counted warnings and the original declaration,
+header, body and command snapshots use these fields. Root inputs start with
+`0x90000`; a directive shares its caller's allocation. An ordinary nested input
+copies the caller's live options into a fresh allocation with zero counts.
+Uncounted PrintWarn diagnostics leave the native warning field unchanged.
+Current-context, source-manager and domain checks still precede mutation.
+
+The private allocation ends at byte 360. Its other fields remain zero; it
+provides no full CCmpCtrl, CmpCtrlNew task queue, native table context, lexical
+buffer setup or exported ABI. Error-count producers, remaining LexWarn paths
+and TempleOS terminal formatting remain open. An independent x86-64 oracle
+compares literal field offsets and BT/BTS/BTR/INC instructions with production
+operations over all 64 bits, eight initial patterns, repeated writes and warning
+wraparound. It also checks that neighboring fields remain unchanged.
 
 Full warning timing remains unfinished. TempleOS tests unused locals after
 `COCCompile`; this pipeline emits after checked integer lowering, before native
