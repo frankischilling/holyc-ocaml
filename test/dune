@@ -5146,9 +5146,12 @@
  (name test_stream_generation_cli)
  (modules test_stream_generation_cli)
  (libraries unix yojson)
- (deps ../examples/native-stream-generation.hc)
+ (deps
+  ../examples/native-stream-generation.hc
+  ../examples/native-stream-declarations.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
-   %{dep:../examples/native-stream-generation.hc})))
+   %{dep:../examples/native-stream-generation.hc}
+   %{dep:../examples/native-stream-declarations.hc})))

@@ -20,7 +20,8 @@ let temporary suffix contents action =
 
 let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
-let native_only = Array.length Sys.argv > 3
+let declarations_example = Sys.argv.(3)
+let native_only = Array.exists (( = ) "--native") Sys.argv
 let targets = if native_only then [ "host-jit-task" ] else [ "ir" ]
 let count = ref 0
 
@@ -80,6 +81,26 @@ let value report =
 let () =
   List.iter
     (fun target ->
+      List.iter
+        (fun mode ->
+          let declarations = invoke ~mode target declarations_example in
+          require
+            (declarations |> member "final_value" |> member "value" |> to_string
+           = "42")
+            "synchronous child declaration did not reach the outer parser";
+          require
+            (declarations |> member "output_hex" |> to_string = "6368696c64303b")
+            "child declaration completion did not return zero";
+          if native_only then
+            require
+              (declarations |> member "arithmetic" |> to_string
+               = "runtime-native"
+              && declarations |> member "native" |> member "fragments"
+                 |> to_list
+                 |> List.for_all (fun fragment ->
+                     fragment |> member "outcome" |> to_string = "success"))
+              "native declaration source did not complete its machine fragments")
+        [ "jit"; "aot" ];
       let baseline = invoke target example in
       value baseline;
       let steps = baseline |> member "executed_steps" |> to_int in

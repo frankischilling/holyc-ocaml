@@ -93,6 +93,12 @@ directive-only names stay in their own task. Directive caller locals are hidden;
 saved compiler-local shadows remain checked. Ordinary output remains separate
 from generated text.
 
+Native active calls now resume the same original parser for declaration-only
+children, including calls through a captured provider. Class publication is
+visible before the outer parser resumes, and accepted declaration completion
+returns zero. Executable children still require scoped machine, arena and budget
+entry; their rejection retains the original diagnostics and reached effects.
+
 The provider writes packed nonzero bytes to the hosted output buffer. TempleOS
 `PutKey` device hooks, scheduling and display behavior remain outside this hosted
 contract. Native entries use the existing private status/arena convention;

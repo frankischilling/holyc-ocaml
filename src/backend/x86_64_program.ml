@@ -83,6 +83,7 @@ type t = {
   task_check_ : (unit -> (unit, string) result) option;
   task_claim_ : (unit -> (unit, string) result) option;
   generation_ : Ir.Integer_interpreter.native_generation option;
+  source_callback_ : Driver.Integer_task.native_source_callback option;
   callback_default_ : Ir.Default_fragment_destination.t option;
   data_default_ : Ir.Saved_parameter_value.t option;
   data_default_misc_ : bool;
@@ -92,6 +93,7 @@ type t = {
 }
 
 let generation value = value.generation_
+let source_callback value = value.source_callback_
 let internal_binding value = value.internal_binding_
 let dimension value = value.dimension_
 let offset value = value.offset_
@@ -135,6 +137,7 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         task_check_ = None;
         task_claim_ = None;
         generation_ = None;
+        source_callback_ = None;
         callback_default_ = None;
         data_default_ = None;
         data_default_misc_ = false;
@@ -159,6 +162,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         task_check_ = None;
         task_claim_ = None;
         generation_ = None;
+        source_callback_ = None;
         callback_default_ = None;
         data_default_ = None;
         data_default_misc_ = false;
@@ -184,10 +188,10 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ?callback_default ?data_default ?dimension ?offset ?internal_binding
     ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~generation
-    ~runtime_calls ~retained_function_source ~retained_slot_binding
-    ~retained_slot_address_binding ~retained_slot_address_refresh
-    ~retained_parameter_default ~retained_callback_default ~initialization
-    ~entry ~functions () =
+    ~source_callback ~runtime_calls ~retained_function_source
+    ~retained_slot_binding ~retained_slot_address_binding
+    ~retained_slot_address_refresh ~retained_parameter_default
+    ~retained_callback_default ~initialization ~entry ~functions () =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ { code = "HCBACK0003"; message; span = None } ]
@@ -230,6 +234,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         task_check_ = Some check;
         task_claim_ = Some claim;
         generation_ = Some (generation ());
+        source_callback_ = source_callback;
         callback_default_ = callback_default;
         data_default_ = data_default;
         dimension_ = dimension;
@@ -255,6 +260,7 @@ let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~check:(fun () -> Task_dispatch.check_initializer_request request)
     ~claim:(fun () -> Task_dispatch.claim_initializer_request request)
     ~generation:(fun () -> Task_dispatch.initializer_generation request)
+    ~source_callback:(Task_dispatch.initializer_source_callback request)
     ~runtime_calls:(Fragment.runtime_calls program)
     ~retained_function_source:
       (Task_dispatch.initializer_function_source request)
@@ -280,6 +286,7 @@ let compile_task_static_initializer ?status_abi ?max_stack_bytes ?max_blocks
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -330,6 +337,7 @@ let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -350,6 +358,7 @@ let compile_task_internal_binding ?status_abi ?max_stack_bytes ?max_blocks
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -370,6 +379,7 @@ let compile_task_dimension ?status_abi ?max_stack_bytes ?max_blocks
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -390,6 +400,7 @@ let compile_task_offset ?status_abi ?max_stack_bytes ?max_blocks
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
     ~runtime_calls:(Program.runtime_calls program)
     ~retained_function_source:(Request.function_source request)
     ~retained_slot_binding:(Request.slot_binding request)
@@ -409,6 +420,7 @@ let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
     ~check:(fun () -> Task_dispatch.check_command_request request)
     ~claim:(fun () -> Task_dispatch.claim_command_request request)
     ~generation:(fun () -> Task_dispatch.command_generation request)
+    ~source_callback:(Task_dispatch.command_source_callback request)
     ~runtime_calls:(Unit.runtime_calls program)
     ~retained_function_source:(Task_dispatch.command_function_source request)
     ~retained_slot_binding:(Task_dispatch.command_slot_binding request)

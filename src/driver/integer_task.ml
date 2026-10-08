@@ -1,5 +1,20 @@
 module VM = Ir.Integer_interpreter
 
+type native_source_callback =
+  Ir.Native_source_suspension.t ->
+  string ->
+  ((int64, Common.Diagnostic.t list) result, string) result
+
+let native_source_callback ~generation ~valid handler =
+  Option.map
+    (fun execute scope contents ->
+      if not (valid ()) then
+        Error "native source callback requires its entered original request"
+      else
+        VM.with_native_source_suspension generation ~scope (fun _ ->
+            execute contents))
+    handler
+
 module Native_dispatch = struct
   type word = I64 of int64 | U64 of int64
   type capture = Unchanged | Captured of word option
@@ -10,6 +25,8 @@ module Native_dispatch = struct
     initializer_attempt : VM.initializer_attempt;
     initializer_execution : Ir.Initializer_fragment_program.execution;
     initializer_program_ : Ir.Initializer_fragment_program.t;
+    initializer_generation_ : VM.native_generation;
+    initializer_source_handler : VM.stream_exe_print option;
     initializer_domain : Domain.id;
     initializer_state : entry_state Atomic.t;
   }
@@ -17,6 +34,8 @@ module Native_dispatch = struct
   type command_request = {
     command_task : VM.task_state;
     command_program_ : Integer_unit.compiled;
+    command_generation_ : VM.native_generation;
+    command_source_handler : VM.stream_exe_print option;
     command_domain : Domain.id;
     command_state : entry_state Atomic.t;
     command_attempt : VM.native_program_attempt option Atomic.t;
@@ -29,12 +48,8 @@ module Native_dispatch = struct
       command_request -> (capture, Common.Diagnostic.t list) result;
   }
 
-  let initializer_generation request =
-    VM.native_task_generation request.initializer_task
-
-  let command_generation request =
-    VM.native_task_generation request.command_task
-
+  let initializer_generation request = request.initializer_generation_
+  let command_generation request = request.command_generation_
   let initializer_program request = request.initializer_program_
   let command_program request = request.command_program_
   let owns_domain expected = Domain.self () = expected
@@ -209,12 +224,16 @@ module Native_dispatch = struct
     VM.task_native_callback_default request.initializer_task ~globals ~pointer
       ~parameter prepared
 
-  let create_initializer ~task ~attempt ~execution ~program =
+  let create_initializer ?(use_active_stream = true) ?stream_exe_print ~task
+      ~attempt ~execution ~program () =
     {
       initializer_task = task;
       initializer_attempt = attempt;
       initializer_execution = execution;
       initializer_program_ = program;
+      initializer_generation_ =
+        VM.native_task_generation ~use_active_stream task;
+      initializer_source_handler = stream_exe_print;
       initializer_domain = Domain.self ();
       initializer_state = Atomic.make Offered;
     }
@@ -231,10 +250,13 @@ module Native_dispatch = struct
     VM.task_native_callback_default request.command_task ~globals ~pointer
       ~parameter prepared
 
-  let create_command ~task ~program =
+  let create_command ?(use_active_stream = true) ?stream_exe_print ~task
+      ~program () =
     {
       command_task = task;
       command_program_ = program;
+      command_generation_ = VM.native_task_generation ~use_active_stream task;
+      command_source_handler = stream_exe_print;
       command_domain = Domain.self ();
       command_state = Atomic.make Offered;
       command_attempt = Atomic.make None;
@@ -244,6 +266,19 @@ module Native_dispatch = struct
     Atomic.get request.initializer_state = Entered
 
   let command_entered request = Atomic.get request.command_state = Entered
+
+  let initializer_source_callback request =
+    native_source_callback ~generation:request.initializer_generation_
+      ~valid:(fun () ->
+        owns_domain request.initializer_domain && initializer_entered request)
+      request.initializer_source_handler
+
+  let command_source_callback request =
+    native_source_callback ~generation:request.command_generation_
+      ~valid:(fun () ->
+        owns_domain request.command_domain && command_entered request)
+      request.command_source_handler
+
   let command_attempt request = Atomic.get request.command_attempt
   let close_initializer request = Atomic.set request.initializer_state Closed
   let close_command request = Atomic.set request.command_state Closed
@@ -312,13 +347,15 @@ module Native_static_initializer = struct
   type request = {
     task : VM.task_state;
     program_ : Ir.Static_initializer_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
     domain : Domain.id;
     phase : phase Atomic.t;
   }
 
   type t = request -> (unit, Common.Diagnostic.t list) result
 
-  let generation request = VM.native_task_generation request.task
+  let generation request = request.generation_
   let program request = request.program_
 
   let check request =
@@ -393,10 +430,23 @@ module Native_static_initializer = struct
     VM.task_native_callback_default request.task ~globals ~pointer ~parameter
       prepared
 
-  let create task program_ =
-    { task; program_; domain = Domain.self (); phase = Atomic.make Offered }
+  let create ?(use_active_stream = true) ?stream_exe_print task program_ =
+    {
+      task;
+      program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
 
   let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
   let close request = Atomic.set request.phase Closed
 end
 
@@ -407,6 +457,8 @@ module Native_default = struct
     task : VM.task_state;
     attempt : VM.default_attempt;
     program_ : Ir.Default_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
     domain : Domain.id;
     phase : phase Atomic.t;
   }
@@ -414,7 +466,7 @@ module Native_default = struct
   type t =
     request -> (Ir.Saved_parameter_value.t, Common.Diagnostic.t list) result
 
-  let generation request = VM.native_task_generation request.task
+  let generation request = request.generation_
   let program request = request.program_
 
   let check request =
@@ -505,16 +557,25 @@ module Native_default = struct
     then Error "native default work requires its entered original request"
     else VM.record_native_default_steps request.task request.attempt steps
 
-  let create task attempt program_ =
+  let create ?(use_active_stream = true) ?stream_exe_print task attempt program_
+      =
     {
       task;
       attempt;
       program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
       domain = Domain.self ();
       phase = Atomic.make Offered;
     }
 
   let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
   let close request = Atomic.set request.phase Closed
 end
 
@@ -525,6 +586,8 @@ module Native_internal_binding = struct
     task : VM.task_state;
     attempt : VM.internal_binding_attempt;
     program_ : Ir.Internal_binding_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
     domain : Domain.id;
     phase : phase Atomic.t;
   }
@@ -533,7 +596,7 @@ module Native_internal_binding = struct
     request ->
     (Ir.Native_internal_binding_capture.t, Common.Diagnostic.t list) result
 
-  let generation request = VM.native_task_generation request.task
+  let generation request = request.generation_
   let program request = request.program_
 
   let check request =
@@ -630,16 +693,25 @@ module Native_internal_binding = struct
     else
       VM.record_native_internal_binding_steps request.task request.attempt steps
 
-  let create task attempt program_ =
+  let create ?(use_active_stream = true) ?stream_exe_print task attempt program_
+      =
     {
       task;
       attempt;
       program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
       domain = Domain.self ();
       phase = Atomic.make Offered;
     }
 
   let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
   let close request = Atomic.set request.phase Closed
 end
 
@@ -650,6 +722,8 @@ module Native_dimension = struct
     task : VM.task_state;
     attempt : VM.dimension_attempt;
     program_ : Ir.Dimension_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
     domain : Domain.id;
     phase : phase Atomic.t;
   }
@@ -660,7 +734,7 @@ module Native_dimension = struct
       Common.Diagnostic.t list )
     result
 
-  let generation request = VM.native_task_generation request.task
+  let generation request = request.generation_
   let program request = request.program_
 
   let check request =
@@ -753,16 +827,25 @@ module Native_dimension = struct
     then Error "native dimension work requires its entered original request"
     else VM.record_native_dimension_steps request.task request.attempt steps
 
-  let create task attempt program_ =
+  let create ?(use_active_stream = true) ?stream_exe_print task attempt program_
+      =
     {
       task;
       attempt;
       program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
       domain = Domain.self ();
       phase = Atomic.make Offered;
     }
 
   let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
   let close request = Atomic.set request.phase Closed
 end
 
@@ -773,6 +856,8 @@ module Native_offset = struct
     task : VM.task_state;
     attempt : VM.offset_attempt;
     program_ : Ir.Offset_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
     domain : Domain.id;
     phase : phase Atomic.t;
   }
@@ -783,7 +868,7 @@ module Native_offset = struct
       Common.Diagnostic.t list )
     result
 
-  let generation request = VM.native_task_generation request.task
+  let generation request = request.generation_
   let program request = request.program_
 
   let check request =
@@ -874,16 +959,25 @@ module Native_offset = struct
     then Error "native offset work requires its entered original request"
     else VM.record_native_offset_steps request.task request.attempt steps
 
-  let create task attempt program_ =
+  let create ?(use_active_stream = true) ?stream_exe_print task attempt program_
+      =
     {
       task;
       attempt;
       program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
       domain = Domain.self ();
       phase = Atomic.make Offered;
     }
 
   let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
   let close request = Atomic.set request.phase Closed
 end
 
@@ -1412,8 +1506,8 @@ let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
                 destination
         in
         let request =
-          Native_dispatch.create_initializer ~task:task.state ~attempt
-            ~execution ~program
+          Native_dispatch.create_initializer ~use_active_stream
+            ?stream_exe_print ~task:task.state ~attempt ~execution ~program ()
         in
         Fun.protect
           ~finally:(fun () -> Native_dispatch.close_initializer request)
@@ -1450,7 +1544,10 @@ let execute_default_destination ~use_active_stream ?stream_exe_print task
       let* program =
         Default_fragment_lowering.lower_native ~context ~authority destination
       in
-      let request = Native_default.create task.state attempt program in
+      let request =
+        Native_default.create ~use_active_stream ?stream_exe_print task.state
+          attempt program
+      in
       Fun.protect
         ~finally:(fun () -> Native_default.close request)
         (fun () ->
@@ -1565,7 +1662,10 @@ let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
           Dimension_fragment_lowering.lower_native ~context ~authority
             destination
         in
-        let request = Native_dimension.create task.state attempt program in
+        let request =
+          Native_dimension.create ~use_active_stream ?stream_exe_print
+            task.state attempt program
+        in
         Fun.protect
           ~finally:(fun () -> Native_dimension.close request)
           (fun () ->
@@ -1645,7 +1745,8 @@ let execute_runtime_internal_binding ?(use_active_stream = true)
             destination
         in
         let request =
-          Native_internal_binding.create task.state attempt program
+          Native_internal_binding.create ~use_active_stream ?stream_exe_print
+            task.state attempt program
         in
         Fun.protect
           ~finally:(fun () -> Native_internal_binding.close request)
@@ -1721,7 +1822,10 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
         let* program =
           Offset_fragment_lowering.lower_native ~context ~authority destination
         in
-        let request = Native_offset.create task.state attempt program in
+        let request =
+          Native_offset.create ~use_active_stream ?stream_exe_print task.state
+            attempt program
+        in
         Fun.protect
           ~finally:(fun () -> Native_offset.close request)
           (fun () ->
@@ -1843,7 +1947,8 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
                   Static_initializer_lowering.lower ~context destination
                 in
                 let request =
-                  Native_static_initializer.create task.state program
+                  Native_static_initializer.create ~use_active_stream
+                    ?stream_exe_print task.state program
                 in
                 Fun.protect
                   ~finally:(fun () -> Native_static_initializer.close request)
@@ -2111,7 +2216,7 @@ let native_word_for_vm = function
   | Native_dispatch.I64 bits -> (VM.I64, bits)
   | Native_dispatch.U64 bits -> (VM.U64, bits)
 
-let execute_source task command =
+let execute_source ?(use_active_stream = true) ?stream_exe_print task command =
   if task.identity != command.owner then
     Error
       [
@@ -2121,7 +2226,7 @@ let execute_source task command =
   else
     match task.native_dispatch with
     | None ->
-        execute_internal task command
+        execute_internal ~use_active_stream ?stream_exe_print task command
         |> Result.map (fun execution ->
             Option.map native_word_of_vm (VM.final_value execution))
     | Some _ when command.frontend_pending ->
@@ -2163,8 +2268,8 @@ let execute_source task command =
                 Error diagnostics))
     | Some dispatch ->
         let request =
-          Native_dispatch.create_command ~task:task.state
-            ~program:command.program
+          Native_dispatch.create_command ~use_active_stream ?stream_exe_print
+            ~task:task.state ~program:command.program ()
         in
         let diagnose result =
           Result.map_error
@@ -2526,7 +2631,7 @@ let rec stream_executor ?saved_compiler ?(allow_stream_exe_print = true) task
   in
   let execute_command command =
     match task.native_dispatch with
-    | Some _ -> execute_source task command
+    | Some _ -> execute_source ?stream_exe_print task command
     | None ->
         execute_internal ?stream_exe_print task command
         |> Result.map (fun execution ->
@@ -2677,7 +2782,7 @@ and run_input_execution ?suspension ?enclosing ?stream_task
   in
   let execute_command command =
     match task.native_dispatch with
-    | Some _ -> execute_source task command
+    | Some _ -> execute_source ~use_active_stream task command
     | None ->
         execute_internal ~use_active_stream task command
         |> Result.map (fun execution ->

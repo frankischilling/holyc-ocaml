@@ -1211,8 +1211,12 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
                                          uintnat required_arena_bytes,
                                          uint64_t *context, value entered)
 {
+  CAMLparam3(handle, arena_handle, entered);
+  CAMLlocal1(borrowed_handles);
   struct native_retained_program *program = native_retained_get(handle);
   struct native_task_arena *arena = native_task_arena_get(arena_handle);
+  struct native_retained_program **borrowed_codes;
+  size_t owner_capacity, borrowed = 0;
   int program_expected = 0;
   int arena_expected = 0;
   uint64_t (*entry)(uint64_t *);
@@ -1222,6 +1226,9 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
 
   if (!program->task_fragment)
     caml_invalid_argument("ordinary retained native image cannot use a task arena");
+  /* Observe the capacity under the arena guard, then allocate before acquiring
+     activation guards. An allocation exception must not leave a busy image.
+     Recheck the capacity after acquiring the original entry and arena. */
   if (!atomic_compare_exchange_strong(&program->active, &program_expected, 1))
     caml_invalid_argument("retained native image is already active");
   if (program->closing || program->mapping == NULL) {
@@ -1237,36 +1244,70 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
     atomic_store(&program->active, 0);
     caml_invalid_argument("native task arena has been released");
   }
-  if ((size_t)required_arena_bytes > arena->used) {
-    atomic_store(&arena->active, 0);
+  owner_capacity = arena->owner_capacity;
+  atomic_store(&arena->active, 0);
+  atomic_store(&program->active, 0);
+  if (owner_capacity > Max_wosize / 2 ||
+      owner_capacity > SIZE_MAX / (2 * sizeof(*borrowed_codes)))
+    caml_invalid_argument("native task borrower snapshot exceeds the host bound");
+  borrowed_handles = caml_alloc_tuple(2 * owner_capacity);
+  for (size_t index = 0; index < 2 * owner_capacity; ++index)
+    Store_field(borrowed_handles, index, Val_unit);
+  borrowed_codes = owner_capacity == 0 ? NULL :
+    calloc(2 * owner_capacity, sizeof(*borrowed_codes));
+  if (owner_capacity != 0 && borrowed_codes == NULL) caml_raise_out_of_memory();
+  program_expected = 0;
+  if (!atomic_compare_exchange_strong(&program->active, &program_expected, 1)) {
+    free(borrowed_codes);
+    caml_invalid_argument("retained native image is already active");
+  }
+  if (program->closing || program->mapping == NULL) {
+    free(borrowed_codes);
     atomic_store(&program->active, 0);
-    caml_invalid_argument("native task fragment requires unadmitted task storage");
+    caml_invalid_argument("retained native image has been released");
+  }
+  arena_expected = 0;
+  if (!atomic_compare_exchange_strong(&arena->active, &arena_expected, 1)) {
+    free(borrowed_codes);
+    atomic_store(&program->active, 0);
+    caml_invalid_argument("native task arena is already active");
+  }
+#define BORROW_FAIL(message) do { \
+    for (size_t index = 0; index < borrowed; ++index) \
+      native_task_return_code(borrowed_codes[index], program); \
+    free(borrowed_codes); \
+    atomic_store(&arena->active, 0); atomic_store(&program->active, 0); \
+    caml_invalid_argument(message); \
+  } while (0)
+  if (arena->closing || arena->mapping == NULL)
+    BORROW_FAIL("native task arena has been released");
+  if (arena->owner_capacity != owner_capacity)
+    BORROW_FAIL("native task owner table changed before its borrower snapshot");
+  if ((size_t)required_arena_bytes > arena->used) {
+    BORROW_FAIL("native task fragment requires unadmitted task storage");
   }
 
-  size_t borrowed = 0;
-  for (; borrowed < arena->owner_capacity; ++borrowed) {
-    struct native_task_code_owner *owner = arena->owners[borrowed];
+  /* Root and remember the exact mappings borrowed now. A synchronous child
+     may grow the owner table or rebind a current target while this caller is
+     suspended. Returning its borrowers must not reread those changed owners. */
+  for (size_t index = 0; index < owner_capacity; ++index) {
+    struct native_task_code_owner *owner = arena->owners[index];
     if (owner == NULL || owner->canonical == 0) continue;
     uint64_t address, target;
     memcpy(&address, (char *)arena->mapping + owner->address, 8);
     memcpy(&target, (char *)arena->mapping + owner->target, 8);
     if (address != owner->canonical || target != owner->current_target ||
-        !native_task_borrow_code(owner->program, program)) break;
+        !native_task_borrow_code(owner->program, program))
+      BORROW_FAIL("native task code owner is corrupt, released or active");
+    borrowed_codes[borrowed] = owner->program;
+    Store_field(borrowed_handles, borrowed, owner->canonical_handle);
+    ++borrowed;
     if (!native_task_borrow_code(owner->current_program, program)) {
-      native_task_return_code(owner->program, program);
-      break;
+      BORROW_FAIL("native task code owner is corrupt, released or active");
     }
-  }
-  if (borrowed != arena->owner_capacity) {
-    for (size_t index = 0; index < borrowed; ++index) {
-      struct native_task_code_owner *owner = arena->owners[index];
-      if (owner != NULL && owner->canonical != 0) {
-        native_task_return_code(owner->program, program);
-        native_task_return_code(owner->current_program, program);
-      }
-    }
-    atomic_store(&arena->active, 0); atomic_store(&program->active, 0);
-    caml_invalid_argument("native task code owner is corrupt, released or active");
+    borrowed_codes[borrowed] = owner->current_program;
+    Store_field(borrowed_handles, borrowed, owner->current_handle);
+    ++borrowed;
   }
   arena_address = (uint64_t)(uintptr_t)arena->mapping;
   context[9] = arena_address;
@@ -1278,17 +1319,15 @@ static uint64_t native_retained_run_task(value handle, value arena_handle,
   native_source_leave(context);
   pointer_ok = context[9] == arena_address;
   for (size_t index = 0; index < borrowed; ++index) {
-    struct native_task_code_owner *owner = arena->owners[index];
-    if (owner != NULL && owner->canonical != 0) {
-      native_task_return_code(owner->program, program);
-      native_task_return_code(owner->current_program, program);
-    }
+    native_task_return_code(borrowed_codes[index], program);
   }
+  free(borrowed_codes);
   atomic_store(&arena->active, 0);
   atomic_store(&program->active, 0);
   if (!pointer_ok)
     caml_failwith("retained native task status integrity failure: arena pointer was modified");
-  return bits;
+#undef BORROW_FAIL
+  CAMLreturnT(uint64_t, bits);
 }
 
 static value native_box_word(uint64_t word)

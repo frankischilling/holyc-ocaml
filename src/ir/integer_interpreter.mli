@@ -461,10 +461,22 @@ val begin_task_stream : task_state -> (task_stream, string) result
 
 type native_generation
 
-val native_task_generation : task_state -> native_generation
+val native_task_generation :
+  ?use_active_stream:bool -> task_state -> native_generation
 
 val native_generation_limits :
   native_generation -> (bool * int * int, string) result
+
+val with_native_source_suspension :
+  native_generation ->
+  scope:Native_source_suspension.t ->
+  (task_state -> 'a) ->
+  ('a, string) result
+(** Reserve the original native caller's observed frame and depth while its
+    physical source callback is suspended. The exact C scope and generation must
+    agree; foreign domains, copied targets and expired scopes reject. Saved
+    compiler peers retain native storage authority and share the original
+    resources. This reservation grants no machine, arena or budget entry. *)
 
 val complete_native_generation :
   native_generation ->

@@ -3,6 +3,15 @@ type command
 type stream
 type saved_compiler
 
+type native_source_callback =
+  Ir.Native_source_suspension.t ->
+  string ->
+  ((int64, Common.Diagnostic.t list) result, string) result
+(** Original parser handler of an entered native request. The outer error is a
+    request or physical suspension rejection; the inner result retains child
+    source diagnostics. The C scope reserves the caller's frame and depth but
+    does not grant machine, arena or budget entry. *)
+
 module Native_dispatch : sig
   type word = I64 of int64 | U64 of int64
   type capture = Unchanged | Captured of word option
@@ -21,6 +30,11 @@ module Native_dispatch : sig
 
   val command_generation :
     command_request -> Ir.Integer_interpreter.native_generation
+
+  val initializer_source_callback :
+    initializer_request -> native_source_callback option
+
+  val command_source_callback : command_request -> native_source_callback option
 
   val initializer_program :
     initializer_request -> Ir.Initializer_fragment_program.t
@@ -175,6 +189,7 @@ module Native_static_initializer : sig
 
   val program : request -> Ir.Static_initializer_program.t
   val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -234,6 +249,7 @@ module Native_default : sig
 
   val program : request -> Ir.Default_fragment_program.t
   val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -301,6 +317,7 @@ module Native_internal_binding : sig
 
   val program : request -> Ir.Internal_binding_fragment_program.t
   val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -370,6 +387,7 @@ module Native_dimension : sig
 
   val program : request -> Ir.Dimension_fragment_program.t
   val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -439,6 +457,7 @@ module Native_offset : sig
 
   val program : request -> Ir.Offset_fragment_program.t
   val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
   val check : request -> (unit, string) result
   val claim : request -> (unit, string) result
 
@@ -746,7 +765,11 @@ val execute :
     commands and replay report HCIRVM0026 without effects. *)
 
 val execute_source :
-  t -> command -> (Native_dispatch.word option, Common.Diagnostic.t list) result
+  ?use_active_stream:bool ->
+  ?stream_exe_print:Ir.Integer_interpreter.stream_exe_print ->
+  t ->
+  command ->
+  (Native_dispatch.word option, Common.Diagnostic.t list) result
 (** Execute one exact parser-resume command through the task's configured source
     path. Native dispatch claims its opaque live request immediately before
     entry and settles only task metadata; ordinary tasks retain interpreter

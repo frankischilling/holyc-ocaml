@@ -35,12 +35,22 @@ longer histories can require a larger explicit code allowance.
 The pinned StreamPrint formats before checking the active stream. Native calls
 outside `#exe` therefore report `HCIRVM0027` after formatting; format, pointer,
 byte and work faults can occur first. StreamExePrint retains its original I64
-signature and formats through its own temporary buffer. Native calls then report
-`HCIRVM0027`, including calls through saved callbacks. The reference allows calls
-inside active `#exe` blocks in both outer modes. Successful synchronous native
-execution still requires a bridge that resumes the original parser while
-the calling native function is suspended. [Native AOT sessions](native-aot-source-sessions.md)
-now execute the original directive tasks and their separate outer module.
+signature and formats through its own temporary buffer. Inactive calls report
+`HCIRVM0027`. Inside active `#exe` blocks in either outer mode, the native callback
+now resumes the original parser synchronously. Declaration-only child input can
+publish a class into the saved compiler namespace and return zero after its
+accepted completion. The outer parser can then use that class:
+
+```sh
+holyc run --mode=aot --target=host-jit-task --code-byte-limit=524288 examples/native-stream-declarations.hc
+```
+
+The example prints `child0;` and returns 42 in either mode. Its child has no
+executable commands. Executable children remain excluded by the active JIT arena
+guard or the separate AOT task's storage ownership check. Those child diagnostics
+remain alongside the caller's checked source fault; rejection does not become a
+zero result. [Native AOT sessions](native-aot-source-sessions.md) execute the
+original directive tasks and their separate outer module.
 
 The runtime now provides that call site's C callback boundary as a prerequisite
 for child execution. `execute_retained_budget_report` accepts a source callback
@@ -57,9 +67,17 @@ physical caller, original generation target, retained image, arena and
 cumulative budget identity. It exposes remaining limits without exposing native
 addresses. Other domains, copied generation metadata, equal allowances from
 another budget, duplicate opens and expired scopes reject. The ordinary budget,
-image and arena entry and release guards remain active. This scope alone does
-not admit child code or join a parser completion; the source driver still reports
-its missing parser bridge.
+image and arena entry and release guards remain active. Each entered source
+request retains one exact generation target and its original parser handler.
+That handler reserves the physical caller's remaining frame and depth, preserves
+native storage authority in a separate saved namespace, and restores the scope
+on return or exception. Ordinary children do not inherit generation permission.
+This reservation grants no nested machine, arena or cumulative-budget entry.
+
+Each activation also roots a snapshot of the exact canonical and current code
+mappings it borrowed. Cleanup returns that set rather than rereading arena owner
+cells that a future scoped child could rebind. Dynamic child rebinding and owner
+table growth remain untested until that scoped machine path exists.
 
 Output, generation and formatted-source buffers now have C-owned addresses.
 Their rooted custom owner frees them after checked capture, or on collection
@@ -69,6 +87,11 @@ function after it has written ordinary and generation prefixes, collect and
 compact while its buffers are live, and check its resumed suffix. They also
 exercise repeated callbacks, captured provider calls, rejection and exception
 cleanup with zero interpreted instructions.
+Source tests also compare original child declarations with independent IR runs
+in both modes, including captured calls, ordinary and static initializer leaves,
+and runtime array bounds. A reached class and caller output survive a later
+executable-child rejection. Full executable child outcomes, shared counter and
+prefix joins, and scoped arena/code admission remain required.
 
 Custom finalizers can run while OCaml 5.3 holds its global-root lock during
 promotion. Removing capture roots there deadlocked the native AOT session tests

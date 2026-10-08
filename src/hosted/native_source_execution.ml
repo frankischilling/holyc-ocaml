@@ -267,6 +267,20 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             Error (host_error message)
         | Ok retained -> (
             let release_error = ref None in
+            let source_errors = ref None in
+            let source_callback =
+              Option.map
+                (fun callback scope contents ->
+                  match callback scope contents with
+                  | Ok (Ok value) -> Some value
+                  | Ok (Error diagnostics) ->
+                      source_errors := Some diagnostics;
+                      None
+                  | Error message ->
+                      source_errors := Some (host_error message);
+                      None)
+                (Image.source_callback image)
+            in
             let execution =
               Fun.protect
                 ~finally:(fun () ->
@@ -275,8 +289,9 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   | Error message -> release_error := Some message)
                 (fun () ->
                   Native.execute_retained_budget_report ?max_activation_steps
-                    ~max_frame_bytes ~max_call_depth ~max_active_stack_bytes
-                    ~max_global_bytes ~max_literal_bytes budget retained)
+                    ?source_callback ~max_frame_bytes ~max_call_depth
+                    ~max_active_stack_bytes ~max_global_bytes ~max_literal_bytes
+                    budget retained)
             in
             let native_outcome = Native.outcome execution in
             fragments :=
@@ -302,7 +317,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       }
                     else error
                   in
-                  Error [ error ]
+                  Error (Option.value !source_errors ~default:[] @ [ error ])
               | Ok (Image.Completed completed) ->
                   Ok (completed, Native.value_captured execution)
             in
@@ -664,6 +679,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                  any module declarations. It owns a separate original table. *)
                 let task_session = Driver.Session.fork_frontend session in
                 let streams ledger preparation =
+                  let saved_compiler = Task.saved_compiler session ~ledger in
                   let* task =
                     Task.create
                       ~compiler_positions:
@@ -714,8 +730,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                         providers_installed := true;
                         Ok ()
                     in
-                    Task.stream_executor ~allow_stream_exe_print:true task
-                      directive
+                    Task.stream_executor ~saved_compiler
+                      ~allow_stream_exe_print:true task directive
                   in
                   let remaining_code () =
                     if !emitted_bytes >= max_code_bytes then

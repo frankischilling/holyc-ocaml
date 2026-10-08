@@ -7,7 +7,11 @@ and output order. Every native fragment must complete in machine code; source
 task runtime counters remain zero. Exact and one-below instruction, declaration,
 default, generation, output, code, IR and combined storage limits retain reached
 effects. The maintained AOT example also runs through the CLI with resource
-reports. Synchronous native StreamExePrint remains a checked dependency failure.
+reports. Native StreamExePrint now checks synchronous declaration-only children
+against independent IR runs in both modes, including captured calls, initializer
+leaves and runtime array bounds. Class publication and caller output survive a
+later executable-child rejection. Executable children retain checked native
+entry exclusions; scoped machine and budget execution remains open.
 
 Inherited layout fixtures run in both IR modes and native JIT. They cover
 original selected entries, partial and forward bases, lookahead replacement,

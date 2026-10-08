@@ -510,6 +510,7 @@ type task_resources = {
   mutable nested_frame_bytes : int;
   mutable nested_call_depth : int;
   mutable nested_source_depth : int;
+  mutable native_source_scopes : Native_source_suspension.t list;
   output : Output.t;
   generated : Output.t;
   max_stream_depth : int;
@@ -655,6 +656,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         nested_frame_bytes = 0;
         nested_call_depth = 0;
         nested_source_depth = 0;
+        native_source_scopes = [];
         output;
         generated =
           Output.share_work output ~max_output_bytes:max_generated_bytes;
@@ -664,8 +666,15 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     in
     Ok (make_task_state ~resources ~native_storage_authority ~table)
 
+let native_source_is_suspended task =
+  task.native_storage_authority
+  &&
+  match task.resources.native_source_scopes with
+  | scope :: _ -> Result.is_ok (Native_source_suspension.check scope)
+  | [] -> false
+
 let create_compiler_namespace_task task ~table =
-  if task.native_storage_authority then
+  if task.native_storage_authority && not (native_source_is_suspended task) then
     Error "native saved compiler input requires its synchronous machine bridge"
   else if
     Domain.self () <> task.resources.domain
@@ -673,8 +682,8 @@ let create_compiler_namespace_task task ~table =
   then Error "saved compiler input requires its original suspended execution"
   else
     Ok
-      (make_task_state ~resources:task.resources ~native_storage_authority:false
-         ~table)
+      (make_task_state ~resources:task.resources
+         ~native_storage_authority:task.native_storage_authority ~table)
 
 let task_shares_resources left right = left.resources == right.resources
 
@@ -710,21 +719,23 @@ let abort_task_stream task stream =
 type native_generation = {
   generation_task : task_state;
   generation_streams : task_stream list;
+  generation_active : bool;
   generation_output : Output.t;
   generation_before : int;
   generation_domain : Domain.id;
   mutable generation_closed : bool;
 }
 
-let native_task_generation task =
+let native_task_generation ?(use_active_stream = true) task =
   let output =
-    match task.resources.streams with
-    | active :: _ -> active.stream_output
-    | [] -> task.resources.generated
+    match (use_active_stream, task.resources.streams) with
+    | true, active :: _ -> active.stream_output
+    | false, _ | true, [] -> task.resources.generated
   in
   {
     generation_task = task;
     generation_streams = task.resources.streams;
+    generation_active = use_active_stream && task.resources.streams <> [];
     generation_output = output;
     generation_before = Output.committed_bytes output;
     generation_domain = Domain.self ();
@@ -750,10 +761,50 @@ let native_generation_limits generation =
   let ( let* ) = Result.bind in
   let* () = check_native_generation generation in
   Ok
-    ( generation.generation_streams <> [],
+    ( generation.generation_active,
       Output.capacity generation.generation_output
       - generation.generation_before,
       Output.capacity generation.generation_output )
+
+let with_native_source_suspension generation ~scope execute =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  let task = generation.generation_task in
+  let* owns = Native_source_suspension.owns_generation scope generation in
+  if not owns then
+    Error "native source suspension has another generation target"
+  else if not task.native_storage_authority then
+    Error "native source suspension requires its original native task"
+  else if Domain.self () <> task.resources.domain then
+    Error "native source suspension belongs to another task domain"
+  else
+    let* _, frame_bytes, call_depth, _ =
+      Native_source_suspension.limits scope
+    in
+    if
+      frame_bytes > task.resources.max_frame_bytes
+      || call_depth > task.resources.max_call_depth
+    then Error "native caller limits exceed their original task allowance"
+    else
+      let saved_frames = task.resources.nested_frame_bytes in
+      let saved_depth = task.resources.nested_call_depth in
+      let saved_source_depth = task.resources.nested_source_depth in
+      let saved_scopes = task.resources.native_source_scopes in
+      (* These are observations of the original physical context. The C scope
+         and exact generation own this reservation; copied counters do not. *)
+      task.resources.nested_frame_bytes <-
+        task.resources.max_frame_bytes - frame_bytes;
+      task.resources.nested_call_depth <-
+        task.resources.max_call_depth - call_depth;
+      task.resources.nested_source_depth <- saved_source_depth + 1;
+      task.resources.native_source_scopes <- scope :: saved_scopes;
+      Fun.protect
+        ~finally:(fun () ->
+          task.resources.nested_frame_bytes <- saved_frames;
+          task.resources.nested_call_depth <- saved_depth;
+          task.resources.nested_source_depth <- saved_source_depth;
+          task.resources.native_source_scopes <- saved_scopes)
+        (fun () -> Ok (execute task))
 
 let complete_native_generation generation capture =
   let ( let* ) = Result.bind in
@@ -1434,34 +1485,36 @@ let check_native_task_program task ~runtime_calls ~globals ~initialization
          (Integer_globals.source_command_receipts globals))
   then Error "native source command is outside its original resume event"
   else if
-    List.exists
-      (fun state ->
-        (match state.initializer_attempt with
-          | None -> false
-          | Some attempt -> attempt.attempt_state <> Successful_initializer)
-        && not
-             (Integer_globals.declared_initializer_failed state.initializer_slot))
-      task.initializers
-    || List.exists
-         (fun attempt ->
-           attempt.default_state = Preparing_initializer
-           || attempt.default_state = Executing_initializer)
-         task.defaults
-    || List.exists
-         (fun attempt ->
-           attempt.dimension_state = Preparing_initializer
-           || attempt.dimension_state = Executing_initializer)
-         task.dimensions
-    || List.exists
-         (fun attempt ->
-           attempt.internal_binding_state = Preparing_initializer
-           || attempt.internal_binding_state = Executing_initializer)
-         task.internal_bindings
-    || List.exists
-         (fun attempt ->
-           attempt.offset_state = Preparing_initializer
-           || attempt.offset_state = Executing_initializer)
-         task.runtime_offsets
+    (not (native_source_is_suspended task))
+    && (List.exists
+          (fun state ->
+            (match state.initializer_attempt with
+              | None -> false
+              | Some attempt -> attempt.attempt_state <> Successful_initializer)
+            && not
+                 (Integer_globals.declared_initializer_failed
+                    state.initializer_slot))
+          task.initializers
+       || List.exists
+            (fun attempt ->
+              attempt.default_state = Preparing_initializer
+              || attempt.default_state = Executing_initializer)
+            task.defaults
+       || List.exists
+            (fun attempt ->
+              attempt.dimension_state = Preparing_initializer
+              || attempt.dimension_state = Executing_initializer)
+            task.dimensions
+       || List.exists
+            (fun attempt ->
+              attempt.internal_binding_state = Preparing_initializer
+              || attempt.internal_binding_state = Executing_initializer)
+            task.internal_bindings
+       || List.exists
+            (fun attempt ->
+              attempt.offset_state = Preparing_initializer
+              || attempt.offset_state = Executing_initializer)
+            task.runtime_offsets)
   then Error "native source command cannot interleave active preparation"
   else if List.exists (fun started -> started == entry) task.started then
     Error "native source command has already entered this task"
