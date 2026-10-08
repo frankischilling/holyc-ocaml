@@ -681,6 +681,16 @@ val observe_implicit_emission :
 
 val parser_suspension : t -> (Frontend.Parser.suspension, string) result
 
+val execute_compiler_option :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  int64 ->
+  bool option ->
+  (bool, string) result
+(** Operate on the exact current original compiler control owned by this source
+    runtime and its fully observed ledger. A saved namespace, another runtime,
+    domain, advanced or closed context supplies no authority. *)
+
 val saved_compiler_context :
   t ->
   session:Session.t ->

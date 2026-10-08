@@ -1013,6 +1013,9 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0027", "StreamExePrint: requires an active #exe parser context")
     | Image.Stream_exe_source_failed ->
         ("HCRUN0004", "StreamExePrint: native source execution failed")
+    | Image.Compiler_option_failed ->
+        ( "HCIRVM0027",
+          "native compiler option requires its active source control" )
     | Image.Output_limit_exceeded ->
         ("HCIRVM0022", "runtime output exceeds the output byte limit")
     | Image.Output_work_limit_exceeded ->

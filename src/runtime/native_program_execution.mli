@@ -171,7 +171,10 @@ val execute_retained_budget_report :
   ?max_active_stack_bytes:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
-  ?source_callback:(Ir.Native_source_suspension.t -> string -> int64 option) ->
+  ?source_callback:
+    (Ir.Native_source_suspension.t ->
+    Ir.Native_source_suspension.request ->
+    int64 option) ->
   budget ->
   retained ->
   report

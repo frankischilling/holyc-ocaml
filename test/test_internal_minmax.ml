@@ -260,7 +260,7 @@ let retained_values () =
       let report, execution = success mode retained in
       word "retained result" VM.I64 42L execution;
       Alcotest.(check int)
-        "original runtime work" 132
+        "original runtime work" 134
         (VM.executed_steps execution);
       Alcotest.(check int)
         "original preparation work" 15

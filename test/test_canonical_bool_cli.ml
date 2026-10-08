@@ -113,10 +113,10 @@ let () =
     (if native then [ "ir"; "host-jit" ] else [ "ir" ]);
   List.iter
     (fun mode ->
-      let report = invoke ~target:"ir" ~mode ~steps:77 retained_example in
-      validate report ~steps:77 ~prep:6 ~hex:"" ~bytes:0 ~work:7;
+      let report = invoke ~target:"ir" ~mode ~steps:79 retained_example in
+      validate report ~steps:79 ~prep:6 ~hex:"" ~bytes:0 ~work:7;
       error
-        (invoke ~target:"ir" ~mode ~steps:76 ~status:1 retained_example)
+        (invoke ~target:"ir" ~mode ~steps:78 ~status:1 retained_example)
         "HCIRVM0007";
       if native then
         error

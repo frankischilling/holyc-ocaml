@@ -24,6 +24,7 @@ type fault_kind =
   | Stream_context_required
   | Stream_exe_context_required
   | Stream_exe_source_failed
+  | Compiler_option_failed
   | Output_limit_exceeded
   | Output_work_limit_exceeded
   | Output_invalid_format

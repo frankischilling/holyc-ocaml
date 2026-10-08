@@ -126,7 +126,7 @@ let () =
 let () =
   List.iter
     (fun mode ->
-      let steps = if mode = "jit" then 56 else 55 in
+      let steps = if mode = "jit" then 58 else 57 in
       let report = invoke ~target:"ir" ~mode ~steps retained_example in
       require
         (member "outcome" report = `String "success")
@@ -152,7 +152,7 @@ let () =
 let () =
   List.iter
     (fun mode ->
-      let steps = if mode = "jit" then 58 else 57 in
+      let steps = if mode = "jit" then 60 else 59 in
       let report = invoke ~target:"ir" ~mode ~steps binding_example in
       require
         (member "outcome" report = `String "success")

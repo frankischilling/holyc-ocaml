@@ -98,13 +98,13 @@ let () =
   List.iter
     (fun mode ->
       validate
-        (invoke ~target:"ir" ~mode ~steps:124 ~preparation:7 example)
-        ~steps:124 ~prep:7 ~hex:"" ~bytes:0 ~work:7;
+        (invoke ~target:"ir" ~mode ~steps:126 ~preparation:7 example)
+        ~steps:126 ~prep:7 ~hex:"" ~bytes:0 ~work:7;
       error
         (invoke ~target:"ir" ~mode ~preparation:6 ~status:1 example)
         "HCIRVM0007";
       error
-        (invoke ~target:"ir" ~mode ~steps:123 ~status:1 example)
+        (invoke ~target:"ir" ~mode ~steps:125 ~status:1 example)
         "HCIRVM0007";
       with_file ".hc"
         "#exe {I64 Q[4],N=0;I64 Init(){N++;return 45+(Q-(Q+3));}I64 Saved(I64 \

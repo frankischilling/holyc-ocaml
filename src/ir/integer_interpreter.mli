@@ -37,6 +37,9 @@ type task_state
 type task_call_start
 type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
 
+type compiler_options =
+  int64 -> bool option -> (bool, Common.Diagnostic.t list) result
+
 val observe_task_function_selection :
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
@@ -125,6 +128,7 @@ val admit_static_allocation :
 
 val execute_task_static_initializer :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   Static_initializer_program.t ->
@@ -190,6 +194,7 @@ val task_dimension_bits :
 
 val execute_task_dimension :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   dimension_attempt ->
@@ -233,6 +238,7 @@ val task_internal_binding_target :
 
 val execute_task_internal_binding :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   internal_binding_attempt ->
@@ -330,6 +336,7 @@ val complete_task_defaults :
 
 val execute_task_default :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   default_attempt ->
@@ -398,6 +405,7 @@ val complete_task_initializer :
 
 val execute_task_initializer :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   initializer_attempt ->
@@ -823,6 +831,7 @@ val record_task_preparation : task_state -> before:int -> steps:int -> unit
 
 val execute_task_program :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   runtime_calls:Runtime_call_context.t ->
@@ -1153,6 +1162,7 @@ val task_offset :
 
 val execute_task_offset :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   offset_attempt ->

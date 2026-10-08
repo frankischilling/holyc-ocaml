@@ -21,6 +21,12 @@ let temporary suffix contents action =
 let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
 let declarations_example = Sys.argv.(3)
+
+let options_example =
+  if Array.length Sys.argv > 4 && Sys.argv.(4) <> "--native" then
+    Some Sys.argv.(4)
+  else None
+
 let native_only = Array.exists (( = ) "--native") Sys.argv
 let targets = if native_only then [ "host-jit-task" ] else [ "ir" ]
 let count = ref 0
@@ -83,6 +89,26 @@ let () =
     (fun target ->
       List.iter
         (fun mode ->
+          (fun action ->
+            match options_example with
+            | Some path -> action path
+            | None ->
+                temporary ".hc"
+                  {|#exe {Print("%d;",GetOption(33));Print("%d;",Option(33,1));Print("%d;",StreamExePrint("Print(\"%%d;\",GetOption(33));Print(\"%%d;\",Option(33,0));Print(\"%%d;\",GetOption(33));42;"));Print("%d;",GetOption(33));}42;|}
+                  action) (fun path ->
+              let options = invoke ~mode target path in
+              require
+                (options |> member "final_value" |> member "value" |> to_string
+                 = "42"
+                && options |> member "output_hex" |> to_string
+                   = "303b303b313b313b303b34323b313b")
+                "child options or restored caller control changed";
+              if native_only then
+                require
+                  (options |> member "native" |> member "fragments" |> to_list
+                  |> List.for_all (fun fragment ->
+                      fragment |> member "outcome" |> to_string = "success"))
+                  "compiler option calls did not complete in machine code");
           temporary ".hc"
             {|#exe {Print("before;");I64 N=StreamExePrint("I64 Count=2;I64 Values[Count]={20,22};I64 ChildFn(){return Values[0]+Values[1];}Print(\"child;\");ChildFn();");Print("after;");StreamPrint("%d;",N);}|}
             (fun path ->

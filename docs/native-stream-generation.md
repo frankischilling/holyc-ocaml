@@ -124,6 +124,37 @@ dimensions and offsets, nested permission switches, cumulative quotas and
 physical caller limits. Actual children also run under collection pressure.
 Original AOT declarations awaiting relocation keep their publication checks.
 
+`GetOption(I64 num)` and `Option(I64 num, Bool val)` now execute against the
+original current compiler control. `Option` returns the previous bit and
+narrows its value to the original U8 argument before testing it. The twelve
+known indices and their initial values come from the pinned compiler registry.
+Invalid indices reject without changing the control. These operations work in
+the supported integer task, including retained functions, owned callback
+addresses and saved callback defaults.
+
+A `#exe` input shares its enclosing control. A StreamExePrint child copies the
+live caller's options before selecting the saved compiler tables, then owns its
+changes independently. Returning from a child restores the caller's control.
+Command and declaration receipts retain immutable option snapshots. A default
+expression can change the current options during header parsing; advancing the
+function phase requires the original live control and checked source lineage,
+and the completed header records the options reached after its defaults.
+
+Native option calls pass their actual I64/U8 machine payload through a C-created
+request. Copies, changed indices or Bool values, foreign domains and expired
+scopes cannot authorize the operation. Caller instruction and output prefixes
+are admitted before the callback; private registers and the previous-bit
+result survive collection. Source tests compare independent IR and native
+effects in both outer modes and check exact and one-below cumulative instruction
+limits. The maintained [option example](../examples/native-compiler-options.hc)
+prints `0;0;1;1;0;42;1;` and returns `42`.
+
+This control and API delivery does not finish the option requirement. Original
+phase consumers for all twelve options, typed `Compiler`/`Break` producers and
+their exact child catch behavior remain required. Explicit outer AOT option
+declarations can still reach pending runtime-import admission boundaries;
+the option fixtures use the original task provider declarations.
+
 Custom finalizers can run while OCaml 5.3 holds its global-root lock during
 promotion. Removing capture roots there deadlocked the native AOT session tests
 after the new buffers increased collection pressure. Finalizers now detach

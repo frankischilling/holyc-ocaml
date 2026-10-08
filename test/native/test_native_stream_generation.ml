@@ -81,6 +81,194 @@ let value report =
 let generated report =
   (Option.get (Native.source_progress report)).runtime.generated_bytes
 
+let native_compiler_option_authority () =
+  let module Task = Holyc_lib__Driver.Integer_task in
+  let module Source = Holyc_lib__Driver.Integer_source_execution in
+  let module Scope = Holyc_lib__Ir.Native_source_suspension in
+  let module Runtime = Native_program_execution in
+  let compile = function
+    | Ok value -> value
+    | Error errors ->
+        Alcotest.fail
+          (String.concat "; "
+             (List.map (fun (e : Image.error) -> e.message) errors))
+  in
+  List.iter
+    (fun mode ->
+      let layout =
+        Image.create_task_layout_with_literals ~max_global_bytes:64
+          ~max_literal_bytes:1024
+        |> compile
+      in
+      let arena =
+        Runtime.create_task_arena ~max_arena_bytes:65_536 layout |> unwrap
+      in
+      let budget = Runtime.create_budget ~max_steps:100_000 () |> unwrap in
+      let expired = ref [] in
+      let calls = ref 0 in
+      let session, source, config =
+        inputs ~mode
+          (Cases.compiler_option_headers
+         ^ {|#exe {Print("before;");Print("%d;",Option(33,1));Print("%d;",GetOption(33));Print("after;");}42;|}
+          )
+      in
+      let execute request =
+        let image =
+          Image.compile_task_command ~max_code_bytes:524_288 ~layout request
+          |> compile
+        in
+        let retained = Runtime.retain_task_fragment arena image |> unwrap in
+        let original = Option.get (Image.source_callback image) in
+        let callback scope operation =
+          incr calls;
+          Scope.check scope |> unwrap;
+          Gc.full_major ();
+          Gc.compact ();
+          Alcotest.(check bool)
+            "actual option request survives collection" true
+            (Scope.owns_request scope operation |> unwrap);
+          let copy = Obj.obj (Obj.dup (Obj.repr operation)) in
+          Alcotest.(check bool)
+            "option request copy is foreign" false
+            (Scope.owns_request scope copy |> unwrap);
+          rejects "copied request cannot execute the compiler option"
+            (original scope copy);
+          let request_block = Obj.repr operation in
+          let index = Obj.field request_block 0 in
+          Obj.set_field request_block 0 (Obj.repr 34L);
+          Alcotest.(check bool)
+            "changed option index is foreign" false
+            (Scope.owns_request scope operation |> unwrap);
+          rejects "changed index cannot execute the compiler option"
+            (original scope operation);
+          Obj.set_field request_block 0 index;
+          (match operation with
+          | Scope.Write_option (_, enabled) ->
+              Obj.set_field request_block 1 (Obj.repr (not enabled));
+              rejects "changed Bool cannot execute the compiler option"
+                (original scope operation);
+              Obj.set_field request_block 1 (Obj.repr enabled)
+          | Scope.Read_option _ -> ()
+          | Scope.Execute_source _ ->
+              Alcotest.fail "option fixture produced source");
+          Domain.join
+            (Domain.spawn (fun () ->
+                 rejects "option request is domain affine"
+                   (Scope.owns_request scope operation)));
+          expired := (scope, operation, original) :: !expired;
+          original scope operation |> unwrap |> checked |> Option.some
+        in
+        let report =
+          Fun.protect
+            ~finally:(fun () -> Runtime.release retained |> unwrap)
+            (fun () ->
+              Runtime.execute_retained_budget_report ~source_callback:callback
+                budget retained)
+        in
+        match Runtime.outcome report |> unwrap with
+        | Image.Fault _ ->
+            Alcotest.fail "original option callback did not resume"
+        | Image.Completed result ->
+            Ok
+              (if Runtime.value_captured report then
+                 Task.Native_dispatch.Captured
+                   (Option.map
+                      (fun (word : Image.word) ->
+                        match word.type_ with
+                        | Image.I64 -> Task.Native_dispatch.I64 word.bits
+                        | Image.U64 -> Task.Native_dispatch.U64 word.bits)
+                      result.final_value)
+               else Unchanged)
+      in
+      let report =
+        Fun.protect
+          ~finally:(fun () -> Runtime.release_task_arena arena |> unwrap)
+          (fun () ->
+            Source.run
+              ~native_dispatch:
+                {
+                  Task.Native_dispatch.execute_command = execute;
+                  execute_initializer =
+                    (fun _ ->
+                      Alcotest.fail "unexpected option fixture initializer");
+                }
+              session ~source ~config ~max_steps:100_000)
+      in
+      Source.outcome report |> checked |> ignore;
+      Alcotest.(check string)
+        "option callback prefix and result" "before;0;1;after;"
+        (Runtime.budget_output_bytes budget);
+      Alcotest.(check int) "original option callbacks" 2 !calls;
+      List.iter
+        (fun (scope, operation, original) ->
+          rejects "resumed option request expires"
+            (Scope.owns_request scope operation);
+          rejects "expired option request cannot execute"
+            (original scope operation))
+        !expired)
+    [ Preprocessor.Jit ]
+
+let compiler_options () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, text, output) ->
+          let text =
+            (if mode = Preprocessor.Jit then Cases.compiler_option_headers
+             else "")
+            ^ text
+          in
+          let report = run ~mode text in
+          value report;
+          Alcotest.(check string) name output (Native.output_bytes report);
+          value (run ~mode ~max_steps:(Native.executed_steps report) text);
+          let limited =
+            run ~mode ~max_steps:(Native.executed_steps report - 1) text
+          in
+          match Native.outcome limited with
+          | Error errors ->
+              Alcotest.(check bool)
+                (name ^ " cumulative instruction limit")
+                true
+                (List.exists
+                   (fun (d : Diagnostic.t) -> d.code = "HCIRVM0007")
+                   errors)
+          | Ok _ ->
+              Alcotest.fail "compiler option sequence exceeded exact quota")
+        Cases.compiler_options;
+      List.iter
+        (fun index ->
+          let text =
+            (if mode = Preprocessor.Jit then Cases.compiler_option_headers
+             else "")
+            ^ Printf.sprintf
+                "#exe {Print(\"before;\");Option(%d,1);Print(\"after;\");}42;"
+                index
+          in
+          let report = run ~mode text in
+          (match Native.outcome report with
+          | Ok _ -> Alcotest.fail "invalid native option index was accepted"
+          | Error errors ->
+              Alcotest.(check bool)
+                "original option diagnostic propagates" true
+                (List.exists
+                   (fun (d : Diagnostic.t) -> d.code = "HCEVAL0003")
+                   errors));
+          Alcotest.(check string)
+            "invalid option retains native prefix" "before;"
+            (Native.output_bytes report);
+          Alcotest.(check bool)
+            "original native compiler operation fault" true
+            (List.exists
+               (fun (fragment : Native.fragment) ->
+                 match fragment.native_outcome with
+                 | Some (Ok (Image.Fault fault)) ->
+                     fault.kind = Image.Compiler_option_failed
+                 | _ -> false)
+               (Native.fragments report)))
+        [ -1; 2; 63 ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let failure code report =
   match Native.outcome report with
   | Ok _ -> Alcotest.fail ("expected " ^ code)
@@ -654,11 +842,25 @@ let native_source_callback_scope ?(failure = `None)
       |> compile
     in
     let retained = Runtime.retain_task_fragment arena image |> unwrap in
-    let source_callback scope source =
+    let source_callback scope operation =
+      let source =
+        match operation with
+        | Scope.Execute_source contents -> contents
+        | _ ->
+            Alcotest.fail "source fixture received another compiler operation"
+      in
       on_callback ();
       incr calls;
       Alcotest.(check string) "actual formatted source" "payload42" source;
       Scope.check scope |> unwrap;
+      Alcotest.(check bool)
+        "exact machine request belongs to scope" true
+        (Scope.owns_request scope operation |> unwrap);
+      let copied_operation = Obj.obj (Obj.dup (Obj.repr operation)) in
+      Alcotest.(check bool)
+        "copied machine request cannot authorize entry" false
+        (Scope.owns_request scope copied_operation |> unwrap);
+
       Alcotest.(check bool)
         "original cumulative budget" true
         (Runtime.suspension_owns_budget scope budget |> unwrap);
@@ -1010,6 +1212,11 @@ let () =
       ( "source",
         [
           Alcotest.test_case "values and retained owners" `Quick values;
+          Alcotest.test_case "current and child native compiler option controls"
+            `Quick compiler_options;
+          Alcotest.test_case
+            "native compiler option request identity and lifetime" `Quick
+            native_compiler_option_authority;
           Alcotest.test_case "reached failures" `Quick failures;
           Alcotest.test_case "shared work and cumulative bytes" `Quick quotas;
           Alcotest.test_case "synchronous original native child execution"

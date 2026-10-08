@@ -58,6 +58,7 @@ type instruction =
   | Shift_immediate of shift * register * int64
   | Capture_status of status_abi
   | Source_arguments of status_abi
+  | Compiler_option_arguments of status_abi
   | Zero_edx
   | Cqo
   | Div_rcx
@@ -318,7 +319,8 @@ let form = function
   | Binary (Xor, _, _) -> bitwise_xor
   | Shift_cl (shift, _) -> shift_form shift
   | Shift_immediate (shift, _, count) -> immediate_shift_form shift count
-  | Capture_status _ | Source_arguments _ -> mov_register
+  | Capture_status _ | Source_arguments _ | Compiler_option_arguments _ ->
+      mov_register
   | Zero_edx -> zero_register32
   | Cqo -> sign_extend_rax
   | Div_rcx -> divide
@@ -351,7 +353,7 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_read_offset offset =
-  offset >= 0 && offset <= 176 && offset mod 8 = 0
+  offset >= 0 && offset <= 184 && offset mod 8 = 0
 
 let valid_context_write_offset offset =
   (offset >= 0 && offset <= 64 && offset mod 8 = 0)
@@ -392,7 +394,7 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | Load_context (_, offset) when not (valid_context_read_offset offset) ->
       invalid_arg
-        "private context read offset must be aligned from 0 through 176"
+        "private context read offset must be aligned from 0 through 184"
   | Store_context (offset, _) when not (valid_context_write_offset offset) ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
@@ -438,6 +440,8 @@ let size instruction =
   | Alloc_call_frame _ | Free_call_frame _ -> 7
   | Call _ -> 5
   | Capture_status _ | Source_arguments _ | Div_rcx | Idiv_rcx -> 3
+  | Compiler_option_arguments Windows_x64 -> 3
+  | Compiler_option_arguments System_v_x64 -> 9
   | Zero_edx | Cqo -> 2
   | Cmp_imm8 _ -> 4
   | Jump _ -> 5
@@ -707,6 +711,24 @@ let write buffer position instruction =
   | Source_arguments abi ->
       (* Reverse the context capture into the host's first pointer argument.
          RDI remains outside the allocator and is only written for System V. *)
+      byte 0x4c;
+      opcodes ();
+      byte
+        (match abi with
+        | Windows_x64 -> 0xd9
+        | System_v_x64 -> 0xdf)
+  | Compiler_option_arguments abi ->
+      (* Index and operation are staged in RDX and R8. System V also needs
+         RSI, which is outside the allocator, for its second argument. *)
+      (match abi with
+      | Windows_x64 -> ()
+      | System_v_x64 ->
+          byte 0x48;
+          opcodes ();
+          byte 0xd6;
+          byte 0x4c;
+          opcodes ();
+          byte 0xc2);
       byte 0x4c;
       opcodes ();
       byte

@@ -117,6 +117,7 @@ type instruction =
           reads RCX; System V x86-64 reads RDI. RDI is not a general allocator
           register. *)
   | Source_arguments of status_abi
+  | Compiler_option_arguments of status_abi
       (** Copy the private R11 context into the host's first pointer argument
           for the authenticated synchronous source callback. *)
   | Zero_edx

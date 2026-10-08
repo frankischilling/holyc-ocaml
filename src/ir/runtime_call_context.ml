@@ -47,7 +47,14 @@ type description = {
   discard : Seq.Instruction_id.t option;
 }
 
-type provider = Print | Put_chars | Stream_print | Stream_exe_print
+type provider =
+  | Print
+  | Put_chars
+  | Stream_print
+  | Stream_exe_print
+  | Get_option
+  | Set_option
+
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 
@@ -429,7 +436,8 @@ let function_slot_address_matches_callback address callback =
   && provider_type_matches
        (Sema.Type_reference.resolved_type (Headers.function_return_type header))
        callback.callback_return_type
-  && address.slot_address_provider = Some Put_chars
+  && List.mem address.slot_address_provider
+       [ Some Put_chars; Some Get_option; Some Set_option ]
      = callback.callback_callee_pop
   && Option.is_some (Headers.function_variadic_count_type header)
      = Option.is_some callback.callback_variadic_count
@@ -1270,6 +1278,16 @@ let approved_provider_record ~record ~declaration ~symbol ~result_type
     && declaration |> Functions.resolved_declaration_site
        |> Functions.declaration_site_kind = Functions.Extern
   in
+  let option_parameters expected =
+    Option.is_none count_type
+    && List.length parameters = List.length expected
+    && List.for_all2
+         (fun parameter primitive_ ->
+           Headers.parameter_default parameter = None
+           && Headers.parameter_register_requests parameter = []
+           && primitive (parameter_type parameter) 0 primitive_)
+         parameters expected
+  in
   match (ordinary, Sema.Symbol.name symbol, parameter) with
   | true, (("Print" | "StreamPrint") as name), Some parameter
     when primitive result_type 0 Sema.Primitive_type.U0
@@ -1287,6 +1305,15 @@ let approved_provider_record ~record ~declaration ~symbol ~result_type
          && Option.is_some count_type
          && Int64.equal flags (Flags.to_mask Flags.Variadic) ->
       Some Stream_exe_print
+  | true, "GetOption", _
+    when primitive result_type 0 Sema.Primitive_type.U8
+         && option_parameters [ Sema.Primitive_type.I64 ]
+         && Int64.equal flags (Flags.to_mask Flags.Ret1) -> Some Get_option
+  | true, "Option", _
+    when primitive result_type 0 Sema.Primitive_type.U8
+         && option_parameters
+              [ Sema.Primitive_type.I64; Sema.Primitive_type.U8 ]
+         && Int64.equal flags (Flags.to_mask Flags.Ret1) -> Some Set_option
   | true, "PutChars", Some parameter
     when primitive result_type 0 Sema.Primitive_type.U0
          && Headers.parameter_default parameter = None

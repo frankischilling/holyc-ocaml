@@ -28,6 +28,7 @@ type fault_kind =
   | Stream_context_required
   | Stream_exe_context_required
   | Stream_exe_source_failed
+  | Compiler_option_failed
   | Output_limit_exceeded
   | Output_work_limit_exceeded
   | Output_invalid_format
@@ -834,6 +835,14 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        else if Int64.equal kind 15L then Output_invalid_pointer
                        else Output_invalid_byte)
                       None
+                else if Int64.equal kind 30L then
+                  if
+                    (not candidate.compiler_option_site)
+                    || executed_steps_int < 1
+                  then
+                    Error
+                      "native compiler option fault has another reached site"
+                  else make_fault Compiler_option_failed None
                 else if kind >= 26L && kind <= 29L then
                   let source_site =
                     if Int64.equal kind 26L then

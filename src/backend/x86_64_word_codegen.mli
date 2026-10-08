@@ -48,6 +48,7 @@ type program_site = {
   atomic_output_site : bool;
   stream_print_site : bool;
   stream_exe_site : bool;
+  compiler_option_site : bool;
 }
 
 type program_image

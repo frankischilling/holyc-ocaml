@@ -121,6 +121,275 @@ let consumer_lines () =
          String.equal reference.path "Compiler/Lex.HC" && reference.line = 257)
        echo.consumers)
 
+module Parser = Holyc_lib.Parser
+module Session = Holyc_lib.Session
+module Config = Holyc_lib.Preprocessor.Config
+
+let checked_control = function
+  | Ok value -> value
+  | Error message -> Alcotest.fail message
+
+let option_sink checkpoint : Parser.command_sink =
+  {
+    checkpoint = Some checkpoint;
+    reference = None;
+    call = None;
+    implicit_output = None;
+    declaration = None;
+    query = None;
+    dimension_count = None;
+    command = (fun _ -> Ok ());
+    resume = (fun () -> Ok ());
+  }
+
+let parse_options ?execute_stream session config contents commands =
+  let source =
+    Session.add_source session ~path:"compiler-options.hc" ~contents
+  in
+  let output =
+    Parser.parse ?execute_stream ~commands ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session) ~config source
+  in
+  if Parser.has_errors output then Alcotest.fail "option control input failed";
+  output
+
+let original_live_control () =
+  let session = Session.create () in
+  let config = Config.create () |> checked_control in
+  let original = ref None in
+  let commands =
+    option_sink (function
+      | Parser.Sequence_started context ->
+          original := Some context;
+          Alcotest.(check int64)
+            "source initial mask" Option.initial_mask
+            (Parser.context_compiler_options context |> checked_control);
+          List.iter
+            (fun option ->
+              let info = Option.info option in
+              let index = Int64.of_int info.bit_index in
+              let get () =
+                Parser.context_get_option context ~bit_index:index
+                |> checked_control
+              in
+              Alcotest.(check bool)
+                "original default" info.initially_enabled (get ());
+              Alcotest.(check bool)
+                "set returns previous" info.initially_enabled
+                (Parser.context_set_option context ~bit_index:index true
+                |> checked_control);
+              Alcotest.(check bool) "set uses actual control" true (get ());
+              Alcotest.(check bool)
+                "repeated set returns previous" true
+                (Parser.context_set_option context ~bit_index:index true
+                |> checked_control);
+              Alcotest.(check bool)
+                "clear returns previous" true
+                (Parser.context_set_option context ~bit_index:index false
+                |> checked_control);
+              Alcotest.(check bool) "cleared actual control" false (get ()))
+            Option.all;
+          let mask =
+            Parser.context_compiler_options context |> checked_control
+          in
+          List.iter
+            (fun index ->
+              Alcotest.(check bool)
+                "unknown read rejects" true
+                (Result.is_error
+                   (Parser.context_get_option context ~bit_index:index));
+              Alcotest.(check bool)
+                "unknown write rejects" true
+                (Result.is_error
+                   (Parser.context_set_option context ~bit_index:index true)))
+            [ -1L; 2L; 15L; 20L; 31L; 38L; Int64.max_int ];
+          Alcotest.(check int64)
+            "invalid writes retain mask" mask
+            (Parser.context_compiler_options context |> checked_control);
+          Alcotest.(check bool)
+            "other domain cannot mutate control" true
+            (Domain.spawn (fun () ->
+                 Result.is_error
+                   (Parser.context_set_option context ~bit_index:1L true))
+            |> Domain.join);
+          Ok ()
+      | _ -> Ok ())
+  in
+  ignore (parse_options session config "42;" commands);
+  let original = Stdlib.Option.get !original in
+  Alcotest.(check bool)
+    "closed control cannot be read" true
+    (Result.is_error (Parser.context_compiler_options original));
+  Alcotest.(check bool)
+    "closed control cannot be mutated" true
+    (Result.is_error (Parser.context_set_option original ~bit_index:1L true))
+
+let original_source_snapshots () =
+  let session = Session.create () in
+  let config = Config.create () |> checked_control in
+  let headers = ref [] and starts = ref [] and root = ref None in
+  let commands =
+    {
+      (option_sink (function
+        | Parser.Sequence_started context ->
+            root := Some context;
+            Ok ()
+        | Parser.Command_started start ->
+            starts := start :: !starts;
+            Ok ()
+        | Parser.Command_resumed _ ->
+            ignore
+              (Parser.context_set_option (Stdlib.Option.get !root) ~bit_index:1L
+                 false
+              |> checked_control);
+            Ok ()
+        | _ -> Ok ()))
+      with
+      declaration =
+        Some
+          (function
+          | Parser.Parameter_default_completed receipt ->
+              let context =
+                receipt.default_function.function_header.declaration_command
+                  .command_context
+              in
+              ignore
+                (Parser.context_set_option context ~bit_index:1L true
+                |> checked_control);
+              Ok ()
+          | Parser.Function_header_completed header ->
+              headers := header :: !headers;
+              Ok ()
+          | _ -> Ok ());
+    }
+  in
+  ignore (parse_options session config "I64 F(I64 n=0);I64 G();" commands);
+  let headers = List.rev !headers and starts = List.rev !starts in
+  Alcotest.(check int) "original source headers" 2 (List.length headers);
+  let first = List.hd headers in
+  Alcotest.(check int64)
+    "declaration keeps entry options" Option.initial_mask
+    first.function_publication.function_header.declaration_compiler_options;
+  Alcotest.(check int64)
+    "header retains reached default changes"
+    (Int64.logor Option.initial_mask 2L)
+    first.header_compiler_options;
+  Alcotest.(check int64)
+    "later changes cannot rewrite old header"
+    (Int64.logor Option.initial_mask 2L)
+    first.header_compiler_options;
+  Alcotest.(check int64)
+    "next declaration uses restored current mask" Option.initial_mask
+    (List.nth headers 1).header_compiler_options;
+  List.iter
+    (fun start ->
+      Alcotest.(check int64)
+        "command retains original entry options" Option.initial_mask
+        start.Parser.command_compiler_options)
+    starts
+
+let original_directive_and_child_controls () =
+  let session = Session.create () in
+  let task = Session.task_frontend session in
+  let aot = Config.create ~compilation_mode:Aot () |> checked_control in
+  let jit = Config.create ~compilation_mode:Jit () |> checked_control in
+  let root = ref None and entered = ref 0 in
+  let child =
+    Session.add_source session ~path:"option-child.hc" ~contents:"42;"
+  in
+  let commands =
+    option_sink (function
+      | Parser.Sequence_started context ->
+          root := Some context;
+          ignore
+            (Parser.context_set_option context ~bit_index:1L true
+            |> checked_control);
+          Ok ()
+      | Parser.Command_resumed _ ->
+          let root = Stdlib.Option.get !root in
+          Alcotest.(check bool)
+            "directive shares original compiler control" false
+            (Parser.context_get_option root ~bit_index:1L |> checked_control);
+          Alcotest.(check bool)
+            "ordinary child changes stay separate" false
+            (Parser.context_get_option root ~bit_index:0L |> checked_control);
+          Ok ()
+      | _ -> Ok ())
+  in
+  let execute_stream _ =
+    incr entered;
+    let stream_commands =
+      option_sink (function
+        | Parser.Sequence_started context ->
+            Alcotest.(check bool)
+              "directive inherits live caller options" true
+              (Parser.context_get_option context ~bit_index:1L
+              |> checked_control);
+            ignore
+              (Parser.context_set_option context ~bit_index:1L false
+              |> checked_control);
+            Alcotest.(check bool)
+              "suspended ancestor cannot operate" true
+              (Result.is_error
+                 (Parser.context_compiler_options (Stdlib.Option.get !root)));
+            Ok ()
+        | Parser.Command_resumed completed ->
+            let caller = completed.command_start.command_context in
+            for _ = 1 to 2 do
+              let suspension =
+                Parser.suspend_context caller |> checked_control
+              in
+              let child_commands =
+                option_sink (function
+                  | Parser.Sequence_started context ->
+                      Alcotest.(check bool)
+                        "child copies live caller, not saved table" false
+                        (Parser.context_get_option context ~bit_index:1L
+                        |> checked_control);
+                      Alcotest.(check bool)
+                        "successive child starts independently" false
+                        (Parser.context_get_option context ~bit_index:0L
+                        |> checked_control);
+                      ignore
+                        (Parser.context_set_option context ~bit_index:0L true
+                        |> checked_control);
+                      Gc.full_major ();
+                      Gc.compact ();
+                      Ok ()
+                  | _ -> Ok ())
+              in
+              let output =
+                Parser.parse_suspended_enclosing suspension
+                  ~enclosing:(Stdlib.Option.get !root) ~commands:child_commands
+                  ~sources:(Session.sources session)
+                  ~definitions:(Session.definitions session)
+                  ~symbols:(Session.symbols session) ~config:jit child
+                |> checked_control
+              in
+              if Parser.has_errors output then
+                Alcotest.fail "original child options failed";
+              Alcotest.(check bool)
+                "parent control restored after child" false
+                (Parser.context_get_option caller ~bit_index:0L
+                |> checked_control)
+            done;
+            Ok ()
+        | _ -> Ok ())
+    in
+    Ok
+      Parser.
+        {
+          definitions = Session.definitions task;
+          symbols = Session.symbols task;
+          commands = stream_commands;
+          finish = (fun () -> Ok "");
+          abort = (fun () -> ());
+        }
+  in
+  ignore (parse_options ~execute_stream session aot "#exe {42;}42;" commands);
+  Alcotest.(check int) "original directive entered" 1 !entered
+
 let tests =
   [
     Alcotest.test_case "exact registry" `Quick exact_registry;
@@ -130,4 +399,10 @@ let tests =
     Alcotest.test_case "scope and source status" `Quick scopes_and_source_status;
     Alcotest.test_case "provenance" `Quick provenance;
     Alcotest.test_case "consumer lines" `Quick consumer_lines;
+    Alcotest.test_case "original live parser control" `Quick
+      original_live_control;
+    Alcotest.test_case "original source option snapshots" `Quick
+      original_source_snapshots;
+    Alcotest.test_case "directive and child option controls" `Quick
+      original_directive_and_child_controls;
   ]

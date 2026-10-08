@@ -5148,10 +5148,12 @@
  (libraries unix yojson)
  (deps
   ../examples/native-stream-generation.hc
-  ../examples/native-stream-declarations.hc)
+  ../examples/native-stream-declarations.hc
+  ../examples/native-compiler-options.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
    %{dep:../examples/native-stream-generation.hc}
-   %{dep:../examples/native-stream-declarations.hc})))
+   %{dep:../examples/native-stream-declarations.hc}
+   %{dep:../examples/native-compiler-options.hc})))

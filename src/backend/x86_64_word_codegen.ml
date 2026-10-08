@@ -9,6 +9,7 @@ module Encoder = X86_64_encoder
 module Global_storage = X86_64_global_storage
 module Literal_storage = X86_64_literal_storage
 module Print_codegen = X86_64_print_format
+module Option_codegen = X86_64_compiler_options
 module Runtime = Ir.Runtime_call_context
 module Intrinsic = Ir.Integer_intrinsic
 module Defaults = Driver.Native_parameter_defaults
@@ -379,6 +380,7 @@ type operation =
   | Indirect_call of indirect_call
   | Put_chars of int
   | Print_output of Print_codegen.t
+  | Compiler_option of Option_codegen.t
   | Internal_strlen of value * int
   | Internal_mod_u64 of value * value * int
   | Internal_bit of Intrinsic.bit * value * value * scalar_value * int
@@ -3076,6 +3078,32 @@ let allocate_body ?callable_frame ?(shared_values = [])
                (staged_stack_slot instruction.span result_stage, Encoder.Rcx));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           release_through position
+      | Compiler_option call ->
+          spill_all_registers instruction.span;
+          Option_codegen.emit
+            {
+              status_abi;
+              instruction = emit;
+              fresh = (fun () -> fresh_label supply);
+              mark;
+              branch =
+                (fun branch target ->
+                  emit_branch
+                    (match branch with
+                    | Print_codegen.Always -> Unconditional
+                    | Print_codegen.Equal -> Equal
+                    | Print_codegen.Not_equal -> Not_equal
+                    | Print_codegen.Below -> Below
+                    | Print_codegen.Less -> Less
+                    | Print_codegen.Overflow -> Overflow)
+                    target);
+              fault =
+                (fun kind -> fault_label kind (Option.get instruction.site));
+              slot = staged_stack_slot instruction.span;
+            }
+            call;
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Print_output call ->
           spill_all_registers instruction.span;
           Print_codegen.emit
@@ -3932,6 +3960,7 @@ type program_site = {
   atomic_output_site : bool;
   stream_print_site : bool;
   stream_exe_site : bool;
+  compiler_option_site : bool;
 }
 
 type program_image = {
@@ -4249,6 +4278,7 @@ let preflight_program graph =
                 atomic_output_site = false;
                 stream_print_site = false;
                 stream_exe_site = false;
+                compiler_option_site = false;
               }
               :: !sites_rev;
             prepared_rev :=
@@ -4412,6 +4442,7 @@ type callable_target =
   | Undefined_extern of int
   | Put_chars_provider
   | Print_provider of Runtime.provider
+  | Option_provider of bool
 
 type callable_call_scope = {
   call : Runtime.call option;
@@ -6264,6 +6295,71 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     0 ))
                 else
                   match provider with
+                  | Some ((Runtime.Get_option | Runtime.Set_option) as provider)
+                    ->
+                      if
+                        Runtime.call_opcode call <> Opcode.Ic_call_indirect2
+                        && Runtime.call_opcode call <> Opcode.Ic_call_extern
+                        || Option.is_some (Runtime.variadic_count call)
+                      then
+                        malformed description
+                          "native compiler option requires its original fixed \
+                           extern call";
+                      if
+                        Option.is_none slot_binding
+                        && Array.exists
+                             (fun info ->
+                               Symbol.name
+                                 (Function.callable_symbol info.definition.body)
+                               = Symbol.name (Runtime.symbol call))
+                             functions
+                      then
+                        unsupported description
+                          "native compiler option provider requires its \
+                           original retained extern selection";
+                      let setter = provider = Runtime.Set_option in
+                      let fixed_count = if setter then 2 else 1 in
+                      let fixed =
+                        Headers.function_signature (Runtime.header call)
+                        |> Headers.signature_parameters
+                        |> List.map (fun parameter ->
+                            Headers.parameter_type_reference parameter
+                            |> Sema.Type_reference.resolved_type)
+                        |> Array.of_list
+                      in
+                      if Array.length fixed <> fixed_count then
+                        malformed description
+                          "native compiler option has another fixed signature";
+                      Array.iteri
+                        (fun index type_ ->
+                          let scalar =
+                            checked_scalar ~allow_public:true description type_
+                          in
+                          if
+                            index = 0
+                            && (scalar.word_type <> I64 || scalar.byte_size <> 8)
+                            || index = 1
+                               && (scalar.word_type <> U64
+                                 || scalar.byte_size <> 1)
+                          then
+                            malformed description
+                              "native compiler option lost its I64/U8 slots")
+                        fixed;
+                      let return_kind =
+                        source_return_kind ?span:description.span
+                          (Runtime.return_type call)
+                      in
+                      if
+                        return_kind
+                        <> Callable_word_return
+                             { word_type = U64; byte_size = 1 }
+                      then
+                        malformed description
+                          "native compiler option must retain its Bool result";
+                      ( Option_provider setter,
+                        fixed,
+                        return_kind,
+                        fixed_count * 8 )
                   | Some Runtime.Put_chars ->
                       if
                         Runtime.call_opcode call <> Opcode.Ic_call_indirect2
@@ -6511,6 +6607,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 | Undefined_extern fixed_count | Mismatched_extern fixed_count
                   -> fixed_count
                 | Put_chars_provider | Print_provider _ -> 1
+                | Option_provider setter -> if setter then 2 else 1
               in
               let variadic_count = Runtime.variadic_count call in
               let parameter_callbacks =
@@ -6523,6 +6620,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 | Undefined_extern _
                 | Mismatched_extern _
                 | Put_chars_provider
+                | Option_provider _
                 | Print_provider _ -> Array.make parameter_count None
               in
               let arguments = Runtime.arguments call in
@@ -6578,13 +6676,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                 !argument_end + if Option.is_some result_stage then 1 else 0
               in
               let scratch_count =
-                if
-                  match target with
-                  | Print_provider _ -> true
-                  | _ -> false
-                then Print_codegen.scratch_slots (parameter_count - 2)
-                else if Option.is_some slot_index && slot_matches then 1
-                else 0
+                match target with
+                | Print_provider _ ->
+                    Print_codegen.scratch_slots (parameter_count - 2)
+                | Option_provider _ -> Option_codegen.scratch_slots
+                | _ ->
+                    if Option.is_some slot_index && slot_matches then 1 else 0
               in
               if scratch_count > (max_stack_bytes / 8) - scratch_stage then
                 reject ?span:description.span "HCBACK0004"
@@ -6592,6 +6689,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                    private frame limit";
               stage_cursor := scratch_stage + scratch_count;
               stage_high_water := max !stage_high_water !stage_cursor;
+              (match target with
+              | Option_provider _ -> home_slots := max !home_slots 4
+              | _ -> ());
               if
                 match target with
                 | Print_provider _ -> false
@@ -6811,6 +6911,17 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     | Undefined_extern _ -> Undefined_extern_call
                     | Mismatched_extern _ -> Extern_signature_fault
                     | Put_chars_provider -> Put_chars scope.argument_stages.(0)
+                    | Option_provider setter ->
+                        Compiler_option
+                          {
+                            Option_codegen.index_stage =
+                              scope.argument_stages.(0);
+                            value_stage =
+                              (if setter then Some scope.argument_stages.(1)
+                               else None);
+                            result_stage = Option.get scope.result_stage;
+                            scratch_stage = scope.scratch_stage;
+                          }
                     | Print_provider provider ->
                         let tail_types =
                           Array.sub scope.argument_types 2
@@ -6838,7 +6949,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                               | Runtime.Stream_print -> Print_codegen.Generation
                               | Runtime.Stream_exe_print ->
                                   Print_codegen.Formatted_source
-                              | Runtime.Put_chars -> assert false);
+                              | Runtime.Put_chars
+                              | Runtime.Get_option
+                              | Runtime.Set_option -> assert false);
                             format_stage = scope.argument_stages.(0);
                             arguments_stage = scope.stage_base + 2;
                             argument_kinds = kinds;
@@ -8799,6 +8912,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                     | Undefined_extern _
                                     | Mismatched_extern _
                                     | Put_chars_provider
+                                    | Option_provider _
                                     | Print_provider _ -> assert false
                                   in
                                   code_edges :=
@@ -8921,6 +9035,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Direct_call _
               | Indirect_call _
               | Put_chars _
+              | Compiler_option _
               | Print_output _ -> true
               | _ -> false);
             extern_signature_site =
@@ -9068,6 +9183,22 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> false);
             stream_print_site = provider_stream_site Runtime.Stream_print;
             stream_exe_site = provider_stream_site Runtime.Stream_exe_print;
+            compiler_option_site =
+              (match operation with
+              | Compiler_option _ -> true
+              | Indirect_call indirect ->
+                  Array.exists
+                    (fun (index, receipt) ->
+                      (match Runtime.function_slot_address_provider receipt with
+                        | Some (Runtime.Get_option | Runtime.Set_option) -> true
+                        | _ -> false)
+                      && fst
+                           (indirect.target_call
+                              (Array.length functions + index)))
+                    (Array.mapi
+                       (fun index receipt -> (index, receipt))
+                       provider_entries)
+              | _ -> false);
             atomic_output_site =
               (match operation with
               | Print_output _ -> true
@@ -9404,6 +9535,8 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
                     Some Runtime.Print;
                     Some Runtime.Stream_print;
                     Some Runtime.Stream_exe_print;
+                    Some Runtime.Get_option;
+                    Some Runtime.Set_option;
                   ])
         then
           reject "HCBACK0002"
@@ -9689,7 +9822,10 @@ let collect_task_callable_sources ~max_ir_instructions ~max_blocks ~globals
                            && Runtime.provider call <> Some Runtime.Put_chars
                            && Runtime.provider call <> Some Runtime.Stream_print
                            && Runtime.provider call
-                              <> Some Runtime.Stream_exe_print ->
+                              <> Some Runtime.Stream_exe_print
+                           && Runtime.provider call <> Some Runtime.Get_option
+                           && Runtime.provider call <> Some Runtime.Set_option
+                      ->
                         reject ?span:raw.span "HCBACK0002"
                           "retained native task functions currently require \
                            fixed direct integer or U0 calls"
@@ -10860,6 +10996,89 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           (fun index receipt ->
             if
               Runtime.function_slot_address_provider receipt |> function
+              | Some (Runtime.Get_option | Runtime.Set_option) -> true
+              | _ -> false
+            then (
+              (* The first four slots are the Windows host's shadow space.
+                 Original callback arguments arrive above RBP; no host address
+                 or synthetic signature is introduced by this entry. *)
+              let frame_size =
+                align_up ((7 + Option_codegen.scratch_slots) * 8) 16
+              in
+              if frame_size > max_stack_bytes || frame_size > 4080 then
+                reject "HCBACK0004"
+                  "native compiler option entry exceeds its private scratch \
+                   frame";
+              let frame = encoder_call_frame None frame_size in
+              let complete = fresh_label supply in
+              let failed = fresh_label supply in
+              let plan = ref [] in
+              let emit instruction =
+                plan := Planned_instruction instruction :: !plan
+              in
+              let mark label = plan := Planned_label label :: !plan in
+              let branch kind label =
+                plan := Planned_branch (kind, label) :: !plan
+              in
+              let slot index =
+                Encoder.stack_slot ~offset:(index * 8) |> Result.get_ok
+              in
+              let setter =
+                Runtime.function_slot_address_provider receipt
+                = Some Runtime.Set_option
+              in
+              mark function_labels.(Array.length function_infos + index);
+              emit Encoder.Push_rbp;
+              emit Encoder.Mov_rbp_rsp;
+              emit (Encoder.Alloc_call_frame frame);
+              emit
+                (Encoder.Load_frame (Encoder.Rax, encoder_frame_slot None 16));
+              emit (Encoder.Store_stack (slot 4, Encoder.Rax));
+              if setter then (
+                emit
+                  (Encoder.Load_frame (Encoder.Rax, encoder_frame_slot None 24));
+                emit (Encoder.Store_stack (slot 5, Encoder.Rax)));
+              Option_codegen.emit
+                {
+                  status_abi = abi;
+                  instruction = emit;
+                  fresh = (fun () -> fresh_label supply);
+                  mark;
+                  branch =
+                    (fun kind label ->
+                      branch
+                        (match kind with
+                        | Print_codegen.Always -> Unconditional
+                        | Print_codegen.Equal -> Equal
+                        | Print_codegen.Not_equal -> Not_equal
+                        | Print_codegen.Below -> Below
+                        | Print_codegen.Less -> Less
+                        | Print_codegen.Overflow -> Overflow)
+                        label);
+                  fault = (fun _ -> failed);
+                  slot;
+                }
+                {
+                  Option_codegen.index_stage = 4;
+                  value_stage = (if setter then Some 5 else None);
+                  result_stage = 6;
+                  scratch_stage = 7;
+                };
+              branch Unconditional complete;
+              mark failed;
+              emit (Encoder.Store_context_imm (0, 30));
+              mark complete;
+              emit (Encoder.Free_call_frame frame);
+              emit Encoder.Pop_rbp;
+              emit Encoder.Ret;
+              {
+                body_plan = List.rev !plan;
+                body_frame_size = frame_size;
+                body_peak = 4;
+                body_unwind = build_callable_windows_unwind_info frame_size;
+              })
+            else if
+              Runtime.function_slot_address_provider receipt |> function
               | Some
                   ( Runtime.Print
                   | Runtime.Stream_print
@@ -11297,7 +11516,10 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               task_snapshot;
               code_owner_bindings;
               function_slot_bindings;
-              has_output = List.exists (fun site -> site.output_site) sites;
+              has_output =
+                List.exists
+                  (fun site -> site.output_site || site.compiler_option_site)
+                  sites;
               sites;
             }
     with Rejected error -> Error [ error ]

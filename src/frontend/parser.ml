@@ -10,12 +10,29 @@ type compiler_position_state = {
   mutable next_position : int;
 }
 
+let initial_compiler_options =
+  List.fold_left
+    (fun mask (option : Generated.Compiler_options.option_entry) ->
+      if option.initially_enabled then
+        Int64.logor mask (Int64.shift_left 1L option.bit_index)
+      else mask)
+    0L Generated.Compiler_options.options
+
+let compiler_option_bit index =
+  List.find_opt
+    (fun (option : Generated.Compiler_options.option_entry) ->
+      Int64.equal index (Int64.of_int option.bit_index))
+    Generated.Compiler_options.options
+  |> Option.map (fun (option : Generated.Compiler_options.option_entry) ->
+      Int64.shift_left 1L option.bit_index)
+
 type command_context = {
   context_domain : Domain.id;
   context_sources : Common.Source_manager.t;
   context_source : Common.Source_file.t;
   context_environment : Symbol_visibility.Environment.t;
   context_mode : Preprocessor.compilation_mode;
+  context_compiler_options : int64 ref;
   context_parent : command_position option;
   context_parent_events : int option;
   context_stream : bool;
@@ -32,6 +49,7 @@ type command_context = {
 and command_start = {
   command_context : command_context;
   command_ordinal : int;
+  command_compiler_options : int64;
   command_predecessor : completed_command option;
 }
 
@@ -134,6 +152,27 @@ let context_has_focus context =
   match (context.context_position, !(context.context_stack)) with
   | Some position, active :: _ -> position == active
   | _ -> false
+
+let context_compiler_options context =
+  if context_has_focus context then Ok !(context.context_compiler_options)
+  else Error "compiler options require their original current parser control"
+
+let context_get_option context ~bit_index =
+  Result.bind (context_compiler_options context) (fun mask ->
+      match compiler_option_bit bit_index with
+      | None -> Error "compiler option index has no original checked option"
+      | Some bit -> Ok (not (Int64.equal (Int64.logand mask bit) 0L)))
+
+let context_set_option context ~bit_index enabled =
+  Result.bind (context_compiler_options context) (fun mask ->
+      match compiler_option_bit bit_index with
+      | None -> Error "compiler option index has no original checked option"
+      | Some bit ->
+          let previous = not (Int64.equal (Int64.logand mask bit) 0L) in
+          context.context_compiler_options :=
+            if enabled then Int64.logor mask bit
+            else Int64.logand mask (Int64.lognot bit);
+          Ok previous)
 
 let context_parent_in_environment context ~environment =
   let rec parent current stack =
@@ -355,6 +394,7 @@ type declaration_header = {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
   declaration_command : command_start;
+  declaration_compiler_options : int64;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
   binding_preparation : internal_binding_preparation option;
@@ -810,6 +850,7 @@ type function_header_activity = {
 
 type completed_function_header = {
   function_publication : function_publication;
+  header_compiler_options : int64;
   completed_entry : Symbol_visibility.entry;
   parameters : Ast.function_parameter list;
   parameter_completions : completed_function_parameter list;
@@ -2316,6 +2357,9 @@ let declaration_header ?type_selection cursor ~modifiers ~binding
     declaration_sources = cursor.sources;
     declaration_source = cursor.source;
     declaration_command = Option.get cursor.current_command;
+    declaration_compiler_options =
+      !((Option.get cursor.current_command).command_context
+         .context_compiler_options);
     modifiers;
     binding;
     binding_preparation =
@@ -2471,6 +2515,10 @@ let complete_function_header cursor at publication
       let completed =
         {
           function_publication;
+          header_compiler_options =
+            !(function_publication.function_header.declaration_command
+                .command_context
+               .context_compiler_options);
           completed_entry;
           parameters = parsed.parameters;
           parameter_completions = parsed.parameter_completions;
@@ -10361,6 +10409,12 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
       context_source = cursor.source;
       context_environment = cursor.symbols;
       context_mode = cursor.compilation_mode;
+      context_compiler_options =
+        (match saved_stack with
+        | [] -> ref initial_compiler_options
+        | parent :: _ ->
+            let options = (position_context !parent).context_compiler_options in
+            if Option.is_some stream_opener then options else ref !options);
       context_parent =
         (match saved_stack with
         | [] -> None
@@ -10457,6 +10511,7 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
                 {
                   command_context = context;
                   command_ordinal = !ordinal;
+                  command_compiler_options = !(context.context_compiler_options);
                   command_predecessor = !previous;
                 }
               in

@@ -1413,11 +1413,13 @@
  (alias native-tests)
  (deps
   ../../examples/native-stream-generation.hc
-  ../../examples/native-stream-declarations.hc)
+  ../../examples/native-stream-declarations.hc
+  ../../examples/native-compiler-options.hc)
  (action
   (run
    %{exe:../test_stream_generation_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-stream-generation.hc}
    %{dep:../../examples/native-stream-declarations.hc}
+   %{dep:../../examples/native-compiler-options.hc}
    --native)))

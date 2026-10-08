@@ -31,6 +31,7 @@ val suspension_enclosing_context :
 type command_start = private {
   command_context : command_context;
   command_ordinal : int;
+  command_compiler_options : int64;
   command_predecessor : completed_command option;
 }
 
@@ -62,6 +63,22 @@ val context_sources : command_context -> Common.Source_manager.t
 val context_source : command_context -> Common.Source_file.t
 val context_environment : command_context -> Symbol_visibility.Environment.t
 val context_mode : command_context -> Preprocessor.compilation_mode
+
+val context_compiler_options : command_context -> (int64, string) result
+(** Read the original current control. A directive shares its enclosing control;
+    a nested ordinary input copies the live caller's options before selecting
+    its saved compiler tables. Suspended ancestors, closed inputs and other
+    domains cannot operate on the control. *)
+
+val context_get_option :
+  command_context -> bit_index:int64 -> (bool, string) result
+
+val context_set_option :
+  command_context -> bit_index:int64 -> bool -> (bool, string) result
+(** Set an original known compiler option and return its previous state, as
+    [_BEQU] does. Invalid indices leave the control unchanged. These operations
+    require the exact current parser context; a numeric mask grants no entry
+    authority. *)
 
 val context_parent : command_context -> command_position option
 (** Exact input and environment ownership, with the parent's suspended parser
@@ -315,6 +332,7 @@ type declaration_header = private {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
   declaration_command : command_start;
+  declaration_compiler_options : int64;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
   binding_preparation : internal_binding_preparation option;
@@ -628,6 +646,7 @@ type function_header_activity
 
 type completed_function_header = private {
   function_publication : function_publication;
+  header_compiler_options : int64;
   completed_entry : Symbol_visibility.entry;
   parameters : Ast.function_parameter list;
   parameter_completions : completed_function_parameter list;

@@ -1470,6 +1470,8 @@ let append_task_provider_code_owners snapshot bindings =
                  Some Runtime.Print;
                  Some Runtime.Stream_print;
                  Some Runtime.Stream_exe_print;
+                 Some Runtime.Get_option;
+                 Some Runtime.Set_option;
                ])
         then Ok state
         else if

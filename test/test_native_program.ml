@@ -173,6 +173,7 @@ let kind_name = function
   | Program.Stream_context_required -> "stream-context"
   | Program.Stream_exe_context_required -> "stream-exe-context"
   | Program.Stream_exe_source_failed -> "stream-exe-source-failed"
+  | Program.Compiler_option_failed -> "compiler-option-failed"
   | Program.Output_work_limit_exceeded -> "output-work-limit"
   | Program.Output_invalid_format -> "output-format"
   | Program.Output_invalid_argument -> "output-argument"
@@ -1150,6 +1151,15 @@ let private_context_encoder_bytes () =
         Encoder.Store_indirect_narrow (Encoder.R8, Encoder.Frame8, Encoder.Rdx),
         "41889000000000" );
       ("decrement private meter", Encoder.Dec Encoder.R10, "49ffca");
+      ( "load immutable compiler option callback",
+        Encoder.Load_context (Encoder.Rax, 184),
+        "498b83b8000000" );
+      ( "Windows compiler option arguments",
+        Encoder.Compiler_option_arguments Encoder.Windows_x64,
+        "4c89d9" );
+      ( "System V compiler option arguments",
+        Encoder.Compiler_option_arguments Encoder.System_v_x64,
+        "4889d64c89c24c89df" );
     ]
   in
   List.iter
@@ -1169,7 +1179,8 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
-      Encoder.Load_context (Encoder.Rax, 184);
+      Encoder.Load_context (Encoder.Rax, 192);
+      Encoder.Store_context (184, Encoder.Rax);
       Encoder.Store_context (72, Encoder.Rax);
       Encoder.Store_context_imm (72, 0);
       Encoder.Store_context (80, Encoder.Rax);

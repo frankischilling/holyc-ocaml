@@ -83,6 +83,62 @@ let quotas () =
   failure "HCIRVM0028" small;
   Alcotest.(check int) "previous stream remains charged" 3 (generated small)
 
+let compiler_options () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, text, output) ->
+          let session = Session.create () in
+          let source =
+            Session.add_source session ~path:"compiler-option-execution.hc"
+              ~contents:
+                ((if mode = Preprocessor.Jit then
+                    Cases.headers ^ Cases.compiler_option_headers
+                  else "")
+                ^ text)
+          in
+          let config =
+            Preprocessor.Config.create ~compilation_mode:mode ()
+            |> Result.get_ok
+          in
+          let report =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000
+          in
+          value report;
+          Alcotest.(check string)
+            name output
+            (integer_program_report_output_bytes report))
+        Cases.compiler_options;
+      List.iter
+        (fun index ->
+          let session = Session.create () in
+          let source =
+            Session.add_source session ~path:"invalid-compiler-option.hc"
+              ~contents:
+                ((if mode = Preprocessor.Jit then
+                    Cases.headers ^ Cases.compiler_option_headers
+                  else "")
+                ^ Printf.sprintf
+                    "#exe \
+                     {Print(\"before;\");Option(%d,1);Print(\"after;\");}42;"
+                    index)
+          in
+          let config =
+            Preprocessor.Config.create ~compilation_mode:mode ()
+            |> Result.get_ok
+          in
+          let report =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000
+          in
+          failure "HCEVAL0003" report;
+          Alcotest.(check string)
+            "invalid option retains reached prefix" "before;"
+            (integer_program_report_output_bytes report))
+        [ -1; 2; 63 ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Original stream generation"
     [
@@ -91,5 +147,7 @@ let () =
           Alcotest.test_case "values and retained owners" `Quick values;
           Alcotest.test_case "reached failures" `Quick failures;
           Alcotest.test_case "shared work and cumulative bytes" `Quick quotas;
+          Alcotest.test_case "current and child compiler option controls" `Quick
+            compiler_options;
         ] );
     ]

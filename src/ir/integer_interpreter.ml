@@ -332,6 +332,9 @@ let report_output_work report = report.output_work_
 type task_stream = { stream_output : Output.t }
 type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
 
+type compiler_options =
+  int64 -> bool option -> (bool, Common.Diagnostic.t list) result
+
 type admitted_publication =
   | Admitted_declared_global of
       Retained_global.t * Integer_globals.declared_slot
@@ -1580,6 +1583,8 @@ let retain_native_provider_sources task runtime_calls owner graph =
                         Some Runtime.Print;
                         Some Runtime.Stream_print;
                         Some Runtime.Stream_exe_print;
+                        Some Runtime.Get_option;
+                        Some Runtime.Set_option;
                       ]
                   then
                     Option.iter
@@ -4125,7 +4130,9 @@ let task_native_provider_available task ~runtime_calls ~owner call =
           ( Runtime.Print
           | Runtime.Put_chars
           | Runtime.Stream_print
-          | Runtime.Stream_exe_print ),
+          | Runtime.Stream_exe_print
+          | Runtime.Get_option
+          | Runtime.Set_option ),
         Some link )
       when Integer_globals.task_catalog_contains_function task.catalog link ->
         let replaced =
@@ -7651,9 +7658,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     ?(max_frame_bytes = Int.max_int) ?(max_call_depth = Int.max_int)
     ?(capture_last = false) ?(saved_data = []) ?on_capture ?initialization
     ?globals ?(global_words = [||]) ?literal_image ?output ?stream_output
-    ?generation_output ?stream_exe_print ?admit ?(retained_regions = [])
-    ?(retained_functions = []) ?(retained_provider_entries = [])
-    ?on_provider_entry ~max_steps program =
+    ?generation_output ?compiler_options ?stream_exe_print ?admit
+    ?(retained_regions = []) ?(retained_functions = [])
+    ?(retained_provider_entries = []) ?on_provider_entry ~max_steps program =
   let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
@@ -8335,6 +8342,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
       | Some Runtime.Put_chars -> "PutChars"
       | Some Runtime.Stream_print -> "StreamPrint"
       | Some Runtime.Stream_exe_print -> "StreamExePrint"
+      | Some Runtime.Get_option -> "GetOption"
+      | Some Runtime.Set_option -> "Option"
       | None -> "runtime output"
     in
     let provider_message message =
@@ -8429,6 +8438,30 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 make_provider_error "HCIRVM0025" message
           in
           match (provider, arguments) with
+          | Some Runtime.Get_option, [ Runtime_word index ]
+          | Some Runtime.Set_option, [ Runtime_word index; Runtime_word _ ] -> (
+              let enabled =
+                match arguments with
+                | [ _; Runtime_word value ] ->
+                    Some (not (Int64.equal (Int64.logand value.bits 0xffL) 0L))
+                | _ -> None
+              in
+              match compiler_options with
+              | None ->
+                  error "HCIRVM0027"
+                    "requires its original active compiler control"
+              | Some execute -> (
+                  match execute index.bits enabled with
+                  | Ok previous ->
+                      Ok
+                        (Completed_word
+                           { type_ = U64; bits = (if previous then 1L else 0L) })
+                  | Error [] ->
+                      error "HCIRVM0026" "compiler option execution failed"
+                  | Error ((diagnostic : Common.Diagnostic.t) :: _) ->
+                      Error
+                        (runtime_error ~instruction block !steps diagnostic.code
+                           (provider_message diagnostic.message))))
           | Some Runtime.Put_chars, [ Runtime_word word ] ->
               Output.put_chars output word.bits
               |> Result.map_error provider_error
@@ -9968,10 +10001,10 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
 
 let execute_program_with_output ?task ?isolated_budget
     ?(initializer_mode = false) ?(capture_fragment_value = false)
-    ?(use_active_stream = true) ?stream_exe_print ?runtime_calls ~output
-    ?globals ?initialization ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
-    ~functions checked =
+    ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+    ?runtime_calls ~output ?globals ?initialization
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576) ~max_steps
+    ~max_frame_bytes ~max_call_depth ~functions checked =
   let ( let* ) = Result.bind in
   let* () =
     let dependencies =
@@ -10564,7 +10597,7 @@ let execute_program_with_output ?task ?isolated_budget
              runtime_calls)
         ~max_frame_bytes ~max_call_depth ?initialization ~global_words
         ~literal_image ~output ?stream_output ?generation_output
-        ?stream_exe_print:nested_stream_exe_print
+        ?compiler_options ?stream_exe_print:nested_stream_exe_print
         ~capture_last:((not initializer_mode) || capture_fragment_value)
         ~saved_data:
           (Option.fold ~none:[] ~some:(fun task -> task.saved_data_values) task)
@@ -10631,7 +10664,7 @@ let record_interpreted_static task destination =
     ~operation:(Destination.operation destination)
 
 let execute_task_static_initializer ?(use_active_stream = true)
-    ?stream_exe_print task program =
+    ?compiler_options ?stream_exe_print task program =
   let module Program = Static_initializer_program in
   let module Destination = Static_initializer_destination in
   let ( let* ) = Result.bind in
@@ -10649,7 +10682,7 @@ let execute_task_static_initializer ?(use_active_stream = true)
   let* () = begin_interpreted_static task destination |> diagnose in
   let* _ =
     execute_program_with_output ~task ~initializer_mode:true ~use_active_stream
-      ?stream_exe_print
+      ?compiler_options ?stream_exe_print
       ~runtime_calls:(Program.runtime_calls program)
       ~output:task.resources.output
       ~globals:(Destination.globals destination)
@@ -10704,8 +10737,8 @@ let execute_task_static_copy task destination =
         storage.cells.(cell) <- Some (Runtime_word word));
     record_interpreted_static task destination
 
-let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
-    attempt execution =
+let execute_task_initializer ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
   let module Program = Initializer_fragment_program in
   let module Destination = Initializer_fragment_destination in
   let ( let* ) = Result.bind in
@@ -10796,7 +10829,7 @@ let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
             "the task cumulative execution step limit was exhausted"
         else
           execute_program_with_output ~task ~initializer_mode:true
-            ~use_active_stream ?stream_exe_print
+            ~use_active_stream ?compiler_options ?stream_exe_print
             ~runtime_calls:(Program.runtime_calls program)
             ~output:task.resources.output
             ~globals:(Destination.globals destination)
@@ -11015,8 +11048,8 @@ let save_default_data task ~destination ~entry ~executed_steps address =
     :: task.saved_data_values;
   Ok value
 
-let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
-    attempt evaluation =
+let execute_task_default ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt evaluation =
   let module Program = Default_fragment_program in
   let module Destination = Default_fragment_destination in
   let ( let* ) = Result.bind in
@@ -11098,7 +11131,8 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
         else
           let* result =
             execute_program_with_output ~task ~initializer_mode:true
-              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~capture_fragment_value:true ~use_active_stream ?compiler_options
+              ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
               ~output:task.resources.output
               ~globals:(Destination.globals destination)
@@ -11160,8 +11194,8 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
       attempt.default_state <- Successful_initializer;
       Ok ()
 
-let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
-    attempt execution =
+let execute_task_dimension ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
   let module Program = Dimension_fragment_program in
   let module Destination = Dimension_fragment_destination in
   let ( let* ) = Result.bind in
@@ -11224,7 +11258,8 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
         else
           let* result =
             execute_program_with_output ~task ~initializer_mode:true
-              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~capture_fragment_value:true ~use_active_stream ?compiler_options
+              ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
               ~output:task.resources.output
               ~globals:(Destination.globals destination)
@@ -11259,8 +11294,8 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
       attempt.dimension_state <- Successful_initializer;
       Ok ()
 
-let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
-    task attempt execution =
+let execute_task_internal_binding ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
   let module Program = Internal_binding_fragment_program in
   let module Destination = Internal_binding_fragment_destination in
   let ( let* ) = Result.bind in
@@ -11325,7 +11360,8 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
         else
           let* result =
             execute_program_with_output ~task ~initializer_mode:true
-              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~capture_fragment_value:true ~use_active_stream ?compiler_options
+              ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
               ~output:task.resources.output
               ~globals:(Destination.globals destination)
@@ -11376,8 +11412,8 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
       attempt.internal_binding_state <- Successful_initializer;
       Ok ()
 
-let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
-    attempt execution =
+let execute_task_offset ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
   let module Program = Offset_fragment_program in
   let module Destination = Offset_fragment_destination in
   let ( let* ) = Result.bind in
@@ -11455,7 +11491,8 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
         else
           let* result =
             execute_program_with_output ~task ~initializer_mode:true
-              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~capture_fragment_value:true ~use_active_stream ?compiler_options
+              ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
               ~output:task.resources.output
               ~globals:(Destination.globals destination)
@@ -11499,8 +11536,9 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
           task.charged_offsets <- offset :: task.charged_offsets;
           Ok ())
 
-let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
-    ~runtime_calls ~globals ~initialization ~functions checked =
+let execute_task_program ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task ~runtime_calls ~globals ~initialization ~functions
+    checked =
   task.source_promotion_open <- false;
   (* The synchronous stream callback alone reserves nested source depth.
      Original child parser receipts still govern admission while the caller's
@@ -11586,9 +11624,9 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
             "nested source has no remaining runtime call depth allowance";
         ]
     else
-      execute_program_with_output ~task ~use_active_stream ?stream_exe_print
-        ~runtime_calls ~output:task.resources.output ~globals ~initialization
-        ~max_global_bytes:task.resources.max_global_bytes
+      execute_program_with_output ~task ~use_active_stream ?compiler_options
+        ?stream_exe_print ~runtime_calls ~output:task.resources.output ~globals
+        ~initialization ~max_global_bytes:task.resources.max_global_bytes
         ~max_literal_bytes:task.resources.max_literal_bytes
         ~max_steps:(task.resources.max_steps - task.resources.steps)
         ~max_frame_bytes:available_frame_bytes

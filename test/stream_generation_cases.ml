@@ -1,6 +1,70 @@
 let headers =
   {|extern U0 StreamPrint(U8 *fmt,...);extern I64 StreamExePrint(U8 *fmt,...);extern U0 Print(U8 *fmt,...);|}
 
+let compiler_option_headers =
+  {|extern U8 GetOption(I64 num);extern U8 Option(I64 num,U8 val);|}
+
+let compiler_option_bits =
+  [
+    (0, false);
+    (1, false);
+    (16, true);
+    (17, false);
+    (18, false);
+    (19, true);
+    (32, false);
+    (33, false);
+    (34, false);
+    (35, false);
+    (36, false);
+    (37, false);
+  ]
+
+let compiler_option_registry =
+  List.map
+    (fun (index, enabled) ->
+      let old = if enabled then 1 else 0 in
+      let next = 1 - old in
+      ( Printf.sprintf "original compiler option %d" index,
+        Printf.sprintf
+          "#exe \
+           {Print(\"%%d;\",GetOption(%d));Print(\"%%d;\",Option(%d,%d));Print(\"%%d;\",GetOption(%d));Print(\"%%d;\",Option(%d,%d));Print(\"%%d;\",GetOption(%d));}42;"
+          index index next index index old index,
+        Printf.sprintf "%d;%d;%d;%d;%d;" old old next next old ))
+    compiler_option_bits
+
+let compiler_options =
+  compiler_option_registry
+  @ [
+      ( "ordinary current control and Bool coercion",
+        {|#exe {Print("%d;",GetOption(33));Print("%d;",Option(33,1));Print("%d;",Option(33,255));Print("%d;",Option(33,256));Print("%d;",GetOption(33));}42;|},
+        "0;0;1;1;0;" );
+      ( "saved table child copies live caller options",
+        {|#exe {Print("%d;",GetOption(33));Print("%d;",Option(33,1));Print("%d;",StreamExePrint("Print(\"%%d;\",GetOption(33));Print(\"%%d;\",Option(33,0));Print(\"%%d;\",GetOption(33));42;"));Print("%d;",GetOption(33));}42;|},
+        "0;0;1;1;0;42;1;" );
+      ( "successive children keep independent changes",
+        {|#exe {Option(33,1);StreamExePrint("Option(33,0);42;");Print("%d;",StreamExePrint("GetOption(33)+41;"));Print("%d;",GetOption(33));}42;|},
+        "42;1;" );
+      ( "retained direct function reads current control",
+        {|#exe {I64 Read(){return GetOption(33);}Option(33,1);Print("%d;",Read());Option(33,0);Print("%d;",Read());}42;|},
+        "1;0;" );
+      ( "owned callbacks preserve original option signatures",
+        {|#exe {U8 (*read)(I64 num)=&GetOption;U8 (*write)(I64 num,U8 val)=&Option;Print("%d;",read(33));Print("%d;",write(33,1));Print("%d;",read(33));}42;|},
+        "0;0;1;" );
+      ( "retained callback defaults reach current control",
+        {|#exe {I64 Read(U8 (*p)(I64 num)=&GetOption){return p(33);}Option(33,1);Print("%d;",Read());Option(33,0);Print("%d;",Read());}42;|},
+        "1;0;" );
+      ( "default expression changes the live header control",
+        {|#exe {I64 Read(I64 n=Option(33,1)){return n;}Print("%d;",GetOption(33));Print("%d;",Read());}42;|},
+        "1;0;" );
+      ( "retained setter callback defaults preserve Bool narrowing",
+        {|#exe {I64 Write(U8 (*p)(I64 num,U8 val)=&Option){Print("%d;",p(33,255));Print("%d;",p(33,256));return GetOption(33);}Print("%d;",Write());}42;|},
+        "0;1;0;" );
+      ( "source body replaces the option extern slot",
+        {|#exe {U8 Option(I64 num,U8 val){return 7;}Print("%d;",Option(33,1));Print("%d;",GetOption(33));}42;|},
+        "7;0;" );
+    ]
+
 (* Expected source values and generation lengths are derived from the text,
    independently of either executor. The ordinary capture is separate. *)
 let values =

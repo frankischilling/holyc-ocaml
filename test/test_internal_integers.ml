@@ -230,7 +230,7 @@ let retained_values () =
         "original preparation work" 18
         (Option.get (integer_program_report_preparation_work report));
       Alcotest.(check int)
-        "original runtime work" 113
+        "original runtime work" 115
         (VM.executed_steps execution);
       Alcotest.(check string)
         "default ran once" ""

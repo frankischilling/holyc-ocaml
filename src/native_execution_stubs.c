@@ -1758,7 +1758,8 @@ struct native_source_frame {
   struct native_source_frame *previous;
   struct native_source_scope *scope;
   uint64_t *context;
-  value scope_handle;
+  value scope_handle, request_handle;
+  uint64_t operation, option_index, option_value;
 };
 
 struct native_source_bridge {
@@ -2101,7 +2102,8 @@ static value native_source_bridge_create(value callback, value generation,
   CAMLreturn(handle);
 }
 
-static uint64_t native_source_callback(uint64_t *context)
+static uint64_t native_compiler_callback(uint64_t *context,
+  uint64_t operation, uint64_t option_index, uint64_t option_value)
 {
   CAMLparam0();
   CAMLlocal1(result);
@@ -2110,16 +2112,22 @@ static uint64_t native_source_callback(uint64_t *context)
   struct native_source_frame frame;
   uint64_t bits = 0;
   if (bridge == NULL || !bridge->live || bridge->context != context ||
-      bridge->frame != NULL || context[17] != 1 ||
-      context[18] != (uint64_t)(uintptr_t)bridge->buffers->formatted ||
-      context[20] > context[19] ||
-      context[20] > bridge->buffers->formatted_capacity ||
+      bridge->frame != NULL || operation > 2 || option_value > 1 ||
+      (operation == 0 && (context[17] != 1 ||
+        context[18] != (uint64_t)(uintptr_t)bridge->buffers->formatted ||
+        context[20] > context[19] ||
+        context[20] > bridge->buffers->formatted_capacity)) ||
+      (operation != 0 && context[20] != 0) ||
       context[3] > context[2]) {
-    context[0] = 29;
+    context[0] = operation == 0 ? 29 : 30;
     context[20] = 0;
     CAMLreturnT(uint64_t, 0);
   }
-  frame = (struct native_source_frame){ bridge, native_source_current, NULL, context, Val_unit };
+  frame = (struct native_source_frame){
+    .bridge = bridge, .previous = native_source_current, .scope = NULL,
+    .context = context, .scope_handle = Val_unit, .request_handle = Val_unit,
+    .operation = operation, .option_index = option_index, .option_value = option_value
+  };
   bridge->frame = &frame;
   native_source_current = &frame;
   /* All allocation, including creation of the source string and scope, occurs
@@ -2132,16 +2140,17 @@ static uint64_t native_source_callback(uint64_t *context)
     result = Extract_exception(result);
     caml_modify(&Field(bridge->exception_value, 0), result);
     caml_modify(&Field(bridge->exception_seen, 0), Val_true);
-    context[0] = 29;
+    context[0] = operation == 0 ? 29 : 30;
   } else if (frame.scope == NULL || !Is_block(result) || Tag_val(result) != 0 ||
              Wosize_val(result) != 1 || !Is_block(Field(result, 0)) ||
              Tag_val(Field(result, 0)) != Custom_tag ||
              Custom_ops_val(Field(result, 0)) != bridge->word_operations) {
-    context[0] = 29;
+    context[0] = operation == 0 ? 29 : 30;
   } else bits = (uint64_t)Int64_val(Field(result, 0));
   if (frame.scope != NULL) {
     frame.scope->frame = NULL;
     caml_remove_generational_global_root(&frame.scope_handle);
+    caml_remove_generational_global_root(&frame.request_handle);
   }
   bridge->frame = NULL;
   native_source_current = frame.previous;
@@ -2149,11 +2158,27 @@ static uint64_t native_source_callback(uint64_t *context)
   CAMLreturnT(uint64_t, bits);
 }
 
+static uint64_t native_source_callback(uint64_t *context)
+{
+  return native_compiler_callback(context, 0, 0, 0);
+}
+
+static uint64_t native_option_callback(uint64_t *context,
+  uint64_t option_index, uint64_t encoded_value)
+{
+  if (encoded_value > 2) {
+    context[0] = 30;
+    return 0;
+  }
+  return native_compiler_callback(context, encoded_value == 0 ? 1 : 2,
+    option_index, encoded_value == 2);
+}
+
 CAMLprim value holyc_native_source_suspension_open(value owner)
 {
   CAMLparam1(owner);
   native_collect_deferred();
-  CAMLlocal3(handle, source, result);
+  CAMLlocal5(handle, source, request, result, index);
   struct native_source_bridge *bridge;
   struct native_source_scope *scope;
   if (!Is_block(owner) || Tag_val(owner) != Custom_tag ||
@@ -2173,12 +2198,28 @@ CAMLprim value holyc_native_source_suspension_open(value owner)
   bridge->frame->scope = scope;
   bridge->frame->scope_handle = handle;
   caml_register_generational_global_root(&bridge->frame->scope_handle);
-  source = caml_alloc_string((mlsize_t)bridge->context[20]);
-  memcpy((char *)String_val(source), bridge->buffers->formatted,
-    (size_t)bridge->context[20]);
+  caml_register_generational_global_root(&bridge->frame->request_handle);
+  if (bridge->frame->operation == 0) {
+    source = caml_alloc_string((mlsize_t)bridge->context[20]);
+    memcpy((char *)String_val(source), bridge->buffers->formatted,
+      (size_t)bridge->context[20]);
+    request = caml_alloc(1, 0);
+    Store_field(request, 0, source);
+  } else {
+    index = native_box_word(bridge->frame->option_index);
+    if (bridge->frame->operation == 1) {
+      request = caml_alloc(1, 1);
+      Store_field(request, 0, index);
+    } else if (bridge->frame->operation == 2) {
+      request = caml_alloc(2, 2);
+      Store_field(request, 0, index);
+      Store_field(request, 1, Val_bool(bridge->frame->option_value != 0));
+    } else caml_invalid_argument("native compiler callback has an unknown operation");
+  }
+  caml_modify_generational_global_root(&bridge->frame->request_handle, request);
   result = caml_alloc_tuple(2);
   Store_field(result, 0, handle);
-  Store_field(result, 1, source);
+  Store_field(result, 1, request);
   CAMLreturn(result);
 }
 
@@ -2188,6 +2229,38 @@ CAMLprim value holyc_native_source_suspension_check(value handle)
   native_collect_deferred();
   (void)native_source_scope_get(handle);
   CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_source_suspension_owns_request(value handle, value request)
+{
+  CAMLparam2(handle, request);
+  native_collect_deferred();
+  struct native_source_frame *frame = native_source_scope_get(handle)->frame;
+  struct native_source_bridge *bridge = frame->bridge;
+  int owned = request == frame->request_handle && Is_block(request);
+  if (owned && frame->operation == 0) {
+    owned = Tag_val(request) == 0 && Wosize_val(request) == 1;
+    if (owned) {
+      value source = Field(request, 0);
+      owned = Is_block(source) && Tag_val(source) == String_tag &&
+        caml_string_length(source) == (mlsize_t)frame->context[20] &&
+        memcmp(String_val(source), bridge->buffers->formatted,
+          (size_t)frame->context[20]) == 0;
+    }
+  } else if (owned) {
+    owned = frame->operation >= 1 && frame->operation <= 2 &&
+      Tag_val(request) == frame->operation &&
+      Wosize_val(request) == (frame->operation == 1 ? 1 : 2);
+    if (owned) {
+      value index = Field(request, 0);
+      owned = Is_block(index) && Tag_val(index) == Custom_tag &&
+        Custom_ops_val(index) == bridge->word_operations &&
+        (uint64_t)Int64_val(index) == frame->option_index;
+    }
+    if (owned && frame->operation == 2)
+      owned = Field(request, 1) == Val_bool(frame->option_value != 0);
+  }
+  CAMLreturn(Val_bool(owned));
 }
 
 CAMLprim value holyc_native_source_suspension_limits(value handle)
@@ -2585,14 +2658,15 @@ static value native_execute_program_output(value code, value functions,
   }
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   {
-    uint64_t context[23] = {
+    uint64_t context[24] = {
       0, 0, remaining_steps, 0, 0, 0,
       (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
       output_address, remaining_output, remaining_work, 0,
       generation_address, generation_limit, 0, generation_active,
       formatted_address, formatted_limit, 0,
       bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_source_callback,
-      (uint64_t)(uintptr_t)bridge
+      (uint64_t)(uintptr_t)bridge,
+      bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback
     };
 
     if (bridge != NULL) {
@@ -2621,7 +2695,8 @@ static value native_execute_program_output(value code, value functions,
     }
 
     if (context[21] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_source_callback) ||
-        context[22] != (uint64_t)(uintptr_t)bridge)
+        context[22] != (uint64_t)(uintptr_t)bridge ||
+        context[23] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback))
       caml_failwith("native source callback status integrity failure: owner was modified");
     uint64_t child_steps = bridge == NULL ? 0 : bridge->child_steps;
     uint64_t child_output = bridge == NULL ? 0 : bridge->child_output;

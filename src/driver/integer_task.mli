@@ -5,7 +5,7 @@ type saved_compiler
 
 type native_source_callback =
   Ir.Native_source_suspension.t ->
-  string ->
+  Ir.Native_source_suspension.request ->
   ((int64, Common.Diagnostic.t list) result, string) result
 (** Original parser handler of an entered native request. The outer error is a
     request or physical suspension rejection; the inner result retains child

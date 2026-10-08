@@ -329,22 +329,22 @@ let () =
          [
            ( mode,
              Sys.argv.(6),
-             [ (50, 3, 0, 50); (49, 3, 1, 49); (50, 2, 1, 4) ] );
+             [ (52, 3, 0, 52); (51, 3, 1, 51); (52, 2, 1, 6) ] );
            ( mode,
              Sys.argv.(7),
-             [ (47, 4, 0, 47); (46, 4, 1, 46); (47, 3, 1, 11) ] );
+             [ (49, 4, 0, 49); (48, 4, 1, 48); (49, 3, 1, 13) ] );
            ( mode,
              Sys.argv.(8),
-             [ (35, 3, 0, 35); (34, 3, 1, 34); (35, 2, 1, 4) ] );
+             [ (37, 3, 0, 37); (36, 3, 1, 36); (37, 2, 1, 6) ] );
            ( mode,
              Sys.argv.(9),
-             [ (47, 3, 0, 47); (46, 3, 1, 46); (47, 2, 1, 4) ] );
+             [ (49, 3, 0, 49); (48, 3, 1, 48); (49, 2, 1, 6) ] );
            ( mode,
              Sys.argv.(10),
-             [ (28, 3, 0, 28); (27, 3, 1, 27); (28, 2, 1, 6) ] );
+             [ (30, 3, 0, 30); (29, 3, 1, 29); (30, 2, 1, 8) ] );
            ( mode,
              Sys.argv.(11),
-             [ (74, 6, 0, 74); (73, 6, 1, 73); (74, 5, 1, 11) ] );
+             [ (76, 6, 0, 76); (75, 6, 1, 75); (76, 5, 1, 13) ] );
          ])
        [ "jit"; "aot" ]);
   List.iter
@@ -393,7 +393,7 @@ let () =
               (report |> member "diagnostics" |> to_list |> List.hd
              |> member "code" |> to_string = "HCIRVM0007")
               "offset bounded failure")
-        [ (28, 6, 0, 28); (27, 6, 1, 27); (28, 5, 1, 5) ])
+        [ (30, 6, 0, 30); (29, 6, 1, 29); (30, 5, 1, 7) ])
     [ "jit"; "aot" ];
   let phase_fixture = Sys.argv.(4) in
   List.iter
@@ -444,7 +444,7 @@ let () =
               (report |> member "diagnostics" |> to_list |> List.hd
              |> member "code" |> to_string = "HCIRVM0007")
               "partial aggregate one-below diagnostic")
-        [ (36, 3, 0, 36, 3); (35, 3, 1, 35, 3); (36, 2, 1, 4, 2) ])
+        [ (38, 3, 0, 38, 3); (37, 3, 1, 37, 3); (38, 2, 1, 6, 2) ])
     [ "jit"; "aot" ];
   let aggregate_fixture = Sys.argv.(3) in
   List.iter
@@ -497,7 +497,7 @@ let () =
               (report |> member "diagnostics" |> to_list |> List.hd
              |> member "code" |> to_string = "HCIRVM0007")
               "aggregate one-below diagnostic")
-        [ (32, 3, 0, 32, 3); (31, 3, 1, 31, 3); (32, 2, 1, 5, 2) ])
+        [ (34, 3, 0, 34, 3); (33, 3, 1, 33, 3); (34, 2, 1, 7, 2) ])
     [ "jit"; "aot" ];
   let fixture = Sys.argv.(2) in
   List.iter
@@ -551,7 +551,7 @@ let () =
               (report |> member "diagnostics" |> to_list |> List.hd
              |> member "code" |> to_string = "HCIRVM0007")
               "implicit phase one-below diagnostic"))
-        [ (63, 0); (62, 1) ])
+        [ (65, 0); (64, 1) ])
     [ "jit"; "aot" ];
   List.iter
     (fun (name, source) ->
@@ -784,26 +784,26 @@ let () =
                 prep - 1 );
             ]))
     [
-      (omission_source, "jit", 115, 9);
-      (omission_source, "aot", 115, 9);
-      (parenthesized_source, "jit", 148, 12);
-      (parenthesized_source, "aot", 148, 12);
-      (absent_source, "jit", 146, 9);
-      (absent_source, "aot", 146, 9);
-      (adjacent_source, "jit", 142, 9);
-      (adjacent_source, "aot", 142, 9);
-      (variadic_source, "jit", 109, 6);
-      (variadic_source, "aot", 109, 6);
-      (extern_source, "jit", 53, 6);
-      (extern_source, "aot", 53, 6);
-      (pending_header_source, "jit", 61, 3);
-      (pending_header_source, "aot", 61, 3);
-      (function_versions_source, "jit", 74, 6);
-      (function_versions_source, "aot", 74, 6);
+      (omission_source, "jit", 117, 9);
+      (omission_source, "aot", 117, 9);
+      (parenthesized_source, "jit", 150, 12);
+      (parenthesized_source, "aot", 150, 12);
+      (absent_source, "jit", 148, 9);
+      (absent_source, "aot", 148, 9);
+      (adjacent_source, "jit", 144, 9);
+      (adjacent_source, "aot", 144, 9);
+      (variadic_source, "jit", 111, 6);
+      (variadic_source, "aot", 111, 6);
+      (extern_source, "jit", 55, 6);
+      (extern_source, "aot", 55, 6);
+      (pending_header_source, "jit", 63, 3);
+      (pending_header_source, "aot", 63, 3);
+      (function_versions_source, "jit", 76, 6);
+      (function_versions_source, "aot", 76, 6);
       (parameter_delimiters_source, "jit", 22, 6);
       (parameter_delimiters_source, "aot", 20, 6);
-      (variadic_termination_source, "jit", 61, 3);
-      (variadic_termination_source, "aot", 61, 3);
+      (variadic_termination_source, "jit", 63, 3);
+      (variadic_termination_source, "aot", 63, 3);
     ];
   List.iter
     (fun source ->

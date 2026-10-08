@@ -152,13 +152,13 @@ let () =
   List.iter
     (fun mode ->
       validate
-        (invoke ~target:"ir" ~mode ~steps:138 ~preparation:4 retained_example)
-        ~steps:138 ~prep:4 ~hex:"" ~bytes:0 ~work:7;
+        (invoke ~target:"ir" ~mode ~steps:140 ~preparation:4 retained_example)
+        ~steps:140 ~prep:4 ~hex:"" ~bytes:0 ~work:7;
       error
         (invoke ~target:"ir" ~mode ~preparation:3 ~status:1 retained_example)
         "HCIRVM0007";
       error
-        (invoke ~target:"ir" ~mode ~steps:137 ~status:1 retained_example)
+        (invoke ~target:"ir" ~mode ~steps:139 ~status:1 retained_example)
         "HCIRVM0007";
       if native then
         error

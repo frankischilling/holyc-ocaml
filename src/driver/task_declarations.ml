@@ -4597,6 +4597,12 @@ let admit_function_phase ledger ~runtime event =
                   VM.check_function_phase_source runtime
                     ~namespace:ledger.namespace ~event snapshot
                   |> checked span;
+                  let compiler_option_mask =
+                    Parser.context_compiler_options
+                      publication.function_header.declaration_command
+                        .command_context
+                    |> checked span
+                  in
                   let module R = Sema.Function_resolution in
                   let module C = Sema.Function_record_classification in
                   let current =
@@ -4629,9 +4635,8 @@ let admit_function_phase ledger ~runtime event =
                     match current with
                     | None ->
                         R.make_provisional_declaration ~table:ledger.table
-                          ~namespace:ledger.namespace
-                          ~compiler_option_mask:
-                            Sema.Compiler_option.initial_mask ~function_
+                          ~namespace:ledger.namespace ~compiler_option_mask
+                          ~function_
                     | Some current ->
                         let current = C.classified_declaration_source current in
                         let earlier =
@@ -4648,10 +4653,8 @@ let admit_function_phase ledger ~runtime event =
                             state.runtime_phase
                         in
                         R.make_provisional_advance ?pending ~table:ledger.table
-                          ~namespace:ledger.namespace
-                          ~compiler_option_mask:
-                            Sema.Compiler_option.initial_mask ~current
-                          ~transition ~function_ ()
+                          ~namespace:ledger.namespace ~compiler_option_mask
+                          ~current ~transition ~function_ ()
                   in
                   let fact = fact |> checked span in
                   let previous = Option.to_list current in
@@ -4780,7 +4783,7 @@ let admit_function_header ledger ~runtime header =
             ( None,
               Sema.Function_resolution.make_pending_declaration
                 ~table:ledger.table ~namespace:ledger.namespace
-                ~compiler_option_mask:Sema.Compiler_option.initial_mask ~source
+                ~compiler_option_mask:header.header_compiler_options ~source
                 ~function_ )
       in
       let fact = fact |> checked span in
@@ -5836,6 +5839,46 @@ let parser_suspension ledger =
   match ledger.active with
   | active :: _ -> Parser.suspend_context active.context
   | [] -> Error "task has no suspended parser source"
+
+let execute_compiler_option ledger ~runtime index enabled =
+  let ( let* ) = Result.bind in
+  let* () =
+    match ledger.authority with
+    | Task_runtime original when original == runtime -> Ok ()
+    | _ -> Error "compiler option request has another original source task"
+  in
+  let* context =
+    match ledger.active with
+    | current :: _ -> Ok current.context
+    | [] -> Error "compiler option request has no active parser control"
+  in
+  let observed_events =
+    List.fold_left
+      (fun count event ->
+        let original =
+          match event with
+          | Parser.Sequence_started context | Parser.Sequence_aborted context ->
+              context
+          | Parser.Command_started start -> start.command_context
+          | Parser.Command_completed completed
+          | Parser.Command_resumed completed ->
+              completed.command_start.command_context
+          | Parser.Sequence_completed completed -> completed.sequence_context
+        in
+        if original == context then count + 1 else count)
+      0 ledger.source_events_rev
+  in
+  if
+    Parser.context_environment context != ledger.symbols
+    || Parser.context_sources context != ledger.sources
+    || not (Parser.context_is_current context ~observed_events)
+  then
+    Error
+      "compiler option request lacks its original fully observed parser control"
+  else
+    match enabled with
+    | None -> Parser.context_get_option context ~bit_index:index
+    | Some value -> Parser.context_set_option context ~bit_index:index value
 
 let saved_compiler_context ledger ~session ~suspension =
   let ( let* ) = Result.bind in

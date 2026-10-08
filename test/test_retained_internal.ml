@@ -164,7 +164,7 @@ let unsupported_targets () =
 let cumulative_budgets () =
   List.iter
     (fun mode ->
-      let steps = if mode = Preprocessor.Jit then 56 else 55 in
+      let steps = if mode = Preprocessor.Jit then 58 else 57 in
       let exact =
         O.run ~mode ~max_steps:steps ~max_output_work:55 generated_code
         |> O.expect "A:3"
@@ -218,17 +218,17 @@ let effectful_binding_budgets () =
   List.iter
     (fun mode ->
       let exact =
-        O.run ~mode ~max_steps:50 ~max_initializer_steps:3 ~max_output_work:24
+        O.run ~mode ~max_steps:52 ~max_initializer_steps:3 ~max_output_work:24
           source
         |> O.expect ~value:(Some 6501L) "1"
       in
       Alcotest.(check int)
-        "effectful target cumulative execution" 50 (VM.executed_steps exact);
+        "effectful target cumulative execution" 52 (VM.executed_steps exact);
       Alcotest.(check int)
         "effectful target cumulative preparation" 3
         (VM.compiled_initializer_steps exact);
       ignore
-        (O.run ~mode ~max_steps:49 source |> O.fault ~output:"1" "HCIRVM0007");
+        (O.run ~mode ~max_steps:51 source |> O.fault ~output:"1" "HCIRVM0007");
       ignore
         (O.run ~mode ~max_initializer_steps:2 source |> O.fault "HCIRVM0007");
       ignore
