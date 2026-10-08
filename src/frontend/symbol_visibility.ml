@@ -51,6 +51,7 @@ type entry = {
   public_primitive : Common.Primitive_type.t option;
   function_call_shape : function_call_shape option;
   alias_original : entry option;
+  definition_payload : Definition.t option;
 }
 
 let id entry = entry.id
@@ -60,6 +61,7 @@ let origin entry = entry.origin
 let public_primitive entry = entry.public_primitive
 let function_call_shape entry = entry.function_call_shape
 let function_alias_original entry = entry.alias_original
+let definition_payload entry = entry.definition_payload
 
 let kind_name = function
   | Export_system_symbol -> "export-system-symbol"
@@ -203,7 +205,8 @@ module Environment = struct
     Fun.protect ~finally:(fun () -> environment.local_contexts <- contexts) run
 
   let add_entry ?(origin = Session_registration) ?function_call_shape
-      ?alias_original ?public_primitive environment ~name ~kind () =
+      ?alias_original ?public_primitive ?definition_payload environment ~name
+      ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
     if Option.is_some function_call_shape && kind <> Function then
       invalid_arg "only function symbols may carry a function call shape";
@@ -219,6 +222,7 @@ module Environment = struct
         public_primitive;
         function_call_shape;
         alias_original;
+        definition_payload;
       }
     in
     environment.store.next_entry_id <- environment.store.next_entry_id + 1;
@@ -233,6 +237,19 @@ module Environment = struct
 
   let add ?origin ?function_call_shape environment ~name ~kind () =
     add_entry ?origin ?function_call_shape environment ~name ~kind ()
+
+  let add_definition environment ~definitions ~definition =
+    if not (Definition.Environment.owns definitions definition) then
+      Error "definition publication requires its original writer's object"
+    else if environment.store.next_entry_id = max_int then
+      Error "symbol visibility identity space is exhausted"
+    else
+      Ok
+        (add_entry
+           ~origin:(Source_span (Definition.name_span definition))
+           ~definition_payload:definition environment
+           ~name:(Definition.name definition)
+           ~kind:Definition ())
 
   let add_public_primitive environment ~primitive ~origin =
     let info = Common.Primitive_type.info primitive in

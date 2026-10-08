@@ -1,4 +1,15 @@
 (test
+ (name test_definition_selection_cli)
+ (modules test_definition_selection_cli)
+ (libraries unix yojson)
+ (deps ../examples/compiler-definition-selection.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/compiler-definition-selection.hc})))
+
+(test
  (name test_compiler_warnings_cli)
  (modules test_compiler_warnings_cli)
  (libraries unix yojson)
@@ -510,6 +521,7 @@
   test_lexer
   test_preprocessor
   test_hash_lookup_observations
+  test_definition_selection
   test_parser
   test_conditional_expression
   test_assert_directive

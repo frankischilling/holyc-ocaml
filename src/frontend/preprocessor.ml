@@ -240,7 +240,14 @@ let rec align_current_to_source stream source =
         stream.current <- caller;
         align_current_to_source stream source
 
-let next_lexer_item stream =
+type raw_lookup = {
+  raw_token : Token.t;
+  raw_selection : Symbol_visibility.lookup;
+  raw_definition : Definition.t option;
+  raw_predefined : Predefined.t option;
+}
+
+let read_lexer_item stream =
   stream.current_lookup <- None;
   discard_exhausted_frames stream;
   let item = Lexer.next (Lexer_frame.lexer stream.current) in
@@ -250,30 +257,42 @@ let next_lexer_item stream =
     | Lexer.Diagnostic diagnostic -> diagnostic.Common.Diagnostic.primary.source
   in
   align_current_to_source stream source;
-  (match (stream.lexical_lookup, item) with
-  | Some observe, Lexer.Token token
-    when match token.Token.kind with
-         | Token_kind.Identifier | Token_kind.Keyword _ -> true
-         | _ -> false ->
+  let raw_lookup =
+    match item with
+    | Lexer.Token token
+      when match token.Token.kind with
+           | Token_kind.Identifier | Token_kind.Keyword _ -> true
+           | _ -> false ->
+        let name =
+          match token.value with
+          | Token.Text name -> name
+          | _ -> token.raw
+        in
+        Some
+          {
+            raw_token = token;
+            raw_selection =
+              Symbol_visibility.Environment.find_preprocessor stream.symbols
+                name;
+            raw_definition = Definition.Environment.find stream.definitions name;
+            raw_predefined = Predefined.find name;
+          }
+    | _ -> None
+  in
+  (match (stream.lexical_lookup, raw_lookup) with
+  | Some observe, Some raw ->
       if stream.next_lookup_ordinal = max_int then
         invalid_arg "lexical lookup observation identity space is exhausted";
-      let name =
-        match token.value with
-        | Token.Text name -> name
-        | _ -> token.raw
-      in
       let lookup =
         {
           lookup_stream = stream;
           lookup_domain = Domain.self ();
           lookup_environment = stream.symbols;
           lookup_mode = stream.compilation_mode;
-          lookup_token = token;
-          lookup_selection =
-            Symbol_visibility.Environment.find_preprocessor stream.symbols name;
-          lookup_definition =
-            Definition.Environment.find stream.definitions name;
-          lookup_predefined = Predefined.find name;
+          lookup_token = raw.raw_token;
+          lookup_selection = raw.raw_selection;
+          lookup_definition = raw.raw_definition;
+          lookup_predefined = raw.raw_predefined;
           lookup_ordinal = stream.next_lookup_ordinal;
         }
       in
@@ -283,7 +302,9 @@ let next_lexer_item stream =
         ~finally:(fun () -> stream.current_lookup <- None)
         (fun () -> observe lookup)
   | _ -> ());
-  item
+  (item, raw_lookup)
+
+let next_lexer_item stream = fst (read_lexer_item stream)
 
 let zero_span source =
   Common.Span.unsafe_make
@@ -717,13 +738,22 @@ let define stream hash =
                 (diagnostic stream ~code:"HCPP0014"
                    ~message:"a NUL byte ended the #define replacement"
                    capture.replacement_span)
-          | Lexer.End_of_line | Lexer.End_of_file ->
-              ignore
-                (Definition.Environment.define stream.definitions ~name
-                   ~replacement:capture.replacement ~name_span:name_token.span
-                   ~definition_span ~replacement_span:capture.replacement_span
-                   ~segments:capture.segments);
-              Ok ()))
+          | Lexer.End_of_line | Lexer.End_of_file -> (
+              let definition =
+                Definition.Environment.define stream.definitions ~name
+                  ~replacement:capture.replacement ~name_span:name_token.span
+                  ~definition_span ~replacement_span:capture.replacement_span
+                  ~segments:capture.segments
+              in
+              match
+                Symbol_visibility.Environment.add_definition stream.symbols
+                  ~definitions:stream.definitions ~definition
+              with
+              | Ok _ -> Ok ()
+              | Error message ->
+                  Error
+                    (diagnostic stream ~code:"HCPP0035" ~message name_token.span)
+              )))
 
 let definition_cycle stream definition invocation =
   diagnostic stream ~code:"HCPP0011"
@@ -847,31 +877,43 @@ let push_predefined stream token predefined =
     (predefined_replacement stream token predefined)
     (push_replacement stream token (Compiler_predefined predefined))
 
-let expand stream token =
-  match definition_name token with
+let expand stream token original =
+  match original with
   | None -> Ok false
-  | Some name -> (
-      match Definition.Environment.find stream.definitions name with
-      | None -> (
-          match Predefined.find name with
+  | Some raw -> (
+      if raw.raw_token != token then
+        invalid_arg "expansion requires its original raw lexer selection";
+      let selection = raw.raw_selection in
+      let definition =
+        match selection with
+        | Symbol_visibility.Present entry ->
+            Symbol_visibility.definition_payload entry
+        | Symbol_visibility.Absent -> raw.raw_definition
+        | Symbol_visibility.Shadowed_by_local -> None
+      in
+      match (selection, definition) with
+      | Symbol_visibility.Shadowed_by_local, _ -> Ok false
+      | Symbol_visibility.Present _, None -> Ok false
+      | _, None -> (
+          match raw.raw_predefined with
           | None -> Ok false
           | Some predefined ->
               Result.map
                 (fun () -> true)
                 (push_predefined stream token predefined))
-      | Some definition ->
+      | _, Some definition ->
           Result.map (fun () -> true) (push_definition stream token definition))
 
 let rec next_expanded_source stream =
-  match next_lexer_item stream with
-  | Lexer.Diagnostic item ->
+  match read_lexer_item stream with
+  | Lexer.Diagnostic item, _ ->
       let item = decorate_lexer_diagnostic stream item in
       Lexer.Diagnostic item
-  | Lexer.Token token -> (
+  | Lexer.Token token, original -> (
       match token.Token.kind with
       | Token_kind.Eof -> Lexer.Token token
       | Token_kind.Identifier | Token_kind.Keyword _ -> (
-          match expand stream token with
+          match expand stream token original with
           | Ok false -> Lexer.Token token
           | Ok true -> next_expanded_source stream
           | Error item -> Lexer.Diagnostic item)

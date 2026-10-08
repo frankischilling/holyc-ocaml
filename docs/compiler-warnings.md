@@ -113,9 +113,12 @@ assert that the selected record will be reused. These receipts expire with the
 original focused declaration callback, including on a later parser failure.
 
 These observations do not yet increment native `CHash.use_cnt` or emit unused
-extern warnings. The frontend keeps definitions and predefined expansion
-candidates separately from symbol visibility; those facts alone cannot prove
-the winner in a unified native hash table. The remaining consumer must validate
+extern warnings. Source definitions now publish their exact replacement objects
+in symbol order, and expansion consumes the original lexer selection. Locals
+and selected nondefinition symbols suppress expansion. Predefined fallbacks and
+library definitions injected without a symbol entry remain separate metadata;
+the frontend selection does not establish native hash-record ownership. The
+remaining consumer must validate
 record ownership, share counts across actual reused records and aliases, wrap
 increments as U32, and warn before resetting a joined record's count. The
 original sites are Kernel/KHashA.HC:31-70, Compiler/Lex.HC:492-513 and

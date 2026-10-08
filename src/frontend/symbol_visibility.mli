@@ -57,6 +57,10 @@ val function_alias_original : entry -> entry option
 (** Exact immutable immediate original of an explicit function alias. Ordinary
     entries, including same-name/origin/shape clones, have no alias ancestry. *)
 
+val definition_payload : entry -> Definition.t option
+(** Exact immutable source definition attached by [Environment.add_definition].
+    A plain Definition-kind registration carries no replacement authority. *)
+
 val kind_name : kind -> string
 val kind_bit : kind -> int
 
@@ -98,6 +102,16 @@ module Environment : sig
     entry
 
   val find_preprocessor : t -> string -> lookup
+
+  val add_definition :
+    t ->
+    definitions:Definition.Environment.t ->
+    definition:Definition.t ->
+    (entry, string) result
+  (** Publish a definition in the same ordered symbol store as other kinds. The
+      replacement object must physically belong to the supplied definition
+      writer; a visible foreign baseline object rejects. This supplies frontend
+      selection metadata, not native hash-record ownership. *)
 
   val add_public_primitive :
     t -> primitive:Common.Primitive_type.t -> origin:origin -> entry

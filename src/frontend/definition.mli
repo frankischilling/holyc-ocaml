@@ -41,6 +41,12 @@ module Environment : sig
     definition
 
   val find : t -> string -> definition option
+
+  val owns : t -> definition -> bool
+  (** Physical membership under this writer, including an older definition.
+      Visibility of another writer's baseline definition does not confer
+      publication ownership. *)
+
   val all : t -> definition list
   val dump : Common.Source_manager.t -> t -> string
 end

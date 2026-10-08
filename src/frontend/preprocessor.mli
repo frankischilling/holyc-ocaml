@@ -74,9 +74,11 @@ val lexical_lookup_is_current : lexical_lookup -> bool
 val same_lexical_lookup_stream : lexical_lookup -> lexical_lookup -> bool
 (** A read-only observation of one original identifier or keyword lexer read,
     including reads consumed by directives and definition expansion. The symbol
-    selection uses the preprocessor mask and original local visibility.
-    Definition and predefined metadata retain the separate frontend expansion
-    candidates; they do not establish a unified native hash-table winner. The
+    selection uses the preprocessor mask and original local visibility. Source
+    Definition entries carry their exact replacement payload and expansion
+    consumes this original selection. Definition and predefined metadata also
+    retain fallback candidates, which may be suppressed by the selected symbol
+    or local member. They do not establish native hash-record ownership. The
     ordinal is stream-local and increases once per observation. The opaque
     receipt is current only in its original domain during its synchronous
     callback; a saved receipt, copied token or another stream cannot grant
