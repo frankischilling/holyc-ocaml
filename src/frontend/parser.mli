@@ -86,6 +86,14 @@ val context_emit_compiler_warning :
     original focused control. Child compiler warnings retain their order and
     survive a later child or parent failure. *)
 
+val context_warning_count : command_context -> (int64, string) result
+
+val context_emit_counted_compiler_warning :
+  command_context -> Common.Diagnostic.t -> (unit, string) result
+(** Emit a warning and increment this original control's warning_cnt. Directives
+    share the counter; ordinary child controls start at zero. PrintWarn-only
+    consumers use the uncounted emitter. *)
+
 val context_parent : command_context -> command_position option
 (** Exact input and environment ownership, with the parent's suspended parser
     phase at nested entry. Contexts from distinct parse calls remain distinct.

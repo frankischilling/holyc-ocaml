@@ -290,11 +290,28 @@ let original_source_snapshots () =
     starts
 
 let original_directive_and_child_controls () =
+  let module Diagnostic = Holyc_lib.Diagnostic in
+  let module Span = Holyc_lib.Span in
+  let module Source_file = Holyc_lib.Source_file in
   let session = Session.create () in
   let task = Session.task_frontend session in
   let aot = Config.create ~compilation_mode:Aot () |> checked_control in
   let jit = Config.create ~compilation_mode:Jit () |> checked_control in
   let root = ref None and entered = ref 0 in
+  let emit context counted =
+    let source = Parser.context_source context in
+    let diagnostic =
+      Diagnostic.make ~severity:Diagnostic.Warning ~code:"HCTESTWARNING"
+        ~message:"original warning counter"
+        ~primary:
+          (Span.unsafe_make ~source:(Source_file.id source) ~start:0 ~stop:0)
+        ()
+    in
+    (if counted then Parser.context_emit_counted_compiler_warning
+     else Parser.context_emit_compiler_warning)
+      context diagnostic
+    |> checked_control
+  in
   let child =
     Session.add_source session ~path:"option-child.hc" ~contents:"42;"
   in
@@ -302,12 +319,23 @@ let original_directive_and_child_controls () =
     option_sink (function
       | Parser.Sequence_started context ->
           root := Some context;
+          Alcotest.(check int64)
+            "fresh compiler warning count" 0L
+            (Parser.context_warning_count context |> checked_control);
+          emit context true;
+          emit context false;
+          Alcotest.(check int64)
+            "PrintWarn-only warning leaves count unchanged" 1L
+            (Parser.context_warning_count context |> checked_control);
           ignore
             (Parser.context_set_option context ~bit_index:1L true
             |> checked_control);
           Ok ()
       | Parser.Command_resumed _ ->
           let root = Stdlib.Option.get !root in
+          Alcotest.(check int64)
+            "directive count is retained by its parent" 2L
+            (Parser.context_warning_count root |> checked_control);
           Alcotest.(check bool)
             "directive shares original compiler control" false
             (Parser.context_get_option root ~bit_index:1L |> checked_control);
@@ -322,6 +350,10 @@ let original_directive_and_child_controls () =
     let stream_commands =
       option_sink (function
         | Parser.Sequence_started context ->
+            Alcotest.(check int64)
+              "directive shares warning count" 1L
+              (Parser.context_warning_count context |> checked_control);
+            emit context true;
             Alcotest.(check bool)
               "directive inherits live caller options" true
               (Parser.context_get_option context ~bit_index:1L
@@ -343,6 +375,10 @@ let original_directive_and_child_controls () =
               let child_commands =
                 option_sink (function
                   | Parser.Sequence_started context ->
+                      Alcotest.(check int64)
+                        "each ordinary child starts a fresh counter" 0L
+                        (Parser.context_warning_count context |> checked_control);
+                      emit context true;
                       Alcotest.(check bool)
                         "child copies live caller, not saved table" false
                         (Parser.context_get_option context ~bit_index:1L
@@ -372,7 +408,10 @@ let original_directive_and_child_controls () =
               Alcotest.(check bool)
                 "parent control restored after child" false
                 (Parser.context_get_option caller ~bit_index:0L
-                |> checked_control)
+                |> checked_control);
+              Alcotest.(check int64)
+                "child warnings do not increment parent counter" 2L
+                (Parser.context_warning_count caller |> checked_control)
             done;
             Ok ()
         | _ -> Ok ())
@@ -387,7 +426,12 @@ let original_directive_and_child_controls () =
           abort = (fun () -> ());
         }
   in
-  ignore (parse_options ~execute_stream session aot "#exe {42;}42;" commands);
+  let parsed =
+    parse_options ~execute_stream session aot "#exe {42;}42;" commands
+  in
+  Alcotest.(check int)
+    "counted and uncounted child diagnostics all reach the parent" 5
+    (List.length parsed.diagnostics);
   Alcotest.(check int) "original directive entered" 1 !entered
 
 let original_body_option_snapshots () =

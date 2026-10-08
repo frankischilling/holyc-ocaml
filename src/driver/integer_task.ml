@@ -2108,6 +2108,24 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
         Result.bind
           (Task_declarations.complete_defaults_runtime task.declarations
              ~runtime:task.state header) (fun () ->
+            let ( let* ) = Result.bind in
+            let* consumed =
+              Task_declarations.function_header_warnings_consumed
+                task.declarations header
+              |> Result.map_error (fun message ->
+                  [
+                    Integer_source.message_diagnostic
+                      ~span:
+                        header.function_publication.function_name.location.span
+                      message;
+                  ])
+            in
+            let* () =
+              if consumed then Ok ()
+              else
+                Task_declarations.emit_function_header_warnings
+                  ~runtime:task.state task.declarations header
+            in
             Task_declarations.admit_function_header task.declarations
               ~runtime:task.state header)
     | Frontend.Parser.Global_completed (_, completed)

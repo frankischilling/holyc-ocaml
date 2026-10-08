@@ -2581,6 +2581,18 @@ let fail_task_default task attempt =
     attempt.default_state <- Failed_initializer;
     Ok ())
 
+let task_default_value task receipt =
+  List.find_map
+    (fun attempt ->
+      if
+        (match attempt.default_source with
+          | Named (_, original) -> original == receipt
+          | Callback _ -> false)
+        && attempt.default_state = Successful_initializer
+      then attempt.default_value
+      else None)
+    task.defaults
+
 let task_default_bits task receipt =
   List.find_map
     (fun attempt ->
@@ -2592,6 +2604,102 @@ let task_default_bits task receipt =
       then attempt.default_bits
       else None)
     task.defaults
+
+let compare_saved_parameter_values task left right =
+  let owns value =
+    List.exists
+      (fun attempt ->
+        attempt.default_state = Successful_initializer
+        && Option.fold ~none:false ~some:(( == ) value) attempt.default_value)
+      task.defaults
+  in
+  if not (owns left && owns right) then
+    Error
+      "saved default comparison requires both original successful evaluations"
+  else
+    match Saved_parameter_value.compare_string_defaults left right with
+    | Some equal -> Ok equal
+    | None -> (
+        match
+          ( Saved_parameter_value.word_bits left,
+            Saved_parameter_value.word_bits right )
+        with
+        | Some left, Some right -> Ok (Int64.equal left right)
+        | _ -> (
+            match
+              ( Saved_parameter_value.callback_source left,
+                Saved_parameter_value.callback_source right )
+            with
+            | Some (left, _), Some (right, _) ->
+                Ok (Retained_function.same left right)
+            | _ -> (
+                match
+                  ( Saved_parameter_value.data_source left,
+                    Saved_parameter_value.data_source right )
+                with
+                | Some left, Some right -> (
+                    let address data =
+                      List.find_map
+                        (fun (original, address) ->
+                          if Saved_parameter_value.same_data original data then
+                            Some address
+                          else None)
+                        task.saved_data_values
+                    in
+                    match (address left, address right) with
+                    | Some left, Some right
+                      when left.pointer_storage.live
+                           && right.pointer_storage.live ->
+                        let offset address =
+                          Int64.add
+                            (Int64.mul
+                               (Int64.of_int address.pointer_base)
+                               (Int64.of_int address.pointer_element_bytes))
+                            address.pointer_offset
+                        in
+                        Ok
+                          (left.pointer_storage == right.pointer_storage
+                          && Int64.equal (offset left) (offset right))
+                    | _ ->
+                        Option.value
+                          (Saved_parameter_value.compare_native_data left right)
+                          ~default:
+                            (Error
+                               "saved data header comparison requires the \
+                                original live evaluated addresses"))
+                | Some _, None | None, Some _ ->
+                    let data, other =
+                      match
+                        ( Saved_parameter_value.data_source left,
+                          Saved_parameter_value.data_source right )
+                      with
+                      | Some data, None -> (data, right)
+                      | None, Some data -> (data, left)
+                      | _ -> assert false
+                    in
+                    let live =
+                      List.exists
+                        (fun (original, address) ->
+                          Saved_parameter_value.same_data original data
+                          && address.pointer_storage.live)
+                        task.saved_data_values
+                      || Saved_parameter_value.compare_native_data data data
+                         = Some (Ok true)
+                    in
+                    if live && Saved_parameter_value.word_bits other = Some 0L
+                    then Ok false
+                    else
+                      Error
+                        "saved data header comparison requires the original \
+                         evaluated words"
+                | None, None ->
+                    let undefined value =
+                      Option.is_some
+                        (Saved_parameter_value.undefined_callback_source value)
+                    in
+                    if undefined left || undefined right then
+                      Ok (undefined left && undefined right)
+                    else Ok false)))
 
 let check_native_task_default task attempt program =
   let module Program = Default_fragment_program in
@@ -10938,6 +11046,7 @@ let save_default_data task ~destination ~entry ~executed_steps address =
         |> List.exists (fun instruction ->
             (Sequence.description instruction).opcode = Opcode.Ic_str_const))
   in
+  let copied_bytes = ref None in
   let* address =
     if not has_misc_data then Ok { address with pointer_pointee = pointee }
     else
@@ -11000,6 +11109,7 @@ let save_default_data task ~destination ~entry ~executed_steps address =
       in
       let* () = copy address.pointer_offset in
       let bytes = Buffer.contents bytes in
+      copied_bytes := Some bytes;
       let count = String.length bytes in
       let storage =
         {
@@ -11042,6 +11152,17 @@ let save_default_data task ~destination ~entry ~executed_steps address =
         [
           make_error ~stage:Execution ~span ~executed_steps "HCIRVM0026" message;
         ])
+  in
+  let* value =
+    match !copied_bytes with
+    | None -> Ok value
+    | Some bytes ->
+        Saved_parameter_value.with_string_default ~bytes value
+        |> Result.map_error (fun message ->
+            [
+              make_error ~stage:Execution ~span ~executed_steps "HCIRVM0026"
+                message;
+            ])
   in
   task.saved_data_values <-
     (Option.get (Saved_parameter_value.data_source value), address)

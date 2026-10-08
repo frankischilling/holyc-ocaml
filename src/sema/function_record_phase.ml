@@ -16,6 +16,12 @@ type slot =
   | Argc of Parser.function_variadic_publication
   | Argv of Parser.function_variadic_publication
 
+type header_member =
+  | Fixed_header_member of P.member
+  | Argc_header_member of Parser.function_variadic_publication
+  | Argv_header_member of Parser.function_variadic_publication
+  | Local_header_member of Parser.function_local_allocation
+
 type size =
   | Size_value of int64 option
   | Size_add of size * int64
@@ -25,6 +31,7 @@ type native_state = {
   owner : Parser.function_publication;
   header_size : size;
   slots : slot list;
+  header_slots : header_member list;
   body_names : string list;
   members : int option;
   arguments : int option;
@@ -53,6 +60,7 @@ and t = {
   native : native;
   prepared_target : Prepared_internal_binding.t option;
   saved_arguments : int option;
+  saved_header : snapshot option;
   mutable aliases : Visibility.entry list;
   mutable body : Ast.function_definition option;
   mutable locals : Parser.function_local_allocation list;
@@ -67,6 +75,7 @@ and snapshot = {
   identity : native_identity;
   snapshot_prepared_target : Prepared_internal_binding.t option;
   snapshot_saved_arguments : int option;
+  snapshot_saved_header : snapshot option;
   revision : revision;
   phase_event : phase_event option;
 }
@@ -151,6 +160,49 @@ let native_members snapshot =
       | Argc _ | Argv _ -> None)
     snapshot.native_state.slots
 
+let header_members snapshot = snapshot.native_state.header_slots
+
+let checked_header_members snapshot =
+  let state = snapshot.native_state in
+  match (state.unavailable, state.members) with
+  | Some reason, _ -> Error reason
+  | None, None -> Error "native header member count is unavailable"
+  | None, Some count ->
+      let recorded =
+        List.fold_left
+          (fun count -> function
+            | Fixed_header_member _ | Local_header_member _ -> count + 1
+            | Argc_header_member _ | Argv_header_member _ -> count)
+          0 state.header_slots
+      in
+      if count = recorded then Ok state.header_slots
+      else Error "native header member count differs from its original cursor"
+
+let same_header_member left right =
+  match (left, right) with
+  | Fixed_header_member left, Fixed_header_member right -> left == right
+  | Argc_header_member left, Argc_header_member right
+  | Argv_header_member left, Argv_header_member right -> left == right
+  | Local_header_member left, Local_header_member right -> left == right
+  | _ -> false
+
+let header_member_has_class_base = function
+  | Local_header_member receipt
+    when receipt.allocation_storage = Ast.Automatic_local -> (
+      match receipt.allocation_local.local_source with
+      | Parser.Local_variable source ->
+          not
+            (Option.fold ~none:false
+               ~some:(fun prior ->
+                 match prior.Parser.allocation_local.local_source with
+                 | Parser.Local_variable previous ->
+                     previous.local_type_specifier
+                     == source.local_type_specifier
+                 | _ -> false)
+               receipt.allocation_predecessor)
+      | _ -> false)
+  | _ -> false
+
 let argument_count snapshot = snapshot.native_state.arguments
 let member_count snapshot = snapshot.native_state.members
 
@@ -202,6 +254,7 @@ let add_header_bytes size count =
   | _ -> Size_add (size, count)
 
 let saved_previous_argument_count snapshot = snapshot.snapshot_saved_arguments
+let saved_previous_header snapshot = snapshot.snapshot_saved_header
 let ellipsis_flag snapshot = snapshot.native_state.ellipsis
 let is_extern snapshot = snapshot.native_state.extern
 
@@ -233,6 +286,7 @@ let snapshot record =
           identity = record.native.identity;
           snapshot_prepared_target = record.prepared_target;
           snapshot_saved_arguments = record.saved_arguments;
+          snapshot_saved_header = record.saved_header;
           revision = record.native.revision;
           phase_event =
             (if record.phase_revision == record.native.revision then
@@ -429,15 +483,17 @@ let begin_header ?activation ?internal_target registry publication source =
         with
         | Error message -> Error message
         | Ok transcript ->
-            let native, saved_arguments =
+            let native, saved_arguments, saved_header =
               match previous with
               | Some prior when prior.native.state.extern = Some true ->
+                  let saved = snapshot prior in
                   let old = prior.native.state in
                   let state =
                     {
                       old with
                       owner = source;
                       slots = [];
+                      header_slots = [];
                       body_names = [];
                       members = Some 0;
                       arguments = Some 0;
@@ -445,7 +501,7 @@ let begin_header ?activation ?internal_target registry publication source =
                     }
                   in
                   advance_native prior.native state;
-                  (prior.native, old.arguments)
+                  (prior.native, old.arguments, Some saved)
               | previous ->
                   let unknown =
                     match (previous, source.function_previous) with
@@ -459,6 +515,7 @@ let begin_header ?activation ?internal_target registry publication source =
                       header_size =
                         Size_value (if unknown then None else Some 0L);
                       slots = [];
+                      header_slots = [];
                       body_names = [];
                       members = (if unknown then None else Some 0);
                       arguments = (if unknown then None else Some 0);
@@ -477,6 +534,7 @@ let begin_header ?activation ?internal_target registry publication source =
                       state;
                       revision = { previous_revision = None };
                     },
+                    None,
                     None )
             in
             let record =
@@ -486,6 +544,7 @@ let begin_header ?activation ?internal_target registry publication source =
                 native;
                 prepared_target = internal_target;
                 saved_arguments;
+                saved_header;
                 aliases = [ source.function_entry ];
                 body = None;
                 locals = [];
@@ -637,6 +696,7 @@ let observe_local_allocation record receipt =
         {
           state with
           body_names = spelling :: state.body_names;
+          header_slots = state.header_slots @ [ Local_header_member receipt ];
           members = Option.map (( + ) 1) state.members;
           header_size = Size_local (state.header_size, receipt);
         }
@@ -711,6 +771,14 @@ let observe ?activation record event =
                 | slot -> slot)
               state.slots
           in
+          let update_header_member source =
+            List.map
+              (function
+                | Fixed_header_member prior when P.member_source prior == source
+                  -> Fixed_header_member (member source)
+                | slot -> slot)
+              state.header_slots
+          in
           let next =
             match event with
             | Parser.Function_parameter_declared source ->
@@ -721,6 +789,9 @@ let observe ?activation record event =
                   {
                     state with
                     slots = state.slots @ [ inserted ];
+                    header_slots =
+                      state.header_slots
+                      @ [ Fixed_header_member (member source) ];
                     members = Option.map succ state.members;
                     header_size = add_header_bytes state.header_size 8L;
                   }
@@ -733,7 +804,12 @@ let observe ?activation record event =
                       | _ -> false)
                     state.slots
                 then
-                  { state with slots = update_member receipt.default_parameter }
+                  {
+                    state with
+                    slots = update_member receipt.default_parameter;
+                    header_slots =
+                      update_header_member receipt.default_parameter;
+                  }
                 else
                   {
                     state with
@@ -748,6 +824,8 @@ let observe ?activation record event =
                 {
                   state with
                   slots = update_member complete.parameter_publication;
+                  header_slots =
+                    update_header_member complete.parameter_publication;
                 }
             | Parser.Function_variadic_started _ ->
                 { state with ellipsis = true }
@@ -756,7 +834,12 @@ let observe ?activation record event =
                   invalid_insertion state
                 else
                   let with_argc =
-                    { state with slots = state.slots @ [ Argc source ] }
+                    {
+                      state with
+                      slots = state.slots @ [ Argc source ];
+                      header_slots =
+                        state.header_slots @ [ Argc_header_member source ];
+                    }
                   in
                   if native_member_collides with_argc (Some "argv") then
                     invalid_insertion with_argc
@@ -764,6 +847,8 @@ let observe ?activation record event =
                     {
                       with_argc with
                       slots = with_argc.slots @ [ Argv source ];
+                      header_slots =
+                        with_argc.header_slots @ [ Argv_header_member source ];
                       header_size = add_header_bytes state.header_size 16L;
                     }
             | Parser.Function_header_completed header ->

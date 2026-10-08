@@ -56,3 +56,33 @@ val resolve_completed_header_with_collection :
 (** Resolve one completed header while retaining the exact parameter collection
     needed by eventual body completion. Named aggregate pointers require their
     original occurrence proof; no current namespace lookup is performed. *)
+
+val resolve_native_header_types :
+  ?selected_aggregate:Sema.Function_type_resolution.selected_aggregate_resolver ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Function_record_phase.snapshot ->
+  ( Sema.Type_reference.t
+    * (Sema.Function_record_phase.header_member * Sema.Type.t) list,
+    string )
+  result
+(** Resolve the full original header cursor without applying arg_cnt or
+    allocating a call scope. Incomplete members retain their original published
+    type source; argc/argv retain the pinned internal I64 member class. *)
+
+val resolve_native_header_return_type :
+  ?selected_aggregate:Sema.Function_type_resolution.selected_aggregate_resolver ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Function_record_phase.snapshot ->
+  (Sema.Type_reference.t, string) result
+
+val resolve_native_header_member_type :
+  ?selected_aggregate:Sema.Function_type_resolution.selected_aggregate_resolver ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Function_record_phase.snapshot ->
+  Sema.Function_record_phase.header_member ->
+  (Sema.Type.t, string) result
+(** Resolve one original member after checking its physical snapshot membership.
+    These separate reads preserve the compiler's comparison short circuits. *)

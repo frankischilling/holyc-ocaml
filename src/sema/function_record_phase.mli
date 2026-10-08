@@ -153,9 +153,36 @@ val native_members : snapshot -> Provisional_function.member list
     members beyond the active argument count. These can belong to nested headers
     rather than this snapshot's per-publication source transcript. *)
 
+type header_member = private
+  | Fixed_header_member of Provisional_function.member
+  | Argc_header_member of Frontend.Parser.function_variadic_publication
+  | Argv_header_member of Frontend.Parser.function_variadic_publication
+  | Local_header_member of Frontend.Parser.function_local_allocation
+
+val header_members : snapshot -> header_member list
+(** Full original member cursor, including body locals and argc/argv. This is a
+    read-only snapshot and grants no call authority. *)
+
+val checked_header_members : snapshot -> (header_member list, string) result
+(** Rejects unavailable native evidence or a count inconsistent with the
+    original insertion receipts. Synthetic argc/argv do not contribute to
+    member_cnt. *)
+
+val same_header_member : header_member -> header_member -> bool
+
+val header_member_has_class_base : header_member -> bool
+(** Automatic locals retain MemberAdd's first-declarator class-base flag. Formal
+    arguments, synthetic members, comma followers and statics have none. *)
+
 val argument_count : snapshot -> int option
 val member_count : snapshot -> int option
 val saved_previous_argument_count : snapshot -> int option
+
+val saved_previous_header : snapshot -> snapshot option
+(** Exact member cursor, return source and argument count saved before the
+    original extern record is cleared for a joined header. The immutable view
+    includes members beyond its argument count and grants no call authority. *)
+
 val ellipsis_flag : snapshot -> bool
 val is_extern : snapshot -> bool option
 val unavailable_reason : snapshot -> string option

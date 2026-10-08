@@ -75,6 +75,113 @@ let expected =
     ("HCSEMA0034", "unused variable \"unused\" in function \"Child\"");
   ]
 
+let header_warnings =
+  [
+    ( "HCSEMA0037",
+      "function \"F\" return type does not match the replaced header" );
+    ( "HCSEMA0038",
+      "function \"F\" argument list does not match the replaced header" );
+  ]
+
+let header_cases =
+  [
+    ( "same evaluated callback owner",
+      "I64 A(I64 n){return n;}extern I64 F(I64 (*cb)(I64 n)=&A);I64 F(I64 \
+       (*cb)(I64 n)=&A){return cb(42);}F();",
+      [],
+      0 );
+    ( "different evaluated callback owners",
+      "I64 A(I64 n){return n;}I64 B(I64 n){return n;}extern I64 F(I64 \
+       (*cb)(I64 n)=&A);I64 F(I64 (*cb)(I64 n)=&B){return cb(42);}F();",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ( "same actual data address",
+      "I64 A[2]={42,17};extern I64 F(I64 *p=&A[0]);I64 F(I64 *p=A){return \
+       *p;}F();",
+      [],
+      0 );
+    ( "different actual data offsets",
+      "I64 A[2]={42,17};extern I64 F(I64 *p=&A[0]);I64 F(I64 *p=&A[1]){return \
+       *p+25;}F();",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ( "different data objects with equal contents",
+      "I64 A=42;I64 B=42;extern I64 F(I64 *p=&A);I64 F(I64 *p=&B){return \
+       *p;}F();",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ( "copied string bytes match",
+      "extern I64 F(U8 *s=\"ABC\");I64 F(U8 *s=\"ABC\"){return s[0]-23;}F();",
+      [],
+      0 );
+    ( "copied string bytes differ",
+      "extern I64 F(U8 *s=\"ABC\");I64 F(U8 *s=\"AXC\"){return s[0]-23;}F();",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ( "copied strings stop at NUL",
+      "extern I64 F(U8 *s=\"AB\\0C\");I64 F(U8 *s=\"AB\\0D\"){return \
+       s[0]-23;}F();",
+      [],
+      0 );
+    ( "string flag differs from ordinary data word",
+      "U8 A[2]={65,0};extern I64 F(U8 *s=\"A\");I64 F(U8 *s=A){return \
+       s[0]-23;}F();",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ("matching classes", "extern I64 F(I64 n);I64 F(I64 n){return n;}42;", [], 0);
+    ( "return and member classes",
+      "extern I64 F(I64 n);U8 F(U8 n){return n;}42;",
+      header_warnings,
+      0 );
+    ( "member name",
+      "extern I64 F(I64 before);I64 F(I64 after){return after;}42;",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ( "saved full default words",
+      "extern I64 F(U8 n=554);I64 F(U8 n=42){return n;}F();",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ( "once-only default effects",
+      "I64 N=40;extern I64 F(I64 n=++N);I64 F(I64 n=++N-1){return \
+       n;}(F()==41&&N==42)*42;",
+      [],
+      0 );
+    ( "changing evaluated defaults",
+      "I64 N=40;extern I64 F(I64 n=++N);I64 F(I64 n=++N){return n;}N=0;F()+N;",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ( "lastclass zero",
+      "extern I64 F(I64 n=lastclass);I64 F(I64 n=0){return n;}42;",
+      [],
+      0 );
+    ( "empty saved list",
+      "extern I64 F();extern I64 F(...);42;",
+      [ List.nth header_warnings 1 ],
+      0 );
+    ( "saved variadic members",
+      "extern I64 F(I64 n,...);extern I64 F(I64 n,I64 extra);42;",
+      [],
+      0 );
+    ( "definition ends JIT reuse",
+      "I64 F(I64 n){return n;}U8 F(U8 n){return n;}42;",
+      [],
+      0 );
+    ( "warnings precede failed body",
+      "extern I64 F(I64 n);U8 F(U8 n){return missing;}42;",
+      header_warnings,
+      1 );
+    ( "header mask precedes body option",
+      "extern U8 Option(I64 num,U8 val);extern I64 F(I64 n);U8 F(U8 n){#exe \
+       {Option(19,0);}return n;}42;",
+      header_warnings,
+      0 );
+    ( "header mask follows default option",
+      "extern U8 Option(I64 num,U8 val);extern I64 F(I64 n=42);U8 F(U8 \
+       m=Option(19,0)+41){return m;}F();",
+      [],
+      0 );
+  ]
+
 let () =
   List.iter
     (fun target ->
@@ -162,5 +269,21 @@ let () =
                       ])
                     "no_warn did not update local warning state")))
         [ "jit"; "aot" ])
+    targets;
+  List.iter
+    (fun target ->
+      List.iter
+        (fun (label, source, expected, status) ->
+          temporary ".hc" source (fun path ->
+              let report = invoke ~status "jit" target path in
+              require
+                (warnings report = expected)
+                (label ^ ": header warning order changed");
+              if status = 0 then
+                require
+                  (report |> member "final_value" |> member "value" |> to_string
+                 = "42")
+                  (label ^ ": header warnings changed execution")))
+        header_cases)
     targets;
   Printf.printf "%d compiler warning CLI executions passed\n%!" !count

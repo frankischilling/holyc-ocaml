@@ -349,6 +349,9 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       ensure_task receipt.binding_ast.location.span
                       |> Result.map ignore
                   | true, Some task, _ -> Task.observe_initializer task event
+                  | true, None, Parser.Function_header_completed header ->
+                      Task_declarations.emit_function_header_warnings ledger
+                        header
                   | true, None, Parser.Callback_default_completed receipt -> (
                       match receipt.callback_default_ast.value with
                       | Frontend.Ast.Expression_default _ ->

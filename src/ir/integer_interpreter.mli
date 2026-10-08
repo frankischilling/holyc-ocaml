@@ -328,6 +328,23 @@ val task_native_callback_default :
 val task_default_bits :
   task_state -> Frontend.Parser.completed_parameter_default -> int64 option
 
+val task_default_value :
+  task_state ->
+  Frontend.Parser.completed_parameter_default ->
+  Saved_parameter_value.t option
+(** Read only an original successful evaluation. A parsed or pending receipt
+    supplies no available default value. *)
+
+val compare_saved_parameter_values :
+  task_state ->
+  Saved_parameter_value.t ->
+  Saved_parameter_value.t ->
+  (bool, string) result
+(** Compare owned saved words without executing expressions. Callback equality
+    uses the captured executable owner in this runtime. Data equality requires
+    actual live interpreter addresses or checked native arena captures. This
+    grants no address or entry authority. *)
+
 val complete_task_defaults :
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->

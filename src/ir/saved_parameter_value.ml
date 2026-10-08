@@ -1,9 +1,13 @@
 module Typed = Sema.Function_call_expression_result
 
+type native_comparison = { owner : unit ref; offset : int; live : unit -> bool }
+
 type data = {
   source : Typed.expression_result;
   type_ : Sema.Type.t;
   identity : unit ref;
+  native_comparison : native_comparison option;
+  string_default : string option;
 }
 
 type t =
@@ -42,7 +46,16 @@ let data ~source ~type_ =
               if Typed.result_is_array_address source then
                 Result.to_option (Sema.Type.pointer_to original)
               else Some original))
-  then Ok (Data { source; type_; identity = ref () })
+  then
+    Ok
+      (Data
+         {
+           source;
+           type_;
+           identity = ref ();
+           native_comparison = None;
+           string_default = None;
+         })
   else Error "saved data requires a one-level scalar data-pointer parameter"
 
 let data_source = function
@@ -52,6 +65,48 @@ let data_source = function
 let data_expression data = data.source
 let data_type data = data.type_
 let same_data left right = left.identity == right.identity
+
+let with_native_data_comparison ~owner ~offset ~live = function
+  | Data data
+    when offset >= 0 && Option.is_none data.native_comparison && live () ->
+      Ok (Data { data with native_comparison = Some { owner; offset; live } })
+  | _ ->
+      Error "native data comparison requires an original unbound live capture"
+
+let compare_native_data left right =
+  match (left.native_comparison, right.native_comparison) with
+  | Some left, Some right when left.live () && right.live () ->
+      Some (Ok (left.owner == right.owner && left.offset = right.offset))
+  | Some _, Some _ ->
+      Some (Error "native data comparison belongs to an expired arena")
+  | _ -> None
+
+let with_string_default ~bytes = function
+  | Data data
+    when Option.is_none data.string_default
+         && String.length bytes > 0
+         && bytes.[String.length bytes - 1] = '\000' ->
+      Ok (Data { data with string_default = Some bytes })
+  | _ ->
+      Error
+        "saved string comparison requires an original completed terminated copy"
+
+let compare_string_defaults left right =
+  let bytes = function
+    | Data data -> data.string_default
+    | _ -> None
+  in
+  match (bytes left, bytes right) with
+  | None, None -> None
+  | Some _, None | None, Some _ -> Some false
+  | Some left, Some right ->
+      let rec equal index =
+        let left_end = index = String.length left || left.[index] = '\000' in
+        let right_end = index = String.length right || right.[index] = '\000' in
+        if left_end || right_end then left_end && right_end
+        else left.[index] = right.[index] && equal (index + 1)
+      in
+      Some (equal 0)
 
 let rec accepts_callback_expression source =
   let module Resolution = Sema.Function_call_resolution in

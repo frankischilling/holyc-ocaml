@@ -3177,6 +3177,49 @@ CAMLprim value holyc_native_task_arena_admit(value handle, value expected_used,
    descriptor stays private to the original task arena; no host address crosses
    this API. The first pass measures attempted scan work, and the second pass
    copies into an exactly sized OCaml buffer under the arena lease. */
+CAMLprim value holyc_native_read_task_default_address_offset(value handle, value request, value scope_option)
+{
+  CAMLparam3(handle, request, scope_option);
+  native_collect_deferred();
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  struct native_task_arena *arena = native_task_arena_get(handle);
+  intnat prefix, descriptor;
+  uint64_t fields[4];
+  uintptr_t base, data, flag;
+  size_t offset, extent;
+  int expected = 0;
+  if (!Is_block(request) || Tag_val(request) != 0 || Wosize_val(request) != 2 ||
+      !Is_long(Field(request, 0)) || !Is_long(Field(request, 1)))
+    caml_invalid_argument("native default address request is malformed");
+  prefix = Long_val(Field(request, 0)); descriptor = Long_val(Field(request, 1));
+  if (prefix < 0 || descriptor < 0)
+    caml_invalid_argument("native default address has invalid bounds");
+  int borrowed_arena = native_source_borrows_arena(scope_option, handle);
+  if (!borrowed_arena && !atomic_compare_exchange_strong(&arena->active, &expected, 1))
+    caml_failwith("native task arena is already active");
+  if (arena->closing || arena->mapping == NULL || arena->used != (size_t)prefix ||
+      (uintnat)descriptor > arena->used || arena->used - (uintnat)descriptor < 32) {
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
+    caml_invalid_argument("native default address has another arena prefix or descriptor");
+  }
+  memcpy(fields, (char *)arena->mapping + descriptor, 32);
+  base = (uintptr_t)arena->mapping; data = (uintptr_t)fields[0];
+  flag = (uintptr_t)fields[1]; offset = (size_t)fields[2]; extent = (size_t)fields[3];
+  if (data < base || data - base > arena->used ||
+      extent > arena->used - (data - base) || offset > extent ||
+      (flag != 0 && (flag < base || flag - base >= arena->used || extent > flag - base + 1))) {
+    if (!borrowed_arena) atomic_store(&arena->active, 0);
+    caml_invalid_argument("native default address leaves its original task arena");
+  }
+  size_t relative = data - base + offset;
+  if (!borrowed_arena) atomic_store(&arena->active, 0);
+  CAMLreturn(Val_long((intnat)relative));
+#endif
+  CAMLreturn(Val_unit);
+}
+
 CAMLprim value holyc_native_read_task_default_string(value handle, value request, value scope_option)
 {
   CAMLparam3(handle, request, scope_option);

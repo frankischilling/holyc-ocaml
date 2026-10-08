@@ -197,11 +197,37 @@ let stateful_omission_source =
   {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b,I64 c=1){Out=a+b+c;}"x",,1,;StreamPrint("%d;",Out);}|}
 
 let source_warnings source =
+  let header ?(return_type = true) name =
+    (if return_type then
+       [
+         ( "HCSEMA0037",
+           "warning",
+           Printf.sprintf
+             "function %S return type does not match the replaced header" name
+         );
+       ]
+     else [])
+    @ [
+        ( "HCSEMA0038",
+          "warning",
+          Printf.sprintf
+            "function %S argument list does not match the replaced header" name
+        );
+      ]
+  in
   if
     List.mem source
       [ omission_source; parenthesized_source; stateful_omission_source ]
-  then unused_warnings "Print" [ "s" ]
-  else if source = function_versions_source then unused_warnings "F" [ "n" ]
+  then
+    header "Print"
+    @ unused_warnings "Print" [ "s" ]
+    @ if source = parenthesized_source then header "PutChars" else []
+  else if source = absent_source then header "Print" @ header "PutChars"
+  else if source = adjacent_source then header "PutChars"
+  else if source = variadic_source then header "Print"
+  else if source = extern_source then header ~return_type:false "F"
+  else if source = function_versions_source then
+    header ~return_type:false "F" @ unused_warnings "F" [ "n" ]
   else []
 
 let () =
@@ -556,8 +582,30 @@ let () =
         (report |> member "final_value" |> member "value" |> to_string = "42")
         "implicit phase fixture result";
       require
-        (report |> member "diagnostics" |> to_list = [])
-        "implicit phase fixture diagnostics";
+        (diagnostic_signature report
+        = [
+            ( "HCSEMA0037",
+              "warning",
+              "function \"Print\" return type does not match the replaced \
+               header" );
+            ( "HCSEMA0038",
+              "warning",
+              "function \"Print\" argument list does not match the replaced \
+               header" );
+            ( "HCSEMA0038",
+              "warning",
+              "function \"Print\" argument list does not match the replaced \
+               header" );
+            ( "HCSEMA0037",
+              "warning",
+              "function \"PutChars\" return type does not match the replaced \
+               header" );
+            ( "HCSEMA0038",
+              "warning",
+              "function \"PutChars\" argument list does not match the replaced \
+               header" );
+          ])
+        "implicit phase fixture reached header warnings";
       require
         (report |> member "output_hex" |> to_string = "")
         "implicit replacement must execute its source body";

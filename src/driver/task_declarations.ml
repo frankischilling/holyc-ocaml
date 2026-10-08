@@ -97,6 +97,7 @@ type source =
         option;
       mutable body : Ast.function_definition option;
       mutable body_compiler_options : int64 option;
+      mutable header_warnings_emitted : bool;
     }
 
 type assigned = {
@@ -2748,6 +2749,7 @@ let observe ?offset_runtime ledger event =
                  typed_header = None;
                  body = None;
                  body_compiler_options = None;
+                 header_warnings_emitted = false;
                })
             publication.function_entry;
           retain_selected_aggregate ledger
@@ -5931,6 +5933,203 @@ let emit_compiler_warnings ledger ~runtime diagnostics =
               Result.bind result (fun () ->
                   Parser.context_emit_compiler_warning context diagnostic))
             (Ok ()) diagnostics)
+
+type header_default =
+  | Header_word of int64
+  | Header_saved of VM.task_state * Ir.Saved_parameter_value.t
+
+let function_header_warnings_consumed ledger header =
+  match
+    Names.find_opt ledger.names header.Parser.function_publication.function_name
+  with
+  | Some { source = Function state; _ }
+    when Option.fold ~none:false ~some:(( == ) header) state.header ->
+      Ok state.header_warnings_emitted
+  | _ -> Error "header warning receipt has another original source ledger"
+
+let emit_function_header_warnings ?runtime ledger header =
+  protect (fun () ->
+      let module N = Sema.Function_record_phase in
+      let module P = Sema.Provisional_function in
+      let publication = header.Parser.function_publication in
+      let span = publication.function_name.location.span in
+      let context =
+        publication.function_header.declaration_command.command_context
+      in
+      let observed_events =
+        List.fold_left
+          (fun count event ->
+            let original =
+              match event with
+              | Parser.Sequence_started original
+              | Parser.Sequence_aborted original -> original
+              | Parser.Command_started start -> start.command_context
+              | Parser.Command_completed completed
+              | Parser.Command_resumed completed ->
+                  completed.command_start.command_context
+              | Parser.Sequence_completed completed ->
+                  completed.sequence_context
+            in
+            if original == context then count + 1 else count)
+          0 ledger.source_events_rev
+      in
+      (match (ledger.authority, runtime) with
+      | Source_compilation _, None -> ()
+      | Task_runtime original, Some runtime when original == runtime -> ()
+      | _ -> fail span "header warnings have another original source authority");
+      if
+        not
+          (Parser.function_header_is_current header
+          && Parser.context_is_current context ~observed_events)
+      then
+        fail span
+          "header warnings require their original fully observed completion";
+      let assigned = find ledger publication.function_name in
+      match assigned.source with
+      | Function state
+        when state.publication == publication
+             && Option.fold ~none:false ~some:(( == ) header) state.header
+             && not state.header_warnings_emitted ->
+          state.header_warnings_emitted <- true;
+          if
+            Sema.Compiler_option.is_enabled ~mask:header.header_compiler_options
+              Sema.Compiler_option.Warn_header_mismatch
+          then
+            Option.iter
+              (fun record ->
+                let current = N.snapshot record in
+                if
+                  not
+                    (List.exists
+                       (fun (event, _) ->
+                         match event with
+                         | Parser.Function_header_completed original
+                           when original == header ->
+                             N.matches_event current event
+                         | _ -> false)
+                       ledger.native_function_events)
+                then
+                  fail span
+                    "header warning cursor lost its original completed phase";
+                Option.iter
+                  (fun previous ->
+                    let selected_aggregate type_specifier =
+                      Type_specifiers.find_opt ledger.selected_aggregate_types
+                        type_specifier
+                    in
+                    let return_type snapshot =
+                      Function_type_resolution.resolve_native_header_return_type
+                        ~selected_aggregate ~table:ledger.table
+                        ~namespace:ledger.namespace snapshot
+                      |> checked span |> Sema.Type_reference.resolved_type
+                    in
+                    let warn code message =
+                      Common.Diagnostic.make ~severity:Common.Diagnostic.Warning
+                        ~code ~message ~primary:span ()
+                      |> Parser.context_emit_counted_compiler_warning context
+                      |> checked span
+                    in
+                    if
+                      not
+                        (Sema.Type.equal (return_type current)
+                           (return_type previous))
+                    then
+                      warn "HCSEMA0037"
+                        (Printf.sprintf
+                           "function %S return type does not match the \
+                            replaced header"
+                           publication.function_name.spelling);
+                    let saved_count =
+                      match N.argument_count previous with
+                      | Some count when count >= 0 -> count
+                      | _ ->
+                          fail span
+                            "header comparison lacks its actual saved argument \
+                             count"
+                    in
+                    let name = function
+                      | N.Fixed_header_member member ->
+                          (P.member_source member).parameter_name
+                          |> Option.fold ~none:"_anon_"
+                               ~some:(fun (name : Ast.identifier) ->
+                                 name.Ast.spelling)
+                      | N.Argc_header_member _ -> "argc"
+                      | N.Argv_header_member _ -> "argv"
+                      | N.Local_header_member receipt ->
+                          receipt.allocation_local.local_spelling
+                    in
+                    let default = function
+                      | N.Argc_header_member _
+                      | N.Argv_header_member _
+                      | N.Local_header_member _ -> None
+                      | N.Fixed_header_member member ->
+                          Option.bind (P.member_default_source member)
+                            (fun receipt ->
+                              match receipt.default_ast.value with
+                              | Ast.Lastclass_default _ -> Some (Header_word 0L)
+                              | Ast.Expression_default _ ->
+                                  Option.bind runtime (fun runtime ->
+                                      VM.task_default_value runtime receipt
+                                      |> Option.map (fun value ->
+                                          Header_saved (runtime, value))))
+                    in
+                    let same_default left right =
+                      match (left, right) with
+                      | None, None -> true
+                      | None, Some _ | Some _, None -> false
+                      | Some (Header_word left), Some (Header_word right) ->
+                          Int64.equal left right
+                      | ( Some (Header_saved (left_runtime, left)),
+                          Some (Header_saved (right_runtime, right)) ) ->
+                          if left_runtime != right_runtime then
+                            fail span
+                              "header default words have different original \
+                               runtimes";
+                          VM.compare_saved_parameter_values left_runtime left
+                            right
+                          |> checked span
+                      | Some (Header_word bits), Some (Header_saved (_, value))
+                      | Some (Header_saved (_, value)), Some (Header_word bits)
+                        ->
+                          Option.fold ~none:false ~some:(Int64.equal bits)
+                            (Ir.Saved_parameter_value.word_bits value)
+                    in
+                    let member_type snapshot member =
+                      Function_type_resolution.resolve_native_header_member_type
+                        ~selected_aggregate ~table:ledger.table
+                        ~namespace:ledger.namespace snapshot member
+                      |> checked span
+                    in
+                    let rec compare count left right =
+                      match (left, right) with
+                      | [], [] -> true
+                      | _ :: _, _ :: _ when count = 0 -> true
+                      | left :: left_rest, right :: right_rest ->
+                          String.equal (name left) (name right)
+                          && Sema.Type.equal (member_type current left)
+                               (member_type previous right)
+                          && N.header_member_has_class_base left
+                             = N.header_member_has_class_base right
+                          && same_default (default left) (default right)
+                          && compare (count - 1) left_rest right_rest
+                      | [], _ :: _ | _ :: _, [] -> false
+                    in
+                    if
+                      not
+                        (compare saved_count
+                           (N.checked_header_members current |> checked span)
+                           (N.checked_header_members previous |> checked span))
+                    then
+                      warn "HCSEMA0038"
+                        (Printf.sprintf
+                           "function %S argument list does not match the \
+                            replaced header"
+                           publication.function_name.spelling))
+                  (N.saved_previous_header current))
+              state.native_record
+      | _ ->
+          fail span
+            "header warnings require one original unconsumed completed header")
 
 let saved_compiler_context ledger ~session ~suspension =
   let ( let* ) = Result.bind in

@@ -3259,8 +3259,67 @@ let native_static_storage_owners () =
     "failed declaration never reaches a command request" 2
     (List.length !observed_programs)
 
+let original_header_warning_consumption () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"header-warning-control.hc"
+      ~contents:"extern I64 F(I64 n);U8 F(U8 n){return n;}42;"
+  in
+  let ledger = D.create_source session ~source |> checked in
+  let foreign = D.create_source session ~source |> checked in
+  let counts = ref [] and headers = ref [] in
+  let observe event =
+    let ( let* ) = Result.bind in
+    let* () = D.observe ledger event in
+    match event with
+    | Parser.Function_header_completed header ->
+        reject "foreign ledger cannot emit warnings"
+          (D.emit_function_header_warnings foreign header);
+        let copied : Parser.completed_function_header =
+          Obj.obj (Obj.dup (Obj.repr header))
+        in
+        reject "copied header cannot emit warnings"
+          (D.emit_function_header_warnings ledger copied);
+        let* () = D.emit_function_header_warnings ledger header in
+        reject "original completed warning phase is single use"
+          (D.emit_function_header_warnings ledger header);
+        let context =
+          header.function_publication.function_header.declaration_command
+            .command_context
+        in
+        counts := (Parser.context_warning_count context |> checked) :: !counts;
+        headers := header :: !headers;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let parsed, _ = parse_source ~observe session ledger source in
+  ignore (Test_parser.expect_ast parsed);
+  Alcotest.(check (list int64))
+    "only actual mismatches increment warning_cnt" [ 0L; 2L ] (List.rev !counts);
+  Alcotest.(check (list string))
+    "return warning precedes argument warning"
+    [ "HCSEMA0037"; "HCSEMA0038" ]
+    (List.map
+       (fun (diagnostic : Diagnostic.t) -> diagnostic.code)
+       parsed.diagnostics);
+  List.iter
+    (fun header ->
+      Alcotest.(check bool)
+        "original consumption evidence survives closure" true
+        (D.function_header_warnings_consumed ledger header |> checked);
+      reject "expired header cannot re-emit"
+        (D.emit_function_header_warnings ledger header);
+      reject "closed control cannot operate on its counter"
+        (Parser.context_warning_count
+           header.function_publication.function_header.declaration_command
+             .command_context))
+    !headers
+
 let tests =
   [
+    Alcotest.test_case
+      "original header warnings retain count and single-use authority" `Quick
+      original_header_warning_consumption;
     Alcotest.test_case
       "live native statics retain private storage and completed frames" `Quick
       native_static_storage_owners;

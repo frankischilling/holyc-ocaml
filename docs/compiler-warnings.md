@@ -1,5 +1,42 @@
 # Compiler warnings
 
+JIT extern-header joins emit return-class mismatch HCSEMA0037 followed by
+argument-list mismatch HCSEMA0038 when the completed header's option 19 is
+enabled. The check follows closing-parenthesis lookahead and precedes body
+parsing and runtime header admission. A body error therefore retains reached
+header warnings. A directive's JIT headers follow this path in either outer
+compilation mode; ordinary AOT header joins still need their own phase evidence.
+
+The comparison uses the native cursor saved before the extern record is
+cleared, its actual argument count, and the current shared record's return
+owner. A nested header can change that owner independently of the outer source
+transcript. The full member list includes argc/argv and members beyond arg_cnt.
+It also retains original body-local allocations when a nested header reuses a
+record before its outer definition completes, including their insertion order
+and MemberAdd class-base flags.
+Comparison rejects unavailable cursors or counts that differ from the original
+insertion receipts.
+PrsDotDotDot inserts the synthetic pair without increasing member_cnt, so the
+saved count can stop comparison before those members. Two nonempty lists match
+at count zero; an empty list and a nonempty list do not.
+
+Defaults are read from original successful evaluations. Parsed or pending
+receipts supply no available word, and comparison does not rerun expressions.
+Scalar defaults retain their full saved bits before argument-width conversion.
+Captured callbacks compare the selected executable owner in this private
+runtime. Data defaults compare live interpreter objects and byte offsets or
+addresses read from the original native arena under its capture and lease
+checks. Copied string defaults retain their string flag and actual copied
+bytes, compared through the first NUL. Names and member classes short-circuit
+these payload reads.
+
+[The header example](../examples/compiler-header-warnings.hc) keeps default
+side effects, narrow values, data aliases and callback ownership visible. It
+prints five copies of 42 followed by semicolons and returns 42. Its four header
+warnings come from Count, Width and Both; Quiet uses the disabled header mask.
+Native execution of this combined example uses
+`run --target=host-jit-task --code-byte-limit=1048576`.
+
 The bounded integer source pipeline emits `HCSEMA0034` for an unused parameter
 or local when `OPTf_WARN_UNUSED_VAR` is enabled. Each original completed function
 body keeps the mask reached at its closing boundary. A call to `Option(16,...)`
@@ -36,17 +73,22 @@ symbol and command identities. A saved snapshot is evidence; it grants no
 authority to mutate a closed compiler context. Copies of a completed header or
 body cannot substitute for their original receipts.
 
-The pinned rules are in `Compiler/PrsStmt.HC:193-207`. These `PrintWarn` calls do
-not increment `cc->warning_cnt`; header mismatch warnings do. The hosted
-diagnostic list does not claim to reproduce that native counter or terminal
-formatting.
+The pinned local rules are in Compiler/PrsStmt.HC:193-207. These PrintWarn
+calls do not increment warning_cnt. Header mismatches increment the focused
+parser control's counter once per warning. Directives share that counter;
+ordinary child controls start at zero while forwarding their diagnostics.
+Activation can admit an earlier observed header without replaying its warning
+phase. This counter does not provide a native CCmpCtrl object, the remaining
+LexWarn/LexExcept counters or TempleOS terminal formatting.
 
 Full warning timing remains unfinished. TempleOS tests unused locals after
 `COCCompile`; this pipeline emits after checked integer lowering, before native
 code generation. An ordinary isolated module emits its warnings after the
 whole module compiles, so an earlier function's warning is not retained when
-later source prevents module compilation. Header mismatch, parentheses,
-duplicate-type and return-warning consumers still need their original phase
-integration. The remaining compiler options, typed compiler exceptions, wider
+later source prevents module compilation. Ordinary AOT joins, broader default
+and miscellaneous-data behavior, parentheses, duplicate-type and return-warning
+consumers still need their original phase integration. Callback owner equality
+does not establish original executable-PC or exported-ABI parity. The remaining
+compiler options, typed compiler exceptions, wider
 execution, exported ABI, object/BIN loader, bootstrap and release requirements
 remain open.

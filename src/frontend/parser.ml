@@ -34,6 +34,7 @@ type command_context = {
   context_mode : Preprocessor.compilation_mode;
   context_compiler_options : int64 ref;
   context_warnings_rev : Common.Diagnostic.t list ref;
+  context_warning_count : int64 ref;
   context_parent : command_position option;
   context_parent_events : int option;
   context_stream : bool;
@@ -189,6 +190,18 @@ let context_emit_compiler_warning context (diagnostic : Common.Diagnostic.t) =
     context.context_warnings_rev :=
       diagnostic :: !(context.context_warnings_rev);
     Ok ())
+
+let context_warning_count context =
+  if context_has_focus context then Ok !(context.context_warning_count)
+  else
+    Error "compiler warning count requires the original current parser control"
+
+let context_emit_counted_compiler_warning context diagnostic =
+  Result.map
+    (fun () ->
+      context.context_warning_count :=
+        Int64.succ !(context.context_warning_count))
+    (context_emit_compiler_warning context diagnostic)
 
 let context_parent_in_environment context ~environment =
   let rec parent current stack =
@@ -10465,6 +10478,11 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
         (match saved_stack with
         | [] -> cursor.diagnostics_rev
         | parent :: _ -> (position_context !parent).context_warnings_rev);
+      context_warning_count =
+        (match saved_stack with
+        | parent :: _ when Option.is_some stream_opener ->
+            (position_context !parent).context_warning_count
+        | _ -> ref 0L);
       context_parent =
         (match saved_stack with
         | [] -> None

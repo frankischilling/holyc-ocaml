@@ -1,8 +1,10 @@
 # holyc-ocaml
 
-The bounded source pipeline now emits unused-local and unneeded-`no_warn`
-diagnostics using each function's reached option mask. The
-[warning example](examples/compiler-warning-options.hc) runs through IR and
+The bounded source pipeline now emits JIT joined-header warnings before body
+parsing, using original saved members and evaluated defaults. It also emits
+unused-local and unneeded-`no_warn` diagnostics using each function's reached
+option mask. The [header example](examples/compiler-header-warnings.hc) and
+[warning example](examples/compiler-warning-options.hc) run through IR and
 native tasks in both outer modes. [The warning notes](docs/compiler-warnings.md)
 describe counting, child contexts, retained diagnostics and the remaining
 warning phase boundaries.

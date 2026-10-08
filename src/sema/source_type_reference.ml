@@ -277,7 +277,8 @@ let merge_selections left right =
     if pointers == left.selected_pointers then Ok left
     else Ok { left with selected_pointers = pointers }
 
-let selected_reference ~callback_metadata proof type_specifier pointer_layers =
+let selected_reference ?(allow_value = false) ~callback_metadata proof
+    type_specifier pointer_layers =
   let ( let* ) = Result.bind in
   if type_specifier != proof.selected_type_specifier then
     Error "selected aggregate type substituted its original type occurrence"
@@ -294,7 +295,7 @@ let selected_reference ~callback_metadata proof type_specifier pointer_layers =
     | Frontend.Ast.Named_type_specifier identifier
       when identifier == proof.selected_identifier ->
         let* depth = pointer_depth pointer_layers in
-        if depth = 0 && not callback_metadata then
+        if depth = 0 && not (callback_metadata || allow_value) then
           Error "selected aggregate values require separate layout admission"
         else
           let* resolved_type =
@@ -313,8 +314,13 @@ let selected_reference ~callback_metadata proof type_specifier pointer_layers =
         Error "selected aggregate type substituted its original named child"
     | _ -> Error "selected aggregate proof cannot authorize a nonaggregate type"
 
-let selected = selected_reference ~callback_metadata:false
-let selected_callback_return = selected_reference ~callback_metadata:true
+let selected = selected_reference ~allow_value:false ~callback_metadata:false
+
+let selected_callback_return =
+  selected_reference ~allow_value:false ~callback_metadata:true
+
+let selected_header_class =
+  selected_reference ~allow_value:true ~callback_metadata:false
 
 let callback_return ~table ~namespace ~selected_aggregate ~header type_specifier
     pointer_layers =

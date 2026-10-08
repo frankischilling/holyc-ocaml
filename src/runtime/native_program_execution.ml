@@ -122,6 +122,10 @@ external read_task_default_string :
   Ir.Native_source_suspension.t option ->
   int * int * string = "holyc_native_read_task_default_string"
 
+external read_task_default_address_offset :
+  task_arena_handle -> int * int -> Ir.Native_source_suspension.t option -> int
+  = "holyc_native_read_task_default_address_offset"
+
 external bind_task_default_string :
   task_arena_handle ->
   int * int * int * int ->
@@ -193,6 +197,7 @@ type task_arena = {
   code_mappings_ : (retained_handle * Image.t * bool) list Atomic.t;
   data_capture_ : (Image.t * Ir.Saved_parameter_value.t) option Atomic.t;
   scalar_capture_ : (Image.t * scalar_capture) option Atomic.t;
+  data_comparison_owner_ : unit ref;
 }
 
 type task_execution_binding = {
@@ -867,6 +872,7 @@ let create_task_arena ?(max_arena_bytes = hard_max_arena_bytes) layout =
                   code_mappings_ = Atomic.make [];
                   data_capture_ = Atomic.make None;
                   scalar_capture_ = Atomic.make None;
+                  data_comparison_owner_ = ref ();
                 }
           | Error message ->
               let release_error =
@@ -1030,8 +1036,21 @@ let finish_task_data_default ?scope ?max_copy_bytes arena image captured
                     "HCIRVM0026: native saved data lost its original task \
                      descriptor"
               | Some descriptor -> (
+                  let capture_comparison value =
+                    let offset =
+                      read_task_default_address_offset arena.handle_
+                        (Atomic.get arena.admitted_bytes_, descriptor)
+                        scope
+                    in
+                    Ir.Saved_parameter_value.with_native_data_comparison
+                      ~owner:arena.data_comparison_owner_ ~offset
+                      ~live:(fun () -> not (Atomic.get arena.arena_revoked_))
+                      value
+                  in
                   if not (Image.data_default_has_misc_data image) then
-                    (Ok original, 0)
+                    try (capture_comparison original, 0)
+                    with Failure message | Invalid_argument message ->
+                      failure message
                   else
                     let attempted_work = ref 0 in
                     try
@@ -1088,7 +1107,11 @@ let finish_task_data_default ?scope ?max_copy_bytes arena image captured
                         bind_task_default_string arena.handle_
                           (prefix, descriptor, offset, String.length bytes)
                           scope;
-                        Ok original
+                        let* value =
+                          Ir.Saved_parameter_value.with_string_default ~bytes
+                            original
+                        in
+                        capture_comparison value
                       in
                       (result, work)
                     with Failure message | Invalid_argument message ->

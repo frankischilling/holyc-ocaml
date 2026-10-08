@@ -25,6 +25,10 @@ let raw_admit_arena arena prefix extent =
 external raw_release_arena : raw_arena -> unit
   = "holyc_native_release_task_arena"
 
+external raw_default_address_offset :
+  raw_arena -> Obj.t -> Holyc_lib__Ir.Native_source_suspension.t option -> int
+  = "holyc_native_read_task_default_address_offset"
+
 type raw_retained
 
 external raw_retain_task : Obj.t -> raw_retained
@@ -670,6 +674,22 @@ let raw_arena_admission () =
       in
       Alcotest.(check int) "initial prefix" 16 (admit 0 16);
       List.iter
+        (fun request ->
+          reject (fun () ->
+              ignore (raw_default_address_offset arena request None)))
+        [
+          Obj.repr 0;
+          Obj.repr 1.0;
+          Obj.repr "descriptor";
+          Obj.repr (16, -1);
+          Obj.repr (16, 0);
+          Obj.repr (0, 0);
+          Obj.repr (16, 16);
+          Obj.repr (16, max_int);
+          Obj.repr (16, 0.0);
+          Obj.repr (16, 0, 0);
+        ];
+      List.iter
         (fun chunks ->
           reject (fun () ->
               ignore
@@ -702,8 +722,12 @@ let raw_arena_admission () =
       Gc.full_major ();
       Gc.compact ();
       Alcotest.(check int) "exact capacity after collection" 32 (admit 24 32);
+      reject (fun () ->
+          ignore (raw_default_address_offset arena (Obj.repr (32, 0)) None));
       raw_release_arena arena;
-      reject (fun () -> ignore (admit 32 32)));
+      reject (fun () -> ignore (admit 32 32));
+      reject (fun () ->
+          ignore (raw_default_address_offset arena (Obj.repr (32, 0)) None)));
   let extent = 2 * 1024 * 1024 in
   let arena = raw_create_arena (Obj.repr extent) in
   Fun.protect

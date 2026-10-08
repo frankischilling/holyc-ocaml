@@ -125,6 +125,20 @@ val complete_defaults_runtime :
   Frontend.Parser.completed_function_header ->
   (unit, Common.Diagnostic.t list) result
 
+val emit_function_header_warnings :
+  ?runtime:Ir.Integer_interpreter.task_state ->
+  t ->
+  Frontend.Parser.completed_function_header ->
+  (unit, Common.Diagnostic.t list) result
+(** Consume the exact live completed header once. JIT extern joins compare the
+    saved original native cursor and successful default values before body
+    parsing. Ordinary source observation grants no execution authority. *)
+
+val function_header_warnings_consumed :
+  t -> Frontend.Parser.completed_function_header -> (bool, string) result
+(** Read an original observed receipt's consumption state. Activation can admit
+    an earlier source header without replaying its completed warning phase. *)
+
 val default_fragment_authority :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

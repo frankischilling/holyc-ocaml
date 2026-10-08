@@ -74,6 +74,14 @@ val selected_callback_return :
     receipt. This grants no aggregate storage, layout, invocation or ABI
     authority; the callback cell has separate physical RT_PTR evidence. *)
 
+val selected_header_class :
+  selected_aggregate ->
+  Frontend.Ast.type_specifier ->
+  Frontend.Ast.pointer_layer list ->
+  (Type_reference.t, string) result
+(** Read the class of the exact original header type occurrence, including an
+    aggregate value. This grants no storage, layout, call or ABI authority. *)
+
 val validate_selected_aggregate :
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
