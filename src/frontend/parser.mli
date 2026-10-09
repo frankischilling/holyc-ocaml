@@ -20,12 +20,12 @@ type compiler_exception
 (** Original [Compiler] exception from an audited executable-parser [LexExcept]
     site. Matched sites include the missing-function return guard, statement
     delimiters, invalid break targets, try header/catch checks, audited missing
-    expression operands, grouped closes, prefix-type rejection and owned
-    expression cleanup. Each retains its own lexer phase, exact control,
-    position and counted diagnostic. Generic parser reports, preprocessor,
-    authority and quota errors do not create one. This does not implement native
-    exception stacks, direct Compiler throws, SysTry/SysUntry calls or terminal
-    output. *)
+    expression operands, unresolved operand identifiers, grouped closes,
+    prefix-type rejection and owned expression cleanup. Each retains its own
+    lexer phase, exact control, position and counted diagnostic. Generic parser
+    reports, preprocessor, authority and quota errors do not create one. This
+    does not implement native exception stacks, direct Compiler throws,
+    SysTry/SysUntry calls or terminal output. *)
 
 val compiler_exception_diagnostic : compiler_exception -> Common.Diagnostic.t
 val compiler_exception_error_count : compiler_exception -> int64
@@ -574,6 +574,7 @@ type function_parameter_publication = private {
   parameter_pointer_layers : Ast.pointer_layer list;
   parameter_name : Ast.identifier option;
   parameter_function_pointer : Ast.function_pointer_declarator option;
+  parameter_default_equals : Ast.location option;
   parameter_activity : function_parameter_activity;
 }
 
@@ -589,7 +590,8 @@ val function_parameter_is_current : function_parameter_publication -> bool
     A present [parameter_type_selection] selects the exact
     [parameter_type_specifier] node. Recursive callback signature children
     remain attached to the original head but do not gain aggregate-selection
-    receipts. *)
+    receipts. [parameter_default_equals] retains the current '=' location before
+    its lexer read; it grants no saved default or completion authority. *)
 
 val function_parameter_completion_is_current :
   completed_function_parameter -> bool
@@ -743,6 +745,7 @@ type callback_parameter_publication = private {
   callback_parameter_pointer_layers : Ast.pointer_layer list;
   callback_parameter_name : Ast.identifier option;
   callback_parameter_function_pointer : Ast.function_pointer_declarator option;
+  callback_parameter_default_equals : Ast.location option;
   callback_parameter_activity : function_parameter_activity;
 }
 

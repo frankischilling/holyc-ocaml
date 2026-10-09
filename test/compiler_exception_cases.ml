@@ -432,6 +432,52 @@ let expression_failures =
       "(I64 #exe {Print(\"skipped\");})42;",
       "HCPARSE0029",
       "I64" );
+    ("unknown binary operand", "1+Unknown+;", "HCPARSE0174", "Unknown");
+    ("unknown at-sign operand", "1+@;", "HCPARSE0174", "@");
+    ("unknown unary operand", "-Unknown;", "HCPARSE0174", "Unknown");
+    ("unknown grouped operand", "(Unknown;", "HCPARSE0174", "Unknown");
+    ("unknown nested operand", "((Unknown));", "HCPARSE0174", "Unknown");
+    ("unknown operand at end", "1+Unknown", "HCPARSE0174", "Unknown");
+    ( "unknown before unread lexer failure",
+      "1+Unknown #error skipped\n;",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown before unread directive",
+      "1+Unknown #exe {Print(\"skipped\");};",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown before later declaration",
+      "1+Unknown;I64 Unknown=42;",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown selected macro operand",
+      "#define BAD Unknown\n1+BAD;",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown direct argument",
+      "I64 F(I64 n){return n;}F(Unknown);",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown argument before malformed call",
+      "I64 F(I64 n){return n;}F(Unknown(1,));",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown implicit argument",
+      "extern U0 Print(U8 *fmt,...);\"text\",Unknown;",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown saved function operand",
+      "I64 F(){return 1+Unknown;}",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown named default operand",
+      "I64 F(I64 n=Unknown){return n;}",
+      "HCPARSE0174",
+      "Unknown" );
+    ( "unknown callback default operand",
+      "I64 (*P)(I64 n=Unknown);",
+      "HCPARSE0174",
+      "Unknown" );
   ]
 
 let expression_caught_children =
@@ -445,13 +491,26 @@ let expression_caught_children =
         Printf.sprintf "#exe {StreamExePrint(%S);%s}42;"
           ("Print(\"kept\");" ^ text
           ^
-          if label = "group at end of input" then "" else "Print(\"skipped\");"
-          )
+          if label = "group at end of input" || label = "unknown operand at end"
+          then ""
+          else "Print(\"skipped\");")
           tail,
         code,
         marker,
         output ))
     expression_failures
+  @ [
+      ( "unknown after reached child declaration",
+        {|#exe {StreamExePrint("I64 Kept=40;Print(\"kept\");1+Unknown;Print(\"skipped\");");StreamExePrint("Print(\"%%d;\",Kept+2);");Print("after");}42;|},
+        "HCPARSE0174",
+        "Unknown",
+        "kept42;after" );
+      ( "new child after unknown operand",
+        {|#exe {StreamExePrint("Print(\"kept\");1+Unknown;");StreamExePrint("I64 Unknown=42;");StreamExePrint("Print(\"%%d;\",Unknown);");Print("after");}42;|},
+        "HCPARSE0174",
+        "Unknown",
+        "kept42;after" );
+    ]
 
 let expression_successes =
   [
@@ -465,6 +524,9 @@ let expression_successes =
     ("function shadows type", "I64 U64(){return 42;}(U64);", 42L);
     ("local shadows type", "I64 F(I64 U64){return (U64);}F(42);", 42L);
     ("global shadows type", "I64 U64=42;(U64);", 42L);
+    ("declared global operand", "I64 Known=41;1+Known;", 42L);
+    ("declared local operand", "I64 F(){I64 Known=41;return 1+Known;}F();", 42L);
+    ("defined absence query", "1+defined(Unknown)+41;", 42L);
   ]
 
 (* Valid public postfix casts parse and execute in IR; their native emission
@@ -480,9 +542,11 @@ let expression_native_aot_earlier_error label =
    promoted to Compiler by expression cleanup. *)
 let expression_noncompiler_failures =
   [
-    ("unsupported operand", "1+@;");
+    ("unsupported operand", "1+{;");
     ("unknown operand", "Unknown+;");
     ("unknown call operand", "Unknown(1,);");
+    ( "unresolved statement after lookahead publication",
+      "Unknown #exe {I64 Unknown=42;}+;" );
     ("lexer operand", "1+#error reached\n;");
     ("runtime after completed expression", "1/0;");
     ( "earlier invalid assignment phase",
@@ -496,7 +560,8 @@ let expression_noncompiler_failures =
     ("assignment before later return", "{1=2;return 42;}");
     ("indexing before later break", "{1[1];break;}");
     ("earlier class offset phase", "class C{I64 n;};1+C+;");
-    ("unknown grouped operand", "(Unknown;");
+    ("unknown after unaudited dereference", "*Unknown;");
+    ("unknown after unaudited assignment", "1=Unknown;");
     ("invalid assignment before group close", "(1=2;");
     ("literal indexing before group close", "(1[1];");
     ("dereference before group close", "(*1;");
@@ -528,4 +593,7 @@ let expression_fault_after_catch =
   {|#exe {StreamExePrint("Print(\"kept\");1+;");1/0;Print("skipped");}42;|}
 
 let expression_quota_after_catch =
-  {|#exe {StreamExePrint("Print(\"kept\");1+;");Print("after");}42;|}
+  [
+    {|#exe {StreamExePrint("Print(\"kept\");1+;");Print("after");}42;|};
+    {|#exe {StreamExePrint("Print(\"kept\");1+Unknown;");Print("after");}42;|};
+  ]

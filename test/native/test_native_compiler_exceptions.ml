@@ -591,21 +591,22 @@ let expression_producers () =
         (Native.output_bytes report);
       no_interpretation "later runtime fault" report;
       List.iter
-        (fun (limit, expected_count, output) ->
-          let report =
-            run ~max_output_bytes:limit mode Cases.expression_quota_after_catch
-          in
-          Alcotest.(check bool)
-            "native quota remains failed" true
-            (Result.is_error (Native.outcome report));
-          Alcotest.(check int)
-            "native quota preserves reached producer count" expected_count
-            (List.length (Native.compiler_exceptions report));
-          Alcotest.(check string)
-            "native quota preserves reached child bytes" output
-            (Native.output_bytes report);
-          no_interpretation "native quota" report)
-        [ (3, 0, ""); (4, 2, "kept") ])
+        (fun text ->
+          List.iter
+            (fun (limit, expected_count, output) ->
+              let report = run ~max_output_bytes:limit mode text in
+              Alcotest.(check bool)
+                "native quota remains failed" true
+                (Result.is_error (Native.outcome report));
+              Alcotest.(check int)
+                "native quota preserves reached producer count" expected_count
+                (List.length (Native.compiler_exceptions report));
+              Alcotest.(check string)
+                "native quota preserves reached child bytes" output
+                (Native.output_bytes report);
+              no_interpretation "native quota" report)
+            [ (3, 0, ""); (4, 2, "kept") ])
+        Cases.expression_quota_after_catch)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let retained_variadic_flags_with_fixed_members () =

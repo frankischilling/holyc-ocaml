@@ -346,6 +346,18 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                     | _ -> Task_declarations.observe ledger event
                   in
                   match (is_jit, !task, event) with
+                  | true, None, Parser.Function_parameter_declared receipt
+                    when Option.is_some receipt.parameter_default_equals ->
+                      ensure_task
+                        (Option.get receipt.parameter_default_equals).span
+                      |> Result.map ignore
+                  | true, None, Parser.Callback_parameter_declared receipt
+                    when Option.is_some
+                           receipt.callback_parameter_default_equals ->
+                      ensure_task
+                        (Option.get receipt.callback_parameter_default_equals)
+                          .span
+                      |> Result.map ignore
                   | true, None, Parser.Function_local_allocated receipt
                     when receipt.allocation_storage = Frontend.Ast.Static_local
                          && Option.is_some receipt.allocation_initializer_equals

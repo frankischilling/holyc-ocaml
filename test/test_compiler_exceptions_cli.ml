@@ -368,20 +368,27 @@ let () =
       then
         failwith ("later runtime fault changed: " ^ Yojson.Safe.to_string report);
       List.iter
-        (fun (limit, output) ->
-          let report =
-            invoke compiler target mode ~status:1 "expression catch quota"
-              ~options:[ "--output-byte-limit=" ^ string_of_int limit ]
-              Cases.expression_quota_after_catch
-          in
-          if
-            report |> member "output_hex" |> to_string <> hex output
-            || List.exists
-                 (fun d -> d |> member "code" |> to_string = "HCPARSE0173")
-                 (errors report)
-          then failwith ("quota forged cleanup: " ^ Yojson.Safe.to_string report))
-        [ (3, ""); (4, "kept") ];
-      expression_cases := !expression_cases + 4)
+        (fun text ->
+          List.iter
+            (fun (limit, output) ->
+              let report =
+                invoke compiler target mode ~status:1 "expression catch quota"
+                  ~options:[ "--output-byte-limit=" ^ string_of_int limit ]
+                  text
+              in
+              if
+                report |> member "output_hex" |> to_string <> hex output
+                || List.exists
+                     (fun d -> d |> member "code" |> to_string = "HCPARSE0173")
+                     (errors report)
+              then
+                failwith
+                  ("quota forged cleanup: " ^ Yojson.Safe.to_string report))
+            [ (3, ""); (4, "kept") ])
+        Cases.expression_quota_after_catch;
+      expression_cases :=
+        !expression_cases + 2
+        + (2 * List.length Cases.expression_quota_after_catch))
     [ "jit"; "aot" ];
   Printf.printf "%d expression cleanup CLI cases passed (%s).\n"
     !expression_cases target

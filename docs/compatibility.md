@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[Unknown expression operands](compiler-exceptions.md#expression-failures-and-cleanup)
+throw at their original absent lexer selection, before another read or a
+reference callback. IR and native saved inputs catch the counted original cause
+and owned cleanup while preserving reached output and declarations. Unresolved
+statement starts, export flags, assembly expressions and earlier unaudited
+expression phases remain separate compiler work.
+
 [Unnecessary-parenthesis warnings](compiler-warnings.md#unnecessary-parentheses)
 consume live option 17 during expression parsing. Original precedence and
 association state selects each warning phase; character lookahead supplies

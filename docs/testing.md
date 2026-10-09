@@ -1,5 +1,18 @@
 # Testing holyc-ocaml
 
+Identifier operand cases check the original invalid-lval producer before the
+reference callback or another lexer read. Sixteen source fixtures cover
+grouping, unary and binary operands, macros, saved function bodies, ordinary
+and implicit arguments, named and callback defaults, EOF and unread directives,
+declarations and lexer errors. IR and native runs exercise uncaught inputs and caught children in
+both outer modes. Additional children retain reached declarations and use a
+new declaration after an earlier catch. Quota checks run before and after the
+identifier producer. Receipt tests check both native error increments, original
+cause ownership, copied receipts, collection and foreign domains. Representation
+parsing still accepts unbound identifier syntax without throw authority.
+Ordinary JIT default failures also retain earlier command output and results;
+the parameter declaration starts original task replay before consuming `=`.
+
 Call Compiler tests compare twenty-nine original header, delimiter and unread-marker
 failures in JIT source. Twenty-nine caught child cases and six successful default
 or comma-sequence fixtures run in both outer modes through IR and native tasks.

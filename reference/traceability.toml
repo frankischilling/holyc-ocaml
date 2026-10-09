@@ -2,6 +2,19 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-COMPILER-IDENTIFIER-OPERAND-FAILURE"
+description = "An absent original operand identifier throws before consumption or a reference callback, followed by its owned expression cleanup."
+sources = ["Compiler/PrsExp.HC:810-812 absent local/hash invalid lval", "Compiler/PrsExp.HC:264-303 owned expression cleanup", "Compiler/Lex.HC:462-513 identifier lexer and original local/hash selection", "Compiler/PrsVar.HC:624-634 parameter member and default lexer read", "Compiler/CExcept.HC:81-96 counted LexExcept", "Compiler/CMain.HC:589-596 selective saved-input catch"]
+implementation = ["src/frontend/parser.ml", "src/frontend/parser.mli", "src/driver/integer_source_execution.ml"]
+tests = ["test/compiler_exception_cases.ml", "test/test_compiler_exceptions.ml", "test/test_compiler_exceptions_cli.ml", "test/native/test_native_compiler_exceptions.ml", "test/test_jit_source_execution.ml"]
+documentation = ["docs/compiler-exceptions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 47
+source_identity = "Only the original absent lexer selection at an audited operand can issue HCPARSE0174. The unchanged token, native error field increments, original cause, context, position, events and domain remain attached to the existing owned cleanup chain. Callback diagnostic text and unaudited earlier phases grant no authority."
+execution = "IR and native saved JIT children in both outer modes catch the original two-producer failure and preserve reached output, work and declarations. Later declarations, directives, call delimiters and lexer errors remain unread. New independent children retain their own original selection. Ordinary JIT parameter member declarations activate reached command replay before default input, retaining earlier output and results when an operand fails."
+verification_boundary = "Hosted source-derived tests are distinct from TempleOS runtime captures. Representation parsing retains unbound identifier syntax. Unresolved statement-start grammar, export flags, assembly expressions, earlier unaudited phases, remaining expression producers, native exception stacks and full compiler parity remain open."
+
+[[feature]]
 id = "HC-OWNED-EXPRESSION-COMPILER-CLEANUP"
 description = "Original missing operands, grouped closes, prefix-type rejection and call failures retain the Compiler cause and the owned expression stack's counted cleanup."
 sources = ["Compiler/PrsExp.HC:264-303 PrsExpression owned and borrowed stacks", "Compiler/PrsExp.HC:430-536 required/default argument traversal", "Compiler/PrsExp.HC:729-744 original type selection and grouped close", "Compiler/PrsExp.HC:862-866 retained named function", "Compiler/PrsExp.HC:957 missing expression", "Compiler/Lex.HC:493-513 local shadows and selected hash entry", "Compiler/PrsStmt.HC:1200-1204 implicit call with NULL stack", "Compiler/CExcept.HC:81-96 LexExcept", "Compiler/CMain.HC:589-596 ExePutS selective catch"]

@@ -1118,14 +1118,20 @@ let selected_absence_stays_absent () =
       let session, runtime, ledger = runtime_setup () in
       reject "later admitted same-name entry cannot fill selected absence"
         (selected_runtime_source session runtime ledger source);
+      Alcotest.(check bool)
+        "absent operand prevents the later nested publication" true
+        (Symbol_visibility.Environment.find_preprocessor
+           (Session.symbols session) "Missing"
+        = Symbol_visibility.Absent);
       let later =
-        selected_runtime_source session runtime ledger "Missing;" |> expect
+        selected_runtime_source session runtime ledger "I64 Missing=42;Missing;"
+        |> expect
       in
       Alcotest.(check int64)
-        "reached nested publication survives the outer binding failure" 42L
+        "independent later input can publish the missing operand" 42L
         (VM.final_value later |> Option.get).bits)
     [
-      "Missing #exe {I64 Missing=42;};";
+      "1+Missing #exe {I64 Missing=42;};";
       "I64 G(){return Missing #exe {I64 Missing=42;};}G;";
       "I64 X=Missing #exe {I64 Missing=42;};X;";
       "I64 X[Missing #exe {I64 Missing=42;}];";
