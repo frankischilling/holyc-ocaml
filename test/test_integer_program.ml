@@ -73,7 +73,10 @@ let unsupported () =
   List.iter
     (fun text ->
       Alcotest.(check string) text "HCRUN0001" (diagnostic text).code)
-    [ "I0 x=0;"; "return;"; "lock {1;}"; "switch[1]{case 1:break;}" ];
+    [ "I0 x=0;"; "lock {1;}"; "switch[1]{case 1:break;}" ];
+  Alcotest.(check string)
+    "return fails at the original LexExcept phase" "HCPARSE0168"
+    (diagnostic "return;").code;
   List.iter
     (fun text ->
       Alcotest.(check string)

@@ -1,5 +1,11 @@
 # Testing holyc-ocaml
 
+The [compiler exception tests](compiler-exceptions.md) check the original return
+guard before expression lookahead in both outer modes and backends. They retain
+one original counted receipt, earlier output and actual native work. Child,
+domain, replay and diagnostic-forgery cases guard its ownership. Other faults
+remain separate, and the CLI runs the same sixteen failure cases per backend.
+
 The return-warning cases check the three original producers, native counts
 with options 16-19 disabled, the flag's source timing, replay and expiration,
 exact aggregate sizes, pointer returns, macros, shared directives and fresh

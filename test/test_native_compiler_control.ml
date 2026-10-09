@@ -5,6 +5,9 @@ let check = Alcotest.(check bool)
 let count name expected control =
   Alcotest.(check int64) name expected (C.warning_count control)
 
+let errors name expected control =
+  Alcotest.(check int64) name expected (C.error_count control)
+
 let instruction_storage () =
   match Holyc_lib.Native_execution.platform () with
   | Holyc_lib.Native_execution.Unsupported -> ()
@@ -33,7 +36,8 @@ let option_bits_and_old_values () =
       (C.set_option control ~bit_index false)
   done;
   Alcotest.(check int64) "all bits cleared" 0L (C.options control);
-  count "bit operations do not count warnings" 0L control
+  count "bit operations do not count warnings" 0L control;
+  errors "bit operations do not count errors" 0L control
 
 let child_and_shared_storage () =
   let parent = C.create ~options:0x90000L in
@@ -42,6 +46,7 @@ let child_and_shared_storage () =
   C.set_has_return directive true;
   check "directive shares HAS_RETURN" true (C.has_return parent);
   C.increment_warning directive;
+  C.increment_error directive;
   ignore (C.set_option directive ~bit_index:37 true);
   let child = C.child parent in
   check "child starts with fresh flags" false (C.has_return child);
@@ -50,13 +55,18 @@ let child_and_shared_storage () =
   Alcotest.(check int64)
     "child copies current native opts" 0x2000090000L (C.options child);
   count "child starts a fresh warning count" 0L child;
+  errors "child starts a fresh error count" 0L child;
   C.increment_warning child;
+  C.increment_error child;
+  C.increment_error child;
   ignore (C.set_option child ~bit_index:19 false);
   ignore (C.set_option parent ~bit_index:37 false);
   Gc.full_major ();
   Gc.compact ();
   count "directive still shares the parent allocation" 1L directive;
   count "child counter is separate" 1L child;
+  errors "directive shares parent error count" 1L directive;
+  errors "child error counter is separate" 2L child;
   check "child return flag survives collection" true (C.has_return child);
   check "child flag does not change parent" false (C.has_return directive);
   check "child mutation does not clear parent bit" true
@@ -66,7 +76,8 @@ let child_and_shared_storage () =
   let next = C.child parent in
   Alcotest.(check int64)
     "next child copies live parent" 0x90000L (C.options next);
-  count "successive child has a fresh counter" 0L next
+  count "successive child has a fresh counter" 0L next;
+  errors "successive child has a fresh error count" 0L next
 
 let rejects action =
   try
@@ -77,6 +88,7 @@ let rejects action =
 let invalid_bits_preserve_fields () =
   let control = C.create ~options:Int64.min_int in
   C.increment_warning control;
+  C.increment_error control;
   List.iter
     (fun bit_index ->
       check "out of field read rejects" true
@@ -90,7 +102,8 @@ let invalid_bits_preserve_fields () =
     [ min_int; -1; 64; 65; max_int ];
   Alcotest.(check int64)
     "invalid operations preserve opts" Int64.min_int (C.options control);
-  count "invalid operations preserve warning count" 1L control
+  count "invalid operations preserve warning count" 1L control;
+  errors "invalid operations preserve error count" 1L control
 
 let original_domain () =
   let control = C.create ~options:0x90000L in
@@ -104,6 +117,8 @@ let original_domain () =
             (fun () -> ignore (C.set_option control ~bit_index:16 false));
             (fun () -> ignore (C.warning_count control));
             (fun () -> C.increment_warning control);
+            (fun () -> ignore (C.error_count control));
+            (fun () -> C.increment_error control);
             (fun () -> ignore (C.has_return control));
             (fun () -> C.set_has_return control true);
           ])
@@ -113,6 +128,7 @@ let original_domain () =
   Alcotest.(check int64)
     "foreign writes preserve options" 0x90000L (C.options control);
   count "foreign writes preserve count" 0L control;
+  errors "foreign writes preserve error count" 0L control;
   (* Collect unrelated native allocations from another domain while retaining
      the original allocation through its owning OCaml handle. *)
   let garbage =
@@ -124,7 +140,9 @@ let original_domain () =
   in
   Domain.join garbage;
   C.increment_warning control;
-  count "original allocation survives domain collection" 1L control
+  C.increment_error control;
+  count "original allocation survives domain collection" 1L control;
+  errors "error field survives domain collection" 1L control
 
 let tests =
   [

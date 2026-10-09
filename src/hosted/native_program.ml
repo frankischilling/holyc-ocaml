@@ -632,7 +632,7 @@ let entry_contains_opcode entry opcode =
       |> List.exists (fun instruction ->
           (Ir.Instruction_sequence.description instruction).opcode = opcode))
 
-let compile_with_preparation ?(max_ir_instructions = 4096)
+let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
     ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
     ?(max_blocks = 4096) ?(max_initializer_steps = 100_000)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
@@ -810,7 +810,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
     }
   in
   let parsed =
-    Frontend.Parser.parse ~commands
+    Frontend.Parser.parse ?compiler_exception ~commands
       ?execute_stream:
         (Option.map (fun streams -> streams.execute_stream) streams)
       ~sources:(Session.sources session)

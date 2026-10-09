@@ -10,6 +10,14 @@ val compilation_result :
 
 type report
 
+val compilation_compiler_exceptions :
+  compilation_report -> Frontend.Parser.compiler_exception list
+
+val compiler_exceptions : report -> Frontend.Parser.compiler_exception list
+(** Original counted [Compiler] failures reached during source parsing,
+    including failed nested inputs. These receipts do not admit execution or
+    turn a failed input into a successful one. *)
+
 val install_providers :
   ?suspended:bool -> Integer_task.t -> (unit, Common.Diagnostic.t list) result
 (** Install the original hosted provider declarations in the task frontend.

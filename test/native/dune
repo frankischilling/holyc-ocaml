@@ -33,6 +33,31 @@
 
 (copy_files ../data_pointer_default_cases.ml)
 
+(copy_files ../compiler_exception_cases.ml)
+
+(copy_files ../test_compiler_exceptions.ml)
+
+(executable
+ (name test_native_compiler_exceptions)
+ (modules
+  test_native_compiler_exceptions
+  test_compiler_exceptions
+  compiler_exception_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_compiler_exceptions.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:../test_compiler_exceptions_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   --native)))
+
 (copy_files ../internal_binding_cases.ml)
 
 (copy_files ../runtime_layout_cases.ml)

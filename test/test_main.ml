@@ -150,6 +150,7 @@ let () =
       ("compiler option source", Test_compiler_option_source.tests);
       ("compiler option", Test_compiler_option.tests);
       ("native compiler control", Test_native_compiler_control.tests);
+      ("compiler exceptions", Test_compiler_exceptions.tests);
       ("duplicate local types", Test_duplicate_local_types.tests);
       ("parenthesis warnings", Test_parenthesis_warnings.tests);
       ("return warnings", Test_return_warnings.tests);

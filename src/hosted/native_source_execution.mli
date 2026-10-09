@@ -145,3 +145,7 @@ val output_work : report -> int
 val source_progress : report -> Driver.Integer_task.progress option
 (** Original source admission and preparation progress. Its interpreter runtime
     counters do not stand in for native execution; use [executed_steps]. *)
+
+val compiler_exceptions : report -> Frontend.Parser.compiler_exception list
+(** Original counted parser [Compiler] failures from the outer input or a
+    reached nested input. General native execution errors do not create one. *)

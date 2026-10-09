@@ -17,3 +17,4 @@ let preparation_work = Integer_source_execution.preparation_work
 let progress = Integer_source_execution.progress
 let program = Integer_source_execution.program
 let task_units = Integer_source_execution.task_units
+let compiler_exceptions = Integer_source_execution.compiler_exceptions

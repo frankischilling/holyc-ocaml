@@ -1096,6 +1096,7 @@ type t = {
   mutable commands : (Frontend.Ast.module_ * command) list;
   compiled_rev : Integer_unit.compiled list ref;
   compiler_diagnostics_rev : Common.Diagnostic.t list ref;
+  compiler_exceptions_rev : Frontend.Parser.compiler_exception list ref;
   compiler_tasks : t list ref;
 }
 
@@ -1160,11 +1161,13 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             commands = [];
             compiled_rev = ref [];
             compiler_diagnostics_rev = ref [];
+            compiler_exceptions_rev = ref [];
             compiler_tasks = ref [];
           }))
 
 let frontend task = task.session
 let compiler_diagnostics task = List.rev !(task.compiler_diagnostics_rev)
+let compiler_exceptions task = List.rev !(task.compiler_exceptions_rev)
 
 let compiler_options task ~span index enabled =
   Task_declarations.execute_compiler_option task.declarations
@@ -1244,6 +1247,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       commands = [];
       compiled_rev = ref [];
       compiler_diagnostics_rev = ref [];
+      compiler_exceptions_rev = ref [];
       compiler_tasks = ref [];
     }
 
@@ -2928,16 +2932,21 @@ and run_input_execution ?suspension ?enclosing ?stream_task
         stream_executor ~saved_compiler:saved stream_task
   in
   let* parsed =
+    let compiler_exception exception_ =
+      task.compiler_exceptions_rev :=
+        exception_ :: !(task.compiler_exceptions_rev)
+    in
     match (suspension, enclosing) with
     | None, _ ->
         Ok
-          (Frontend.Parser.parse ~commands ~execute_stream
+          (Frontend.Parser.parse ~compiler_exception ~commands ~execute_stream
              ~sources:(Session.sources task.session)
              ~definitions:(Session.definitions task.session)
              ~symbols:(Session.symbols task.session)
              ~config:task.config source)
     | Some suspension, None ->
-        Frontend.Parser.parse_suspended suspension ~commands ~execute_stream
+        Frontend.Parser.parse_suspended suspension ~compiler_exception ~commands
+          ~execute_stream
           ~sources:(Session.sources task.session)
           ~definitions:(Session.definitions task.session)
           ~symbols:(Session.symbols task.session)
@@ -2950,7 +2959,7 @@ and run_input_execution ?suspension ?enclosing ?stream_task
             ])
     | Some suspension, Some enclosing ->
         Frontend.Parser.parse_suspended_enclosing suspension ~enclosing
-          ~commands ~execute_stream
+          ~compiler_exception ~commands ~execute_stream
           ~sources:(Session.sources task.session)
           ~definitions:(Session.definitions task.session)
           ~symbols:(Session.symbols task.session)

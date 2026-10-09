@@ -18,6 +18,9 @@ let compilation_switch_work = Integer_source_execution.compilation_switch_work
 let compilation_progress = Integer_source_execution.compilation_progress
 let compilation_task_units = Integer_source_execution.compilation_task_units
 
+let compilation_compiler_exceptions =
+  Integer_source_execution.compilation_compiler_exceptions
+
 let compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
     session ~config ~source =
   Integer_source_execution.compile_report ?max_dimension_work ?max_switch_work

@@ -36,6 +36,18 @@
    %{dep:../examples/compiler-warning-options.hc})))
 
 (test
+ (name test_compiler_exceptions_cli)
+ (modules test_compiler_exceptions_cli)
+ (libraries unix yojson compiler_exception_fixture)
+ (action
+  (run %{test} %{exe:../bin/holyc.exe})))
+
+(library
+ (name compiler_exception_fixture)
+ (wrapped false)
+ (modules compiler_exception_cases))
+
+(test
  (name test_data_pointer_defaults_cli)
  (modules test_data_pointer_defaults_cli)
  (libraries unix yojson)
@@ -623,6 +635,7 @@
   test_operator_table_source
   test_operator_table
   test_compiler_option_source
+  test_compiler_exceptions
   test_compiler_option
   test_intermediate_code_source
   test_intermediate_code
@@ -664,6 +677,7 @@
   alcotest
   bin_record_tools
   compiler_option_tools
+  compiler_exception_fixture
   function_flag_tools
   global_record_flag_tools
   member_flag_tools

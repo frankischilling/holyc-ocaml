@@ -15,6 +15,26 @@ val max_aggregate_depth : int
 val max_initializer_depth : int
 
 type command_context
+
+type compiler_exception
+(** Original [Compiler] exception produced by the executable parser's [return]
+    check before consuming the keyword when no function is active. The receipt
+    retains its exact control, position and counted diagnostic. General parser,
+    preprocessor, authority and quota errors do not create one. This does not
+    implement native exception stacks or terminal output. *)
+
+val compiler_exception_diagnostic : compiler_exception -> Common.Diagnostic.t
+val compiler_exception_error_count : compiler_exception -> int64
+val compiler_exception_context : compiler_exception -> command_context
+
+val compiler_exception_is_from_context :
+  compiler_exception -> command_context -> bool
+(** Physical ownership by the exact original parser context, in its domain.
+    Matching source names, diagnostics and counts provide no authority. *)
+
+val context_error_count : command_context -> (int64, string) result
+(** Read byte 344 of the current original compiler control. *)
+
 type compiler_position_source
 type suspension
 
@@ -1038,6 +1058,7 @@ type stream_execution = {
     lexer position after restoring the outer environment. *)
 
 val parse :
+  ?compiler_exception:(compiler_exception -> unit) ->
   ?commands:command_sink ->
   ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
   ?execute_stream:
@@ -1058,6 +1079,7 @@ val has_errors : output -> bool
 
 val parse_suspended :
   suspension ->
+  ?compiler_exception:(compiler_exception -> unit) ->
   ?commands:command_sink ->
   ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
   ?execute_stream:
@@ -1083,6 +1105,7 @@ val suspension_owns_sequence : suspension -> completed_sequence -> bool
 val parse_suspended_enclosing :
   suspension ->
   enclosing:command_context ->
+  ?compiler_exception:(compiler_exception -> unit) ->
   ?commands:command_sink ->
   ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
   ?execute_stream:

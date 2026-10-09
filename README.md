@@ -11,10 +11,13 @@ the [unused-extern example](examples/compiler-unused-extern.hc).
 Those admitted allocations now use native buckets and the pinned byte hash.
 Original source receipts still check each selected record; full task, assembler
 and AOT table setup remains required.
-Original parser inputs also own native option and warning fields. Directives
+Original parser inputs also own native option, error and warning fields. Directives
 share their caller's allocation; ordinary child inputs copy live options into
 fresh storage. These fields retain the pinned offsets while the full compiler
-control and error producers remain unfinished.
+control and remaining error producers remain unfinished. Executable `return`
+outside a function now fails before expression lookahead and increments the
+original error count. [Compiler exceptions](docs/compiler-exceptions.md) describes
+the source receipt and the remaining exception behavior.
 Option 17 now checks unnecessary parentheses during original expression
 parsing, with live options, native warning counts and both definition-input
 suppression checks. The [parenthesis example](examples/compiler-parenthesis-warnings.hc)

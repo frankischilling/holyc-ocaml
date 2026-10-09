@@ -1,4 +1,7 @@
 type t
+
+val compiler_exceptions : t -> Frontend.Parser.compiler_exception list
+
 type command
 type stream
 type saved_compiler

@@ -183,6 +183,25 @@ CAMLprim value holyc_compiler_control_increment_warning(value handle) {
   CAMLreturn(Val_unit);
 }
 
+/* CExcept.HC:91. Only the original LexExcept producer counts this error;
+   grammar limits, unsupported execution and ownership faults remain separate. */
+static void compiler_control_increment_error(
+    struct compiler_control_prefix *control) {
+  control->error_cnt++;
+}
+
+CAMLprim value holyc_compiler_control_errors(value handle) {
+  CAMLparam1(handle);
+  CAMLreturn(caml_copy_int64(
+      (int64_t)compiler_control_original(handle)->error_cnt));
+}
+
+CAMLprim value holyc_compiler_control_increment_error(value handle) {
+  CAMLparam1(handle);
+  compiler_control_increment_error(compiler_control_original(handle));
+  CAMLreturn(Val_unit);
+}
+
 #if (defined(__x86_64__) || defined(_M_X64)) && defined(__GNUC__)
 /* KUtils.HC:88-103 and CMisc.HC:1-10: BT reads the carry, and BTS/BTR
    returns the old bit. Literal offsets keep the oracle independent of C
@@ -223,8 +242,10 @@ CAMLprim value holyc_compiler_control_verify_storage(value unit) {
         memset(reference, 0xa5, sizeof(reference));
         production.opts = seeds[seed];
         production.warning_cnt = seeds[seed];
+        production.error_cnt = seeds[seed];
         memcpy(reference + 320, &seeds[seed], 8);
         memcpy(reference + 352, &seeds[seed], 8);
+        memcpy(reference + 344, &seeds[seed], 8);
         if (compiler_control_get(&production, bit) !=
             compiler_option_instruction_get(reference, bit)) CAMLreturn(Val_false);
         for (int repeat = 0; repeat < 2; repeat++) {
@@ -235,6 +256,9 @@ CAMLprim value holyc_compiler_control_verify_storage(value unit) {
         }
         compiler_control_increment_warning(&production);
         __asm__ volatile("incq 352(%0)" : : "r"(reference) : "cc", "memory");
+        if (memcmp(&production, reference, 360) != 0) CAMLreturn(Val_false);
+        compiler_control_increment_error(&production);
+        __asm__ volatile("incq 344(%0)" : : "r"(reference) : "cc", "memory");
         if (memcmp(&production, reference, 360) != 0) CAMLreturn(Val_false);
       }
     }

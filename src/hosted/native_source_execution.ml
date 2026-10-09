@@ -55,6 +55,7 @@ type report = {
   output_bytes_ : string;
   output_work_ : int;
   source_progress_ : Task.progress option;
+  compiler_exceptions_ : Frontend.Parser.compiler_exception list;
 }
 
 let ( let* ) = Result.bind
@@ -201,6 +202,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
         output_bytes_ = "";
         output_work_ = 0;
         source_progress_ = None;
+        compiler_exceptions_ = [];
       }
   | Ok (layout, budget, arena) ->
       let contexts = ref [ (None, layout, arena) ] in
@@ -289,6 +291,10 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
       let emitted_ir = ref 0 in
       let cleanup_errors = ref [] in
       let source_report = ref None in
+      let compiler_exceptions_rev = ref [] in
+      let compiler_exception exception_ =
+        compiler_exceptions_rev := exception_ :: !compiler_exceptions_rev
+      in
       let aot_task = ref None in
       let aot_preparation = ref 0 in
       let aot_switch_work = ref 0 in
@@ -904,11 +910,11 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       { execute_stream; checkpoint; remaining_code }
                 in
                 let* checked =
-                  Native_program.compile_with_preparation ~streams
-                    ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
-                    ~max_blocks ~max_initializer_steps ~max_default_bytes
-                    ~max_switch_work ~max_dimension_work ~max_global_bytes
-                    ~max_literal_bytes ?status_abi
+                  Native_program.compile_with_preparation ~compiler_exception
+                    ~streams ~max_ir_instructions ~max_code_bytes
+                    ~max_stack_bytes ~max_blocks ~max_initializer_steps
+                    ~max_default_bytes ~max_switch_work ~max_dimension_work
+                    ~max_global_bytes ~max_literal_bytes ?status_abi
                     ~preparation_steps:aot_preparation
                     ~switch_work:aot_switch_work
                     ~dimension_work:aot_dimension_work ~default_bytes session
@@ -996,6 +1002,14 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
           (match !aot_task with
           | Some task -> Some (Task.progress task)
           | None -> Option.bind !source_report Source.progress);
+        compiler_exceptions_ =
+          (match !aot_task with
+          | Some task ->
+              List.rev !compiler_exceptions_rev @ Task.compiler_exceptions task
+          | None ->
+              List.rev !compiler_exceptions_rev
+              @ Option.fold ~none:[] ~some:Source.compiler_exceptions
+                  !source_report);
       }
 
 let outcome report = report.outcome_
@@ -1010,3 +1024,4 @@ let switch_work report = report.switch_work_
 let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
 let source_progress report = report.source_progress_
+let compiler_exceptions report = report.compiler_exceptions_

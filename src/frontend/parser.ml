@@ -33,6 +33,7 @@ type command_context = {
   context_environment : Symbol_visibility.Environment.t;
   context_mode : Preprocessor.compilation_mode;
   context_compiler_control : Common.Native_compiler_control.t;
+  mutable context_compiler_exception : compiler_exception option;
   context_warnings_rev : Common.Diagnostic.t list ref;
   context_parent : command_position option;
   context_parent_events : int option;
@@ -63,6 +64,14 @@ and command_position =
   | Before_first_command of command_context
   | Reading_command of command_start
   | Awaiting_resume of completed_command
+
+and compiler_exception = {
+  exception_context : command_context;
+  exception_position : command_position;
+  exception_events : int;
+  exception_diagnostic : Common.Diagnostic.t;
+  exception_error_count : int64;
+}
 
 let position_context = function
   | Before_first_command context -> context
@@ -156,6 +165,33 @@ let context_has_focus context =
   match (context.context_position, !(context.context_stack)) with
   | Some position, active :: _ -> position == active
   | _ -> false
+
+let compiler_exception_diagnostic exception_ = exception_.exception_diagnostic
+let compiler_exception_error_count exception_ = exception_.exception_error_count
+let compiler_exception_context exception_ = exception_.exception_context
+
+let compiler_exception_is_from_context exception_ context =
+  context.context_domain = Domain.self ()
+  && exception_.exception_context == context
+  && Option.fold ~none:false ~some:(( == ) exception_)
+       context.context_compiler_exception
+  &&
+  if context.context_active then
+    context_has_focus context
+    && context.context_event_count = exception_.exception_events
+    && Option.fold ~none:false
+         ~some:(fun position -> !position == exception_.exception_position)
+         context.context_position
+  else
+    Option.is_none context.context_accepted_ast
+    && context.context_event_count = exception_.exception_events + 1
+
+let context_error_count context =
+  if context_has_focus context then
+    Ok
+      (Common.Native_compiler_control.error_count
+         context.context_compiler_control)
+  else Error "compiler error count requires the original current parser control"
 
 let lexical_lookup_is_current context lookup =
   context_has_focus context
@@ -1363,6 +1399,7 @@ type cursor = {
   symbols : Symbol_visibility.Environment.t;
   compilation_mode : Preprocessor.compilation_mode;
   stop_on_error : bool;
+  compiler_exception : (compiler_exception -> unit) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
   references : reference_selection Identifier_table.t;
@@ -1883,17 +1920,50 @@ let append_unique_related items additions =
       else result @ [ item ])
     items additions
 
-let report ?(secondary = []) cursor item ~code ~message =
+let make_error ?(secondary = []) item ~code ~message =
   let secondary =
     append_unique_related item.context.definition_trace secondary
   in
-  let diagnostic =
-    Common.Diagnostic.make ~secondary ~include_stack:item.context.include_stack
-      ~code ~severity:Common.Diagnostic.Error ~message ~primary:item.token.span
-      ()
-  in
+  Common.Diagnostic.make ~secondary ~include_stack:item.context.include_stack
+    ~code ~severity:Common.Diagnostic.Error ~message ~primary:item.token.span ()
+
+let report ?secondary cursor item ~code ~message =
+  let diagnostic = make_error ?secondary item ~code ~message in
   cursor.diagnostics_rev := diagnostic :: !(cursor.diagnostics_rev);
   if cursor.stop_on_error then raise Stop_command
+
+let return_outside_function cursor item =
+  (* PrsStmt.HC's KW_RETURN branch calls LexExcept before Lex. CExcept.HC
+     increments error_cnt at byte 344 and throws Compiler. Only this matched
+     original producer can create this receipt; report and callback failures
+     do not acquire Compiler authority. *)
+  let context =
+    match cursor.current_command with
+    | Some start when context_has_focus start.command_context ->
+        start.command_context
+    | _ -> invalid_arg "LexExcept requires its original current parser command"
+  in
+  let diagnostic =
+    make_error item ~code:"HCPARSE0168"
+      ~message:"return requires an active function"
+  in
+  Common.Native_compiler_control.increment_error
+    context.context_compiler_control;
+  let exception_ =
+    {
+      exception_context = context;
+      exception_position = !(Option.get context.context_position);
+      exception_events = context.context_event_count;
+      exception_diagnostic = diagnostic;
+      exception_error_count =
+        Common.Native_compiler_control.error_count
+          context.context_compiler_control;
+    }
+  in
+  context.context_compiler_exception <- Some exception_;
+  cursor.diagnostics_rev := diagnostic :: !(cursor.diagnostics_rev);
+  Option.iter (fun consume -> consume exception_) cursor.compiler_exception;
+  raise Stop_command
 
 let publish_declaration cursor at event =
   (match (event, cursor.current_command) with
@@ -8046,6 +8116,8 @@ let parse_label_statement cursor : parsed_statement option =
   Some { node = Ast.Label_statement statement; tokens }
 
 let parse_return_statement cursor ~boundary : parsed_statement option =
+  if cursor.stop_on_error && Option.is_none cursor.local_function then
+    return_outside_function cursor (peek cursor);
   let keyword_item = take cursor in
   let build value value_tokens semicolon terminator_tokens :
       parsed_statement option =
@@ -10840,6 +10912,7 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
         (match saved_stack with
         | [] -> cursor.diagnostics_rev
         | parent :: _ -> (position_context !parent).context_warnings_rev);
+      context_compiler_exception = None;
       context_parent =
         (match saved_stack with
         | [] -> None
@@ -10996,9 +11069,9 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
             succeeded := true);
           ast))
 
-let make_cursor ?reference ?call ?implicit_output ?query ?declaration
-    ?dimension_count ~command_stack ~stream ~sources ~source ~symbols
-    ~compilation_mode ~stop_on_error () =
+let make_cursor ?compiler_exception ?reference ?call ?implicit_output ?query
+    ?declaration ?dimension_count ~command_stack ~stream ~sources ~source
+    ~symbols ~compilation_mode ~stop_on_error () =
   if Option.is_some dimension_count && Option.is_none declaration then
     invalid_arg "an array count reader requires a declaration observer";
   {
@@ -11014,6 +11087,7 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     symbols;
     compilation_mode;
     stop_on_error;
+    compiler_exception;
     reference;
     call;
     pending_calls = [];
@@ -11032,14 +11106,15 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     local_publications = [];
   }
 
-let parse_with_stack ~command_stack ?commands ?lexical_lookup ?execute_stream
-    ~sources ~definitions ~symbols ~config source =
+let parse_with_stack ~command_stack ?compiler_exception ?commands
+    ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols ~config
+    source =
   let execute_stream =
     Option.map
       (fun enter stream opener ->
         let opening_cursor =
-          make_cursor ~command_stack ~stream ~sources ~source ~symbols
-            ~stop_on_error:true
+          make_cursor ?compiler_exception ~command_stack ~stream ~sources
+            ~source ~symbols ~stop_on_error:true
             ~compilation_mode:(Preprocessor.Config.compilation_mode config)
             ()
         in
@@ -11074,7 +11149,8 @@ let parse_with_stack ~command_stack ?commands ?lexical_lookup ?execute_stream
                       Symbol_visibility.Environment.without_locals
                         execution.symbols (fun () ->
                           let cursor =
-                            make_cursor ~command_stack ~stream ~sources ~source
+                            make_cursor ?compiler_exception ~command_stack
+                              ~stream ~sources ~source
                               ~symbols:execution.symbols
                               ?reference:execution.commands.reference
                               ?call:execution.commands.call
@@ -11113,7 +11189,8 @@ let parse_with_stack ~command_stack ?commands ?lexical_lookup ?execute_stream
       ~symbols ~config source
   in
   let cursor =
-    make_cursor ~command_stack ~stream ~sources ~source ~symbols
+    make_cursor ?compiler_exception ~command_stack ~stream ~sources ~source
+      ~symbols
       ?reference:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.reference))
@@ -11141,25 +11218,27 @@ let parse_with_stack ~command_stack ?commands ?lexical_lookup ?execute_stream
   let ast = if has_error diagnostics then None else ast in
   { ast; diagnostics }
 
-let parse ?commands ?lexical_lookup ?execute_stream ~sources ~definitions
-    ~symbols ~config source =
-  parse_with_stack ~command_stack:(ref []) ?commands ?lexical_lookup
-    ?execute_stream ~sources ~definitions ~symbols ~config source
+let parse ?compiler_exception ?commands ?lexical_lookup ?execute_stream ~sources
+    ~definitions ~symbols ~config source =
+  parse_with_stack ~command_stack:(ref []) ?compiler_exception ?commands
+    ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols ~config
+    source
 
-let parse_suspended_input suspension ?commands ?lexical_lookup ?execute_stream
-    ~sources ~definitions ~symbols ~config source =
+let parse_suspended_input suspension ?compiler_exception ?commands
+    ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols ~config
+    source =
   let context = suspension.suspended_context in
   suspension.suspension_consumed <- true;
   let output =
-    parse_with_stack ~command_stack:context.context_stack ?commands
-      ?execute_stream ?lexical_lookup ~sources ~definitions ~symbols ~config
-      source
+    parse_with_stack ~command_stack:context.context_stack ?compiler_exception
+      ?commands ?execute_stream ?lexical_lookup ~sources ~definitions ~symbols
+      ~config source
   in
   suspension.suspended_ast <- output.ast;
   Ok output
 
-let parse_suspended suspension ?commands ?lexical_lookup ?execute_stream
-    ~sources ~definitions ~symbols ~config source =
+let parse_suspended suspension ?compiler_exception ?commands ?lexical_lookup
+    ?execute_stream ~sources ~definitions ~symbols ~config source =
   let context = suspension.suspended_context in
   if
     (not (suspension_is_current suspension))
@@ -11168,11 +11247,13 @@ let parse_suspended suspension ?commands ?lexical_lookup ?execute_stream
     || context.context_mode <> Preprocessor.Config.compilation_mode config
   then Error "nested source requires its original live parser suspension"
   else
-    parse_suspended_input suspension ?commands ?lexical_lookup ?execute_stream
-      ~sources ~definitions ~symbols ~config source
+    parse_suspended_input suspension ?compiler_exception ?commands
+      ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols ~config
+      source
 
-let parse_suspended_enclosing suspension ~enclosing ?commands ?lexical_lookup
-    ?execute_stream ~sources ~definitions ~symbols ~config source =
+let parse_suspended_enclosing suspension ~enclosing ?compiler_exception
+    ?commands ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
+    ~config source =
   Result.bind (suspension_enclosing_context suspension) (fun original ->
       if
         original != enclosing
@@ -11186,8 +11267,9 @@ let parse_suspended_enclosing suspension ~enclosing ?commands ?lexical_lookup
         | Some locals ->
             Symbol_visibility.Environment.with_saved_locals symbols locals
               (fun () ->
-                parse_suspended_input suspension ?commands ?lexical_lookup
-                  ?execute_stream ~sources ~definitions ~symbols ~config source)
+                parse_suspended_input suspension ?compiler_exception ?commands
+                  ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
+                  ~config source)
             |> Result.join)
 
 let suspension_owns_sequence suspension sequence =

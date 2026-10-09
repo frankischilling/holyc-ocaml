@@ -27,6 +27,7 @@ type compilation_report = {
   compilation_progress_ : Task.progress option;
   task_units_ : Unit.compiled list;
   limits : limits;
+  compiler_exceptions_ : Parser.compiler_exception list;
 }
 
 type report = {
@@ -41,6 +42,7 @@ type report = {
   progress_ : Task.progress option;
   program_ : Unit.compiled option;
   task_units_ : Unit.compiled list;
+  compiler_exceptions_ : Parser.compiler_exception list;
 }
 
 let compilation_result report = report.compilation_outcome_
@@ -60,6 +62,9 @@ let compilation_outcome report =
 
 let compilation_progress report = report.compilation_progress_
 let compilation_task_units (report : compilation_report) = report.task_units_
+
+let compilation_compiler_exceptions (report : compilation_report) =
+  report.compiler_exceptions_
 
 let task_dimensions progress =
   Option.fold ~none:0 ~some:(fun p -> p.Task.dimension_work) progress
@@ -91,6 +96,7 @@ let preparation_work report =
 let progress report = report.progress_
 let program report = report.program_
 let task_units (report : report) = report.task_units_
+let compiler_exceptions (report : report) = report.compiler_exceptions_
 let ( let* ) = Result.bind
 
 let install_providers ?(suspended = false) task =
@@ -120,6 +126,10 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     }
   in
   let task = ref None in
+  let compiler_exceptions_rev = ref [] in
+  let compiler_exception exception_ =
+    compiler_exceptions_rev := exception_ :: !compiler_exceptions_rev
+  in
   let completed_sequence = ref None in
   let source_dimension_work = ref 0 in
   let source_switch_work = ref 0 in
@@ -398,7 +408,7 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
         }
       in
       let parsed =
-        Parser.parse ~execute_stream ~commands
+        Parser.parse ~compiler_exception ~execute_stream ~commands
           ~sources:(Session.sources session)
           ~definitions:(Session.definitions session)
           ~symbols:(Session.symbols session) ~config source
@@ -446,6 +456,9 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     compilation_progress_ = Option.map Task.progress !task;
     task_units_ = Option.fold ~none:[] ~some:Task.compiled_units !task;
     limits;
+    compiler_exceptions_ =
+      List.rev !compiler_exceptions_rev
+      @ Option.fold ~none:[] ~some:Task.compiler_exceptions !task;
   }
 
 let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
@@ -535,4 +548,5 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     source_offset_work_ = compilation.source_offset_work;
     source_initializer_work_ = compilation.source_initializer_work;
     task_units_ = compilation.task_units_;
+    compiler_exceptions_ = compilation.compiler_exceptions_;
   }

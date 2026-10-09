@@ -513,6 +513,9 @@ type integer_program_compilation_report =
 
 let compile_integer_program_report = Driver.Integer_program.compile_report
 
+let integer_program_compilation_compiler_exceptions =
+  Driver.Integer_program.compilation_compiler_exceptions
+
 let integer_program_compilation_result =
   Driver.Integer_program.compilation_result
 
@@ -572,3 +575,6 @@ let integer_program_report_output_work =
 let integer_program_report_progress = Driver.Integer_program_report.progress
 let integer_program_report_program = Driver.Integer_program_report.program
 let integer_program_report_task_units = Driver.Integer_program_report.task_units
+
+let integer_program_report_compiler_exceptions =
+  Driver.Integer_program_report.compiler_exceptions

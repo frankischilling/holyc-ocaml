@@ -878,6 +878,9 @@ type integer_program_compilation =
 
 type integer_program_compilation_report
 
+val integer_program_compilation_compiler_exceptions :
+  integer_program_compilation_report -> Parser.compiler_exception list
+
 val compile_integer_program_report :
   ?max_dimension_work:int ->
   ?max_switch_work:int ->
@@ -1035,6 +1038,11 @@ val run_integer_program :
     failure. Implicit output preserves the last ordinary expression. *)
 
 type integer_program_report
+
+val integer_program_report_compiler_exceptions :
+  integer_program_report -> Parser.compiler_exception list
+(** Original counted parser [Compiler] exceptions. Other diagnostics carry no
+    compiler exception authority. *)
 
 val run_integer_program_report :
   ?max_dimension_work:int ->

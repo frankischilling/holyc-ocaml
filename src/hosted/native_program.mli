@@ -19,6 +19,7 @@ type source_streams = {
 }
 
 val compile_with_preparation :
+  ?compiler_exception:(Frontend.Parser.compiler_exception -> unit) ->
   ?max_ir_instructions:int ->
   ?max_code_bytes:int ->
   ?max_stack_bytes:int ->
