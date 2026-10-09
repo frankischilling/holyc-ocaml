@@ -1453,6 +1453,100 @@ let call_phase_receipts () =
         [ ("F(1 2);", None); ("F(1,);", Some (shape 2 false)) ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let zero_argument_marker_phases () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, target, variadic, marker, fails) ->
+          let session, source, config = inputs mode text in
+          let supplied : Symbol_visibility.function_call_shape =
+            { parameters = []; variadic }
+          in
+          let phases = ref [] and seen = ref [] and selected = ref None in
+          let call : Parser.direct_call_sink =
+            {
+              start = (fun _ -> Alcotest.fail "no explicit call expected");
+              emit = (fun _ -> Alcotest.fail "no explicit emission expected");
+              implicit =
+                Some
+                  {
+                    arguments =
+                      (fun selection ->
+                        Alcotest.(check bool)
+                          "original target" true
+                          (Parser.implicit_target selection = target);
+                        selected := Some selection;
+                        phases := "arguments" :: !phases;
+                        Ok (Some supplied));
+                    emission =
+                      (fun selection ->
+                        Alcotest.(check bool)
+                          "emission retains exact selection" true
+                          (selection == Option.get !selected);
+                        Alcotest.(check bool)
+                          "original callback shape precedes emission" true
+                          (match Parser.implicit_supplied_shape selection with
+                          | Some (Some shape) -> shape == supplied
+                          | _ -> false);
+                        Alcotest.(check int64)
+                          "emission precedes statement error" 0L
+                          (Parser.context_error_count
+                             (Parser.implicit_command selection).command_context
+                          |> Result.get_ok);
+                        phases := "emission" :: !phases;
+                        Ok ());
+                  };
+            }
+          in
+          let compiler_exception exception_ =
+            phases := "Compiler" :: !phases;
+            seen := exception_ :: !seen
+          in
+          let parsed =
+            parse ~commands:(command_sink ~call ()) ~compiler_exception session
+              source config
+          in
+          Alcotest.(check bool)
+            (describe parsed.diagnostics)
+            (not fails)
+            (Option.is_some parsed.ast);
+          Alcotest.(check (list string))
+            "original call completes before statement producer"
+            (if fails then [ "arguments"; "emission"; "Compiler" ]
+             else [ "arguments"; "emission" ])
+            (List.rev !phases);
+          if fails then (
+            receipt ~code:"HCPARSE0046" ~marker text parsed.diagnostics !seen;
+            Alcotest.(check bool)
+              "statement producer is separate from argument failure" false
+              (Parser.compiler_exception_requires_call_shape (List.hd !seen))))
+        [
+          ( "extern U0 Print();\"first\" \"second\";",
+            Ast.Print_target,
+            false,
+            "\"first\"",
+            true );
+          ( "extern U0 Print();\"text\" #error late\n",
+            Ast.Print_target,
+            false,
+            "\"text\"",
+            true );
+          ( "extern U0 PutChars();'A' #error late\n",
+            Ast.Put_chars_target,
+            false,
+            "'A'",
+            true );
+          ( "extern U0 PutChars(...);'A';",
+            Ast.Put_chars_target,
+            true,
+            "'A'",
+            true );
+          ("extern U0 Print();\"\";", Ast.Print_target, false, "", false);
+          ("extern U0 PutChars();''();", Ast.Put_chars_target, false, "", false);
+          ("extern U0 Print(...);\"text\";", Ast.Print_target, true, "", false);
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let failed_call_shape_ownership () =
   let module D = Task_declarations in
   let module VM = Ir_integer_interpreter in
@@ -1692,4 +1786,6 @@ let tests =
       `Quick call_phase_receipts;
     Alcotest.test_case "failed child catch requires original native call shape"
       `Quick failed_call_shape_ownership;
+    Alcotest.test_case "zero argument marker preserves emission and Lex order"
+      `Quick zero_argument_marker_phases;
   ]

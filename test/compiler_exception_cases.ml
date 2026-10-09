@@ -201,14 +201,37 @@ let call_failures =
       "extern U0 PutChars(I64 n);''(42;",
       "HCPARSE0167",
       ";" );
+    ( "zero fixed Print marker",
+      "extern U0 Print();\"text\";42;",
+      "HCPARSE0046",
+      "\"text\"" );
+    ( "zero fixed PutChars marker",
+      "extern U0 PutChars();'A';42;",
+      "HCPARSE0046",
+      "'A'" );
+    ( "zero fixed variadic PutChars marker",
+      "extern U0 PutChars(...);'A';42;",
+      "HCPARSE0046",
+      "'A'" );
+    ( "zero fixed Print first literal",
+      "extern U0 Print();\"first\" \"second\";42;",
+      "HCPARSE0046",
+      "\"first\"" );
+    ( "zero fixed Print before Lex",
+      "extern U0 Print();\"text\" #error late\n42;",
+      "HCPARSE0046",
+      "\"text\"" );
   ]
 
 let call_caught_children =
   List.map
     (fun (label, text, code, marker) ->
       let tail, output =
-        if label = "PutChars parenthesized close" then
-          ("Print(\"after\");", "after")
+        if
+          String.starts_with ~prefix:"zero fixed PutChars" label
+          || String.starts_with ~prefix:"zero fixed variadic PutChars" label
+          || label = "PutChars parenthesized close"
+        then ("Print(\"after\");", "after")
         else ("PutChars('A');", "A")
       in
       ( label,

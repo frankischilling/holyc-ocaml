@@ -1,8 +1,11 @@
 # Testing holyc-ocaml
 
-Call Compiler tests compare twelve original header and delimiter failures in JIT
-source. Twelve caught child cases run in both outer modes through IR and native
-tasks, including nested directives. Each backend's CLI runs 36 call cases.
+Call Compiler tests compare seventeen original header, delimiter and unread-marker
+failures in JIT source. Seventeen caught child cases run in both outer modes through
+IR and native tasks, including nested directives. Each backend's CLI runs 51 call
+cases. Zero-argument phase tests check capture and emission before the statement
+failure, the first literal of an adjacent string sequence and a following lexer
+error. Empty markers and variadic Print retain their successful parsing controls.
 Receipt tests retain the exact supplied argument shape after abort and collection,
 reject copied call starts and implicit selections during their live callbacks,
 and reject copied shapes before authorizing a catch. Unshaped calls and underlying

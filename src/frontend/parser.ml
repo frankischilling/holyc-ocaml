@@ -7665,8 +7665,26 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   in
   if (not marker_empty) && selected_default 0 && not deferred_marker then
     reject_unconsumed_default marker_item;
+  (* PrsFunCall leaves the current literal untouched when neither the fixed
+     traversal nor an enabled variadic traversal asks for an expression.
+     PutChars only traverses its variadic tail inside parentheses. *)
+  let unconsumed_marker =
+    (not marker_empty)
+    && Option.fold ~none:false
+         ~some:(fun shape ->
+           shape.Symbol_visibility.parameters = []
+           && ((not shape.variadic) || target = Ast.Put_chars_target))
+         selected_shape
+  in
   let marker_expression : parsed_expression =
     match (marker_item.token.Token.kind, marker_item.token.value) with
+    | Token_kind.String, Token.Bytes value when unconsumed_marker ->
+        {
+          node =
+            make_literal marker_item.token (Ast.Bytes_value value)
+              (fun literal -> Ast.String_literal literal);
+          tokens = [ marker_item.token ];
+        }
     | Token_kind.String, Token.Bytes value when marker_empty ->
         let item = Option.get consumed_marker in
         {
@@ -7680,6 +7698,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
         let item =
           match consumed_marker with
           | Some item -> item
+          | None when unconsumed_marker -> marker_item
           | None -> take cursor
         in
         {
@@ -7726,7 +7745,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     | None -> true
   in
   let no_values =
-    empty_marker
+    (empty_marker || unconsumed_marker)
     && Option.fold ~none:false
          ~some:(fun shape ->
            shape.Symbol_visibility.parameters = []
@@ -7739,7 +7758,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
          selected_shape
   in
   if
-    (omitted_initial || no_values)
+    (omitted_initial || (no_values && not unconsumed_marker))
     && Option.is_none opening_parenthesis
     && (not putchars_later_required)
     && initial_item.token.kind <> Token_kind.Punctuation ';'

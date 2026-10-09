@@ -165,6 +165,14 @@ supply a function header. Variadic Print requires a comma before another
 argument whenever the current token is not a semicolon. A closing brace reaches
 that argument check before the statement terminator check.
 
+With no fixed parameters and no enabled variadic traversal, a nonempty marker
+stays at the current token. Print with no variadic tail and unparenthesized
+PutChars, including its variadic form, finish their argument and emission phases
+without reading that literal. The statement terminator then issues HCPARSE0046
+at the original marker. It does not join a following string or read a later
+directive or lexer error. Empty markers still advance the lexer; Print's
+variadic traversal still consumes its first expression.
+
 Direct-call delimiter producers use the shape returned at the original call
 start. An unshaped legacy or indirect call retains its existing diagnostics and
 does not gain a Compiler receipt from those diagnostics. A missing operand or
