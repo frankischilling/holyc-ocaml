@@ -111,9 +111,10 @@ let unary ?(type_ = i64) id opcode operand =
 let binary ?(type_ = i64) id opcode left right =
   description ~operands:[ left; right ] ~result:id ~target_type:type_ id opcode
 
-let word_view ?(type_ = u64) id operand =
+let word_view ?(type_ = u64) ?(parenthesized = false) id operand =
   description ~operands:[ operand ] ~result:id ~target_type:type_
-    ~payload:(Sequence.Integer 0L) id Opcode.Ic_holyc_typecast
+    ~payload:(Sequence.Integer (if parenthesized then 1L else 0L))
+    id Opcode.Ic_holyc_typecast
 
 let return_value ?(type_ = i64) id operand =
   description ~operands:[ operand ] ~target_type:type_ id Opcode.Ic_return_val
@@ -2254,8 +2255,8 @@ let predicate_rejections () =
         [
           "42(I64);";
           "0x8000000000000000(U64);";
-          "(42)(I64i);";
-          "(0x8000000000000000)(U64i);";
+          "(42)(I64);";
+          "(0x8000000000000000)(U64);";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -3943,7 +3944,7 @@ let word_view_shared_cases () =
       -1L );
   ]
 
-let word_view_pressure_graph count =
+let word_view_pressure_graph ?(parenthesized = false) count =
   let definitions =
     List.init count (fun id -> imm id (Int64.of_int (id + 1)))
   in
@@ -3955,7 +3956,7 @@ let word_view_pressure_graph count =
   in
   single
     (definitions
-    @ word_view ~type_:i64 count 0
+    @ word_view ~type_:i64 ~parenthesized count 0
       :: reduce (count + 1) count (List.init count Fun.id))
 
 (* Comparing native with the VM alone cannot detect a shared lowering defect.
@@ -4275,7 +4276,9 @@ let word_view_bytes_and_types () =
             (type_name (Native.value_type compiled)))
         [
           ("0x8000000000000000(I64i);", Native.I64, 4);
+          ("(0x8000000000000000)(I64i);", Native.I64, 4);
           ("0x8000000000000000(U64i);", Native.U64, 4);
+          ("(0x8000000000000000)(U64i);", Native.U64, 4);
           ("0x8000000000000000(I64i)(U64i);", Native.U64, 5);
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ];
@@ -4518,7 +4521,7 @@ let word_view_malformed () =
   in
   List.iter
     (fun payload ->
-      preflight_error_at "unused word view requires integer payload zero"
+      preflight_error_at "unused word view requires integer payload zero or one"
         "HCBACK0003" 1
         (replace_instruction 1 (fun d -> { d with payload }) checked))
     [
@@ -4527,10 +4530,11 @@ let word_view_malformed () =
       Some (Sequence.Integer 2L);
       Some (Sequence.Float_bits 0L);
     ];
-  preflight_error_at "parenthesized word view remains unsupported" "HCBACK0002"
-    1
+  preflight_error_at "parenthesized word view rejects nonzero flags"
+    "HCBACK0002" 1
     (replace_instruction 1
-       (fun d -> { d with payload = Some (Sequence.Integer 1L) })
+       (fun d ->
+         { d with payload = Some (Sequence.Integer 1L); flags = 0x200L })
        checked);
   preflight_error_at "word view rejects nonzero flags" "HCBACK0002" 1
     (replace_instruction 1 (fun d -> { d with flags = 0x200L }) checked);
@@ -4675,8 +4679,8 @@ let tests =
       `Quick predicate_limits;
     Alcotest.test_case "predicate type and dead-producer preflight failures"
       `Quick predicate_malformed;
-    Alcotest.test_case "general and parenthesized casts remain unsupported"
-      `Quick predicate_rejections;
+    Alcotest.test_case "isolated public casts remain unsupported" `Quick
+      predicate_rejections;
     Alcotest.test_case "logical source emits exact full-width truth bytes"
       `Quick logical_bytes;
     Alcotest.test_case "logical source classes and shared comparison chains"

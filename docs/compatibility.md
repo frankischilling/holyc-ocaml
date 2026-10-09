@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[Unnecessary-parenthesis warnings](compiler-warnings.md#unnecessary-parentheses)
+consume live option 17 during expression parsing. Original precedence and
+association state selects each warning phase; character lookahead supplies
+the active definition input at both suppression checks. Reached warnings
+increment the native field and survive later failures. Full native semantic
+error interruption and terminal formatting remain required.
+
 [Duplicate local type warnings](compiler-warnings.md) now consume live option
 18 at the original local-allocation callback. First automatic declarators enter
 the index even while the warning is off; exact class bases distinguish public,

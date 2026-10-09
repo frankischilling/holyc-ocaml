@@ -1014,21 +1014,24 @@ let logical_and_word_view_matrix () =
         (fun (right_name, right_type, right_native) ->
           List.iter
             (fun left ->
-              let view =
-                let open Fixture in
-                single
-                  [
-                    imm ~type_:left_type 0 left;
-                    word_view ~type_:right_type 1 0;
-                    return_value ~type_:right_type 2 1;
-                    ret 3;
-                  ]
-              in
-              compare_literal
-                (Printf.sprintf "%s:%016Lx viewed as %s" left_name left
-                   right_name)
-                right_native left view;
-              incr view_count;
+              List.iter
+                (fun parenthesized ->
+                  let view =
+                    let open Fixture in
+                    single
+                      [
+                        imm ~type_:left_type 0 left;
+                        word_view ~type_:right_type ~parenthesized 1 0;
+                        return_value ~type_:right_type 2 1;
+                        ret 3;
+                      ]
+                  in
+                  compare_literal
+                    (Printf.sprintf "%s:%016Lx viewed as %s, parenthesized=%b"
+                       left_name left right_name parenthesized)
+                    right_native left view;
+                  incr view_count)
+                [ false; true ];
               List.iter
                 (fun right ->
                   let truth_index =
@@ -1060,7 +1063,7 @@ let logical_and_word_view_matrix () =
   Alcotest.(check int)
     "all bit-pattern, signedness and logical truth cases" 768 !logical_count;
   Alcotest.(check int)
-    "all word-view bit-pattern and class pairs" 32 !view_count
+    "all word-view bit-pattern, parenthesis and class pairs" 64 !view_count
 
 let logical_shared_values () =
   List.iter
@@ -1089,7 +1092,25 @@ let logical_shared_values () =
         ])
     Fixture.logical_operations;
   compare_literal "word view preserves six live inputs" Native.I64 22L
-    (Fixture.word_view_pressure_graph 6)
+    (Fixture.word_view_pressure_graph 6);
+  compare_literal "parenthesized word view preserves six live inputs" Native.I64
+    22L
+    (Fixture.word_view_pressure_graph ~parenthesized:true 6);
+  compare_literal "parenthesized word view survives spilling nine live inputs"
+    Native.I64 46L
+    (Fixture.word_view_pressure_graph ~parenthesized:true 9);
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, type_, bits) ->
+          compare_source_literal mode type_ bits source)
+        [
+          ("(0x8000000000000000)(I64i)>>63;", Native.I64, -1L);
+          ("(0x8000000000000000)(U64i)>>63;", Native.U64, 1L);
+          ("(0xFFFFFFFFFFFFFFFF)(I64i)/-1;", Native.I64, 1L);
+          ("(0xFFFFFFFFFFFFFFFF)(U64i)/2;", Native.U64, Int64.max_int);
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let generated_logical_sources () =
   let random = Random.State.make [| 0x646; 0x4c4f; 0x2026 |] in

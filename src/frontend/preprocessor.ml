@@ -119,6 +119,7 @@ type t = {
   mutable stream_depth : int;
   mutable halted : Token.t option;
   mutable current : Lexer_frame.t;
+  mutable returned_definition_input : bool;
   mutable lookahead : Token.t option;
   mutable generated_bytes : int;
   mutable conditionals : conditional list;
@@ -178,6 +179,7 @@ type output = {
 let create ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
     ~config source =
   {
+    returned_definition_input = false;
     sources;
     definitions;
     symbols;
@@ -266,6 +268,20 @@ let read_lexer_item stream =
   stream.current_lookup <- None;
   discard_exhausted_frames stream;
   let item = Lexer.next (Lexer_frame.lexer stream.current) in
+  let input_source = Lexer.input_source (Lexer_frame.lexer stream.current) in
+  let rec definition_input frame =
+    if Common.Source_id.equal input_source (Lexer_frame.source_id frame) then
+      match Lexer_frame.kind frame with
+      | Lexer_frame.Definition | Lexer_frame.Predefined -> true
+      | Lexer_frame.Root | Lexer_frame.Included | Lexer_frame.Generated_stream
+        -> false
+    else
+      match Lexer_frame.caller frame with
+      | Some caller -> definition_input caller
+      | None ->
+          invalid_arg "lexer input selection left its original frame chain"
+  in
+  stream.returned_definition_input <- definition_input stream.current;
   let source =
     match item with
     | Lexer.Token token -> token.Token.span.source
@@ -340,6 +356,7 @@ let current_diagnostic_context stream =
   }
 
 let diagnostic_context stream = current_diagnostic_context stream
+let in_definition_input stream = stream.returned_definition_input
 
 let same_related (left : Common.Diagnostic.related)
     (right : Common.Diagnostic.related) =

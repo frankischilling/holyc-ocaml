@@ -1267,6 +1267,7 @@ type stream_execution = {
 type located_token = {
   token : Token.t;
   context : Preprocessor.diagnostic_context;
+  definition_input : bool;
   selection :
     (Symbol_visibility.Environment.t * Symbol_visibility.lookup) option;
   local_selection : local_publication option;
@@ -1685,6 +1686,7 @@ let rec pull cursor =
       {
         token;
         context = Preprocessor.diagnostic_context cursor.stream;
+        definition_input = Preprocessor.in_definition_input cursor.stream;
         selection;
         local_selection;
       }
@@ -3100,8 +3102,155 @@ let expression_operand_name = function
       "an inline assembly operand expression"
   | Statement_expression -> "a statement expression operand"
 
-let rec parse_expression ?(allow_parenthesis_free_call = true) cursor ~context
-    ~depth ~minimum_binding_power : parsed_expression option =
+(* PrsExp.HC:67-68 and 120-127, 191-197, 244-248. These fields follow
+   original term/operator consumption, including Pratt recursion within the
+   same expression. Grouped expressions and argument/index inputs have their
+   own phase. No completed AST traversal can recover the warning lookahead. *)
+type parenthesis_phase = {
+  mutable max_precedence : int;
+  mutable left_precedence : int;
+  mutable unary_precedence : int;
+  mutable postfix_precedence : int;
+  mutable grouped_precedence : int;
+  mutable grouped_opening : Ast.location option;
+  mutable term_checked : bool;
+}
+
+let expression_constant name constants =
+  (List.find
+     (fun (constant : Generated.Operator_tables.named_constant) ->
+       constant.name = name)
+     constants)
+    .value
+
+let parenthesis_term_precedence =
+  expression_constant "PREC_TERM" Generated.Operator_tables.precedences
+
+let parenthesis_unary_precedence =
+  expression_constant "PREC_UNARY_PRE" Generated.Operator_tables.precedences
+
+let parenthesis_postfix_precedence =
+  expression_constant "PREC_UNARY_POST" Generated.Operator_tables.precedences
+
+let parenthesis_max_precedence =
+  expression_constant "PREC_MAX" Generated.Operator_tables.precedences
+
+let parenthesis_association_left =
+  expression_constant "ASSOCF_LEFT" Generated.Operator_tables.association_flags
+
+let parenthesis_association_right =
+  expression_constant "ASSOCF_RIGHT" Generated.Operator_tables.association_flags
+
+let parenthesis_association_mask =
+  expression_constant "ASSOC_MASK" Generated.Operator_tables.association_flags
+
+let new_parenthesis_phase () =
+  {
+    max_precedence = 0;
+    left_precedence = parenthesis_max_precedence;
+    unary_precedence = 0;
+    postfix_precedence = 0;
+    grouped_precedence = 0;
+    grouped_opening = None;
+    term_checked = false;
+  }
+
+let start_parenthesis_term phase =
+  phase.unary_precedence <- 0;
+  phase.postfix_precedence <- 0;
+  phase.grouped_precedence <- 0;
+  phase.grouped_opening <- None;
+  phase.term_checked <- false
+
+let parenthesis_modifier phase precedence =
+  if phase.postfix_precedence = 0 then phase.postfix_precedence <- precedence
+
+let warn_parenthesis cursor phase (item : located_token) =
+  match cursor.current_command with
+  | Some command when not item.definition_input -> (
+      let context = command.command_context in
+      match context_get_option context ~bit_index:17L with
+      | Ok true -> (
+          let secondary =
+            match phase.grouped_opening with
+            | None -> []
+            | Some opening ->
+                [
+                  {
+                    Common.Diagnostic.span = opening.span;
+                    message = "grouping starts here";
+                  };
+                ]
+          in
+          let diagnostic =
+            Common.Diagnostic.make ~code:"HCSEMA0077"
+              ~severity:Common.Diagnostic.Warning
+              ~message:"unnecessary parentheses" ~primary:item.token.span
+              ~secondary ~include_stack:item.context.include_stack ()
+          in
+          match context_emit_counted_compiler_warning context diagnostic with
+          | Ok () -> ()
+          | Error reason -> invalid_arg reason)
+      | Ok false -> ()
+      | Error reason -> invalid_arg reason)
+  | None | Some _ -> ()
+
+let check_parenthesis_term cursor phase item =
+  if not phase.term_checked then (
+    phase.term_checked <- true;
+    let grouped = phase.grouped_precedence in
+    if grouped <> 0 then
+      if phase.unary_precedence <> 0 || phase.postfix_precedence <> 0 then (
+        if grouped <= phase.unary_precedence && phase.postfix_precedence = 0
+        then warn_parenthesis cursor phase item;
+        phase.grouped_precedence <- 0)
+      else if
+        grouped <= parenthesis_unary_precedence + parenthesis_association_mask
+      then warn_parenthesis cursor phase item;
+    if Option.is_none (binary_operator item.token) then
+      let grouped = phase.grouped_precedence in
+      if
+        grouped > parenthesis_unary_precedence + parenthesis_association_mask
+        && grouped land lnot parenthesis_association_mask
+           <= (phase.left_precedence land lnot parenthesis_association_mask)
+              - (grouped land parenthesis_association_left)
+              - (phase.left_precedence land parenthesis_association_left)
+      then warn_parenthesis cursor phase item)
+
+let consume_parenthesis_binary cursor phase
+    (operator : Operator.binary_operator) following =
+  let association =
+    match operator.association with
+    | Operator.Unspecified -> 0
+    | Operator.Left -> parenthesis_association_left
+    | Operator.Right -> parenthesis_association_right
+  in
+  let current = operator.precedence_value lor association in
+  let grouped = phase.grouped_precedence in
+  let without_association value =
+    value land lnot parenthesis_association_mask
+  in
+  if
+    grouped > parenthesis_unary_precedence + parenthesis_association_mask
+    && without_association grouped
+       < without_association phase.left_precedence
+         + (grouped land parenthesis_association_right)
+    && without_association grouped
+       < without_association current
+         + if grouped land parenthesis_association_right = 0 then 1 else 0
+  then warn_parenthesis cursor phase following;
+  phase.max_precedence <- max phase.max_precedence current;
+  phase.left_precedence <- current
+
+let rec parse_expression ?parenthesis_phase ?(new_parenthesis_term = true)
+    ?(allow_parenthesis_free_call = true) cursor ~context ~depth
+    ~minimum_binding_power : parsed_expression option =
+  let parenthesis_phase =
+    match parenthesis_phase with
+    | Some phase -> phase
+    | None -> new_parenthesis_phase ()
+  in
+  if new_parenthesis_term then start_parenthesis_term parenthesis_phase;
   let item = peek cursor in
   if depth >= max_expression_depth then
     expression_failure cursor item ~code:"HCPARSE0021"
@@ -3111,19 +3260,22 @@ let rec parse_expression ?(allow_parenthesis_free_call = true) cursor ~context
            max_expression_depth)
   else
     match
-      parse_expression_prefix cursor ~context ~depth
+      parse_expression_prefix cursor ~parenthesis_phase ~context ~depth
         ~allow_parenthesis_free_call
     with
     | None -> None
     | Some left ->
-        parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-          ~allow_parenthesis_free_call left
+        parse_expression_tail cursor ~parenthesis_phase ~context ~depth
+          ~minimum_binding_power ~allow_parenthesis_free_call left
 
-and parse_expression_prefix cursor ~context ~depth ~allow_parenthesis_free_call
-    : parsed_expression option =
+and parse_expression_prefix cursor ~parenthesis_phase ~context ~depth
+    ~allow_parenthesis_free_call : parsed_expression option =
   let item = peek cursor in
   match unary_operator_kind item.token with
   | Some operator_kind -> (
+      parenthesis_phase.unary_precedence <- parenthesis_unary_precedence;
+      parenthesis_phase.max_precedence <-
+        max parenthesis_phase.max_precedence parenthesis_unary_precedence;
       let operator_item = take cursor in
       let operator = make_expression_operator operator_item.token in
       let allow_parenthesis_free_call =
@@ -3155,10 +3307,12 @@ and parse_expression_prefix cursor ~context ~depth ~allow_parenthesis_free_call
           (* PrsExp.HC:621-654 returns the function address before ordinary
              modifiers. In particular, a following cast applies to that address,
              and does not enter the direct function-call grammar. *)
-          parse_expression_atom cursor ~context ~depth:(depth + 1)
+          parse_expression_atom cursor ~parenthesis_phase ~context
+            ~depth:(depth + 1)
         else
-          parse_expression ~allow_parenthesis_free_call cursor ~context
-            ~depth:(depth + 1) ~minimum_binding_power:max_int
+          parse_expression ~parenthesis_phase ~new_parenthesis_term:false
+            ~allow_parenthesis_free_call cursor ~context ~depth:(depth + 1)
+            ~minimum_binding_power:max_int
       in
       match operand with
       | None -> None
@@ -3171,9 +3325,12 @@ and parse_expression_prefix cursor ~context ~depth ~allow_parenthesis_free_call
                  ~operand:operand.node ~location)
           in
           Some { node; tokens })
-  | None -> parse_expression_atom cursor ~context ~depth
+  | None -> parse_expression_atom cursor ~parenthesis_phase ~context ~depth
 
-and parse_expression_atom cursor ~context ~depth : parsed_expression option =
+and parse_expression_atom cursor ~parenthesis_phase ~context ~depth :
+    parsed_expression option =
+  parenthesis_phase.max_precedence <-
+    max parenthesis_phase.max_precedence parenthesis_term_precedence;
   let item = peek cursor in
   let take_literal ?origin value
       (constructor : Ast.expression_literal -> Ast.expression) :
@@ -3267,6 +3424,7 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
   | Token_kind.Punctuation '(', _ -> (
       let opening = take cursor in
       let first = peek cursor in
+      let nested_phase = new_parenthesis_phase () in
       match type_specifier_of_item cursor first with
       | Some _ ->
           expression_failure cursor first ~code:"HCPARSE0029"
@@ -3278,8 +3436,8 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
                  (token_text first.token))
       | None -> (
           match
-            parse_expression cursor ~context ~depth:(depth + 1)
-              ~minimum_binding_power:0
+            parse_expression ~parenthesis_phase:nested_phase cursor ~context
+              ~depth:(depth + 1) ~minimum_binding_power:0
           with
           | None -> None
           | Some expression ->
@@ -3292,6 +3450,11 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
                        (token_description closing.token))
               else
                 let closing = take cursor in
+                parenthesis_phase.grouped_precedence <-
+                  (if first.definition_input then 0
+                   else nested_phase.max_precedence);
+                parenthesis_phase.grouped_opening <-
+                  Some (token_location opening.token);
                 let tokens =
                   (opening.token :: expression.tokens) @ [ closing.token ]
                 in
@@ -4082,9 +4245,9 @@ and parse_postfix_update_suffix cursor ~context (operand : parsed_expression)
            (token_description following.token))
   else Some { node; tokens }
 
-and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-    ~allow_parenthesis_free_call (left : parsed_expression) :
-    parsed_expression option =
+and parse_expression_tail cursor ~parenthesis_phase ~context ~depth
+    ~minimum_binding_power ~allow_parenthesis_free_call
+    (left : parsed_expression) : parsed_expression option =
   let item = peek cursor in
   emit_direct_call cursor item left.node;
   let direct_function =
@@ -4130,20 +4293,20 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
             with
             | None -> None
             | Some call ->
-                parse_expression_tail cursor ~context ~depth
+                parse_expression_tail cursor ~parenthesis_phase ~context ~depth
                   ~minimum_binding_power ~allow_parenthesis_free_call call))
     | Not_a_direct_function
     | Direct_function_without_shape _
     | Direct_function_with_shape _ ->
-        parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
-          ~allow_parenthesis_free_call left
+        parse_expression_modifiers cursor ~parenthesis_phase ~context ~depth
+          ~minimum_binding_power ~allow_parenthesis_free_call left
   else
-    parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
-      ~allow_parenthesis_free_call left
+    parse_expression_modifiers cursor ~parenthesis_phase ~context ~depth
+      ~minimum_binding_power ~allow_parenthesis_free_call left
 
-and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
-    ~allow_parenthesis_free_call (left : parsed_expression) :
-    parsed_expression option =
+and parse_expression_modifiers cursor ~parenthesis_phase ~context ~depth
+    ~minimum_binding_power ~allow_parenthesis_free_call
+    (left : parsed_expression) : parsed_expression option =
   let item = peek cursor in
   let is_direct_function =
     match left.node with
@@ -4179,6 +4342,8 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
   else
     match item.token.kind with
     | Token_kind.Punctuation '(' -> (
+        if not is_direct_function then
+          parenthesis_modifier parenthesis_phase parenthesis_term_precedence;
         let opening = take cursor in
         let opening_location = token_location opening.token in
         let suffix =
@@ -4225,27 +4390,31 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
         match suffix with
         | None -> None
         | Some expression ->
-            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              ~allow_parenthesis_free_call expression)
+            parse_expression_tail cursor ~parenthesis_phase ~context ~depth
+              ~minimum_binding_power ~allow_parenthesis_free_call expression)
     | Token_kind.Punctuation '[' -> (
+        parenthesis_modifier parenthesis_phase parenthesis_term_precedence;
         match parse_index_suffix cursor ~context ~depth left with
         | None -> None
         | Some index ->
-            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              ~allow_parenthesis_free_call index)
+            parse_expression_tail cursor ~parenthesis_phase ~context ~depth
+              ~minimum_binding_power ~allow_parenthesis_free_call index)
     | Token_kind.Punctuation '.' -> (
+        parenthesis_modifier parenthesis_phase parenthesis_term_precedence;
         match parse_member_suffix cursor ~context left Ast.Direct_member with
         | None -> None
         | Some member ->
-            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              ~allow_parenthesis_free_call member)
+            parse_expression_tail cursor ~parenthesis_phase ~context ~depth
+              ~minimum_binding_power ~allow_parenthesis_free_call member)
     | Token_kind.Operator Operator.Arrow -> (
+        parenthesis_modifier parenthesis_phase parenthesis_term_precedence;
         match parse_member_suffix cursor ~context left Ast.Pointer_member with
         | None -> None
         | Some member ->
-            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              ~allow_parenthesis_free_call member)
+            parse_expression_tail cursor ~parenthesis_phase ~context ~depth
+              ~minimum_binding_power ~allow_parenthesis_free_call member)
     | Token_kind.Operator (Operator.Increment | Operator.Decrement) -> (
+        parenthesis_modifier parenthesis_phase parenthesis_postfix_precedence;
         match postfix_operator_kind item.token with
         | None -> assert false
         | Some operator_kind -> (
@@ -4254,19 +4423,24 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
             with
             | None -> None
             | Some postfix ->
-                parse_expression_binary_tail cursor ~context ~depth
-                  ~minimum_binding_power postfix))
+                parse_expression_binary_tail cursor ~parenthesis_phase ~context
+                  ~depth ~minimum_binding_power postfix))
     | _ ->
-        parse_expression_binary_tail cursor ~context ~depth
+        parse_expression_binary_tail cursor ~parenthesis_phase ~context ~depth
           ~minimum_binding_power left
 
-and parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
-    (left : parsed_expression) : parsed_expression option =
+and parse_expression_binary_tail cursor ~parenthesis_phase ~context ~depth
+    ~minimum_binding_power (left : parsed_expression) : parsed_expression option
+    =
   let item = peek cursor in
+  check_parenthesis_term cursor parenthesis_phase item;
   match binary_operator item.token with
   | Some operator_spec
     when binary_binding_power operator_spec >= minimum_binding_power -> (
       let operator_item = take cursor in
+      let following = peek cursor in
+      consume_parenthesis_binary cursor parenthesis_phase operator_spec
+        following;
       let binding_power = binary_binding_power operator_spec in
       let right_minimum =
         match operator_spec.association with
@@ -4274,7 +4448,7 @@ and parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
         | Operator.Left | Operator.Unspecified -> binding_power + 1
       in
       match
-        parse_expression cursor ~context ~depth:(depth + 1)
+        parse_expression ~parenthesis_phase cursor ~context ~depth:(depth + 1)
           ~minimum_binding_power:right_minimum
       with
       | None -> None
@@ -4289,7 +4463,7 @@ and parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
               tokens = left.tokens @ (operator_item.token :: right.tokens);
             }
           in
-          parse_expression_binary_tail cursor ~context ~depth
+          parse_expression_binary_tail cursor ~parenthesis_phase ~context ~depth
             ~minimum_binding_power left)
   | _ -> Some left
 
@@ -7173,8 +7347,9 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
               ( Ast.Expression_fixed_argument expression.node,
                 fixed_prefix @ expression.tokens )))
     else
-      parse_expression_tail cursor ~context:Implicit_output_argument_expression
-        ~depth:0 ~minimum_binding_power:0 ~allow_parenthesis_free_call:true
+      parse_expression_tail cursor ~parenthesis_phase:(new_parenthesis_phase ())
+        ~context:Implicit_output_argument_expression ~depth:0
+        ~minimum_binding_power:0 ~allow_parenthesis_free_call:true
         marker_expression
       |> Option.map (fun (expression : parsed_expression) ->
           (Ast.Marker_fixed_argument expression.node, expression.tokens))
@@ -7415,6 +7590,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                 match pending_marker with
                 | Some marker ->
                     parse_expression_tail cursor
+                      ~parenthesis_phase:(new_parenthesis_phase ())
                       ~context:Implicit_output_argument_expression ~depth:0
                       ~minimum_binding_power:0 ~allow_parenthesis_free_call:true
                       marker

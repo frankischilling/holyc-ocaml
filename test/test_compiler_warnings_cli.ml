@@ -153,6 +153,84 @@ let duplicate_cases =
       0 );
   ]
 
+let paren = ("HCSEMA0077", "unnecessary parentheses")
+
+let parenthesis_cases =
+  [
+    ( "parenthesis default off",
+      "#exe {Option(16,0);}I64 F(){return (42);}F();",
+      [],
+      0 );
+    ( "parenthesized term",
+      "#exe {Option(16,0);Option(17,1);}I64 F(){return (42);}F();",
+      [ paren ],
+      0 );
+    ( "unary grouping",
+      "#exe {Option(16,0);Option(17,1);}I64 F(){return -(42)+84;}F();",
+      [ paren ],
+      0 );
+    ( "required binary grouping",
+      "#exe {Option(16,0);Option(17,1);}I64 F(){return (40+2)*1;}F();",
+      [],
+      0 );
+    ( "binary warning after operator",
+      "#exe {Option(16,0);Option(17,1);}I64 F(){return (40*1)+2;}F();",
+      [ paren ],
+      0 );
+    ( "postfix cast grouping",
+      "#exe {Option(16,0);Option(17,1);}I64 F(){return (40+2)(I64);}F();",
+      [],
+      0 );
+    ( "definition starts grouping",
+      "#define VALUE (40+2)\n\
+       #exe {Option(16,0);Option(17,1);}I64 F(){return VALUE;}F();",
+      [],
+      0 );
+    ( "numeric lookahead remains in definition",
+      "#define VALUE 42 \n\
+       #exe {Option(16,0);Option(17,1);}I64 F(){return (VALUE);}F();",
+      [],
+      0 );
+    ( "numeric lookahead exits definition",
+      "#define VALUE 42\n\
+       #exe {Option(16,0);Option(17,1);}I64 F(){return (VALUE);}F();",
+      [ paren ],
+      0 );
+    ( "binary lookahead remains in definition",
+      "#define RHS 2 \n\
+       #exe {Option(16,0);Option(17,1);}I64 F(){return (40*1)+RHS;}F();",
+      [],
+      0 );
+    ( "binary lookahead exits definition",
+      "#define RHS 2\n\
+       #exe {Option(16,0);Option(17,1);}I64 F(){return (40*1)+RHS;}F();",
+      [ paren ],
+      0 );
+    ( "ordinary child inherits warning option",
+      {|#exe {Option(16,0);Option(17,1);StreamExePrint("(42);");(42);}42;|},
+      [ paren; paren ],
+      0 );
+    ( "live directive enables binary warning",
+      "#exe {Option(16,0);Option(17,0);}I64 F(){return (40*1)+ #exe \
+       {Option(17,1);} 2;}F();",
+      [ paren ],
+      0 );
+    ( "warning retained before missing operand",
+      "#exe {Option(16,0);Option(17,1);(40*1)+;}42;",
+      [ paren ],
+      1 );
+    ( "warning retained before runtime failure",
+      "#exe {Option(16,0);Option(17,1);I64 F(){return (42);}I64 \
+       zero=0;42/zero;}42;",
+      [ paren ],
+      1 );
+    ( "duplicate warning precedes initializer parentheses",
+      "#exe {Option(16,0);Option(17,1);Option(18,1);I64 F(){I64 a=40;I64 \
+       b=(2);return a+b;}F();}42;",
+      [ duplicate "b" "F"; paren ],
+      0 );
+  ]
+
 let header_cases =
   [
     ( "same evaluated callback owner",
@@ -373,6 +451,37 @@ let () =
                     ^ String.concat "; " (List.map snd (warnings report))
                     ^ "]")))
             duplicate_cases)
+        [ "jit"; "aot" ])
+    targets;
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          let path =
+            Filename.concat (Filename.dirname example)
+              "compiler-parenthesis-warnings.hc"
+          in
+          let report = invoke mode target path in
+          require
+            (warnings report = [ paren ])
+            "parenthesis example lost original warning phase";
+          require
+            (report |> member "final_value" |> member "value" |> to_string
+             = "42"
+            && report |> member "output_hex" |> to_string = "34323b")
+            "parenthesis example changed execution";
+          List.iter
+            (fun (label, text, expected, status) ->
+              temporary ".hc" text (fun path ->
+                  let report = invoke ~status mode target path in
+                  require
+                    (warnings report = expected)
+                    (label ^ ": expected ["
+                    ^ String.concat "; " (List.map snd expected)
+                    ^ "], received ["
+                    ^ String.concat "; " (List.map snd (warnings report))
+                    ^ "]")))
+            parenthesis_cases)
         [ "jit"; "aot" ])
     targets;
   List.iter

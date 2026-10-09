@@ -30,6 +30,11 @@ val offset : t -> int
 val termination : t -> termination option
 val local_at_end : t -> bool
 
+val input_source : t -> Common.Source_id.t
+(** Original input selected by the most recent token's character consumption and
+    retained character lookahead. This can differ from the token's source when a
+    read exits an exhausted replacement or included input. *)
+
 val consume_continuation_marker : t -> Common.Span.t option
 (** Consume an immediate backslash used by source constructs that explicitly
     request continued lexical input. No trivia is skipped. *)

@@ -149,6 +149,12 @@ val take_pending_diagnostics : t -> Common.Diagnostic.t list
     execution-enabled parser uses this when stopping at the first error. *)
 
 val diagnostic_context : t -> diagnostic_context
+
+val in_definition_input : t -> bool
+(** Whether the current original lexer input is a definition replacement.
+    Capture this with the returned token, before requesting another item.
+    Generated stream and included source inputs are not definitions. *)
+
 val definitions : t -> Definition.t list
 val definition_dump : t -> string
 val help_metadata : t -> Help_metadata.t

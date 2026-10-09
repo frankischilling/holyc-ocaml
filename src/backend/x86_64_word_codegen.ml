@@ -619,16 +619,17 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
             ( [ operand_id ],
               Some result,
               Some target_type,
-              Some (Sequence.Integer 0L) ) ) ->
+              Some (Sequence.Integer (0L | 1L)) ) ) ->
+            (* OptPass012.HC:87-110 preserves bits for both parenthesis
+               forms in this checked full-word domain. Keep the original cast
+               instruction and target computation class; no floating or
+               narrow conversion is admitted by this path. *)
             let _ = checked_word ~allow_public description target_type in
             let input = operand operand_id in
             let result =
               define result target_type (Computation.declared target_type)
             in
             Apply_word_view (input, result)
-        | Word_view_kind, ([ _ ], Some _, Some _, Some (Sequence.Integer 1L)) ->
-            unsupported description
-              "native expressions do not support parenthesized casts"
         | ( Binary_kind binary,
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
             let _ = checked_value target_type in

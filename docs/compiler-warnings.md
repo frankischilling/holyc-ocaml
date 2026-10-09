@@ -118,6 +118,44 @@ formatting and wider runtime storage still require their own implementation.
 The original rules are Compiler/LexLib.HC:120-141,
 Compiler/PrsVar.HC:350-356 and 525-528, and Compiler/AsmInit.HC:197-206.
 
+## Unnecessary parentheses
+
+Option 17 emits `HCSEMA0077` while parsing expressions. The parser retains the
+original maximum and left precedence, association bits, unary prefixes and
+postfix modifiers. Unary and binary Pratt recursion share that state; grouped
+expressions, arguments and index expressions use separate states. Checks run
+after term modifiers, after binary-operator lookahead and before final stack
+reduction. They do not traverse a completed AST. The warning's primary span is
+the reached lookahead; a related span identifies the opening parenthesis.
+
+The source has two definition-input checks. A grouped expression starting in
+a definition suppresses its outer warning even after the replacement ends.
+`ParenWarning` also suppresses a warning whose current lookahead remains in a
+definition. These checks use the original input reached by token character
+consumption and lookahead. For example, a replacement `42` exits its input
+while reading the next character, whereas `42 ` reads that character inside
+the replacement. A token's source or definition trace cannot replace this
+selection. Generated source streams are distinct from definitions.
+
+Each reached warning reads the live option and increments the focused native
+warning field once. Directives can change that option during lookahead;
+ordinary children copy the caller's current mask. Warnings survive later
+delimiter, operand, backend and execution failures. Required grouping,
+postfix casts, updates, macro boundaries and original association rules have
+separate controls. The [example](../examples/compiler-parenthesis-warnings.hc)
+prints `42;` and returns 42 through IR and native tasks in both outer modes.
+Checked full-word parenthesized casts also execute natively; the word backend
+retains the original zero/one cast payload and target computation class.
+
+References: Compiler/PrsExp.HC:67-85, 120-127, 191-197, 244-248 and 728-748;
+Compiler/CExcept.HC:110-115; Compiler/Lex.HC:107-242 and 474-482;
+Compiler/CompilerA.HH:335-356 and Compiler/CInit.HC:288-329.
+
+These are structured parser warnings. Full native intermediate-code type
+checks, LexExcept interruption and terminal formatting remain unfinished;
+semantic errors still diagnosed after grammar parsing can reach different
+later warnings from the native compiler.
+
 Each original parser input owns native field storage with the pinned CCmpCtrl
 prefix through `warning_cnt`. `opts` is at byte 320 and `warning_cnt` at byte
 352. Source GetOption/Option, counted warnings and the original declaration,
@@ -140,7 +178,7 @@ Full warning timing remains unfinished. TempleOS tests unused locals after
 code generation. An ordinary isolated module emits its warnings after the
 whole module compiles, so an earlier function's warning is not retained when
 later source prevents module compilation. Ordinary AOT joins, broader default
-and miscellaneous-data behavior, parentheses and return-warning
+and miscellaneous-data behavior and return-warning
 consumers still need their original phase integration. Callback owner equality
 does not establish original executable-PC or exported-ABI parity. The remaining
 compiler options, typed compiler exceptions, wider

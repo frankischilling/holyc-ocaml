@@ -15,7 +15,11 @@ Original parser inputs also own native option and warning fields. Directives
 share their caller's allocation; ordinary child inputs copy live options into
 fresh storage. These fields retain the pinned offsets while the full compiler
 control and error producers remain unfinished.
-Option 18 now warns at the original local-allocation boundary. It indexes only
+Option 17 now checks unnecessary parentheses during original expression
+parsing, with live options, native warning counts and both definition-input
+suppression checks. The [parenthesis example](examples/compiler-parenthesis-warnings.hc)
+keeps macro grouping quiet and warns on a removable binary group.
+Option 18 warns at the original local-allocation boundary. It indexes only
 the first automatic declarator of each declaration and compares exact class
 bases, including the original intrinsic base for callbacks. The
 [duplicate-type example](examples/compiler-duplicate-types.hc) runs through IR

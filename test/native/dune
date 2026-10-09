@@ -22,7 +22,8 @@
  (alias native-tests)
  (deps
   ../../examples/compiler-warning-options.hc
-  ../../examples/compiler-duplicate-types.hc)
+  ../../examples/compiler-duplicate-types.hc
+  ../../examples/compiler-parenthesis-warnings.hc)
  (action
   (run
    %{exe:../test_compiler_warnings_cli.exe}
