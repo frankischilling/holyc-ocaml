@@ -57,6 +57,16 @@ val observe : t -> Frontend.Parser.command_event -> (unit, string) result
 (** Internal projection of successfully validated parser lifecycle events.
     Resume events order commands within their exact parser-root family. *)
 
+val context_events_rev :
+  t -> Frontend.Parser.command_context -> Frontend.Parser.command_event list
+
+val check_child_input_parent :
+  t ->
+  suspension:Frontend.Parser.suspension ->
+  (Frontend.Parser.command_context, string) result
+(** Require the original current suspension and the complete physical parent
+    lifecycle journal before entering a child. *)
+
 val import_source_events :
   t -> Frontend.Parser.command_event list -> (unit, string) result
 (** Atomically project a source ledger's previously validated lifecycle into an

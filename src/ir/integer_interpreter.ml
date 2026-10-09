@@ -468,6 +468,7 @@ type task_input = {
   input_context : Frontend.Parser.command_context;
   input_streams : task_stream list;
   input_failure : unit ref;
+  input_child_failure : unit ref;
   input_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
   input_internal_bindings : internal_binding_attempt list;
   input_dimensions : dimension_attempt list;
@@ -519,9 +520,56 @@ type task_resources = {
   generated : Output.t;
   max_stream_depth : int;
   mutable streams : task_stream list;
+  mutable child_input_stack : task_child_input list;
+  mutable child_inputs : task_child_input list;
+  mutable child_failure_generation : unit ref;
 }
 
-type task_state = {
+and task_child_input = {
+  child_caller : task_state;
+  child_target : task_state;
+  child_suspension : Frontend.Parser.suspension;
+  child_source : Common.Source_file.t;
+  child_parent : Frontend.Parser.command_context;
+  child_enclosing : Frontend.Parser.command_context;
+  child_streams : task_stream list;
+  child_failure : unit ref;
+  mutable child_context : Frontend.Parser.command_context option;
+  mutable child_participants : child_participant list;
+  mutable child_aborts : (task_state * Frontend.Parser.command_context) list;
+  mutable child_fault : bool;
+  mutable child_phase : child_input_phase;
+}
+
+and child_input_phase =
+  | Child_open
+  | Child_completed of Frontend.Parser.completed_sequence
+  | Child_failed
+  | Child_caught of Frontend.Parser.failed_input
+
+and child_participant = {
+  participant_task : task_state;
+  participant_before : child_work;
+  mutable participant_after : child_work option;
+  mutable participant_contexts : Frontend.Parser.command_context list;
+}
+
+and child_work = {
+  work_failure : unit ref;
+  work_failed : bool;
+  work_activation : Sema.Source_activation.t option;
+  work_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
+  work_internal_bindings : internal_binding_attempt list;
+  work_dimensions : dimension_attempt list;
+  work_offsets : offset_attempt list;
+  work_defaults : default_attempt list;
+  work_default_constants : default_constant list;
+  work_initializers : task_initializer list;
+  work_deferred_dimensions : Sema.Compiler_record.dimension_preparation list;
+  work_deferred_offsets : Sema.Compiler_record.aggregate_offset list;
+}
+
+and task_state = {
   mutable implicit_selections :
     (Frontend.Parser.implicit_output_selection * Retained_function.t) list;
   mutable implicit_starts : task_implicit_call_start list;
@@ -666,6 +714,9 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
           Output.share_work output ~max_output_bytes:max_generated_bytes;
         max_stream_depth;
         streams = [];
+        child_input_stack = [];
+        child_inputs = [];
+        child_failure_generation = ref ();
       }
     in
     Ok (make_task_state ~resources ~native_storage_authority ~table)
@@ -848,6 +899,231 @@ let complete_native_generation ?scope generation capture =
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
 let task_source_order task = Integer_globals.task_source_order task.catalog
 
+let child_work task =
+  {
+    work_failure = task.failure_generation;
+    work_failed = task.source_execution_failed;
+    work_activation = task.source_activation;
+    work_seen_dimensions = task.seen_dimensions;
+    work_internal_bindings = task.internal_bindings;
+    work_dimensions = task.dimensions;
+    work_offsets = task.runtime_offsets;
+    work_defaults = task.defaults;
+    work_default_constants = task.default_constants;
+    work_initializers = task.initializers;
+    work_deferred_dimensions = task.deferred_dimensions;
+    work_deferred_offsets = task.deferred_offsets;
+  }
+
+let child_participant scope task =
+  match
+    List.find_opt
+      (fun participant -> participant.participant_task == task)
+      scope.child_participants
+  with
+  | Some participant -> participant
+  | None ->
+      let participant =
+        {
+          participant_task = task;
+          participant_before = child_work task;
+          participant_after = None;
+          participant_contexts = [];
+        }
+      in
+      scope.child_participants <- participant :: scope.child_participants;
+      participant
+
+let child_input_is_active scope =
+  scope.child_caller.resources.domain = Domain.self ()
+  && scope.child_caller.resources == scope.child_target.resources
+  && scope.child_caller.resources.child_failure_generation
+     == scope.child_failure
+  && (match scope.child_caller.resources.child_input_stack with
+    | original :: _ -> original == scope
+    | [] -> false)
+  &&
+  match scope.child_phase with
+  | Child_open -> true
+  | _ -> false
+
+let begin_task_child_input caller ~target ~suspension ~source =
+  let ( let* ) = Result.bind in
+  let* parent =
+    Sema.Task_command_order.check_child_input_parent (task_source_order caller)
+      ~suspension
+  in
+  let* enclosing = Frontend.Parser.suspension_enclosing_context suspension in
+  let sources = Frontend.Parser.context_sources enclosing in
+  if
+    caller.resources != target.resources
+    || caller.resources.domain <> Domain.self ()
+    || caller.resources.nested_source_depth = 0
+    || caller.resources.streams = []
+    || caller.native_storage_authority
+       && not (native_source_is_suspended caller)
+    || target.native_storage_authority
+       && not (native_source_is_suspended target)
+    || not
+         (Option.fold ~none:false ~some:(( == ) source)
+            (Common.Source_manager.find sources (Common.Source_file.id source)))
+  then
+    Error
+      "child input requires its original source, resources and suspended \
+       execution"
+  else
+    let scope =
+      {
+        child_caller = caller;
+        child_target = target;
+        child_suspension = suspension;
+        child_source = source;
+        child_parent = parent;
+        child_enclosing = enclosing;
+        child_streams = caller.resources.streams;
+        child_failure = caller.resources.child_failure_generation;
+        child_context = None;
+        child_participants = [];
+        child_aborts = [];
+        child_fault = false;
+        child_phase = Child_open;
+      }
+    in
+    ignore (child_participant scope caller);
+    ignore (child_participant scope target);
+    caller.resources.child_input_stack <-
+      scope :: caller.resources.child_input_stack;
+    caller.resources.child_inputs <- scope :: caller.resources.child_inputs;
+    Ok scope
+
+let close_task_child_input scope =
+  if scope.child_caller.resources.domain <> Domain.self () then
+    Error "child input cleanup belongs to another domain"
+  else
+    match scope.child_caller.resources.child_input_stack with
+    | original :: rest when original == scope ->
+        (match scope.child_phase with
+        | Child_open ->
+            scope.child_phase <- Child_failed;
+            scope.child_caller.resources.child_failure_generation <- ref ()
+        | _ -> ());
+        scope.child_caller.resources.child_input_stack <- rest;
+        Ok ()
+    | _ -> Error "child input cleanup requires its original active scope"
+
+let catch_task_child_compiler scope failure =
+  let module Parser = Frontend.Parser in
+  let chain = Parser.failed_input_aborted_contexts failure in
+  let context = Parser.failed_input_context failure in
+  let parent_context = function
+    | Parser.Before_first_command parent -> parent
+    | Parser.Reading_command start -> start.command_context
+    | Parser.Awaiting_resume command -> command.command_start.command_context
+  in
+  let same_contexts left right =
+    List.length left = List.length right && List.for_all2 ( == ) left right
+  in
+  let participant_valid participant =
+    let task = participant.participant_task in
+    let before = participant.participant_before in
+    task.resources == scope.child_caller.resources
+    && task.failure_generation == before.work_failure
+    && task.source_execution_failed = before.work_failed
+    && task.source_activation == before.work_activation
+    && List.for_all
+         (fun context ->
+           Parser.context_is_in_suspended_input context
+             ~suspension:scope.child_suspension
+           && Parser.context_command_events_match context
+                ~events_rev:
+                  (Sema.Task_command_order.context_events_rev
+                     (task_source_order task) context)
+              = Some true)
+         participant.participant_contexts
+  in
+  if
+    (not (child_input_is_active scope))
+    || scope.child_fault
+    || scope.child_caller.resources.streams != scope.child_streams
+    || (not
+          (Parser.failed_input_is_current failure
+             ~suspension:scope.child_suspension))
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) (Parser.failed_input_context failure))
+             scope.child_context))
+    || Parser.context_source (Parser.failed_input_context failure)
+       != scope.child_source
+    || Parser.context_sources context
+       != Parser.context_sources scope.child_enclosing
+    || Parser.context_environment context
+       != Parser.context_environment scope.child_enclosing
+    || (not
+          (Option.fold ~none:false
+             ~some:(fun position ->
+               parent_context position == scope.child_parent)
+             (Parser.context_parent context)))
+    || (not (same_contexts chain (List.rev_map snd scope.child_aborts)))
+    || (not (List.for_all participant_valid scope.child_participants))
+    || not
+         (List.for_all
+            (fun (task, context) ->
+              List.exists
+                (fun participant ->
+                  participant.participant_task == task
+                  && List.exists (( == ) context)
+                       participant.participant_contexts)
+                scope.child_participants)
+            scope.child_aborts)
+  then
+    Error
+      "Compiler catch requires its complete original child execution and abort \
+       journals"
+  else
+    let snapshots =
+      List.map
+        (fun participant ->
+          (participant, child_work participant.participant_task))
+        scope.child_participants
+    in
+    if
+      not (Parser.claim_failed_input failure ~suspension:scope.child_suspension)
+    then Error "Compiler child failure was advanced, claimed or replaced"
+    else (
+      List.iter
+        (fun (participant, after) ->
+          participant.participant_after <- Some after)
+        snapshots;
+      scope.child_phase <- Child_caught failure;
+      Ok ())
+
+let child_work_is_excluded task select item =
+  List.exists
+    (fun scope ->
+      match scope.child_phase with
+      | Child_caught _ ->
+          List.exists
+            (fun participant ->
+              participant.participant_task == task
+              && Option.fold ~none:false
+                   ~some:(fun after ->
+                     List.exists (( == ) item) (select after)
+                     && not
+                          (List.exists (( == ) item)
+                             (select participant.participant_before)))
+                   participant.participant_after)
+            scope.child_participants
+      | _ -> false)
+    task.resources.child_inputs
+
+let child_inputs_complete task =
+  List.for_all
+    (fun scope ->
+      match scope.child_phase with
+      | Child_completed _ | Child_caught _ -> true
+      | Child_open | Child_failed -> false)
+    task.resources.child_inputs
+
 let rec input_prefix_complete before current complete =
   current == before
   ||
@@ -860,52 +1136,250 @@ let input_has_active_work task =
     | Preparing_initializer | Executing_initializer -> true
     | _ -> false
   in
-  List.exists (fun attempt -> active attempt.default_state) task.defaults
+  List.exists
+    (fun attempt ->
+      active attempt.default_state
+      && not
+           (child_work_is_excluded task
+              (fun work -> work.work_defaults)
+              attempt))
+    task.defaults
   || List.exists
-       (fun attempt -> active attempt.internal_binding_state)
+       (fun attempt ->
+         active attempt.internal_binding_state
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_internal_bindings)
+                 attempt))
        task.internal_bindings
-  || List.exists (fun attempt -> active attempt.dimension_state) task.dimensions
   || List.exists
-       (fun attempt -> active attempt.offset_state)
+       (fun attempt ->
+         active attempt.dimension_state
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_dimensions)
+                 attempt))
+       task.dimensions
+  || List.exists
+       (fun attempt ->
+         active attempt.offset_state
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_offsets)
+                 attempt))
        task.runtime_offsets
   || List.exists
        (fun state ->
          Option.fold ~none:false
            ~some:(fun attempt -> active attempt.attempt_state)
-           state.initializer_attempt)
+           state.initializer_attempt
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_initializers)
+                 state))
        task.initializers
 
 let completed_input task input =
   input.input_ready
+  && input.input_child_failure == task.resources.child_failure_generation
+  && task.resources.child_input_stack = []
   && input.input_failure == task.failure_generation
   && input.input_streams == task.resources.streams
   && Sema.Source_activation.finished task.source_activation
-  && task.deferred_dimensions = []
-  && task.deferred_offsets = []
+  && List.for_all
+       (child_work_is_excluded task (fun work -> work.work_deferred_dimensions))
+       task.deferred_dimensions
+  && List.for_all
+       (child_work_is_excluded task (fun work -> work.work_deferred_offsets))
+       task.deferred_offsets
   && input_prefix_complete input.input_internal_bindings task.internal_bindings
-       (fun attempt -> attempt.internal_binding_state = Successful_initializer)
+       (fun attempt ->
+         attempt.internal_binding_state = Successful_initializer
+         || child_work_is_excluded task
+              (fun work -> work.work_internal_bindings)
+              attempt)
   && input_prefix_complete input.input_seen_dimensions task.seen_dimensions
        (fun preparation ->
          List.exists
            (fun receipt ->
              receipt.Frontend.Parser.dimension_preparation == preparation)
-           task.completed_dimensions)
+           task.completed_dimensions
+         || child_work_is_excluded task
+              (fun work -> work.work_seen_dimensions)
+              preparation)
   && input_prefix_complete input.input_offsets task.runtime_offsets
-       (fun attempt -> attempt.offset_state = Successful_initializer)
+       (fun attempt ->
+         attempt.offset_state = Successful_initializer
+         || child_work_is_excluded task (fun work -> work.work_offsets) attempt)
   && input_prefix_complete input.input_dimensions task.dimensions
-       (fun attempt -> attempt.dimension_state = Successful_initializer)
+       (fun attempt ->
+         attempt.dimension_state = Successful_initializer
+         || child_work_is_excluded task
+              (fun work -> work.work_dimensions)
+              attempt)
   && input_prefix_complete input.input_default_constants task.default_constants
        (fun result ->
          result.constant_state = Successful_initializer
-         && result.constant_consumed)
+         && result.constant_consumed
+         || child_work_is_excluded task
+              (fun work -> work.work_default_constants)
+              result)
   && input_prefix_complete input.input_defaults task.defaults (fun attempt ->
-      attempt.default_state = Successful_initializer)
+      attempt.default_state = Successful_initializer
+      || child_work_is_excluded task (fun work -> work.work_defaults) attempt)
   && input_prefix_complete input.input_initializers task.initializers
-       (fun state -> state.initializer_complete)
+       (fun state ->
+         state.initializer_complete
+         || child_work_is_excluded task
+              (fun work -> work.work_initializers)
+              state)
+
+let complete_task_child_input scope sequence =
+  let context = sequence.Frontend.Parser.sequence_context in
+  let parent_context = function
+    | Frontend.Parser.Before_first_command parent -> parent
+    | Frontend.Parser.Reading_command start -> start.command_context
+    | Frontend.Parser.Awaiting_resume command ->
+        command.command_start.command_context
+  in
+  let participant_complete participant =
+    let task = participant.participant_task in
+    let before = participant.participant_before in
+    let done_or_excluded select complete item =
+      complete item || child_work_is_excluded task select item
+    in
+    task.resources == scope.child_caller.resources
+    && task.failure_generation == before.work_failure
+    && task.source_execution_failed = before.work_failed
+    && task.source_activation == before.work_activation
+    && List.for_all
+         (fun context ->
+           Frontend.Parser.context_command_events_match context
+             ~events_rev:
+               (Sema.Task_command_order.context_events_rev
+                  (task_source_order task) context)
+           = Some true)
+         participant.participant_contexts
+    && input_prefix_complete before.work_internal_bindings
+         task.internal_bindings
+         (done_or_excluded
+            (fun work -> work.work_internal_bindings)
+            (fun item -> item.internal_binding_state = Successful_initializer))
+    && input_prefix_complete before.work_seen_dimensions task.seen_dimensions
+         (done_or_excluded
+            (fun work -> work.work_seen_dimensions)
+            (fun item ->
+              List.exists
+                (fun receipt ->
+                  receipt.Frontend.Parser.dimension_preparation == item)
+                task.completed_dimensions))
+    && input_prefix_complete before.work_dimensions task.dimensions
+         (done_or_excluded
+            (fun work -> work.work_dimensions)
+            (fun item -> item.dimension_state = Successful_initializer))
+    && input_prefix_complete before.work_offsets task.runtime_offsets
+         (done_or_excluded
+            (fun work -> work.work_offsets)
+            (fun item -> item.offset_state = Successful_initializer))
+    && input_prefix_complete before.work_defaults task.defaults
+         (done_or_excluded
+            (fun work -> work.work_defaults)
+            (fun item -> item.default_state = Successful_initializer))
+    && input_prefix_complete before.work_default_constants
+         task.default_constants
+         (done_or_excluded
+            (fun work -> work.work_default_constants)
+            (fun item ->
+              item.constant_state = Successful_initializer
+              && item.constant_consumed))
+    && input_prefix_complete before.work_initializers task.initializers
+         (done_or_excluded
+            (fun work -> work.work_initializers)
+            (fun item -> item.initializer_complete))
+    && List.for_all
+         (fun item ->
+           List.exists (( == ) item) before.work_deferred_dimensions
+           || child_work_is_excluded task
+                (fun work -> work.work_deferred_dimensions)
+                item)
+         task.deferred_dimensions
+    && List.for_all
+         (fun item ->
+           List.exists (( == ) item) before.work_deferred_offsets
+           || child_work_is_excluded task
+                (fun work -> work.work_deferred_offsets)
+                item)
+         task.deferred_offsets
+  in
+  if
+    (not (child_input_is_active scope))
+    || scope.child_fault || scope.child_aborts <> []
+    || scope.child_caller.resources.streams != scope.child_streams
+    || (not (List.for_all participant_complete scope.child_participants))
+    || (not
+          (Frontend.Parser.suspension_input_is_current scope.child_suspension))
+    || Frontend.Parser.context_sources context
+       != Frontend.Parser.context_sources scope.child_enclosing
+    || Frontend.Parser.context_environment context
+       != Frontend.Parser.context_environment scope.child_enclosing
+    || (not
+          (Option.fold ~none:false
+             ~some:(fun position ->
+               parent_context position == scope.child_parent)
+             (Frontend.Parser.context_parent context)))
+    || (not
+          (Frontend.Parser.suspension_owns_sequence scope.child_suspension
+             sequence))
+    || not
+         (Option.fold ~none:false
+            ~some:(( == ) sequence.Frontend.Parser.sequence_context)
+            scope.child_context)
+  then
+    Error
+      "child input completion requires its exact accepted original execution"
+  else
+    Result.map
+      (fun () -> scope.child_phase <- Child_completed sequence)
+      (Integer_globals.check_suspended_completion scope.child_target.catalog
+         ~suspension:scope.child_suspension sequence)
 
 let observe_task_source_event task event =
   Result.map
     (fun () ->
+      (match task.resources.child_input_stack with
+      | scope :: _ ->
+          let context =
+            match event with
+            | Frontend.Parser.Sequence_started context
+            | Frontend.Parser.Sequence_aborted context -> context
+            | Frontend.Parser.Command_started start -> start.command_context
+            | Frontend.Parser.Command_completed command
+            | Frontend.Parser.Command_resumed command ->
+                command.command_start.command_context
+            | Frontend.Parser.Sequence_completed sequence ->
+                sequence.sequence_context
+          in
+          if
+            Frontend.Parser.context_is_in_suspended_input context
+              ~suspension:scope.child_suspension
+          then
+            let participant = child_participant scope task in
+            match event with
+            | Frontend.Parser.Sequence_started _ ->
+                participant.participant_contexts <-
+                  context :: participant.participant_contexts;
+                if Option.is_none scope.child_context then
+                  scope.child_context <- Some context
+            | Frontend.Parser.Sequence_aborted _ ->
+                if
+                  List.exists
+                    (fun (_, original) -> original == context)
+                    scope.child_aborts
+                then scope.child_fault <- true
+                else scope.child_aborts <- (task, context) :: scope.child_aborts
+            | _ -> ()
+          else scope.child_fault <- true
+      | [] -> ());
       match event with
       | Frontend.Parser.Sequence_started context
         when Option.is_none (Frontend.Parser.context_parent context) ->
@@ -914,6 +1388,7 @@ let observe_task_source_event task event =
               input_context = context;
               input_streams = task.resources.streams;
               input_failure = task.failure_generation;
+              input_child_failure = task.resources.child_failure_generation;
               input_seen_dimensions = task.seen_dimensions;
               input_internal_bindings = task.internal_bindings;
               input_dimensions = task.dimensions;
@@ -926,7 +1401,12 @@ let observe_task_source_event task event =
               input_result = None;
             }
             :: task.inputs
-      | Frontend.Parser.Sequence_aborted _ -> task.failure_generation <- ref ()
+      | Frontend.Parser.Sequence_aborted context -> (
+          match task.resources.child_input_stack with
+          | scope :: _
+            when Frontend.Parser.context_is_in_suspended_input context
+                   ~suspension:scope.child_suspension -> ()
+          | _ -> task.failure_generation <- ref ())
       | Frontend.Parser.Sequence_completed sequence
         when Option.is_none
                (Frontend.Parser.context_parent sequence.sequence_context)
@@ -3888,41 +4368,86 @@ let complete_task_initializer task ~namespace start source =
 let task_result task ~sequence =
   if
     task.resources.streams <> []
+    || (not (child_inputs_complete task))
     || task.source_execution_failed
-    || task.deferred_dimensions <> []
-    || task.deferred_offsets <> []
+    || List.exists
+         (fun item ->
+           not
+             (child_work_is_excluded task
+                (fun work -> work.work_deferred_dimensions)
+                item))
+         task.deferred_dimensions
+    || List.exists
+         (fun item ->
+           not
+             (child_work_is_excluded task
+                (fun work -> work.work_deferred_offsets)
+                item))
+         task.deferred_offsets
     || List.exists
          (fun preparation ->
-           not
-             (List.exists
-                (fun receipt ->
-                  receipt.Frontend.Parser.dimension_preparation == preparation)
-                task.completed_dimensions))
+           (not
+              (List.exists
+                 (fun receipt ->
+                   receipt.Frontend.Parser.dimension_preparation == preparation)
+                 task.completed_dimensions))
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_seen_dimensions)
+                   preparation))
          task.seen_dimensions
     || List.exists
          (fun attempt ->
-           attempt.internal_binding_state <> Successful_initializer)
+           attempt.internal_binding_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_internal_bindings)
+                   attempt))
          task.internal_bindings
     || List.exists
-         (fun attempt -> attempt.dimension_state <> Successful_initializer)
+         (fun attempt ->
+           attempt.dimension_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_dimensions)
+                   attempt))
          task.dimensions
     || List.exists
-         (fun attempt -> attempt.offset_state <> Successful_initializer)
+         (fun attempt ->
+           attempt.offset_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_offsets)
+                   attempt))
          task.runtime_offsets
     || (not (Sema.Source_activation.finished task.source_activation))
     || (not
           (Sema.Source_activation.owns_context task.source_activation
              sequence.Frontend.Parser.sequence_context))
     || List.exists
-         (fun state -> not state.initializer_complete)
+         (fun state ->
+           (not state.initializer_complete)
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_initializers)
+                   state))
          task.initializers
     || List.exists
          (fun result ->
-           result.constant_state <> Successful_initializer
+           (result.constant_state <> Successful_initializer
            || not result.constant_consumed)
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_default_constants)
+                   result))
          task.default_constants
     || List.exists
-         (fun attempt -> attempt.default_state <> Successful_initializer)
+         (fun attempt ->
+           attempt.default_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_defaults)
+                   attempt))
          task.defaults
   then Error "task result requires completed source execution"
   else

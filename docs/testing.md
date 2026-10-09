@@ -4,16 +4,35 @@ The [compiler exception tests](compiler-exceptions.md) check the original return
 guard before expression lookahead in both outer modes and backends. They retain
 one original counted receipt, earlier output and actual native work. Child,
 domain, replay and diagnostic-forgery cases guard its ownership. Other faults
-remain separate, and the CLI runs the same sixteen failure cases per backend.
+remain separate. Each CLI runs twelve uncaught return cases and twenty-four
+caught child cases per backend, across both outer modes.
 Suspended-input cases retain the exact consumed token and complete nested
 directive abort chain. They reject copied sources before consumption, earlier
 tokens after child entry, stale and foreign claims, replay, matching callback
 diagnostics, unexpected observer/cleanup exceptions and rejected abort
-checkpoints. These parser proofs do not provide runtime isolation or catches.
+checkpoints. Runtime cases also require the original session, semantic table,
+resource owner and complete physical lifecycle journals before claiming a catch.
+Copied parent and descendant contexts and copied or missing events reject.
 Saved-function cases distinguish ordinary children from inherited function
 contexts in both outer modes. Unsupported inherited returns issue no counted
 Compiler receipt, while a nested directive or completed new function restores
 the actual missing-function check.
+
+Caught child cases preserve earlier output and declarations, return zero and
+resume the parent. They cover complete nested aborts, interrupted child
+initializers and callback bindings, parent initializers, dimensions and defaults,
+successive catches and later child inputs. Reached declarations remain usable
+in their original saved namespace. Incomplete scalar storage and callback
+bindings remain unavailable. Later runtime and output quota faults still fail;
+an earlier quota fault cannot reach the Compiler producer. A later independent
+input can proceed after an unhandled child invalidates its original input.
+
+Native cases require reached machine work and zero interpreted task instructions.
+The CLI compares exact cumulative instruction, output byte and formatting work
+allowances and checks each one-below limit. It runs eight quota edges per backend
+through built, staged and installed consumers. Direct string storage in IR
+defaults, ordinary AOT outer-table joins, Break and other original Compiler
+producers remain open.
 
 The return-warning cases check the three original producers, native counts
 with options 16-19 disabled, the flag's source timing, replay and expiration,

@@ -64,11 +64,37 @@ later producer after a fault the native compiler would interrupt earlier.
 PrintErr, AdamErr, LexPutPos, FlushMsgs, boot/debug behavior and native exception
 stacks are not implemented by these structured reports.
 
-`StreamExePrint` still propagates failed child diagnostics. Its original
-`ExePutS` consumer catches only Compiler and Break, returns zero and preserves
-reached effects. Completing that behavior requires authentic failed-input
-ownership across the runtime and safe exclusion of that child's unfinished work
-from enclosing completion. The parser proof supplies the original abort chain;
-runtime isolation remains open. Restoring a failure counter or marking
-unfinished work successful
-would admit invalid execution and is not a catch implementation.
+`StreamExePrint` now catches this original child `Compiler` failure and returns
+zero, following `ExePutS` in `CMain.HC:589-596`. It starts a private runtime scope
+before entering the input and records each participating namespace under the
+original shared resource owner. The exact session, semantic tables, registered
+source, saved parent, domain, stream stack and source activation must match.
+The complete physical lifecycle journals must account for every original abort.
+All preflight checks finish before the parser failure is claimed once. Copied
+contexts and lifecycle events provide no authority.
+
+The scope retains snapshots of work present before entry and work reached in the
+failed child. Only newly introduced child work can be excluded from enclosing
+completion. Parent initializers, dimensions, defaults and bindings that invoked
+the child remain parent work and must finish themselves. Reached instructions,
+output, formatting work, allocations, declarations and quota charges remain.
+Incomplete child scalar storage and callback bindings stay unavailable. Neither
+the failed AST nor unfinished work becomes successful.
+
+Successful children still require their original accepted sequence, admitted
+execution and completed introduced work. Unhandled faults record a new failure
+generation for their enclosing input. A later independent input captures its own
+baseline; no catch restores an earlier failure counter. Ordinary diagnostics,
+unsupported inherited returns, quota faults and unexpected observer or native
+exceptions continue to propagate. A later fault remains a failure even after a
+child Compiler exception has been caught.
+
+For example, in an active directive, `I64 n=StreamExePrint("return 42;");`
+completes its own initializer with zero and lets the parent continue. The child
+still has its original failed syntax, diagnostic and counted exception receipt.
+The current original producer is the missing-function return check. Break,
+additional original Compiler producers and direct throws remain open, along with
+the native exception stacks and terminal behavior described above. Source
+function presence still does not lower an inherited-function return. Direct
+string storage in IR defaults and ordinary AOT outer-table joins also remain
+unfinished.

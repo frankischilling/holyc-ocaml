@@ -27,6 +27,7 @@ let compiler_option_bit index =
       Int64.shift_left 1L option.bit_index)
 
 type command_context = {
+  context_owner : command_context option ref;
   context_domain : Domain.id;
   context_sources : Common.Source_manager.t;
   context_source : Common.Source_file.t;
@@ -80,6 +81,9 @@ let position_context = function
   | Reading_command start -> start.command_context
   | Awaiting_resume command -> command.command_start.command_context
 
+let context_is_original context =
+  Option.fold ~none:false ~some:(( == ) context) !(context.context_owner)
+
 type suspension = {
   suspended_context : command_context;
   suspended_position : command_position;
@@ -90,6 +94,7 @@ type suspension = {
   mutable suspension_consumed : bool;
   mutable suspended_ast : Ast.module_ option;
   mutable suspended_failure : failed_input option;
+  mutable suspended_input_context : command_context option;
 }
 
 and failed_input = {
@@ -111,6 +116,7 @@ let suspend_context context =
   match (context.context_position, !(context.context_stack)) with
   | Some position, active :: _
     when context.context_active && active == position
+         && context_is_original context
          && context.context_domain = Domain.self () ->
       Ok
         {
@@ -123,12 +129,14 @@ let suspend_context context =
           suspension_consumed = false;
           suspended_ast = None;
           suspended_failure = None;
+          suspended_input_context = None;
         }
   | _ -> Error "parser suspension requires its current active context"
 
 let suspension_parent_is_current suspension =
   let context = suspension.suspended_context in
-  context.context_domain = Domain.self ()
+  context_is_original context
+  && context.context_domain = Domain.self ()
   && context.context_active
   && context.context_event_count = suspension.suspended_events
   && !(suspension.suspended_ref) == suspension.suspended_position
@@ -141,6 +149,13 @@ let suspension_is_current suspension =
   (not suspension.suspension_consumed)
   && suspension.suspended_generation
      == suspension.suspended_context.context_child_generation
+  && suspension_parent_is_current suspension
+
+let suspension_input_is_current suspension =
+  suspension.suspension_consumed
+  && Option.fold ~none:false
+       ~some:(( == ) suspension.suspended_context.context_child_generation)
+       suspension.suspended_return_generation
   && suspension_parent_is_current suspension
 
 let suspension_is_from_context suspension context =
@@ -184,10 +199,13 @@ let context_mode context = context.context_mode
 let context_parent context = context.context_parent
 
 let context_is_current context ~observed_events =
-  context.context_active && observed_events = context.context_event_count
+  context_is_original context
+  && context.context_active
+  && observed_events = context.context_event_count
 
 let context_has_focus context =
-  context.context_active
+  context_is_original context
+  && context.context_active
   && context.context_domain = Domain.self ()
   &&
   match (context.context_position, !(context.context_stack)) with
@@ -219,12 +237,33 @@ let failed_input_compiler_exception failure = failure.failed_exception
 let failed_input_context failure =
   (List.hd (List.rev failure.failed_chain)).aborted_context
 
+let failed_input_aborted_contexts failure =
+  List.map (fun node -> node.aborted_context) failure.failed_chain
+
+let context_is_in_suspended_input context ~suspension =
+  let rec belongs context =
+    context_is_original context
+    && context.context_domain = Domain.self ()
+    && context.context_stack == suspension.suspended_context.context_stack
+    && context.context_sources == suspension.suspended_context.context_sources
+    &&
+    match suspension.suspended_input_context with
+    | Some original when original == context -> true
+    | Some _ ->
+        Option.fold ~none:false
+          ~some:(fun parent -> belongs (position_context parent))
+          context.context_parent
+    | None -> false
+  in
+  suspension.suspension_consumed && belongs context
+
 let failed_input_is_from_suspension failure suspension =
   let parent = suspension.suspended_context in
   let exception_ = failure.failed_exception in
   let node_valid node =
     let context = node.aborted_context in
     node.aborted_notified
+    && context_is_original context
     && context.context_domain = Domain.self ()
     && (not context.context_active)
     && Option.is_none context.context_position
@@ -258,6 +297,9 @@ let failed_input_is_from_suspension failure suspension =
   failure.failed_suspension == suspension
   && parent.context_domain = Domain.self ()
   && suspension.suspension_consumed
+  && Option.fold ~none:false
+       ~some:(( == ) (failed_input_context failure))
+       suspension.suspended_input_context
   && Option.is_none suspension.suspended_ast
   && Option.fold ~none:false ~some:(( == ) failure) suspension.suspended_failure
   && Option.fold ~none:false
@@ -1427,6 +1469,20 @@ let source_observations_match context ~events_rev =
 let source_observation_count context =
   Option.map
     (fun observations -> observations.count)
+    (Context_observations.find_opt context_observations context)
+
+let context_command_events_match context ~events_rev =
+  Option.map
+    (fun observations ->
+      let original =
+        List.filter_map
+          (function
+            | Command event -> Some event
+            | _ -> None)
+          observations.events_rev
+      in
+      List.length original = List.length events_rev
+      && List.for_all2 ( == ) original events_rev)
     (Context_observations.find_opt context_observations context)
 
 type command_sink = {
@@ -10998,7 +11054,8 @@ let read_command cursor =
       parse_global cursor ~parse_function_definition
   | _ -> statement ()
 
-let read_commands ?commands ?stream_opener ?saved_locals cursor =
+let read_commands ?input_suspension ?commands ?stream_opener ?saved_locals
+    cursor =
   let span =
     Common.Span.unsafe_make
       ~source:(Common.Source_file.id cursor.source)
@@ -11030,6 +11087,7 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
   let saved_stack = !(cursor.command_stack) in
   let context =
     {
+      context_owner = ref None;
       context_domain = Domain.self ();
       context_sources = cursor.sources;
       context_source = cursor.source;
@@ -11081,6 +11139,10 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
       context_function_active = cursor.function_active;
     }
   in
+  context.context_owner := Some context;
+  Option.iter
+    (fun suspension -> suspension.suspended_input_context <- Some context)
+    input_suspension;
   if Option.is_some cursor.call then
     Context_observations.add context_observations context
       { events_rev = []; count = 0 };
@@ -11269,9 +11331,9 @@ let make_cursor ?(saved_function = false) ?compiler_exception ?reference ?call
     local_publications = [];
   }
 
-let parse_with_stack ~command_stack ?saved_function ?compiler_exception
-    ?commands ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
-    ~config source =
+let parse_with_stack ~command_stack ?input_suspension ?saved_function
+    ?compiler_exception ?commands ?lexical_lookup ?execute_stream ~sources
+    ~definitions ~symbols ~config source =
   let execute_stream =
     Option.map
       (fun enter stream opener ->
@@ -11376,7 +11438,7 @@ let parse_with_stack ~command_stack ?saved_function ?compiler_exception
   in
   let aborted = ref None in
   let ast =
-    try Some (read_commands ?commands cursor) with
+    try Some (read_commands ?input_suspension ?commands cursor) with
     | Stop_command -> None
     | Stop_compiler failure ->
         aborted := Some failure;
@@ -11412,8 +11474,8 @@ let parse_suspended_input suspension ?saved_function ?compiler_exception
     Some context.context_child_generation;
   let output, aborted =
     parse_with_stack ~command_stack:context.context_stack ?saved_function
-      ?compiler_exception ?commands ?execute_stream ?lexical_lookup ~sources
-      ~definitions ~symbols ~config source
+      ~input_suspension:suspension ?compiler_exception ?commands ?execute_stream
+      ?lexical_lookup ~sources ~definitions ~symbols ~config source
   in
   suspension.suspended_ast <- output.ast;
   Option.iter

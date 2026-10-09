@@ -48,6 +48,15 @@ val suspension_failed_input : suspension -> failed_input option
 val failed_input_context : failed_input -> command_context
 val failed_input_compiler_exception : failed_input -> compiler_exception
 
+val failed_input_aborted_contexts : failed_input -> command_context list
+(** Original aborted contexts, from the producer to the entered input. These
+    observations grant no claim, acceptance or runtime completion. *)
+
+val context_is_in_suspended_input :
+  command_context -> suspension:suspension -> bool
+(** The original entered input or one of its parser descendants, in the original
+    domain and source stack. A copied context cannot join an input. *)
+
 val failed_input_is_from_suspension : failed_input -> suspension -> bool
 (** Physical ownership by the original consumed suspension and registered
     source, in the original domain. This remains inspectable after the parent
@@ -69,6 +78,11 @@ val suspend_context : command_context -> (suspension, string) result
 val suspension_is_from_context : suspension -> command_context -> bool
 (** Whether this unconsumed suspension belongs to the exact currently focused
     parser context, position, event count and domain. *)
+
+val suspension_input_is_current : suspension -> bool
+(** This consumed input has returned to its unchanged original focused parent
+    and remains the latest child. This does not prove success or claim a
+    failure. *)
 
 val suspension_enclosing_context :
   suspension -> (command_context, string) result
@@ -106,6 +120,11 @@ type command_event = private
   | Command_resumed of completed_command
   | Sequence_completed of completed_sequence
   | Sequence_aborted of command_context
+
+val context_command_events_match :
+  command_context -> events_rev:command_event list -> bool option
+(** Compare the complete lifecycle journal with the original physical parser
+    events. [None] means no original source journal was recorded. *)
 
 val context_sources : command_context -> Common.Source_manager.t
 val context_source : command_context -> Common.Source_file.t

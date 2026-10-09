@@ -16,7 +16,7 @@ let inputs mode contents =
   in
   (session, source, config)
 
-let command_sink ?checkpoint ?(resume = fun () -> Ok ())
+let command_sink ?checkpoint ?call ?(resume = fun () -> Ok ())
     ?(command = fun _ -> Ok ()) () : Parser.command_sink =
   {
     checkpoint;
@@ -24,7 +24,7 @@ let command_sink ?checkpoint ?(resume = fun () -> Ok ())
     command;
     lexical_lookup = None;
     reference = None;
-    call = None;
+    call;
     implicit_output = None;
     query = None;
     declaration = None;
@@ -362,6 +362,12 @@ let failed_child session config suspension text =
 let failed_input_identity () =
   let saved = ref None in
   suspended_parent (fun session config parent suspension ->
+      let copied_parent : Parser.command_context =
+        Obj.obj (Obj.dup (Obj.repr parent))
+      in
+      Alcotest.(check bool)
+        "copied parent cannot issue a suspension" true
+        (Result.is_error (Parser.suspend_context copied_parent));
       let failure = failed_child session config suspension "return @" in
       let exception_ = Parser.failed_input_compiler_exception failure in
       let context = Parser.failed_input_context failure in
@@ -418,6 +424,19 @@ let failed_input_abort_chain () =
         suspended_parse ~execute_stream session config suspension source
         |> Result.get_ok
       in
+      let failure = Parser.suspension_failed_input suspension |> Option.get in
+      List.iter
+        (fun context ->
+          Alcotest.(check bool)
+            "original descendant belongs to entered input" true
+            (Parser.context_is_in_suspended_input context ~suspension);
+          let copied_context : Parser.command_context =
+            Obj.obj (Obj.dup (Obj.repr context))
+          in
+          Alcotest.(check bool)
+            "copied descendant cannot join entered input" false
+            (Parser.context_is_in_suspended_input copied_context ~suspension))
+        (Parser.failed_input_aborted_contexts failure);
       Alcotest.(check bool)
         "nested failure rejects whole child" true
         (Option.is_none parsed.ast);
@@ -853,6 +872,233 @@ let inherited_function_source_failure () =
         (integer_program_report_output_bytes report))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let caught_child_source_execution () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, output, count) ->
+          let session, source, config =
+            inputs mode
+              ((if mode = Preprocessor.Jit then Cases.headers else "") ^ text)
+          in
+          let report =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000
+          in
+          let result =
+            match integer_program_report_outcome report with
+            | Ok result -> result
+            | Error errors -> Alcotest.fail (label ^ ": " ^ describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " original outer value")
+            (Some 42L)
+            (Option.map
+               (fun word -> word.Ir_integer_interpreter.bits)
+               (Ir_integer_interpreter.final_value result.value));
+          Alcotest.(check string)
+            (label ^ " preserves reached output and resumes parent")
+            output
+            (integer_program_report_output_bytes report);
+          let exceptions = integer_program_report_compiler_exceptions report in
+          Alcotest.(check int)
+            (label ^ " retains counted child failures")
+            count (List.length exceptions);
+          List.iter
+            (fun exception_ ->
+              receipt label
+                [ Parser.compiler_exception_diagnostic exception_ ]
+                [ exception_ ])
+            exceptions)
+        Cases.caught_children)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let caught_child_does_not_hide_faults () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text) ->
+          let session, source, config =
+            inputs mode
+              ((if mode = Preprocessor.Jit then Cases.headers else "") ^ text)
+          in
+          let report =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000
+          in
+          Alcotest.(check bool)
+            (label ^ " remains a failure")
+            true
+            (Result.is_error (integer_program_report_outcome report));
+          Alcotest.(check int)
+            (label ^ " retains only the caught Compiler")
+            1
+            (List.length (integer_program_report_compiler_exceptions report));
+          Alcotest.(check string)
+            (label ^ " no later effects")
+            "kept"
+            (integer_program_report_output_bytes report))
+        Cases.faults_after_caught_children;
+      List.iter
+        (fun (limit, count) ->
+          let session, source, config =
+            inputs mode
+              ((if mode = Preprocessor.Jit then Cases.headers else "")
+              ^ {|#exe {StreamExePrint("Print(\"kept\");return 42;");Print("after");}42;|}
+              )
+          in
+          let report =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000 ~max_output_bytes:limit
+          in
+          Alcotest.(check bool)
+            "output quota remains a failure" true
+            (Result.is_error (integer_program_report_outcome report));
+          Alcotest.(check int)
+            "quota preserves reached exception count" count
+            (List.length (integer_program_report_compiler_exceptions report)))
+        [ (3, 0); (4, 1) ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let failed_child_ledger_ownership () =
+  let module VM = Ir_integer_interpreter in
+  let module D = Task_declarations in
+  let session, source, config = inputs Preprocessor.Jit "42;" in
+  let runtime =
+    VM.create_task_state ~table:(Session.semantic_symbols session) ()
+    |> Result.get_ok
+  in
+  let ledger = D.create ~runtime session |> Result.get_ok in
+  let parent = ref None and entered = ref false in
+  let retained = ref None in
+  let call : Parser.direct_call_sink =
+    { implicit = None; start = (fun _ -> Ok None); emit = (fun _ -> Ok ()) }
+  in
+  let checkpoint event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Sequence_started context when Option.is_none !parent ->
+            parent := Some context
+        | _ -> ())
+      (D.observe_command ledger event)
+  in
+  let resume () =
+    if not !entered then (
+      entered := true;
+      let parent = Option.get !parent in
+      let suspension = Parser.suspend_context parent |> Result.get_ok in
+      let child =
+        Session.add_source session ~path:"owned-ledger-failure.HC"
+          ~contents:"return @"
+      in
+      let events_rev = ref [] in
+      let child_checkpoint event =
+        Result.map
+          (fun () -> events_rev := event :: !events_rev)
+          (D.observe_command ledger event)
+      in
+      let parsed =
+        suspended_parse
+          ~commands:(command_sink ~call ~checkpoint:child_checkpoint ())
+          session config suspension child
+        |> Result.get_ok
+      in
+      Alcotest.(check bool)
+        "original child syntax remains failed" true
+        (Option.is_none parsed.ast);
+      let failure = Parser.suspension_failed_input suspension |> Option.get in
+      let check session runtime =
+        D.check_failed_compiler_input ledger ~session ~runtime ~suspension
+          failure
+      in
+      Alcotest.(check bool)
+        "exact original ledger preflight" true
+        (Result.is_ok (check session runtime));
+      Alcotest.(check bool)
+        "foreign session cannot claim failure" true
+        (Result.is_error (check (Session.create ()) runtime));
+      let foreign_runtime =
+        VM.create_task_state ~table:(Session.semantic_symbols session) ()
+        |> Result.get_ok
+      in
+      Alcotest.(check bool)
+        "matching semantic table does not replace runtime" true
+        (Result.is_error (check session foreign_runtime));
+      Alcotest.(check bool)
+        "foreign domain cannot claim ledger" true
+        (Domain.join
+           (Domain.spawn (fun () -> Result.is_error (check session runtime))));
+      let context = Parser.failed_input_context failure in
+      Alcotest.(check (option bool))
+        "complete original lifecycle" (Some true)
+        (Parser.context_command_events_match context ~events_rev:!events_rev);
+      Alcotest.(check (option bool))
+        "missing original checkpoint" (Some false)
+        (Parser.context_command_events_match context
+           ~events_rev:(List.tl !events_rev));
+      let copied_event : Parser.command_event =
+        Obj.obj (Obj.dup (Obj.repr (List.hd !events_rev)))
+      in
+      Alcotest.(check (option bool))
+        "copied event cannot replace original" (Some false)
+        (Parser.context_command_events_match context
+           ~events_rev:(copied_event :: List.tl !events_rev));
+      Alcotest.(check bool)
+        "exact original entered context" true
+        (Parser.context_is_in_suspended_input context ~suspension);
+      Alcotest.(check bool)
+        "parent cannot replace child" false
+        (Parser.context_is_in_suspended_input parent ~suspension);
+      Gc.full_major ();
+      Gc.compact ();
+      Alcotest.(check bool)
+        "ledger preflight survives collection" true
+        (Result.is_ok (check session runtime));
+      retained := Some (suspension, failure));
+    Ok ()
+  in
+  let parsed =
+    parse
+      ~commands:(command_sink ~call ~checkpoint ~resume ())
+      session source config
+  in
+  Alcotest.(check bool)
+    "checking a failed ledger permits parent syntax only" true
+    (Option.is_some parsed.ast);
+  let suspension, failure = Option.get !retained in
+  Alcotest.(check bool)
+    "closed parent denies ledger claim" true
+    (Result.is_error
+       (D.check_failed_compiler_input ledger ~session ~runtime ~suspension
+          failure))
+
+let unhandled_child_is_confined_to_original_input () =
+  let session = Session.create () in
+  let task = Integer_task.create session |> Result.get_ok in
+  let run text =
+    Integer_task.run task
+      ~source:
+        (Session.add_source session ~path:"successive-owned-inputs.HC"
+           ~contents:text)
+  in
+  Alcotest.(check bool)
+    "unhandled child invalidates its input" true
+    (Result.is_error
+       (run (Cases.headers ^ {|#exe {StreamExePrint("Unknown;");}42;|})));
+  let check result =
+    match result with
+    | Error errors -> Alcotest.fail (describe errors)
+    | Ok result ->
+        Alcotest.(check (option int64))
+          "later independent input still completes" (Some 42L)
+          (Option.map
+             (fun word -> word.Ir_integer_interpreter.bits)
+             (Ir_integer_interpreter.final_value result))
+  in
+  check (run "42;");
+  check (run {|#exe {StreamExePrint("return 42;");}42;|})
+
 let tests =
   [
     Alcotest.test_case "original return failure before expression Lex" `Quick
@@ -890,4 +1136,14 @@ let tests =
     Alcotest.test_case
       "inherited function source failure has no Compiler authority" `Quick
       inherited_function_source_failure;
+    Alcotest.test_case "caught Compiler children preserve owned work and resume"
+      `Quick caught_child_source_execution;
+    Alcotest.test_case
+      "caught children keep incomplete bindings and other faults invalid" `Quick
+      caught_child_does_not_hide_faults;
+    Alcotest.test_case
+      "failed child ledger requires original session, runtime and journal"
+      `Quick failed_child_ledger_ownership;
+    Alcotest.test_case "unhandled child belongs to its original input" `Quick
+      unhandled_child_is_confined_to_original_input;
   ]

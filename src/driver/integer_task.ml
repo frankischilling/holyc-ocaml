@@ -2847,22 +2847,52 @@ and run_stream_exe_source ?saved_compiler task ~active ~span contents =
                 task.compiler_tasks := target :: !(task.compiler_tasks);
                 Ok target))
   in
-  let execute suspension source =
-    let* sequence, final_value =
-      run_input_execution ~suspension ~enclosing ~stream_task:task
-        ~use_active_stream:false ~active target ~source
+  let execute ?(catch_compiler = true) suspension source =
+    let diagnose message =
+      [
+        Integer_source.diagnostic
+          ~span:(Integer_source.source_span source)
+          "HCRUN0004" message;
+      ]
     in
-    let* () =
-      VM.check_task_suspended_completion target.state ~suspension sequence
-      |> Result.map_error (fun message ->
-          [
-            Integer_source.diagnostic
-              ~span:(Integer_source.source_span source)
-              "HCRUN0004" message;
-          ])
+    let* scope =
+      VM.begin_task_child_input task.state ~target:target.state ~suspension
+        ~source
+      |> Result.map_error diagnose
     in
-    let* () = active () in
-    Ok final_value
+    Fun.protect
+      ~finally:(fun () ->
+        match VM.close_task_child_input scope with
+        | Ok () -> ()
+        | Error message -> failwith message)
+      (fun () ->
+        match
+          run_input_execution ~suspension ~enclosing ~stream_task:task
+            ~use_active_stream:false ~active target ~source
+        with
+        | Ok (sequence, final_value) ->
+            let* () =
+              VM.complete_task_child_input scope sequence
+              |> Result.map_error diagnose
+            in
+            let* () = active () in
+            Ok final_value
+        | Error diagnostics -> (
+            match Frontend.Parser.suspension_failed_input suspension with
+            | Some failure when catch_compiler ->
+                let* () = active () in
+                let* () =
+                  Task_declarations.check_failed_compiler_input
+                    target.declarations ~session:target.session
+                    ~runtime:target.state ~suspension failure
+                  |> Result.map_error diagnose
+                in
+                let* () =
+                  VM.catch_task_child_compiler scope failure
+                  |> Result.map_error diagnose
+                in
+                Ok (Some (Native_dispatch.I64 0L))
+            | _ -> Error diagnostics))
   in
   let* suspension =
     if target == task then Ok suspension
@@ -2870,7 +2900,7 @@ and run_stream_exe_source ?saved_compiler task ~active ~span contents =
       match provider_source target with
       | None -> Ok suspension
       | Some providers ->
-          let* _ = execute suspension providers in
+          let* _ = execute ~catch_compiler:false suspension providers in
           Task_declarations.parser_suspension task.declarations
           |> Result.map_error (stream_diagnostics span)
   in

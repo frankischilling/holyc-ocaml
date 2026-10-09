@@ -482,6 +482,33 @@ val task_shares_resources : task_state -> task_state -> bool
 (** Physical shared-counter/buffer identity, without source or storage
     authority. *)
 
+type task_child_input
+
+val begin_task_child_input :
+  task_state ->
+  target:task_state ->
+  suspension:Frontend.Parser.suspension ->
+  source:Common.Source_file.t ->
+  (task_child_input, string) result
+(** Enter one original saved input while its caller is suspended. Participating
+    namespaces retain their own work and lifecycle journals under the shared
+    resource owner. Rejected preflight grants no scope. *)
+
+val complete_task_child_input :
+  task_child_input ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result
+
+val catch_task_child_compiler :
+  task_child_input -> Frontend.Parser.failed_input -> (unit, string) result
+(** Check all original ownership, work and abort journals before claiming the
+    parser failure once. Only work created inside this child can be excluded;
+    its syntax remains failed and its incomplete bindings remain unavailable. *)
+
+val close_task_child_input : task_child_input -> (unit, string) result
+(** Close the original scope after success, a catch or propagation. Unhandled
+    faults keep enclosing completion invalid. *)
+
 val begin_task_stream : task_state -> (task_stream, string) result
 
 type native_generation

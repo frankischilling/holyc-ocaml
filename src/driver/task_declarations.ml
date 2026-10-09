@@ -6452,6 +6452,51 @@ let create_saved_compiler_runtime ledger ~session ~suspension ~runtime =
     ~max_dimension_work:ledger.max_dimension_work
     ~max_offset_work:ledger.max_offset_work (Task_runtime runtime) session
 
+let check_failed_compiler_input ledger ~session ~runtime ~suspension failure =
+  let context = Parser.failed_input_context failure in
+  let events_rev =
+    List.filter
+      (fun event ->
+        let original =
+          match event with
+          | Parser.Sequence_started original | Parser.Sequence_aborted original
+            -> original
+          | Parser.Command_started start -> start.command_context
+          | Parser.Command_completed completed
+          | Parser.Command_resumed completed ->
+              completed.command_start.command_context
+          | Parser.Sequence_completed completed -> completed.sequence_context
+        in
+        original == context)
+      ledger.source_events_rev
+  in
+  if
+    ledger.session != session
+    || ledger.sources != Session.sources session
+    || ledger.symbols != Session.symbols session
+    || ledger.table != Session.semantic_symbols session
+    || (not
+          (Option.fold ~none:false ~some:(( == ) runtime)
+             (ledger_runtime ledger)))
+    || Parser.context_sources context != ledger.sources
+    || Parser.context_environment context != ledger.symbols
+    || (not (Parser.failed_input_is_current failure ~suspension))
+    || Parser.context_command_events_match context ~events_rev <> Some true
+    || (not
+          (List.exists
+             (fun sequence ->
+               sequence.context == context && sequence.phase = Aborted)
+             ledger.sequences))
+    || List.exists
+         (fun sequence ->
+           Parser.context_is_in_suspended_input sequence.context ~suspension)
+         ledger.active
+  then
+    Error
+      "failed Compiler input requires its original session, tables and closed \
+       source ledger"
+  else Ok ()
+
 let require_observed_callback_default ledger receipt =
   let span = receipt.Parser.callback_default_ast.location.span in
   let state = callback_state ledger receipt.callback_default_signature span in

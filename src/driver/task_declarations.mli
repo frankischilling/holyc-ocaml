@@ -763,6 +763,16 @@ val create_saved_compiler_runtime :
     runtime catalog. The enclosing source is not replayed or promoted into
     execution. *)
 
+val check_failed_compiler_input :
+  t ->
+  session:Session.t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  suspension:Frontend.Parser.suspension ->
+  Frontend.Parser.failed_input ->
+  (unit, string) result
+(** Require the exact failed input's closed original ledger, session and
+    semantic table before the runtime claims a Compiler catch. *)
+
 val offset_work : t -> int
 val source_offset_work : source_command -> int
 
