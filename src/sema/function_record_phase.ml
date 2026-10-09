@@ -285,19 +285,8 @@ let same_header_member left right =
 
 let header_member_has_class_base = function
   | Local_header_member receipt
-    when receipt.allocation_storage = Ast.Automatic_local -> (
-      match receipt.allocation_local.local_source with
-      | Parser.Local_variable source ->
-          not
-            (Option.fold ~none:false
-               ~some:(fun prior ->
-                 match prior.Parser.allocation_local.local_source with
-                 | Parser.Local_variable previous ->
-                     previous.local_type_specifier
-                     == source.local_type_specifier
-                 | _ -> false)
-               receipt.allocation_predecessor)
-      | _ -> false)
+    when receipt.allocation_storage = Ast.Automatic_local ->
+      receipt.allocation_first_in_declaration
   | _ -> false
 
 let argument_count snapshot = snapshot.native_state.arguments

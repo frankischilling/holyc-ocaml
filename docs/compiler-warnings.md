@@ -82,6 +82,42 @@ ordinary child controls start at zero while forwarding their diagnostics.
 Activation can admit an earlier observed header without replaying its warning
 phase.
 
+Option 18 now emits `HCSEMA0076` at the original automatic-local allocation
+callback, after type and dimension parsing and before allocation or initializer
+parsing. Only the first declarator in each comma declaration enters the
+function's type index. Static locals and parameters do not enter it. The index
+is populated even when the option is off; a later enabled declaration compares
+against those earlier types. Each duplicate increments the active native
+`warning_cnt`, and a rejected receipt replay changes neither the index nor the
+counter. Reached warnings survive initializer, body and later execution errors.
+An ordinary duplicate member name emits `HCSEMA0015` before the type warning;
+the original `pad`, `reserved` and `_anon_` exceptions remain legal. This
+structured error does not yet implement native LexExcept/error counting.
+
+The comparison uses exact zero-depth class identity. Pointer depth and array
+dimensions do not distinguish bases. Public `I64` and intrinsic `I64i` stay
+distinct, as do `Bool` and `I8`. A completed forward keeps its canonical class;
+a new same-spelling class has a separate identity. Local callback declarations
+use the original intrinsic `RT_PTR` base, retained from source-order type
+seeding, independently of their return type, signature or later `I64i` shadows.
+Original type-token selections remain frozen across nested directives.
+JIT checks use the current shared record's retained member cursor, so a
+reentrant header replacement resets the index seen by the resumed body.
+An untracked predecessor supplies no validated native cursor. Warning-off
+execution retains its existing metadata path; enabling option 18 rejects that
+unavailable evidence instead of assuming an empty type index.
+
+[The duplicate-type example](../examples/compiler-duplicate-types.hc) prints
+`42;`, returns 42 and warns for `Sum`'s second `I64` declaration and
+`CallbackBase`'s second callback. The parser and source tests also check comma
+declarations, option changes during dimension evaluation, register qualifiers,
+forward completion, type shadows, child inputs and failure ordering. IR and
+native CLI checks exercise both outer modes. These warnings use the retained
+semantic class identities; full native class/member objects, warning terminal
+formatting and wider runtime storage still require their own implementation.
+The original rules are Compiler/LexLib.HC:120-141,
+Compiler/PrsVar.HC:350-356 and 525-528, and Compiler/AsmInit.HC:197-206.
+
 Each original parser input owns native field storage with the pinned CCmpCtrl
 prefix through `warning_cnt`. `opts` is at byte 320 and `warning_cnt` at byte
 352. Source GetOption/Option, counted warnings and the original declaration,
@@ -104,7 +140,7 @@ Full warning timing remains unfinished. TempleOS tests unused locals after
 code generation. An ordinary isolated module emits its warnings after the
 whole module compiles, so an earlier function's warning is not retained when
 later source prevents module compilation. Ordinary AOT joins, broader default
-and miscellaneous-data behavior, parentheses, duplicate-type and return-warning
+and miscellaneous-data behavior, parentheses and return-warning
 consumers still need their original phase integration. Callback owner equality
 does not establish original executable-PC or exported-ABI parity. The remaining
 compiler options, typed compiler exceptions, wider

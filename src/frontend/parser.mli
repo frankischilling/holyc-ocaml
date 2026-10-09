@@ -143,6 +143,7 @@ type local_source = private
   | Local_variable of {
       local_type_specifier : Ast.type_specifier;
       local_type_selection : named_aggregate_selection option;
+      local_type_entry : Symbol_visibility.entry option;
       local_name : Ast.identifier;
       local_pointer_layers : Ast.pointer_layer list;
       local_array_dimensions : Ast.array_dimension list;
@@ -498,6 +499,8 @@ type function_local_allocation = private {
   allocation_function : function_publication;
   allocation_local : local_publication;
   allocation_storage : Ast.local_storage;
+  allocation_first_in_declaration : bool;
+  allocation_lookahead : Ast.location;
   allocation_initializer_equals : Ast.location option;
   allocation_predecessor : function_local_allocation option;
   allocation_activity : function_position_activity;
@@ -505,7 +508,10 @@ type function_local_allocation = private {
 
 val function_local_allocation_is_current : function_local_allocation -> bool
 (** Original local declaration after type/dimension lookahead and before its
-    initializer. The predecessor belongs to this function's parser cursor. *)
+    initializer. The predecessor belongs to this function's parser cursor. The
+    first-declarator flag and current lookahead are captured by the parser; they
+    cannot be supplied by consumers. Only the first automatic declarator enters
+    MemberAdd's duplicate-base-type index in the pinned source. *)
 
 type static_initializer_activity
 

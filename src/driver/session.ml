@@ -11,6 +11,7 @@ type t = {
   symbols : Frontend.Symbol_visibility.Environment.t;
   semantic_symbols : Sema.Symbol_table.t;
   primitives : primitive_binding list;
+  pointer_primitive : primitive_binding;
 }
 
 module Symbol_visibility = Frontend.Symbol_visibility
@@ -150,6 +151,19 @@ let create () =
     Sema.Symbol_table.create ~root_name:"session-task" ()
   in
   let primitives = seed_semantic_symbols semantic_symbols frontend_primitives in
+  (* AsmInit.HC:197-206 overwrites internal_types[raw_type] in source order.
+     Retain that exact RT_PTR binding before adding the public unions. *)
+  let pointer_primitive =
+    List.fold_left
+      (fun selected binding ->
+        if
+          (Common.Primitive_type.info binding.primitive).raw_id
+          = Common.Primitive_type.pointer_representation.raw_id
+        then Some binding
+        else selected)
+      None primitives
+    |> Option.get
+  in
   let primitives = primitives @ seed_public_unions symbols semantic_symbols in
   {
     sources = Common.Source_manager.create ();
@@ -157,6 +171,7 @@ let create () =
     symbols;
     semantic_symbols;
     primitives;
+    pointer_primitive;
   }
 
 let fork_frontend session =
@@ -187,12 +202,19 @@ let fork_frontend session =
         { binding with semantic_symbol; record })
       session.primitives
   in
+  let pointer_primitive =
+    List.find
+      (fun binding ->
+        binding.frontend_entry == session.pointer_primitive.frontend_entry)
+      primitives
+  in
   {
     sources = session.sources;
     definitions = Definition.Environment.copy session.definitions;
     symbols = Symbol_visibility.Environment.copy session.symbols;
     semantic_symbols;
     primitives;
+    pointer_primitive;
   }
 
 let task_frontend session =
@@ -215,6 +237,7 @@ let primitive_for session entry =
 let primitive_symbol binding = binding.semantic_symbol
 let primitive_type binding = binding.primitive
 let primitive_record binding = binding.record
+let pointer_primitive session = session.pointer_primitive
 
 let add_source session ~path ~contents =
   Common.Source_manager.add_string session.sources ~path ~contents

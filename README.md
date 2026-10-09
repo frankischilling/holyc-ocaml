@@ -15,6 +15,11 @@ Original parser inputs also own native option and warning fields. Directives
 share their caller's allocation; ordinary child inputs copy live options into
 fresh storage. These fields retain the pinned offsets while the full compiler
 control and error producers remain unfinished.
+Option 18 now warns at the original local-allocation boundary. It indexes only
+the first automatic declarator of each declaration and compares exact class
+bases, including the original intrinsic base for callbacks. The
+[duplicate-type example](examples/compiler-duplicate-types.hc) runs through IR
+and native tasks in both outer modes.
 [The warning notes](docs/compiler-warnings.md)
 describe counting, child contexts, retained diagnostics and the remaining
 warning phase boundaries.

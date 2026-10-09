@@ -98,6 +98,7 @@ type source =
       mutable body : Ast.function_definition option;
       mutable body_compiler_options : int64 option;
       mutable header_warnings_emitted : bool;
+      mutable local_allocations_seen : Parser.function_local_allocation list;
     }
 
 type assigned = {
@@ -685,6 +686,27 @@ let retain_selected_aggregate ledger type_specifier = function
       in
       Type_specifiers.replace ledger.selected_aggregate_types type_specifier
         proof
+
+let local_type_base ledger (receipt : Parser.function_local_allocation) =
+  match receipt.allocation_local.local_source with
+  | Parser.Local_variable local -> (
+      if Option.is_some local.local_function_pointer then
+        Session.pointer_primitive ledger.session |> Session.primitive_symbol
+      else
+        match selected_aggregate_for ledger local.local_type_specifier with
+        | Some proof -> Sema.Source_type_reference.selected_base_symbol proof
+        | None -> (
+            match
+              Option.bind local.local_type_entry
+                (Session.primitive_for ledger.session)
+            with
+            | Some binding -> Session.primitive_symbol binding
+            | None ->
+                fail receipt.allocation_lookahead.span
+                  "local type lacks its original primitive binding"))
+  | _ ->
+      fail receipt.allocation_lookahead.span
+        "local allocation lacks its original type occurrence"
 
 let runtime_symbol = VM.admitted_source_symbol
 let retained_for ledger entry = Entries.find_opt ledger.runtime_entries entry
@@ -2796,6 +2818,7 @@ let observe ?offset_runtime ledger event =
                  body = None;
                  body_compiler_options = None;
                  header_warnings_emitted = false;
+                 local_allocations_seen = [];
                })
             publication.function_entry;
           retain_selected_aggregate ledger
@@ -2806,17 +2829,115 @@ let observe ?offset_runtime ledger event =
           let span = publication.function_name.location.span in
           if not (Parser.function_local_allocation_is_current receipt) then
             fail span "local allocation is outside its original callback";
-          let selected =
-            prepare_selected_aggregate ledger
-              (Sema.Source_type_reference.Function_local receipt)
-          in
-          (match receipt.allocation_local.local_source with
-          | Parser.Local_variable local ->
-              retain_selected_aggregate ledger local.local_type_specifier
-                selected
-          | _ -> fail span "local allocation lacks its original type occurrence");
           match (find ledger publication.function_name).source with
           | Function state when state.publication == publication ->
+              if List.exists (( == ) receipt) state.local_allocations_seen then
+                fail receipt.allocation_lookahead.span
+                  "local allocation was already observed";
+              let selected =
+                prepare_selected_aggregate ledger
+                  (Sema.Source_type_reference.Function_local receipt)
+              in
+              (match receipt.allocation_local.local_source with
+              | Parser.Local_variable local ->
+                  retain_selected_aggregate ledger local.local_type_specifier
+                    selected
+              | _ ->
+                  fail span
+                    "local allocation lacks its original type occurrence");
+              let context =
+                receipt.allocation_local.local_command.command_context
+              in
+              let enabled =
+                Parser.context_get_option context ~bit_index:18L
+                |> checked receipt.allocation_lookahead.span
+              in
+              let locals, member_names =
+                match state.native_record with
+                | Some record ->
+                    let module N = Sema.Function_record_phase in
+                    let members =
+                      match N.snapshot record |> N.checked_header_members with
+                      | Ok members -> members
+                      | Error _ when not enabled -> []
+                      | Error reason -> fail span reason
+                    in
+                    ( List.filter_map
+                        (function
+                          | N.Local_header_member local -> Some local
+                          | _ -> None)
+                        members,
+                      List.filter_map
+                        (function
+                          | N.Local_header_member local ->
+                              Some local.allocation_local.local_spelling
+                          | N.Fixed_header_member member ->
+                              (Sema.Provisional_function.member_source member)
+                                .parameter_name
+                              |> Option.map (fun (name : Ast.identifier) ->
+                                  name.spelling)
+                          | N.Argc_header_member _ -> Some "argc"
+                          | N.Argv_header_member _ -> Some "argv")
+                        members )
+                | None ->
+                    let header =
+                      match state.header with
+                      | Some header -> header
+                      | None ->
+                          fail span
+                            "local allocation lacks a completed original header"
+                    in
+                    ( state.local_allocations_seen,
+                      List.map
+                        (fun local ->
+                          local.Parser.allocation_local.local_spelling)
+                        state.local_allocations_seen
+                      @ List.filter_map
+                          (fun member ->
+                            member.Parser.parameter_publication.parameter_name
+                            |> Option.map (fun (name : Ast.identifier) ->
+                                name.spelling))
+                          header.parameter_completions
+                      @
+                      if Option.is_some header.variadic then [ "argc"; "argv" ]
+                      else [] )
+              in
+              let local_name = receipt.allocation_local.local_spelling in
+              if
+                (not (List.mem local_name [ "pad"; "reserved"; "_anon_" ]))
+                && List.mem local_name member_names
+              then
+                fail ~code:"HCSEMA0015" receipt.allocation_lookahead.span
+                  (Printf.sprintf "duplicate member %S in function %S"
+                     local_name publication.function_name.spelling);
+              state.local_allocations_seen <-
+                receipt :: state.local_allocations_seen;
+              (* LexLib.HC:120-141 and PrsVar.HC:525-528. Only the first
+                 automatic local enters this per-function class-base index.
+                 The index is populated even while the warning option is off. *)
+              (if
+                 receipt.allocation_storage = Ast.Automatic_local
+                 && receipt.allocation_first_in_declaration
+               then
+                 let base = local_type_base ledger receipt in
+                 let duplicate =
+                   List.exists
+                     (fun local ->
+                       local.Parser.allocation_storage = Ast.Automatic_local
+                       && local.allocation_first_in_declaration
+                       && local_type_base ledger local == base)
+                     locals
+                 in
+                 if duplicate && enabled then
+                   Common.Diagnostic.make ~code:"HCSEMA0076"
+                     ~severity:Common.Diagnostic.Warning
+                     ~message:
+                       (Printf.sprintf
+                          "duplicate local-variable type for %S in function %S"
+                          local_name publication.function_name.spelling)
+                     ~primary:receipt.allocation_lookahead.span ()
+                   |> Parser.context_emit_counted_compiler_warning context
+                   |> checked receipt.allocation_lookahead.span);
               Option.iter
                 (fun record ->
                   let dimensions =

@@ -24,7 +24,9 @@
  (name test_compiler_warnings_cli)
  (modules test_compiler_warnings_cli)
  (libraries unix yojson)
- (deps ../examples/compiler-warning-options.hc)
+ (deps
+  ../examples/compiler-warning-options.hc
+  ../examples/compiler-duplicate-types.hc)
  (action
   (run
    %{test}
@@ -537,6 +539,7 @@
   test_owned_function_counts
   test_native_hash_tables
   test_native_compiler_control
+  test_duplicate_local_types
   test_parser
   test_conditional_expression
   test_assert_directive

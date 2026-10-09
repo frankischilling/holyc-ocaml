@@ -322,6 +322,8 @@ let selected_callback_return =
 let selected_header_class =
   selected_reference ~allow_value:true ~callback_metadata:false
 
+let selected_base_symbol proof = proof.selected_symbol
+
 let callback_return ~table ~namespace ~selected_aggregate ~header type_specifier
     pointer_layers =
   let ( let* ) = Result.bind in

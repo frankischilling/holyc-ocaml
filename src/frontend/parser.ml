@@ -255,6 +255,7 @@ type local_source =
   | Local_variable of {
       local_type_specifier : Ast.type_specifier;
       local_type_selection : named_aggregate_selection option;
+      local_type_entry : Symbol_visibility.entry option;
       local_name : Ast.identifier;
       local_pointer_layers : Ast.pointer_layer list;
       local_array_dimensions : Ast.array_dimension list;
@@ -614,6 +615,8 @@ type function_local_allocation = {
   allocation_function : function_publication;
   allocation_local : local_publication;
   allocation_storage : Ast.local_storage;
+  allocation_first_in_declaration : bool;
+  allocation_lookahead : Ast.location;
   allocation_initializer_equals : Ast.location option;
   allocation_predecessor : function_local_allocation option;
   allocation_activity : function_position_activity;
@@ -7897,8 +7900,8 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
           Some { node = Ast.Expression_statement statement; tokens })
 
 let parse_local_declarator cursor ~boundary ~storage ~base_spelling
-    ~type_specifier ~type_selection ~register_qualifiers ~qualifier_tokens :
-    parsed_local_declarator option =
+    ~type_specifier ~type_selection ~type_entry ~first_in_declaration
+    ~register_qualifiers ~qualifier_tokens : parsed_local_declarator option =
   match
     parse_pointer_layers_with_recovery cursor
       ~recover:(fun cursor -> recover_statement cursor ~boundary)
@@ -7951,6 +7954,7 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                    {
                      local_type_specifier = type_specifier;
                      local_type_selection = type_selection;
+                     local_type_entry = type_entry;
                      local_name = name;
                      local_pointer_layers = pointer_layers;
                      local_array_dimensions = array_dimensions;
@@ -7964,6 +7968,8 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                       allocation_function;
                       allocation_local = List.hd cursor.local_publications;
                       allocation_storage = storage;
+                      allocation_first_in_declaration = first_in_declaration;
+                      allocation_lookahead = token_location equals_item.token;
                       allocation_initializer_equals =
                         (if equals_item.token.kind = Token_kind.Punctuation '='
                          then Some (token_location equals_item.token)
@@ -8209,7 +8215,7 @@ let parse_aggregate_statement cursor ~boundary : parsed_statement option =
             })
 
 let finish_local_declaration cursor ~boundary ~storage ~modifiers
-    ~type_specifier ~type_selection ~prefix_tokens ~aggregate :
+    ~type_specifier ~type_selection ~type_entry ~prefix_tokens ~aggregate :
     parsed_statement option =
   let spelling = Ast.type_specifier_spelling type_specifier in
   let rec parse_declarators declarators_rev =
@@ -8235,7 +8241,9 @@ let finish_local_declaration cursor ~boundary ~storage ~modifiers
     else
       match
         parse_local_declarator cursor ~boundary ~storage ~base_spelling:spelling
-          ~type_specifier ~type_selection ~register_qualifiers:qualifiers.nodes
+          ~type_specifier ~type_selection ~type_entry
+          ~first_in_declaration:(declarators_rev = [])
+          ~register_qualifiers:qualifiers.nodes
           ~qualifier_tokens:qualifiers.tokens
       with
       | None -> None
@@ -8382,8 +8390,17 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
       in
       Option.bind prepared
         (fun (type_specifier, type_selection, prefix_tokens, aggregate) ->
+          let type_entry =
+            match type_selection with
+            | Some selection -> Some selection.entry
+            | None -> (
+                match type_item.selection with
+                | Some (_, Symbol_visibility.Present entry) -> Some entry
+                | _ -> None)
+          in
           finish_local_declaration cursor ~boundary ~storage ~modifiers
-            ~type_specifier ~type_selection ~prefix_tokens ~aggregate)
+            ~type_specifier ~type_selection ~type_entry ~prefix_tokens
+            ~aggregate)
   | _ ->
       let code, message =
         match (storage, type_item.token.kind) with

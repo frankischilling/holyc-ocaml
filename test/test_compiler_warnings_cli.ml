@@ -85,6 +85,74 @@ let header_warnings =
 
 let unused_extern = ("HCSEMA0075", "Unused extern 'F'")
 
+let duplicate name function_name =
+  ( "HCSEMA0076",
+    Printf.sprintf "duplicate local-variable type for %S in function %S" name
+      function_name )
+
+let duplicate_cases =
+  [
+    ( "default disabled",
+      "#exe {Option(16,0);I64 F(){I64 a;I64 b;return 42;}}42;",
+      [],
+      0 );
+    ( "first comma declarator",
+      "#exe {Option(16,0);Option(18,1);I64 F(){I64 a,b;I64 c,d;return 42;}}42;",
+      [ duplicate "c" "F" ],
+      0 );
+    ( "automatic mode only",
+      "#exe {Option(16,0);Option(18,1);I64 F(I64 parameter){static I64 s;I64 \
+       a;I64 b;I64 c;static I64 t;return parameter;}F(42);}42;",
+      [ duplicate "b" "F"; duplicate "c" "F" ],
+      0 );
+    ( "exact primitive class",
+      "#exe {Option(16,0);Option(18,1);I64 F(){I64 a;U64 b;I64i c;Bool d;I8 \
+       e;I64 *f;I64i *g;Bool h;I8 i;return 42;}}42;",
+      [
+        duplicate "f" "F";
+        duplicate "g" "F";
+        duplicate "h" "F";
+        duplicate "i" "F";
+      ],
+      0 );
+    ( "callback intrinsic class",
+      "#exe {Option(16,0);Option(18,1);I64 F(){I64 a;I64 (*first)(I64 n);U8 \
+       (*second)(U8 n);I64i third;I64 *fourth;return 42;}}42;",
+      [ duplicate "second" "F"; duplicate "third" "F"; duplicate "fourth" "F" ],
+      0 );
+    ( "ordinary source warning",
+      "#exe {Option(16,0);Option(18,1);}I64 F(){I64 a=40;I64 b=2;return \
+       a+b;}F();",
+      [ duplicate "b" "F" ],
+      0 );
+    ( "dimension enables warning",
+      "#exe {Option(16,0);Option(18,0);I64 F(){I64 a[Option(18,1)+1];I64 \
+       b;return 42;}}42;",
+      [ duplicate "b" "F" ],
+      0 );
+    ( "warning before initializer error",
+      "#exe {Option(16,0);Option(18,1);I64 F(){I64 a;I64 b=;}}42;",
+      [ duplicate "b" "F" ],
+      1 );
+    ( "warning before body error",
+      "#exe {Option(16,0);Option(18,1);I64 F(){I64 a;I64 b;return missing;}}42;",
+      [ duplicate "b" "F" ],
+      1 );
+    ( "ordinary child index and options",
+      {|#exe {Option(16,0);Option(18,1);StreamExePrint("I64 Child(){I64 a;I64 b;return 42;}Child();");I64 Parent(){I64 a;I64 b;return 42;}Parent();}42;|},
+      [ duplicate "b" "Child"; duplicate "b" "Parent" ],
+      0 );
+    ( "member collision precedes type warning",
+      "#exe {Option(16,0);Option(18,1);I64 F(I64 a){I64 a;I64 b;return 42;}}42;",
+      [],
+      1 );
+    ( "reentrant actual type index",
+      "#exe {Option(16,0);Option(18,1);Option(19,0);I64 F(){I64 a;#exe {extern \
+       I64 F();}I64 b;I64 c;return 42;}}42;",
+      [ unused_extern; duplicate "c" "F" ],
+      0 );
+  ]
+
 let header_cases =
   [
     ( "same evaluated callback owner",
@@ -273,6 +341,38 @@ let () =
                           "unneeded no_warn for \"used\" in function \"F\"" );
                       ])
                     "no_warn did not update local warning state")))
+        [ "jit"; "aot" ])
+    targets;
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          let path =
+            Filename.concat (Filename.dirname example)
+              "compiler-duplicate-types.hc"
+          in
+          let report = invoke mode target path in
+          require
+            (warnings report
+            = [ duplicate "b" "Sum"; duplicate "second" "CallbackBase" ])
+            "duplicate-type example lost exact class bases";
+          require
+            (report |> member "final_value" |> member "value" |> to_string
+             = "42"
+            && report |> member "output_hex" |> to_string = "34323b")
+            "duplicate-type example changed execution";
+          List.iter
+            (fun (label, text, expected, status) ->
+              temporary ".hc" text (fun path ->
+                  let report = invoke ~status mode target path in
+                  require
+                    (warnings report = expected)
+                    (label ^ ": expected ["
+                    ^ String.concat "; " (List.map snd expected)
+                    ^ "], received ["
+                    ^ String.concat "; " (List.map snd (warnings report))
+                    ^ "]")))
+            duplicate_cases)
         [ "jit"; "aot" ])
     targets;
   List.iter

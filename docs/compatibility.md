@@ -1,5 +1,13 @@
 # holyc-ocaml compatibility status
 
+[Duplicate local type warnings](compiler-warnings.md) now consume live option
+18 at the original local-allocation callback. First automatic declarators enter
+the index even while the warning is off; exact class bases distinguish public,
+intrinsic and shadowed types. Callback locals keep the original `RT_PTR` base.
+Member-name collisions fail before type warnings, and reentrant JIT headers
+use the shared record's current member cursor. Native error counting, terminal
+formatting and complete class/member objects remain unfinished.
+
 [Native AOT sessions](native-aot-source-sessions.md) retain separate task and
 module namespaces. Original `#exe` commands run in machine code during parsing;
 the original module image runs afterward. Shared allowances and reached effects

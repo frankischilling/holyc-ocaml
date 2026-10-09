@@ -8,7 +8,7 @@
 #include <caml/alloc.h>
 #include <caml/fail.h>
 
-/* KernelA.HH:2124-2130 and 2179-2214, pinned c26482bb. This is a
+/* KernelA.HH:2124-2134 and 2179-2214, pinned c26482bb. This is a
    field-storage prefix, not CmpCtrlNew or the complete CCmpCtrl ABI. Pointer
    slots remain zero; no native table, queue or lexical-buffer owner is implied. */
 struct compiler_lex_hash_context {
@@ -110,7 +110,7 @@ static int compiler_control_set(struct compiler_control_prefix *control,
 
 static void compiler_control_increment_warning(
     struct compiler_control_prefix *control) {
-  /* CExcept.HC:75,108. Unsigned arithmetic preserves the I64 bit pattern,
+  /* CExcept.HC:78,107. Unsigned arithmetic preserves the I64 bit pattern,
      including wraparound, without signed-overflow undefined behavior. */
   control->warning_cnt++;
 }

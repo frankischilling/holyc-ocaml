@@ -12,6 +12,10 @@ val builtin :
 
 type selected_aggregate
 
+val selected_base_symbol : selected_aggregate -> Symbol.t
+(** Immutable canonical class identity retained by the original selected-type
+    proof. Reading it grants no layout, storage or execution authority. *)
+
 type selected_source =
   | Function_return of Frontend.Parser.function_publication
   | Function_parameter of Frontend.Parser.function_parameter_publication
