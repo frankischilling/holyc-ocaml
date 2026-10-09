@@ -1,5 +1,10 @@
 # Owned primitive pointer views
 
+[Automatic class and union objects](automatic-aggregate-byte-views.md) can also
+provide owned bytes in isolated programs when their exact layout completed
+before the function declaration. Explicit primitive views preserve the class
+object's size, initialization state and lifetime.
+
 The interpreter and native executor accept explicit postfix casts between owned, one-level
 Bool, I8, U8, I16, U16, I32, U32, I64 and U64 pointers. A cast changes the
 pointee width and signedness while retaining the original object, its extent,

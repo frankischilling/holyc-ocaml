@@ -102,7 +102,7 @@ let quotas () =
     (run ~max_output_work:(Native.output_work baseline - 1) Cases.effects)
 
 let boundaries () =
-  failure "HCEVAL0003" (run Cases.object_storage);
+  failure "HCSEMA0074" (run Cases.object_storage);
   failure "HCRUN0001" (run Cases.overflow)
 
 let () =

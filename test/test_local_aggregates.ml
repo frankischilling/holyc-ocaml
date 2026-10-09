@@ -313,7 +313,7 @@ let existing_limits () =
         (run mode
            "U0 Make(){class Base{U8 a;};class Child:Base{U8 \
             b;};}sizeof(Child)+40;");
-      failure "HCEVAL0003"
+      failure "HCSEMA0074"
         (run mode "I64 F(){I64 class C{I64 a;} value;return 42;}F();"))
     modes
 

@@ -2,6 +2,20 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-AUTOMATIC-AGGREGATE-BYTE-VIEWS"
+description = "Completed earlier class and union layouts provide owned automatic storage for explicit primitive integer pointer views in isolated IR and native programs."
+sources = ["Compiler/PrsVar.HC:530-531 aggregate storage size", "Compiler/PrsVar.HC:590-618 automatic frame placement", "Compiler/PrsVar.HC:660-671 packed and overlapping members", "Compiler/PrsStmt.HC:41-57 completed class sizes", "Compiler/PrsExp.HC:1017-1055 postfix pointer class transfer", "Compiler/BackLib.HC:693-707 pointed load width", "Compiler/BackC.HC:159-204 pointed store width"]
+implementation = ["src/ir/automatic_aggregate_storage.ml", "src/driver/local_type_resolution.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/automatic_aggregate_cases.ml", "test/test_automatic_aggregate_storage.ml", "test/test_automatic_aggregates_cli.ml", "test/native/test_native_automatic_aggregate_storage.ml", "examples/automatic-aggregate-byte-views.hc"]
+documentation = ["docs/automatic-aggregate-byte-views.md", "docs/classes-and-layout.md", "docs/retained-aggregates.md", "docs/primitive-pointer-views.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 686
+source_identity = "The immutable checked frame retains the exact source-selected class and completed earlier layout. A later same-name definition or forward completion cannot supply a replacement frame layout. Aggregate identity metadata alone grants no storage or ABI authority."
+execution = "Nonempty scalar automatic objects retain packed size, union overlap, nested members, member arrays, backing types and explicit padding. Explicit primitive pointer casts expose the same owned bytes, original extent and invocation lifetime. Per-byte initialization supports overlapping and unaligned windows, updates, scalar pointer parameters and byte scans. Numeric bits and foreign frames do not acquire object ownership."
+verification = "Shared independent source expectations cover both executors and modes, all nine integer view spellings, packed and overlapping windows, aliases, class shadowing, byte initialization, bounds and fresh activations. Exact and one-below controls cover runtime frame and instruction limits and both native ABIs' stack and encoded image bytes. CLI controls retain reached output on faults."
+verification_boundary = "These are source-derived hosted checks, without a TempleOS runtime capture or full aggregate execution claim. Byte offsets in fixtures are explicit and do not exercise ordinary member projection. Inherited layout metadata, retained JIT imports, aggregate arrays and persistent objects, zero-sized objects, direct/pointer members, whole-object values/copies, aggregate ABI and original named-local size/position consumers remain unfinished under issue 686."
+
+[[feature]]
 id = "HC-COMPILER-IDENTIFIER-OPERAND-FAILURE"
 description = "An absent original operand identifier throws before consumption or a reference callback, followed by its owned expression cleanup."
 sources = ["Compiler/PrsExp.HC:810-812 absent local/hash invalid lval", "Compiler/PrsExp.HC:264-303 owned expression cleanup", "Compiler/Lex.HC:462-513 identifier lexer and original local/hash selection", "Compiler/PrsVar.HC:624-634 parameter member and default lexer read", "Compiler/CExcept.HC:81-96 counted LexExcept", "Compiler/CMain.HC:589-596 selective saved-input catch"]
@@ -25,7 +39,7 @@ status = "partial"
 issue = 801
 source_identity = "Each private receipt retains its original owner, parser control, position, events and domain. Cleanup retains the exact caught cause and unchanged token. Catch preflight follows the original argument phase and complete abort chain; AOT grammar fallback never replaces a callback's actual native result."
 execution = "Missing operands, grouped closes and original Class/Internal_type selections after an opening parenthesis produce one original error increment followed by one owned-stack cleanup increment. Nested groups and calls borrow the outer stack. Local/function/global shadows retain their original selection. Required implicit arguments own their stacks; completed arguments leave no stack for later delimiter errors. Authenticated child catches preserve prior effects and quotas, and later independent faults still propagate."
-verification_boundary = "Source-derived hosted IR/native tests are distinct from TempleOS runtime captures. General outer native AOT class declarations reject before a later type producer; saved children parse in their original JIT task. Unmatched earlier lval, pointer/member, update and IC type phases cannot authenticate later syntax. Other original expression producers, native exception stacks and terminal behavior remain required."
+verification_boundary = "Source-derived hosted IR/native tests are distinct from TempleOS runtime captures. Standalone outer native AOT class metadata now permits the original named prefix-cast producer and cleanup; saved children parse in their original JIT task. Metadata grants no aggregate storage authority. Unmatched earlier lval, pointer/member, update and IC type phases cannot authenticate later syntax. Other original expression producers, native exception stacks and terminal behavior remain required."
 
 [[feature]]
 id = "HC-COMPILER-ASSEMBLY-ORDER"

@@ -1,5 +1,14 @@
 # holyc-ocaml architecture
 
+`Ir.Automatic_aggregate_storage` admits nonempty automatic objects from an
+immutable frame location with a completed earlier aggregate layout. The
+original class identity and frame size remain intact. The interpreter uses
+individual unknown byte cells; native frame descriptors use one initialization
+flag per byte. An owned class address can enter an explicit primitive pointer
+view without widening the object or converting numeric bits into ownership.
+Inherited metadata and retained JIT class publication still grant no storage
+authority. See [automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
+
 The executable expression parser checks an operand identifier's original
 lexer selection before consuming it or invoking reference consumers. An absent
 local/hash selection issues the private counted `Compiler` cause at

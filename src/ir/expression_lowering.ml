@@ -369,6 +369,10 @@ let scalar_pointer_type type_ =
   | Ok pointee -> Option.is_some (Integer_scalar_storage.of_type pointee)
   | Error _ -> false
 
+let data_pointer_type type_ =
+  scalar_pointer_type type_
+  || Automatic_aggregate_storage.aggregate_pointer type_
+
 let callback_word_type type_ =
   Type.pointer_depth type_ = 1
   && Type.base type_
@@ -407,7 +411,7 @@ let checked_frame_value result =
             Ok (Checked_type pointer)
         | _ -> Ok Unsupported_type)
     | Some type_
-      when scalar_pointer_type type_
+      when data_pointer_type type_
            && Semantic_result.result_array_rank result = 0
            && Semantic_result.result_class result
               = Semantic_result.Integer_result -> Ok (Checked_type type_)
@@ -1410,7 +1414,7 @@ let checked_cast_types result operand target =
       else if
         scalar_pointer_type result_type
         && (match checked_frame_value operand with
-          | Ok (Checked_type type_) -> scalar_pointer_type type_
+          | Ok (Checked_type type_) -> data_pointer_type type_
           | _ -> false)
         && (not (Semantic_result.result_is_callback_storage operand))
         && (not (Semantic_result.result_is_callback_storage result))
@@ -1470,7 +1474,25 @@ let validate_numeric_unary result opcode operand =
             (checked_numeric_unary_types result opcode operand))
 
 let validate_pointer_unary result opcode operand =
-  if
+  let aggregate_address =
+    opcode = Opcode.Ic_addr
+    && Semantic_result.result_array_rank operand = 0
+    && Semantic_result.result_category operand = Semantic_result.Lvalue
+    && (match Semantic_result.result_storage_type operand with
+      | Some type_ -> (
+          Type.pointer_depth type_ = 0
+          &&
+          match Type.base type_ with
+          | Type.Aggregate _ -> true
+          | _ -> false)
+      | None -> false)
+    && Option.is_none (Semantic_result.result_callback_pointer operand)
+  in
+  if aggregate_address then
+    Result.map
+      (fun () -> true)
+      (checked_pointer_unary_types result opcode operand)
+  else if
     Semantic_result.result_array_rank operand > 0
     && not (Semantic_result.result_is_array_address operand)
   then Ok false
@@ -2334,7 +2356,7 @@ let plan ?frame ?globals ~allow_calls root =
                                 if opcode = Opcode.Ic_addr then
                                   match Semantic_result.result_type result with
                                   | Some type_
-                                    when scalar_pointer_type type_
+                                    when data_pointer_type type_
                                          && conversion = Keep_result -> (
                                       match
                                         prepare_assignment_address ?frame

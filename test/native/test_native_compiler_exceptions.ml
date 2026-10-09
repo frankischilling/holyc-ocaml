@@ -405,24 +405,9 @@ let expression_producers () =
             | Error errors -> errors
             | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
           in
-          (match
-             if mode = Preprocessor.Aot then
-               Cases.expression_native_aot_earlier_error label
-             else None
-           with
-          | None ->
-              Helpers.expression_receipt ~reported_origin:false ~code ~marker
-                label diagnostics
-                (Native.compiler_exceptions report)
-          | Some earlier_code ->
-              Alcotest.(check (list string))
-                (label ^ " earlier native AOT declaration boundary")
-                [ earlier_code ]
-                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
-              Alcotest.(check int)
-                (label ^ " unreached type rejection has no Compiler authority")
-                0
-                (List.length (Native.compiler_exceptions report)));
+          Helpers.expression_receipt ~reported_origin:false ~code ~marker label
+            diagnostics
+            (Native.compiler_exceptions report);
           no_interpretation label report)
         Cases.expression_failures;
       List.iter

@@ -6,6 +6,11 @@ parser read, including in a later `#exe` block or a retained function body.
 Replacing the type does not change a size already consumed by an expression.
 This supports metadata queries, not aggregate object execution.
 
+Isolated IR and native programs have a separate
+[automatic aggregate byte-view path](automatic-aggregate-byte-views.md) for
+completed earlier layouts. Retained JIT publication and inherited metadata
+remain insufficient to authorize those objects.
+
 [Runtime member bounds and offsets](runtime-layout-expressions.md) now use their
 original integer JIT expressions in both IR and native tasks. Each intermediate
 size, completed layout and derived bound retains its owning task's successful

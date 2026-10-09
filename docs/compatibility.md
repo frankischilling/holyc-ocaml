@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[Automatic aggregate byte views](automatic-aggregate-byte-views.md) support
+nonempty class and union objects from completed earlier layouts in isolated IR
+and native programs, in both modes. Explicit integer views retain overlap,
+padding, initialized bytes and the original extent. Inherited storage,
+retained JIT imports, aggregate arrays, ordinary members, copies and aggregate
+ABI support remain outside this slice of #686.
+
 [Unknown expression operands](compiler-exceptions.md#expression-failures-and-cleanup)
 throw at their original absent lexer selection, before another read or a
 reference callback. IR and native saved inputs catch the counted original cause

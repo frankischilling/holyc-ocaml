@@ -127,6 +127,30 @@
  (modules test_primitive_pointer_views_execution)
  (libraries holyc_lib native_scalar_support alcotest))
 
+(executable
+ (name test_native_automatic_aggregate_storage)
+ (modules test_native_automatic_aggregate_storage)
+ (libraries
+  holyc_lib
+  native_scalar_support
+  automatic_aggregate_fixture
+  alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_automatic_aggregate_storage.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/automatic-aggregate-byte-views.hc)
+ (action
+  (run
+   %{exe:../test_automatic_aggregates_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/automatic-aggregate-byte-views.hc}
+   --native)))
+
 (rule
  (alias native-tests)
  (action

@@ -55,7 +55,8 @@ let resolve_type visible type_specifier pointer_layers =
           | Some symbol -> Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
 let make_type_reference ?selected_aggregate ?selected_owner
-    ?(callback_metadata = false) visible type_specifier pointer_layers =
+    ?(callback_metadata = false) ?(automatic_object_metadata = false) visible
+    type_specifier pointer_layers =
   let ( let* ) = Result.bind in
   match (type_specifier, selected_aggregate) with
   | Frontend.Ast.Named_type_specifier _, Some resolve -> (
@@ -71,6 +72,10 @@ let make_type_reference ?selected_aggregate ?selected_owner
           in
           (if callback_metadata then
              Sema.Source_type_reference.selected_callback_return
+           else if automatic_object_metadata then
+             (* This reads the selected identity only. The frame consumer must
+                separately admit its completed, earlier, exact layout. *)
+             Sema.Source_type_reference.selected_header_class
            else Sema.Source_type_reference.selected)
             proof type_specifier pointer_layers)
   | _ -> (
@@ -772,6 +777,10 @@ let local_fact ?selected_aggregate ?selected_owner visible (symbol, ast) =
   match
     make_type_reference ?selected_aggregate ?selected_owner
       ~callback_metadata:(Option.is_some ast.function_pointer)
+      ~automatic_object_metadata:
+        (ast.storage = Sema.Local_type_resolution.Automatic
+        && ast.array_dimensions = []
+        && Option.is_none ast.function_pointer)
       visible ast.type_specifier ast.pointer_layers
   with
   | Error _ as error -> error
