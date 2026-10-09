@@ -3045,6 +3045,11 @@ let nested_grammar_dimensions () =
 
 let implicit_selection_ownership () =
   let session, runtime, ledger = runtime_setup () in
+  (* This source-identity test needs a Function-kind header. The unbound frontend
+     entry still supplies no native argument metadata or executable target. *)
+  ignore
+    (Symbol_visibility.Environment.add (Session.symbols session) ~name:"Print"
+       ~kind:Symbol_visibility.Function ());
   let receipt = ref None in
   let source =
     Session.add_source session ~path:"implicit-selection.hc"

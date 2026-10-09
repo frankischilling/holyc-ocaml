@@ -764,6 +764,7 @@ val create_saved_compiler_runtime :
     execution. *)
 
 val check_failed_compiler_input :
+  ?directive_ledger:t ->
   t ->
   session:Session.t ->
   runtime:Ir.Integer_interpreter.task_state ->
@@ -771,7 +772,10 @@ val check_failed_compiler_input :
   Frontend.Parser.failed_input ->
   (unit, string) result
 (** Require the exact failed input's closed original ledger, session and
-    semantic table before the runtime claims a Compiler catch. *)
+    semantic table before the runtime claims a Compiler catch. A call producer
+    in a nested directive can use that directive's original ledger only when its
+    closed physical journal, captured native shape and shared runtime resources
+    match the actual producer context in this suspended input. *)
 
 val offset_work : t -> int
 val source_offset_work : source_command -> int

@@ -19,7 +19,9 @@ outside a function now fails before expression lookahead and increments the
 original error count. [Compiler exceptions](docs/compiler-exceptions.md) describes
 the source receipts and authenticated suspended-input abort chains. Audited
 statement delimiters, invalid break targets and missing try headers now throw at
-their original parser phases. `StreamExePrint` catches these original child
+their original parser phases. Captured call delimiters and missing Print/PutChars headers also throw
+at their original phases; catches require the exact native argument-shape result.
+`StreamExePrint` catches these original child
 `Compiler` failures, returns zero and preserves reached effects. Runtime Break,
 direct throws and the remaining original producers remain open.
 Option 17 now checks unnecessary parentheses during original expression

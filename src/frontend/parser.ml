@@ -5,6 +5,12 @@ type output = {
 
 type compiler_position_source = int ref
 
+type call_activity = {
+  mutable call_active : bool;
+  mutable call_captured : bool;
+  mutable supplied_shape : Symbol_visibility.function_call_shape option option;
+}
+
 type compiler_position_state = {
   mutable position_source : compiler_position_source option;
   mutable next_position : int;
@@ -74,6 +80,7 @@ and compiler_exception = {
   exception_events : int;
   exception_diagnostic : Common.Diagnostic.t;
   exception_error_count : int64;
+  exception_call_phase : call_activity option;
 }
 
 let position_context = function
@@ -215,6 +222,9 @@ let context_has_focus context =
 let compiler_exception_diagnostic exception_ = exception_.exception_diagnostic
 let compiler_exception_error_count exception_ = exception_.exception_error_count
 let compiler_exception_context exception_ = exception_.exception_context
+
+let compiler_exception_requires_call_shape exception_ =
+  Option.is_some exception_.exception_call_phase
 
 let compiler_exception_is_from_context exception_ context =
   context.context_domain = Domain.self ()
@@ -476,16 +486,14 @@ let selected_local selection = selection.selected_local
 let selected_command selection = selection.selected_command
 let reference_selection_is_current selection = selection.reference_active
 
-type call_activity = {
-  mutable call_active : bool;
-  mutable call_captured : bool;
-}
+type call_origin = { mutable original_start : call_start option }
 
-type call_start = {
+and call_start = {
   call_reference : reference_selection;
   call_callee : Ast.expression;
   call_opening_parenthesis : Ast.location option;
   call_activity : call_activity;
+  call_origin : call_origin;
 }
 
 type completed_call = {
@@ -494,8 +502,24 @@ type completed_call = {
   emission_activity : call_activity;
 }
 
-let call_start_is_current receipt = receipt.call_activity.call_active
+let call_start_is_original receipt =
+  Option.fold ~none:false ~some:(( == ) receipt)
+    receipt.call_origin.original_start
+
+let call_start_is_current receipt =
+  call_start_is_original receipt && receipt.call_activity.call_active
+
 let call_emission_is_current receipt = receipt.emission_activity.call_active
+
+let call_start_supplied_shape receipt =
+  if call_start_is_original receipt then receipt.call_activity.supplied_shape
+  else None
+
+let compiler_exception_is_from_call_start exception_ receipt =
+  call_start_is_original receipt
+  && Option.fold ~none:false
+       ~some:(( == ) receipt.call_activity)
+       exception_.exception_call_phase
 
 let claim_call_activity activity =
   if (not activity.call_active) || activity.call_captured then false
@@ -503,10 +527,13 @@ let claim_call_activity activity =
     activity.call_captured <- true;
     true)
 
-let claim_call_start receipt = claim_call_activity receipt.call_activity
+let claim_call_start receipt =
+  call_start_is_original receipt && claim_call_activity receipt.call_activity
+
 let claim_call_emission receipt = claim_call_activity receipt.emission_activity
 
 type implicit_output_selection = {
+  output_owner : implicit_output_selection option ref;
   output_target : Ast.implicit_output_target;
   output_marker : Ast.location;
   output_environment : Symbol_visibility.Environment.t;
@@ -544,19 +571,39 @@ let implicit_environment selection = selection.output_environment
 let implicit_lookup selection = selection.output_lookup
 let implicit_command selection = selection.output_command
 let implicit_statement selection = selection.output_statement
-let implicit_selection_is_current selection = selection.output_active
+
+let implicit_selection_is_original selection =
+  Option.fold ~none:false ~some:(( == ) selection) !(selection.output_owner)
+
+let implicit_selection_is_current selection =
+  implicit_selection_is_original selection && selection.output_active
 
 let implicit_arguments_are_current selection =
-  selection.output_arguments.call_active
+  implicit_selection_is_original selection
+  && selection.output_arguments.call_active
+
+let implicit_supplied_shape selection =
+  if implicit_selection_is_original selection then
+    selection.output_arguments.supplied_shape
+  else None
+
+let compiler_exception_is_from_implicit_arguments exception_ selection =
+  implicit_selection_is_original selection
+  && Option.fold ~none:false
+       ~some:(( == ) selection.output_arguments)
+       exception_.exception_call_phase
 
 let implicit_emission_is_current selection =
-  selection.output_emission.call_active
+  implicit_selection_is_original selection
+  && selection.output_emission.call_active
 
 let claim_implicit_arguments selection =
-  claim_call_activity selection.output_arguments
+  implicit_selection_is_original selection
+  && claim_call_activity selection.output_arguments
 
 let claim_implicit_emission selection =
-  claim_call_activity selection.output_emission
+  implicit_selection_is_original selection
+  && claim_call_activity selection.output_emission
 
 type query_node =
   | Sizeof_target of Ast.identifier
@@ -2112,7 +2159,7 @@ let report ?secondary cursor item ~code ~message =
   cursor.diagnostics_rev := diagnostic :: !(cursor.diagnostics_rev);
   if cursor.stop_on_error then raise Stop_command
 
-let lex_except cursor item ~code ~message =
+let lex_except ?call_phase cursor item ~code ~message =
   (* Only audited original LexExcept branches call this private producer.
      Generic reports and observer failures never acquire Compiler authority. *)
   let context =
@@ -2133,6 +2180,7 @@ let lex_except cursor item ~code ~message =
       exception_error_count =
         Common.Native_compiler_control.error_count
           context.context_compiler_control;
+      exception_call_phase = call_phase;
     }
   in
   context.context_compiler_exception <- Some exception_;
@@ -2146,8 +2194,8 @@ let lex_except cursor item ~code ~message =
          abort_diagnostics = [];
        })
 
-let statement_lex_except cursor item ~code ~message =
-  if cursor.stop_on_error then lex_except cursor item ~code ~message
+let matched_lex_except ?call_phase cursor item ~code ~message =
+  if cursor.stop_on_error then lex_except ?call_phase cursor item ~code ~message
   else report cursor item ~code ~message
 
 let return_outside_function cursor item =
@@ -2287,9 +2335,16 @@ let start_direct_call cursor item callee opening =
               call_reference = reference;
               call_callee = callee;
               call_opening_parenthesis = opening;
-              call_activity = { call_active = true; call_captured = false };
+              call_activity =
+                {
+                  call_active = true;
+                  call_captured = false;
+                  supplied_shape = None;
+                };
+              call_origin = { original_start = None };
             }
           in
+          receipt.call_origin.original_start <- Some receipt;
           let shape =
             Fun.protect
               ~finally:(fun () -> receipt.call_activity.call_active <- false)
@@ -2298,6 +2353,7 @@ let start_direct_call cursor item callee opening =
                   (Call_start receipt);
                 call_result cursor item (consume.start receipt))
           in
+          receipt.call_activity.supplied_shape <- Some shape;
           (Some receipt, shape)
       | None -> (None, None))
   | _ -> (None, None)
@@ -2309,7 +2365,12 @@ let retain_direct_call cursor start expression =
         {
           call_start;
           call_expression = expression;
-          emission_activity = { call_active = false; call_captured = false };
+          emission_activity =
+            {
+              call_active = false;
+              call_captured = false;
+              supplied_shape = None;
+            };
         }
         :: cursor.pending_calls)
     start
@@ -4294,8 +4355,18 @@ and parse_call_suffix ?start ?shape cursor ~context ~depth
       ~location:(location_before_token delimiter.token)
   in
   let parse_supplied_shape (shape : Symbol_visibility.function_call_shape) =
+    let call_failure item ~code ~message =
+      (* PrsFunCall's delimiter checks follow the original argument-shape
+         phase. Unshaped calls and callback diagnostics remain separate. *)
+      match start with
+      | Some start ->
+          matched_lex_except ~call_phase:start.call_activity cursor item ~code
+            ~message;
+          None
+      | None -> expression_failure cursor item ~code ~message
+    in
     let missing_close item =
-      expression_failure cursor item ~code:"HCPARSE0025"
+      call_failure item ~code:"HCPARSE0025"
         ~message:
           (Printf.sprintf "expected ')' to close a call in %s, but found %s"
              (expression_context_name context)
@@ -4313,7 +4384,7 @@ and parse_call_suffix ?start ?shape cursor ~context ~depth
         ~location:argument.call_argument_location
     in
     let missing_comma item =
-      expression_failure cursor item ~code:"HCPARSE0024"
+      call_failure item ~code:"HCPARSE0024"
         ~message:
           (Printf.sprintf "expected ',' after a call argument, but found %s"
              (token_description item.token))
@@ -7464,6 +7535,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   in
   let selection =
     {
+      output_owner = ref None;
       output_target = target;
       output_marker = token_location marker_item.token;
       output_environment = cursor.symbols;
@@ -7475,10 +7547,19 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
       output_command = Option.get cursor.current_command;
       output_active = true;
       output_statement = None;
-      output_arguments = { call_active = false; call_captured = false };
-      output_emission = { call_active = false; call_captured = false };
+      output_arguments =
+        { call_active = false; call_captured = false; supplied_shape = None };
+      output_emission =
+        { call_active = false; call_captured = false; supplied_shape = None };
     }
   in
+  selection.output_owner := Some selection;
+  (* PrsFunCall selects HTT_FUN before consuming even an empty marker and
+     before any argument or emission phase. *)
+  if cursor.stop_on_error && Option.is_none selection.output_lookup then
+    lex_except cursor marker_item ~code:"HCPARSE0172"
+      ~message:
+        "implicit output requires a function header for Print or PutChars";
   Fun.protect
     ~finally:(fun () -> selection.output_active <- false)
     (fun () ->
@@ -7534,8 +7615,12 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     match implicit_sink with
     | None -> None
     | Some sink ->
-        observe_phase selection.output_arguments (Implicit_arguments selection)
-          sink.arguments
+        let shape =
+          observe_phase selection.output_arguments
+            (Implicit_arguments selection) sink.arguments
+        in
+        selection.output_arguments.supplied_shape <- Some shape;
+        shape
   in
   let selected_shape =
     match supplied_shape with
@@ -7543,6 +7628,11 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     | None ->
         Option.bind selection.output_lookup
           Symbol_visibility.function_call_shape
+  in
+  let implicit_call_failure item ~code ~message =
+    matched_lex_except ~call_phase:selection.output_arguments cursor item ~code
+      ~message;
+    raise Stop_command
   in
   let selected_parameter index =
     Option.bind selected_shape (fun shape ->
@@ -7713,6 +7803,19 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
           tokens_rev =
         let item = peek cursor in
         let parameter = selected_parameter position in
+        let needs_separator =
+          Option.is_some parameter
+          || Option.fold ~none:false
+               ~some:(fun shape -> shape.Symbol_visibility.variadic)
+               selected_shape
+        in
+        if
+          needs_separator
+          && item.token.kind <> Token_kind.Punctuation ','
+          && item.token.kind <> Token_kind.Punctuation ';'
+        then
+          implicit_call_failure item ~code:"HCPARSE0167"
+            ~message:"expected ',' before the next implicit Print argument";
         if completed_fixed_call && Option.is_none parameter then
           Some
             (List.rev arguments_rev, List.rev omissions_rev, List.rev tokens_rev)
@@ -7787,8 +7890,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
       in
       let parse_parenthesized_arguments () =
         let syntax_error item message =
-          report cursor item ~code:"HCPARSE0167" ~message;
-          raise Stop_command
+          implicit_call_failure item ~code:"HCPARSE0167" ~message
         in
         let rec supplied position comma arguments_rev omissions_rev tokens_rev
             next =
@@ -7977,10 +8079,9 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
             | None -> (None, [])
             | Some opening ->
                 let closing = peek cursor in
-                if closing.token.kind <> Token_kind.Punctuation ')' then (
-                  report cursor closing ~code:"HCPARSE0167"
+                if closing.token.kind <> Token_kind.Punctuation ')' then
+                  implicit_call_failure closing ~code:"HCPARSE0167"
                     ~message:"expected ')' after implicit call arguments";
-                  raise Stop_command);
                 let closing = take cursor in
                 ( Some
                     (token_location opening.token, token_location closing.token),
@@ -8005,7 +8106,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                    || completed_fixed_call
                    || Option.is_some opening_parenthesis -> Some (None, [])
             | _ ->
-                statement_lex_except cursor terminator_item ~code:"HCPARSE0046"
+                matched_lex_except cursor terminator_item ~code:"HCPARSE0046"
                   ~message:
                     (Printf.sprintf
                        "expected ';' after implicit %s statement, but found %s"
@@ -8131,7 +8232,7 @@ let parse_break_statement cursor ~boundary : parsed_statement option =
           (Some (token_location semicolon_item.token), [ semicolon_item.token ])
     | _, Token_kind.Punctuation ',' -> Some (None, [])
     | _ ->
-        statement_lex_except cursor terminator_item ~code:"HCPARSE0072"
+        matched_lex_except cursor terminator_item ~code:"HCPARSE0072"
           ~message:
             (Printf.sprintf "expected ';' or ',' after 'break', but found %s"
                (token_description terminator_item.token));
@@ -8155,7 +8256,7 @@ let parse_goto_statement cursor ~boundary : parsed_statement option =
   let keyword_item = take cursor in
   let target_item = peek cursor in
   if not (token_is_name_position_identifier target_item.token) then (
-    statement_lex_except cursor target_item ~code:"HCPARSE0075"
+    matched_lex_except cursor target_item ~code:"HCPARSE0075"
       ~message:
         (Printf.sprintf "expected a label name after 'goto', but found %s"
            (token_description target_item.token));
@@ -8174,7 +8275,7 @@ let parse_goto_statement cursor ~boundary : parsed_statement option =
               [ semicolon_item.token ] )
       | _, Token_kind.Punctuation ',' -> Some (None, [])
       | _ ->
-          statement_lex_except cursor terminator_item ~code:"HCPARSE0076"
+          matched_lex_except cursor terminator_item ~code:"HCPARSE0076"
             ~message:
               (Printf.sprintf
                  "expected ';' or ',' after goto target %S, but found %s"
@@ -8383,7 +8484,7 @@ let parse_return_statement cursor ~boundary : parsed_statement option =
                     [ semicolon_item.token ] )
             | _, Token_kind.Punctuation ',' -> Some (None, [])
             | _ ->
-                statement_lex_except cursor terminator_item ~code:"HCPARSE0073"
+                matched_lex_except cursor terminator_item ~code:"HCPARSE0073"
                   ~message:
                     (Printf.sprintf
                        "expected ';' or ',' after a return expression, but \
@@ -8416,7 +8517,7 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
                 [ semicolon_item.token ] )
         | _, Token_kind.Punctuation ',' -> Some (None, [])
         | _ ->
-            statement_lex_except cursor terminator_item ~code:"HCPARSE0047"
+            matched_lex_except cursor terminator_item ~code:"HCPARSE0047"
               ~message:
                 (Printf.sprintf
                    "expected ';' or ',' after statement expression, but found \
@@ -9812,7 +9913,7 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
     | Some body -> (
         let while_item = peek cursor in
         if while_item.token.kind <> Token_kind.Keyword Keyword.While then (
-          statement_lex_except cursor while_item ~code:"HCPARSE0063"
+          matched_lex_except cursor while_item ~code:"HCPARSE0063"
             ~message:
               (Printf.sprintf
                  "expected 'while' after the do-while body, but found %s"
@@ -9823,7 +9924,7 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
           let while_item = take cursor in
           let opening_item = peek cursor in
           if opening_item.token.kind <> Token_kind.Punctuation '(' then (
-            statement_lex_except cursor opening_item ~code:"HCPARSE0064"
+            matched_lex_except cursor opening_item ~code:"HCPARSE0064"
               ~message:
                 (Printf.sprintf
                    "expected '(' after the do-while keyword, but found %s"
@@ -9842,7 +9943,7 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
             | Some (condition : parsed_expression) ->
                 let closing_item = peek cursor in
                 if closing_item.token.kind <> Token_kind.Punctuation ')' then (
-                  statement_lex_except cursor closing_item ~code:"HCPARSE0065"
+                  matched_lex_except cursor closing_item ~code:"HCPARSE0065"
                     ~message:
                       (Printf.sprintf
                          "expected ')' after the do-while condition, but found \
@@ -9855,8 +9956,7 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
                   let semicolon_item = peek cursor in
                   if semicolon_item.token.kind <> Token_kind.Punctuation ';'
                   then (
-                    statement_lex_except cursor semicolon_item
-                      ~code:"HCPARSE0066"
+                    matched_lex_except cursor semicolon_item ~code:"HCPARSE0066"
                       ~message:
                         (Printf.sprintf
                            "expected ';' after the do-while condition, but \
@@ -9900,7 +10000,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
     let statement_boundary = statement_body_boundary boundary in
     let opening_item = peek cursor in
     if opening_item.token.kind <> Token_kind.Punctuation '(' then (
-      statement_lex_except cursor opening_item ~code:"HCPARSE0067"
+      matched_lex_except cursor opening_item ~code:"HCPARSE0067"
         ~message:
           (Printf.sprintf "expected '(' after 'for', but found %s"
              (token_description opening_item.token));
@@ -9940,7 +10040,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                   condition_semicolon_item.token.kind
                   <> Token_kind.Punctuation ';'
                 then (
-                  statement_lex_except cursor condition_semicolon_item
+                  matched_lex_except cursor condition_semicolon_item
                     ~code:"HCPARSE0069"
                     ~message:
                       (Printf.sprintf
@@ -9974,7 +10074,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                       let closing_item = peek cursor in
                       if closing_item.token.kind <> Token_kind.Punctuation ')'
                       then (
-                        statement_lex_except cursor closing_item
+                        matched_lex_except cursor closing_item
                           ~code:"HCPARSE0070"
                           ~message:
                             (Printf.sprintf
@@ -10047,7 +10147,7 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
     let keyword_item = take cursor in
     let opening_item = peek cursor in
     if opening_item.token.kind <> Token_kind.Punctuation '(' then (
-      statement_lex_except cursor opening_item ~code:"HCPARSE0052"
+      matched_lex_except cursor opening_item ~code:"HCPARSE0052"
         ~message:
           (Printf.sprintf "expected '(' after 'if', but found %s"
              (token_description opening_item.token));
@@ -10065,7 +10165,7 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
       | Some (condition : parsed_expression) -> (
           let closing_item = peek cursor in
           if closing_item.token.kind <> Token_kind.Punctuation ')' then (
-            statement_lex_except cursor closing_item ~code:"HCPARSE0053"
+            matched_lex_except cursor closing_item ~code:"HCPARSE0053"
               ~message:
                 (Printf.sprintf
                    "expected ')' after the if condition, but found %s"
@@ -10183,7 +10283,7 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
     in
     match delimiter with
     | None ->
-        statement_lex_except cursor opening_item ~code:"HCPARSE0085"
+        matched_lex_except cursor opening_item ~code:"HCPARSE0085"
           ~message:
             (Printf.sprintf "expected '(' or '[' after 'switch', but found %s"
                (token_description opening_item.token));
@@ -10201,7 +10301,7 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
         | Some (expression : parsed_expression) ->
             let closing_item = peek cursor in
             if closing_item.token.kind <> closing_kind then (
-              statement_lex_except cursor closing_item ~code:"HCPARSE0086"
+              matched_lex_except cursor closing_item ~code:"HCPARSE0086"
                 ~message:
                   (Printf.sprintf
                      "expected %S after the switch expression, but found %s"
@@ -10216,8 +10316,7 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
               let opening_brace_item = peek cursor in
               if opening_brace_item.token.kind <> Token_kind.Punctuation '{'
               then (
-                statement_lex_except cursor opening_brace_item
-                  ~code:"HCPARSE0087"
+                matched_lex_except cursor opening_brace_item ~code:"HCPARSE0087"
                   ~message:
                     (Printf.sprintf
                        "expected '{' after the switch header, but found %s"
@@ -10716,7 +10815,7 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
       | Some try_body -> (
           let catch_item = peek cursor in
           if catch_item.token.kind <> Token_kind.Keyword Keyword.Catch then (
-            statement_lex_except cursor catch_item ~code:"HCPARSE0080"
+            matched_lex_except cursor catch_item ~code:"HCPARSE0080"
               ~message:
                 (Printf.sprintf
                    "expected 'catch' after the try body, but found %s"
@@ -10771,7 +10870,7 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
     let keyword_item = take cursor in
     let opening_item = peek cursor in
     if opening_item.token.kind <> Token_kind.Punctuation '(' then (
-      statement_lex_except cursor opening_item ~code:"HCPARSE0058"
+      matched_lex_except cursor opening_item ~code:"HCPARSE0058"
         ~message:
           (Printf.sprintf "expected '(' after 'while', but found %s"
              (token_description opening_item.token));
@@ -10789,7 +10888,7 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
       | Some (condition : parsed_expression) -> (
           let closing_item = peek cursor in
           if closing_item.token.kind <> Token_kind.Punctuation ')' then (
-            statement_lex_except cursor closing_item ~code:"HCPARSE0059"
+            matched_lex_except cursor closing_item ~code:"HCPARSE0059"
               ~message:
                 (Printf.sprintf
                    "expected ')' after the while condition, but found %s"

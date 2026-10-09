@@ -1296,6 +1296,340 @@ let statement_source_execution () =
         Cases.statement_caught_children)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let call_phase_receipts () =
+  let shape count variadic : Symbol_visibility.function_call_shape =
+    {
+      parameters =
+        List.init count (fun _ ->
+            { Symbol_visibility.parameter_name = None; has_default = false });
+      variadic;
+    }
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, supplied, code, marker, implicit) ->
+          let session, source, config = inputs mode text in
+          let direct = ref None and output = ref None and seen = ref [] in
+          ignore
+            (Symbol_visibility.Environment.add (Session.symbols session)
+               ~name:"F" ~kind:Symbol_visibility.Function ());
+          let call : Parser.direct_call_sink =
+            {
+              start =
+                (fun start ->
+                  direct := Some start;
+                  let copy : Parser.call_start =
+                    Obj.obj (Obj.dup (Obj.repr start))
+                  in
+                  Alcotest.(check bool)
+                    "copied start has no live authority" false
+                    (Parser.call_start_is_current copy);
+                  Alcotest.(check bool)
+                    "copied start cannot claim" false
+                    (Parser.claim_call_start copy);
+                  Ok (Some supplied));
+              emit = (fun _ -> Alcotest.fail "failed call cannot emit");
+              implicit =
+                Some
+                  {
+                    arguments =
+                      (fun selection ->
+                        output := Some selection;
+                        let copy : Parser.implicit_output_selection =
+                          Obj.obj (Obj.dup (Obj.repr selection))
+                        in
+                        Alcotest.(check bool)
+                          "copied implicit arguments have no live authority"
+                          false
+                          (Parser.implicit_arguments_are_current copy);
+                        Alcotest.(check bool)
+                          "copied implicit arguments cannot claim" false
+                          (Parser.claim_implicit_arguments copy);
+                        Ok (Some supplied));
+                    emission =
+                      (fun _ ->
+                        Alcotest.fail "failed implicit call cannot emit");
+                  };
+            }
+          in
+          let parsed =
+            parse ~commands:(command_sink ~call ())
+              ~compiler_exception:(fun exception_ ->
+                seen := exception_ :: !seen)
+              session source config
+          in
+          receipt ~code ~marker text parsed.diagnostics !seen;
+          let exception_ = List.hd !seen in
+          Alcotest.(check bool)
+            "delimiter requires original call metadata" true
+            (Parser.compiler_exception_requires_call_shape exception_);
+          let check_shape = function
+            | Some (Some reached) ->
+                Alcotest.(check bool)
+                  "exact callback result retained after abort" true
+                  (reached == supplied);
+                let copy =
+                  { reached with Symbol_visibility.variadic = reached.variadic }
+                in
+                Alcotest.(check bool)
+                  "equal copied shape is not original" false (reached == copy)
+            | _ -> Alcotest.fail "successful callback result was lost"
+          in
+          if implicit then (
+            let selection = Option.get !output in
+            let copy : Parser.implicit_output_selection =
+              Obj.obj (Obj.dup (Obj.repr selection))
+            in
+            check_shape (Parser.implicit_supplied_shape selection);
+            Alcotest.(check bool)
+              "original implicit producer" true
+              (Parser.compiler_exception_is_from_implicit_arguments exception_
+                 selection);
+            Alcotest.(check bool)
+              "copied implicit producer rejected" false
+              (Parser.compiler_exception_is_from_implicit_arguments exception_
+                 copy);
+            Alcotest.(check bool)
+              "copy cannot read returned shape" true
+              (Option.is_none (Parser.implicit_supplied_shape copy)))
+          else
+            let start = Option.get !direct in
+            let copy : Parser.call_start = Obj.obj (Obj.dup (Obj.repr start)) in
+            check_shape (Parser.call_start_supplied_shape start);
+            Alcotest.(check bool)
+              "original direct producer" true
+              (Parser.compiler_exception_is_from_call_start exception_ start);
+            Alcotest.(check bool)
+              "copied direct producer rejected" false
+              (Parser.compiler_exception_is_from_call_start exception_ copy);
+            Alcotest.(check bool)
+              "copy cannot read returned shape" true
+              (Option.is_none (Parser.call_start_supplied_shape copy)))
+        [
+          ("F(1 2);", shape 2 false, "HCPARSE0024", "2", false);
+          ("F(1;", shape 1 false, "HCPARSE0025", ";", false);
+          ("F(1);", shape 0 false, "HCPARSE0025", "1", false);
+          ( "extern U0 Print(U8 *fmt,...);\"text\"}",
+            shape 1 true,
+            "HCPARSE0167",
+            "}",
+            true );
+          ( "extern U0 PutChars(I64 n);''(42;",
+            shape 1 false,
+            "HCPARSE0167",
+            ";",
+            true );
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, supplied) ->
+          let session, source, config = inputs mode text in
+          ignore
+            (Symbol_visibility.Environment.add (Session.symbols session)
+               ~name:"F" ~kind:Symbol_visibility.Function ());
+          let seen = ref [] in
+          let call : Parser.direct_call_sink =
+            {
+              implicit = None;
+              start = (fun _ -> Ok supplied);
+              emit = (fun _ -> Ok ());
+            }
+          in
+          let parsed =
+            parse ~commands:(command_sink ~call ())
+              ~compiler_exception:(fun exception_ ->
+                seen := exception_ :: !seen)
+              session source config
+          in
+          Alcotest.(check bool)
+            "ordinary argument failure stays failed" true
+            (Option.is_none parsed.ast);
+          Alcotest.(check int)
+            "unshaped delimiters and missing operands cannot forge Compiler" 0
+            (List.length !seen))
+        [ ("F(1 2);", None); ("F(1,);", Some (shape 2 false)) ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let failed_call_shape_ownership () =
+  let module D = Task_declarations in
+  let module VM = Ir_integer_interpreter in
+  List.iter
+    (fun copied_shape ->
+      let session, source, config = inputs Preprocessor.Jit "42;" in
+      let runtime =
+        VM.create_task_state ~table:(Session.semantic_symbols session) ()
+        |> Result.get_ok
+      in
+      let ledger = D.create ~runtime session |> Result.get_ok in
+      let parent = ref None and entered = ref false in
+      let checkpoint event =
+        Result.map
+          (fun () ->
+            match event with
+            | Parser.Sequence_started context when Option.is_none !parent ->
+                parent := Some context
+            | _ -> ())
+          (D.observe_command ledger event)
+      in
+      let call : Parser.direct_call_sink =
+        {
+          implicit = None;
+          start =
+            (fun start ->
+              let copy : Parser.call_start =
+                Obj.obj (Obj.dup (Obj.repr start))
+              in
+              Alcotest.(check bool)
+                "ledger rejects copied live start" true
+                (Result.is_error (D.observe_call_start ledger copy));
+              Result.map
+                (Option.map
+                   (fun (shape : Symbol_visibility.function_call_shape) ->
+                     if copied_shape then
+                       { shape with variadic = shape.variadic }
+                     else shape))
+                (D.observe_call_start ledger start));
+          emit = D.observe_call_emission ledger;
+        }
+      in
+      let resume () =
+        if not !entered then (
+          entered := true;
+          let suspension =
+            Parser.suspend_context (Option.get !parent) |> Result.get_ok
+          in
+          let child =
+            Session.add_source session ~path:"owned-call-shape.HC"
+              ~contents:"extern I64 F(I64 a,I64 b);F(1 2);"
+          in
+          let commands =
+            {
+              (command_sink ~call ~checkpoint:(D.observe_command ledger) ()) with
+              Parser.declaration =
+                Some
+                  (fun event ->
+                    Result.bind (D.observe ledger event) (fun () ->
+                        Result.bind
+                          (D.admit_function_phase ledger ~runtime event)
+                          (fun () ->
+                            match event with
+                            | Parser.Function_header_completed header ->
+                                D.admit_function_header ledger ~runtime header
+                            | _ -> Ok ())));
+              reference = Some (D.observe_reference ledger);
+            }
+          in
+          let parsed =
+            suspended_parse ~commands session config suspension child
+            |> Result.get_ok
+          in
+          Alcotest.(check bool)
+            "delimiter fails child syntax" true
+            (Option.is_none parsed.ast);
+          let failure =
+            match Parser.suspension_failed_input suspension with
+            | Some failure -> failure
+            | None ->
+                Alcotest.fail
+                  ("missing call failure: " ^ describe parsed.diagnostics)
+          in
+          let check () =
+            D.check_failed_compiler_input ledger ~session ~runtime ~suspension
+              failure
+          in
+          let foreign_session = Session.create () in
+          let foreign_runtime =
+            VM.create_task_state
+              ~table:(Session.semantic_symbols foreign_session)
+              ()
+            |> Result.get_ok
+          in
+          let foreign =
+            D.create ~runtime:foreign_runtime foreign_session |> Result.get_ok
+          in
+          Alcotest.(check bool)
+            "unobserved directive ledger cannot replace producer" false
+            (Result.is_ok
+               (D.check_failed_compiler_input foreign ~directive_ledger:foreign
+                  ~session:foreign_session ~runtime:foreign_runtime ~suspension
+                  failure));
+          Alcotest.(check bool)
+            "catch requires exact native callback result" (not copied_shape)
+            (Result.is_ok (check ()));
+          Alcotest.(check bool)
+            "foreign directive cannot supply missing shape authority"
+            (not copied_shape)
+            (Result.is_ok
+               (D.check_failed_compiler_input ledger ~directive_ledger:foreign
+                  ~session ~runtime ~suspension failure));
+          Gc.full_major ();
+          Gc.compact ();
+          Alcotest.(check bool)
+            "native result identity survives collection" (not copied_shape)
+            (Result.is_ok (check ())));
+        Ok ()
+      in
+      let parsed =
+        parse
+          ~commands:(command_sink ~checkpoint ~resume ())
+          session source config
+      in
+      Alcotest.(check bool)
+        (describe parsed.diagnostics)
+        true
+        (Option.is_some parsed.ast))
+    [ false; true ]
+
+let call_source_execution () =
+  let run mode with_headers text =
+    let session, source, config =
+      inputs mode
+        ((if with_headers && mode = Preprocessor.Jit then Cases.headers else "")
+        ^ text)
+    in
+    run_integer_program_report session ~source ~config ~max_steps:100_000
+  in
+  List.iter
+    (fun (label, text, code, marker) ->
+      let report = run Preprocessor.Jit false text in
+      let diagnostics =
+        match integer_program_report_outcome report with
+        | Error errors -> errors
+        | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
+      in
+      receipt ~reported_origin:false ~code ~marker label diagnostics
+        (integer_program_report_compiler_exceptions report))
+    Cases.call_failures;
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, with_headers, text, code, marker, output) ->
+          let report = run mode with_headers text in
+          let result =
+            match integer_program_report_outcome report with
+            | Ok result -> result
+            | Error errors -> Alcotest.fail (label ^ ": " ^ describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " parent resumes")
+            (Some 42L)
+            (Option.map
+               (fun word -> word.Ir_integer_interpreter.bits)
+               (Ir_integer_interpreter.final_value result.value));
+          Alcotest.(check string)
+            (label ^ " retained effects")
+            output
+            (integer_program_report_output_bytes report);
+          let exceptions = integer_program_report_compiler_exceptions report in
+          receipt ~code ~marker label
+            (List.map Parser.compiler_exception_diagnostic exceptions)
+            exceptions)
+        Cases.call_caught_children)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
     Alcotest.test_case "original return failure before expression Lex" `Quick
@@ -1352,4 +1686,10 @@ let tests =
       statement_lexer_order;
     Alcotest.test_case "statement Compiler children preserve original IR work"
       `Quick statement_source_execution;
+    Alcotest.test_case "call Compiler producers and nested caught IR inputs"
+      `Quick call_source_execution;
+    Alcotest.test_case "original call shape and producer receipts reject copies"
+      `Quick call_phase_receipts;
+    Alcotest.test_case "failed child catch requires original native call shape"
+      `Quick failed_call_shape_ownership;
   ]

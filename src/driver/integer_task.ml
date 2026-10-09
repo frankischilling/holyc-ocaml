@@ -2883,8 +2883,9 @@ and run_stream_exe_source ?saved_compiler task ~active ~span contents =
                 let* () = active () in
                 let* () =
                   Task_declarations.check_failed_compiler_input
-                    target.declarations ~session:target.session
-                    ~runtime:target.state ~suspension failure
+                    ~directive_ledger:task.declarations target.declarations
+                    ~session:target.session ~runtime:target.state ~suspension
+                    failure
                   |> Result.map_error diagnose
                 in
                 let* () =

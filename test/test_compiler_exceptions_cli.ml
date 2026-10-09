@@ -22,9 +22,10 @@ let hex text =
   |> List.map (fun c -> Printf.sprintf "%02x" (Char.code c))
   |> String.concat ""
 
-let invoke compiler target mode ?(options = []) ~status label contents =
+let invoke compiler target mode ?(with_headers = true) ?(options = []) ~status
+    label contents =
   temporary ".HC"
-    ((if mode = "jit" then Cases.headers else "") ^ contents)
+    ((if with_headers && mode = "jit" then Cases.headers else "") ^ contents)
     (fun source ->
       temporary ".out" "" (fun stdout ->
           temporary ".err" "" (fun stderr ->
@@ -189,4 +190,34 @@ let () =
         Cases.statement_caught_children)
     [ "jit"; "aot" ];
   Printf.printf "%d original statement Compiler CLI cases passed (%s).\n"
-    !statement_cases target
+    !statement_cases target;
+  let call_cases = ref 0 in
+  List.iter
+    (fun (label, text, code, _) ->
+      let report =
+        invoke compiler target "jit" ~with_headers:false ~status:1 label text
+      in
+      let codes =
+        List.filter_map
+          (fun diagnostic ->
+            let code = diagnostic |> member "code" |> to_string in
+            if code = "HCRUN0004" then None else Some code)
+          (errors report)
+      in
+      if codes <> [ code ] then
+        failwith (label ^ ": " ^ Yojson.Safe.to_string report);
+      incr call_cases)
+    Cases.call_failures;
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, with_headers, text, _, _, output) ->
+          let report =
+            invoke compiler target mode ~with_headers ~status:0 label text
+          in
+          caught_value target label output report;
+          incr call_cases)
+        Cases.call_caught_children)
+    [ "jit"; "aot" ];
+  Printf.printf "%d original call Compiler CLI cases passed (%s).\n" !call_cases
+    target

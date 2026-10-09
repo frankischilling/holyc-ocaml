@@ -523,7 +523,8 @@ let implicit_receipt_claims () =
     }
   in
   let _, _, parsed, _, _, _ =
-    Test_stream_parser.parse ~session ~commands {|''(42);|}
+    Test_stream_parser.parse ~session ~commands
+      {|extern U0 PutChars(I64 n);''(42);|}
   in
   ignore (Test_parser.expect_ast parsed);
   let selection = Option.get !selected in

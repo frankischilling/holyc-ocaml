@@ -3,10 +3,12 @@ module Cases = Compiler_exception_cases
 module Native = Native_source_execution
 module Helpers = Test_compiler_exceptions
 
-let run ?(max_steps = 100_000) ?max_output_bytes ?max_output_work mode text =
+let run ?(with_headers = true) ?(max_steps = 100_000) ?max_output_bytes
+    ?max_output_work mode text =
   let session, source, config =
     Helpers.inputs mode
-      ((if mode = Preprocessor.Jit then Cases.headers else "") ^ text)
+      ((if with_headers && mode = Preprocessor.Jit then Cases.headers else "")
+      ^ text)
   in
   Native.evaluate ?max_output_bytes ?max_output_work ~max_code_bytes:524_288
     session ~source ~config ~max_steps
@@ -299,6 +301,55 @@ let statement_caught_children () =
         Cases.statement_caught_children)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let call_producers () =
+  List.iter
+    (fun (label, text, code, marker) ->
+      let report = run ~with_headers:false Preprocessor.Jit text in
+      let diagnostics =
+        match Native.outcome report with
+        | Error errors -> errors
+        | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
+      in
+      Helpers.receipt ~reported_origin:false ~code ~marker label diagnostics
+        (Native.compiler_exceptions report))
+    Cases.call_failures;
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, with_headers, text, code, marker, output) ->
+          let report = run ~with_headers mode text in
+          let result =
+            match Native.outcome report with
+            | Ok result -> result
+            | Error errors ->
+                Alcotest.fail (label ^ ": " ^ Helpers.describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " native parent resumes")
+            (Some 42L)
+            (Option.map
+               (fun (word : Native.word) -> word.bits)
+               result.value.final_value);
+          Alcotest.(check string)
+            (label ^ " retained native effects")
+            output
+            (Native.output_bytes report);
+          let exceptions = Native.compiler_exceptions report in
+          Helpers.receipt ~code ~marker label
+            (List.map Parser.compiler_exception_diagnostic exceptions)
+            exceptions;
+          Alcotest.(check bool)
+            "native execution remains charged" true
+            (Native.executed_steps report > 0);
+          Option.iter
+            (fun progress ->
+              Alcotest.(check int)
+                "no interpreted task instructions" 0
+                progress.Integer_task.runtime.executed_steps)
+            (Native.source_progress report))
+        Cases.call_caught_children)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Native compiler exceptions"
     [
@@ -324,5 +375,7 @@ let () =
             statement_failures;
           Alcotest.test_case "caught statement Compiler preserves native parent"
             `Quick statement_caught_children;
+          Alcotest.test_case "call Compiler producers and nested native catches"
+            `Quick call_producers;
         ] );
     ]

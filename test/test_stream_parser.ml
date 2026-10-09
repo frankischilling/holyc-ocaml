@@ -23,6 +23,17 @@ let parse ?(session = Session.create ()) ?(mode = Preprocessor.Jit)
   let finished = ref 0 in
   let enter opener =
     on_enter ();
+    (* The text-producing test executor supplies a Function-kind Print header,
+       as the real directive task's provider installation does. It grants no
+       native argument record or runtime authority. *)
+    if
+      Option.is_none
+        (Symbol_visibility.Environment.find_function (Session.symbols task)
+           "Print")
+    then
+      ignore
+        (Symbol_visibility.Environment.add (Session.symbols task) ~name:"Print"
+           ~kind:Symbol_visibility.Function ());
     let body = Buffer.create 32 in
     let command item =
       visited := item :: !visited;

@@ -252,12 +252,14 @@ val selected_command : reference_selection -> command_start
 val reference_selection_is_current : reference_selection -> bool
 
 type call_activity
+type call_origin
 
 type call_start = private {
   call_reference : reference_selection;
   call_callee : Ast.expression;
   call_opening_parenthesis : Ast.location option;
   call_activity : call_activity;
+  call_origin : call_origin;
 }
 
 type completed_call = private {
@@ -273,6 +275,19 @@ val call_emission_is_current : completed_call -> bool
     retains the original identifier selection, including its command and
     environment, and the exact callee and opening location children. Emission
     retains the complete original call expression and argument children. *)
+
+val call_start_supplied_shape :
+  call_start -> Symbol_visibility.function_call_shape option option
+(** The exact result returned by the original start callback. Outer [None] means
+    the callback has not returned successfully. A consumer can compare physical
+    shape identity with its own native-phase record after an abort. *)
+
+val compiler_exception_requires_call_shape : compiler_exception -> bool
+
+val compiler_exception_is_from_call_start :
+  compiler_exception -> call_start -> bool
+(** A matched call-delimiter producer retains its original argument activity. A
+    runtime catch also requires that phase's original native shape. *)
 
 val claim_call_start : call_start -> bool
 
@@ -328,6 +343,14 @@ val implicit_statement :
 
 val implicit_selection_is_current : implicit_output_selection -> bool
 val implicit_arguments_are_current : implicit_output_selection -> bool
+
+val implicit_supplied_shape :
+  implicit_output_selection ->
+  Symbol_visibility.function_call_shape option option
+
+val compiler_exception_is_from_implicit_arguments :
+  compiler_exception -> implicit_output_selection -> bool
+
 val implicit_emission_is_current : implicit_output_selection -> bool
 val claim_implicit_arguments : implicit_output_selection -> bool
 

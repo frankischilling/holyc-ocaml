@@ -172,3 +172,75 @@ let statement_caught_children =
         ";",
         "after" );
     ]
+
+(* PrsExp.HC:380-560 selects HTT_FUN and captures fixed argument metadata before
+   traversal. These cases reach only the audited delimiter/header producers. *)
+let call_failures =
+  [
+    ("missing Print header", "\"text\";", "HCPARSE0172", "\"text\"");
+    ("missing PutChars header", "'A';", "HCPARSE0172", "'A'");
+    ("wrong Print kind", "I64 Print=0;\"text\";", "HCPARSE0172", "\"text\"");
+    ("empty marker before Lex", "\"\" #error late\n42;", "HCPARSE0172", "\"\"");
+    ("fixed comma", "I64 F(I64 a,I64 b){return a+b;}F(1 2);", "HCPARSE0024", "2");
+    ("fixed close", "I64 F(I64 a){return a;}F(1;", "HCPARSE0025", ";");
+    ("zero fixed close", "I64 F(){return 0;}F(1);", "HCPARSE0025", "1");
+    ("variadic comma", "I64 F(I64 a,...){return a;}F(1 2);", "HCPARSE0024", "2");
+    ( "zero fixed variadic close",
+      "I64 F(...){return 0;}F(1 2);",
+      "HCPARSE0025",
+      "2" );
+    ( "Print variadic comma",
+      "extern U0 Print(U8 *fmt,...);\"text\"}",
+      "HCPARSE0167",
+      "}" );
+    ( "Print fixed comma",
+      "extern U0 Print(U8 *fmt,I64 n);\"text\" 42;",
+      "HCPARSE0167",
+      "42" );
+    ( "PutChars parenthesized close",
+      "extern U0 PutChars(I64 n);''(42;",
+      "HCPARSE0167",
+      ";" );
+  ]
+
+let call_caught_children =
+  List.map
+    (fun (label, text, code, marker) ->
+      let tail, output =
+        if label = "PutChars parenthesized close" then
+          ("Print(\"after\");", "after")
+        else ("PutChars('A');", "A")
+      in
+      ( label,
+        true,
+        Printf.sprintf "#exe {StreamExePrint(%S);%s}42;" text tail,
+        code,
+        marker,
+        output ))
+    (List.filter (fun (_, _, code, _) -> code <> "HCPARSE0172") call_failures)
+  @ [
+      ( "caught missing Print function",
+        false,
+        {|I64 Print=0;#exe {StreamExePrint("\"text\";");}42;|},
+        "HCPARSE0172",
+        "\"text\"",
+        "" );
+      ( "caught missing PutChars function",
+        false,
+        {|I64 PutChars=0;#exe {StreamExePrint("'A';");}42;|},
+        "HCPARSE0172",
+        "'A'",
+        "" );
+      ( "nested directive fixed comma",
+        true,
+        {|#exe {StreamExePrint("#exe {I64 F(I64 a,I64 b){return a+b;}F(1 2);}Print(\"skipped\");");Print("after");}42;|},
+        "HCPARSE0024",
+        "2",
+        "after" );
+      ( "nested directive implicit comma",
+        true,
+        {|#exe {StreamExePrint("#exe {\"text\"}Print(\"skipped\");");Print("after");}42;|},
+        "HCPARSE0167",
+        "}",
+        "after" );
+    ]

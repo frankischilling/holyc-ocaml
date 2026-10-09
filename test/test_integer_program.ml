@@ -80,7 +80,7 @@ let unsupported () =
   List.iter
     (fun text ->
       Alcotest.(check string)
-        "output requires a checked visible target" "HCSEMA0059"
+        "output requires the original function header" "HCPARSE0172"
         (diagnostic text).code)
     [ "\"hello\";"; "if(0) {\"hidden\";}" ];
   Alcotest.(check string)

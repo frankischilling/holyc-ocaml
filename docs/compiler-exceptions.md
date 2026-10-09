@@ -146,3 +146,43 @@ runs require actual completed machine fragments and zero interpreted task
 instructions. Matching callback diagnostics still cannot create throw or catch
 authority. Other argument, expression, declaration and lexer producers and
 direct Compiler throws remain unfinished.
+
+## Call failures and argument metadata
+
+The executable parser matches the following checks in `PrsExp.HC:380-560`:
+
+| Original check | Diagnostic | Pinned source |
+| --- | --- | --- |
+| Missing Function-kind Print/PutChars header at the literal marker | HCPARSE0172 | 394-406 |
+| Missing separator during captured fixed or variadic argument traversal | HCPARSE0024 | 440-452, 512-520 |
+| Missing closing parenthesis after captured direct-call arguments | HCPARSE0025 | 532-536 |
+| Implicit Print argument separator or parenthesized PutChars closing delimiter | HCPARSE0167 | 440-445, 495-503, 532-536 |
+
+Print and PutChars header lookup happens before consuming even an empty marker.
+A later lexer failure therefore cannot replace the missing-header producer.
+Lookup uses the original Function-kind entry; a variable with that name cannot
+supply a function header. Variadic Print requires a comma before another
+argument whenever the current token is not a semicolon. A closing brace reaches
+that argument check before the statement terminator check.
+
+Direct-call delimiter producers use the shape returned at the original call
+start. An unshaped legacy or indirect call retains its existing diagnostics and
+does not gain a Compiler receipt from those diagnostics. A missing operand or
+unsupported default also remains separate until its underlying original
+expression producer is implemented.
+
+Each call or implicit argument receipt retains the exact successful callback
+result after unwinding. Runtime catch preflight compares physical shape identity
+with the ledger's original native argument capture. An equal copied shape, a
+copied call start or a copied implicit selection cannot replace that evidence.
+The original producer phase and complete failed-input journals must also match.
+When an AOT saved input reaches a nested directive, that producer belongs to the
+directive task's ledger. Preflight checks its closed original journal and shared
+runtime resources alongside the saved input's own ledger.
+These checks grant no authority to incomplete argument traversal or emission.
+
+Tests exercise ordinary JIT source and caught saved inputs in both outer modes,
+including a failure in a nested directive. IR and native parents resume with
+their reached effects intact. Ordinary AOT calls without an owned native argument
+phase remain outside this match. Full argument/expression producers, direct
+Compiler throws, runtime Break and the native exception machinery remain open.

@@ -1198,7 +1198,7 @@ let retained_implicit_absence_and_mask () =
   (match run session task {|"" (++N);|} with
   | Error (diagnostic :: _) ->
       Alcotest.(check string)
-        "missing implicit header precedes arguments" "HCRUN0003"
+        "missing implicit header precedes arguments" "HCPARSE0172"
         diagnostic.Diagnostic.code
   | _ -> Alcotest.fail "missing implicit header was accepted");
   value 0L (run session task "N;");

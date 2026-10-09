@@ -146,6 +146,7 @@ type selected_call = {
   mutable emission_capture :
     Sema.Function_record_phase.call_emission_snapshot option;
   arguments : Sema.Function_record_phase.snapshot option;
+  parser_shape : Visibility.function_call_shape option;
   mutable runtime_start : VM.task_call_start option;
   mutable runtime_phase : Sema.Function_call_phase.t option;
   mutable emission :
@@ -161,6 +162,7 @@ type selected_implicit_output = {
   mutable implicit_pending : VM.task_implicit_call_start option;
   mutable implicit_phase : Sema.Function_call_phase.t option;
   mutable arguments_observed : bool;
+  mutable parser_shape : Visibility.function_call_shape option option;
   mutable emission_observed : bool;
   implicit_selection : Parser.implicit_output_selection;
   implicit_target : reference_target;
@@ -1445,6 +1447,7 @@ let observe_call_start ledger start =
           capture;
           emission_capture = None;
           arguments;
+          parser_shape = shape;
           emission = None;
           runtime_start = None;
           runtime_phase = None;
@@ -1622,6 +1625,7 @@ let observe_implicit_output ledger selection =
              implicit_pending = None;
              implicit_phase = None;
              arguments_observed = false;
+             parser_shape = None;
              emission_observed = false;
            }
            :: ledger.implicit_outputs;
@@ -1714,6 +1718,7 @@ let observe_implicit_arguments ledger selection =
           |> record_activation_event ledger
       | _ -> ());
       call.arguments_observed <- true;
+      call.parser_shape <- Some shape;
       call.arguments_capture <- capture;
       capture_runtime_implicit_arguments ledger call;
       shape)
@@ -6452,9 +6457,60 @@ let create_saved_compiler_runtime ledger ~session ~suspension ~runtime =
     ~max_dimension_work:ledger.max_dimension_work
     ~max_offset_work:ledger.max_offset_work (Task_runtime runtime) session
 
-let check_failed_compiler_input ledger ~session ~runtime ~suspension failure =
+let check_failed_compiler_input ?directive_ledger ledger ~session ~runtime
+    ~suspension failure =
   let context = Parser.failed_input_context failure in
-  let events_rev =
+  let exception_ = Parser.failed_input_compiler_exception failure in
+  let same_shape expected actual =
+    match (expected, actual) with
+    | None, None -> true
+    | Some expected, Some actual -> expected == actual
+    | _ -> false
+  in
+  let returned_shape expected = function
+    | Some actual -> same_shape expected actual
+    | None -> false
+  in
+  let in_input command =
+    Parser.context_is_in_suspended_input command.Parser.command_context
+      ~suspension
+  in
+  let shape_results_match ledger =
+    List.for_all
+      (fun (call : selected_call) ->
+        (not (in_input (Parser.selected_command call.start.call_reference)))
+        || returned_shape call.parser_shape
+             (Parser.call_start_supplied_shape call.start))
+      ledger.calls
+    && List.for_all
+         (fun (call : selected_implicit_output) ->
+           (not (in_input (Parser.implicit_command call.implicit_selection)))
+           ||
+           match call.parser_shape with
+           | None -> not call.arguments_observed
+           | Some expected ->
+               returned_shape expected
+                 (Parser.implicit_supplied_shape call.implicit_selection))
+         ledger.implicit_outputs
+  in
+  let producer_shape_matches ledger =
+    (not (Parser.compiler_exception_requires_call_shape exception_))
+    || List.exists
+         (fun (call : selected_call) ->
+           Parser.compiler_exception_is_from_call_start exception_ call.start
+           && Option.is_some call.capture
+           && Option.is_some call.arguments
+           && Option.is_some call.parser_shape)
+         ledger.calls
+    || List.exists
+         (fun (call : selected_implicit_output) ->
+           Parser.compiler_exception_is_from_implicit_arguments exception_
+             call.implicit_selection
+           && Option.is_some call.arguments_capture
+           && Option.fold ~none:false ~some:Option.is_some call.parser_shape)
+         ledger.implicit_outputs
+  in
+  let events_for ledger context =
     List.filter
       (fun event ->
         let original =
@@ -6470,8 +6526,46 @@ let check_failed_compiler_input ledger ~session ~runtime ~suspension failure =
         original == context)
       ledger.source_events_rev
   in
+  let closed_original ledger context =
+    Parser.context_sources context == ledger.sources
+    && Parser.context_environment context == ledger.symbols
+    && Parser.context_command_events_match context
+         ~events_rev:(events_for ledger context)
+       = Some true
+    && List.exists
+         (fun sequence ->
+           sequence.context == context && sequence.phase = Aborted)
+         ledger.sequences
+    && not
+         (List.exists
+            (fun sequence ->
+              Parser.context_is_in_suspended_input sequence.context ~suspension)
+            ledger.active)
+  in
+  let producer_context = Parser.compiler_exception_context exception_ in
+  let producer_matches candidate =
+    candidate.sources == Session.sources candidate.session
+    && candidate.symbols == Session.symbols candidate.session
+    && candidate.table == Session.semantic_symbols candidate.session
+    && Option.fold ~none:false
+         ~some:(fun producer_runtime ->
+           VM.task_owns_table producer_runtime candidate.table
+           && VM.task_shares_resources runtime producer_runtime)
+         (ledger_runtime candidate)
+    && Parser.context_is_in_suspended_input producer_context ~suspension
+    && closed_original candidate producer_context
+    && shape_results_match candidate
+    && producer_shape_matches candidate
+  in
+  let matched_producer =
+    (not (Parser.compiler_exception_requires_call_shape exception_))
+    || producer_matches ledger
+    || Option.fold ~none:false ~some:producer_matches directive_ledger
+  in
   if
     ledger.session != session
+    || (not (shape_results_match ledger))
+    || (not matched_producer)
     || ledger.sources != Session.sources session
     || ledger.symbols != Session.symbols session
     || ledger.table != Session.semantic_symbols session
@@ -6481,7 +6575,9 @@ let check_failed_compiler_input ledger ~session ~runtime ~suspension failure =
     || Parser.context_sources context != ledger.sources
     || Parser.context_environment context != ledger.symbols
     || (not (Parser.failed_input_is_current failure ~suspension))
-    || Parser.context_command_events_match context ~events_rev <> Some true
+    || Parser.context_command_events_match context
+         ~events_rev:(events_for ledger context)
+       <> Some true
     || (not
           (List.exists
              (fun sequence ->
