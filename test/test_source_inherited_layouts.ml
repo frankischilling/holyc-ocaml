@@ -77,7 +77,7 @@ let quotas () =
 let boundaries () =
   List.iter
     (fun mode ->
-      failure "HCEVAL0003" (run mode Cases.object_storage);
+      failure "HCSEMA0074" (run mode Cases.object_storage);
       failure "HCRUN0004" (run mode Cases.overflow))
     [ Preprocessor.Jit; Preprocessor.Aot ];
   failure "HCRUN0006" (run Preprocessor.Aot Cases.effects);

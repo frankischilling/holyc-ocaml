@@ -249,15 +249,7 @@ let () =
                 if code = "HCRUN0004" then None else Some code)
               (errors report)
           in
-          let expected =
-            match
-              if target = "host-jit-task" && mode = "aot" then
-                Cases.expression_native_aot_earlier_error label
-              else None
-            with
-            | None -> [ code; "HCPARSE0173" ]
-            | Some earlier_code -> [ earlier_code ]
-          in
+          let expected = [ code; "HCPARSE0173" ] in
           if codes <> expected then
             failwith (label ^ ": " ^ Yojson.Safe.to_string report);
           incr expression_cases)

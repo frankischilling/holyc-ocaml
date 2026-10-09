@@ -268,10 +268,11 @@ The postfix control `42(I64i)` executes in both backends. The standalone
 `42(I64)` control executes in IR and rejects explicitly in native emission;
 that backend failure has no Compiler authority. Callable and owned-code paths
 retain their existing public-type admission.
-The outer native AOT module still rejects general class declarations before a
-later type rejection. That unreached producer has no Compiler receipt. Named
-types are checked in IR, ordinary native JIT and saved JIT children in both
-outer modes.
+The outer native AOT module now admits standalone class metadata before
+executable statements. Its named prefix-cast rejection reaches the same
+original counted producer and cleanup as IR, ordinary native JIT and saved JIT
+children in both outer modes. Aggregate storage still requires the separate
+[automatic byte-view admission](automatic-aggregate-byte-views.md).
 
 Grouped expressions and ordinary nested call arguments borrow the outer stack.
 They produce one cleanup at its owner. Implicit Print and PutChars arguments

@@ -5126,6 +5126,10 @@ let scalar_pointer_type type_ =
   | Ok pointee -> Option.is_some (Scalar.of_type pointee)
   | Error _ -> false
 
+let data_pointer_type type_ =
+  scalar_pointer_type type_
+  || Automatic_aggregate_storage.aggregate_pointer type_
+
 let array_pointer_type type_ =
   scalar_pointer_type type_
   || Option.fold ~none:false ~some:callback_word_type
@@ -5331,6 +5335,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     List.iter
       (fun location ->
         let dimensions = Frame.location_dimensions location in
+        let aggregate = Automatic_aggregate_storage.of_location location in
         let callback =
           match
             ( Frame.location_declarator_shape location,
@@ -5348,7 +5353,9 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
           | _ -> None
         in
         let storage_kind =
-          if Option.is_some callback then Some (Stored_word I64)
+          if Option.is_some aggregate then
+            Some (Stored_narrow Automatic_aggregate_storage.byte_scalar)
+          else if Option.is_some callback then Some (Stored_word I64)
           else if Frame.location_declarator_shape location = Frame.Object then
             frame_stored_type (Frame.location_checked_type location)
           else None
@@ -5361,6 +5368,12 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
           else object_bytes
         in
         let rec array_strides = function
+          | [] when Option.is_some aggregate ->
+              Some
+                ( Int64.of_int
+                    (Automatic_aggregate_storage.byte_size
+                       (Option.get aggregate)),
+                  [] )
           | [] ->
               Option.map
                 (fun kind -> (Int64.of_int (stored_bytes kind), []))
@@ -5383,7 +5396,9 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
           when (Frame.location_declarator_shape location = Frame.Object
                || Option.is_some callback)
                && Frame.location_element_size location
-                  = Int64.of_int (stored_bytes stored_type)
+                  = Int64.of_int
+                      (Option.fold ~none:(stored_bytes stored_type)
+                         ~some:Automatic_aggregate_storage.byte_size aggregate)
                && Frame.location_allocated_size location
                   = allocation_bytes bytes
                && Frame.frame_slot_size slot = allocation_bytes bytes
@@ -5512,7 +5527,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               })
 
 let frame_pointer type_ =
-  scalar_pointer_type type_
+  data_pointer_type type_
   ||
   match Type.dereference type_ with
   | Ok pointee -> scalar_pointer_type pointee
@@ -5804,7 +5819,7 @@ let declared_types ?frame ?globals ?literals ?initialization
                          && literal_pointer_type type_
                        then Pointer_value type_
                        else if
-                         memory_enabled && scalar_pointer_type type_
+                         memory_enabled && data_pointer_type type_
                          && (description.opcode = Opcode.Ic_addr
                             || description.opcode = Opcode.Ic_deref
                             || description.opcode = Opcode.Ic_assign
@@ -6349,7 +6364,9 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   description.payload )
               with
               | [ address ], Some result, Some target_type, None
-                when array_pointer_type target_type -> (
+                when array_pointer_type target_type
+                     || Automatic_aggregate_storage.aggregate_pointer
+                          target_type -> (
                   match
                     storage_operand ~allow_array:true frame initialization types
                       description.instruction_id address
@@ -6567,7 +6584,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       Type.dereference target_type )
                   with
                   | Some operand, Ok pointee
-                    when scalar_pointer_type operand.pointer_type ->
+                    when data_pointer_type operand.pointer_type ->
                       Ok (Pointer_view (operand, result.value_id, pointee))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
@@ -8455,7 +8472,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let address_bounds ~one_past block instruction address =
     let offset = address.pointer_offset in
     let width =
-      Int64.of_int (Option.get (scalar_element_bytes address.pointer_pointee))
+      Int64.of_int
+        (Option.value (scalar_element_bytes address.pointer_pointee) ~default:1)
     in
     if
       offset < 0L
@@ -8476,7 +8494,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         match Type.dereference operand.pointer_type with
         | Ok expected
           when Type.equal expected address.pointer_pointee
-               && Option.is_some (scalar_element_bytes expected)
+               && (Option.is_some (scalar_element_bytes expected)
+                  || Automatic_aggregate_storage.aggregate_pointer
+                       operand.pointer_type)
                && scalar_element_bytes address.pointer_storage_pointee
                   = Some address.pointer_element_bytes
                && address.pointer_element_bytes > 0
@@ -8708,13 +8728,19 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let resolve_address block instruction location pointer_pointee =
     let root pointer_storage pointer_base pointer_count =
+      let pointer_storage_pointee =
+        match Type.base pointer_pointee with
+        | Type.Aggregate _ when Type.pointer_depth pointer_pointee = 0 ->
+            Automatic_aggregate_storage.byte_type
+        | _ -> pointer_pointee
+      in
       Option.map
         (fun pointer_element_bytes ->
           {
             pointer_storage;
             pointer_base;
             pointer_count;
-            pointer_storage_pointee = pointer_pointee;
+            pointer_storage_pointee;
             pointer_element_bytes;
             pointer_extent_bytes =
               Int64.mul
@@ -8723,7 +8749,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             pointer_offset = 0L;
             pointer_pointee;
           })
-        (scalar_element_bytes pointer_pointee)
+        (scalar_element_bytes pointer_storage_pointee)
     in
     match location with
     | Variadic_slot ->

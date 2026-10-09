@@ -274,9 +274,23 @@ let local_source_error (declaration : Ast.local_declaration) =
     Some (source_error declaration.local_declaration_location.span message)
   in
   let is_static = declaration.local_storage = Ast.Static_local in
+  let automatic_aggregate =
+    (not is_static)
+    && (match declaration.local_type_specifier with
+      | Ast.Named_type_specifier _ -> true
+      | _ -> false)
+    && List.for_all
+         (fun local ->
+           local.Ast.local_pointer_layers = []
+           && local.local_array_dimensions = []
+           && Option.is_none local.local_function_pointer
+           && Option.is_none local.local_initializer)
+         declaration.local_declarators
+  in
   if
     not
       (scalar_word_type declaration.local_type_specifier
+      || automatic_aggregate
       || List.for_all
            (fun local -> Option.is_some local.Ast.local_function_pointer)
            declaration.local_declarators)
@@ -376,6 +390,9 @@ let ast_errors (ast : Ast.module_) =
           when put_chars_provider_prototype prototype
                || print_provider_prototype prototype
                || internal_prototype prototype -> ()
+        | Gate_item (Ast.Aggregate_forward_declaration _) -> ()
+        | Gate_item (Ast.Aggregate_definition definition)
+          when definition.attached_declarators = [] -> ()
         | Gate_item (Ast.Global_variable variable) ->
             Option.iter reject
               (global_source_error ~span:variable.location.span
@@ -775,12 +792,13 @@ let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
                             "native static initializers must precede \
                              executable top-level statements";
                         ]
-                  | Frontend.Parser.Aggregate_declared _ ->
+                  | Frontend.Parser.Aggregate_declared _
+                    when !entry_statement_seen ->
                       Error
                         [
-                          diagnostic ~span "HCRUN0001"
-                            "native source does not admit aggregate \
-                             declarations";
+                          diagnostic ~span "HCRUN0006"
+                            "native aggregate declarations must precede \
+                             executable top-level statements";
                         ]
                   | _ -> Ok ()
                 in

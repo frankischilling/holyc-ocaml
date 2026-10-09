@@ -529,6 +529,14 @@ different integer width. Partial byte stores preserve initialization state
 and the original extent. Native descriptor snapshots preserve aliases across
 pointer assignments, captured arguments and loop iterations.
 
+[Automatic aggregate byte views](docs/automatic-aggregate-byte-views.md) allocate
+nonempty class and union objects from an exact layout completed before the
+function declaration. Explicit integer pointer views share packed and
+overlapping bytes, initialization state and the original object extent in both
+executors and modes. `examples/automatic-aggregate-byte-views.hc` prints `AB`
+and returns 42. Inherited storage, retained JIT imports, aggregate arrays and
+ordinary member execution remain open under issue #686.
+
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,
 in 32 runtime steps and zero preparation steps. [Static declaration

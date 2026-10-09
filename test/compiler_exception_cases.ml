@@ -533,11 +533,6 @@ let expression_successes =
    remains an explicit backend boundary, without a Compiler exception. *)
 let expression_public_postfix_cast = "42(I64);"
 
-(* The outer native AOT module rejects a general class declaration before its
-   later prefix-cast token. A saved child still parses in its original JIT task. *)
-let expression_native_aot_earlier_error label =
-  if label = "named prefix cast" then Some "HCRUN0001" else None
-
 (* These reports have no audited LexExcept producer. Their text must not be
    promoted to Compiler by expression cleanup. *)
 let expression_noncompiler_failures =

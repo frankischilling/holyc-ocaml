@@ -160,6 +160,8 @@ let checked_reference description type_ =
   if Type.pointer_depth type_ <> 1 then
     unsupported description "native references require one scalar indirection";
   match Type.dereference type_ with
+  | Ok pointee when Ir.Automatic_aggregate_storage.aggregate_pointer type_ ->
+      (pointee, { word_type = U64; byte_size = 1 })
   | Ok pointee ->
       (pointee, checked_scalar ~allow_public:true description pointee)
   | Error message -> malformed description message
@@ -5010,15 +5012,25 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         | Some pointer ->
             Headers.function_pointer_storage_type pointer |> Result.get_ok
       in
+      let aggregate = Ir.Automatic_aggregate_storage.of_location location in
       let scalar =
-        source_slot_scalar
-          ?span:(Function.member_span member)
-          "automatic local" type_
+        match aggregate with
+        | Some storage ->
+            {
+              word_type = U64;
+              byte_size = Ir.Automatic_aggregate_storage.byte_size storage;
+            }
+        | None ->
+            source_slot_scalar
+              ?span:(Function.member_span member)
+              "automatic local" type_
       in
       let dimensions = Frame.location_dimensions location in
       let counts = List.map Frame.dimension_value dimensions in
       let elements, object_bytes =
-        if counts = [] then (1, scalar.byte_size)
+        if counts = [] then
+          ( (if Option.is_some aggregate then scalar.byte_size else 1),
+            scalar.byte_size )
         else (
           if
             (Type.pointer_depth type_ <> 0 && Option.is_none callback)
@@ -5154,7 +5166,8 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           access =
             {
               frame_offset = actual;
-              frame_bytes = scalar.byte_size;
+              frame_bytes =
+                (if Option.is_some aggregate then 1 else scalar.byte_size);
               frame_word = scalar.word_type;
               initialized_flag_offset = Some flag_offset;
             };
@@ -5851,6 +5864,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       "native primitive pointer casts require an owned data \
                        reference";
                   ignore (checked_reference description input.declared_type);
+                  if
+                    Ir.Automatic_aggregate_storage.aggregate_pointer target_type
+                  then
+                    unsupported description
+                      "native casts require an admitted primitive pointer view";
                   let _, scalar = checked_reference description target_type in
                   let value =
                     define values description position result target_type
@@ -7528,6 +7546,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   description.target_type )
               with
               | [ stride_id; index_id ], Some result, Some target_type ->
+                  if
+                    Ir.Automatic_aggregate_storage.aggregate_pointer target_type
+                  then
+                    unsupported description
+                      "native aggregate indexing requires a checked element \
+                       layout";
                   if
                     not
                       (Type.pointer_depth target_type = 2

@@ -1,5 +1,14 @@
 # Reference source map
 
+Automatic aggregate byte views consume `PrsVar.HC:530-531,590-618` local sizes
+and frame placement, `660-671` packed and overlapping members, and
+`PrsStmt.HC:41-57` completed class sizes. Explicit casts follow
+`PrsExp.HC:1017-1055`; primitive window reads and writes follow
+`BackLib.HC:693-707` and `BackC.HC:159-204`. Immutable frame facts retain the
+original class identity. Byte initialization, ownership and extent guards are
+hosted policy. See [automatic aggregate byte views](automatic-aggregate-byte-views.md)
+for the exact execution subset, source-derived tests and remaining consumers.
+
 Owned expression cleanup follows `Compiler/PrsExp.HC:264-303`: push two
 terminators, catch Compiler, then issue another `LexExcept` if the owned stack
 is still nonempty. The missing-operand producer is at line 957. An identifier

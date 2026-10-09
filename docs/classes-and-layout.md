@@ -1,10 +1,16 @@
 # Classes and layout
 
+[Automatic aggregate byte views](automatic-aggregate-byte-views.md) now connect
+nonempty, completed earlier class and union layouts to isolated IR and native
+frame storage. Explicit integer views share packed bytes, union overlap,
+padding, initialization and bounds. Ordinary member projection, inherited
+storage, retained JIT imports, aggregate arrays and copies remain unfinished.
+
 All compatibility findings in this document use TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 ## Retained syntax
 
-The current AST distinguishes class and union definitions, an optional backing type, one optional base class, grouped member declarators, pointer and array suffixes, function-pointer members, recursive anonymous unions, explicit `$$ = expression;` offset directives, empty separators, member metadata, and globals attached after the closing brace. Parsing keeps source segments and generated-input origins. Semantic passes assign source-ordered identities to aggregate declarations, bind definition backings and bases at their source lookup points, and resolve the base and pointer portion of each direct member type. A separate layout pass handles definitions whose sizes and expressions are closed. Other type uses, symbol-dependent layout expressions, and runtime storage remain unresolved.
+The current AST distinguishes class and union definitions, an optional backing type, one optional base class, grouped member declarators, pointer and array suffixes, function-pointer members, recursive anonymous unions, explicit `$$ = expression;` offset directives, empty separators, member metadata, and globals attached after the closing brace. Parsing keeps source segments and generated-input origins. Semantic passes assign source-ordered identities to aggregate declarations, bind definition backings and bases at their source lookup points, and resolve the base and pointer portion of each direct member type. A separate layout pass handles definitions whose sizes and expressions are closed. Other type uses, symbol-dependent layout expressions, and broader runtime storage remain unresolved.
 
 ## Forward and definition identity
 

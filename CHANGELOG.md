@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added automatic class and union storage through explicit integer pointer
+  views in isolated IR and native programs. Completed earlier layouts retain
+  their exact identity, packed size, overlap and padding. Stores track byte
+  initialization and the original extent. Inheritance, retained JIT imports,
+  aggregate arrays, copies and direct member execution remain open under #686.
+
 - Match the original unknown-identifier operand failure before consuming its
   token or invoking a reference consumer. Saved-input catches retain the
   original counted cause and expression cleanup, reached output and

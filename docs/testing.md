@@ -1,5 +1,20 @@
 # Testing holyc-ocaml
 
+Automatic aggregate storage has 23 IR and 23 native test groups. Shared source
+fixtures cover packed and unaligned windows, named and anonymous unions,
+nested layouts, backing types, padding, source-selected identities, aliases,
+primitive parameters and all nine integer view spellings. Fault controls retain
+reached output while rejecting unknown bytes and accesses beyond the original
+object. Fresh activations have independent initialization state. Foreign frames
+fail before execution; incomplete or inherited layouts, persistent objects,
+aggregate arrays, direct members, copies and numeric ownership remain rejected.
+Runtime frame and instruction quotas have exact and one-below checks. Native
+image checks cover both ABIs, stack and encoded-byte quotas, and fresh host
+execution. CLI controls run 96 reports for IR and 193 with native execution.
+The fixture uses byte offsets derived from the source layout; it does not test
+direct member projection or add a TempleOS runtime oracle. See
+[automatic aggregate byte views](automatic-aggregate-byte-views.md).
+
 Identifier operand cases check the original invalid-lval producer before the
 reference callback or another lexer read. Sixteen source fixtures cover
 grouping, unary and binary operands, macros, saved function bodies, ordinary

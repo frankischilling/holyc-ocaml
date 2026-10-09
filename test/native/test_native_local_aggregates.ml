@@ -98,7 +98,7 @@ let boundaries () =
   value
     (run
        "U0 Make(){class Base{U8 a;};class Child:Base{U8 b;};}sizeof(Child)+40;");
-  failure "HCEVAL0003" (run "I64 F(){I64 class C{I64 a;} value;return 42;}F();")
+  failure "HCSEMA0074" (run "I64 F(){I64 class C{I64 a;} value;return 42;}F();")
 
 let () =
   Alcotest.run "Native classes and unions in statements"
