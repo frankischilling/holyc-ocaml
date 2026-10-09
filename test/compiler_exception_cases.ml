@@ -335,3 +335,107 @@ let call_successes =
       {|#exe {I64 Out=0;U0 PutChars(I64 a=40,I64 b=0){Out=a+b;}'',2;StreamPrint("%d;",Out+2);}|},
       "" );
   ]
+
+(* PrsExpression owns one stack. PrsFunCall receives that stack for ordinary
+   calls, while PrsStmt passes NULL for implicit output. Completed implicit
+   arguments therefore do not leave a stack for a later delimiter failure. *)
+let call_error_count code =
+  if code = "HCPARSE0024" || code = "HCPARSE0025" || code = "HCPARSE0018" then 2
+  else 1
+
+(* PrsUnaryTerm's missing expression and the owned PrsExpression cleanup both
+   retain the same token. Grouping and nested calls borrow the outer stack. *)
+let expression_failures =
+  [
+    ("binary operand", "1+;", ";");
+    ("grouped operand", "(1+;", ";");
+    ("unary operand", "-;", ";");
+    ("fixed call operand", "I64 F(I64 a,I64 b){return a+b;}F(1,);", ")");
+    ("nested call operand", "I64 F(I64 a,I64 b){return a+b;}F(1,F(2,));", ")");
+    ("implicit Print operand", "extern U0 Print(U8 *fmt,...);\"text\",1+;", ";");
+    ("implicit PutChars operand", "extern U0 PutChars(I64 n);''(1+;", ";");
+    ("empty Print required operand", "extern U0 Print(U8 *fmt,...);\"\";", ";");
+    ( "Print required variadic operand",
+      "extern U0 Print(U8 *fmt,...);\"text\",;",
+      ";" );
+    ( "PutChars required parenthesized operand",
+      "extern U0 PutChars(I64 a,I64 b);''(1,);",
+      ")" );
+    ( "PutChars required unparenthesized operand",
+      "extern U0 PutChars(I64 a,I64 b);'A';",
+      ";" );
+    ( "Print required fixed tail",
+      "extern U0 Print(U8 *fmt,I64 n);\"text\";",
+      ";" );
+  ]
+
+let expression_caught_children =
+  List.map
+    (fun (label, text, marker) ->
+      let tail, output =
+        if label = "Print required fixed tail" then ("PutChars('A');", "keptA")
+        else ("Print(\"after\");", "keptafter")
+      in
+      ( label,
+        Printf.sprintf "#exe {StreamExePrint(%S);%s}42;"
+          ("Print(\"kept\");" ^ text ^ "Print(\"skipped\");")
+          tail,
+        marker,
+        output ))
+    expression_failures
+
+let expression_successes =
+  [
+    ("binary and grouped operands", "(20+1)*2;", 42L);
+    ("unary operands", "-(-42);", 42L);
+    ( "nested borrowed call stacks",
+      "I64 F(I64 a,I64 b){return a+b;}F(1,F(20,21));",
+      42L );
+  ]
+
+(* These reports have no audited LexExcept producer. Their text must not be
+   promoted to Compiler by expression cleanup. *)
+let expression_noncompiler_failures =
+  [
+    ("unsupported operand", "1+@;");
+    ("unknown operand", "Unknown+;");
+    ("unknown call operand", "Unknown(1,);");
+    ("lexer operand", "1+#error reached\n;");
+    ("runtime after completed expression", "1/0;");
+    ( "earlier invalid assignment phase",
+      "I64 F(I64 a,I64 b){return a+b;}1=F(1,);" );
+    ("earlier literal modifier phase", "1[1+;]");
+    ("earlier grouped index base phase", "(1)[1+;]");
+    ("earlier member phase", "(1).bad+;");
+    ("earlier dereference phase", "*1+;");
+    ("assignment before late terminator", "1=2 3;");
+    ("literal indexing before late terminator", "1[1] 2;");
+    ("assignment before later return", "{1=2;return 42;}");
+    ("indexing before later break", "{1[1];break;}");
+    ("earlier class offset phase", "class C{I64 n;};1+C+;");
+  ]
+
+let expression_aot_noncompiler_failures =
+  [ ("earlier AOT extern-global phase", "extern I64 G;1+G+;") ]
+
+let expression_nested_directive = "1+#exe {1+;}2;"
+
+let expression_uncaught_children =
+  List.map
+    (fun (label, text) ->
+      ( label,
+        Printf.sprintf "#exe {StreamExePrint(%S);Print(\"skipped\");}42;"
+          ("Print(\"kept\");" ^ text) ))
+    expression_noncompiler_failures
+
+let expression_caught_nested_directive =
+  {|#exe {StreamExePrint("Print(\"kept\");1+#exe {1+;}2;");Print("after");}42;|}
+
+let expression_successive_catches =
+  {|#exe {StreamExePrint("Print(\"a\");1+;");StreamExePrint("Print(\"b\");-;");Print("after");}42;|}
+
+let expression_fault_after_catch =
+  {|#exe {StreamExePrint("Print(\"kept\");1+;");1/0;Print("skipped");}42;|}
+
+let expression_quota_after_catch =
+  {|#exe {StreamExePrint("Print(\"kept\");1+;");Print("after");}42;|}

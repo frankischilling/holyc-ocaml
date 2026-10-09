@@ -6,7 +6,7 @@ before consuming it or reading the return expression, so a following `#exe`,
 preprocessor error or invalid token cannot run first. The callback-free parser
 still represents standalone return syntax for semantic and AST clients.
 
-These audited producers follow `LexExcept` in `CExcept.HC:81-96`. Each increments the
+These audited producers follow `LexExcept` in `CExcept.HC:81-96`. Each producer increments the
 original control's `error_cnt` at byte 344 and creates one private `Compiler`
 receipt. Its diagnostic, count, exact context, position, observed events and
 domain come from that original parser phase. A diagnostic with the same code,
@@ -192,9 +192,9 @@ in force; other unsupported flags still reject.
 
 Direct-call delimiter producers use the shape returned at the original call
 start. An unshaped legacy or indirect call retains its existing diagnostics and
-does not gain a Compiler receipt from those diagnostics. A missing operand or
-unsupported default also remains separate until its underlying original
-expression producer is implemented.
+does not gain a Compiler receipt from those diagnostics. An unsupported default
+remains separate. Missing required operands follow the
+owned expression path described below.
 
 Each call or implicit argument receipt retains the exact successful callback
 result after unwinding. Runtime catch preflight compares physical shape identity
@@ -209,5 +209,53 @@ These checks grant no authority to incomplete argument traversal or emission.
 Tests exercise ordinary JIT source and caught saved inputs in both outer modes,
 including a failure in a nested directive. IR and native parents resume with
 their reached effects intact. Ordinary AOT calls without an owned native argument
-phase remain outside this match. Full argument/expression producers, direct
+phase cannot authorize a runtime Compiler catch. Full argument/expression producers, direct
 Compiler throws, runtime Break and the native exception machinery remain open.
+
+## Expression failures and cleanup
+
+`PrsExpression` pushes two terminators before entering `PrsExpression2`
+(`PrsExp.HC:264-303`). It catches an original Compiler failure, then calls
+`LexExcept` again when its owned stack remains nonempty. The missing-operand
+producer in `PrsUnaryTerm` at line 957 therefore records count one, followed by
+the cleanup producer at line 289 with count two. Cleanup retains the current
+token without another lexer read. `HCPARSE0018` identifies the missing operand;
+`HCPARSE0173` identifies the original nonempty-stack cleanup and retains the
+exact first receipt as its cause.
+
+Grouped expressions and ordinary nested call arguments borrow the outer stack.
+They produce one cleanup at its owner. Implicit Print and PutChars arguments
+start with no supplied stack, following `PrsStmt.HC:1200-1204` and
+`PrsFunCall` at `PrsExp.HC:469-471,505-506`. Each required argument owns its
+expression stack. A later implicit-call delimiter fault after a completed
+argument has no remaining expression stack and increments only once. Ordinary
+direct-call delimiters reached inside an unfinished outer expression retain
+that outer cleanup.
+
+A directive entered during an unfinished outer expression owns a separate
+stack under the shared compiler control. An inner missing operand produces its
+own cleanup before the outer stack cleans up, retaining a three-receipt cause
+chain. The inner receipts belong to the child context; the outer cleanup belongs
+to the resumed parent's original command. Diagnostics retain that producer order
+through child unwinding and parent cleanup.
+
+The original selected named header supplies ordinary AOT argument grammar when
+no native argument shape was returned. The callback receipt still records its
+actual result. A copied shape or an unavailable native capture cannot authorize
+a saved-input catch. Cleanup retains the original call phase through its cause;
+runtime preflight checks that phase's exact capture and the complete abort chain.
+
+Source, IR and native tests cover numeric and unary operands, grouping, nested
+calls, required implicit operands, both outer modes, repeated caught children,
+collection, foreign domains and copied receipts. Reached child output survives;
+later runtime and output-limit failures still propagate. The representation
+parser issues no Compiler receipts. Unmatched earlier assignment, pointer,
+member, update, class-offset, AOT global-flag and IC type-check phases cannot
+authenticate a later syntax failure. Unknown or unshaped calls, lexer errors and
+arbitrary callback diagnostics also remain outside this expression match. Native exception stacks,
+terminal formatting and the remaining original expression producers are still
+required.
+
+An unmatched expression phase remains unaudited through its enclosing command,
+including a later terminator check after the expression completes. Saved-input
+tests verify that these later diagnostics cannot authorize a Compiler catch.

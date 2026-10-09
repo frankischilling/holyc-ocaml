@@ -19,15 +19,26 @@ type command_context
 type compiler_exception
 (** Original [Compiler] exception from an audited executable-parser [LexExcept]
     site. Matched sites include the missing-function return guard, statement
-    delimiters, invalid break targets and try header/catch checks. Each retains
-    its own lexer phase, exact control, position and counted diagnostic. Generic
-    parser reports, preprocessor, authority and quota errors do not create one.
-    This does not implement native exception stacks, direct Compiler throws,
+    delimiters, invalid break targets, try header/catch checks, audited missing
+    expression operands and owned expression cleanup. Each retains its own lexer
+    phase, exact control, position and counted diagnostic. Generic parser
+    reports, preprocessor, authority and quota errors do not create one. This
+    does not implement native exception stacks, direct Compiler throws,
     SysTry/SysUntry calls or terminal output. *)
 
 val compiler_exception_diagnostic : compiler_exception -> Common.Diagnostic.t
 val compiler_exception_error_count : compiler_exception -> int64
 val compiler_exception_context : compiler_exception -> command_context
+
+val compiler_exception_cause : compiler_exception -> compiler_exception option
+(** The exact original Compiler caught by an owned expression stack before its
+    cleanup LexExcept. Observing a cause grants no catch or execution authority.
+*)
+
+val compiler_exception_call_origin :
+  compiler_exception -> compiler_exception option
+(** Original argument producer retained through expression cleanup. Its exact
+    native argument shape is still required by runtime catch preflight. *)
 
 val compiler_exception_is_from_context :
   compiler_exception -> command_context -> bool

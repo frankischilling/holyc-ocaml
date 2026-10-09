@@ -37,8 +37,8 @@ let parse ?commands ?compiler_exception ?execute_stream session source config =
     ~definitions:(Session.definitions session)
     ~symbols:(Session.symbols session) ~config source
 
-let receipt ?(reported_origin = true) ?(code = "HCPARSE0168")
-    ?(marker = "return") label diagnostics exceptions =
+let receipt ?(error_count = 1L) ?(reported_origin = true)
+    ?(code = "HCPARSE0168") ?(marker = "return") label diagnostics exceptions =
   match exceptions with
   | [ exception_ ] ->
       let diagnostic = Parser.compiler_exception_diagnostic exception_ in
@@ -59,7 +59,7 @@ let receipt ?(reported_origin = true) ?(code = "HCPARSE0168")
            diagnostics);
       Alcotest.(check int64)
         (label ^ " one LexExcept increment")
-        1L
+        error_count
         (Parser.compiler_exception_error_count exception_);
       let context = Parser.compiler_exception_context exception_ in
       let source =
@@ -92,6 +92,154 @@ let receipt ?(reported_origin = true) ?(code = "HCPARSE0168")
   | _ ->
       Alcotest.failf "%s: expected one original Compiler receipt, got %d (%s)"
         label (List.length exceptions) (describe diagnostics)
+
+let expression_receipt ?(reported_origin = true) ~code ~marker label diagnostics
+    exceptions =
+  match exceptions with
+  | [ original; cleanup ] ->
+      let original_diagnostic = Parser.compiler_exception_diagnostic original in
+      let cleanup_diagnostic = Parser.compiler_exception_diagnostic cleanup in
+      Alcotest.(check string)
+        (label ^ " original expression producer")
+        code original_diagnostic.code;
+      Alcotest.(check int64)
+        (label ^ " original increment precedes cleanup")
+        1L
+        (Parser.compiler_exception_error_count original);
+      Alcotest.(check bool)
+        (label ^ " original producer has no synthetic cause")
+        true
+        (Option.is_none (Parser.compiler_exception_cause original));
+      Alcotest.(check bool)
+        (label ^ " cleanup retains exact caught producer")
+        true
+        (match Parser.compiler_exception_cause cleanup with
+        | Some cause -> cause == original
+        | None -> false);
+      Alcotest.(check bool)
+        (label ^ " both producers retain exact context")
+        true
+        (Parser.compiler_exception_context original
+        == Parser.compiler_exception_context cleanup);
+      Alcotest.(check bool)
+        (label ^ " cleanup retains current token without another Lex")
+        true
+        (original_diagnostic.primary = cleanup_diagnostic.primary
+        && original_diagnostic.secondary = cleanup_diagnostic.secondary
+        && original_diagnostic.include_stack = cleanup_diagnostic.include_stack
+        );
+      Alcotest.(check bool)
+        (label ^ " original diagnostic retained")
+        true
+        (List.exists
+           (fun (d : Diagnostic.t) ->
+             d.code = code
+             && ((not reported_origin)
+                || d.primary = original_diagnostic.primary
+                   && d.message = original_diagnostic.message))
+           diagnostics);
+      receipt ~error_count:2L ~reported_origin ~code:"HCPARSE0173" ~marker label
+        diagnostics [ cleanup ];
+      let context = Parser.compiler_exception_context cleanup in
+      let copied : Parser.compiler_exception =
+        Obj.obj (Obj.dup (Obj.repr cleanup))
+      in
+      Alcotest.(check bool)
+        (label ^ " copied cleanup cannot replace original")
+        false
+        (Parser.compiler_exception_is_from_context copied context);
+      Alcotest.(check bool)
+        (label ^ " caught cause cannot replace terminal cleanup")
+        false
+        (Parser.compiler_exception_is_from_context original context);
+      let foreign =
+        Domain.spawn (fun () ->
+            Parser.compiler_exception_is_from_context cleanup context)
+        |> Domain.join
+      in
+      Alcotest.(check bool)
+        (label ^ " foreign domain cannot claim cleanup")
+        false foreign;
+      Gc.full_major ();
+      Gc.compact ();
+      Alcotest.(check bool)
+        (label ^ " original cause survives collection")
+        true
+        (match Parser.compiler_exception_cause cleanup with
+        | Some cause -> cause == original
+        | None -> false)
+  | _ ->
+      Alcotest.failf "%s: expected producer and one cleanup, got %d (%s)" label
+        (List.length exceptions) (describe diagnostics)
+
+let nested_expression_receipt label diagnostics exceptions =
+  match exceptions with
+  | [ original; inner; outer ] ->
+      let reached_diagnostics =
+        List.filter
+          (fun diagnostic ->
+            List.exists
+              (fun e -> diagnostic == Parser.compiler_exception_diagnostic e)
+              exceptions)
+          diagnostics
+      in
+      Alcotest.(check bool)
+        (label ^ " diagnostics preserve original producer order")
+        true
+        (List.length reached_diagnostics = List.length exceptions
+        && List.for_all2 ( == ) reached_diagnostics
+             (List.map Parser.compiler_exception_diagnostic exceptions));
+      Alcotest.(check (list int64))
+        (label ^ " exact reached counts")
+        [ 1L; 2L; 3L ]
+        (List.map Parser.compiler_exception_error_count exceptions);
+      Alcotest.(check (list string))
+        (label ^ " original producer order")
+        [ "HCPARSE0018"; "HCPARSE0173"; "HCPARSE0173" ]
+        (List.map
+           (fun e -> (Parser.compiler_exception_diagnostic e).code)
+           exceptions);
+      Alcotest.(check bool)
+        (label ^ " inner cleanup retains first cause")
+        true
+        (Option.fold ~none:false ~some:(( == ) original)
+           (Parser.compiler_exception_cause inner));
+      Alcotest.(check bool)
+        (label ^ " outer cleanup retains inner cause")
+        true
+        (Option.fold ~none:false ~some:(( == ) inner)
+           (Parser.compiler_exception_cause outer));
+      Alcotest.(check bool)
+        (label ^ " child owns inner stack")
+        true
+        (Parser.compiler_exception_context original
+        == Parser.compiler_exception_context inner);
+      Alcotest.(check bool)
+        (label ^ " parent owns separate outer stack")
+        false
+        (Parser.compiler_exception_context inner
+        == Parser.compiler_exception_context outer);
+      Alcotest.(check bool)
+        (label ^ " cleanup never reads a later token")
+        true
+        (let primary =
+           (Parser.compiler_exception_diagnostic original).primary
+         in
+         List.for_all
+           (fun e -> (Parser.compiler_exception_diagnostic e).primary = primary)
+           exceptions);
+      receipt ~error_count:3L ~reported_origin:false ~code:"HCPARSE0173"
+        ~marker:";" label diagnostics [ outer ]
+  | _ ->
+      Alcotest.failf "%s: expected three original producers, got %d (%s)" label
+        (List.length exceptions) (describe diagnostics)
+
+let call_receipt ?(reported_origin = true) ~code ~marker label diagnostics
+    exceptions =
+  if Cases.call_error_count code = 2 then
+    expression_receipt ~reported_origin ~code ~marker label diagnostics
+      exceptions
+  else receipt ~reported_origin ~code ~marker label diagnostics exceptions
 
 let original_phase () =
   List.iter
@@ -248,6 +396,8 @@ let arbitrary_diagnostics () =
       ("HCPARSE0170", "break requires an active break target");
       ("HCPARSE0171", "try requires function headers for SysTry and SysUntry");
       ("HCPARSE0052", "expected '(' after 'if', but found integer");
+      ("HCPARSE0018", "expected expression, but found ';'");
+      ("HCPARSE0173", "compiler expression stack is nonempty after Compiler");
     ]
 
 let source_failures () =
@@ -1359,8 +1509,13 @@ let call_phase_receipts () =
                 seen := exception_ :: !seen)
               session source config
           in
-          receipt ~code ~marker text parsed.diagnostics !seen;
-          let exception_ = List.hd !seen in
+          call_receipt ~code ~marker text parsed.diagnostics (List.rev !seen);
+          let terminal = List.hd !seen in
+          let exception_ =
+            Option.value
+              (Parser.compiler_exception_call_origin terminal)
+              ~default:terminal
+          in
           Alcotest.(check bool)
             "delimiter requires original call metadata" true
             (Parser.compiler_exception_requires_call_shape exception_);
@@ -1410,6 +1565,7 @@ let call_phase_receipts () =
           ("F(1 2);", shape 2 false, "HCPARSE0024", "2", false);
           ("F(1;", shape 1 false, "HCPARSE0025", ";", false);
           ("F(1);", shape 0 false, "HCPARSE0025", "1", false);
+          ("F(1,);", shape 2 false, "HCPARSE0018", ")", false);
           ( "extern U0 Print(U8 *fmt,...);\"text\"}",
             shape 1 true,
             "HCPARSE0167",
@@ -1450,7 +1606,7 @@ let call_phase_receipts () =
           Alcotest.(check int)
             "unshaped delimiters and missing operands cannot forge Compiler" 0
             (List.length !seen))
-        [ ("F(1 2);", None); ("F(1,);", Some (shape 2 false)) ])
+        [ ("F(1 2);", None); ("F(1+;", None) ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let zero_argument_marker_phases () =
@@ -1657,7 +1813,8 @@ let failed_call_shape_ownership () =
   let module D = Task_declarations in
   let module VM = Ir_integer_interpreter in
   List.iter
-    (fun copied_shape ->
+    (fun (shape_policy, child_text) ->
+      let copied_shape = shape_policy <> 0 in
       let session, source, config = inputs Preprocessor.Jit "42;" in
       let runtime =
         VM.create_task_state ~table:(Session.semantic_symbols session) ()
@@ -1686,11 +1843,15 @@ let failed_call_shape_ownership () =
                 "ledger rejects copied live start" true
                 (Result.is_error (D.observe_call_start ledger copy));
               Result.map
-                (Option.map
-                   (fun (shape : Symbol_visibility.function_call_shape) ->
-                     if copied_shape then
-                       { shape with variadic = shape.variadic }
-                     else shape))
+                (fun shape ->
+                  if shape_policy = 2 then None
+                  else
+                    Option.map
+                      (fun (shape : Symbol_visibility.function_call_shape) ->
+                        if copied_shape then
+                          { shape with variadic = shape.variadic }
+                        else shape)
+                      shape)
                 (D.observe_call_start ledger start));
           emit = D.observe_call_emission ledger;
         }
@@ -1703,7 +1864,7 @@ let failed_call_shape_ownership () =
           in
           let child =
             Session.add_source session ~path:"owned-call-shape.HC"
-              ~contents:"extern I64 F(I64 a,I64 b);F(1 2);"
+              ~contents:child_text
           in
           let commands =
             {
@@ -1781,7 +1942,13 @@ let failed_call_shape_ownership () =
         (describe parsed.diagnostics)
         true
         (Option.is_some parsed.ast))
-    [ false; true ]
+    [
+      (0, "extern I64 F(I64 a,I64 b);F(1 2);");
+      (1, "extern I64 F(I64 a,I64 b);F(1 2);");
+      (0, "extern I64 F(I64 a,I64 b);F(1,);");
+      (1, "extern I64 F(I64 a,I64 b);F(1,);");
+      (2, "extern I64 F(I64 a,I64 b);F(1,);");
+    ]
 
 let call_source_execution () =
   let run mode with_headers text =
@@ -1800,7 +1967,7 @@ let call_source_execution () =
         | Error errors -> errors
         | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
       in
-      receipt ~reported_origin:false ~code ~marker label diagnostics
+      call_receipt ~reported_origin:false ~code ~marker label diagnostics
         (integer_program_report_compiler_exceptions report))
     Cases.call_failures;
   List.iter
@@ -1824,7 +1991,7 @@ let call_source_execution () =
             output
             (integer_program_report_output_bytes report);
           let exceptions = integer_program_report_compiler_exceptions report in
-          receipt ~code ~marker label
+          call_receipt ~code ~marker label
             (List.map Parser.compiler_exception_diagnostic exceptions)
             exceptions)
         Cases.call_caught_children)
@@ -1853,6 +2020,295 @@ let call_source_execution () =
             0
             (List.length (integer_program_report_compiler_exceptions report)))
         Cases.call_successes)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let expression_phase_receipts () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun text ->
+          let session, source, config = inputs mode text in
+          let seen = ref [] and counts = ref [] in
+          let parsed =
+            parse ~commands:(command_sink ())
+              ~compiler_exception:(fun exception_ ->
+                let context = Parser.compiler_exception_context exception_ in
+                Alcotest.(check bool)
+                  "each producer owns context at callback" true
+                  (Parser.compiler_exception_is_from_context exception_ context);
+                Alcotest.(check bool)
+                  "expression producer retains exact registered source" true
+                  (match
+                     Source_manager.find
+                       (Parser.context_sources context)
+                       (Parser.compiler_exception_diagnostic exception_).primary
+                         .source
+                   with
+                  | Some original -> original == source
+                  | None -> false);
+                counts :=
+                  (Parser.context_error_count context |> Result.get_ok)
+                  :: !counts;
+                seen := exception_ :: !seen)
+              session source config
+          in
+          Alcotest.(check bool)
+            "expression fails before accepting AST" true
+            (Option.is_none parsed.ast);
+          Alcotest.(check (list int64))
+            "two original error field increments" [ 1L; 2L ] (List.rev !counts);
+          expression_receipt ~code:"HCPARSE0018" ~marker:";" text
+            parsed.diagnostics (List.rev !seen);
+          let seen = ref [] in
+          let represented =
+            parse
+              ~compiler_exception:(fun x -> seen := x :: !seen)
+              session source config
+          in
+          Alcotest.(check bool)
+            "representation reports malformed expression" true
+            (Option.is_none represented.ast);
+          Alcotest.(check int)
+            "representation cannot create cleanup authority" 0
+            (List.length !seen);
+          Alcotest.(check bool)
+            "representation cannot create cleanup diagnostic" false
+            (List.exists
+               (fun (d : Diagnostic.t) -> d.code = "HCPARSE0173")
+               represented.diagnostics))
+        [ "1+;"; "(1+;"; "-;" ];
+      List.iter
+        (fun (_, text) ->
+          let session, source, config = inputs mode text in
+          let seen = ref [] in
+          ignore
+            (parse ~commands:(command_sink ())
+               ~compiler_exception:(fun x -> seen := x :: !seen)
+               session source config);
+          Alcotest.(check int)
+            "generic expression failure cannot invoke cleanup" 0
+            (List.length !seen))
+        (Cases.expression_noncompiler_failures
+        @
+        if mode = Preprocessor.Aot then
+          Cases.expression_aot_noncompiler_failures
+        else []);
+      List.iter
+        (fun code ->
+          let session, source, config = inputs mode "F(1);" in
+          ignore
+            (Symbol_visibility.Environment.add (Session.symbols session)
+               ~name:"F" ~kind:Symbol_visibility.Function ());
+          let seen = ref [] in
+          let call : Parser.direct_call_sink =
+            {
+              start =
+                (fun _ ->
+                  Error
+                    [
+                      Diagnostic.make ~code ~severity:Diagnostic.Error
+                        ~message:"callback expression failure"
+                        ~primary:
+                          (Span.unsafe_make ~source:(Source_file.id source)
+                             ~start:0 ~stop:1)
+                        ();
+                    ]);
+              emit = (fun _ -> Alcotest.fail "rejected start cannot emit");
+              implicit = None;
+            }
+          in
+          let parsed =
+            parse ~commands:(command_sink ~call ())
+              ~compiler_exception:(fun x -> seen := x :: !seen)
+              session source config
+          in
+          Alcotest.(check bool)
+            "callback fault aborts active expression" true
+            (Option.is_none parsed.ast);
+          Alcotest.(check int)
+            "callback text grants no cleanup authority" 0 (List.length !seen))
+        [ "HCPARSE0018"; "HCPARSE0173" ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let expression_source_execution () =
+  List.iter
+    (fun mode ->
+      let run text =
+        let session, source, config =
+          inputs mode
+            ((if mode = Preprocessor.Jit then Cases.headers else "") ^ text)
+        in
+        run_integer_program_report session ~source ~config ~max_steps:100_000
+      in
+      List.iter
+        (fun (label, text, marker) ->
+          let report = run text in
+          let diagnostics =
+            match integer_program_report_outcome report with
+            | Error errors -> errors
+            | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
+          in
+          expression_receipt ~reported_origin:false ~code:"HCPARSE0018" ~marker
+            label diagnostics
+            (integer_program_report_compiler_exceptions report);
+          let session, source, config = inputs mode text in
+          let compiled =
+            compile_integer_program_report session ~source ~config
+          in
+          let diagnostics =
+            match integer_program_compilation_result compiled with
+            | Error errors -> errors
+            | Ok _ -> Alcotest.fail (label ^ " unexpectedly compiled")
+          in
+          expression_receipt ~reported_origin:false ~code:"HCPARSE0018" ~marker
+            (label ^ " compilation") diagnostics
+            (integer_program_compilation_compiler_exceptions compiled))
+        Cases.expression_failures;
+      List.iter
+        (fun (label, text, marker, output) ->
+          let report = run text in
+          let result =
+            match integer_program_report_outcome report with
+            | Ok result -> result
+            | Error errors -> Alcotest.fail (label ^ ": " ^ describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " caught cleanup resumes outer input")
+            (Some 42L)
+            (Option.map
+               (fun word -> word.Ir_integer_interpreter.bits)
+               (Ir_integer_interpreter.final_value result.value));
+          Alcotest.(check string)
+            (label ^ " retains reached output and skips failing tail")
+            output
+            (integer_program_report_output_bytes report);
+          let exceptions = integer_program_report_compiler_exceptions report in
+          expression_receipt ~code:"HCPARSE0018" ~marker label
+            (List.map Parser.compiler_exception_diagnostic exceptions)
+            exceptions)
+        Cases.expression_caught_children;
+      List.iter
+        (fun (label, text, expected) ->
+          let report = run text in
+          let result =
+            match integer_program_report_outcome report with
+            | Ok result -> result
+            | Error errors -> Alcotest.fail (label ^ ": " ^ describe errors)
+          in
+          Alcotest.(check (option int64))
+            label (Some expected)
+            (Option.map
+               (fun word -> word.Ir_integer_interpreter.bits)
+               (Ir_integer_interpreter.final_value result.value));
+          Alcotest.(check int)
+            (label ^ " no Compiler producer")
+            0
+            (List.length (integer_program_report_compiler_exceptions report)))
+        Cases.expression_successes;
+      List.iter
+        (fun (label, text) ->
+          let report = run text in
+          Alcotest.(check bool)
+            (label ^ " remains failed")
+            true
+            (Result.is_error (integer_program_report_outcome report));
+          Alcotest.(check int)
+            (label ^ " no Compiler cleanup")
+            0
+            (List.length (integer_program_report_compiler_exceptions report)))
+        (Cases.expression_noncompiler_failures
+        @
+        if mode = Preprocessor.Aot then
+          Cases.expression_aot_noncompiler_failures
+        else []);
+      let report = run "#exe {Print(\"kept\");1+;}42;" in
+      List.iter
+        (fun (label, text) ->
+          let child = run text in
+          Alcotest.(check bool)
+            (label ^ " unaudited child is not caught")
+            true
+            (Result.is_error (integer_program_report_outcome child));
+          Alcotest.(check int)
+            (label ^ " no child Compiler authority")
+            0
+            (List.length (integer_program_report_compiler_exceptions child));
+          Alcotest.(check string)
+            (label ^ " child reached output retained")
+            "kept"
+            (integer_program_report_output_bytes child))
+        Cases.expression_uncaught_children;
+      Alcotest.(check string)
+        "expression cleanup preserves earlier directive output" "kept"
+        (integer_program_report_output_bytes report);
+      let report = run Cases.expression_successive_catches in
+      Alcotest.(check bool)
+        "successive expression catches both resume" true
+        (Result.is_ok (integer_program_report_outcome report));
+      Alcotest.(check string)
+        "successive catches retain reached output" "abafter"
+        (integer_program_report_output_bytes report);
+      let nested = run Cases.expression_nested_directive in
+      Alcotest.(check bool)
+        "nested directive fails original expression" true
+        (Result.is_error (integer_program_report_outcome nested));
+      nested_expression_receipt "nested directive"
+        (integer_program_report_outcome nested |> Result.get_error)
+        (integer_program_report_compiler_exceptions nested);
+      let caught = run Cases.expression_caught_nested_directive in
+      Alcotest.(check bool)
+        "nested expression cleanup is caught once" true
+        (Result.is_ok (integer_program_report_outcome caught));
+      Alcotest.(check string)
+        "nested cleanup preserves reached child output" "keptafter"
+        (integer_program_report_output_bytes caught);
+      let exceptions = integer_program_report_compiler_exceptions caught in
+      nested_expression_receipt "caught nested directive"
+        (List.map Parser.compiler_exception_diagnostic exceptions)
+        exceptions;
+      (match integer_program_report_compiler_exceptions report with
+      | [ first; cleanup; second; cleanup2 ] ->
+          List.iter
+            (fun exceptions ->
+              expression_receipt ~code:"HCPARSE0018" ~marker:";"
+                "successive catch"
+                (List.map Parser.compiler_exception_diagnostic exceptions)
+                exceptions)
+            [ [ first; cleanup ]; [ second; cleanup2 ] ]
+      | _ ->
+          Alcotest.fail
+            "successive catches must retain both two-producer chains");
+      let report = run Cases.expression_fault_after_catch in
+      Alcotest.(check bool)
+        "later runtime error remains failed" true
+        (Result.is_error (integer_program_report_outcome report));
+      Alcotest.(check int)
+        "later runtime error adds no cleanup" 2
+        (List.length (integer_program_report_compiler_exceptions report));
+      Alcotest.(check string)
+        "later runtime error retains child output" "kept"
+        (integer_program_report_output_bytes report);
+      List.iter
+        (fun (limit, expected_count, output) ->
+          let session, source, config =
+            inputs mode
+              ((if mode = Preprocessor.Jit then Cases.headers else "")
+              ^ Cases.expression_quota_after_catch)
+          in
+          let report =
+            run_integer_program_report session ~source ~config
+              ~max_steps:100_000 ~max_output_bytes:limit
+          in
+          Alcotest.(check bool)
+            "output quota remains failed" true
+            (Result.is_error (integer_program_report_outcome report));
+          Alcotest.(check int)
+            "quota preserves only reached producers" expected_count
+            (List.length (integer_program_report_compiler_exceptions report));
+          Alcotest.(check string)
+            "quota preserves reached child bytes" output
+            (integer_program_report_output_bytes report))
+        [ (3, 0, ""); (4, 2, "kept") ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let tests =
@@ -1922,4 +2378,10 @@ let tests =
     Alcotest.test_case
       "defaults preserve original delimiter and emission phases" `Quick
       default_traversal_phases;
+    Alcotest.test_case
+      "expression cleanup preserves original producers and controls" `Quick
+      expression_phase_receipts;
+    Alcotest.test_case
+      "expression Compiler chains preserve original IR execution" `Quick
+      expression_source_execution;
   ]

@@ -1,5 +1,18 @@
 # Reference source map
 
+Owned expression cleanup follows `Compiler/PrsExp.HC:264-303`: push two
+terminators, catch Compiler, then issue another `LexExcept` if the owned stack
+is still nonempty. The missing-operand producer is at line 957. Ordinary nested
+calls borrow the outer stack; implicit calls pass NULL at `PrsStmt.HC:1202`,
+so each required argument owns its stack. `PrsExp.HC:430-536` determines required
+and saved-default traversal. Original selected named headers at `862-866`
+supply AOT grammar without replacing native argument captures. Parser receipts
+retain the exact cause and current token; saved-input catch preflight checks
+the original argument phase and abort chain. See
+[compiler exceptions](compiler-exceptions.md) for source tests and the remaining
+type-check, exception and terminal boundaries. These are hosted observations,
+with no new TempleOS runtime capture.
+
 Native AOT orchestration follows `Compiler/PrsStmt.HC:805-840`: switch `#exe`
 to task tables and JIT flags, hide surrounding locals, restore the original
 context, then inject the committed stream. `Compiler/Lex.HC:1031-1035` selects

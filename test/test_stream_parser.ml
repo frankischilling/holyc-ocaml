@@ -1858,8 +1858,8 @@ let tests =
             ("HCPARSE0167", {|extern U0 Print(U8 *s,...);""("x");#exe {}|});
             ( "HCPARSE0167",
               {|extern U0 Print(U8 *s,I64 a);""("x",42, #exe {} 7);|} );
-            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''(42);#exe {}|});
-            ("HCPARSE0165", {|extern U0 Print(U8 *s,I64 a=7);""("x",;#exe {}|});
+            ("HCPARSE0018", {|extern U0 PutChars(I64 a,I64 b);''(42);#exe {}|});
+            ("HCPARSE0018", {|extern U0 Print(U8 *s,I64 a=7);""("x",;#exe {}|});
           ]);
     Alcotest.test_case
       "absent implicit values retain original delimiters and omissions" `Quick
@@ -1963,7 +1963,7 @@ let tests =
             Alcotest.(check int) "later directive is not reached" 0 !entered)
           [
             ("HCPARSE0167", {|extern U0 Print(I64 a=7,I64 b=2);""();#exe {}|});
-            ("HCPARSE0165", {|extern U0 Print(I64 a=7,I64 b);""(,);#exe {}|});
+            ("HCPARSE0018", {|extern U0 Print(I64 a=7,I64 b);""(,);#exe {}|});
             ("HCPARSE0167", {|extern U0 Print(I64 a=7,...);""();#exe {}|});
             ("HCPARSE0018", {|extern U0 Print(...);""();#exe {}|});
             ("HCPARSE0167", {|extern U0 PutChars();''(42);#exe {}|});
@@ -2064,9 +2064,9 @@ let tests =
             error code (parse ~on_enter:(fun () -> incr entered) contents);
             Alcotest.(check int) "later directive remains unreached" 0 !entered)
           [
-            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''40-2;#exe {}|});
-            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''40,#exe {}22;|});
-            ("HCPARSE0165", {|extern U0 PutChars(I64 a=40,I64 b);'',#exe {}2;|});
+            ("HCPARSE0018", {|extern U0 PutChars(I64 a,I64 b);''40-2;#exe {}|});
+            ("HCPARSE0018", {|extern U0 PutChars(I64 a,I64 b);''40,#exe {}22;|});
+            ("HCPARSE0018", {|extern U0 PutChars(I64 a=40,I64 b);'',#exe {}2;|});
             ( "HCPARSE0046",
               {|extern U0 PutChars(I64 a=40,I64 b=2);'A' #exe {};|} );
             ("HCPARSE0046", {|extern U0 PutChars(I64 a,...);''40 2 #exe {};|});
@@ -2163,7 +2163,7 @@ let tests =
         List.iter
           (fun contents ->
             let entered = ref 0 in
-            error "HCPARSE0165"
+            error "HCPARSE0018"
               (parse ~on_enter:(fun () -> incr entered) contents);
             Alcotest.(check int) "later directive was not reached" 0 !entered)
           [
@@ -2179,7 +2179,7 @@ let tests =
             ~on_enter:(fun () -> incr entered)
             {|extern U0 Print(U8 *s,I64 n=7,I64 required);"text";#exe {}42;|}
         in
-        error "HCPARSE0165" parsed;
+        error "HCPARSE0018" parsed;
         Alcotest.(check int)
           "missing required slot stops before directive" 0 !entered);
     Alcotest.test_case "implicit defaults leave supplied tokens unconsumed"

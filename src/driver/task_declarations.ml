@@ -6542,7 +6542,11 @@ let check_failed_compiler_input ?directive_ledger ledger ~session ~runtime
               Parser.context_is_in_suspended_input sequence.context ~suspension)
             ledger.active)
   in
-  let producer_context = Parser.compiler_exception_context exception_ in
+  let producer_context =
+    Parser.compiler_exception_context
+      (Option.value ~default:exception_
+         (Parser.compiler_exception_call_origin exception_))
+  in
   let producer_matches candidate =
     candidate.sources == Session.sources candidate.session
     && candidate.symbols == Session.symbols candidate.session

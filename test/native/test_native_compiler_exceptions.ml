@@ -310,7 +310,8 @@ let call_producers () =
         | Error errors -> errors
         | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
       in
-      Helpers.receipt ~reported_origin:false ~code ~marker label diagnostics
+      Helpers.call_receipt ~reported_origin:false ~code ~marker label
+        diagnostics
         (Native.compiler_exceptions report))
     Cases.call_failures;
   List.iter
@@ -335,7 +336,7 @@ let call_producers () =
             output
             (Native.output_bytes report);
           let exceptions = Native.compiler_exceptions report in
-          Helpers.receipt ~code ~marker label
+          Helpers.call_receipt ~code ~marker label
             (List.map Parser.compiler_exception_diagnostic exceptions)
             exceptions;
           Alcotest.(check bool)
@@ -383,6 +384,189 @@ let call_producers () =
                 progress.Integer_task.runtime.executed_steps)
             (Native.source_progress report))
         Cases.call_successes)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let expression_producers () =
+  List.iter
+    (fun mode ->
+      let no_interpretation label report =
+        Option.iter
+          (fun progress ->
+            Alcotest.(check int)
+              (label ^ " no interpreted task instructions")
+              0 progress.Integer_task.runtime.executed_steps)
+          (Native.source_progress report)
+      in
+      List.iter
+        (fun (label, text, marker) ->
+          let report = run mode text in
+          let diagnostics =
+            match Native.outcome report with
+            | Error errors -> errors
+            | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
+          in
+          Helpers.expression_receipt ~reported_origin:false ~code:"HCPARSE0018"
+            ~marker label diagnostics
+            (Native.compiler_exceptions report);
+          no_interpretation label report)
+        Cases.expression_failures;
+      List.iter
+        (fun (label, text, marker, output) ->
+          let report = run mode text in
+          let result =
+            match Native.outcome report with
+            | Ok result -> result
+            | Error errors ->
+                Alcotest.fail (label ^ ": " ^ Helpers.describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " original native parent resumes")
+            (Some 42L)
+            (Option.map
+               (fun (word : Native.word) -> word.bits)
+               result.value.final_value);
+          Alcotest.(check string)
+            (label ^ " retains reached native output")
+            output
+            (Native.output_bytes report);
+          let exceptions = Native.compiler_exceptions report in
+          Helpers.expression_receipt ~code:"HCPARSE0018" ~marker label
+            (List.map Parser.compiler_exception_diagnostic exceptions)
+            exceptions;
+          no_interpretation label report;
+          Alcotest.(check bool)
+            (label ^ " reached machine work remains charged")
+            true
+            (Native.executed_steps report > 0);
+          Alcotest.(check bool)
+            (label ^ " native fragments completed")
+            true
+            (List.exists
+               (fun (fragment : Native.fragment) ->
+                 match fragment.native_outcome with
+                 | Some (Ok (X86_64_program.Completed _)) -> true
+                 | _ -> false)
+               (Native.fragments report)))
+        Cases.expression_caught_children;
+      List.iter
+        (fun (label, text, expected) ->
+          let report = run mode text in
+          let result =
+            match Native.outcome report with
+            | Ok result -> result
+            | Error errors ->
+                Alcotest.fail (label ^ ": " ^ Helpers.describe errors)
+          in
+          Alcotest.(check (option int64))
+            label (Some expected)
+            (Option.map
+               (fun (word : Native.word) -> word.bits)
+               result.value.final_value);
+          Alcotest.(check int)
+            (label ^ " no Compiler throw")
+            0
+            (List.length (Native.compiler_exceptions report));
+          no_interpretation label report)
+        Cases.expression_successes;
+      List.iter
+        (fun (label, text) ->
+          let report = run mode text in
+          Alcotest.(check bool)
+            (label ^ " remains failed")
+            true
+            (Result.is_error (Native.outcome report));
+          Alcotest.(check int)
+            (label ^ " no Compiler cleanup")
+            0
+            (List.length (Native.compiler_exceptions report));
+          no_interpretation label report)
+        (Cases.expression_noncompiler_failures
+        @
+        if mode = Preprocessor.Aot then
+          Cases.expression_aot_noncompiler_failures
+        else []);
+      let report = run mode Cases.expression_successive_catches in
+      List.iter
+        (fun (label, text) ->
+          let child = run mode text in
+          Alcotest.(check bool)
+            (label ^ " unaudited native child is not caught")
+            true
+            (Result.is_error (Native.outcome child));
+          Alcotest.(check int)
+            (label ^ " no native child Compiler authority")
+            0
+            (List.length (Native.compiler_exceptions child));
+          Alcotest.(check string)
+            (label ^ " native child reached output")
+            "kept"
+            (Native.output_bytes child);
+          no_interpretation label child)
+        Cases.expression_uncaught_children;
+      let nested = run mode Cases.expression_nested_directive in
+      Alcotest.(check bool)
+        "native nested directive fails" true
+        (Result.is_error (Native.outcome nested));
+      Helpers.nested_expression_receipt "native nested directive"
+        (Native.outcome nested |> Result.get_error)
+        (Native.compiler_exceptions nested);
+      no_interpretation "native nested directive" nested;
+      let caught = run mode Cases.expression_caught_nested_directive in
+      Alcotest.(check bool)
+        "native nested cleanup catch resumes" true
+        (Result.is_ok (Native.outcome caught));
+      Alcotest.(check string)
+        "native nested cleanup output" "keptafter"
+        (Native.output_bytes caught);
+      let exceptions = Native.compiler_exceptions caught in
+      Helpers.nested_expression_receipt "native caught nested directive"
+        (List.map Parser.compiler_exception_diagnostic exceptions)
+        exceptions;
+      no_interpretation "native caught nested directive" caught;
+      Alcotest.(check bool)
+        "successive native expression catches resume" true
+        (Result.is_ok (Native.outcome report));
+      Alcotest.(check string)
+        "successive native catch output" "abafter"
+        (Native.output_bytes report);
+      no_interpretation "successive catches" report;
+      (match Native.compiler_exceptions report with
+      | [ first; cleanup; second; cleanup2 ] ->
+          List.iter
+            (fun exceptions ->
+              Helpers.expression_receipt ~code:"HCPARSE0018" ~marker:";"
+                "successive native catch"
+                (List.map Parser.compiler_exception_diagnostic exceptions)
+                exceptions)
+            [ [ first; cleanup ]; [ second; cleanup2 ] ]
+      | _ -> Alcotest.fail "native catches must retain both two-producer chains");
+      let report = run mode Cases.expression_fault_after_catch in
+      Alcotest.(check bool)
+        "runtime fault after native catch remains failed" true
+        (Result.is_error (Native.outcome report));
+      Alcotest.(check int)
+        "later runtime fault creates no cleanup" 2
+        (List.length (Native.compiler_exceptions report));
+      Alcotest.(check string)
+        "runtime fault retains native child output" "kept"
+        (Native.output_bytes report);
+      no_interpretation "later runtime fault" report;
+      List.iter
+        (fun (limit, expected_count, output) ->
+          let report =
+            run ~max_output_bytes:limit mode Cases.expression_quota_after_catch
+          in
+          Alcotest.(check bool)
+            "native quota remains failed" true
+            (Result.is_error (Native.outcome report));
+          Alcotest.(check int)
+            "native quota preserves reached producer count" expected_count
+            (List.length (Native.compiler_exceptions report));
+          Alcotest.(check string)
+            "native quota preserves reached child bytes" output
+            (Native.output_bytes report);
+          no_interpretation "native quota" report)
+        [ (3, 0, ""); (4, 2, "kept") ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let retained_variadic_flags_with_fixed_members () =
@@ -505,6 +689,9 @@ let () =
             `Quick statement_caught_children;
           Alcotest.test_case "call Compiler producers and nested native catches"
             `Quick call_producers;
+          Alcotest.test_case
+            "expression Compiler cleanup preserves native execution" `Quick
+            expression_producers;
           Alcotest.test_case
             "retained joined flags use original fixed call frames" `Quick
             retained_variadic_flags_with_fixed_members;

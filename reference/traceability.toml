@@ -2,6 +2,19 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-OWNED-EXPRESSION-COMPILER-CLEANUP"
+description = "Original missing operands and call failures retain the Compiler cause and the owned expression stack's counted cleanup."
+sources = ["Compiler/PrsExp.HC:264-303 PrsExpression owned and borrowed stacks", "Compiler/PrsExp.HC:430-536 required/default argument traversal", "Compiler/PrsExp.HC:862-866 retained named function", "Compiler/PrsExp.HC:957 missing expression", "Compiler/PrsStmt.HC:1200-1204 implicit call with NULL stack", "Compiler/CExcept.HC:81-96 LexExcept", "Compiler/CMain.HC:589-596 ExePutS selective catch"]
+implementation = ["src/frontend/parser.ml", "src/frontend/parser.mli", "src/driver/task_declarations.ml"]
+tests = ["test/compiler_exception_cases.ml", "test/test_compiler_exceptions.ml", "test/test_compiler_exceptions_cli.ml", "test/native/test_native_compiler_exceptions.ml"]
+documentation = ["docs/compiler-exceptions.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 801
+source_identity = "Each private receipt retains its original owner, parser control, position, events and domain. Cleanup retains the exact caught cause and unchanged token. Catch preflight follows the original argument phase and complete abort chain; AOT grammar fallback never replaces a callback's actual native result."
+execution = "Numeric/unary missing operands and required implicit arguments produce one original error increment followed by one owned-stack cleanup increment. Nested groups and calls borrow the outer stack. Completed implicit arguments leave no stack for later delimiter errors. Authenticated child catches preserve prior effects and quotas, and later independent faults still propagate."
+verification_boundary = "Source-derived hosted IR/native tests are distinct from TempleOS runtime captures. Unmatched earlier lval, pointer/member, update and IC type phases cannot authenticate later syntax. Other original expression producers, native exception stacks and terminal behavior remain required."
+
+[[feature]]
 id = "HC-COMPILER-ASSEMBLY-ORDER"
 description = "Compiler phases follow the include order in Compiler.PRJ."
 sources = ["Compiler/Compiler.PRJ"]
