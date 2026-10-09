@@ -90,6 +90,47 @@ let active_functions () =
         (List.length (Native.compiler_exceptions report)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let inherited_function_failure () =
+  List.iter
+    (fun mode ->
+      let report = run mode Cases.inherited_function_failure in
+      let diagnostics =
+        match Native.outcome report with
+        | Error errors -> errors
+        | Ok _ ->
+            Alcotest.fail "unsupported inherited return unexpectedly executed"
+      in
+      Alcotest.(check bool)
+        (Helpers.describe diagnostics)
+        true
+        (List.exists
+           (fun (diagnostic : Diagnostic.t) -> diagnostic.code = "HCPARSE0169")
+           diagnostics);
+      Alcotest.(check int)
+        "inherited function supplies no missing-function Compiler" 0
+        (List.length (Native.compiler_exceptions report));
+      Alcotest.(check string)
+        "earlier native effects remain" "kept"
+        (Native.output_bytes report);
+      Option.iter
+        (fun progress ->
+          Alcotest.(check int)
+            "no interpreted inherited task instructions" 0
+            progress.Integer_task.runtime.executed_steps)
+        (Native.source_progress report);
+      Alcotest.(check bool)
+        "earlier original native work remains charged" true
+        (Native.executed_steps report > 0);
+      Alcotest.(check bool)
+        "earlier fragments completed in machine code" true
+        (List.exists
+           (fun (fragment : Native.fragment) ->
+             match fragment.native_outcome with
+             | Some (Ok (X86_64_program.Completed _)) -> true
+             | _ -> false)
+           (Native.fragments report)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Native compiler exceptions"
     [
@@ -101,5 +142,8 @@ let () =
             `Quick other_failures;
           Alcotest.test_case "active native function returns" `Quick
             active_functions;
+          Alcotest.test_case
+            "inherited saved function failure has no Compiler authority" `Quick
+            inherited_function_failure;
         ] );
     ]

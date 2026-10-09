@@ -46,6 +46,8 @@ type command_context = {
   context_observation_id : int;
   context_stack : command_position ref list ref;
   mutable context_position : command_position ref option;
+  mutable context_child_generation : unit ref;
+  context_function_active : bool ref;
 }
 
 and command_start = {
@@ -83,8 +85,26 @@ type suspension = {
   suspended_position : command_position;
   suspended_ref : command_position ref;
   suspended_events : int;
+  suspended_generation : unit ref;
+  mutable suspended_return_generation : unit ref option;
   mutable suspension_consumed : bool;
   mutable suspended_ast : Ast.module_ option;
+  mutable suspended_failure : failed_input option;
+}
+
+and failed_input = {
+  failed_suspension : suspension;
+  failed_source : Common.Source_file.t;
+  failed_exception : compiler_exception;
+  failed_chain : aborted_context list;
+  mutable failed_claimed : bool;
+}
+
+and aborted_context = {
+  aborted_context : command_context;
+  aborted_position : command_position;
+  aborted_events : int;
+  aborted_notified : bool;
 }
 
 let suspend_context context =
@@ -98,15 +118,17 @@ let suspend_context context =
           suspended_position = !position;
           suspended_ref = position;
           suspended_events = context.context_event_count;
+          suspended_generation = context.context_child_generation;
+          suspended_return_generation = None;
           suspension_consumed = false;
           suspended_ast = None;
+          suspended_failure = None;
         }
   | _ -> Error "parser suspension requires its current active context"
 
-let suspension_is_current suspension =
+let suspension_parent_is_current suspension =
   let context = suspension.suspended_context in
-  (not suspension.suspension_consumed)
-  && context.context_domain = Domain.self ()
+  context.context_domain = Domain.self ()
   && context.context_active
   && context.context_event_count = suspension.suspended_events
   && !(suspension.suspended_ref) == suspension.suspended_position
@@ -114,6 +136,12 @@ let suspension_is_current suspension =
   match !(context.context_stack) with
   | active :: _ -> active == suspension.suspended_ref
   | [] -> false
+
+let suspension_is_current suspension =
+  (not suspension.suspension_consumed)
+  && suspension.suspended_generation
+     == suspension.suspended_context.context_child_generation
+  && suspension_parent_is_current suspension
 
 let suspension_is_from_context suspension context =
   suspension.suspended_context == context && suspension_is_current suspension
@@ -185,6 +213,86 @@ let compiler_exception_is_from_context exception_ context =
   else
     Option.is_none context.context_accepted_ast
     && context.context_event_count = exception_.exception_events + 1
+
+let failed_input_compiler_exception failure = failure.failed_exception
+
+let failed_input_context failure =
+  (List.hd (List.rev failure.failed_chain)).aborted_context
+
+let failed_input_is_from_suspension failure suspension =
+  let parent = suspension.suspended_context in
+  let exception_ = failure.failed_exception in
+  let node_valid node =
+    let context = node.aborted_context in
+    node.aborted_notified
+    && context.context_domain = Domain.self ()
+    && (not context.context_active)
+    && Option.is_none context.context_position
+    && Option.is_none context.context_accepted_ast
+    && context.context_event_count = node.aborted_events + 1
+    && position_context node.aborted_position == context
+    && context.context_stack == parent.context_stack
+    && context.context_sources == parent.context_sources
+  in
+  let rec chain_valid seen = function
+    | [] -> false
+    | node :: rest -> (
+        let context = node.aborted_context in
+        node_valid node
+        && (not (List.exists (( == ) context) seen))
+        &&
+        match rest with
+        | [] ->
+            context.context_source == failure.failed_source
+            && Option.fold ~none:false
+                 ~some:(( == ) suspension.suspended_position)
+                 context.context_parent
+            && context.context_parent_events = Some suspension.suspended_events
+        | next :: _ ->
+            Option.fold ~none:false
+              ~some:(( == ) next.aborted_position)
+              context.context_parent
+            && context.context_parent_events = Some next.aborted_events
+            && chain_valid (context :: seen) rest)
+  in
+  failure.failed_suspension == suspension
+  && parent.context_domain = Domain.self ()
+  && suspension.suspension_consumed
+  && Option.is_none suspension.suspended_ast
+  && Option.fold ~none:false ~some:(( == ) failure) suspension.suspended_failure
+  && Option.fold ~none:false
+       ~some:(fun original -> original == failure.failed_source)
+       (Common.Source_manager.find parent.context_sources
+          (Common.Source_file.id failure.failed_source))
+  &&
+  match failure.failed_chain with
+  | first :: _ ->
+      first.aborted_context == exception_.exception_context
+      && first.aborted_position == exception_.exception_position
+      && first.aborted_events = exception_.exception_events
+      && compiler_exception_is_from_context exception_ first.aborted_context
+      && chain_valid [] failure.failed_chain
+  | [] -> false
+
+let suspension_failed_input suspension =
+  match suspension.suspended_failure with
+  | Some failure when failed_input_is_from_suspension failure suspension ->
+      Some failure
+  | _ -> None
+
+let failed_input_is_current failure ~suspension =
+  (not failure.failed_claimed)
+  && failed_input_is_from_suspension failure suspension
+  && Option.fold ~none:false
+       ~some:(( == ) suspension.suspended_context.context_child_generation)
+       suspension.suspended_return_generation
+  && suspension_parent_is_current suspension
+
+let claim_failed_input failure ~suspension =
+  if failed_input_is_current failure ~suspension then (
+    failure.failed_claimed <- true;
+    true)
+  else false
 
 let context_error_count context =
   if context_has_focus context then
@@ -1422,6 +1530,7 @@ type cursor = {
   diagnostics_rev : Common.Diagnostic.t list ref;
   mutable local_context : Symbol_visibility.Environment.local_context option;
   mutable local_function : function_publication option;
+  function_active : bool ref;
   mutable local_function_header : completed_function_header option;
   mutable local_allocations : function_local_allocation list;
   mutable local_publications : local_publication list;
@@ -1430,6 +1539,20 @@ type cursor = {
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
 
 exception Stop_command
+
+type compiler_abort = {
+  abort_exception : compiler_exception;
+  abort_chain : aborted_context list;
+  abort_diagnostics : Common.Diagnostic.t list;
+}
+
+exception Stop_compiler of compiler_abort
+
+let append_original_diagnostics earlier later =
+  earlier
+  @ List.filter
+      (fun diagnostic -> not (List.exists (( == ) diagnostic) earlier))
+      later
 
 type parsed_declarator_list = {
   declarators : parsed_declarator list;
@@ -1963,7 +2086,13 @@ let return_outside_function cursor item =
   context.context_compiler_exception <- Some exception_;
   cursor.diagnostics_rev := diagnostic :: !(cursor.diagnostics_rev);
   Option.iter (fun consume -> consume exception_) cursor.compiler_exception;
-  raise Stop_command
+  raise
+    (Stop_compiler
+       {
+         abort_exception = exception_;
+         abort_chain = [];
+         abort_diagnostics = [];
+       })
 
 let publish_declaration cursor at event =
   (match (event, cursor.current_command) with
@@ -2843,6 +2972,7 @@ let with_function_local_context cursor function_ parameters variadic run =
     Symbol_visibility.Environment.begin_local_context cursor.symbols
   in
   cursor.local_context <- Some context;
+  cursor.function_active := Option.is_some function_;
   cursor.local_function <- function_;
   List.iter
     (fun (parameter : Ast.function_parameter) ->
@@ -2860,6 +2990,7 @@ let with_function_local_context cursor function_ parameters variadic run =
   Fun.protect run ~finally:(fun () ->
       cursor.local_context <- None;
       cursor.local_function <- None;
+      cursor.function_active := false;
       cursor.local_function_header <- None;
       cursor.local_allocations <- [];
       cursor.local_publications <- [];
@@ -8117,7 +8248,12 @@ let parse_label_statement cursor : parsed_statement option =
 
 let parse_return_statement cursor ~boundary : parsed_statement option =
   if cursor.stop_on_error && Option.is_none cursor.local_function then
-    return_outside_function cursor (peek cursor);
+    if !(cursor.function_active) then
+      report cursor (peek cursor) ~code:"HCPARSE0169"
+        ~message:
+          "return through an inherited saved function requires its original \
+           lowering"
+    else return_outside_function cursor (peek cursor);
   let keyword_item = take cursor in
   let build value value_tokens semicolon terminator_tokens :
       parsed_statement option =
@@ -10941,6 +11077,8 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
       context_observation_id = fresh_observation_id ();
       context_stack = cursor.command_stack;
       context_position = None;
+      context_child_generation = ref ();
+      context_function_active = cursor.function_active;
     }
   in
   if Option.is_some cursor.call then
@@ -10957,6 +11095,8 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
   context.context_position <- Some position;
   cursor.command_stack := position :: saved_stack;
   let succeeded = ref false in
+  let aborted_events = ref 0 in
+  let aborted_notified = ref false in
   let consume =
     Option.map
       (fun consume lookup ->
@@ -10965,113 +11105,135 @@ let read_commands ?commands ?stream_opener ?saved_locals cursor =
         if not (accept (consume context lookup)) then raise Stop_command)
       (Option.bind commands (fun sink -> sink.lexical_lookup))
   in
-  Preprocessor.with_lexical_consumer cursor.stream ~consume (fun () ->
-      Fun.protect
-        ~finally:(fun () ->
-          context.context_active <- false;
-          context.context_position <- None;
-          cursor.current_command <- None;
-          cursor.command_stack := saved_stack;
-          if not !succeeded then ignore (checkpoint (Sequence_aborted context)))
-        (fun () ->
-          notify (Sequence_started context);
-          let items_rev = ref [] in
-          let completed_rev = ref [] in
-          let previous = ref None in
-          let pending = ref None in
-          let ordinal = ref 0 in
-          let finished = ref false in
-          while not !finished do
-            let item = peek cursor in
-            let proceed =
-              match commands with
-              | None -> true
-              | Some commands ->
-                  (not (has_error !(cursor.diagnostics_rev)))
-                  &&
-                  (Option.iter
-                     (fun command -> notify (Command_resumed command))
-                     !pending;
-                   pending := None;
-                   accept (commands.resume ()))
-            in
-            if not proceed then finished := true
-            else
-              match (item.token.Token.kind, stream_opener) with
-              | Token_kind.Eof, opener ->
-                  Option.iter
-                    (fun span ->
-                      report cursor item ~code:"HCPARSE0162"
-                        ~secondary:
-                          [
-                            {
-                              Common.Diagnostic.span;
-                              message = "#exe starts here";
-                            };
-                          ]
-                        ~message:"expected '}' to close the #exe block")
-                    opener;
-                  ignore (take cursor);
-                  finished := true
-              | Token_kind.Punctuation '}', Some _ ->
-                  ignore (take cursor);
-                  finished := true
-              | _ -> (
-                  let start =
-                    {
-                      command_context = context;
-                      command_ordinal = !ordinal;
-                      command_compiler_options =
-                        Common.Native_compiler_control.options
-                          context.context_compiler_control;
-                      command_predecessor = !previous;
-                    }
-                  in
-                  incr ordinal;
-                  cursor.current_command <- Some start;
-                  position := Reading_command start;
-                  notify (Command_started start);
-                  match read_command cursor with
-                  | Some parsed ->
-                      items_rev := parsed :: !items_rev;
-                      let completed =
-                        {
-                          command_start = start;
-                          command_ast = make_module [ parsed ];
-                        }
-                      in
-                      completed_rev := completed :: !completed_rev;
-                      previous := Some completed;
-                      pending := Some completed;
-                      cursor.current_command <- None;
-                      position := Awaiting_resume completed;
-                      Option.iter
-                        (fun commands ->
-                          if
-                            has_error !(cursor.diagnostics_rev)
-                            ||
-                            (notify (Command_completed completed);
-                             not (accept (commands.command parsed)))
-                          then finished := true)
-                        commands
-                  | None -> if Option.is_some commands then finished := true)
-          done;
-          let ast = make_module (List.rev !items_rev) in
-          if not (has_error !(cursor.diagnostics_rev)) then (
-            notify
-              (Sequence_completed
-                 {
-                   sequence_context = context;
-                   sequence_commands = List.rev !completed_rev;
-                   sequence_ast = ast;
-                 });
-            context.context_accepted_ast <- Some ast;
-            succeeded := true);
-          ast))
+  try
+    Preprocessor.with_lexical_consumer cursor.stream ~consume (fun () ->
+        Fun.protect
+          ~finally:(fun () ->
+            context.context_active <- false;
+            context.context_position <- None;
+            cursor.current_command <- None;
+            cursor.command_stack := saved_stack;
+            if not !succeeded then (
+              aborted_events := context.context_event_count;
+              aborted_notified := checkpoint (Sequence_aborted context)))
+          (fun () ->
+            notify (Sequence_started context);
+            let items_rev = ref [] in
+            let completed_rev = ref [] in
+            let previous = ref None in
+            let pending = ref None in
+            let ordinal = ref 0 in
+            let finished = ref false in
+            while not !finished do
+              let item = peek cursor in
+              let proceed =
+                match commands with
+                | None -> true
+                | Some commands ->
+                    (not (has_error !(cursor.diagnostics_rev)))
+                    &&
+                    (Option.iter
+                       (fun command -> notify (Command_resumed command))
+                       !pending;
+                     pending := None;
+                     accept (commands.resume ()))
+              in
+              if not proceed then finished := true
+              else
+                match (item.token.Token.kind, stream_opener) with
+                | Token_kind.Eof, opener ->
+                    Option.iter
+                      (fun span ->
+                        report cursor item ~code:"HCPARSE0162"
+                          ~secondary:
+                            [
+                              {
+                                Common.Diagnostic.span;
+                                message = "#exe starts here";
+                              };
+                            ]
+                          ~message:"expected '}' to close the #exe block")
+                      opener;
+                    ignore (take cursor);
+                    finished := true
+                | Token_kind.Punctuation '}', Some _ ->
+                    ignore (take cursor);
+                    finished := true
+                | _ -> (
+                    let start =
+                      {
+                        command_context = context;
+                        command_ordinal = !ordinal;
+                        command_compiler_options =
+                          Common.Native_compiler_control.options
+                            context.context_compiler_control;
+                        command_predecessor = !previous;
+                      }
+                    in
+                    incr ordinal;
+                    cursor.current_command <- Some start;
+                    position := Reading_command start;
+                    notify (Command_started start);
+                    match read_command cursor with
+                    | Some parsed ->
+                        items_rev := parsed :: !items_rev;
+                        let completed =
+                          {
+                            command_start = start;
+                            command_ast = make_module [ parsed ];
+                          }
+                        in
+                        completed_rev := completed :: !completed_rev;
+                        previous := Some completed;
+                        pending := Some completed;
+                        cursor.current_command <- None;
+                        position := Awaiting_resume completed;
+                        Option.iter
+                          (fun commands ->
+                            if
+                              has_error !(cursor.diagnostics_rev)
+                              ||
+                              (notify (Command_completed completed);
+                               not (accept (commands.command parsed)))
+                            then finished := true)
+                          commands
+                    | None -> if Option.is_some commands then finished := true)
+            done;
+            let ast = make_module (List.rev !items_rev) in
+            if not (has_error !(cursor.diagnostics_rev)) then (
+              notify
+                (Sequence_completed
+                   {
+                     sequence_context = context;
+                     sequence_commands = List.rev !completed_rev;
+                     sequence_ast = ast;
+                   });
+              context.context_accepted_ast <- Some ast;
+              succeeded := true);
+            ast))
+  with Stop_compiler aborted ->
+    let node =
+      {
+        aborted_context = context;
+        aborted_position = !position;
+        aborted_events = !aborted_events;
+        aborted_notified = !aborted_notified;
+      }
+    in
+    raise
+      (Stop_compiler
+         {
+           aborted with
+           abort_chain = aborted.abort_chain @ [ node ];
+           abort_diagnostics =
+             append_original_diagnostics
+               (List.rev !(cursor.diagnostics_rev))
+               aborted.abort_diagnostics;
+         })
 
-let make_cursor ?compiler_exception ?reference ?call ?implicit_output ?query
-    ?declaration ?dimension_count ~command_stack ~stream ~sources ~source
-    ~symbols ~compilation_mode ~stop_on_error () =
+let make_cursor ?(saved_function = false) ?compiler_exception ?reference ?call
+    ?implicit_output ?query ?declaration ?dimension_count ~command_stack ~stream
+    ~sources ~source ~symbols ~compilation_mode ~stop_on_error () =
   if Option.is_some dimension_count && Option.is_none declaration then
     invalid_arg "an array count reader requires a declaration observer";
   {
@@ -11101,14 +11263,15 @@ let make_cursor ?compiler_exception ?reference ?call ?implicit_output ?query
     diagnostics_rev = ref [];
     local_context = None;
     local_function = None;
+    function_active = ref saved_function;
     local_function_header = None;
     local_allocations = [];
     local_publications = [];
   }
 
-let parse_with_stack ~command_stack ?compiler_exception ?commands
-    ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols ~config
-    source =
+let parse_with_stack ~command_stack ?saved_function ?compiler_exception
+    ?commands ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
+    ~config source =
   let execute_stream =
     Option.map
       (fun enter stream opener ->
@@ -11189,8 +11352,8 @@ let parse_with_stack ~command_stack ?compiler_exception ?commands
       ~symbols ~config source
   in
   let cursor =
-    make_cursor ?compiler_exception ~command_stack ~stream ~sources ~source
-      ~symbols
+    make_cursor ?saved_function ?compiler_exception ~command_stack ~stream
+      ~sources ~source ~symbols
       ?reference:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.reference))
@@ -11211,30 +11374,63 @@ let parse_with_stack ~command_stack ?compiler_exception ?commands
       ~compilation_mode:(Preprocessor.Config.compilation_mode config)
       ()
   in
+  let aborted = ref None in
   let ast =
-    try Some (read_commands ?commands cursor) with Stop_command -> None
+    try Some (read_commands ?commands cursor) with
+    | Stop_command -> None
+    | Stop_compiler failure ->
+        aborted := Some failure;
+        cursor.diagnostics_rev :=
+          List.rev
+            (append_original_diagnostics
+               (List.rev !(cursor.diagnostics_rev))
+               failure.abort_diagnostics);
+        None
   in
   let diagnostics = List.rev !(cursor.diagnostics_rev) in
   let ast = if has_error diagnostics then None else ast in
-  { ast; diagnostics }
+  ({ ast; diagnostics }, !aborted)
 
 let parse ?compiler_exception ?commands ?lexical_lookup ?execute_stream ~sources
     ~definitions ~symbols ~config source =
   parse_with_stack ~command_stack:(ref []) ?compiler_exception ?commands
     ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols ~config
     source
+  |> fst
 
-let parse_suspended_input suspension ?compiler_exception ?commands
-    ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols ~config
-    source =
+let registered_source sources source =
+  Option.fold ~none:false ~some:(( == ) source)
+    (Common.Source_manager.find sources (Common.Source_file.id source))
+
+let parse_suspended_input suspension ?saved_function ?compiler_exception
+    ?commands ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
+    ~config source =
   let context = suspension.suspended_context in
   suspension.suspension_consumed <- true;
-  let output =
-    parse_with_stack ~command_stack:context.context_stack ?compiler_exception
-      ?commands ?execute_stream ?lexical_lookup ~sources ~definitions ~symbols
-      ~config source
+  context.context_child_generation <- ref ();
+  suspension.suspended_return_generation <-
+    Some context.context_child_generation;
+  let output, aborted =
+    parse_with_stack ~command_stack:context.context_stack ?saved_function
+      ?compiler_exception ?commands ?execute_stream ?lexical_lookup ~sources
+      ~definitions ~symbols ~config source
   in
   suspension.suspended_ast <- output.ast;
+  Option.iter
+    (fun aborted ->
+      let failure =
+        {
+          failed_suspension = suspension;
+          failed_source = source;
+          failed_exception = aborted.abort_exception;
+          failed_chain = aborted.abort_chain;
+          failed_claimed = false;
+        }
+      in
+      suspension.suspended_failure <- Some failure;
+      if not (failed_input_is_from_suspension failure suspension) then
+        suspension.suspended_failure <- None)
+    aborted;
   Ok output
 
 let parse_suspended suspension ?compiler_exception ?commands ?lexical_lookup
@@ -11245,6 +11441,7 @@ let parse_suspended suspension ?compiler_exception ?commands ?lexical_lookup
     || context.context_sources != sources
     || context.context_environment != symbols
     || context.context_mode <> Preprocessor.Config.compilation_mode config
+    || not (registered_source sources source)
   then Error "nested source requires its original live parser suspension"
   else
     parse_suspended_input suspension ?compiler_exception ?commands
@@ -11260,6 +11457,7 @@ let parse_suspended_enclosing suspension ~enclosing ?compiler_exception
         || original.context_sources != sources
         || original.context_environment != symbols
         || Preprocessor.Config.compilation_mode config <> Preprocessor.Jit
+        || not (registered_source sources source)
       then Error "nested source has another saved compiler context or JIT mode"
       else
         match suspension.suspended_context.context_stream_locals with
@@ -11268,6 +11466,7 @@ let parse_suspended_enclosing suspension ~enclosing ?compiler_exception
             Symbol_visibility.Environment.with_saved_locals symbols locals
               (fun () ->
                 parse_suspended_input suspension ?compiler_exception ?commands
+                  ~saved_function:!(original.context_function_active)
                   ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
                   ~config source)
             |> Result.join)

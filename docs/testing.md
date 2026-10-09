@@ -5,6 +5,15 @@ guard before expression lookahead in both outer modes and backends. They retain
 one original counted receipt, earlier output and actual native work. Child,
 domain, replay and diagnostic-forgery cases guard its ownership. Other faults
 remain separate, and the CLI runs the same sixteen failure cases per backend.
+Suspended-input cases retain the exact consumed token and complete nested
+directive abort chain. They reject copied sources before consumption, earlier
+tokens after child entry, stale and foreign claims, replay, matching callback
+diagnostics, unexpected observer/cleanup exceptions and rejected abort
+checkpoints. These parser proofs do not provide runtime isolation or catches.
+Saved-function cases distinguish ordinary children from inherited function
+contexts in both outer modes. Unsupported inherited returns issue no counted
+Compiler receipt, while a nested directive or completed new function restores
+the actual missing-function check.
 
 The return-warning cases check the three original producers, native counts
 with options 16-19 disabled, the flag's source timing, replay and expiration,

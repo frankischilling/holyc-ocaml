@@ -37,6 +37,30 @@ val context_error_count : command_context -> (int64, string) result
 
 type compiler_position_source
 type suspension
+type failed_input
+
+val suspension_failed_input : suspension -> failed_input option
+(** The original [Compiler] failure of this consumed input, including its
+    complete parser abort chain. Rejected preflight, ordinary diagnostics,
+    callback exceptions and rejected abort checkpoints do not issue a receipt. A
+    failure grants no accepted AST or execution result. *)
+
+val failed_input_context : failed_input -> command_context
+val failed_input_compiler_exception : failed_input -> compiler_exception
+
+val failed_input_is_from_suspension : failed_input -> suspension -> bool
+(** Physical ownership by the original consumed suspension and registered
+    source, in the original domain. This remains inspectable after the parent
+    closes; it grants no current parser or runtime authority. *)
+
+val failed_input_is_current : failed_input -> suspension:suspension -> bool
+(** The unclaimed failure still belongs to the unchanged, focused parent
+    position and event count. A different or advanced parent cannot catch it. *)
+
+val claim_failed_input : failed_input -> suspension:suspension -> bool
+(** Claim the current original failure once. Runtime and resource preflight must
+    finish before claiming; the receipt grants no successful work or completion.
+*)
 
 val suspend_context : command_context -> (suspension, string) result
 (** Capture the current stack position of a live parser context for one nested
@@ -1091,12 +1115,13 @@ val parse_suspended :
   Common.Source_file.t ->
   (output, string) result
 
-(** Parse one input at the original suspension, requiring the same source
-    manager, symbol environment, compilation mode, stack position and event
-    count. Rejected preflight does not consume the token. Once parsing starts,
-    success, failure and exceptions consume it and restore the parent stack.
-    Definitions and other config options describe the new input; the task
-    adapter supplies its own original environments and config. *)
+(** Parse one input at the original suspension, requiring the exact registered
+    source and the same source manager, symbol environment, compilation mode,
+    stack position, event count and child generation. Rejected preflight does
+    not consume the token. Once parsing starts, success, failure and exceptions
+    consume it and restore the parent stack. Definitions and other config
+    options describe the new input; the task adapter supplies its own original
+    environments and config. *)
 
 val suspension_owns_sequence : suspension -> completed_sequence -> bool
 (** Only the exact accepted nested sequence belongs to a consumed token. This

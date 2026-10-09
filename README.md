@@ -17,7 +17,8 @@ fresh storage. These fields retain the pinned offsets while the full compiler
 control and remaining error producers remain unfinished. Executable `return`
 outside a function now fails before expression lookahead and increments the
 original error count. [Compiler exceptions](docs/compiler-exceptions.md) describes
-the source receipt and the remaining exception behavior.
+the source receipt, authenticated suspended-input abort chains and the remaining
+exception behavior. Runtime isolation and selective child catches remain open.
 Option 17 now checks unnecessary parentheses during original expression
 parsing, with live options, native warning counts and both definition-input
 suppression checks. The [parenthesis example](examples/compiler-parenthesis-warnings.hc)

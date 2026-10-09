@@ -2,6 +2,7 @@ let headers =
   {|extern U0 Print(U8 *fmt,...);extern I64 StreamExePrint(U8 *fmt,...);|}
 
 let failures =
+  (* Missing-function cases remain distinct from inherited-function rejection. *)
   [
     ("bare root", "return;", "");
     ("value root", "return 42;", "");
@@ -16,6 +17,9 @@ let failures =
       {|#exe {I64 F(){return StreamExePrint("Print(\"kept\");return 42;");}F();Print("late");}42;|},
       "kept" );
   ]
+
+let inherited_function_failure =
+  {|I64 F(){#exe {Print("kept");StreamExePrint("return 42;");Print("late");}return 42;}F();|}
 
 let ordinary_failures =
   [
