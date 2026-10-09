@@ -23,6 +23,10 @@ their original parser phases. Captured call delimiters and missing Print/PutChar
 at their original phases; catches require the exact native argument-shape result.
 Zero-argument implicit calls leave a nonempty literal unread for the original
 statement terminator check, after argument capture and call emission.
+Parenthesis-free defaults also leave their current expression unread, and a
+completed fixed Print call leaves a comma for the following statement. Native
+joined bodies retain the original variadic flag while their checked replacement
+header determines whether they have `argc` and `argv` slots.
 `StreamExePrint` catches these original child
 `Compiler` failures, returns zero and preserves reached effects. Runtime Break,
 direct throws and the remaining original producers remain open.

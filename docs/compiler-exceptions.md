@@ -173,6 +173,23 @@ at the original marker. It does not join a following string or read a later
 directive or lexer error. Empty markers still advance the lexer; Print's
 variadic traversal still consumes its first expression.
 
+Parenthesis-free fixed defaults follow `PrsExp.HC:454-469`: the compiler fills the
+saved value without consuming the current expression. A later Print formal or
+variadic tail checks its comma at that same token and can issue HCPARSE0167
+before emission. When no argument remains, emission precedes HCPARSE0046 at the
+unread expression. PutChars defaults can leave the original character marker
+for a later required formal; only that formal starts its expression. Repeated
+defaults retain the same lookahead. A completed nonvariadic Print list also
+leaves a comma to statement parsing instead of adding an extra call argument.
+
+`PrsFunJoin` retains the stored variadic flag when it replaces an external
+header's member list (`PrsStmt.HC:62-139`). A fixed replacement does not invent
+`argc` or `argv`, or derive Ret1 while that flag remains set. Native source
+bodies accept this original flag combination through their bound definition
+and exact checked frame. Synthetic slots follow the replacement header's actual
+members. Existing flag, frame, calling-cleanup and source-ownership checks remain
+in force; other unsupported flags still reject.
+
 Direct-call delimiter producers use the shape returned at the original call
 start. An unshaped legacy or indirect call retains its existing diagnostics and
 does not gain a Compiler receipt from those diagnostics. A missing operand or

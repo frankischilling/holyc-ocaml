@@ -1547,6 +1547,112 @@ let zero_argument_marker_phases () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let default_traversal_phases () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, defaults, code, marker, emitted) ->
+          let session, source, config = inputs mode text in
+          let supplied : Symbol_visibility.function_call_shape =
+            {
+              parameters =
+                List.map
+                  (fun has_default ->
+                    { Symbol_visibility.parameter_name = None; has_default })
+                  defaults;
+              variadic = false;
+            }
+          in
+          let phases = ref [] and seen = ref [] and selected = ref None in
+          let call : Parser.direct_call_sink =
+            {
+              start = (fun _ -> Alcotest.fail "no explicit call");
+              emit = (fun _ -> Alcotest.fail "no explicit emission");
+              implicit =
+                Some
+                  {
+                    arguments =
+                      (fun selection ->
+                        selected := Some selection;
+                        phases := "arguments" :: !phases;
+                        Ok (Some supplied));
+                    emission =
+                      (fun selection ->
+                        Alcotest.(check bool)
+                          "exact original selection emits" true
+                          (selection == Option.get !selected);
+                        phases := "emission" :: !phases;
+                        Ok ());
+                  };
+            }
+          in
+          let parsed =
+            parse ~commands:(command_sink ~call ())
+              ~compiler_exception:(fun exception_ ->
+                phases := "Compiler" :: !phases;
+                seen := exception_ :: !seen)
+              session source config
+          in
+          receipt ~code ~marker text parsed.diagnostics !seen;
+          Alcotest.(check (list string))
+            "original default producer phase"
+            (if emitted then [ "arguments"; "emission"; "Compiler" ]
+             else [ "arguments"; "Compiler" ])
+            (List.rev !phases);
+          let selection = Option.get !selected and exception_ = List.hd !seen in
+          Alcotest.(check bool)
+            "exact returned default shape survives abort" true
+            (match Parser.implicit_supplied_shape selection with
+            | Some (Some shape) -> shape == supplied
+            | _ -> false);
+          Alcotest.(check bool)
+            "only argument delimiter has argument authority" (not emitted)
+            (Parser.compiler_exception_requires_call_shape exception_);
+          Alcotest.(check bool)
+            "original argument producer affinity" (not emitted)
+            (Parser.compiler_exception_is_from_implicit_arguments exception_
+               selection);
+          let copy : Parser.implicit_output_selection =
+            Obj.obj (Obj.dup (Obj.repr selection))
+          in
+          Alcotest.(check bool)
+            "copied default selection has no producer authority" false
+            (Parser.compiler_exception_is_from_implicit_arguments exception_
+               copy))
+        [
+          ( "extern U0 Print(I64 n=0);\"first\" \"second\" #error late\n",
+            [ true ],
+            "HCPARSE0046",
+            "\"first\"",
+            true );
+          ( "extern U0 Print(I64 n=0,I64 m=1);\"text\" #error late\n",
+            [ true; true ],
+            "HCPARSE0167",
+            "\"text\"",
+            false );
+          ( "extern U0 Print(U8 *s,I64 n=7);\"text\",42 #error late\n",
+            [ false; true ],
+            "HCPARSE0046",
+            "42",
+            true );
+          ( "extern U0 Print(U8 *s,I64 n=7,I64 m);\"text\",42 #error late\n",
+            [ false; true; false ],
+            "HCPARSE0167",
+            "42",
+            false );
+          ( "extern U0 PutChars(I64 a=40,I64 b=2);'A' #error late\n",
+            [ true; true ],
+            "HCPARSE0046",
+            "'A'",
+            true );
+          ( "extern U0 Print(I64 n=0);\"\"42 #error late\n",
+            [ true ],
+            "HCPARSE0046",
+            "42",
+            true );
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let failed_call_shape_ownership () =
   let module D = Task_declarations in
   let module VM = Ir_integer_interpreter in
@@ -1722,6 +1828,31 @@ let call_source_execution () =
             (List.map Parser.compiler_exception_diagnostic exceptions)
             exceptions)
         Cases.call_caught_children)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, output) ->
+          let report = run mode false text in
+          let result =
+            match integer_program_report_outcome report with
+            | Ok result -> result
+            | Error errors -> Alcotest.fail (label ^ ": " ^ describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " generated result")
+            (Some 42L)
+            (Option.map
+               (fun word -> word.Ir_integer_interpreter.bits)
+               (Ir_integer_interpreter.final_value result.value));
+          Alcotest.(check string)
+            (label ^ " output") output
+            (integer_program_report_output_bytes report);
+          Alcotest.(check int)
+            (label ^ " no Compiler throw")
+            0
+            (List.length (integer_program_report_compiler_exceptions report)))
+        Cases.call_successes)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let tests =
@@ -1788,4 +1919,7 @@ let tests =
       `Quick failed_call_shape_ownership;
     Alcotest.test_case "zero argument marker preserves emission and Lex order"
       `Quick zero_argument_marker_phases;
+    Alcotest.test_case
+      "defaults preserve original delimiter and emission phases" `Quick
+      default_traversal_phases;
   ]

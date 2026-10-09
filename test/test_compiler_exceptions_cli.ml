@@ -219,5 +219,16 @@ let () =
           incr call_cases)
         Cases.call_caught_children)
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, output) ->
+          let report =
+            invoke compiler target mode ~with_headers:false ~status:0 label text
+          in
+          caught_value target label output report;
+          incr call_cases)
+        Cases.call_successes)
+    [ "jit"; "aot" ];
   Printf.printf "%d original call Compiler CLI cases passed (%s).\n" !call_cases
     target

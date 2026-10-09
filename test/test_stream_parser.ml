@@ -1742,19 +1742,19 @@ let implicit_target_before_lookahead () =
 
 let implicit_defaults_do_not_consume_supplied_values () =
   List.iter
-    (fun source ->
+    (fun (code, source) ->
       let entered = ref 0 in
       let parsed = parse ~on_enter:(fun () -> incr entered) source in
-      error "HCPARSE0164" parsed;
+      error code parsed;
       Alcotest.(check int)
         "unconsumed default argument does not reach later directive" 0 !entered)
     [
-      {|extern U0 Print(U8 *s,I64 n=7);"text",42 #exe {};|};
-      {|extern U0 Print(U8 *s,I64 n=7,...);"text",42 #exe {};|};
-      {|extern U0 Print(U8 *s=0);"text" #exe {};|};
-      {|extern U0 PutChars(U64 ch=7);'A' #exe {};|};
-      {|extern U0 Print(U8 *s=0);"" value #exe {};|};
-      {|extern U0 Print(U8 *s=0);"" "value" #exe {};|};
+      ("HCPARSE0046", {|extern U0 Print(U8 *s,I64 n=7);"text",42 #exe {};|});
+      ("HCPARSE0167", {|extern U0 Print(U8 *s,I64 n=7,...);"text",42 #exe {};|});
+      ("HCPARSE0046", {|extern U0 Print(U8 *s=0);"text" #exe {};|});
+      ("HCPARSE0046", {|extern U0 PutChars(U64 ch=7);'A' #exe {};|});
+      ("HCPARSE0046", {|extern U0 Print(U8 *s=0);"" value #exe {};|});
+      ("HCPARSE0046", {|extern U0 Print(U8 *s=0);"" "value" #exe {};|});
     ]
 
 let original_local_identifier_selection () =
@@ -2067,7 +2067,7 @@ let tests =
             ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''40-2;#exe {}|});
             ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''40,#exe {}22;|});
             ("HCPARSE0165", {|extern U0 PutChars(I64 a=40,I64 b);'',#exe {}2;|});
-            ( "HCPARSE0164",
+            ( "HCPARSE0046",
               {|extern U0 PutChars(I64 a=40,I64 b=2);'A' #exe {};|} );
             ("HCPARSE0046", {|extern U0 PutChars(I64 a,...);''40 2 #exe {};|});
             ( "HCPARSE0046",

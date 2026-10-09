@@ -4752,10 +4752,11 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
     Headers.function_variadic_bindings (Frame.function_header frame)
   in
   let allowed_flags =
-    if Option.is_some variadic_bindings then
-      Int64.logor Function.ordinary_calling_flag_mask
-        (Sema.Function_flag.Stored.to_mask Variadic)
-    else Function.ordinary_calling_flag_mask
+    (* PrsFunJoin retains Ff_DOT_DOT_DOT when a replacement header is fixed.
+       The bound definition above authenticates these exact stored flags;
+       argc/argv slots below follow the checked header's actual members. *)
+    Int64.logor Function.ordinary_calling_flag_mask
+      (Sema.Function_flag.Stored.to_mask Variadic)
   in
   if
     Int64.logand (Function.stored_flags body) (Int64.lognot allowed_flags) <> 0L

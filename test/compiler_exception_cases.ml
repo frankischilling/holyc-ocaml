@@ -221,6 +221,51 @@ let call_failures =
       "extern U0 Print();\"text\" #error late\n42;",
       "HCPARSE0046",
       "\"text\"" );
+    ( "Print initial default",
+      "extern U0 Print(I64 n=0);\"text\";",
+      "HCPARSE0046",
+      "\"text\"" );
+    ( "PutChars initial default",
+      "extern U0 PutChars(I64 n=65);'A';",
+      "HCPARSE0046",
+      "'A'" );
+    ( "Print default then fixed",
+      "extern U0 Print(I64 n=0,I64 m=1);\"text\";",
+      "HCPARSE0167",
+      "\"text\"" );
+    ( "Print default then variadic",
+      "extern U0 Print(I64 n=0,...);\"text\";",
+      "HCPARSE0167",
+      "\"text\"" );
+    ( "Print later default",
+      "extern U0 Print(U8 *s,I64 n=7);\"text\",42;",
+      "HCPARSE0046",
+      "42" );
+    ( "Print later default then variadic",
+      "extern U0 Print(U8 *s,I64 n=7,...);\"text\",42;",
+      "HCPARSE0167",
+      "42" );
+    ( "Print later default then required",
+      "extern U0 Print(U8 *s,I64 n=7,I64 m);\"text\",42;",
+      "HCPARSE0167",
+      "42" );
+    ( "Print empty marker default",
+      "extern U0 Print(I64 n=0);\"\"42;",
+      "HCPARSE0046",
+      "42" );
+    ( "Print default first literal",
+      "extern U0 Print(I64 n=0);\"first\" \"second\" #error late\n",
+      "HCPARSE0046",
+      "\"first\"" );
+    ( "PutChars all defaults before Lex",
+      "extern U0 PutChars(I64 a=40,I64 b=2);'A' #error late\n",
+      "HCPARSE0046",
+      "'A'" );
+    ("Print empty zero fixed", "extern U0 Print();\"\"42;", "HCPARSE0046", "42");
+    ( "zero fixed Print body",
+      "U0 Print(){}\"text\";42;",
+      "HCPARSE0046",
+      "\"text\"" );
   ]
 
 let call_caught_children =
@@ -230,6 +275,7 @@ let call_caught_children =
         if
           String.starts_with ~prefix:"zero fixed PutChars" label
           || String.starts_with ~prefix:"zero fixed variadic PutChars" label
+          || String.starts_with ~prefix:"PutChars " label
           || label = "PutChars parenthesized close"
         then ("Print(\"after\");", "after")
         else ("PutChars('A');", "A")
@@ -267,3 +313,25 @@ let call_caught_children =
         "}",
         "after" );
     ]
+
+let call_successes =
+  [
+    ( "Print initial saved default",
+      {|#exe {I64 Out=0;U0 Print(I64 n=41){Out=n+1;}"";StreamPrint("%d;",Out);}|},
+      "" );
+    ( "PutChars initial saved default",
+      {|#exe {I64 Out=0;U0 PutChars(I64 n=41){Out=n+1;}'';StreamPrint("%d;",Out);}|},
+      "" );
+    ( "fixed Print comma is a statement",
+      {|#exe {I64 Out=0;U0 Print(U8 *s){Out=40;}"text",2;StreamPrint("%d;",Out+2);}|},
+      "" );
+    ( "Print omitted tail leaves statement comma",
+      {|#exe {I64 Out=0;U0 Print(U8 *s,I64 n=40){Out=n;}"text",,2;StreamPrint("%d;",Out+2);}|},
+      "" );
+    ( "PutChars marker reaches later required formal",
+      {|#exe {I64 Out=0;U0 PutChars(I64 a=40,I64 b){Out=a+b;}'B'-64;StreamPrint("%d;",Out);}|},
+      "" );
+    ( "PutChars all defaults leave statement comma",
+      {|#exe {I64 Out=0;U0 PutChars(I64 a=40,I64 b=0){Out=a+b;}'',2;StreamPrint("%d;",Out+2);}|},
+      "" );
+  ]

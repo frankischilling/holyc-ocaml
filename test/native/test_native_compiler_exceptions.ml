@@ -4,14 +4,14 @@ module Native = Native_source_execution
 module Helpers = Test_compiler_exceptions
 
 let run ?(with_headers = true) ?(max_steps = 100_000) ?max_output_bytes
-    ?max_output_work mode text =
+    ?max_output_work ?status_abi mode text =
   let session, source, config =
     Helpers.inputs mode
       ((if with_headers && mode = Preprocessor.Jit then Cases.headers else "")
       ^ text)
   in
-  Native.evaluate ?max_output_bytes ?max_output_work ~max_code_bytes:524_288
-    session ~source ~config ~max_steps
+  Native.evaluate ?max_output_bytes ?max_output_work ?status_abi
+    ~max_code_bytes:524_288 session ~source ~config ~max_steps
 
 let source_failures () =
   List.iter
@@ -348,7 +348,135 @@ let call_producers () =
                 progress.Integer_task.runtime.executed_steps)
             (Native.source_progress report))
         Cases.call_caught_children)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, output) ->
+          let report = run ~with_headers:false mode text in
+          let result =
+            match Native.outcome report with
+            | Ok result -> result
+            | Error errors ->
+                Alcotest.fail (label ^ ": " ^ Helpers.describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " generated native result")
+            (Some 42L)
+            (Option.map
+               (fun (word : Native.word) -> word.bits)
+               result.value.final_value);
+          Alcotest.(check string)
+            (label ^ " output") output
+            (Native.output_bytes report);
+          Alcotest.(check int)
+            (label ^ " no Compiler throw")
+            0
+            (List.length (Native.compiler_exceptions report));
+          Alcotest.(check bool)
+            "actual native work" true
+            (Native.executed_steps report > 0);
+          Option.iter
+            (fun progress ->
+              Alcotest.(check int)
+                "no interpreted task work" 0
+                progress.Integer_task.runtime.executed_steps)
+            (Native.source_progress report))
+        Cases.call_successes)
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let retained_variadic_flags_with_fixed_members () =
+  let text = "extern I64 F(...);I64 F(I64 n){return n+1;}F(41);" in
+  let session, source, config = Helpers.inputs Preprocessor.Jit text in
+  let compiled =
+    match compile_integer_program session ~source ~config with
+    | Ok result -> result.value
+    | Error errors -> Alcotest.fail (Helpers.describe errors)
+  in
+  let definition = List.hd (integer_program_functions compiled) in
+  let flags = Ir_function_body.stored_flags definition.body in
+  Alcotest.(check bool)
+    "original joined variadic flag retained" true
+    (Function_flag.Stored.is_set ~mask:flags Function_flag.Stored.Variadic);
+  Alcotest.(check bool)
+    "retained flag prevents deriving Ret1" false
+    (Function_flag.Stored.is_set ~mask:flags Function_flag.Stored.Ret1);
+  Alcotest.(check bool)
+    "replacement frame has no invented argc or argv" true
+    (Option.is_none
+       (Semantic_function_type_resolution.function_variadic_bindings
+          (Semantic_function_frame_layout.function_header definition.frame)));
+  List.iter
+    (fun status_abi ->
+      List.iter
+        (fun text ->
+          let report =
+            run ~with_headers:false ~status_abi Preprocessor.Jit text
+          in
+          let result =
+            match Native.outcome report with
+            | Ok result -> result
+            | Error errors -> Alcotest.fail (Helpers.describe errors)
+          in
+          Alcotest.(check (option int64))
+            "fixed joined machine result" (Some 42L)
+            (Option.map
+               (fun (word : Native.word) -> word.bits)
+               result.value.final_value);
+          List.iter
+            (fun (fragment : Native.fragment) ->
+              Alcotest.(check bool)
+                "original fragment completes in machine code" true
+                (match fragment.native_outcome with
+                | Some (Ok (X86_64_program.Completed _)) -> true
+                | _ -> false))
+            (Native.fragments report);
+          Option.iter
+            (fun progress ->
+              Alcotest.(check int)
+                "no interpreter fallback" 0
+                progress.Integer_task.runtime.executed_steps)
+            (Native.source_progress report))
+        [
+          text;
+          "extern I64 F(...);I64 F(I64 n=41){return n+1;}F();";
+          "extern I64 F(...);I64 F(I64 n){if(n)return F(n-1);return 42;}F(100);";
+          "argpop extern I64 F(...);I64 F(I64 n){return n+1;}F(41);";
+          "noargpop extern I64 F(...);I64 F(I64 n){return n+1;}F(41);";
+        ])
+    [
+      (if Sys.win32 then X86_64_program.Windows_x64
+       else X86_64_program.System_v_x64);
+    ];
+  let foreign_abi =
+    if Sys.win32 then X86_64_program.System_v_x64
+    else X86_64_program.Windows_x64
+  in
+  let foreign =
+    run ~with_headers:false ~status_abi:foreign_abi Preprocessor.Jit text
+  in
+  Alcotest.(check bool)
+    "foreign task ABI still rejects before execution" true
+    (match Native.outcome foreign with
+    | Error errors ->
+        List.exists (fun (d : Diagnostic.t) -> d.code = "HCNATIVE0002") errors
+    | Ok _ -> false);
+  Alcotest.(check int)
+    "foreign ABI rejection has no Compiler authority" 0
+    (List.length (Native.compiler_exceptions foreign));
+  let report =
+    run ~with_headers:false Preprocessor.Jit
+      "interrupt extern I64 F(...);I64 F(I64 n){return n+1;}F(41);"
+  in
+  Alcotest.(check bool)
+    "other calling flags still reject" true
+    (match Native.outcome report with
+    | Error errors ->
+        List.exists (fun (d : Diagnostic.t) -> d.code = "HCBACK0002") errors
+    | Ok _ -> false);
+  Alcotest.(check int)
+    "flag rejection cannot forge Compiler" 0
+    (List.length (Native.compiler_exceptions report))
 
 let () =
   Alcotest.run "Native compiler exceptions"
@@ -377,5 +505,8 @@ let () =
             `Quick statement_caught_children;
           Alcotest.test_case "call Compiler producers and nested native catches"
             `Quick call_producers;
+          Alcotest.test_case
+            "retained joined flags use original fixed call frames" `Quick
+            retained_variadic_flags_with_fixed_members;
         ] );
     ]

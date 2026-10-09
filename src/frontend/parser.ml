@@ -7643,38 +7643,18 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     |> Option.fold ~none:false ~some:(fun parameter ->
         parameter.Symbol_visibility.has_default)
   in
-  let reject_unconsumed_default item =
-    report cursor item ~code:"HCPARSE0164"
-      ~message:"implicit output default leaves this argument unconsumed";
-    raise Stop_command
-  in
-  let putchars_later_required =
-    target = Ast.Put_chars_target
-    && Option.fold ~none:false
-         ~some:(fun shape ->
-           List.exists
-             (fun (index, parameter) ->
-               index > 0 && not parameter.Symbol_visibility.has_default)
-             (List.mapi
-                (fun index parameter -> (index, parameter))
-                shape.Symbol_visibility.parameters))
-         selected_shape
-  in
-  let deferred_marker =
-    (not marker_empty) && selected_default 0 && putchars_later_required
-  in
-  if (not marker_empty) && selected_default 0 && not deferred_marker then
-    reject_unconsumed_default marker_item;
+  let deferred_marker = (not marker_empty) && selected_default 0 in
   (* PrsFunCall leaves the current literal untouched when neither the fixed
      traversal nor an enabled variadic traversal asks for an expression.
      PutChars only traverses its variadic tail inside parentheses. *)
   let unconsumed_marker =
-    (not marker_empty)
-    && Option.fold ~none:false
-         ~some:(fun shape ->
-           shape.Symbol_visibility.parameters = []
-           && ((not shape.variadic) || target = Ast.Put_chars_target))
-         selected_shape
+    deferred_marker
+    || (not marker_empty)
+       && Option.fold ~none:false
+            ~some:(fun shape ->
+              shape.Symbol_visibility.parameters = []
+              && ((not shape.variadic) || target = Ast.Put_chars_target))
+            selected_shape
   in
   let marker_expression : parsed_expression =
     match (marker_item.token.Token.kind, marker_item.token.value) with
@@ -7757,13 +7737,6 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                  && initial_item.token.kind = Token_kind.Punctuation ';'))
          selected_shape
   in
-  if
-    (omitted_initial || (no_values && not unconsumed_marker))
-    && Option.is_none opening_parenthesis
-    && (not putchars_later_required)
-    && initial_item.token.kind <> Token_kind.Punctuation ';'
-    && initial_item.token.kind <> Token_kind.Punctuation ','
-  then reject_unconsumed_default initial_item;
   let initial_omissions =
     if omitted_initial then
       [
@@ -7775,10 +7748,8 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   let fixed_argument =
     if omitted_initial || no_values then
       Some (Ast.Absent_fixed_argument, fixed_prefix)
-    else if empty_marker then (
+    else if empty_marker then
       let next_item = peek cursor in
-      if selected_default 0 && Option.is_none opening_parenthesis then
-        reject_unconsumed_default next_item;
       match next_item.token.kind with
       | Token_kind.Punctuation (';' | ',') | Token_kind.Eof ->
           let target_name =
@@ -7798,7 +7769,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
             ~depth:0 ~minimum_binding_power:0
           |> Option.map (fun (expression : parsed_expression) ->
               ( Ast.Expression_fixed_argument expression.node,
-                fixed_prefix @ expression.tokens )))
+                fixed_prefix @ expression.tokens ))
     else
       parse_expression_tail cursor ~parenthesis_phase:(new_parenthesis_phase ())
         ~context:Implicit_output_argument_expression ~depth:0
@@ -7813,10 +7784,9 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
       None
   | Some (fixed_argument, fixed_tokens) -> (
       let completed_fixed_call =
-        (omitted_initial || no_values)
-        && Option.fold ~none:false
-             ~some:(fun shape -> not shape.Symbol_visibility.variadic)
-             selected_shape
+        Option.fold ~none:false
+          ~some:(fun shape -> not shape.Symbol_visibility.variadic)
+          selected_shape
       in
       let rec parse_print_arguments position arguments_rev omissions_rev
           tokens_rev =
@@ -7852,14 +7822,6 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
           in
           match parameter with
           | Some parameter when parameter.Symbol_visibility.has_default ->
-              if
-                item.token.kind <> Token_kind.Punctuation ','
-                && item.token.kind <> Token_kind.Punctuation ';'
-              then reject_unconsumed_default item;
-              if
-                argument_item.token.kind <> Token_kind.Punctuation ','
-                && argument_item.token.kind <> Token_kind.Punctuation ';'
-              then reject_unconsumed_default argument_item;
               let omission =
                 Ast.make_implicit_output_omission ~parameter_index:position
                   ~leading_comma:
@@ -8054,6 +8016,9 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
               let parsed =
                 match pending_marker with
                 | Some marker ->
+                    (* Defaults have not consumed the literal. Only the first
+                       required PutChars formal starts its expression here. *)
+                    ignore (take cursor);
                     parse_expression_tail cursor
                       ~parenthesis_phase:(new_parenthesis_phase ())
                       ~context:Implicit_output_argument_expression ~depth:0

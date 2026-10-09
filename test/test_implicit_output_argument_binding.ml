@@ -4,8 +4,9 @@ let checked = Test_function_call_conversion_policy.checked
 let prepare = Test_function_call_conversion_policy.prepare
 
 (* Build legacy AST input without a parser-visible header so semantic arity
-   diagnostics remain covered after source parsing rejects missing arguments. *)
-let prepare_legacy_missing ~path ~body =
+   diagnostics remain covered independently of captured source traversal. *)
+let prepare_legacy_arity ?(header = "extern U0 Print(U8 *fmt,I64 value);") ~path
+    ~body () =
   let module P = Test_function_call_conversion_policy in
   let session = Session.create () in
   let parse suffix contents =
@@ -16,7 +17,7 @@ let prepare_legacy_missing ~path ~body =
     |> P.expect_ast
   in
   let body = parse "-body.HC" body in
-  let header = parse "-header.HC" "extern U0 Print(U8 *fmt,I64 value);" in
+  let header = parse "-header.HC" header in
   let ast =
     Ast.make_module ~source:body.source ~span:body.span
       ~items:(header.items @ body.items)
@@ -307,8 +308,8 @@ let defaults_keep_omissions_and_mode_materialization () =
 
 let missing_required_parameter () =
   let prepared =
-    prepare_legacy_missing ~path:"implicit-output-missing-fixed"
-      ~body:"I64 Caller(){\"value\";return 0;}"
+    prepare_legacy_arity ~path:"implicit-output-missing-fixed"
+      ~body:"I64 Caller(){\"value\";return 0;}" ()
   in
   let inputs =
     semantic_inputs prepared (environment prepared Preprocessor.Jit [])
@@ -331,8 +332,9 @@ let missing_required_parameter () =
 
 let nonvariadic_extra_argument () =
   let prepared =
-    prepare ~path:"implicit-output-extra-fixed.HC"
-      "extern U0 Print(U8 *fmt);\nI64 Caller(){\"value\",1;return 0;}"
+    prepare_legacy_arity ~header:"extern U0 Print(U8 *fmt);"
+      ~path:"implicit-output-extra-fixed.HC"
+      ~body:"I64 Caller(){\"value\",1;return 0;}" ()
   in
   let inputs =
     semantic_inputs prepared (environment prepared Preprocessor.Jit [])
