@@ -867,6 +867,7 @@ type function_parameter_publication = {
   parameter_pointer_layers : Ast.pointer_layer list;
   parameter_name : Ast.identifier option;
   parameter_function_pointer : Ast.function_pointer_declarator option;
+  parameter_default_equals : Ast.location option;
   parameter_activity : function_parameter_activity;
 }
 
@@ -1112,6 +1113,7 @@ type callback_parameter_publication = {
   callback_parameter_pointer_layers : Ast.pointer_layer list;
   callback_parameter_name : Ast.identifier option;
   callback_parameter_function_pointer : Ast.function_pointer_declarator option;
+  callback_parameter_default_equals : Ast.location option;
   callback_parameter_activity : function_parameter_activity;
 }
 
@@ -2273,6 +2275,15 @@ let unaudit_expression cursor =
 
 let audit_identifier_operand cursor item =
   match item.selection with
+  | Some (_, Symbol_visibility.Absent) ->
+      (* PrsUnaryTerm checks the original Lex hash/local selection at line 812
+         before consuming the identifier. Later input and reference consumers
+         must not replace this producer or supply a declaration retroactively. *)
+      matched_lex_except ?call_phase:cursor.expression_call_phase cursor item
+        ~code:"HCPARSE0174"
+        ~message:
+          (Printf.sprintf "invalid lval: unresolved identifier %S"
+             item.token.raw)
   | Some (_, Symbol_visibility.Shadowed_by_local) -> ()
   | Some (_, Symbol_visibility.Present entry)
     when Symbol_visibility.kind entry = Symbol_visibility.Function -> ()
@@ -6604,6 +6615,11 @@ let finish_function_parameter ?default_context ?callback_context cursor
   (* PrsType leaves the following token current. Native MemberAdd precedes
      default input, including any directive reached by Lex beyond '='. *)
   let following_head = peek cursor in
+  let default_equals =
+    if following_head.token.kind = Token_kind.Punctuation '=' then
+      Some (token_location following_head.token)
+    else None
+  in
   let publication =
     Option.map
       (fun (parameter_function, parameter_index, _, completions) ->
@@ -6618,6 +6634,7 @@ let finish_function_parameter ?default_context ?callback_context cursor
             parameter_pointer_layers = pointer_layers;
             parameter_name = name;
             parameter_function_pointer = function_pointer;
+            parameter_default_equals = default_equals;
             parameter_activity = { function_parameter_active = true };
           }
         in
@@ -6648,6 +6665,7 @@ let finish_function_parameter ?default_context ?callback_context cursor
             callback_parameter_pointer_layers = pointer_layers;
             callback_parameter_name = name;
             callback_parameter_function_pointer = function_pointer;
+            callback_parameter_default_equals = default_equals;
             callback_parameter_activity = { function_parameter_active = true };
           }
         in
@@ -8740,6 +8758,12 @@ let parse_return_statement cursor ~boundary : parsed_statement option =
               build (Some value.node) value.tokens semicolon terminator_tokens))
 
 let parse_expression_statement cursor ~boundary : parsed_statement option =
+  (match ((peek cursor).selection, (peek cursor).token.kind) with
+  | Some (_, Symbol_visibility.Absent), Token_kind.Identifier ->
+      (* An unresolved statement start enters PrsStmt's separate label grammar.
+         Lookahead publication cannot turn it into an audited operand phase. *)
+      unaudit_expression cursor
+  | _ -> ());
   match
     parse_expression cursor ~context:Statement_expression ~depth:0
       ~minimum_binding_power:0

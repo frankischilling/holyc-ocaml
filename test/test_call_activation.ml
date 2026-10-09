@@ -29,6 +29,12 @@ let fixture () =
   ignore
     (Symbol_visibility.Environment.add (Session.symbols session) ~name:"F"
        ~kind:Symbol_visibility.Function ());
+  List.iter
+    (fun name ->
+      ignore
+        (Symbol_visibility.Environment.add (Session.symbols session) ~name
+           ~kind:Symbol_visibility.Global_variable ()))
+    [ "x"; "y" ];
   {
     session;
     namespace;

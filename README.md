@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+Unknown identifiers used as expression operands now fail at the original
+lexer selection, before a later directive, declaration or lexer error can run.
+The counted `Compiler` cause and owned expression cleanup survive a caught
+`StreamExePrint` child in IR and native tasks. Reached output and declarations
+remain available. See [compiler exceptions](docs/compiler-exceptions.md).
+
 The bounded source pipeline now emits JIT joined-header warnings before body
 parsing, using original saved members and evaluated defaults. It also emits
 unused-local and unneeded-`no_warn` diagnostics using each function's reached

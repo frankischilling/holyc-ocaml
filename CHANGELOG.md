@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Match the original unknown-identifier operand failure before consuming its
+  token or invoking a reference consumer. Saved-input catches retain the
+  original counted cause and expression cleanup, reached output and
+  declarations in IR and native tasks. Ordinary unresolved statement syntax,
+  export flags and earlier unaudited expression phases remain unfinished.
+  JIT parameter declarations activate original task replay before default input,
+  preserving earlier command output when a default operand fails.
+
 - Fixed native resource collection deadlocks exposed by the stable output
   buffers on OCaml 5.3. Custom finalizers detach owners into a lock-free queue;
   native mutator entries remove their roots and release mappings afterward.

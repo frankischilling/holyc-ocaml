@@ -214,6 +214,31 @@ Compiler throws, runtime Break and the native exception machinery remain open.
 
 ## Expression failures and cleanup
 
+An expression operand whose original lexer selection has neither a local nor
+a hash entry reaches `PrsUnaryTerm`'s invalid-lval check at `PrsExp.HC:810-812`.
+`HCPARSE0174` retains that identifier without consuming it or invoking the
+reference consumer. The owned outer expression then records its cleanup, for
+two error increments at the same token. A later declaration, directive, call
+delimiter or lexer failure cannot replace this earlier producer. The ordinary
+lexer treats `@` as an identifier, following `Lex.HC:462-472`.
+
+Source fixtures cover unary, binary and grouped operands, macros, function
+bodies, direct and implicit arguments, end of input and unread later failures.
+Both outer modes catch these failures in saved JIT inputs through IR and native
+tasks. Reached declarations survive and a later independent child can declare
+the missing name. The representation parser retains unbound identifier syntax
+without creating a Compiler receipt. Unknown names at ordinary statement starts
+still follow their separate label/declaration grammar. Export resolution,
+assembly expressions and earlier unaudited pointer, member or assignment
+phases remain outside this match.
+
+Original named and callback parameter publications retain the default `=`
+location while their member declaration is live. An ordinary JIT source task
+activates there, before reading the default input, following `PrsVar.HC:628-634`.
+Earlier completed commands therefore execute before an invalid default operand
+or a later lexer failure. Default completion retains its separate saved-value
+and execution authority; the `=` location cannot supply a completed default.
+
 `PrsExpression` pushes two terminators before entering `PrsExpression2`
 (`PrsExp.HC:264-303`). It catches an original Compiler failure, then calls
 `LexExcept` again when its owned stack remains nonempty. The missing-operand
@@ -276,7 +301,8 @@ collection, foreign domains and copied receipts. Reached child output survives;
 later runtime and output-limit failures still propagate. The representation
 parser issues no Compiler receipts. Unmatched earlier assignment, pointer,
 member, update, class-offset, AOT global-flag and IC type-check phases cannot
-authenticate a later syntax failure. Unknown or unshaped calls, lexer errors and
+authenticate a later syntax failure. Unshaped calls, unresolved statement
+starts, lexer errors and
 arbitrary callback diagnostics also remain outside this expression match. Native exception stacks,
 terminal formatting and the remaining original expression producers are still
 required.

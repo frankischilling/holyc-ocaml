@@ -35,7 +35,7 @@ let reached_failures () =
         (integer_program_report_task_units report <> []))
     [
       ("HCPARSE0127", {|#exe {Print("A");}I64 Broken=;|});
-      ("HCRUN0003", {|#exe {Print("A");}40+Missing;|});
+      ("HCPARSE0174", {|#exe {Print("A");}40+Missing;|});
       ("HCIRVM0009", {|#exe {Print("A");StreamPrint("discard");1/0;}|});
       ("HCIRVM0009", {|#exe {Print("A");}1/0;|});
     ]
@@ -46,10 +46,10 @@ let namespace_separation () =
     |> Output.expect "A");
   ignore
     (run {|I64 N=40;#exe {1+N+#exe {Print("late");}2;}|}
-    |> Output.fault "HCRUN0003");
+    |> Output.fault "HCPARSE0174");
   ignore
     (run {|I64 F(){I64 N=40;#exe {1+N+#exe {Print("late");}2;}}|}
-    |> Output.fault "HCRUN0003")
+    |> Output.fault "HCPARSE0174")
 
 let inactive_text () =
   List.iter
@@ -187,11 +187,11 @@ let outer_read_timing () =
       Alcotest.(check string)
         "outer unavailable read prevents later directive effects" output
         (integer_program_report_output_bytes report);
-      ignore (Output.fault ~output "HCRUN0003" report))
+      ignore (Output.fault ~output "HCPARSE0174" report))
     [ ("", ""); ({|#exe {Print("A");}|}, "A") ]
 
 let earlier_read_precedes_bad_opener () =
-  ignore (run {|40+Missing #exe 42|} |> Output.fault "HCRUN0003")
+  ignore (run {|40+Missing #exe 42|} |> Output.fault "HCPARSE0174")
 
 let inactive_generation_budget () =
   let report =

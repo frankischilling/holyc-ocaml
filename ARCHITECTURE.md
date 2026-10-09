@@ -1,5 +1,17 @@
 # holyc-ocaml architecture
 
+The executable expression parser checks an operand identifier's original
+lexer selection before consuming it or invoking reference consumers. An absent
+local/hash selection issues the private counted `Compiler` cause at
+`PrsExp.HC:810-812`; its owned expression scope supplies the cleanup cause chain.
+Existing suspended-input preflight authenticates the complete chain before a
+saved child catch. Representation parsing retains unbound identifier syntax.
+Named and callback parameter publications capture their original default `=`
+location. JIT activation replays reached commands at that live member boundary,
+before the default's next lexer read; completion and saved-value authority
+remain separate.
+See [compiler exceptions](docs/compiler-exceptions.md).
+
 `Hosted.Native_source_execution` freezes a separate directive task before AOT
 module publication. `Hosted.Native_program` supplies the original outer parser
 and checked module compiler; its stream adapter executes only original task

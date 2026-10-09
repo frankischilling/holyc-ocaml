@@ -91,7 +91,7 @@ let early_reference_reads () =
       Alcotest.(check string)
         "read error precedes the following directive" ""
         (Task.output_bytes task);
-      rejected "HCRUN0003" parsed)
+      rejected "HCPARSE0174" parsed)
     [
       {|#exe {40+Missing #exe {Print("late");};}|};
       {|I64 N=40;#exe {1+N+#exe {Print("late");}2;}|};

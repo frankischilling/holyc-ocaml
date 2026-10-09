@@ -2114,6 +2114,61 @@ let expression_phase_receipts () =
           ("class C{I64 n;};(C)42;", "HCPARSE0029", "C");
         ];
       List.iter
+        (fun text ->
+          let session, source, config = inputs mode text in
+          let seen = ref [] and counts = ref [] and references = ref [] in
+          let commands =
+            {
+              (command_sink ()) with
+              Parser.reference =
+                Some
+                  (fun selection ->
+                    references :=
+                      (Parser.selected_identifier selection).Ast.spelling
+                      :: !references;
+                    Ok ());
+            }
+          in
+          let parsed =
+            parse ~commands
+              ~compiler_exception:(fun exception_ ->
+                counts :=
+                  (Parser.context_error_count
+                     (Parser.compiler_exception_context exception_)
+                  |> Result.get_ok)
+                  :: !counts;
+                seen := exception_ :: !seen)
+              session source config
+          in
+          Alcotest.(check (list int64))
+            "identifier and owned cleanup increment original fields" [ 1L; 2L ]
+            (List.rev !counts);
+          expression_receipt ~code:"HCPARSE0174" ~marker:"Unknown" text
+            parsed.diagnostics (List.rev !seen);
+          Alcotest.(check (list string))
+            "absent operand throws before its reference consumer" [] !references)
+        [
+          "1+Unknown;";
+          "1+Unknown";
+          "1+Unknown #error unread\n;";
+          "1+Unknown #exe {1/0;};";
+          "1+Unknown;I64 Unknown=42;";
+          "(Unknown(1,));";
+        ];
+      let session, source, config = inputs mode "1+Unknown;" in
+      let seen = ref [] in
+      let represented =
+        parse
+          ~compiler_exception:(fun x -> seen := x :: !seen)
+          session source config
+      in
+      Alcotest.(check bool)
+        "representation retains unbound identifier syntax" true
+        (Option.is_some represented.ast);
+      Alcotest.(check int)
+        "representation has no identifier Compiler authority" 0
+        (List.length !seen);
+      List.iter
         (fun (_, text) ->
           let session, source, config = inputs mode text in
           let seen = ref [] in
@@ -2163,7 +2218,13 @@ let expression_phase_receipts () =
             (Option.is_none parsed.ast);
           Alcotest.(check int)
             "callback text grants no cleanup authority" 0 (List.length !seen))
-        [ "HCPARSE0018"; "HCPARSE0173"; "HCPARSE0019"; "HCPARSE0029" ])
+        [
+          "HCPARSE0018";
+          "HCPARSE0173";
+          "HCPARSE0019";
+          "HCPARSE0029";
+          "HCPARSE0174";
+        ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let expression_source_execution () =
@@ -2335,26 +2396,30 @@ let expression_source_execution () =
         "later runtime error retains child output" "kept"
         (integer_program_report_output_bytes report);
       List.iter
-        (fun (limit, expected_count, output) ->
-          let session, source, config =
-            inputs mode
-              ((if mode = Preprocessor.Jit then Cases.headers else "")
-              ^ Cases.expression_quota_after_catch)
-          in
-          let report =
-            run_integer_program_report session ~source ~config
-              ~max_steps:100_000 ~max_output_bytes:limit
-          in
-          Alcotest.(check bool)
-            "output quota remains failed" true
-            (Result.is_error (integer_program_report_outcome report));
-          Alcotest.(check int)
-            "quota preserves only reached producers" expected_count
-            (List.length (integer_program_report_compiler_exceptions report));
-          Alcotest.(check string)
-            "quota preserves reached child bytes" output
-            (integer_program_report_output_bytes report))
-        [ (3, 0, ""); (4, 2, "kept") ])
+        (fun text ->
+          List.iter
+            (fun (limit, expected_count, output) ->
+              let session, source, config =
+                inputs mode
+                  ((if mode = Preprocessor.Jit then Cases.headers else "")
+                  ^ text)
+              in
+              let report =
+                run_integer_program_report session ~source ~config
+                  ~max_steps:100_000 ~max_output_bytes:limit
+              in
+              Alcotest.(check bool)
+                "output quota remains failed" true
+                (Result.is_error (integer_program_report_outcome report));
+              Alcotest.(check int)
+                "quota preserves only reached producers" expected_count
+                (List.length
+                   (integer_program_report_compiler_exceptions report));
+              Alcotest.(check string)
+                "quota preserves reached child bytes" output
+                (integer_program_report_output_bytes report))
+            [ (3, 0, ""); (4, 2, "kept") ])
+        Cases.expression_quota_after_catch)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let tests =

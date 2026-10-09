@@ -2,7 +2,9 @@
 
 Owned expression cleanup follows `Compiler/PrsExp.HC:264-303`: push two
 terminators, catch Compiler, then issue another `LexExcept` if the owned stack
-is still nonempty. The missing-operand producer is at line 957. Original type
+is still nonempty. The missing-operand producer is at line 957. An identifier
+without an original local or hash selection throws before Lex at `810-812`;
+the ordinary at-sign identifier lexer branch is at `Lex.HC:462-472`. Original type
 selection after `(` and the grouped close check are at `729-744`; lexer local
 shadows suppress hash lookup at `Lex.HC:493-513`. These producers retain the
 current token and original argument phase before owned cleanup. Ordinary nested
@@ -15,6 +17,12 @@ the original argument phase and abort chain. See
 [compiler exceptions](compiler-exceptions.md) for source tests and the remaining
 type-check, exception and terminal boundaries. These are hosted observations,
 with no new TempleOS runtime capture.
+
+Default input starts after the original parameter member allocation at
+`Compiler/PrsVar.HC:624-634`. Named and callback parameter publications retain
+their original `=` location at this live boundary. JIT task activation replays
+earlier commands before the default lexer read; it supplies no saved-value
+completion.
 
 Native AOT orchestration follows `Compiler/PrsStmt.HC:805-840`: switch `#exe`
 to task tables and JIT flags, hide surrounding locals, restore the original

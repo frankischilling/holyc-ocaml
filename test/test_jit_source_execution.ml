@@ -93,7 +93,7 @@ let reached_failures () =
       );
       ("HCIRVM0009", {|#exe {Print("A");}1/0;|});
       ("HCPARSE0127", {|#exe {Print("A");}I64 Broken=;|});
-      ("HCRUN0003", {|#exe {Print("A");}40+Missing;|});
+      ("HCPARSE0174", {|#exe {Print("A");}40+Missing;|});
     ]
 
 let limits () =
@@ -365,7 +365,7 @@ let ordinary_default_failures () =
       ( "HCIRVM0009",
         {|I64 Bad(I64 d){return 1/d;};I64 F(I64 x=Bad(0)){return x;};Print("late");|}
       );
-      ("HCRUN0003", {|I64 F(I64 x=Missing){return x;};Print("late");|});
+      ("HCPARSE0174", {|I64 F(I64 x=Missing){return x;};Print("late");|});
       ( "HCRUN0006",
         {|I64 G(U8 *s){return 42;};I64 F(I64 x=G("value")){return x;};Print("late");|}
       );
@@ -406,7 +406,7 @@ let original_read_timing () =
        {|I64 N=0;I64 F(I64 x=F(#exe {N=42;Print("late");StreamPrint("1");})){return x;};|}
     |> Output.fault ~output:"late" "HCPARSE0025");
   List.iter
-    (fun source -> ignore (run source |> Output.fault "HCRUN0003"))
+    (fun source -> ignore (run source |> Output.fault "HCPARSE0174"))
     [
       {|I64 F(){return Future;}#exe {Print("late");I64 Future=42;}F();|};
       {|I64 F(){I64 N=40;#exe {StreamPrint("%d;",N+2);}return 42;};F();|};

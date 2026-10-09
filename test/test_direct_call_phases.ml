@@ -16,11 +16,17 @@ let shape defaults : Symbol_visibility.function_call_shape =
   }
 
 let parse ?(on_enter = fun () -> ()) ?(reference = fun _ -> Ok ())
-    ?selected_shape call source =
+    ?(variables = []) ?selected_shape call source =
   let session = Session.create () in
   ignore
     (Symbol_visibility.Environment.add (Session.symbols session) ~name:"F"
        ~kind:Symbol_visibility.Function ?function_call_shape:selected_shape ());
+  List.iter
+    (fun name ->
+      ignore
+        (Symbol_visibility.Environment.add (Session.symbols session) ~name
+           ~kind:Symbol_visibility.Global_variable ()))
+    variables;
   let commands : Parser.command_sink =
     {
       lexical_lookup = None;
@@ -254,7 +260,7 @@ let ordinary_address_cast () =
   in
   let address =
     Test_parser.expect_prefix_expression
-      (expression (parse call "&value(I64);"))
+      (expression (parse ~variables:[ "value" ] call "&value(I64);"))
   in
   Alcotest.(check bool)
     "ordinary address keeps unary precedence" true

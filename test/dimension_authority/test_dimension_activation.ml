@@ -75,6 +75,10 @@ let pending_dimension_manifest () =
   List.iter
     (fun (contents, runtime_dependent, revoke) ->
       let session = Session.create () in
+      if runtime_dependent then
+        ignore
+          (Symbol_visibility.Environment.add (Session.symbols session) ~name:"N"
+             ~kind:Symbol_visibility.Global_variable ());
       let table = Session.semantic_symbols session in
       let namespace = C.create_namespace ~table () |> checked in
       let runtime = VM.create_task_state ~table () |> checked in

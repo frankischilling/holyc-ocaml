@@ -1,5 +1,11 @@
 # holyc-ocaml roadmap
 
+Issue #47 now matches the original absent identifier check for expression
+operands. IR and native saved inputs retain its counted cause, owned cleanup
+and reached effects in either outer mode. Unresolved statement starts, export
+flags, assembly expression paths and the remaining original expression
+producers remain open. See [compiler exceptions](docs/compiler-exceptions.md).
+
 Issue #704 now connects native AOT source sessions: original JIT `#exe` tasks
 generate source during parsing, and a distinct native module runs afterward.
 Instructions, output, preparation, defaults, code and storage stay bounded
