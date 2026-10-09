@@ -340,46 +340,115 @@ let call_successes =
    calls, while PrsStmt passes NULL for implicit output. Completed implicit
    arguments therefore do not leave a stack for a later delimiter failure. *)
 let call_error_count code =
-  if code = "HCPARSE0024" || code = "HCPARSE0025" || code = "HCPARSE0018" then 2
+  if
+    List.mem code
+      [
+        "HCPARSE0024";
+        "HCPARSE0025";
+        "HCPARSE0018";
+        "HCPARSE0019";
+        "HCPARSE0029";
+      ]
+  then 2
   else 1
 
 (* PrsUnaryTerm's missing expression and the owned PrsExpression cleanup both
    retain the same token. Grouping and nested calls borrow the outer stack. *)
 let expression_failures =
   [
-    ("binary operand", "1+;", ";");
-    ("grouped operand", "(1+;", ";");
-    ("unary operand", "-;", ";");
-    ("fixed call operand", "I64 F(I64 a,I64 b){return a+b;}F(1,);", ")");
-    ("nested call operand", "I64 F(I64 a,I64 b){return a+b;}F(1,F(2,));", ")");
-    ("implicit Print operand", "extern U0 Print(U8 *fmt,...);\"text\",1+;", ";");
-    ("implicit PutChars operand", "extern U0 PutChars(I64 n);''(1+;", ";");
-    ("empty Print required operand", "extern U0 Print(U8 *fmt,...);\"\";", ";");
+    ("binary operand", "1+;", "HCPARSE0018", ";");
+    ("grouped operand", "(1+;", "HCPARSE0018", ";");
+    ("unary operand", "-;", "HCPARSE0018", ";");
+    ( "fixed call operand",
+      "I64 F(I64 a,I64 b){return a+b;}F(1,);",
+      "HCPARSE0018",
+      ")" );
+    ( "nested call operand",
+      "I64 F(I64 a,I64 b){return a+b;}F(1,F(2,));",
+      "HCPARSE0018",
+      ")" );
+    ( "implicit Print operand",
+      "extern U0 Print(U8 *fmt,...);\"text\",1+;",
+      "HCPARSE0018",
+      ";" );
+    ( "implicit PutChars operand",
+      "extern U0 PutChars(I64 n);''(1+;",
+      "HCPARSE0018",
+      ";" );
+    ( "empty Print required operand",
+      "extern U0 Print(U8 *fmt,...);\"\";",
+      "HCPARSE0018",
+      ";" );
     ( "Print required variadic operand",
       "extern U0 Print(U8 *fmt,...);\"text\",;",
+      "HCPARSE0018",
       ";" );
     ( "PutChars required parenthesized operand",
       "extern U0 PutChars(I64 a,I64 b);''(1,);",
+      "HCPARSE0018",
       ")" );
     ( "PutChars required unparenthesized operand",
       "extern U0 PutChars(I64 a,I64 b);'A';",
+      "HCPARSE0018",
       ";" );
     ( "Print required fixed tail",
       "extern U0 Print(U8 *fmt,I64 n);\"text\";",
+      "HCPARSE0018",
       ";" );
+    ("group closing delimiter", "(1;", "HCPARSE0019", ";");
+    ("nested borrowed group", "((1;", "HCPARSE0019", ";");
+    ("wrong group closing token", "(1 2);", "HCPARSE0019", "2");
+    ( "group before unread directive",
+      "(1 2 #exe {Print(\"skipped\");});",
+      "HCPARSE0019",
+      "2" );
+    ("group at end of input", "(1", "HCPARSE0019", "");
+    ("group before wrong bracket", "(1];", "HCPARSE0019", "]");
+    ( "group in direct argument",
+      "I64 F(I64 n){return n;}F((1;",
+      "HCPARSE0019",
+      ";" );
+    ( "group in implicit argument",
+      "extern U0 Print(U8 *fmt,...);\"text\",(1;",
+      "HCPARSE0019",
+      ";" );
+    ("primitive prefix cast", "(I64)42;", "HCPARSE0029", "I64");
+    ("internal prefix cast", "(I64i)42;", "HCPARSE0029", "I64i");
+    ("named prefix cast", "class C{I64 n;};(C)42;", "HCPARSE0029", "C");
+    ("nested prefix cast", "((I64)42);", "HCPARSE0029", "I64");
+    ( "cast in direct argument",
+      "I64 F(I64 n){return n;}F((I64)42);",
+      "HCPARSE0029",
+      "I64" );
+    ( "cast in implicit argument",
+      "extern U0 Print(U8 *fmt,...);\"text\",(I64)42;",
+      "HCPARSE0029",
+      "I64" );
+    ( "cast before unread lexer failure",
+      "(I64 #error skipped\n)42;",
+      "HCPARSE0029",
+      "I64" );
+    ( "cast before unread directive",
+      "(I64 #exe {Print(\"skipped\");})42;",
+      "HCPARSE0029",
+      "I64" );
   ]
 
 let expression_caught_children =
   List.map
-    (fun (label, text, marker) ->
+    (fun (label, text, code, marker) ->
       let tail, output =
         if label = "Print required fixed tail" then ("PutChars('A');", "keptA")
         else ("Print(\"after\");", "keptafter")
       in
       ( label,
         Printf.sprintf "#exe {StreamExePrint(%S);%s}42;"
-          ("Print(\"kept\");" ^ text ^ "Print(\"skipped\");")
+          ("Print(\"kept\");" ^ text
+          ^
+          if label = "group at end of input" then "" else "Print(\"skipped\");"
+          )
           tail,
+        code,
         marker,
         output ))
     expression_failures
@@ -391,7 +460,21 @@ let expression_successes =
     ( "nested borrowed call stacks",
       "I64 F(I64 a,I64 b){return a+b;}F(1,F(20,21));",
       42L );
+    ("nested groups", "((42));", 42L);
+    ("internal postfix cast stays valid", "42(I64i);", 42L);
+    ("function shadows type", "I64 U64(){return 42;}(U64);", 42L);
+    ("local shadows type", "I64 F(I64 U64){return (U64);}F(42);", 42L);
+    ("global shadows type", "I64 U64=42;(U64);", 42L);
   ]
+
+(* Valid public postfix casts parse and execute in IR; their native emission
+   remains an explicit backend boundary, without a Compiler exception. *)
+let expression_public_postfix_cast = "42(I64);"
+
+(* The outer native AOT module rejects a general class declaration before its
+   later prefix-cast token. A saved child still parses in its original JIT task. *)
+let expression_native_aot_earlier_error label =
+  if label = "named prefix cast" then Some "HCRUN0001" else None
 
 (* These reports have no audited LexExcept producer. Their text must not be
    promoted to Compiler by expression cleanup. *)
@@ -413,12 +496,19 @@ let expression_noncompiler_failures =
     ("assignment before later return", "{1=2;return 42;}");
     ("indexing before later break", "{1[1];break;}");
     ("earlier class offset phase", "class C{I64 n;};1+C+;");
+    ("unknown grouped operand", "(Unknown;");
+    ("invalid assignment before group close", "(1=2;");
+    ("literal indexing before group close", "(1[1];");
+    ("dereference before group close", "(*1;");
+    ("invalid assignment before prefix cast", "1=(I64)42;");
+    ("lexer failure before group close", "(1 #error reached\n;");
   ]
 
 let expression_aot_noncompiler_failures =
   [ ("earlier AOT extern-global phase", "extern I64 G;1+G+;") ]
 
 let expression_nested_directive = "1+#exe {1+;}2;"
+let expression_reached_group_directive = "(1 #exe {Print(\"reached\");};"
 
 let expression_uncaught_children =
   List.map

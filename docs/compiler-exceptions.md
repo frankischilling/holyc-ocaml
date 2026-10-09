@@ -223,6 +223,31 @@ token without another lexer read. `HCPARSE0018` identifies the missing operand;
 `HCPARSE0173` identifies the original nonempty-stack cleanup and retains the
 exact first receipt as its cause.
 
+Grouped closing delimiters and prefix type names reach the original checks in
+`PrsUnaryTerm` at `PrsExp.HC:729-744`. After the lexer consumes `(`, a selected
+Class or Internal_type throws at that type token, before reading a closing
+parenthesis, directive or lexer error. Selection follows the original token;
+local, function and global-variable shadows do not become types because their
+spellings match. A completed borrowed inner expression leaves its current token
+for the closing-parenthesis check. `HCPARSE0029` and `HCPARSE0019` identify these
+producers, each followed by one owned-stack cleanup. Nested groups add no extra
+counted producer. Both retain the original argument phase when inside a call.
+
+Tests cover intrinsic and public types, named classes, nested groups, EOF,
+ordinary and implicit arguments, original shadows, and unread later failures.
+A directive already reached while reading the inner expression keeps its output
+before the group-close failure. Earlier unsupported operands, lval/modifier
+phases, lexer faults and callback diagnostics still cannot acquire a later
+Compiler receipt. Completed groups leave only the subsequent statement check.
+The postfix control `42(I64i)` executes in both backends. The standalone
+`42(I64)` control executes in IR and rejects explicitly in native emission;
+that backend failure has no Compiler authority. Callable and owned-code paths
+retain their existing public-type admission.
+The outer native AOT module still rejects general class declarations before a
+later type rejection. That unreached producer has no Compiler receipt. Named
+types are checked in IR, ordinary native JIT and saved JIT children in both
+outer modes.
+
 Grouped expressions and ordinary nested call arguments borrow the outer stack.
 They produce one cleanup at its owner. Implicit Print and PutChars arguments
 start with no supplied stack, following `PrsStmt.HC:1200-1204` and

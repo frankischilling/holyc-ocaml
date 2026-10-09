@@ -398,6 +398,8 @@ let arbitrary_diagnostics () =
       ("HCPARSE0052", "expected '(' after 'if', but found integer");
       ("HCPARSE0018", "expected expression, but found ';'");
       ("HCPARSE0173", "compiler expression stack is nonempty after Compiler");
+      ("HCPARSE0019", "expected ')' to close expression");
+      ("HCPARSE0029", "C-style cast syntax is not valid HolyC");
     ]
 
 let source_failures () =
@@ -1566,6 +1568,18 @@ let call_phase_receipts () =
           ("F(1;", shape 1 false, "HCPARSE0025", ";", false);
           ("F(1);", shape 0 false, "HCPARSE0025", "1", false);
           ("F(1,);", shape 2 false, "HCPARSE0018", ")", false);
+          ("F((1;", shape 1 false, "HCPARSE0019", ";", false);
+          ("F((I64)42);", shape 1 false, "HCPARSE0029", "I64", false);
+          ( "extern U0 Print(U8 *fmt,...);\"text\",(1;",
+            shape 1 true,
+            "HCPARSE0019",
+            ";",
+            true );
+          ( "extern U0 Print(U8 *fmt,...);\"text\",(I64)42;",
+            shape 1 true,
+            "HCPARSE0029",
+            "I64",
+            true );
           ( "extern U0 Print(U8 *fmt,...);\"text\"}",
             shape 1 true,
             "HCPARSE0167",
@@ -1606,7 +1620,12 @@ let call_phase_receipts () =
           Alcotest.(check int)
             "unshaped delimiters and missing operands cannot forge Compiler" 0
             (List.length !seen))
-        [ ("F(1 2);", None); ("F(1+;", None) ])
+        [
+          ("F(1 2);", None);
+          ("F(1+;", None);
+          ("F((1;", None);
+          ("F((I64)42);", None);
+        ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let zero_argument_marker_phases () =
@@ -1948,6 +1967,12 @@ let failed_call_shape_ownership () =
       (0, "extern I64 F(I64 a,I64 b);F(1,);");
       (1, "extern I64 F(I64 a,I64 b);F(1,);");
       (2, "extern I64 F(I64 a,I64 b);F(1,);");
+      (0, "extern I64 F(I64 n);F((1;");
+      (1, "extern I64 F(I64 n);F((1;");
+      (2, "extern I64 F(I64 n);F((1;");
+      (0, "extern I64 F(I64 n);F((I64)42);");
+      (1, "extern I64 F(I64 n);F((I64)42);");
+      (2, "extern I64 F(I64 n);F((I64)42);");
     ]
 
 let call_source_execution () =
@@ -2026,7 +2051,7 @@ let expression_phase_receipts () =
   List.iter
     (fun mode ->
       List.iter
-        (fun text ->
+        (fun (text, code, marker) ->
           let session, source, config = inputs mode text in
           let seen = ref [] and counts = ref [] in
           let parsed =
@@ -2057,8 +2082,8 @@ let expression_phase_receipts () =
             (Option.is_none parsed.ast);
           Alcotest.(check (list int64))
             "two original error field increments" [ 1L; 2L ] (List.rev !counts);
-          expression_receipt ~code:"HCPARSE0018" ~marker:";" text
-            parsed.diagnostics (List.rev !seen);
+          expression_receipt ~code ~marker text parsed.diagnostics
+            (List.rev !seen);
           let seen = ref [] in
           let represented =
             parse
@@ -2076,7 +2101,18 @@ let expression_phase_receipts () =
             (List.exists
                (fun (d : Diagnostic.t) -> d.code = "HCPARSE0173")
                represented.diagnostics))
-        [ "1+;"; "(1+;"; "-;" ];
+        [
+          ("1+;", "HCPARSE0018", ";");
+          ("(1+;", "HCPARSE0018", ";");
+          ("-;", "HCPARSE0018", ";");
+          ("(1;", "HCPARSE0019", ";");
+          ("((1;", "HCPARSE0019", ";");
+          ("(1 2);", "HCPARSE0019", "2");
+          ("(1", "HCPARSE0019", "");
+          ("(I64)42;", "HCPARSE0029", "I64");
+          ("(I64i)42;", "HCPARSE0029", "I64i");
+          ("class C{I64 n;};(C)42;", "HCPARSE0029", "C");
+        ];
       List.iter
         (fun (_, text) ->
           let session, source, config = inputs mode text in
@@ -2127,7 +2163,7 @@ let expression_phase_receipts () =
             (Option.is_none parsed.ast);
           Alcotest.(check int)
             "callback text grants no cleanup authority" 0 (List.length !seen))
-        [ "HCPARSE0018"; "HCPARSE0173" ])
+        [ "HCPARSE0018"; "HCPARSE0173"; "HCPARSE0019"; "HCPARSE0029" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let expression_source_execution () =
@@ -2141,15 +2177,15 @@ let expression_source_execution () =
         run_integer_program_report session ~source ~config ~max_steps:100_000
       in
       List.iter
-        (fun (label, text, marker) ->
+        (fun (label, text, code, marker) ->
           let report = run text in
           let diagnostics =
             match integer_program_report_outcome report with
             | Error errors -> errors
             | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
           in
-          expression_receipt ~reported_origin:false ~code:"HCPARSE0018" ~marker
-            label diagnostics
+          expression_receipt ~reported_origin:false ~code ~marker label
+            diagnostics
             (integer_program_report_compiler_exceptions report);
           let session, source, config = inputs mode text in
           let compiled =
@@ -2160,12 +2196,12 @@ let expression_source_execution () =
             | Error errors -> errors
             | Ok _ -> Alcotest.fail (label ^ " unexpectedly compiled")
           in
-          expression_receipt ~reported_origin:false ~code:"HCPARSE0018" ~marker
+          expression_receipt ~reported_origin:false ~code ~marker
             (label ^ " compilation") diagnostics
             (integer_program_compilation_compiler_exceptions compiled))
         Cases.expression_failures;
       List.iter
-        (fun (label, text, marker, output) ->
+        (fun (label, text, code, marker, output) ->
           let report = run text in
           let result =
             match integer_program_report_outcome report with
@@ -2183,7 +2219,7 @@ let expression_source_execution () =
             output
             (integer_program_report_output_bytes report);
           let exceptions = integer_program_report_compiler_exceptions report in
-          expression_receipt ~code:"HCPARSE0018" ~marker label
+          expression_receipt ~code ~marker label
             (List.map Parser.compiler_exception_diagnostic exceptions)
             exceptions)
         Cases.expression_caught_children;
@@ -2204,7 +2240,9 @@ let expression_source_execution () =
             (label ^ " no Compiler producer")
             0
             (List.length (integer_program_report_compiler_exceptions report)))
-        Cases.expression_successes;
+        (Cases.expression_successes
+        @ [ ("public postfix cast", Cases.expression_public_postfix_cast, 42L) ]
+        );
       List.iter
         (fun (label, text) ->
           let report = run text in
@@ -2255,6 +2293,14 @@ let expression_source_execution () =
       nested_expression_receipt "nested directive"
         (integer_program_report_outcome nested |> Result.get_error)
         (integer_program_report_compiler_exceptions nested);
+      let reached = run Cases.expression_reached_group_directive in
+      Alcotest.(check string)
+        "group close retains already reached directive output" "reached"
+        (integer_program_report_output_bytes reached);
+      expression_receipt ~reported_origin:false ~code:"HCPARSE0019" ~marker:";"
+        "group close after directive"
+        (integer_program_report_outcome reached |> Result.get_error)
+        (integer_program_report_compiler_exceptions reached);
       let caught = run Cases.expression_caught_nested_directive in
       Alcotest.(check bool)
         "nested expression cleanup is caught once" true

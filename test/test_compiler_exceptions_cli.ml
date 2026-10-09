@@ -240,7 +240,7 @@ let () =
   List.iter
     (fun mode ->
       List.iter
-        (fun (label, text, _) ->
+        (fun (label, text, code, _) ->
           let report = invoke compiler target mode ~status:1 label text in
           let codes =
             List.filter_map
@@ -249,12 +249,21 @@ let () =
                 if code = "HCRUN0004" then None else Some code)
               (errors report)
           in
-          if codes <> [ "HCPARSE0018"; "HCPARSE0173" ] then
+          let expected =
+            match
+              if target = "host-jit-task" && mode = "aot" then
+                Cases.expression_native_aot_earlier_error label
+              else None
+            with
+            | None -> [ code; "HCPARSE0173" ]
+            | Some earlier_code -> [ earlier_code ]
+          in
+          if codes <> expected then
             failwith (label ^ ": " ^ Yojson.Safe.to_string report);
           incr expression_cases)
         Cases.expression_failures;
       List.iter
-        (fun (label, text, _, output) ->
+        (fun (label, text, _, _, output) ->
           let report = invoke compiler target mode ~status:0 label text in
           caught_value target label output report;
           incr expression_cases)
@@ -265,6 +274,25 @@ let () =
           caught_value target label "" report;
           incr expression_cases)
         Cases.expression_successes;
+      let public_cast =
+        invoke compiler target mode
+          ~status:(if target = "ir" then 0 else 1)
+          "public postfix cast" Cases.expression_public_postfix_cast
+      in
+      if target = "ir" then
+        caught_value target "public postfix cast" "" public_cast
+      else if
+        (not
+           (List.exists
+              (fun d -> d |> member "code" |> to_string = "HCBACK0002")
+              (errors public_cast)))
+        || List.exists
+             (fun d -> d |> member "code" |> to_string = "HCPARSE0173")
+             (errors public_cast)
+      then
+        failwith
+          ("public postfix cast boundary: " ^ Yojson.Safe.to_string public_cast);
+      incr expression_cases;
       List.iter
         (fun (label, text) ->
           let report = invoke compiler target mode ~status:1 label text in
@@ -304,12 +332,25 @@ let () =
       in
       if codes <> [ "HCPARSE0018"; "HCPARSE0173"; "HCPARSE0173" ] then
         failwith ("nested cleanup: " ^ Yojson.Safe.to_string nested);
+      let reached =
+        invoke compiler target mode ~status:1 "group close after directive"
+          Cases.expression_reached_group_directive
+      in
+      if
+        reached |> member "output_hex" |> to_string <> hex "reached"
+        || List.filter_map
+             (fun d ->
+               let code = d |> member "code" |> to_string in
+               if code = "HCRUN0004" then None else Some code)
+             (errors reached)
+           <> [ "HCPARSE0019"; "HCPARSE0173" ]
+      then failwith ("reached group directive: " ^ Yojson.Safe.to_string reached);
       let caught =
         invoke compiler target mode ~status:0 "caught nested directive cleanup"
           Cases.expression_caught_nested_directive
       in
       caught_value target "caught nested directive cleanup" "keptafter" caught;
-      expression_cases := !expression_cases + 2;
+      expression_cases := !expression_cases + 3;
       let report =
         invoke compiler target mode ~status:0 "successive expression catches"
           Cases.expression_successive_catches

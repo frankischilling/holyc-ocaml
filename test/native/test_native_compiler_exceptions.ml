@@ -398,20 +398,35 @@ let expression_producers () =
           (Native.source_progress report)
       in
       List.iter
-        (fun (label, text, marker) ->
+        (fun (label, text, code, marker) ->
           let report = run mode text in
           let diagnostics =
             match Native.outcome report with
             | Error errors -> errors
             | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
           in
-          Helpers.expression_receipt ~reported_origin:false ~code:"HCPARSE0018"
-            ~marker label diagnostics
-            (Native.compiler_exceptions report);
+          (match
+             if mode = Preprocessor.Aot then
+               Cases.expression_native_aot_earlier_error label
+             else None
+           with
+          | None ->
+              Helpers.expression_receipt ~reported_origin:false ~code ~marker
+                label diagnostics
+                (Native.compiler_exceptions report)
+          | Some earlier_code ->
+              Alcotest.(check (list string))
+                (label ^ " earlier native AOT declaration boundary")
+                [ earlier_code ]
+                (List.map (fun (d : Diagnostic.t) -> d.code) diagnostics);
+              Alcotest.(check int)
+                (label ^ " unreached type rejection has no Compiler authority")
+                0
+                (List.length (Native.compiler_exceptions report)));
           no_interpretation label report)
         Cases.expression_failures;
       List.iter
-        (fun (label, text, marker, output) ->
+        (fun (label, text, code, marker, output) ->
           let report = run mode text in
           let result =
             match Native.outcome report with
@@ -430,7 +445,7 @@ let expression_producers () =
             output
             (Native.output_bytes report);
           let exceptions = Native.compiler_exceptions report in
-          Helpers.expression_receipt ~code:"HCPARSE0018" ~marker label
+          Helpers.expression_receipt ~code ~marker label
             (List.map Parser.compiler_exception_diagnostic exceptions)
             exceptions;
           no_interpretation label report;
@@ -468,6 +483,21 @@ let expression_producers () =
             (List.length (Native.compiler_exceptions report));
           no_interpretation label report)
         Cases.expression_successes;
+      let public_cast = run mode Cases.expression_public_postfix_cast in
+      (match Native.outcome public_cast with
+      | Ok _ ->
+          Alcotest.fail "public postfix native boundary unexpectedly emitted"
+      | Error diagnostics ->
+          Alcotest.(check bool)
+            "public postfix cast retains explicit native boundary" true
+            (List.exists
+               (fun (diagnostic : Diagnostic.t) ->
+                 diagnostic.code = "HCBACK0002")
+               diagnostics));
+      Alcotest.(check int)
+        "public postfix cast backend failure has no Compiler authority" 0
+        (List.length (Native.compiler_exceptions public_cast));
+      no_interpretation "public postfix cast" public_cast;
       List.iter
         (fun (label, text) ->
           let report = run mode text in
@@ -511,6 +541,15 @@ let expression_producers () =
         (Native.outcome nested |> Result.get_error)
         (Native.compiler_exceptions nested);
       no_interpretation "native nested directive" nested;
+      let reached = run mode Cases.expression_reached_group_directive in
+      Alcotest.(check string)
+        "native group close retains reached directive output" "reached"
+        (Native.output_bytes reached);
+      Helpers.expression_receipt ~reported_origin:false ~code:"HCPARSE0019"
+        ~marker:";" "native group close after directive"
+        (Native.outcome reached |> Result.get_error)
+        (Native.compiler_exceptions reached);
+      no_interpretation "native group close after directive" reached;
       let caught = run mode Cases.expression_caught_nested_directive in
       Alcotest.(check bool)
         "native nested cleanup catch resumes" true

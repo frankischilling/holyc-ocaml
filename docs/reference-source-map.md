@@ -2,7 +2,10 @@
 
 Owned expression cleanup follows `Compiler/PrsExp.HC:264-303`: push two
 terminators, catch Compiler, then issue another `LexExcept` if the owned stack
-is still nonempty. The missing-operand producer is at line 957. Ordinary nested
+is still nonempty. The missing-operand producer is at line 957. Original type
+selection after `(` and the grouped close check are at `729-744`; lexer local
+shadows suppress hash lookup at `Lex.HC:493-513`. These producers retain the
+current token and original argument phase before owned cleanup. Ordinary nested
 calls borrow the outer stack; implicit calls pass NULL at `PrsStmt.HC:1202`,
 so each required argument owns its stack. `PrsExp.HC:430-536` determines required
 and saved-default traversal. Original selected named headers at `862-866`

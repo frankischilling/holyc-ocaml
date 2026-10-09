@@ -3988,15 +3988,30 @@ and parse_expression_atom cursor ~parenthesis_phase ~context ~depth :
       let opening = take cursor in
       let first = peek cursor in
       let nested_phase = new_parenthesis_phase () in
+      let cast_message =
+        Printf.sprintf
+          "C-style cast syntax is not valid HolyC in %s; write the cast after \
+           its operand, for example value(%s)"
+          (expression_context_name context)
+          (token_text first.token)
+      in
+      let original_type =
+        match (first.token.kind, first.selection) with
+        | Token_kind.Identifier, Some (_, Symbol_visibility.Present entry) ->
+            let kind = Symbol_visibility.kind entry in
+            kind = Symbol_visibility.Class
+            || kind = Symbol_visibility.Internal_type
+        | _ -> false
+      in
+      (* PrsUnaryTerm rejects the original Class/Internal_type immediately
+         after Lex('('), before reading ')' or any following input. *)
+      if cursor.stop_on_error && original_type then
+        matched_lex_except ?call_phase:cursor.expression_call_phase cursor first
+          ~code:"HCPARSE0029" ~message:cast_message;
       match type_specifier_of_item cursor first with
       | Some _ ->
           expression_failure cursor first ~code:"HCPARSE0029"
-            ~message:
-              (Printf.sprintf
-                 "C-style cast syntax is not valid HolyC in %s; write the cast \
-                  after its operand, for example value(%s)"
-                 (expression_context_name context)
-                 (token_text first.token))
+            ~message:cast_message
       | None -> (
           match
             parse_expression ~parenthesis_phase:nested_phase cursor ~context
@@ -4005,12 +4020,18 @@ and parse_expression_atom cursor ~parenthesis_phase ~context ~depth :
           | None -> None
           | Some expression ->
               let closing = peek cursor in
-              if closing.token.kind <> Token_kind.Punctuation ')' then
-                expression_failure cursor closing ~code:"HCPARSE0019"
-                  ~message:
-                    (Printf.sprintf "expected ')' to close %s, but found %s"
-                       (expression_context_name context)
-                       (token_description closing.token))
+              if closing.token.kind <> Token_kind.Punctuation ')' then (
+                let message =
+                  Printf.sprintf "expected ')' to close %s, but found %s"
+                    (expression_context_name context)
+                    (token_description closing.token)
+                in
+                (* The inner expression borrowed the outer stack. Its close
+                   check uses the current token without another Lex. *)
+                if cursor.stop_on_error then
+                  matched_lex_except ?call_phase:cursor.expression_call_phase
+                    cursor closing ~code:"HCPARSE0019" ~message;
+                expression_failure cursor closing ~code:"HCPARSE0019" ~message)
               else
                 let closing = take cursor in
                 parenthesis_phase.grouped_precedence <-
