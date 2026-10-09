@@ -161,4 +161,32 @@ let () =
     target;
   Printf.printf "%d caught Compiler child CLI cases passed (%s).\n" !caught
     target;
-  Printf.printf "%d caught child quota edges passed (%s).\n" !quota_edges target
+  Printf.printf "%d caught child quota edges passed (%s).\n" !quota_edges target;
+  let statement_cases = ref 0 in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, code, _, output) ->
+          let report = invoke compiler target mode ~status:1 label text in
+          let codes =
+            List.filter_map
+              (fun diagnostic ->
+                let code = diagnostic |> member "code" |> to_string in
+                if code = "HCRUN0004" then None else Some code)
+              (errors report)
+          in
+          if
+            codes <> [ code ]
+            || report |> member "output_hex" |> to_string <> hex output
+          then failwith (label ^ ": " ^ Yojson.Safe.to_string report);
+          incr statement_cases)
+        Cases.statement_failures;
+      List.iter
+        (fun (label, text, _, _, output) ->
+          let report = invoke compiler target mode ~status:0 label text in
+          caught_value target label output report;
+          incr statement_cases)
+        Cases.statement_caught_children)
+    [ "jit"; "aot" ];
+  Printf.printf "%d original statement Compiler CLI cases passed (%s).\n"
+    !statement_cases target

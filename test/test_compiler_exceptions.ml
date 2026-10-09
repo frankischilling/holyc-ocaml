@@ -31,18 +31,20 @@ let command_sink ?checkpoint ?call ?(resume = fun () -> Ok ())
     dimension_count = None;
   }
 
-let parse ?commands ?compiler_exception session source config =
-  Parser.parse ?commands ?compiler_exception ~sources:(Session.sources session)
+let parse ?commands ?compiler_exception ?execute_stream session source config =
+  Parser.parse ?commands ?compiler_exception ?execute_stream
+    ~sources:(Session.sources session)
     ~definitions:(Session.definitions session)
     ~symbols:(Session.symbols session) ~config source
 
-let receipt ?(reported_origin = true) label diagnostics exceptions =
+let receipt ?(reported_origin = true) ?(code = "HCPARSE0168")
+    ?(marker = "return") label diagnostics exceptions =
   match exceptions with
   | [ exception_ ] ->
       let diagnostic = Parser.compiler_exception_diagnostic exception_ in
       Alcotest.(check string)
         (label ^ " original producer")
-        "HCPARSE0168" diagnostic.code;
+        code diagnostic.code;
       Alcotest.(check bool)
         (label ^ " original diagnostic origin")
         true
@@ -68,7 +70,7 @@ let receipt ?(reported_origin = true) label diagnostics exceptions =
       in
       Alcotest.(check string)
         (label ^ " exact original keyword source")
-        "return"
+        marker
         (String.sub
            (Source_file.contents source)
            diagnostic.primary.start
@@ -88,8 +90,8 @@ let receipt ?(reported_origin = true) label diagnostics exceptions =
         true
         (Parser.compiler_exception_is_from_context exception_ context)
   | _ ->
-      Alcotest.failf "%s: expected one original Compiler receipt, got %d" label
-        (List.length exceptions)
+      Alcotest.failf "%s: expected one original Compiler receipt, got %d (%s)"
+        label (List.length exceptions) (describe diagnostics)
 
 let original_phase () =
   List.iter
@@ -216,28 +218,37 @@ let child_ownership () =
     "foreign domain has no exception authority" false foreign
 
 let arbitrary_diagnostics () =
-  let session, source, config = inputs Preprocessor.Jit "42;" in
-  let seen = ref [] in
-  let command _ =
-    Error
-      [
-        Diagnostic.make ~code:"HCPARSE0168" ~severity:Diagnostic.Error
-          ~message:"return requires an active function"
-          ~primary:
-            (Span.unsafe_make ~source:(Source_file.id source) ~start:0 ~stop:2)
-          ();
-      ]
-  in
-  let parsed =
-    parse ~commands:(command_sink ~command ())
-      ~compiler_exception:(fun x -> seen := x :: !seen)
-      session source config
-  in
-  Alcotest.(check bool)
-    "callback error still fails source" true
-    (Option.is_none parsed.ast);
-  Alcotest.(check int)
-    "matching diagnostic cannot forge Compiler receipt" 0 (List.length !seen)
+  List.iter
+    (fun (code, message) ->
+      let session, source, config = inputs Preprocessor.Jit "42;" in
+      let seen = ref [] in
+      let command _ =
+        Error
+          [
+            Diagnostic.make ~code ~severity:Diagnostic.Error ~message
+              ~primary:
+                (Span.unsafe_make ~source:(Source_file.id source) ~start:0
+                   ~stop:2)
+              ();
+          ]
+      in
+      let parsed =
+        parse ~commands:(command_sink ~command ())
+          ~compiler_exception:(fun x -> seen := x :: !seen)
+          session source config
+      in
+      Alcotest.(check bool)
+        "callback error still fails source" true
+        (Option.is_none parsed.ast);
+      Alcotest.(check int)
+        "matching diagnostic cannot forge Compiler receipt" 0
+        (List.length !seen))
+    [
+      ("HCPARSE0168", "return requires an active function");
+      ("HCPARSE0170", "break requires an active break target");
+      ("HCPARSE0171", "try requires function headers for SysTry and SysUntry");
+      ("HCPARSE0052", "expected '(' after 'if', but found integer");
+    ]
 
 let source_failures () =
   List.iter
@@ -1099,6 +1110,192 @@ let unhandled_child_is_confined_to_original_input () =
   check (run "42;");
   check (run {|#exe {StreamExePrint("return 42;");}42;|})
 
+let statement_parser_stream session _ =
+  Ok
+    Parser.
+      {
+        definitions = Session.definitions session;
+        symbols = Session.symbols session;
+        commands = command_sink ();
+        finish = (fun () -> Ok "");
+        abort = (fun () -> ());
+      }
+
+let statement_phase_receipts () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, code, marker, _) ->
+          let session, source, config = inputs mode (Cases.headers ^ text) in
+          let seen = ref [] in
+          let parsed =
+            parse ~commands:(command_sink ())
+              ~execute_stream:(statement_parser_stream session)
+              ~compiler_exception:(fun exception_ ->
+                let context = Parser.compiler_exception_context exception_ in
+                Alcotest.(check bool)
+                  (label ^ " current original context")
+                  true
+                  (Parser.compiler_exception_is_from_context exception_ context);
+                Alcotest.(check int64)
+                  (label ^ " reached native error field")
+                  1L
+                  (Parser.context_error_count context |> Result.get_ok);
+                seen := exception_ :: !seen)
+              session source config
+          in
+          Alcotest.(check bool)
+            (label ^ " aborted syntax")
+            true
+            (Option.is_none parsed.ast);
+          receipt ~code ~marker label parsed.diagnostics !seen)
+        Cases.statement_failures)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let statement_break_targets () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun text ->
+          let session, source, config = inputs mode text in
+          let seen = ref [] in
+          let parsed =
+            parse ~commands:(command_sink ())
+              ~compiler_exception:(fun x -> seen := x :: !seen)
+              session source config
+          in
+          Alcotest.(check bool)
+            (text ^ ": " ^ describe parsed.diagnostics)
+            true
+            (Option.is_some parsed.ast);
+          Alcotest.(check int)
+            "valid original break targets do not throw" 0 (List.length !seen))
+        [
+          "while(1)break;";
+          "do break;while(0);";
+          "for(;1;)break;";
+          "while(1){if(1)break;else break;}";
+          "switch(1){case 1:break;}";
+          "switch(1){start:case 1:break;end:}";
+          "extern U0 SysTry(I64 a,I64 b);extern U0 \
+           SysUntry();while(1){try;catch;break;}";
+          "while(1){lock;break;}";
+          "I64 F(){while(1)break;return 42;}";
+          "I64 F(){goto return;return 42;}";
+        ];
+      List.iter
+        (fun text ->
+          let session, source, config = inputs mode text in
+          let seen = ref [] in
+          let parsed =
+            parse
+              ~compiler_exception:(fun x -> seen := x :: !seen)
+              session source config
+          in
+          Alcotest.(check bool)
+            "representation break syntax remains available" true
+            (Option.is_some parsed.ast);
+          Alcotest.(check int)
+            "representation parser supplies no throw" 0 (List.length !seen))
+        [
+          "break;";
+          "try;catch;";
+          "while(1)for(break;1;);";
+          "while(1)lock break;";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let statement_lexer_order () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun text ->
+          let session, source, config = inputs mode text in
+          let seen = ref [] in
+          let parsed =
+            parse ~commands:(command_sink ())
+              ~execute_stream:(statement_parser_stream session)
+              ~compiler_exception:(fun x -> seen := x :: !seen)
+              session source config
+          in
+          Alcotest.(check bool)
+            "lexer fault aborts input" true
+            (Option.is_none parsed.ast);
+          Alcotest.(check int)
+            "failed Lex cannot issue a later statement throw" 0
+            (List.length !seen))
+        [ "break #error reached\n;"; "try #error reached\n;" ];
+      let text =
+        "try #exe {extern U0 SysTry(I64 a,I64 b);extern U0 SysUntry();} ; \
+         catch;"
+      in
+      let session, source, config = inputs mode text in
+      let seen = ref [] in
+      let parsed =
+        parse ~commands:(command_sink ())
+          ~execute_stream:(statement_parser_stream session)
+          ~compiler_exception:(fun x -> seen := x :: !seen)
+          session source config
+      in
+      Alcotest.(check bool)
+        (describe parsed.diagnostics)
+        true
+        (Option.is_some parsed.ast);
+      Alcotest.(check int)
+        "headers reached during Lex are selected before body" 0
+        (List.length !seen))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let statement_source_execution () =
+  List.iter
+    (fun mode ->
+      let run text =
+        let session, source, config =
+          inputs mode
+            ((if mode = Preprocessor.Jit then Cases.headers else "") ^ text)
+        in
+        run_integer_program_report session ~source ~config ~max_steps:100_000
+      in
+      List.iter
+        (fun (label, text, code, marker, output) ->
+          let report = run text in
+          let diagnostics =
+            match integer_program_report_outcome report with
+            | Error errors -> errors
+            | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
+          in
+          receipt ~reported_origin:false ~code ~marker label diagnostics
+            (integer_program_report_compiler_exceptions report);
+          Alcotest.(check string)
+            (label ^ " reached output")
+            output
+            (integer_program_report_output_bytes report))
+        Cases.statement_failures;
+      List.iter
+        (fun (label, text, code, marker, output) ->
+          let report = run text in
+          let result =
+            match integer_program_report_outcome report with
+            | Ok result -> result
+            | Error errors -> Alcotest.fail (label ^ ": " ^ describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " parent resumes")
+            (Some 42L)
+            (Option.map
+               (fun word -> word.Ir_integer_interpreter.bits)
+               (Ir_integer_interpreter.final_value result.value));
+          Alcotest.(check string)
+            (label ^ " retained effects")
+            output
+            (integer_program_report_output_bytes report);
+          receipt ~code ~marker label
+            (List.map Parser.compiler_exception_diagnostic
+               (integer_program_report_compiler_exceptions report))
+            (integer_program_report_compiler_exceptions report))
+        Cases.statement_caught_children)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
     Alcotest.test_case "original return failure before expression Lex" `Quick
@@ -1146,4 +1343,13 @@ let tests =
       `Quick failed_child_ledger_ownership;
     Alcotest.test_case "unhandled child belongs to its original input" `Quick
       unhandled_child_is_confined_to_original_input;
+    Alcotest.test_case "original statement LexExcept phases" `Quick
+      statement_phase_receipts;
+    Alcotest.test_case "source break targets follow original PrsStmt owners"
+      `Quick statement_break_targets;
+    Alcotest.test_case
+      "statement throws preserve Lex and header lookup ordering" `Quick
+      statement_lexer_order;
+    Alcotest.test_case "statement Compiler children preserve original IR work"
+      `Quick statement_source_execution;
   ]

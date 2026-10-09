@@ -17,11 +17,13 @@ val max_initializer_depth : int
 type command_context
 
 type compiler_exception
-(** Original [Compiler] exception produced by the executable parser's [return]
-    check before consuming the keyword when no function is active. The receipt
-    retains its exact control, position and counted diagnostic. General parser,
-    preprocessor, authority and quota errors do not create one. This does not
-    implement native exception stacks or terminal output. *)
+(** Original [Compiler] exception from an audited executable-parser [LexExcept]
+    site. Matched sites include the missing-function return guard, statement
+    delimiters, invalid break targets and try header/catch checks. Each retains
+    its own lexer phase, exact control, position and counted diagnostic. Generic
+    parser reports, preprocessor, authority and quota errors do not create one.
+    This does not implement native exception stacks, direct Compiler throws,
+    SysTry/SysUntry calls or terminal output. *)
 
 val compiler_exception_diagnostic : compiler_exception -> Common.Diagnostic.t
 val compiler_exception_error_count : compiler_exception -> int64

@@ -472,7 +472,8 @@ let unsupported_regions_reject_before_native_entry () =
       ("assembly block", "U0 F(){goto done;asm {} done:return;}F();", "asm {}");
       ("lock region", "U0 F(){done:lock goto done;}F();", "lock goto done;");
       ( "try/catch region",
-        "U0 F(){done:try goto done;catch return;}F();",
+        "U0 SysTry(){}U0 SysUntry(){}U0 F(){done:try goto done;catch \
+         return;}F();",
         "try goto done;catch return;" );
       ( "no-bound switch region",
         "U0 F(I64 n){switch[n]{case 0:goto done;}done:return;}F(0);",

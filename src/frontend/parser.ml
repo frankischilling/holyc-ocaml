@@ -1563,6 +1563,7 @@ type cursor = {
   symbols : Symbol_visibility.Environment.t;
   compilation_mode : Preprocessor.compilation_mode;
   stop_on_error : bool;
+  mutable break_target : unit ref option;
   compiler_exception : (compiler_exception -> unit) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
@@ -2111,21 +2112,16 @@ let report ?secondary cursor item ~code ~message =
   cursor.diagnostics_rev := diagnostic :: !(cursor.diagnostics_rev);
   if cursor.stop_on_error then raise Stop_command
 
-let return_outside_function cursor item =
-  (* PrsStmt.HC's KW_RETURN branch calls LexExcept before Lex. CExcept.HC
-     increments error_cnt at byte 344 and throws Compiler. Only this matched
-     original producer can create this receipt; report and callback failures
-     do not acquire Compiler authority. *)
+let lex_except cursor item ~code ~message =
+  (* Only audited original LexExcept branches call this private producer.
+     Generic reports and observer failures never acquire Compiler authority. *)
   let context =
     match cursor.current_command with
     | Some start when context_has_focus start.command_context ->
         start.command_context
     | _ -> invalid_arg "LexExcept requires its original current parser command"
   in
-  let diagnostic =
-    make_error item ~code:"HCPARSE0168"
-      ~message:"return requires an active function"
-  in
+  let diagnostic = make_error item ~code ~message in
   Common.Native_compiler_control.increment_error
     context.context_compiler_control;
   let exception_ =
@@ -2149,6 +2145,20 @@ let return_outside_function cursor item =
          abort_chain = [];
          abort_diagnostics = [];
        })
+
+let statement_lex_except cursor item ~code ~message =
+  if cursor.stop_on_error then lex_except cursor item ~code ~message
+  else report cursor item ~code ~message
+
+let return_outside_function cursor item =
+  (* PrsStmt.HC:1089-1091 checks the active function before Lex. *)
+  lex_except cursor item ~code:"HCPARSE0168"
+    ~message:"return requires an active function"
+
+let with_break_target cursor target run =
+  let saved = cursor.break_target in
+  cursor.break_target <- target;
+  Fun.protect run ~finally:(fun () -> cursor.break_target <- saved)
 
 let publish_declaration cursor at event =
   (match (event, cursor.current_command) with
@@ -3043,7 +3053,9 @@ let with_function_local_context cursor function_ parameters variadic run =
       publish_local cursor ~spelling:"argc" (Variadic_count marker);
       publish_local cursor ~spelling:"argv" (Variadic_vector marker))
     variadic;
-  Fun.protect run ~finally:(fun () ->
+  Fun.protect
+    (fun () -> with_break_target cursor None run)
+    ~finally:(fun () ->
       cursor.local_context <- None;
       cursor.local_function <- None;
       cursor.function_active := false;
@@ -7993,7 +8005,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                    || completed_fixed_call
                    || Option.is_some opening_parenthesis -> Some (None, [])
             | _ ->
-                report cursor terminator_item ~code:"HCPARSE0046"
+                statement_lex_except cursor terminator_item ~code:"HCPARSE0046"
                   ~message:
                     (Printf.sprintf
                        "expected ';' after implicit %s statement, but found %s"
@@ -8104,7 +8116,12 @@ let parse_empty_statement cursor : parsed_statement =
 
 let parse_break_statement cursor ~boundary : parsed_statement option =
   let keyword_item = take cursor in
+  (* KW_BREAK calls Lex before checking lb_break. The next token can execute
+     a directive or fail in the lexer before this producer is reached. *)
   let terminator_item = peek cursor in
+  if cursor.stop_on_error && Option.is_none cursor.break_target then
+    lex_except cursor terminator_item ~code:"HCPARSE0170"
+      ~message:"break requires an active break target";
   let terminator =
     match (boundary, terminator_item.token.kind) with
     | For_update_boundary _, _ -> Some (None, [])
@@ -8114,7 +8131,7 @@ let parse_break_statement cursor ~boundary : parsed_statement option =
           (Some (token_location semicolon_item.token), [ semicolon_item.token ])
     | _, Token_kind.Punctuation ',' -> Some (None, [])
     | _ ->
-        report cursor terminator_item ~code:"HCPARSE0072"
+        statement_lex_except cursor terminator_item ~code:"HCPARSE0072"
           ~message:
             (Printf.sprintf "expected ';' or ',' after 'break', but found %s"
                (token_description terminator_item.token));
@@ -8137,8 +8154,8 @@ let parse_break_statement cursor ~boundary : parsed_statement option =
 let parse_goto_statement cursor ~boundary : parsed_statement option =
   let keyword_item = take cursor in
   let target_item = peek cursor in
-  if target_item.token.kind <> Token_kind.Identifier then (
-    report cursor target_item ~code:"HCPARSE0075"
+  if not (token_is_name_position_identifier target_item.token) then (
+    statement_lex_except cursor target_item ~code:"HCPARSE0075"
       ~message:
         (Printf.sprintf "expected a label name after 'goto', but found %s"
            (token_description target_item.token));
@@ -8157,7 +8174,7 @@ let parse_goto_statement cursor ~boundary : parsed_statement option =
               [ semicolon_item.token ] )
       | _, Token_kind.Punctuation ',' -> Some (None, [])
       | _ ->
-          report cursor terminator_item ~code:"HCPARSE0076"
+          statement_lex_except cursor terminator_item ~code:"HCPARSE0076"
             ~message:
               (Printf.sprintf
                  "expected ';' or ',' after goto target %S, but found %s"
@@ -8366,7 +8383,7 @@ let parse_return_statement cursor ~boundary : parsed_statement option =
                     [ semicolon_item.token ] )
             | _, Token_kind.Punctuation ',' -> Some (None, [])
             | _ ->
-                report cursor terminator_item ~code:"HCPARSE0073"
+                statement_lex_except cursor terminator_item ~code:"HCPARSE0073"
                   ~message:
                     (Printf.sprintf
                        "expected ';' or ',' after a return expression, but \
@@ -8399,7 +8416,7 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
                 [ semicolon_item.token ] )
         | _, Token_kind.Punctuation ',' -> Some (None, [])
         | _ ->
-            report cursor terminator_item ~code:"HCPARSE0047"
+            statement_lex_except cursor terminator_item ~code:"HCPARSE0047"
               ~message:
                 (Printf.sprintf
                    "expected ';' or ',' after statement expression, but found \
@@ -9782,17 +9799,20 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
   else
     let do_item = take cursor in
     match
-      parse_required_statement cursor
-        ~boundary:(statement_body_boundary boundary)
-        ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1) ~lock_depth
-        ~try_depth ~switch_depth ~code:"HCPARSE0062"
-        ~description:"a statement after 'do'"
+      with_break_target cursor
+        (Some (ref ()))
+        (fun () ->
+          parse_required_statement cursor
+            ~boundary:(statement_body_boundary boundary)
+            ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
+            ~lock_depth ~try_depth ~switch_depth ~code:"HCPARSE0062"
+            ~description:"a statement after 'do'")
     with
     | None -> None
     | Some body -> (
         let while_item = peek cursor in
         if while_item.token.kind <> Token_kind.Keyword Keyword.While then (
-          report cursor while_item ~code:"HCPARSE0063"
+          statement_lex_except cursor while_item ~code:"HCPARSE0063"
             ~message:
               (Printf.sprintf
                  "expected 'while' after the do-while body, but found %s"
@@ -9803,7 +9823,7 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
           let while_item = take cursor in
           let opening_item = peek cursor in
           if opening_item.token.kind <> Token_kind.Punctuation '(' then (
-            report cursor opening_item ~code:"HCPARSE0064"
+            statement_lex_except cursor opening_item ~code:"HCPARSE0064"
               ~message:
                 (Printf.sprintf
                    "expected '(' after the do-while keyword, but found %s"
@@ -9822,7 +9842,7 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
             | Some (condition : parsed_expression) ->
                 let closing_item = peek cursor in
                 if closing_item.token.kind <> Token_kind.Punctuation ')' then (
-                  report cursor closing_item ~code:"HCPARSE0065"
+                  statement_lex_except cursor closing_item ~code:"HCPARSE0065"
                     ~message:
                       (Printf.sprintf
                          "expected ')' after the do-while condition, but found \
@@ -9835,7 +9855,8 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
                   let semicolon_item = peek cursor in
                   if semicolon_item.token.kind <> Token_kind.Punctuation ';'
                   then (
-                    report cursor semicolon_item ~code:"HCPARSE0066"
+                    statement_lex_except cursor semicolon_item
+                      ~code:"HCPARSE0066"
                       ~message:
                         (Printf.sprintf
                            "expected ';' after the do-while condition, but \
@@ -9879,7 +9900,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
     let statement_boundary = statement_body_boundary boundary in
     let opening_item = peek cursor in
     if opening_item.token.kind <> Token_kind.Punctuation '(' then (
-      report cursor opening_item ~code:"HCPARSE0067"
+      statement_lex_except cursor opening_item ~code:"HCPARSE0067"
         ~message:
           (Printf.sprintf "expected '(' after 'for', but found %s"
              (token_description opening_item.token));
@@ -9896,10 +9917,11 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
         None)
       else
         match
-          parse_required_statement cursor ~boundary:statement_boundary
-            ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
-            ~lock_depth ~try_depth ~switch_depth ~code:"HCPARSE0068"
-            ~description:"an initializer statement in the for header"
+          with_break_target cursor None (fun () ->
+              parse_required_statement cursor ~boundary:statement_boundary
+                ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
+                ~lock_depth ~try_depth ~switch_depth ~code:"HCPARSE0068"
+                ~description:"an initializer statement in the for header")
         with
         | None ->
             recover_for_header cursor ~boundary:statement_boundary;
@@ -9918,7 +9940,8 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                   condition_semicolon_item.token.kind
                   <> Token_kind.Punctuation ';'
                 then (
-                  report cursor condition_semicolon_item ~code:"HCPARSE0069"
+                  statement_lex_except cursor condition_semicolon_item
+                    ~code:"HCPARSE0069"
                     ~message:
                       (Printf.sprintf
                          "expected ';' after the for condition, but found %s"
@@ -9934,12 +9957,14 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                     else
                       Option.map
                         (fun update -> Some update)
-                        (parse_required_statement cursor
-                           ~boundary:(For_update_boundary statement_boundary)
-                           ~block_depth ~conditional_depth
-                           ~loop_depth:(loop_depth + 1) ~lock_depth ~try_depth
-                           ~switch_depth ~code:"HCPARSE0070"
-                           ~description:"a for update statement")
+                        (with_break_target cursor None (fun () ->
+                             parse_required_statement cursor
+                               ~boundary:
+                                 (For_update_boundary statement_boundary)
+                               ~block_depth ~conditional_depth
+                               ~loop_depth:(loop_depth + 1) ~lock_depth
+                               ~try_depth ~switch_depth ~code:"HCPARSE0070"
+                               ~description:"a for update statement"))
                   in
                   match parsed_update with
                   | None ->
@@ -9949,7 +9974,8 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                       let closing_item = peek cursor in
                       if closing_item.token.kind <> Token_kind.Punctuation ')'
                       then (
-                        report cursor closing_item ~code:"HCPARSE0070"
+                        statement_lex_except cursor closing_item
+                          ~code:"HCPARSE0070"
                           ~message:
                             (Printf.sprintf
                                "expected ')' after the for update, but found %s"
@@ -9959,12 +9985,15 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                       else
                         let closing_item = take cursor in
                         match
-                          parse_required_statement cursor
-                            ~boundary:statement_boundary ~block_depth
-                            ~conditional_depth ~loop_depth:(loop_depth + 1)
-                            ~lock_depth ~try_depth ~switch_depth
-                            ~code:"HCPARSE0071"
-                            ~description:"a statement after the for header"
+                          with_break_target cursor
+                            (Some (ref ()))
+                            (fun () ->
+                              parse_required_statement cursor
+                                ~boundary:statement_boundary ~block_depth
+                                ~conditional_depth ~loop_depth:(loop_depth + 1)
+                                ~lock_depth ~try_depth ~switch_depth
+                                ~code:"HCPARSE0071"
+                                ~description:"a statement after the for header")
                         with
                         | None -> None
                         | Some body ->
@@ -10018,7 +10047,7 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
     let keyword_item = take cursor in
     let opening_item = peek cursor in
     if opening_item.token.kind <> Token_kind.Punctuation '(' then (
-      report cursor opening_item ~code:"HCPARSE0052"
+      statement_lex_except cursor opening_item ~code:"HCPARSE0052"
         ~message:
           (Printf.sprintf "expected '(' after 'if', but found %s"
              (token_description opening_item.token));
@@ -10036,7 +10065,7 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
       | Some (condition : parsed_expression) -> (
           let closing_item = peek cursor in
           if closing_item.token.kind <> Token_kind.Punctuation ')' then (
-            report cursor closing_item ~code:"HCPARSE0053"
+            statement_lex_except cursor closing_item ~code:"HCPARSE0053"
               ~message:
                 (Printf.sprintf
                    "expected ')' after the if condition, but found %s"
@@ -10111,11 +10140,12 @@ and parse_lock_statement cursor ~boundary ~block_depth ~conditional_depth
   else
     let keyword_item = take cursor in
     match
-      parse_required_statement cursor
-        ~boundary:(statement_body_boundary boundary)
-        ~block_depth ~conditional_depth ~loop_depth ~lock_depth:(lock_depth + 1)
-        ~try_depth ~switch_depth ~code:"HCPARSE0077"
-        ~description:"a statement after 'lock'"
+      with_break_target cursor None (fun () ->
+          parse_required_statement cursor
+            ~boundary:(statement_body_boundary boundary)
+            ~block_depth ~conditional_depth ~loop_depth
+            ~lock_depth:(lock_depth + 1) ~try_depth ~switch_depth
+            ~code:"HCPARSE0077" ~description:"a statement after 'lock'")
     with
     | None -> None
     | Some body ->
@@ -10153,7 +10183,7 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
     in
     match delimiter with
     | None ->
-        report cursor opening_item ~code:"HCPARSE0085"
+        statement_lex_except cursor opening_item ~code:"HCPARSE0085"
           ~message:
             (Printf.sprintf "expected '(' or '[' after 'switch', but found %s"
                (token_description opening_item.token));
@@ -10171,7 +10201,7 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
         | Some (expression : parsed_expression) ->
             let closing_item = peek cursor in
             if closing_item.token.kind <> closing_kind then (
-              report cursor closing_item ~code:"HCPARSE0086"
+              statement_lex_except cursor closing_item ~code:"HCPARSE0086"
                 ~message:
                   (Printf.sprintf
                      "expected %S after the switch expression, but found %s"
@@ -10186,7 +10216,8 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
               let opening_brace_item = peek cursor in
               if opening_brace_item.token.kind <> Token_kind.Punctuation '{'
               then (
-                report cursor opening_brace_item ~code:"HCPARSE0087"
+                statement_lex_except cursor opening_brace_item
+                  ~code:"HCPARSE0087"
                   ~message:
                     (Printf.sprintf
                        "expected '{' after the switch header, but found %s"
@@ -10225,11 +10256,14 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
                       switch_owner)
                   (fun () ->
                     match
-                      parse_switch_region cursor ~expect_end:false
-                        ~subswitch_depth:0 ~block_depth ~conditional_depth
-                        ~loop_depth ~lock_depth ~try_depth
-                        ~switch_depth:(switch_depth + 1) ~switch_owner
-                        ~switch_cases
+                      with_break_target cursor
+                        (Some (ref ()))
+                        (fun () ->
+                          parse_switch_region cursor ~expect_end:false
+                            ~subswitch_depth:0 ~block_depth ~conditional_depth
+                            ~loop_depth ~lock_depth ~try_depth
+                            ~switch_depth:(switch_depth + 1) ~switch_owner
+                            ~switch_cases)
                     with
                     | None -> None
                     | Some region -> (
@@ -10608,10 +10642,13 @@ and parse_switch_subswitch_element cursor ~subswitch_depth ~block_depth
     else
       let start_colon_item = take cursor in
       match
-        parse_switch_region cursor ~expect_end:true
-          ~subswitch_depth:(subswitch_depth + 1) ~block_depth ~conditional_depth
-          ~loop_depth ~lock_depth ~try_depth ~switch_depth ~switch_owner
-          ~switch_cases
+        with_break_target cursor
+          (Some (ref ()))
+          (fun () ->
+            parse_switch_region cursor ~expect_end:true
+              ~subswitch_depth:(subswitch_depth + 1) ~block_depth
+              ~conditional_depth ~loop_depth ~lock_depth ~try_depth
+              ~switch_depth ~switch_owner ~switch_cases)
       with
       | None -> None
       | Some region -> (
@@ -10650,6 +10687,18 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
     let try_item = take cursor in
     let body_boundary = statement_body_boundary boundary in
     let body_item = peek cursor in
+    let try_header =
+      Symbol_visibility.Environment.find_function cursor.symbols "SysTry"
+    in
+    let untry_header =
+      Symbol_visibility.Environment.find_function cursor.symbols "SysUntry"
+    in
+    if
+      cursor.stop_on_error
+      && (Option.is_none try_header || Option.is_none untry_header)
+    then
+      lex_except cursor body_item ~code:"HCPARSE0171"
+        ~message:"try requires function headers for SysTry and SysUntry";
     if body_item.token.kind = Token_kind.Keyword Keyword.Catch then (
       report cursor body_item ~code:"HCPARSE0079"
         ~message:"expected a statement after 'try', but found \"catch\"";
@@ -10657,16 +10706,17 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
       None)
     else
       match
-        parse_required_statement cursor ~boundary:body_boundary ~block_depth
-          ~conditional_depth ~loop_depth ~lock_depth ~try_depth:(try_depth + 1)
-          ~switch_depth ~code:"HCPARSE0079"
-          ~description:"a statement after 'try'"
+        with_break_target cursor None (fun () ->
+            parse_required_statement cursor ~boundary:body_boundary ~block_depth
+              ~conditional_depth ~loop_depth ~lock_depth
+              ~try_depth:(try_depth + 1) ~switch_depth ~code:"HCPARSE0079"
+              ~description:"a statement after 'try'")
       with
       | None -> None
       | Some try_body -> (
           let catch_item = peek cursor in
           if catch_item.token.kind <> Token_kind.Keyword Keyword.Catch then (
-            report cursor catch_item ~code:"HCPARSE0080"
+            statement_lex_except cursor catch_item ~code:"HCPARSE0080"
               ~message:
                 (Printf.sprintf
                    "expected 'catch' after the try body, but found %s"
@@ -10684,10 +10734,12 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
               None)
             else
               match
-                parse_required_statement cursor ~boundary:body_boundary
-                  ~block_depth ~conditional_depth ~loop_depth ~lock_depth
-                  ~try_depth:(try_depth + 1) ~switch_depth ~code:"HCPARSE0081"
-                  ~description:"a statement after 'catch'"
+                with_break_target cursor None (fun () ->
+                    parse_required_statement cursor ~boundary:body_boundary
+                      ~block_depth ~conditional_depth ~loop_depth ~lock_depth
+                      ~try_depth:(try_depth + 1) ~switch_depth
+                      ~code:"HCPARSE0081"
+                      ~description:"a statement after 'catch'")
               with
               | None -> None
               | Some catch_body ->
@@ -10719,7 +10771,7 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
     let keyword_item = take cursor in
     let opening_item = peek cursor in
     if opening_item.token.kind <> Token_kind.Punctuation '(' then (
-      report cursor opening_item ~code:"HCPARSE0058"
+      statement_lex_except cursor opening_item ~code:"HCPARSE0058"
         ~message:
           (Printf.sprintf "expected '(' after 'while', but found %s"
              (token_description opening_item.token));
@@ -10737,7 +10789,7 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
       | Some (condition : parsed_expression) -> (
           let closing_item = peek cursor in
           if closing_item.token.kind <> Token_kind.Punctuation ')' then (
-            report cursor closing_item ~code:"HCPARSE0059"
+            statement_lex_except cursor closing_item ~code:"HCPARSE0059"
               ~message:
                 (Printf.sprintf
                    "expected ')' after the while condition, but found %s"
@@ -10747,11 +10799,14 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
           else
             let closing_item = take cursor in
             match
-              parse_required_statement cursor
-                ~boundary:(statement_body_boundary boundary)
-                ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
-                ~lock_depth ~try_depth ~switch_depth ~code:"HCPARSE0060"
-                ~description:"a statement after the while condition"
+              with_break_target cursor
+                (Some (ref ()))
+                (fun () ->
+                  parse_required_statement cursor
+                    ~boundary:(statement_body_boundary boundary)
+                    ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
+                    ~lock_depth ~try_depth ~switch_depth ~code:"HCPARSE0060"
+                    ~description:"a statement after the while condition")
             with
             | None -> None
             | Some body ->
@@ -11311,6 +11366,7 @@ let make_cursor ?(saved_function = false) ?compiler_exception ?reference ?call
     symbols;
     compilation_mode;
     stop_on_error;
+    break_target = None;
     compiler_exception;
     reference;
     call;

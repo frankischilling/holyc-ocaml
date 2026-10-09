@@ -227,6 +227,78 @@ let faults_after_catches () =
         [ (3, 0, ""); (4, 1, "kept") ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let statement_failures () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, code, marker, output) ->
+          let report = run mode text in
+          let diagnostics =
+            match Native.outcome report with
+            | Error errors -> errors
+            | Ok _ -> Alcotest.fail (label ^ " unexpectedly executed")
+          in
+          Helpers.receipt ~code ~marker label diagnostics
+            (Native.compiler_exceptions report);
+          Alcotest.(check string)
+            (label ^ " reached native effects")
+            output
+            (Native.output_bytes report);
+          Option.iter
+            (fun progress ->
+              Alcotest.(check int)
+                "statement failure interprets no task instructions" 0
+                progress.Integer_task.runtime.executed_steps)
+            (Native.source_progress report))
+        Cases.statement_failures)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let statement_caught_children () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, code, marker, output) ->
+          let report = run mode text in
+          let result =
+            match Native.outcome report with
+            | Ok result -> result
+            | Error errors ->
+                Alcotest.fail (label ^ ": " ^ Helpers.describe errors)
+          in
+          Alcotest.(check (option int64))
+            (label ^ " resumes native parent")
+            (Some 42L)
+            (Option.map
+               (fun (word : Native.word) -> word.bits)
+               result.value.final_value);
+          Helpers.receipt ~code ~marker label
+            (List.map Parser.compiler_exception_diagnostic
+               (Native.compiler_exceptions report))
+            (Native.compiler_exceptions report);
+          Alcotest.(check string)
+            (label ^ " native effects remain")
+            output
+            (Native.output_bytes report);
+          Alcotest.(check bool)
+            "original native work remains charged" true
+            (Native.executed_steps report > 0);
+          Option.iter
+            (fun progress ->
+              Alcotest.(check int)
+                "caught statement does not interpret task instructions" 0
+                progress.Integer_task.runtime.executed_steps)
+            (Native.source_progress report);
+          Alcotest.(check bool)
+            "original native fragments complete" true
+            (List.exists
+               (fun (fragment : Native.fragment) ->
+                 match fragment.native_outcome with
+                 | Some (Ok (X86_64_program.Completed _)) -> true
+                 | _ -> false)
+               (Native.fragments report)))
+        Cases.statement_caught_children)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Native compiler exceptions"
     [
@@ -248,5 +320,9 @@ let () =
             "caught native children preserve incomplete bindings and quota \
              faults"
             `Quick faults_after_catches;
+          Alcotest.test_case "original native statement Compiler phases" `Quick
+            statement_failures;
+          Alcotest.test_case "caught statement Compiler preserves native parent"
+            `Quick statement_caught_children;
         ] );
     ]

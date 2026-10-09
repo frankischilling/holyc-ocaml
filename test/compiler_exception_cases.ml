@@ -86,3 +86,89 @@ let ordinary_failures =
     ("binding", "Unknown;", "HCRUN");
     ("runtime", "1/0;", "HCIRVM");
   ]
+
+(* Literal statement phases audited against Compiler/PrsStmt.HC. The marker is
+   the original current token at LexExcept, which follows Lex for invalid break. *)
+let statement_failures =
+  [
+    ("if opening", "if 1;", "HCPARSE0052", "1", "");
+    ("if closing", "if(1;", "HCPARSE0053", ";", "");
+    ("while opening", "while 1;", "HCPARSE0058", "1", "");
+    ("while closing", "while(1;", "HCPARSE0059", ";", "");
+    ("do missing while", "do;42;", "HCPARSE0063", "42", "");
+    ("do opening", "do;while 1;", "HCPARSE0064", "1", "");
+    ("do closing", "do;while(1;", "HCPARSE0065", ";", "");
+    ("do semicolon", "do;while(0)42;", "HCPARSE0066", "42", "");
+    ("for opening", "for 1;", "HCPARSE0067", "1", "");
+    ("for condition semicolon", "for(;1)42;", "HCPARSE0069", ")", "");
+    ("for closing", "for(;1;42;", "HCPARSE0070", ";", "");
+    ("switch opening", "switch 1;", "HCPARSE0085", "1", "");
+    ("switch closing", "switch(1;", "HCPARSE0086", ";", "");
+    ("nobound closing", "switch[1;", "HCPARSE0086", ";", "");
+    ("switch brace", "switch(1);", "HCPARSE0087", ";", "");
+    ("goto identifier", "goto;", "HCPARSE0075", ";", "");
+    ("goto semicolon", "goto Done}", "HCPARSE0076", "}", "");
+    ("expression semicolon", "42}", "HCPARSE0047", "}", "");
+    ( "output semicolon",
+      "extern U0 PutChars(U64 ch);'A'}",
+      "HCPARSE0046",
+      "}",
+      "" );
+    ("return semicolon", "I64 F(){return 42}", "HCPARSE0073", "}", "");
+    ("root break", "break;", "HCPARSE0170", ";", "");
+    ("break semicolon", "while(1)break }", "HCPARSE0072", "}", "");
+    ("break for initializer", "while(1)for(break;1;);", "HCPARSE0170", ";", "");
+    ("break for update", "while(1)for(;1;break);", "HCPARSE0170", ")", "");
+    ("break lock", "while(1)lock break;", "HCPARSE0170", ";", "");
+    ("try missing headers", "try;", "HCPARSE0171", ";", "");
+    ("try one header", "extern U0 SysTry();try;", "HCPARSE0171", ";", "");
+    ( "try wrong header kinds",
+      "I64 SysTry=0;I64 SysUntry=0;try;",
+      "HCPARSE0171",
+      ";",
+      "" );
+    ( "try missing catch",
+      "extern U0 SysTry(I64 a,I64 b);extern U0 SysUntry();try;42;",
+      "HCPARSE0080",
+      "42",
+      "" );
+    ( "break try",
+      "extern U0 SysTry(I64 a,I64 b);extern U0 SysUntry();while(1)try \
+       break;catch;",
+      "HCPARSE0170",
+      ";",
+      "" );
+    ( "break catch",
+      "extern U0 SysTry(I64 a,I64 b);extern U0 SysUntry();while(1)try;catch \
+       break;",
+      "HCPARSE0170",
+      ";",
+      "" );
+    ( "break after directive",
+      {|break #exe {Print("kept");} ;|},
+      "HCPARSE0170",
+      ";",
+      "kept" );
+    ( "first directive producer",
+      {|break #exe {return @} ;|},
+      "HCPARSE0168",
+      "return",
+      "" );
+  ]
+
+let statement_caught_children =
+  List.map
+    (fun (label, text, code, marker, output) ->
+      ( label,
+        Printf.sprintf "#exe {StreamExePrint(%S);Print(\"after\");}42;" text,
+        code,
+        marker,
+        output ^ "after" ))
+    statement_failures
+  @ [
+      ( "child does not inherit caller loop target",
+        {|#exe {while(1){StreamExePrint("break;");break;}Print("after");}42;|},
+        "HCPARSE0170",
+        ";",
+        "after" );
+    ]

@@ -17,9 +17,11 @@ fresh storage. These fields retain the pinned offsets while the full compiler
 control and remaining error producers remain unfinished. Executable `return`
 outside a function now fails before expression lookahead and increments the
 original error count. [Compiler exceptions](docs/compiler-exceptions.md) describes
-the source receipt and authenticated suspended-input abort chains. `StreamExePrint`
-now catches this original child `Compiler` failure, returns zero and preserves
-reached effects. Break catches and the remaining original producers remain open.
+the source receipts and authenticated suspended-input abort chains. Audited
+statement delimiters, invalid break targets and missing try headers now throw at
+their original parser phases. `StreamExePrint` catches these original child
+`Compiler` failures, returns zero and preserves reached effects. Runtime Break,
+direct throws and the remaining original producers remain open.
 Option 17 now checks unnecessary parentheses during original expression
 parsing, with live options, native warning counts and both definition-input
 suppression checks. The [parenthesis example](examples/compiler-parenthesis-warnings.hc)

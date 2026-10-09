@@ -83,9 +83,11 @@ let unsupported () =
         "output requires a checked visible target" "HCSEMA0059"
         (diagnostic text).code)
     [ "\"hello\";"; "if(0) {\"hidden\";}" ];
-  Alcotest.(check string) "unbound break" "HCRUN0002" (diagnostic "break;").code;
   Alcotest.(check string)
-    "break cannot escape for initializer" "HCRUN0002"
+    "unbound break fails at the original LexExcept phase" "HCPARSE0170"
+    (diagnostic "break;").code;
+  Alcotest.(check string)
+    "break cannot escape for initializer" "HCPARSE0170"
     (diagnostic "while(1) for(break;1;0) ;").code;
   List.iter
     (fun text -> succeeds text ())

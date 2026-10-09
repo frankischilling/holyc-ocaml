@@ -34,6 +34,21 @@ through built, staged and installed consumers. Direct string storage in IR
 defaults, ordinary AOT outer-table joins, Break and other original Compiler
 producers remain open.
 
+Statement Compiler cases cover 33 literal source fixtures in both outer modes.
+They compare the original current token and native error count for audited
+control-flow delimiters, statement terminators, invalid break targets and try
+header/catch checks. Parser tests check target resets in for headers, lock and
+try/catch bodies, restoration afterward, kind-filtered SysTry/SysUntry lookup,
+headers reached during lexer directives and lexer faults that prevent later
+throws. Matching synthetic diagnostics retain zero receipt authority.
+
+Both IR and native run every fixture uncaught and as a caught saved input.
+Earlier directive effects remain and the parent resumes with zero. The native
+cases require completed machine fragments and zero interpreted task steps.
+Each CLI backend runs 134 additional statement cases across both outer modes;
+built, staged and installed consumers use the same source fixtures. Native
+SysTry/SysUntry calls, runtime Break and direct Compiler throws remain open.
+
 The return-warning cases check the three original producers, native counts
 with options 16-19 disabled, the flag's source timing, replay and expiration,
 exact aggregate sizes, pointer returns, macros, shared directives and fresh

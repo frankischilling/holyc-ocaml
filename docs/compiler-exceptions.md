@@ -6,7 +6,7 @@ before consuming it or reading the return expression, so a following `#exe`,
 preprocessor error or invalid token cannot run first. The callback-free parser
 still represents standalone return syntax for semantic and AST clients.
 
-This producer follows `LexExcept` in `CExcept.HC:81-96`. It increments the
+These audited producers follow `LexExcept` in `CExcept.HC:81-96`. Each increments the
 original control's `error_cnt` at byte 344 and creates one private `Compiler`
 receipt. Its diagnostic, count, exact context, position, observed events and
 domain come from that original parser phase. A diagnostic with the same code,
@@ -32,7 +32,7 @@ receipt retains the reached count and diagnostic. Physical ownership can still
 be checked in the original domain after unwinding and collection. Receipt
 ownership does not admit syntax, runtime work or an executable result.
 
-A consumed suspended input can retain a private `failed_input` when this
+A consumed suspended input can retain a private `failed_input` when an audited
 original producer stops its parser. The receipt binds the exact suspension and
 registered source to the complete abort chain, including nested `#exe` scopes.
 Every scope must close at its original position and event count and deliver its
@@ -58,13 +58,13 @@ and installed CLI coverage uses the same source cases as the library tests.
 
 Other original `LexExcept` producers and direct `throw('Compiler')` paths still
 need their actual source phase and ownership. A direct throw need not increment
-`error_cnt`. Full native function pointers, IC type-check interruption, SysTry
-header selection and SysUntry calls remain open. Parsing can still reach a
+`error_cnt`. Full native function pointers, IC type-check interruption, native SysTry
+header selection and SysTry/SysUntry calls remain open. Parsing can still reach a
 later producer after a fault the native compiler would interrupt earlier.
 PrintErr, AdamErr, LexPutPos, FlushMsgs, boot/debug behavior and native exception
 stacks are not implemented by these structured reports.
 
-`StreamExePrint` now catches this original child `Compiler` failure and returns
+`StreamExePrint` now catches these original child `Compiler` failures and returns
 zero, following `ExePutS` in `CMain.HC:589-596`. It starts a private runtime scope
 before entering the input and records each participating namespace under the
 original shared resource owner. The exact session, semantic tables, registered
@@ -92,9 +92,57 @@ child Compiler exception has been caught.
 For example, in an active directive, `I64 n=StreamExePrint("return 42;");`
 completes its own initializer with zero and lets the parent continue. The child
 still has its original failed syntax, diagnostic and counted exception receipt.
-The current original producer is the missing-function return check. Break,
-additional original Compiler producers and direct throws remain open, along with
+The matched producers include the missing-function return and statement checks
+below. Runtime Break, additional original Compiler producers and direct throws
+remain open, along with
 the native exception stacks and terminal behavior described above. Source
 function presence still does not lower an inherited-function return. Direct
 string storage in IR defaults and ordinary AOT outer-table joins also remain
 unfinished.
+
+
+## Statement failures and break targets
+
+The executable parser also matches these `PrsStmt.HC` checks. The representation
+parser keeps its existing AST behavior and issues no Compiler receipt.
+
+| Original check | Diagnostics | Pinned source |
+| --- | --- | --- |
+| `if` and `while` opening/closing parentheses | HCPARSE0052/0053/0058/0059 | 464-469, 490-497 |
+| `do` trailing `while`, parentheses and semicolon | HCPARSE0063-0066 | 514-525 |
+| `for` opening, condition semicolon and closing | HCPARSE0067/0069/0070 | 535-557 |
+| `switch` opening, closing delimiter and body brace | HCPARSE0085-0087 | 592-618 |
+| `goto` identifier | HCPARSE0075 | 1122-1123 |
+| Statement terminators after completed output, expression, break, goto or value return | HCPARSE0046/0047/0072/0073/0076 | 1210-1213 |
+| Missing break target | HCPARSE0170 | 1133-1136 |
+| Missing SysTry/SysUntry function headers or trailing catch | HCPARSE0171/0080 | 842-850, 893-895 |
+
+An invalid `break` consumes the keyword and reads the next token before checking
+its target. Its diagnostic therefore points to that current token. A directive
+reached during this read runs first; an earlier lexer or directive failure
+prevents the later break producer. This differs from the missing-function
+return check, which runs before consuming `return`.
+
+Source break targets belong to actual parser scopes. While, do, for bodies and
+switch regions supply a target. Blocks and if branches retain it. For
+initializers and updates, lock bodies, try/catch bodies, new function bodies and
+new compiler inputs start without one, as the original PrsStmt calls do. Each
+scoped change restores the previous target on success or unwinding. These source
+owners do not construct native CCodeMisc labels.
+
+Try header checks run after the initial lexer read and before parsing the body.
+They use Function-kind lookup in the current source tables, so a same-named
+variable cannot supply a header and a header published during that lexer read
+can be found. Both SysTry and SysUntry must be present. This establishes source
+presence only; native header addresses, flags and the original calls still need
+their full implementation. A parsed try/catch has no execution authority from
+this check.
+
+The shared statement fixtures check exact original diagnostic tokens, reached
+counts, first-producer ordering, header lookup and scope restoration in both
+outer modes. IR and native runs retain reached directive output. Saved inputs
+catch the same original failures and resume their parents with zero. Native
+runs require actual completed machine fragments and zero interpreted task
+instructions. Matching callback diagnostics still cannot create throw or catch
+authority. Other argument, expression, declaration and lexer producers and
+direct Compiler throws remain unfinished.
