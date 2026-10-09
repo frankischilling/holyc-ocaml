@@ -534,8 +534,12 @@ nonempty class and union objects from an exact layout completed before the
 function declaration. Explicit integer pointer views share packed and
 overlapping bytes, initialization state and the original object extent in both
 executors and modes. `examples/automatic-aggregate-byte-views.hc` prints `AB`
-and returns 42. Inherited storage, retained JIT imports, aggregate arrays and
-ordinary member execution remain open under issue #686.
+and returns 42. [Owned aggregate members](docs/aggregate-members.md) add direct
+and pointer field access, nested fields, multidimensional member arrays and
+owned class pointer locals and parameters. `examples/aggregate-members.hc`
+also prints `AB` and returns 42. Inherited storage, retained JIT imports,
+standalone aggregate arrays, persistent objects, whole-object values and copies,
+pointer fields and pointer returns remain open under issue #686.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,

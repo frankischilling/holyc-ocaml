@@ -1,5 +1,14 @@
 # Reference source map
 
+Owned aggregate members follow `PrsExp.HC:967-1015` selected member lookup,
+offset and address addition, and `1057-1100` remaining array strides. Original
+dereference, update, address-taking and assignment checks are at
+`97-125,151-163,200-210`. `PrsLib.HC:40-62` supplies class pointer records;
+`PrsVar.HC:620-632` supplies fixed parameter slots. Hosted immutable field proofs
+and reference descriptors retain exact selected fields and containing-object
+ownership. Tests distinguish IR field-proof checks from native graph sealing.
+See [owned aggregate members](aggregate-members.md) for execution limits.
+
 Automatic aggregate byte views consume `PrsVar.HC:530-531,590-618` local sizes
 and frame placement, `660-671` packed and overlapping members, and
 `PrsStmt.HC:41-57` completed class sizes. Explicit casts follow

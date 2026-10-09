@@ -8,8 +8,9 @@ This supports metadata queries, not aggregate object execution.
 
 Isolated IR and native programs have a separate
 [automatic aggregate byte-view path](automatic-aggregate-byte-views.md) for
-completed earlier layouts. Retained JIT publication and inherited metadata
-remain insufficient to authorize those objects.
+completed earlier layouts, with [owned member execution](aggregate-members.md)
+for integer fields, nested members and member arrays. Retained JIT publication
+and inherited metadata remain insufficient to authorize those objects.
 
 [Runtime member bounds and offsets](runtime-layout-expressions.md) now use their
 original integer JIT expressions in both IR and native tasks. Each intermediate

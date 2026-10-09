@@ -5168,7 +5168,33 @@
 (library
  (name automatic_aggregate_fixture)
  (wrapped false)
- (modules automatic_aggregate_cases))
+ (modules automatic_aggregate_cases aggregate_member_cases))
+
+(test
+ (name test_aggregate_members)
+ (modules test_aggregate_members)
+ (libraries
+  holyc_lib
+  automatic_aggregate_fixture
+  aggregate_member_support
+  alcotest))
+
+(library
+ (name aggregate_member_support)
+ (wrapped false)
+ (modules aggregate_member_fixture)
+ (libraries holyc_lib))
+
+(test
+ (name test_aggregate_members_cli)
+ (modules test_aggregate_members_cli)
+ (libraries unix yojson automatic_aggregate_fixture)
+ (deps ../examples/aggregate-members.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/aggregate-members.hc})))
 
 (test
  (name test_automatic_aggregate_storage)

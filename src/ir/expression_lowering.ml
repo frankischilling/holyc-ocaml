@@ -58,10 +58,21 @@ type storage_address =
   | Frame_slot of Frame_address_lowering.prepared_address
   | Global_slot of Global_address_lowering.prepared_address
 
+type member_step = {
+  member_result : Semantic_result.expression_result;
+  member_base : Semantic_result.expression_result;
+  member_offset : int64;
+  member_pointer_type : Type.t;
+  member_base_pointer_type : Type.t;
+  member_span : Common.Span.t;
+  member_proof : Aggregate_member_projection.t;
+}
+
 type assignment_address =
   | Direct_address of storage_address
   | Indirect_address_value of Semantic_result.expression_result
   | Pointer_base of Semantic_result.expression_result
+  | Member_address of member_step * assignment_address
   | Indexed_address of {
       base : Semantic_result.expression_result;
       address : assignment_address;
@@ -91,6 +102,7 @@ type pointer_difference_step = {
 }
 
 type plan_node =
+  | Project_member of member_step
   | Index_stride of index_step
   | Index_address of index_step
   | Pointer_difference of pointer_difference_step
@@ -204,6 +216,7 @@ type plan_node =
     }
 
 type task =
+  | Finish_member_projection of member_step
   | Emit_index_stride of index_step
   | Finish_index_address of index_step
   | Finish_pointer_difference of pointer_difference_step
@@ -407,7 +420,9 @@ let checked_frame_value result =
     match Semantic_result.result_storage_type result with
     | Some type_ when array_storage_address result -> (
         match Type.pointer_to type_ with
-        | Ok pointer when array_pointer_type pointer ->
+        | Ok pointer
+          when array_pointer_type pointer
+               || Automatic_aggregate_storage.aggregate_pointer pointer ->
             Ok (Checked_type pointer)
         | _ -> Ok Unsupported_type)
     | Some type_
@@ -1662,13 +1677,149 @@ let prepare_storage_address ?frame ?globals result =
       Global_address_lowering.prepare ?frame ~globals result
       |> Result.map (Option.map (fun address -> Global_slot address))
 
+let checked_member_projection result member =
+  let ( let* ) = Result.bind in
+  let invalid message =
+    Error [ metadata_error ?span:(result_span result) message ]
+  in
+  if
+    Option.is_some (Semantic_result.result_aggregate_offset_path result)
+    || Option.is_some (Semantic_result.result_callback_pointer result)
+  then Ok None
+  else
+    match Semantic_result.result_storage_type result with
+    | None -> invalid "member expression has no checked storage type"
+    | Some member_type -> (
+        let supported =
+          Type.pointer_depth member_type = 0
+          && (Option.is_some (Integer_scalar_storage.of_type member_type)
+             ||
+             match Type.base member_type with
+             | Type.Aggregate _ -> true
+             | _ -> false)
+        in
+        if not supported then Ok None
+        else
+          let* base =
+            match Semantic_result.result_member_base result with
+            | Some base
+              when same_source_expression
+                     (Semantic_result.result_source base)
+                     (Semantic_source.member_base member) -> Ok base
+            | _ ->
+                invalid
+                  "member expression does not retain its exact checked base"
+          in
+          let* lookup =
+            match Semantic_result.result_member_lookup result with
+            | Some lookup -> Ok lookup
+            | None -> invalid "member expression has no checked member lookup"
+          in
+          let indexed = Sema.Aggregate_member_index.lookup_member lookup in
+          let layout = Sema.Aggregate_member_index.member_layout indexed in
+          let* base_type =
+            match Semantic_result.result_storage_type base with
+            | Some type_ -> Ok type_
+            | None -> invalid "member base has no checked storage type"
+          in
+          let* () =
+            if Semantic_result.result_array_rank base = 0 then Ok ()
+            else invalid "member base retains unconsumed array dimensions"
+          in
+          let* aggregate_type, base_pointer =
+            match Semantic_source.member_access_kind member with
+            | Semantic_source.Direct_member -> (
+                match Type.pointer_to base_type with
+                | Ok pointer when Type.pointer_depth base_type = 0 ->
+                    Ok (base_type, pointer)
+                | _ ->
+                    invalid
+                      "direct member base is not a checked aggregate object")
+            | Semantic_source.Pointer_member -> (
+                match Type.dereference base_type with
+                | Ok pointee when Type.pointer_depth pointee = 0 ->
+                    Ok (pointee, base_type)
+                | _ ->
+                    invalid
+                      "pointer member base is not a checked aggregate pointer")
+          in
+          let exact_aggregate =
+            match Type.base aggregate_type with
+            | Type.Aggregate symbol ->
+                symbol
+                == Sema.Aggregate_member_index.lookup_queried_aggregate lookup
+            | _ -> false
+          in
+          if
+            (not exact_aggregate)
+            || (not
+                  (Type.equal member_type
+                     (Sema.Aggregate_member_index.member_type indexed)))
+            || (not
+                  (Type.equal member_type
+                     (Type_reference.resolved_type
+                        (Sema.Aggregate_member_index.member_type_reference
+                           indexed))))
+            || List.length layout.dimensions
+               <> Semantic_result.result_array_rank result
+            || Sema.Aggregate_member_index.member_is_function_pointer indexed
+            || not
+                 (String.equal
+                    (Semantic_source.member_name member)
+                    (Sema.Symbol.name
+                       (Sema.Aggregate_member_index.member_symbol indexed)))
+          then
+            invalid
+              "member projection disagrees with its selected aggregate or field"
+          else
+            let* pointer_type =
+              match Type.pointer_to member_type with
+              | Ok pointer -> Ok pointer
+              | Error message -> invalid message
+            in
+            let* proof =
+              Aggregate_member_projection.create ~lookup ~base_pointer
+                ~pointer_type
+              |> Result.map_error (fun message ->
+                  [ metadata_error ?span:(result_span result) message ])
+            in
+            match result_span result with
+            | None ->
+                invalid "member projection has no complete source location"
+            | Some span ->
+                Ok
+                  (Some
+                     {
+                       member_result = result;
+                       member_base = base;
+                       member_offset = layout.offset;
+                       member_pointer_type = pointer_type;
+                       member_base_pointer_type = base_pointer;
+                       member_span = span;
+                       member_proof = proof;
+                     }))
+
 let rec prepare_index_address ?frame ?globals result =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ metadata_error ?span:(result_span result) message ]
   in
   let* value_type =
-    checked_frame_value result |> Result.map_error (fun e -> [ e ])
+    (match checked_frame_value result with
+      | Ok Unsupported_type
+        when Option.fold ~none:false
+               ~some:(fun type_ ->
+                 Type.pointer_depth type_ = 0
+                 &&
+                 match Type.base type_ with
+                 | Type.Aggregate _ -> true
+                 | _ -> false)
+               (Semantic_result.result_storage_type result) ->
+          Ok
+            (Checked_type
+               (Option.get (Semantic_result.result_storage_type result)))
+      | other -> other)
+    |> Result.map_error (fun e -> [ e ])
   in
   match value_type with
   | Unsupported_type -> Ok None
@@ -1677,6 +1828,21 @@ let rec prepare_index_address ?frame ?globals result =
         Semantic_source.argument_expression_kind
           (Semantic_result.result_source result)
       with
+      | Semantic_source.Member_access_expression member
+        when array_storage_address result -> (
+          let* projection = checked_member_projection result member in
+          match projection with
+          | None -> Ok None
+          | Some step ->
+              let* address =
+                prepare_assignment_address ?frame ?globals result
+              in
+              Ok
+                (Option.map
+                   (fun address ->
+                     ( address,
+                       Aggregate_member_projection.strides step.member_proof ))
+                   address))
       | Semantic_source.Bound_identifier_expression _
       | Semantic_source.Top_level_bound_identifier_expression _
       | Semantic_source.Unresolved_expression
@@ -1900,7 +2066,7 @@ let rec prepare_index_address ?frame ?globals result =
                                    remaining )))))
       | _ -> Ok None)
 
-let rec prepare_assignment_address ?frame ?globals result =
+and prepare_assignment_address ?frame ?globals result =
   match
     Semantic_source.argument_expression_kind
       (Semantic_result.result_source result)
@@ -1913,6 +2079,23 @@ let rec prepare_assignment_address ?frame ?globals result =
   | Semantic_source.Index_expression _ ->
       prepare_index_address ?frame ?globals result
       |> Result.map (Option.map fst)
+  | Semantic_source.Member_access_expression member -> (
+      let ( let* ) = Result.bind in
+      let* projection = checked_member_projection result member in
+      match projection with
+      | None -> Ok None
+      | Some step ->
+          let* base_address =
+            match Semantic_source.member_access_kind member with
+            | Semantic_source.Direct_member ->
+                prepare_assignment_address ?frame ?globals step.member_base
+            | Semantic_source.Pointer_member ->
+                Ok (Some (Pointer_base step.member_base))
+          in
+          Ok
+            (Option.map
+               (fun address -> Member_address (step, address))
+               base_address))
   | Semantic_source.Parenthesized_expression source -> (
       match checked_operand result source "parenthesized assignment target" with
       | Error item -> Error [ item ]
@@ -1927,14 +2110,23 @@ let rec prepare_assignment_address ?frame ?globals result =
         |> Result.map_error (fun e -> [ e ])
       in
       let* valid =
-        validate_pointer_unary result Opcode.Ic_deref pointer
+        (if
+           Option.fold ~none:false
+             ~some:(fun type_ ->
+               Automatic_aggregate_storage.aggregate_pointer type_)
+             (Semantic_result.result_storage_type pointer)
+         then
+           Result.map
+             (fun () -> true)
+             (checked_pointer_unary_types result Opcode.Ic_deref pointer)
+         else validate_pointer_unary result Opcode.Ic_deref pointer)
         |> Result.map_error (fun e -> [ e ])
       in
       if
         valid
         &&
         match checked_frame_value pointer with
-        | Ok (Checked_type type_) -> scalar_pointer_type type_
+        | Ok (Checked_type type_) -> data_pointer_type type_
         | _ -> false
       then Ok (Some (Indirect_address_value pointer))
       else Ok None
@@ -1972,7 +2164,7 @@ let validate_frame_assignment result left right =
         (Type.pointer_depth r = 0
          && Type.pointer_depth l = 0
          && Type.pointer_depth v = 0
-        || scalar_pointer_type r && Type.equal r l
+        || data_pointer_type r && Type.equal r l
            && Integer_scalar_storage.compatible_pointer l v)
 
 let compound_assignment = function
@@ -2040,6 +2232,9 @@ let plan ?frame ?globals ~allow_calls root =
         pending :=
           (Visit { result = pointer; conversion = Keep_result } :: after)
           @ !pending
+    | Member_address (step, address) ->
+        address_tasks step.member_base address
+          (Finish_member_projection step :: after)
     | Indexed_address { base; address; index; stride; pointer_type; span } ->
         let step =
           {
@@ -2061,7 +2256,9 @@ let plan ?frame ?globals ~allow_calls root =
     match (checked_frame_value operand, result_span result) with
     | Error item, _ -> error := Some item
     | Ok (Checked_type pointer_type), Some span
-      when array_pointer_type pointer_type && conversion = Keep_result -> (
+      when (array_pointer_type pointer_type
+           || Automatic_aggregate_storage.aggregate_pointer pointer_type)
+           && conversion = Keep_result -> (
         match prepare_index_address ?frame ?globals operand with
         | Error (item :: _) -> error := Some item
         | Ok (Some (address, _)) ->
@@ -2110,11 +2307,13 @@ let plan ?frame ?globals ~allow_calls root =
                 array_value result result conversion
             | Semantic_source.Index_expression _ -> (
                 match
-                  ( prepare_index_address ?frame ?globals result,
+                  ( checked_frame_scalar result,
+                    prepare_index_address ?frame ?globals result,
                     result_span result )
                 with
-                | Error (item :: _), _ -> error := Some item
-                | Ok (Some (address, [])), Some span ->
+                | Error item, _, _ | _, Error (item :: _), _ ->
+                    error := Some item
+                | Ok (Checked_type _), Ok (Some (address, [])), Some span ->
                     address_tasks result address
                       [
                         Finish_unary
@@ -2225,6 +2424,29 @@ let plan ?frame ?globals ~allow_calls root =
                       Integer_constant
                         { result; span; result_type; value; conversion }
                       :: !reversed)
+            | Semantic_source.Member_access_expression _
+              when Option.is_none
+                     (Semantic_result.result_aggregate_offset_path result) -> (
+                match
+                  ( checked_frame_scalar result,
+                    prepare_assignment_address ?frame ?globals result,
+                    result_span result )
+                with
+                | Error item, _, _ -> error := Some item
+                | _, Error (item :: _), _ -> error := Some item
+                | Ok (Checked_type _), Ok (Some address), Some span ->
+                    address_tasks result address
+                      [
+                        Finish_unary
+                          {
+                            result;
+                            opcode = Opcode.Ic_deref;
+                            span;
+                            operand = result;
+                            conversion;
+                          };
+                      ]
+                | _ -> unsupported := true)
             | Semantic_source.Member_access_expression _ -> (
                 match checked_aggregate_offset result with
                 | Error item -> error := Some item
@@ -2825,6 +3047,8 @@ let plan ?frame ?globals ~allow_calls root =
             reversed := Pointer_difference step :: !reversed
         | Finish_index_address step ->
             reversed := Index_address step :: !reversed
+        | Finish_member_projection step ->
+            reversed := Project_member step :: !reversed
         | Finish_materialize_array { result; operand; pointer_type; span } ->
             reversed :=
               Materialize_array { result; operand; pointer_type; span }
@@ -3135,6 +3359,7 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
     | Pointer_difference { difference_result = result; _ }
     | Index_stride { indexed_result = result; _ }
     | Index_address { indexed_result = result; _ }
+    | Project_member { member_result = result; _ }
     | Chain_link { result; _ } -> (result, [], false)
     | Alias { result; operand } | Eliminated_division { result; operand } ->
         (result, [ operand ], true)
@@ -3176,6 +3401,7 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
         | Chain_link _
         | Index_stride _
         | Index_address _
+        | Project_member _
         | Pointer_difference _
         | Materialize_array _
         | Indirect_address _
@@ -3869,6 +4095,36 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
             | Ok node ->
                 lowered :=
                   Int_map.add (result_key step.indexed_result) node !lowered)
+        | Project_member step -> (
+            let ( let* ) = Result.bind in
+            let emitted =
+              let* base =
+                find_lowered !lowered step.member_base "member base"
+              in
+              if
+                not (Type.equal base.lowered_type step.member_base_pointer_type)
+              then
+                Error
+                  (metadata_error ~span:step.member_span
+                     "member base has a mismatched pointer type")
+              else
+                let* offset =
+                  emit_index_value ~opcode:Opcode.Ic_imm_i64 ~operands:[]
+                    ~target_type:step.member_pointer_type
+                    ~payload:(Some (Sequence.Integer step.member_offset))
+                    ~span:step.member_span
+                in
+                emit_index_value ~opcode:Opcode.Ic_add
+                  ~operands:[ base.lowered_value; offset.lowered_value ]
+                  ~target_type:step.member_pointer_type
+                  ~payload:(Some (Sequence.Member_projection step.member_proof))
+                  ~span:step.member_span
+            in
+            match emitted with
+            | Error item -> error := Some item
+            | Ok node ->
+                lowered :=
+                  Int_map.add (result_key step.member_result) node !lowered)
         | Pointer_difference step -> (
             let ( let* ) = Result.bind in
             let emitted =
@@ -4565,6 +4821,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                 | Indirect_address { result; _ } :: _
                 | Index_stride { indexed_result = result; _ } :: _
                 | Index_address { indexed_result = result; _ } :: _
+                | Project_member { member_result = result; _ } :: _
                 | Pointer_difference { difference_result = result; _ } :: _
                 | Materialize_array { result; _ } :: _
                 | Storage_load { result; _ } :: _
@@ -4815,7 +5072,7 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
                || Semantic_result.result_is_callback_storage value
                   && callback_word_type value_type)
          || Option.is_some frame
-            && scalar_pointer_type target_type
+            && data_pointer_type target_type
             && Integer_scalar_storage.compatible_pointer target_type value_type
     -> (
       let* address_sequence, address_value, next_instruction, next_value =

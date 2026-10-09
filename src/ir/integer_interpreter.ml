@@ -199,6 +199,7 @@ and prepared_operation =
   | Scale_index of prepared_operand * int64 * Value_id.t
   | Index_address of
       binary_operation * storage_location * Value_id.t * Value_id.t * Type.t
+  | Project_member of storage_location * int64 * Value_id.t * Type.t * Type.t
   | Materialize_address of storage_location * Value_id.t * Type.t
   | Load_slot of storage_location * Value_id.t
   | Store_slot of storage_location * prepared_value * Value_id.t * stored_type
@@ -4926,6 +4927,7 @@ type opcode_kind =
   | Literal_address_kind
   | Scale_index_kind
   | Index_address_kind
+  | Member_address_kind
   | Pointer_address_kind
   | Global_address_kind
   | Frame_address_kind
@@ -5153,9 +5155,9 @@ let frame_stored_type type_ =
   match stored_type type_ with
   | Some _ as stored -> stored
   | None -> (
-      (* A checked aggregate pointer occupies one ordinary pointer slot even
-         before the pointee has a runtime layout. This admits only frame
-         storage; scalar_pointer_type still controls memory operations. *)
+      (* A checked aggregate pointer occupies one ordinary pointer slot. The
+         slot retains an owned descriptor; field projection separately requires
+         the exact selected member and layout evidence. *)
       match Type.base type_ with
       | Type.Aggregate _ when Type.pointer_depth type_ > 0 ->
           Some (Stored_pointer type_)
@@ -5530,7 +5532,7 @@ let frame_pointer type_ =
   data_pointer_type type_
   ||
   match Type.dereference type_ with
-  | Ok pointee -> scalar_pointer_type pointee
+  | Ok pointee -> data_pointer_type pointee
   | Error _ -> false
 
 let address_slot context types (description : Sequence.description) =
@@ -5599,7 +5601,9 @@ let global_address frame globals initialization
 
 let index_offset types (description : Sequence.description) =
   match (description.operands, description.target_type) with
-  | [ stride_id; value_id ], Some pointer when array_pointer_type pointer -> (
+  | [ stride_id; value_id ], Some pointer
+    when array_pointer_type pointer
+         || Automatic_aggregate_storage.aggregate_pointer pointer -> (
       match
         (Value_map.find_opt stride_id types, Value_map.find_opt value_id types)
       with
@@ -5622,7 +5626,9 @@ let index_offset types (description : Sequence.description) =
 
 let indexed_address frame types (description : Sequence.description) =
   match (description.operands, description.target_type) with
-  | [ base; offset ], Some pointer when array_pointer_type pointer -> (
+  | [ base; offset ], Some pointer
+    when array_pointer_type pointer
+         || Automatic_aggregate_storage.aggregate_pointer pointer -> (
       let callback_root =
         match Value_map.find_opt base types with
         | Some (Frame_address index) ->
@@ -5697,6 +5703,37 @@ let indexed_address frame types (description : Sequence.description) =
               | Some slot ->
                   Callback_initializer_address (slot, pointer, remaining)
               | None -> Indexed_address (pointer, remaining)))
+      | _ -> Unsupported)
+  | _ -> Unsupported
+
+let member_address frame types (description : Sequence.description) =
+  match
+    ( description.opcode,
+      description.operands,
+      description.target_type,
+      description.payload )
+  with
+  | ( Opcode.Ic_add,
+      [ base; offset ],
+      Some pointer,
+      Some (Sequence.Member_projection proof) )
+    when data_pointer_type pointer -> (
+      let base_pointer =
+        match Value_map.find_opt base types with
+        | Some (Frame_address index) ->
+            Option.bind frame (fun context ->
+                Type.pointer_to context.slots.(index).slot_type
+                |> Result.to_option)
+        | Some (Pointer_value source | Indexed_address (source, [])) ->
+            Some source
+        | _ -> None
+      in
+      match (base_pointer, Value_map.find_opt offset types) with
+      | Some source, Some (Frame_offset (expected, delta))
+        when Type.equal expected pointer
+             && Aggregate_member_projection.matches proof ~base_pointer:source
+                  ~pointer_type:pointer ~offset:delta ->
+          Indexed_address (pointer, Aggregate_member_projection.strides proof)
       | _ -> Unsupported)
   | _ -> Unsupported
 
@@ -5868,7 +5905,10 @@ let declared_types ?frame ?globals ?literals ?initialization
                                  Frame_offset (type_, offset)
                              | _ -> Unsupported)
                          | _, Opcode.Ic_mul
-                           when array_pointer_type type_ && memory_enabled ->
+                           when (array_pointer_type type_
+                                || Automatic_aggregate_storage.aggregate_pointer
+                                     type_)
+                                && memory_enabled ->
                              index_offset types description
                          | _, (Opcode.Ic_add | Opcode.Ic_sub)
                            when frame_pointer type_ -> (
@@ -5878,10 +5918,15 @@ let declared_types ?frame ?globals ?literals ?initialization
                                | Callback_initializer_address _ ) as indexed ->
                                  indexed
                              | _ -> (
-                                 match frame with
-                                 | Some context ->
-                                     address_slot context types description
-                                 | None -> Unsupported))
+                                 match
+                                   member_address frame types description
+                                 with
+                                 | Indexed_address _ as projected -> projected
+                                 | _ -> (
+                                     match frame with
+                                     | Some context ->
+                                         address_slot context types description
+                                     | None -> Unsupported)))
                          | _, Opcode.Ic_holyc_typecast
                            when memory_enabled || allow_calls -> (
                              match
@@ -5956,6 +6001,12 @@ let value_matches stored operand =
 
 let storage_operand ?(allow_array = false) frame initialization types
     instruction address =
+  let address_storage type_ =
+    match Type.pointer_to type_ with
+    | Ok pointer when Automatic_aggregate_storage.aggregate_pointer pointer ->
+        Some (Stored_narrow Automatic_aggregate_storage.byte_scalar)
+    | _ -> stored_type type_
+  in
   match (frame, Value_map.find_opt address types) with
   | Some _, Some (Variadic_address pointee) when allow_array ->
       Some (Variadic_slot, pointee, Stored_word I64)
@@ -5984,7 +6035,7 @@ let storage_operand ?(allow_array = false) frame initialization types
               ( Indexed_slot { pointer_value = address; pointer_type },
                 pointee,
                 stored ))
-            (stored_type pointee)
+            (address_storage pointee)
       | Error _ -> None)
   | _, Some (Callback_array_address (_, _, pointer_type, remaining))
   | _, Some (Callback_initializer_address (_, pointer_type, remaining))
@@ -6006,7 +6057,7 @@ let storage_operand ?(allow_array = false) frame initialization types
               ( Indirect_slot { pointer_value = address; pointer_type },
                 pointee,
                 stored ))
-            (stored_type pointee)
+            (address_storage pointee)
       | Error _ -> None)
   | _ -> None
 
@@ -6237,6 +6288,10 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
            | Some (Index_offset _) -> true
            | _ -> false -> Some Scale_index_kind
     | _, (Opcode.Ic_add | Opcode.Ic_sub)
+      when match member_address frame types description with
+           | Indexed_address _ -> true
+           | _ -> false -> Some Member_address_kind
+    | _, (Opcode.Ic_add | Opcode.Ic_sub)
       when match produced with
            | Some
                ( Indexed_address _
@@ -6355,6 +6410,32 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                              result.value_id,
                              pointee ))
                   | _ -> Error (malformed block_id description))
+              | _ -> Error (malformed block_id description))
+          | Member_address_kind -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [ base; offset ],
+                  Some result,
+                  Some pointer,
+                  Some (Sequence.Member_projection _) ) -> (
+                  match
+                    ( storage_operand ~allow_array:true frame initialization
+                        types description.instruction_id base,
+                      Value_map.find_opt offset types,
+                      Type.dereference pointer )
+                  with
+                  | ( Some (location, source, (Stored_word _ | Stored_narrow _)),
+                      Some (Frame_offset (expected, delta)),
+                      Ok pointee )
+                    when Type.equal pointer expected ->
+                      Ok
+                        (Project_member
+                           (location, delta, result.value_id, source, pointee))
+                  | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
           | Pointer_address_kind -> (
               match
@@ -6988,7 +7069,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   scalar_value_type ~allow_byte:true ~allow_public:true type_
                 with
                 | Some word -> Some (Stored_word word)
-                | None when scalar_pointer_type type_ ->
+                | None when data_pointer_type type_ ->
                     Some (Stored_pointer type_)
                 | None -> None
             in
@@ -7073,7 +7154,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                           type_
                       with
                       | Some word -> Some (Stored_word word)
-                      | None when scalar_pointer_type type_ ->
+                      | None when data_pointer_type type_ ->
                           Some (Stored_pointer type_)
                       | _ -> None)
               in
@@ -9810,6 +9891,35 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "prepared index offset is unavailable"))
+          | Project_member (location, delta, result, source, pointer_pointee)
+            -> (
+              match resolve_address block instruction location source with
+              | None -> ()
+              | Some address ->
+                  if
+                    delta > 0L
+                    && address.pointer_offset > Int64.sub Int64.max_int delta
+                    || delta < 0L
+                       && address.pointer_offset < Int64.sub Int64.min_int delta
+                  then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0020"
+                           "member address exceeds the hosted signed address \
+                            range")
+                  else
+                    let projected =
+                      {
+                        address with
+                        pointer_offset = Int64.add address.pointer_offset delta;
+                        pointer_pointee;
+                      }
+                    in
+                    if address_bounds ~one_past:true block instruction projected
+                    then
+                      values :=
+                        Value_map.add result (Runtime_pointer projected) !values
+              )
           | Materialize_address (location, result, pointer_pointee) -> (
               match
                 resolve_address block instruction location pointer_pointee

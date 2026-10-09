@@ -46,6 +46,7 @@ type expression_result = {
   operand_result : expression_result option;
   binary_operands : (expression_result * expression_result) option;
   index_operands : (expression_result * expression_result) option;
+  member_base_result : expression_result option;
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
@@ -770,6 +771,7 @@ let result_id (result : expression_result) = result.id
 let result_source (result : expression_result) = result.source
 let result_origin (result : expression_result) = result.origin
 let result_operand (result : expression_result) = result.operand_result
+let result_member_base (result : expression_result) = result.member_base_result
 let result_binary_operands (result : expression_result) = result.binary_operands
 let result_index_operands (result : expression_result) = result.index_operands
 let result_type (result : expression_result) = result.source_type
@@ -1600,12 +1602,12 @@ let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
 let make_result ?operand_result ?binary_operands ?index_operands
-    ?(array_rank = 0) ?(array_address = false) ?execution_class ?member_lookup
-    ?callback_pointer ?aggregate_offset_path ?outer_occurrence
-    ?top_level_outer_occurrence ?outer_binding ?call_resolution
-    ?function_declaration ?function_address_path ?callback_call_pointer
-    ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
-    ~source_type ~category ~result_class =
+    ?member_base_result ?(array_rank = 0) ?(array_address = false)
+    ?execution_class ?member_lookup ?callback_pointer ?aggregate_offset_path
+    ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
+    ?call_resolution ?function_declaration ?function_address_path
+    ?callback_call_pointer ?(intrinsic_conversion = No_intrinsic_conversion)
+    state ~id ~source ~source_type ~category ~result_class =
   record state
     {
       id;
@@ -1614,6 +1616,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
       operand_result;
       binary_operands;
       index_operands;
+      member_base_result;
       source_type;
       category;
       result_class;
@@ -3338,9 +3341,10 @@ and type_member table members policies ~before_item_index ~context
           ?callback_pointer ?member_lookup ?aggregate_offset_path category
           result_class =
         Ok
-          (make_result ~array_rank ?array_address ?callback_pointer
-             ~intrinsic_conversion ?member_lookup ?aggregate_offset_path state
-             ~id ~source ~source_type ~category ~result_class)
+          (make_result ~member_base_result:base ~array_rank ?array_address
+             ?callback_pointer ~intrinsic_conversion ?member_lookup
+             ?aggregate_offset_path state ~id ~source ~source_type ~category
+             ~result_class)
       in
       let operator_origin =
         Function_call_resolution.member_operator_origin member

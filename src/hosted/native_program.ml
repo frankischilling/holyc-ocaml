@@ -99,6 +99,13 @@ let scalar_word_type = function
   | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
   | Ast.Named_type_specifier _ -> false
 
+let named_pointer type_specifier pointer_layers =
+  List.length pointer_layers = 1
+  &&
+  match type_specifier with
+  | Ast.Named_type_specifier _ -> true
+  | _ -> false
+
 let void_return_type = function
   | Ast.Primitive_type_specifier { primitive = U0; _ }
   | Ast.Internal_type_specifier { primitive = U0; _ } -> true
@@ -248,6 +255,7 @@ let function_source_error (definition : Ast.function_definition) =
         if
           not
             (scalar_word_type parameter.type_specifier
+            || named_pointer parameter.type_specifier parameter.pointer_layers
             || Option.is_some parameter.function_pointer)
         then
           reject
@@ -281,10 +289,12 @@ let local_source_error (declaration : Ast.local_declaration) =
       | _ -> false)
     && List.for_all
          (fun local ->
-           local.Ast.local_pointer_layers = []
+           (local.Ast.local_pointer_layers = []
+            && Option.is_none local.local_initializer
+           || named_pointer declaration.local_type_specifier
+                local.local_pointer_layers)
            && local.local_array_dimensions = []
-           && Option.is_none local.local_function_pointer
-           && Option.is_none local.local_initializer)
+           && Option.is_none local.local_function_pointer)
          declaration.local_declarators
   in
   if
@@ -489,9 +499,8 @@ let ast_errors (ast : Ast.module_) =
                   :: Gate_expression (in_function, index.index_value)
                   :: !work
             | Ast.Member_expression member ->
-                reject
-                  (source_error member.member_location.span
-                     "native programs do not admit member storage"))
+                work :=
+                  Gate_expression (in_function, member.member_base) :: !work)
         | Gate_statement (in_function, statement) -> (
             match statement with
             | Ast.Aggregate_declaration_statement _

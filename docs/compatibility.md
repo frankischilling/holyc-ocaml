@@ -4,8 +4,12 @@
 nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
 padding, initialized bytes and the original extent. Inherited storage,
-retained JIT imports, aggregate arrays, ordinary members, copies and aggregate
-ABI support remain outside this slice of #686.
+retained JIT imports, standalone aggregate arrays, persistent objects,
+whole-object values and copies, pointer fields and pointer returns remain
+outside this slice of #686. [Owned aggregate members](aggregate-members.md)
+support direct and pointer integer fields, nested fields, multidimensional
+member arrays and owned class pointer locals and fixed parameters. Their
+immutable field proofs retain the exact selected layout and original storage.
 
 [Unknown expression operands](compiler-exceptions.md#expression-failures-and-cleanup)
 throw at their original absent lexer selection, before another read or a
@@ -334,8 +338,10 @@ aggregate selections to provisional and completed function headers. A later
 `#exe` class declaration cannot retarget an earlier direct pointer parameter.
 The private parser owner supplies the exact selected Class entry and pointer
 children; missing or substituted evidence rejects. Checked frame storage admits
-opaque aggregate pointers while general aggregate storage, member access,
-pointer-return execution and named callback signatures remain separate work.
+opaque aggregate pointers. Isolated programs separately support
+[owned aggregate members](aggregate-members.md) and automatic class storage;
+retained JIT storage imports, pointer-return execution and named callback
+signatures remain separate work.
 
 [Native integer expressions](native-expressions.md) in #642 connect checked
 source to the project's OCaml x86-64 encoder and explicit Windows/Linux x86-64

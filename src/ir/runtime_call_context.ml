@@ -1439,7 +1439,11 @@ let rec producer_type ~globals result =
       && Typed.result_category result = Typed.Array_value
       && Typed.result_class result = Typed.Integer_result
       && Type.pointer_depth type_ = 0
-      && Option.is_some (Integer_scalar_storage.of_type type_))
+      && (Option.is_some (Integer_scalar_storage.of_type type_)
+         ||
+         match Type.base type_ with
+         | Type.Aggregate _ -> true
+         | _ -> false))
       "materialized call argument has no supported checked array element class";
     (match
        Typed.result_source result |> Resolution.argument_expression_kind
@@ -1479,6 +1483,49 @@ let rec producer_type ~globals result =
                  == Binding.publication_canonical_symbol publication
           | _ -> false)
           "materialized call argument has no checked global array publication"
+    | Resolution.Member_access_expression member -> (
+        match
+          (Typed.result_member_base result, Typed.result_member_lookup result)
+        with
+        | Some base, Some lookup -> (
+            require ?span
+              (Typed.result_source base == Resolution.member_base member
+              && Typed.result_array_rank base = 0
+              && List.length
+                   (Sema.Aggregate_member_index.member_layout
+                      (Sema.Aggregate_member_index.lookup_member lookup))
+                     .dimensions
+                 = rank)
+              "materialized member array lost its exact checked base or \
+               dimensions";
+            let base_type =
+              match Typed.result_storage_type base with
+              | Some type_ -> type_
+              | None ->
+                  fail ?span
+                    "materialized member array has no checked base type"
+            in
+            let base_pointer =
+              match Resolution.member_access_kind member with
+              | Resolution.Pointer_member -> base_type
+              | Resolution.Direct_member -> (
+                  match Type.pointer_to base_type with
+                  | Ok pointer -> pointer
+                  | Error message -> fail ?span message)
+            in
+            let pointer_type =
+              match Type.pointer_to type_ with
+              | Ok pointer -> pointer
+              | Error message -> fail ?span message
+            in
+            match
+              Aggregate_member_projection.create ~lookup ~base_pointer
+                ~pointer_type
+            with
+            | Ok _ -> ()
+            | Error message -> fail ?span message)
+        | _ ->
+            fail ?span "materialized member array has no selected field proof")
     | Resolution.Index_expression source -> (
         match Typed.result_index_operands result with
         | Some (base, index) ->

@@ -136,6 +136,31 @@
   automatic_aggregate_fixture
   alcotest))
 
+(executable
+ (name test_native_aggregate_members)
+ (modules test_native_aggregate_members)
+ (libraries
+  holyc_lib
+  native_scalar_support
+  automatic_aggregate_fixture
+  aggregate_member_support
+  alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_aggregate_members.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/aggregate-members.hc)
+ (action
+  (run
+   %{exe:../test_aggregate_members_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/aggregate-members.hc}
+   --native)))
+
 (rule
  (alias native-tests)
  (action

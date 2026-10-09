@@ -48,13 +48,15 @@ cover runtime frame bytes and instructions, plus native stack and encoded image
 bytes. These are source-derived expected results and hosted checks, without a
 TempleOS runtime capture.
 
-Inheritance still follows a separate metadata path that grants no runtime
-layout authority. Retained JIT commands cannot import aggregate object storage
-through this path. Zero-sized objects, aggregate arrays, persistent objects,
-whole-object values and copies, direct or pointer member projection, aggregate
-pointer parameters and returns, and original named-local size/position queries
-remain unfinished. A class defined inside a function also lacks the required
-earlier layout. These boundaries remain under
+[Owned aggregate members](aggregate-members.md) use this storage for direct
+and pointer integer fields, nested fields, member arrays and owned class pointer
+locals and parameters. Inheritance still follows a separate metadata path that
+grants no runtime layout authority. Retained JIT commands cannot import
+aggregate object storage through this path. Zero-sized objects, standalone
+aggregate arrays, persistent objects, whole-object values and copies, pointer
+and callback fields, pointer returns and original named-local size/position
+queries remain unfinished. A class defined inside a function also lacks the
+required earlier layout. These boundaries remain under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 
 The source rules come from TempleOS commit
