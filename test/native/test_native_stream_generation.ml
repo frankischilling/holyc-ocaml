@@ -386,18 +386,30 @@ let synchronous_boundary () =
             "original child formatting work"
             (integer_program_report_output_work independent)
             (Native.output_work report))
-        [
-          ({|#exe {StreamExePrint("40+2;");}42;|}, "");
-          ({|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;p("40+2;");}42;|}, "");
-          ( {|#exe {I64 F(I64 (*p)(U8 *fmt,...)=&StreamExePrint){return p("40+2;");}F();}42;|},
-            "" );
-          ( {|#exe {Print("before;");I64 n=StreamExePrint("Print(\"child;\");42;");Print("after;%d;",n);}42;|},
-            "before;child;after;42;" );
-          ( {|#exe {I64 n=StreamExePrint("I64 N=2;I64 A[N]={40,2};I64 F(I64 n=A[0]){return n+2;}F();");Print("%d;",n);}42;|},
-            "42;" );
-          ( {|#exe {Print("before;");I64 n=StreamExePrint("I64 C=40;C+2;");Print("%d;",n);n=StreamExePrint("C+2;");Print("after;%d;",n);}42;|},
-            "before;42;after;42;" );
-        ])
+        (List.map
+           (fun (_, text, output) -> (text, output))
+           (Cases.nested_saved_inputs mode)
+        @ [
+            ({|#exe {StreamExePrint("40+2;");}42;|}, "");
+            ({|#exe {I64 (*p)(U8 *fmt,...)=&StreamExePrint;p("40+2;");}42;|}, "");
+            ( {|#exe {I64 F(I64 (*p)(U8 *fmt,...)=&StreamExePrint){return p("40+2;");}F();}42;|},
+              "" );
+            ( {|#exe {Print("before;");I64 n=StreamExePrint("Print(\"child;\");42;");Print("after;%d;",n);}42;|},
+              "before;child;after;42;" );
+            ( {|#exe {I64 n=StreamExePrint("I64 N=2;I64 A[N]={40,2};I64 F(I64 n=A[0]){return n+2;}F();");Print("%d;",n);}42;|},
+              "42;" );
+            ( {|#exe {Print("before;");I64 n=StreamExePrint("I64 C=40;C+2;");Print("%d;",n);n=StreamExePrint("C+2;");Print("after;%d;",n);}42;|},
+              "before;42;after;42;" );
+          ]);
+      List.iter
+        (fun (name, text, code, output) ->
+          let report = run ~mode text in
+          failure code report;
+          Alcotest.(check string) name output (Native.output_bytes report);
+          Alcotest.(check int)
+            "rejected nested input uses no VM fallback" 0
+            (Option.get (Native.source_progress report)).runtime.executed_steps)
+        Cases.nested_saved_input_failures)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let executable_children () =

@@ -139,6 +139,39 @@ let compiler_options () =
         [ -1; 2; 63 ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let nested_saved_inputs () =
+  let execute mode contents =
+    let session = Session.create () in
+    let source =
+      Session.add_source session ~path:"nested-saved-input.hc"
+        ~contents:
+          ((if mode = Preprocessor.Jit then Cases.headers else "") ^ contents)
+    in
+    let config =
+      Preprocessor.Config.create ~compilation_mode:mode () |> Result.get_ok
+    in
+    run_integer_program_report session ~source ~config ~max_steps:100_000
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, contents, output) ->
+          let report = execute mode contents in
+          value report;
+          Alcotest.(check string)
+            name output
+            (integer_program_report_output_bytes report))
+        (Cases.nested_saved_inputs mode);
+      List.iter
+        (fun (name, contents, code, output) ->
+          let report = execute mode contents in
+          failure code report;
+          Alcotest.(check string)
+            name output
+            (integer_program_report_output_bytes report))
+        Cases.nested_saved_input_failures)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let () =
   Alcotest.run "Original stream generation"
     [
@@ -149,5 +182,8 @@ let () =
           Alcotest.test_case "shared work and cumulative bytes" `Quick quotas;
           Alcotest.test_case "current and child compiler option controls" `Quick
             compiler_options;
+          Alcotest.test_case
+            "nested directives retain original saved compiler tables" `Quick
+            nested_saved_inputs;
         ] );
     ]

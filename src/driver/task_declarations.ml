@@ -6405,7 +6405,7 @@ let emit_function_header_warnings ?runtime ledger header =
 let saved_compiler_context ledger ~session ~suspension =
   let ( let* ) = Result.bind in
   let* context = Parser.suspension_enclosing_context suspension in
-  let observed_events =
+  let observed_events context =
     List.fold_left
       (fun count event ->
         let original =
@@ -6427,10 +6427,18 @@ let saved_compiler_context ledger ~session ~suspension =
     || ledger.symbols != Session.symbols session
     || ledger.table != Session.semantic_symbols session
     || Parser.context_environment context != ledger.symbols
-    || (not (Parser.context_is_current context ~observed_events))
+    || (not
+          (Parser.context_is_current context
+             ~observed_events:(observed_events context)))
     || not
          (match ledger.active with
-         | active :: _ -> active.context == context
+         | active :: _ when active.context == context -> true
+         | active :: parent :: _ ->
+             parent.context == context
+             && Parser.suspension_is_from_context suspension active.context
+             && Parser.context_is_current active.context
+                  ~observed_events:(observed_events active.context)
+         | _ :: _ -> false
          | [] -> false)
   then Error "saved compiler context has another original source ledger"
   else Ok context

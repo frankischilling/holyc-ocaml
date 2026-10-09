@@ -22,6 +22,10 @@ val suspend_context : command_context -> (suspension, string) result
 (** Capture the current stack position of a live parser context for one nested
     input. A suspended ancestor cannot issue a token while a child is active. *)
 
+val suspension_is_from_context : suspension -> command_context -> bool
+(** Whether this unconsumed suspension belongs to the exact currently focused
+    parser context, position, event count and domain. *)
+
 val suspension_enclosing_context :
   suspension -> (command_context, string) result
 (** The unchanged enclosing compiler position saved by this active original

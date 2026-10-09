@@ -2790,54 +2790,58 @@ and run_stream_exe_source ?saved_compiler task ~active ~span contents =
     |> Result.map_error (stream_diagnostics span)
   in
   let* target =
-    match saved_compiler with
-    | None ->
-        if
-          Frontend.Parser.context_environment enclosing
-          == Session.symbols task.session
-        then Ok task
-        else
-          Error
-            (stream_diagnostics span
-               "saved compiler tables require their original namespace adapter")
-    | Some saved -> (
-        let* _ =
-          Task_declarations.saved_compiler_context saved.compiler_declarations
-            ~session:saved.compiler_session ~suspension
-          |> Result.map_error (stream_diagnostics span)
-        in
-        match saved.compiler_task with
-        | Some target when VM.task_shares_resources task.state target.state ->
-            Ok target
-        | Some _ ->
+    match
+      Task_declarations.saved_compiler_context task.declarations
+        ~session:task.session ~suspension
+    with
+    | Ok _ -> Ok task
+    | Error _ -> (
+        match saved_compiler with
+        | None ->
             Error
               (stream_diagnostics span
-                 "saved compiler execution has another original resource owner")
-        | None ->
-            let* state =
-              VM.create_compiler_namespace_task task.state
-                ~table:(Session.semantic_symbols saved.compiler_session)
-              |> Result.map_error (stream_diagnostics span)
-            in
-            let* declarations =
-              Task_declarations.create_saved_compiler_runtime
+                 "saved compiler tables require their original namespace \
+                  adapter")
+        | Some saved -> (
+            let* _ =
+              Task_declarations.saved_compiler_context
                 saved.compiler_declarations ~session:saved.compiler_session
-                ~suspension ~runtime:state
+                ~suspension
               |> Result.map_error (stream_diagnostics span)
             in
-            let target =
-              {
-                task with
-                session = saved.compiler_session;
-                state;
-                declarations;
-                identity = ref ();
-                commands = [];
-              }
-            in
-            saved.compiler_task <- Some target;
-            task.compiler_tasks := target :: !(task.compiler_tasks);
-            Ok target)
+            match saved.compiler_task with
+            | Some target when VM.task_shares_resources task.state target.state
+              -> Ok target
+            | Some _ ->
+                Error
+                  (stream_diagnostics span
+                     "saved compiler execution has another original resource \
+                      owner")
+            | None ->
+                let* state =
+                  VM.create_compiler_namespace_task task.state
+                    ~table:(Session.semantic_symbols saved.compiler_session)
+                  |> Result.map_error (stream_diagnostics span)
+                in
+                let* declarations =
+                  Task_declarations.create_saved_compiler_runtime
+                    saved.compiler_declarations ~session:saved.compiler_session
+                    ~suspension ~runtime:state
+                  |> Result.map_error (stream_diagnostics span)
+                in
+                let target =
+                  {
+                    task with
+                    session = saved.compiler_session;
+                    state;
+                    declarations;
+                    identity = ref ();
+                    commands = [];
+                  }
+                in
+                saved.compiler_task <- Some target;
+                task.compiler_tasks := target :: !(task.compiler_tasks);
+                Ok target))
   in
   let execute suspension source =
     let* sequence, final_value =

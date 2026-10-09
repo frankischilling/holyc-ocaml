@@ -1757,6 +1757,17 @@ tokens, and reconstructed completion evidence. Saved local shadows survive
 child parse failures and exceptions. Original pending AOT runtime imports and
 compiler-local `sizeof` retain explicit unsupported diagnostics.
 
+Nested directive cases check repeated child publications in the task's original
+namespace, separate task/module globals in AOT, and a directive inside ordinary
+child input that returns to that child's saved namespace. Saved parameter
+shadows retain their reached diagnostic; a child runtime fault preserves only
+reached output. Ledger tests reject unobserved or foreign ledgers, missing child
+checkpoints, foreign domains and expired suspensions. The
+`examples/native-stream-saved-inputs.hc` CLI fixture runs in both modes through
+each task target and checks exact and one-below instruction, output and
+formatting-work limits. Native child execution checks zero interpreted
+instructions and successful machine outcomes for every entered fragment.
+
 The shared-resource case keeps the caller live across child execution. Its
 minimum frame allowance is 40 bytes and its minimum call depth is three; each
 one-below failure preserves only the reached `before;` output. Instruction,

@@ -42,6 +42,10 @@ limits. Synchronous native StreamExePrint now executes original child commands
 while the caller is suspended. The [child example](examples/native-stream-children.hc)
 prints `before;child;after;` and returns 42 in both outer modes;
 [native streams](docs/native-stream-generation.md) describe scope and quota checks.
+Nested directives retain their immediate parent's original compiler tables.
+The [nested input example](examples/native-stream-saved-inputs.hc) publishes a
+function and class through successive children and executes another directive
+inside ordinary child input in both outer modes.
 
 Inherited class and union sizes now retain the exact base selected by the
 original parser, including reached partial layouts and forward completion

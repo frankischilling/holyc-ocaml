@@ -56,6 +56,23 @@ outer modes finish with 42 and zero interpreted task instructions:
 holyc run --mode=aot --target=host-jit-task --code-byte-limit=524288 examples/native-stream-children.hc
 ```
 
+Nested directives select their immediate parent's original compiler tables.
+When a function in the directive task contains another `#exe`, its
+StreamExePrint child uses that task's observed ledger, globals and retained
+declarations. A directive reached inside ordinary child input selects that
+child's saved compiler namespace instead. Each selection checks the current
+suspension and complete events for its original parent and active directive.
+Unobserved ledgers and matching environments alone cannot authorize it.
+
+The [nested input example](../examples/native-stream-saved-inputs.hc) publishes
+a child function and class through successive calls, then executes a directive
+inside ordinary child input. Both outer modes return 42 and print
+`child;42;42;42;42;inner;grand;42;42;`:
+
+```sh
+holyc run --mode=aot --target=host-jit-task --code-byte-limit=524288 examples/native-stream-saved-inputs.hc
+```
+
 The child entry requires the exact current C scope, original cumulative budget
 and shared generated-byte owner. C checks the admitted parent checkpoint,
 inherits remaining instructions, output, work, frame, depth and native stack,

@@ -1446,6 +1446,7 @@
  (alias native-tests)
  (deps
   ../../examples/native-stream-generation.hc
+  ../../examples/native-stream-saved-inputs.hc
   ../../examples/native-stream-declarations.hc
   ../../examples/native-compiler-options.hc)
  (action

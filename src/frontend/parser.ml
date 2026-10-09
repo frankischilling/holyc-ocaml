@@ -106,6 +106,9 @@ let suspension_is_current suspension =
   | active :: _ -> active == suspension.suspended_ref
   | [] -> false
 
+let suspension_is_from_context suspension context =
+  suspension.suspended_context == context && suspension_is_current suspension
+
 let suspension_enclosing_context suspension =
   let context = suspension.suspended_context in
   if not (suspension_is_current suspension && context.context_stream) then

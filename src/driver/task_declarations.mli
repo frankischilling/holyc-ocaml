@@ -746,7 +746,10 @@ val saved_compiler_context :
   suspension:Frontend.Parser.suspension ->
   (Frontend.Parser.command_context, string) result
 (** Validate this original ledger against the unchanged enclosing position of
-    the active directive. Environment equality alone grants no authority. *)
+    the active directive. The enclosing context must be the ledger's active head
+    or the immediate parent of the exact suspended directive. Both observed
+    contexts require complete original events. Environment equality alone grants
+    no authority. *)
 
 val create_saved_compiler_runtime :
   t ->

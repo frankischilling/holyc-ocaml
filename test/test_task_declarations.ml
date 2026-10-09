@@ -3344,8 +3344,124 @@ let original_header_warning_consumption () =
              .command_context))
     !headers
 
+let original_saved_compiler_contexts () =
+  let session, ledger = setup () in
+  let unobserved = D.create session |> checked in
+  let missing = D.create session |> checked in
+  let foreign_session, foreign = setup () in
+  let root = ref None and tokens = ref [] and accepted = ref 0 in
+  let skipped = ref false in
+  let checkpoint event =
+    D.observe_command ledger event |> expect;
+    let skip =
+      match event with
+      | Parser.Command_completed receipt
+        when Option.is_some
+               (Parser.context_parent receipt.command_start.command_context)
+             && not !skipped -> true
+      | _ -> false
+    in
+    if skip then skipped := true
+    else if not !skipped then D.observe_command missing event |> expect;
+    (match event with
+    | Parser.Sequence_started context
+      when Option.is_none (Parser.context_parent context) ->
+        root := Some context
+    | Parser.Command_completed receipt -> (
+        let context = receipt.command_start.command_context in
+        let token = Parser.suspend_context context |> checked in
+        tokens := (token, context) :: !tokens;
+        Alcotest.(check bool)
+          "suspension owns its exact current parser" true
+          (Parser.suspension_is_from_context token context);
+        match Parser.context_parent context with
+        | None ->
+            reject "ordinary input grants no saved compiler tables"
+              (D.saved_compiler_context ledger ~session ~suspension:token)
+        | Some parent ->
+            let expected =
+              match parent with
+              | Parser.Before_first_command context -> context
+              | Parser.Reading_command command -> command.command_context
+              | Parser.Awaiting_resume completed ->
+                  completed.command_start.command_context
+            in
+            let selected =
+              D.saved_compiler_context ledger ~session ~suspension:token
+              |> checked
+            in
+            incr accepted;
+            Alcotest.(check bool)
+              "ledger selects the immediate original parent" true
+              (selected == expected);
+            Alcotest.(check bool)
+              "parent cannot replace current child receipt" false
+              (Parser.suspension_is_from_context token (Option.get !root));
+            reject "same environment without original events grants no ledger"
+              (D.saved_compiler_context unobserved ~session ~suspension:token);
+            reject "foreign source ledger grants no tables"
+              (D.saved_compiler_context foreign ~session:foreign_session
+                 ~suspension:token);
+            if skip then
+              reject "missing child checkpoint rejects saved parent selection"
+                (D.saved_compiler_context missing ~session ~suspension:token);
+            Alcotest.(check bool)
+              "foreign domain cannot select live saved tables" true
+              (Domain.spawn (fun () ->
+                   (not (Parser.suspension_is_from_context token context))
+                   && Result.is_error
+                        (D.saved_compiler_context ledger ~session
+                           ~suspension:token))
+              |> Domain.join))
+    | _ -> ());
+    Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = Some checkpoint;
+      reference = None;
+      call = None;
+      implicit_output = None;
+      query = None;
+      declaration = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let execute_stream _ =
+    Ok
+      Parser.
+        {
+          definitions = Session.definitions session;
+          symbols = Session.symbols session;
+          commands;
+          finish = (fun () -> Ok "");
+          abort = (fun () -> ());
+        }
+  in
+  let output, _ =
+    parse ~checkpoint ~execute_stream session ledger
+      "42;#exe {40;#exe {2;}42;}42;"
+  in
+  ignore (Test_parser.expect_ast output);
+  Alcotest.(check bool)
+    "nested saved selections were reached" true (!accepted >= 3);
+  List.iter
+    (fun (token, context) ->
+      Alcotest.(check bool)
+        "closed parser suspension expires" false
+        (Parser.suspension_is_from_context token context);
+      reject "closed saved compiler context rejects"
+        (D.saved_compiler_context ledger ~session ~suspension:token))
+    !tokens
+
 let tests =
   [
+    Alcotest.test_case
+      "nested saved compiler tables require complete original ledger events"
+      `Quick original_saved_compiler_contexts;
     Alcotest.test_case
       "original header warnings retain count and single-use authority" `Quick
       original_header_warning_consumption;

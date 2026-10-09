@@ -22,6 +22,9 @@ let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
 let declarations_example = Sys.argv.(3)
 
+let saved_inputs_example =
+  Filename.concat (Filename.dirname example) "native-stream-saved-inputs.hc"
+
 let options_example =
   if Array.length Sys.argv > 4 && Sys.argv.(4) <> "--native" then
     Some Sys.argv.(4)
@@ -30,6 +33,7 @@ let options_example =
 let native_only = Array.exists (( = ) "--native") Sys.argv
 let targets = if native_only then [ "host-jit-task" ] else [ "ir" ]
 let count = ref 0
+let saved_input_count = ref 0
 
 let invoke ?(status = 0) ?(mode = "jit") ?(options = []) target path =
   temporary ".out" "" (fun output ->
@@ -89,6 +93,53 @@ let () =
     (fun target ->
       List.iter
         (fun mode ->
+          let saved = invoke ~mode target saved_inputs_example in
+          incr saved_input_count;
+          require
+            (saved |> member "outcome" |> to_string = "success"
+            && saved |> member "final_value" |> member "value" |> to_string
+               = "42"
+            && saved |> member "output_hex" |> to_string
+               = "6368696c643b34323b34323b34323b34323b696e6e65723b6772616e643b34323b34323b"
+            )
+            "nested saved compiler inputs retain original namespaces and \
+             ordered output";
+          if native_only then
+            require
+              (saved |> member "arithmetic" |> to_string = "runtime-native"
+              && saved |> member "native" |> member "fragments" |> to_list
+                 |> List.for_all (fun fragment ->
+                     fragment |> member "outcome" |> to_string = "success"))
+              "nested saved compiler inputs completed in actual native \
+               fragments";
+          let saved_steps = saved |> member "executed_steps" |> to_int in
+          let saved_work = saved |> member "output_work" |> to_int in
+          let saved_bytes = saved |> member "output_byte_length" |> to_int in
+          let exact =
+            invoke ~mode target saved_inputs_example
+              ~options:
+                [
+                  "--step-limit=" ^ string_of_int saved_steps;
+                  "--output-work-limit=" ^ string_of_int saved_work;
+                  "--output-byte-limit=" ^ string_of_int saved_bytes;
+                ]
+          in
+          require
+            (member "final_value" exact = member "final_value" saved
+            && member "output_hex" exact = member "output_hex" saved)
+            "nested saved input exact cumulative allowances";
+          List.iter
+            (fun (option, code) ->
+              error code
+                (invoke ~status:1 ~mode target saved_inputs_example
+                   ~options:[ option ]))
+            [
+              ("--step-limit=" ^ string_of_int (saved_steps - 1), "HCIRVM0007");
+              ( "--output-work-limit=" ^ string_of_int (saved_work - 1),
+                "HCIRVM0023" );
+              ( "--output-byte-limit=" ^ string_of_int (saved_bytes - 1),
+                "HCIRVM0022" );
+            ];
           (fun action ->
             match options_example with
             | Some path -> action path
@@ -203,4 +254,6 @@ let () =
           |> member "kind" |> to_string = "aot-module")
           "AOT module follows original native directives"))
     targets;
-  Printf.printf "%d stream generation CLI executions passed\n%!" !count
+  Printf.printf "%d stream generation CLI executions passed\n%!" !count;
+  Printf.printf "%d nested saved compiler input CLI cases passed\n%!"
+    !saved_input_count

@@ -4,6 +4,37 @@ let headers =
 let compiler_option_headers =
   {|extern U8 GetOption(I64 num);extern U8 Option(I64 num,U8 val);|}
 
+let nested_saved_inputs mode =
+  let suffix =
+    match mode with
+    | Holyc_lib.Preprocessor.Jit -> "N+2;"
+    | Aot -> "N-58;"
+  in
+  [
+    ( "nested function header keeps its original directive ledger",
+      {|#exe {I64 Parent()#exe {StreamExePrint("Print(\"child;\");42;");}{return 42;}Print("%d;",Parent());}42;|},
+      "child;42;" );
+    ( "task and module globals stay distinct across repeated children",
+      {|I64 N=100;#exe {I64 N=40;I64 Parent()#exe {Print("%d;",StreamExePrint("Print(\"child;\");N+2;"));StreamExePrint("I64 Child(){return N+2;}class Made{I64 n;};");Print("%d;",StreamExePrint("Child();"));}{return Child();}Print("%d;%d;",Parent(),sizeof(Made)+34);}|}
+      ^ suffix,
+      "child;42;42;42;42;" );
+    ( "ordinary child restores its own enclosing adapter for a grandchild",
+      {|#exe {Print("%d;",StreamExePrint("I64 Child()#exe {Print(\"inner;\");Print(\"%%d;\",StreamExePrint(\"Print(\\\"grand;\\\");42;\"));}{return 42;}Child();"));}42;|},
+      "inner;grand;42;42;" );
+  ]
+
+let nested_saved_input_failures =
+  [
+    ( "saved parameter cannot use a directive global or future argument",
+      {|#exe {I64 F(I64 n=41)#exe {I64 n=7;StreamExePrint("n+1;");}{return n;}Print("%d;",F());}42;|},
+      "HCSEMA0052",
+      "" );
+    ( "nested child retains reached output before a runtime fault",
+      {|#exe {Print("before;");I64 F()#exe {StreamExePrint("Print(\"child;\");1/0;");}{return 42;}Print("after;");}42;|},
+      "HCIRVM0009",
+      "before;child;" );
+  ]
+
 let compiler_option_bits =
   [
     (0, false);

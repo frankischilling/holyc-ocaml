@@ -810,18 +810,18 @@ val stream_executor :
     block's generated buffer. Earlier ordinary effects and resource charges
     survive faults; abort injects no partial buffer.
 
-    The task must already own checked provider declarations. Its ledger observes
-    only stream commands; an unobserved outer parser must use a distinct
-    frontend environment. [saved_compiler] retains that outer parser's original
-    ledger for synchronous child input; the source driver supplies it when the
-    enclosing namespace differs from the directive task. A bare adapter cannot
-    reconstruct a foreign enclosing ledger. Within the stream, original
-    initializer leaves finish before later leaves and reuse their retained
-    storage at command completion. [allow_stream_exe_print] defaults to [true]
-    for this active [#exe] block in both outer compilation modes. Ordinary
-    nested source does not inherit that permission; a nested [#exe] establishes
-    its own active context. This does not execute the outer unit or provide a
-    whole-invocation report. *)
+    The task must already own checked provider declarations. Synchronous child
+    input uses this task when its original ledger completely observes the active
+    directive and its immediate parent. Otherwise, [saved_compiler] must retain
+    that parent's original ledger and namespace. The source driver supplies this
+    adapter when the enclosing namespace differs from the directive task.
+    Environment equality cannot reconstruct an unobserved ledger. Within the
+    stream, original initializer leaves finish before later leaves and reuse
+    their retained storage at command completion. [allow_stream_exe_print]
+    defaults to [true] for this active [#exe] block in both outer compilation
+    modes. Ordinary nested source does not inherit that permission; a nested
+    [#exe] establishes its own active context. This does not execute the outer
+    unit or provide a whole-invocation report. *)
 
 val run_suspended :
   t -> source:Common.Source_file.t -> (unit, Common.Diagnostic.t list) result
