@@ -5,8 +5,15 @@ val prepare_fragment_initializer :
   (prepared_address, Instruction_sequence.error list) result
 
 val strides : prepared_address -> int64 list
+
+val prepare_static_fragment_initializer :
+  Static_initializer_destination.t ->
+  (prepared_address, Instruction_sequence.error list) result
 (** Retain the complete declared stride sequence for ordinary reached addresses.
 *)
+
+val storage : prepared_address -> Integer_globals.storage_slot
+(** The exact storage selected by the checked source address. *)
 
 val prepare_initializer :
   globals:Integer_globals.t ->

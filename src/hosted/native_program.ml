@@ -25,6 +25,14 @@ type report = {
   output_work_ : int;
 }
 
+type source_streams = {
+  execute_stream :
+    Common.Span.t ->
+    (Frontend.Parser.stream_execution, Common.Diagnostic.t list) Stdlib.result;
+  checkpoint : unit -> (unit, Common.Diagnostic.t list) Stdlib.result;
+  remaining_code : unit -> (int * int, Common.Diagnostic.t list) Stdlib.result;
+}
+
 let ( let* ) = Result.bind
 
 let diagnostic ~span code message =
@@ -38,6 +46,11 @@ let image_errors ~fallback errors =
         ~span:(Option.value error.span ~default:fallback)
         error.code error.message)
     errors
+
+let stack_register_qualifiers register_qualifiers =
+  match List.rev register_qualifiers with
+  | [] -> true
+  | (request : Ast.register_qualifier) :: _ -> request.kind = Ast.Noreg
 
 let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
     ~max_blocks ~max_global_bytes ~max_literal_bytes =
@@ -210,10 +223,20 @@ let function_source_error (definition : Ast.function_definition) =
   then reject "native functions require a scalar integer or U0 return type"
   else if definition.return_pointer_layers <> [] then
     reject "native functions do not admit pointer returns"
-  else if definition.modifiers <> [] then
-    reject "native functions do not admit explicit declaration modifiers"
-  else if Option.is_some definition.variadic then
-    reject "native functions require fixed parameters without a variadic tail"
+  else if
+    List.exists
+      (fun (modifier : Ast.declaration_modifier) ->
+        match modifier.kind with
+        | Ast.Argument_pop | Ast.No_argument_pop | Ast.Has_error_code -> false
+        | _ -> true)
+      definition.modifiers
+  then reject "native functions require ordinary calling modifiers"
+  else if
+    Option.fold ~none:false
+      ~some:(fun (variadic : Ast.variadic_marker) ->
+        variadic.register_qualifiers <> [])
+      definition.variadic
+  then reject "native variadic bindings require ordinary stack storage"
   else if Option.is_none definition.body then
     reject "native functions require their original source definition body"
   else
@@ -222,17 +245,25 @@ let function_source_error (definition : Ast.function_definition) =
         let reject message =
           Some (source_error parameter.location.span message)
         in
-        if not (scalar_word_type parameter.type_specifier) then
+        if
+          not
+            (scalar_word_type parameter.type_specifier
+            || Option.is_some parameter.function_pointer)
+        then
           reject
             "native function parameters require nonzero scalar integer types"
         else if
-          List.length parameter.pointer_layers > 1
-          || Option.is_some parameter.function_pointer
+          Option.is_none parameter.function_pointer
+          && List.length parameter.pointer_layers > 1
+          || Option.fold ~none:false
+               ~some:(fun pointer ->
+                 List.length pointer.Ast.indirection_layers <> 1)
+               parameter.function_pointer
         then
           reject
             "native functions admit only one-level scalar pointer parameters"
-        else if parameter.register_qualifiers <> [] then
-          reject "native functions do not admit explicit parameter registers"
+        else if not (stack_register_qualifiers parameter.register_qualifiers)
+        then reject "native functions do not admit explicit parameter registers"
         else if Option.is_none parameter.name then
           reject "native function definitions require named fixed parameters"
         else None)
@@ -244,16 +275,13 @@ let local_source_error (declaration : Ast.local_declaration) =
   in
   let is_static = declaration.local_storage = Ast.Static_local in
   if
-    if is_static then
-      declaration.local_modifiers = []
-      || List.exists
-           (fun (modifier : Ast.declaration_modifier) ->
-             modifier.kind <> Ast.Static || modifier.spelling <> "static")
-           declaration.local_modifiers
-    else declaration.local_modifiers <> []
-  then reject "native locals do not admit declaration modifiers"
-  else if not (scalar_word_type declaration.local_type_specifier) then
-    reject "native locals require nonzero scalar integer types"
+    not
+      (scalar_word_type declaration.local_type_specifier
+      || List.for_all
+           (fun local -> Option.is_some local.Ast.local_function_pointer)
+           declaration.local_declarators)
+  then
+    reject "native locals require nonzero scalar integers or callback storage"
   else
     List.find_map
       (fun (local : Ast.local_declarator) ->
@@ -261,14 +289,19 @@ let local_source_error (declaration : Ast.local_declaration) =
           Some (source_error local.local_declarator_location.span message)
         in
         if
-          (if is_static then local.local_pointer_layers <> []
-           else List.length local.local_pointer_layers > 1)
-          || Option.is_some local.local_function_pointer
+          match local.local_function_pointer with
+          | Some pointer -> List.length pointer.Ast.indirection_layers <> 1
+          | None ->
+              if is_static then local.local_pointer_layers <> []
+              else List.length local.local_pointer_layers > 1
         then
-          reject "native locals admit only automatic one-level scalar pointers"
+          reject
+            "native locals admit one-star callbacks or automatic one-level \
+             scalar pointers"
         else if
           local.local_array_dimensions <> []
           && (local.local_pointer_layers <> []
+              && Option.is_none local.local_function_pointer
              || ((not is_static) && Option.is_some local.local_initializer))
         then
           reject
@@ -288,14 +321,30 @@ let local_source_error (declaration : Ast.local_declaration) =
 let global_source_error ~span ~modifiers ~binding ~type_specifier
     ~pointer_layers ~function_pointer ~array_dimensions:_ ~has_initializer:_ =
   let reject message = Some (source_error span message) in
-  if modifiers <> [] || Option.is_some binding then
+  if
+    List.exists
+      (fun (modifier : Ast.declaration_modifier) ->
+        if Option.is_none function_pointer then true
+        else
+          match modifier.kind with
+          | Ast.Argument_pop | Ast.No_argument_pop | Ast.Has_error_code -> false
+          | _ -> true)
+      modifiers
+    || Option.is_some binding
+  then
     reject
-      "native globals require ordinary declarations without modifiers or \
-       aliases"
-  else if not (scalar_word_type type_specifier) then
-    reject "native globals require nonzero scalar integer types"
-  else if pointer_layers <> [] || Option.is_some function_pointer then
-    reject "native globals do not admit pointer or callback storage"
+      "native globals require ordinary integer or callback declarations \
+       without aliases or unsupported calling modifiers"
+  else if
+    not (scalar_word_type type_specifier || Option.is_some function_pointer)
+  then reject "native globals require nonzero scalar integer types"
+  else if
+    match function_pointer with
+    | Some (pointer : Ast.function_pointer_declarator) ->
+        List.length pointer.indirection_layers <> 1
+    | None -> pointer_layers <> []
+  then
+    reject "native globals require scalar integers or one-star callback storage"
   else None
 
 let ast_errors (ast : Ast.module_) =
@@ -396,19 +445,22 @@ let ast_errors (ast : Ast.module_) =
                   :: !work
             | Ast.Call_expression call -> (
                 match call.call_callee with
-                | Ast.Identifier_expression _ ->
+                | Ast.Identifier_expression _
+                | Ast.Index_expression _
+                | Ast.Parenthesized_expression _ ->
                     work :=
-                      List.rev_append
-                        (List.rev_map
-                           (fun argument ->
-                             match argument.Ast.call_argument_value with
-                             | Ast.Provided_call_argument expression ->
-                                 Some
-                                   (Gate_expression (in_function, expression))
-                             | Ast.Omitted_call_argument -> None)
-                           call.call_arguments
-                        |> List.filter_map Fun.id)
-                        !work
+                      Gate_expression (in_function, call.call_callee)
+                      :: List.rev_append
+                           (List.rev_map
+                              (fun argument ->
+                                match argument.Ast.call_argument_value with
+                                | Ast.Provided_call_argument expression ->
+                                    Some
+                                      (Gate_expression (in_function, expression))
+                                | Ast.Omitted_call_argument -> None)
+                              call.call_arguments
+                           |> List.filter_map Fun.id)
+                           !work
                 | _ ->
                     reject
                       (source_error call.call_location.span
@@ -425,7 +477,9 @@ let ast_errors (ast : Ast.module_) =
                      "native programs do not admit member storage"))
         | Gate_statement (in_function, statement) -> (
             match statement with
-            | Ast.Empty_statement _ | Ast.Break_statement _ -> ()
+            | Ast.Aggregate_declaration_statement _
+            | Ast.Empty_statement _
+            | Ast.Break_statement _ -> ()
             | Ast.Expression_statement statement ->
                 work :=
                   Gate_expression
@@ -566,10 +620,8 @@ let program_storage_errors compiled span =
   let errors = ref [] in
   let add message = errors := source_error span message :: !errors in
   let initialization = Integer_unit.initialization compiled in
-  if
-    Ir.Global_initialization.regions initialization <> []
-    || Ir.Global_initialization.static_regions initialization <> []
-  then add "native programs require an entry with no runtime initialization";
+  if Ir.Global_initialization.static_regions initialization <> [] then
+    add "native programs require an entry with no runtime initialization";
   List.rev !errors
 
 let entry_contains_opcode entry opcode =
@@ -580,13 +632,13 @@ let entry_contains_opcode entry opcode =
       |> List.exists (fun instruction ->
           (Ir.Instruction_sequence.description instruction).opcode = opcode))
 
-let compile_with_preparation ?(max_ir_instructions = 4096)
+let compile_with_preparation ?compiler_exception ?(max_ir_instructions = 4096)
     ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
     ?(max_blocks = 4096) ?(max_initializer_steps = 100_000)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
     ?(max_default_bytes = 65_536) ?(max_global_bytes = 1_048_576)
     ?(max_literal_bytes = 1_048_576) ?status_abi ~preparation_steps ~switch_work
-    ~dimension_work ~default_bytes session ~config ~source =
+    ~dimension_work ~default_bytes ?streams session ~config ~source =
   let span = Integer_source.source_span source in
   let* () =
     if
@@ -618,25 +670,46 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
     |> Result.map_error (fun message ->
         [ diagnostic ~span "HCIRVM0001" message ])
   in
+  let* streams =
+    match streams with
+    | None -> Ok None
+    | Some create -> create ledger preparation |> Result.map Option.some
+  in
+  let checkpoint () =
+    Option.fold ~none:(Ok ())
+      ~some:(fun streams -> streams.checkpoint ())
+      streams
+  in
+  let with_checkpoint action =
+    let* () = checkpoint () in
+    let result = action () in
+    match (result, checkpoint ()) with
+    | result, Ok () -> result
+    | Ok _, Error errors -> Error errors
+    | Error errors, Error later -> Error (errors @ later)
+  in
   let entry_statement_seen = ref false in
   let commands : Frontend.Parser.command_sink =
     {
+      lexical_lookup = Some (Task_declarations.observe_lexical_lookup ledger);
       checkpoint =
         Some
           (fun event ->
-            let* () = Task_declarations.observe_command ledger event in
-            (match event with
-            | Frontend.Parser.Command_completed receipt ->
-                if
-                  List.exists
-                    (function
-                      | Ast.Top_level_statement (Ast.Empty_statement _) -> false
-                      | Ast.Top_level_statement _ -> true
-                      | _ -> false)
-                    receipt.command_ast.items
-                then entry_statement_seen := true
-            | _ -> ());
-            Ok ());
+            with_checkpoint (fun () ->
+                let* () = Task_declarations.observe_command ledger event in
+                (match event with
+                | Frontend.Parser.Command_completed receipt ->
+                    if
+                      List.exists
+                        (function
+                          | Ast.Top_level_statement (Ast.Empty_statement _) ->
+                              false
+                          | Ast.Top_level_statement _ -> true
+                          | _ -> false)
+                        receipt.command_ast.items
+                    then entry_statement_seen := true
+                | _ -> ());
+                Ok ()));
       query = Some (Task_declarations.observe_query ledger);
       call = None;
       implicit_output = Some (Task_declarations.observe_implicit_output ledger);
@@ -644,80 +717,103 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
       declaration =
         Some
           (fun event ->
-            let* () =
-              match event with
-              | Frontend.Parser.Parameter_default_completed receipt
-                when !entry_statement_seen ->
-                  Error
-                    [
-                      diagnostic ~span:receipt.default_ast.location.span
-                        "HCRUN0006"
-                        "native defaults must precede executable top-level \
-                         statements; interleaved declaration execution is \
-                         unsupported";
-                    ]
-              | Frontend.Parser.Global_declared publication -> (
-                  match
-                    global_source_error
-                      ~span:publication.global_name.location.span
-                      ~modifiers:publication.global_header.modifiers
-                      ~binding:publication.global_header.binding
-                      ~type_specifier:publication.global_header.type_specifier
-                      ~pointer_layers:publication.global_pointer_layers
-                      ~function_pointer:publication.global_function_pointer
-                      ~array_dimensions:publication.global_dimensions
-                      ~has_initializer:false
-                  with
-                  | None -> Ok ()
-                  | Some error -> Error [ error ])
-              | Frontend.Parser.Global_initializer_started receipt
-                when !entry_statement_seen ->
-                  Error
-                    [
-                      source_error receipt.initializer_equals.span
-                        "native initializers must precede executable top-level \
-                         statements";
-                    ]
-              | Frontend.Parser.Static_initializer_preparing receipt
-                when !entry_statement_seen ->
-                  Error
-                    [
-                      source_error
-                        (Frontend.Parser.static_initializer_leaf_location
-                           receipt)
-                          .span
-                        "native static initializers must precede executable \
-                         top-level statements";
-                    ]
-              | Frontend.Parser.Aggregate_declared _ ->
-                  Error
-                    [
-                      diagnostic ~span "HCRUN0001"
-                        "native source does not admit aggregate declarations";
-                    ]
-              | _ -> Ok ()
-            in
-            let* () = Task_declarations.observe ledger event in
-            match event with
-            | Frontend.Parser.Parameter_default_completed receipt ->
-                Native_default_preparation.prepare preparation ~session ~ledger
-                  receipt
-            | Frontend.Parser.Global_initializer_leaf_completed receipt ->
-                Native_default_preparation.prepare_initializer preparation
-                  ~session ~ledger receipt
-            | Frontend.Parser.Static_initializer_preparing receipt ->
-                Native_default_preparation.prepare_static preparation ~session
-                  ~ledger receipt
-            | Frontend.Parser.Function_header_completed header ->
-                Task_declarations.complete_source_defaults ledger header
-            | _ -> Ok ());
+            with_checkpoint (fun () ->
+                let* () =
+                  match event with
+                  | Frontend.Parser.Parameter_default_completed receipt
+                    when !entry_statement_seen ->
+                      Error
+                        [
+                          diagnostic ~span:receipt.default_ast.location.span
+                            "HCRUN0006"
+                            "native defaults must precede executable top-level \
+                             statements; interleaved declaration execution is \
+                             unsupported";
+                        ]
+                  | Frontend.Parser.Callback_default_completed receipt
+                    when !entry_statement_seen ->
+                      Error
+                        [
+                          diagnostic
+                            ~span:receipt.callback_default_ast.location.span
+                            "HCRUN0006"
+                            "native defaults must precede executable top-level \
+                             statements; interleaved declaration execution is \
+                             unsupported";
+                        ]
+                  | Frontend.Parser.Global_declared publication -> (
+                      match
+                        global_source_error
+                          ~span:publication.global_name.location.span
+                          ~modifiers:publication.global_header.modifiers
+                          ~binding:publication.global_header.binding
+                          ~type_specifier:
+                            publication.global_header.type_specifier
+                          ~pointer_layers:publication.global_pointer_layers
+                          ~function_pointer:publication.global_function_pointer
+                          ~array_dimensions:publication.global_dimensions
+                          ~has_initializer:false
+                      with
+                      | None -> Ok ()
+                      | Some error -> Error [ error ])
+                  | Frontend.Parser.Global_initializer_started receipt
+                    when !entry_statement_seen ->
+                      Error
+                        [
+                          source_error receipt.initializer_equals.span
+                            "native initializers must precede executable \
+                             top-level statements";
+                        ]
+                  | Frontend.Parser.Static_initializer_preparing receipt
+                    when !entry_statement_seen ->
+                      Error
+                        [
+                          source_error
+                            (Frontend.Parser.static_initializer_leaf_location
+                               receipt)
+                              .span
+                            "native static initializers must precede \
+                             executable top-level statements";
+                        ]
+                  | Frontend.Parser.Aggregate_declared _ ->
+                      Error
+                        [
+                          diagnostic ~span "HCRUN0001"
+                            "native source does not admit aggregate \
+                             declarations";
+                        ]
+                  | _ -> Ok ()
+                in
+                let* () = Task_declarations.observe ledger event in
+                match event with
+                | Frontend.Parser.Parameter_default_completed receipt ->
+                    Native_default_preparation.prepare preparation ~session
+                      ~ledger receipt
+                | Frontend.Parser.Callback_default_completed receipt ->
+                    Native_default_preparation.prepare_callback preparation
+                      ~session ~ledger receipt
+                | Frontend.Parser.Callback_signature_completed header ->
+                    Task_declarations.complete_source_callback_defaults ledger
+                      header
+                | Frontend.Parser.Global_initializer_leaf_completed receipt ->
+                    Native_default_preparation.prepare_initializer preparation
+                      ~session ~ledger receipt
+                | Frontend.Parser.Static_initializer_preparing receipt ->
+                    Native_default_preparation.prepare_static preparation
+                      ~session ~ledger receipt
+                | Frontend.Parser.Function_header_completed header ->
+                    Task_declarations.complete_source_defaults ledger header
+                | _ -> Ok ()));
       dimension_count = Some (Task_declarations.grammar_dimension_count ledger);
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
   in
   let parsed =
-    Frontend.Parser.parse ~commands ~sources:(Session.sources session)
+    Frontend.Parser.parse ?compiler_exception ~commands
+      ?execute_stream:
+        (Option.map (fun streams -> streams.execute_stream) streams)
+      ~sources:(Session.sources session)
       ~definitions:(Session.definitions session)
       ~symbols:(Session.symbols session) ~config source
   in
@@ -731,12 +827,35 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
       match ast_errors ast with
       | _ :: _ as errors -> Error (parsed.diagnostics @ errors)
       | [] -> (
+          let* max_ir_instructions, max_code_bytes =
+            match streams with
+            | None -> Ok (max_ir_instructions, max_code_bytes)
+            | Some streams ->
+                let* ir, code = streams.remaining_code () in
+                if
+                  ir <= 0 || code <= 0 || ir > max_ir_instructions
+                  || code > max_code_bytes
+                then
+                  Error
+                    [
+                      diagnostic ~span "HCBACK0001"
+                        "remaining native code allowances must stay within \
+                         their original bounds";
+                    ]
+                else Ok (ir, code)
+          in
           let* source_command =
             Task_declarations.seal_source ledger ast
             |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
           in
           let* prepared_defaults =
             Task_declarations.native_source_defaults
+              ~table:(Session.semantic_symbols session)
+              ~ast source_command
+            |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
+          in
+          let* prepared_callbacks =
+            Task_declarations.native_source_callback_defaults
               ~table:(Session.semantic_symbols session)
               ~ast source_command
             |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
@@ -782,6 +901,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                               (Integer_unit.initialization checked.value)
                             ~entry:(Integer_unit.entry checked.value)
                             ~functions ~prepared:prepared_defaults
+                            ~prepared_callbacks
                             ~completions:
                               (Native_default_preparation.completions
                                  preparation)
@@ -885,6 +1005,18 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
           "index address addition exceeds the hosted signed address range" )
     | Image.Address_out_of_bounds ->
         ("HCIRVM0019", "indexed address is outside its declared object extent")
+    | Image.Generated_limit_exceeded ->
+        ( "HCIRVM0028",
+          "generated or formatted source exceeds the task byte limit" )
+    | Image.Stream_context_required ->
+        ("HCIRVM0027", "StreamPrint: requires an active task generation buffer")
+    | Image.Stream_exe_context_required ->
+        ("HCIRVM0027", "StreamExePrint: requires an active #exe parser context")
+    | Image.Stream_exe_source_failed ->
+        ("HCRUN0004", "StreamExePrint: native source execution failed")
+    | Image.Compiler_option_failed ->
+        ( "HCIRVM0027",
+          "native compiler option requires its active source control" )
     | Image.Output_limit_exceeded ->
         ("HCIRVM0022", "runtime output exceeds the output byte limit")
     | Image.Output_work_limit_exceeded ->
@@ -899,6 +1031,27 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0008", "native Print byte cell has an invalid runtime value")
     | Image.Pointer_object_mismatch ->
         ("HCIRVM0018", "pointer ordering requires the same live object extent")
+    | Image.Callback_unowned_address ->
+        ("HCIRVM0024", "the reached callback has no owned executable address")
+    | Image.Callback_signature_mismatch ->
+        ( "HCIRVM0014",
+          "the reached callback definition disagrees with its original \
+           signature or cleanup policy" )
+    | Image.Code_comparison_invalid_word ->
+        ( "HCIRVM0024",
+          "opaque function addresses can compare only with owned code or null"
+        )
+    | Image.Extern_signature_mismatch ->
+        ( "HCIRVM0014",
+          "published extern definition disagrees with the captured call \
+           signature" )
+    | Image.Undefined_extern ->
+        ("HCIRVM0030", "the reached extern slot has no installed source body")
+    | Image.Callback_owned_word_escape ->
+        ( "HCIRVM0024",
+          "opaque function address cannot escape as an integer word" )
+    | Image.Callback_update_owned_address ->
+        ("HCIRVM0024", "opaque function address has no numeric callback update")
     | Image.Pointer_difference_object_mismatch ->
         ("HCIRVM0018", "pointer difference requires the same live object extent")
   in

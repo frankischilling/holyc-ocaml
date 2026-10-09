@@ -1,4 +1,75 @@
 (test
+ (name test_unused_extern_cli)
+ (modules test_unused_extern_cli)
+ (libraries unix yojson)
+ (deps ../examples/compiler-unused-extern.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/compiler-unused-extern.hc})))
+
+(test
+ (name test_definition_selection_cli)
+ (modules test_definition_selection_cli)
+ (libraries unix yojson)
+ (deps ../examples/compiler-definition-selection.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/compiler-definition-selection.hc})))
+
+(test
+ (name test_compiler_warnings_cli)
+ (modules test_compiler_warnings_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/compiler-warning-options.hc
+  ../examples/compiler-duplicate-types.hc
+  ../examples/compiler-return-warnings.hc
+  ../examples/compiler-parenthesis-warnings.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/compiler-warning-options.hc})))
+
+(test
+ (name test_compiler_exceptions_cli)
+ (modules test_compiler_exceptions_cli)
+ (libraries unix yojson compiler_exception_fixture)
+ (action
+  (run %{test} %{exe:../bin/holyc.exe})))
+
+(library
+ (name compiler_exception_fixture)
+ (wrapped false)
+ (modules compiler_exception_cases))
+
+(test
+ (name test_data_pointer_defaults_cli)
+ (modules test_data_pointer_defaults_cli)
+ (libraries unix yojson)
+ (deps ../examples/data-pointer-defaults.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/data-pointer-defaults.hc})))
+
+(test
+ (name test_primitive_pointer_views_cli)
+ (modules test_primitive_pointer_views_cli)
+ (libraries unix yojson)
+ (deps ../examples/primitive-pointer-views.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/primitive-pointer-views.hc})))
+
+(test
  (name test_conditional_comparison_chains_cli)
  (modules test_conditional_comparison_chains_cli)
  (libraries unix yojson)
@@ -158,6 +229,26 @@
    %{dep:../examples/stream-swap-internals.hc})))
 
 (test
+ (name test_global_callback_cli)
+ (modules test_global_callback_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/global-callbacks.hc
+  ../examples/top-level-callbacks.hc
+  ../examples/callback-updates.hc
+  ../examples/indexed-callback-dereference.hc
+  oracle/callback-storage-and-calls.json)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/global-callbacks.hc}
+   %{dep:../examples/top-level-callbacks.hc}
+   %{dep:oracle/callback-storage-and-calls.json}
+   %{dep:../examples/callback-updates.hc}
+   %{dep:../examples/indexed-callback-dereference.hc})))
+
+(test
  (name test_pointer_bit_cli)
  (modules test_pointer_bit_cli)
  (libraries unix yojson)
@@ -289,7 +380,8 @@
    %{dep:../examples/stateful-exe-function-positions.hc}
    %{dep:../examples/stateful-exe-frame-positions.hc}
    %{dep:../examples/stateful-exe-runtime-frame-positions.hc}
-   %{dep:../examples/stateful-exe-named-type-selection.hc})))
+   %{dep:../examples/stateful-exe-named-type-selection.hc}
+   %{dep:../examples/stream-exe-compiler-context.hc})))
 
 (test
  (name test_integer_program_cli)
@@ -389,6 +481,10 @@
   test_prepared_integer_shifts
   test_swap_internals
   test_retained_internal
+  internal_binding_cases
+  test_live_internal_bindings
+  runtime_layout_cases
+  test_runtime_layout_expressions
   test_internal_strlen_authority
   test_internal_strlen_source
   test_integer_program
@@ -420,11 +516,14 @@
   test_provisional_function_runtime
   test_function_record_phase
   test_parameter_default_execution
+  data_pointer_default_cases
+  test_data_pointer_defaults
   test_task_command_order
   test_stream_parser
   test_integer_statics
   test_integer_static_initializers
   test_integer_pointers
+  test_primitive_pointer_views
   test_integer_arrays
   test_integer_variadic
   test_integer_extern_calls
@@ -448,6 +547,15 @@
   test_source
   test_lexer
   test_preprocessor
+  test_hash_lookup_observations
+  test_definition_selection
+  test_lexical_consumers
+  test_owned_function_counts
+  test_native_hash_tables
+  test_native_compiler_control
+  test_duplicate_local_types
+  test_parenthesis_warnings
+  test_return_warnings
   test_parser
   test_conditional_expression
   test_assert_directive
@@ -499,6 +607,13 @@
   test_function_call_resolution
   test_function_call_conversion_policy
   test_function_call_expression_result
+  test_callback_storage
+  test_callback_dereference
+  test_callback_updates
+  callback_expression_cases
+  test_callback_expressions
+  provider_callback_cases
+  test_provider_callbacks
   test_implicit_output_target_resolution
   test_top_level_implicit_output_target_resolution
   test_top_level_implicit_output_argument_binding
@@ -520,6 +635,7 @@
   test_operator_table_source
   test_operator_table
   test_compiler_option_source
+  test_compiler_exceptions
   test_compiler_option
   test_intermediate_code_source
   test_intermediate_code
@@ -561,6 +677,7 @@
   alcotest
   bin_record_tools
   compiler_option_tools
+  compiler_exception_fixture
   function_flag_tools
   global_record_flag_tools
   member_flag_tools
@@ -5015,3 +5132,89 @@
    (diff
     cli/integer-division-overflow.human
     integer-division-overflow.stderr.actual))))
+
+(test
+ (name test_native_internal_bindings_cli)
+ (modules test_native_internal_bindings_cli)
+ (libraries unix yojson)
+ (deps ../examples/native-internal-bindings.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-internal-bindings.hc})))
+
+(test
+ (name test_runtime_layout_cli)
+ (modules test_runtime_layout_cli)
+ (libraries unix yojson)
+ (deps ../examples/runtime-layout-expressions.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/runtime-layout-expressions.hc})))
+
+(test
+ (name test_stream_generation)
+ (modules test_stream_generation stream_generation_cases)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_local_aggregates)
+ (modules test_local_aggregates local_aggregate_cases)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_source_inherited_layouts)
+ (modules test_source_inherited_layouts source_inherited_layout_cases)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_aot_source_sessions)
+ (modules test_aot_source_sessions aot_source_cases)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_source_inherited_layout_authority)
+ (modules test_source_inherited_layout_authority)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_source_inherited_layouts_cli)
+ (modules test_source_inherited_layouts_cli)
+ (libraries unix yojson)
+ (deps ../examples/source-inherited-layouts.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/source-inherited-layouts.hc})))
+
+(test
+ (name test_local_aggregates_cli)
+ (modules test_local_aggregates_cli)
+ (libraries unix yojson)
+ (deps ../examples/local-aggregate-declarations.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/local-aggregate-declarations.hc})))
+
+(test
+ (name test_stream_generation_cli)
+ (modules test_stream_generation_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/native-stream-generation.hc
+  ../examples/native-stream-saved-inputs.hc
+  ../examples/native-stream-declarations.hc
+  ../examples/native-compiler-options.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/native-stream-generation.hc}
+   %{dep:../examples/native-stream-declarations.hc}
+   %{dep:../examples/native-compiler-options.hc})))

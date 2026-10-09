@@ -22,6 +22,7 @@ type lowering_result = Lowered of t | Unsupported_call
 
 type argument =
   | Provided of Result.expression_result
+  | Prepared_callback_default of Prepared_callback_default.t
   | Prepared_default of Prepared_parameter_default.t
 
 type call_shape =
@@ -268,7 +269,7 @@ let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
          &&
          match argument with
          | Provided _ -> true
-         | Prepared_default _ -> false)
+         | Prepared_default _ | Prepared_callback_default _ -> false)
        (List.mapi (fun index parameter -> (index, parameter)) parameters)
        arguments
 
@@ -346,7 +347,7 @@ let lower_intrinsic ?frame ?globals ?lower_call ?optimize_shifts
             | Ok (items, value, instruction_id, value_id) ->
                 lower_arguments instruction_id value_id (descriptions @ items)
                   (value :: operands) rest))
-    | Prepared_default _ :: _ -> Ok None
+    | (Prepared_default _ | Prepared_callback_default _) :: _ -> Ok None
   in
   let start_id = instruction_id in
   match next_instruction_id ~span start_id with
@@ -456,8 +457,28 @@ let lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
                 ~target_type:(Some (Prepared_parameter_default.type_ prepared))
                 ~payload:
                   (Some
-                     (Sequence.Integer
-                        (Prepared_parameter_default.bits prepared)))
+                     (match Prepared_parameter_default.word_bits prepared with
+                     | Some bits -> Sequence.Integer bits
+                     | None -> Sequence.Saved_parameter_default prepared))
+                ~span ~result:{ Sequence.value_id } ~flags:push_result_flag ()
+            in
+            loop (item :: rev_descriptions) next_instruction_id next_value_id
+              rest)
+    | Prepared_callback_default prepared :: rest -> (
+        match
+          ( next_instruction_id ~span instruction_id,
+            next_value_id ~span value_id )
+        with
+        | Error error, _ | _, Error error -> Error [ error ]
+        | Ok next_instruction_id, Ok next_value_id ->
+            let item =
+              description ~instruction_id ~opcode:Opcode.Ic_imm_i64
+                ~target_type:(Some (Prepared_callback_default.type_ prepared))
+                ~payload:
+                  (Some
+                     (match Prepared_callback_default.word_bits prepared with
+                     | Some bits -> Sequence.Integer bits
+                     | None -> Sequence.Saved_callback_default prepared))
                 ~span ~result:{ Sequence.value_id } ~flags:push_result_flag ()
             in
             loop (item :: rev_descriptions) next_instruction_id next_value_id
@@ -972,6 +993,215 @@ let lower_top_level_implicit_output ?frame ?globals ?lower_call ?optimize_shifts
           (List.map Result.top_level_root_value
              (Bound.bound_variadic_roots output))
         ()
+
+let lower_callback ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id ~call result =
+  let ( let* ) = Stdlib.Result.bind in
+  let callable = Callback_source.callable call in
+  let pointer = Resolution.callable_pointer callable in
+  let signature = Resolution.callable_signature callable in
+  let original_frame_cell =
+    Option.fold ~none:false
+      ~some:(fun frame ->
+        Sema.Function_frame_layout.function_locations frame
+        |> List.exists (fun location ->
+            (Sema.Function_frame_layout.location_dimensions location = []
+            || Sema.Function_frame_layout.location_kind location
+               <> Named_parameter
+               && Sema.Function_frame_layout.location_source_dimensions_checked
+                    location)
+            && (match Sema.Function_frame_layout.location_kind location with
+              | Named_parameter | Automatic_local -> true
+              | Static_local ->
+                  Option.fold ~none:false
+                    ~some:(fun globals ->
+                      Option.fold ~none:false
+                        ~some:(fun slot ->
+                          Integer_globals.static_frame slot == frame
+                          && Integer_globals.static_location slot == location)
+                        (Integer_globals.find_static globals
+                           (Sema.Function_frame_layout.location_symbol location)))
+                    globals
+              | Variadic_argc | Variadic_argv -> false)
+            && Option.fold ~none:false ~some:(( == ) pointer)
+                 (Sema.Function_frame_layout.location_callback_pointer location)))
+      frame
+  in
+  let original_global_cell =
+    Option.fold ~none:false
+      ~some:(fun globals ->
+        Option.is_some
+          (Integer_globals.persistent_callback_storage globals pointer))
+      globals
+  in
+  let fixed = Callback_source.fixed_arguments call in
+  let provided =
+    List.filter_map
+      (fun (parameter, value) ->
+        match value with
+        | Some value -> Some (Provided value)
+        | None ->
+            Option.bind globals (fun globals ->
+                Integer_globals.prepared_callback_default globals ~pointer
+                  ~parameter)
+            |> Option.map (fun prepared -> Prepared_callback_default prepared))
+      fixed
+  in
+  let matches = Callback_source.matches_result call result in
+  if
+    (not matches)
+    || (not (original_frame_cell || original_global_cell))
+    || List.length (Headers.function_pointer_indirection_origins pointer) <> 1
+    || List.length provided <> List.length fixed
+  then Ok Unsupported_call
+  else
+    let* span =
+      span_of_origin (Result.result_origin result)
+      |> Stdlib.Result.map_error (fun error -> [ error ])
+    in
+    match Result.result_type result with
+    | None ->
+        Error
+          [ metadata_error ~span "callback call has no checked return type" ]
+    | Some result_type -> (
+        let* callee =
+          Expression.lower_callback_callee ?frame ?globals ?lower_call
+            ?optimize_shifts ?optimize_division ~instruction_id ~value_id call
+        in
+        match callee with
+        | Expression.Unsupported_expression -> Ok Unsupported_call
+        | Expression.Lowered callee -> (
+            let first = Expression.next_instruction_id callee in
+            let next id =
+              next_instruction_id ~span id
+              |> Stdlib.Result.map_error (fun error -> [ error ])
+            in
+            let* save_id = next first in
+            let* args_id = next save_id in
+            let variadic =
+              Option.is_some (Headers.signature_variadic_origin signature)
+            in
+            let count_type =
+              if variadic then
+                Some
+                  (Type.make_primitive ~form:Type.Internal_storage
+                     ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+                  |> Stdlib.Result.get_ok)
+              else None
+            in
+            let tail = Callback_source.variadic_arguments call in
+            let* tails =
+              lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
+                ?optimize_division ~span ~instruction_id:args_id
+                ~value_id:(Expression.next_value_id callee)
+                (List.map (fun value -> Provided value) tail)
+            in
+            match tails with
+            | Unsupported_argument -> Ok Unsupported_call
+            | Argument_lowered (tails, count_id, count_value) -> (
+                let* counts, fixed_id, fixed_value =
+                  lower_variadic_count ~span ~instruction_id:count_id
+                    ~value_id:count_value
+                    ~count:(Int64.of_int (List.length tail))
+                    count_type
+                  |> Stdlib.Result.map_error (fun error -> [ error ])
+                in
+                let* fixed =
+                  lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
+                    ?optimize_division ~span ~instruction_id:fixed_id
+                    ~value_id:fixed_value provided
+                in
+                match fixed with
+                | Unsupported_argument -> Ok Unsupported_call
+                | Argument_lowered (fixed, call_id, result_value_) ->
+                    let slots =
+                      List.length provided
+                      + if variadic then 1 + List.length tail else 0
+                    in
+                    let bytes = Int64.mul 8L (Int64.of_int slots) in
+                    let callee_pop =
+                      match globals with
+                      | Some globals ->
+                          Integer_globals.callback_callee_pop globals pointer
+                      | None -> (not variadic) && slots > 0 && bytes <= 32767L
+                    in
+                    let* cleanup_id = next call_id in
+                    let* saved_cleanup_id = next cleanup_id in
+                    let* end_id =
+                      if callee_pop then next saved_cleanup_id
+                      else Ok saved_cleanup_id
+                    in
+                    let* next_instruction_id_ = next end_id in
+                    let* next_value_id_ =
+                      next_value_id ~span result_value_
+                      |> Stdlib.Result.map_error (fun error -> [ error ])
+                    in
+                    let payload = Some (Sequence.Callback pointer) in
+                    let make id opcode type_ payload =
+                      description ~instruction_id:id ~opcode ~target_type:type_
+                        ~payload ~span ()
+                    in
+                    let items =
+                      Expression.sequence callee |> Sequence.instructions
+                      |> List.map Sequence.description
+                    in
+                    let items =
+                      items
+                      @ [
+                          make first Opcode.Ic_call_start None payload;
+                          make save_id Opcode.Ic_push_regs (Some result_type)
+                            (Some (Sequence.Integer 1L));
+                        ]
+                      @ tails @ counts @ fixed
+                      @ [
+                          make call_id Opcode.Ic_call_indirect
+                            (Some result_type) (Some (Sequence.Integer bytes));
+                          make cleanup_id
+                            (if callee_pop then Opcode.Ic_add_rsp1
+                             else Opcode.Ic_add_rsp)
+                            (Some result_type)
+                            (Some
+                               (Sequence.Integer
+                                  (if callee_pop then bytes
+                                   else Int64.add bytes 8L)));
+                        ]
+                      @ (if callee_pop then
+                           [
+                             make saved_cleanup_id Opcode.Ic_add_rsp
+                               (Some result_type) (Some (Sequence.Integer 8L));
+                           ]
+                         else [])
+                      @ [
+                          description ~instruction_id:end_id
+                            ~opcode:Opcode.Ic_call_end
+                            ~target_type:(Some result_type) ~payload ~span
+                            ~result:{ Sequence.value_id = result_value_ }
+                            ();
+                        ]
+                    in
+                    let* sequence_ = Sequence.create items in
+                    Ok
+                      (Lowered
+                         {
+                           sequence_;
+                           result_value_;
+                           result_type_ = result_type;
+                           next_instruction_id_;
+                           next_value_id_;
+                           runtime_call_ =
+                             Runtime_call_context.
+                               {
+                                 source = Callback_call call;
+                                 first = Expression.next_instruction_id callee;
+                                 last = end_id;
+                                 discard = None;
+                               };
+                         }))))
+
+let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id ~call result =
+  lower_callback ~frame ?globals ?lower_call ?optimize_shifts ?optimize_division
+    ~instruction_id ~value_id ~call:(Callback_source.Function call) result
 
 let sequence lowered = lowered.sequence_
 let result_value lowered = lowered.result_value_

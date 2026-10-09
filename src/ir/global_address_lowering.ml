@@ -15,6 +15,7 @@ type prepared_address = {
 }
 
 let strides address = Integer_globals.storage_strides address.slot
+let storage address = address.slot
 
 type t = {
   sequence_ : Sequence.t;
@@ -83,18 +84,32 @@ let prepare_retained ~globals result =
             invalid "outer global is absent from the compiled task storage view"
         | Some (reference, slot) -> (
             let type_ = Integer_globals.storage_type slot in
+            let callback = Integer_globals.storage_callback_pointer slot in
+            let selected_type =
+              if Option.is_some callback then Result.result_storage_type result
+              else Result.result_type result
+            in
             let rank = Integer_globals.storage_dimensions slot |> List.length in
             if
               (not
-                 (Option.fold ~none:false ~some:(Type.equal type_)
-                    (Result.result_type result)))
+                 (Option.fold ~none:false ~some:(Type.equal type_) selected_type))
+              || (not
+                    (match
+                       (callback, Result.result_callback_pointer result)
+                     with
+                    | None, None -> true
+                    | Some original, Some actual -> original == actual
+                    | _ -> false))
               || Result.result_array_rank result <> rank
-              || Result.result_is_array_address result <> (rank > 0)
+              || Result.result_is_array_address result
+                 <> (rank > 0 && Option.is_none callback)
               || Option.is_some (Result.result_function_declaration result)
               || Option.is_some (Result.result_function_address_path result)
               || not
                    (match Result.result_category result with
                    | Result.Object_value | Result.Lvalue -> rank = 0
+                   | Result.Callback_value ->
+                       rank = 0 && Option.is_some callback
                    | Result.Array_value -> rank > 0
                    | _ -> false)
             then
@@ -117,6 +132,88 @@ let prepare_retained ~globals result =
                   invalid
                     "retained global has no checked pointer type or physical \
                      span"))
+
+let prepare_static_reference ~globals result =
+  let ( let* ) = Stdlib.Result.bind in
+  let source = Result.result_source result in
+  let origin = Source.argument_expression_origin source in
+  let span =
+    match origin with
+    | Sema.Symbol.Source_location location -> Some location.span
+    | _ -> None
+  in
+  let invalid message = error ?span "HCIRL0004" message in
+  match
+    ( Source.argument_expression_kind source,
+      Result.result_top_level_outer_occurrence result )
+  with
+  | Source.Top_level_bound_identifier_expression identifier, Some occurrence
+    when occurrence == Source.top_level_bound_identifier_occurrence identifier
+    -> (
+      match Top.occurrence_resolution occurrence with
+      | Top.Static_binding reference -> (
+          let* slot =
+            match
+              List.find_opt
+                (fun (allocation, slot) ->
+                  Integer_static_allocation.source allocation
+                  == Sema.Static_reference.allocation reference
+                  && Integer_globals.storage_symbol slot
+                     == Sema.Static_reference.symbol reference)
+                (Integer_globals.private_static_bindings globals)
+            with
+            | Some (_, slot) -> Ok slot
+            | None ->
+                invalid
+                  "static reference is absent from its original private task \
+                   view"
+          in
+          let* () =
+            if
+              origin <> Top.occurrence_origin occurrence
+              || Result.result_origin result <> origin
+              || (not
+                    (Sema.Type.equal
+                       (Sema.Static_reference.storage_type reference)
+                       (Integer_globals.storage_type slot)))
+              || Sema.Static_reference.dimensions reference
+                 <> Integer_globals.storage_dimensions slot
+              || (not
+                    (Option.fold ~none:false
+                       ~some:
+                         (Sema.Type.equal (Integer_globals.storage_type slot))
+                       (Result.result_storage_type result)))
+              || Result.result_array_rank result
+                 <> List.length (Integer_globals.storage_dimensions slot)
+              || Result.result_is_array_address result
+                 <> (Result.result_array_rank result > 0)
+              || not
+                   (Option.equal ( == )
+                      (Result.result_callback_pointer result)
+                      (Sema.Static_reference.callback_pointer reference))
+            then
+              invalid
+                "static reference substituted its original type, occurrence or \
+                 shape"
+            else Ok ()
+          in
+          match (span, Type.pointer_to (Integer_globals.storage_type slot)) with
+          | Some span, Ok address_type ->
+              Ok
+                (Some
+                   {
+                     slot;
+                     address_type;
+                     span;
+                     initializer_indices = [];
+                     retained = None;
+                   })
+          | _ ->
+              invalid
+                "static reference has no original physical span or checked \
+                 address")
+      | _ -> prepare_retained ~globals result)
+  | _ -> prepare_retained ~globals result
 
 let prepare_global ~globals result =
   let source = Result.result_source result in
@@ -151,7 +248,7 @@ let prepare_global ~globals result =
     | _ -> None
   in
   match bound with
-  | None -> prepare_retained ~globals result
+  | None -> prepare_static_reference ~globals result
   | Some (publication, name, occurrence_origin, source_type) -> (
       if Binding.publication_kind publication <> Binding.Global_variable then
         Ok None
@@ -177,6 +274,18 @@ let prepare_global ~globals result =
               |> Sema.Global_record_classification.classified_record_source
               |> Sema.Global_resolution.global_record_global
             in
+            let callback =
+              Integer_globals.storage_callback_pointer
+                (Integer_globals.global_storage slot)
+            in
+            let selected_type =
+              if Option.is_some callback then Result.result_storage_type result
+              else Result.result_type result
+            in
+            let declared_type =
+              Global.global_type_reference global
+              |> Sema.Type_reference.resolved_type
+            in
             if
               Binding.publication_canonical_symbol publication != symbol
               || Binding.publication_item_index publication
@@ -194,10 +303,17 @@ let prepare_global ~globals result =
                 "global identifier origins disagree across semantic results"
             else if
               (not
-                 (Option.fold ~none:false ~some:(Type.equal type_)
-                    (Result.result_type result)))
+                 (Option.fold ~none:false ~some:(Type.equal type_) selected_type))
+              || (not
+                    (match
+                       (callback, Result.result_callback_pointer result)
+                     with
+                    | None, None -> true
+                    | Some original, Some actual -> original == actual
+                    | _ -> false))
               || Result.result_array_rank result <> rank
-              || Result.result_is_array_address result <> (rank > 0)
+              || Result.result_is_array_address result
+                 <> (rank > 0 && Option.is_none callback)
               || Option.is_some (Result.result_function_declaration result)
               || Option.is_some (Result.result_function_address_path result)
             then
@@ -208,6 +324,7 @@ let prepare_global ~globals result =
               not
                 (match Result.result_category result with
                 | Result.Object_value | Result.Lvalue -> rank = 0
+                | Result.Callback_value -> rank = 0 && Option.is_some callback
                 | Result.Array_value -> rank > 0
                 | _ -> false)
             then
@@ -218,10 +335,15 @@ let prepare_global ~globals result =
                 (match source_type with
                 | None -> true
                 | Some (source_type, source_rank, shape) ->
-                    Type.equal source_type type_
+                    Type.equal source_type declared_type
                     && source_rank = rank
                     &&
-                    if rank = 0 then shape = Source.Object_value
+                    if rank = 0 then
+                      shape
+                      =
+                      if Option.is_some callback then
+                        Source.Function_pointer_value
+                      else Source.Object_value
                     else shape = Source.Array_value)
             then
               invalid
@@ -270,8 +392,8 @@ let prepare ?frame ~globals result =
                   match
                     ( span,
                       Type.pointer_to
-                        (Sema.Function_frame_layout.location_checked_type
-                           (Integer_globals.static_location slot)) )
+                        (Integer_globals.storage_type
+                           (Integer_globals.static_storage slot)) )
                   with
                   | Some span, Ok address_type ->
                       Ok
@@ -303,8 +425,10 @@ let layout_indices ~slot destination =
       let cell = Integer_initializer_layout.cell_offset destination in
       let bytes = Integer_initializer_layout.byte_offset destination in
       match
-        Integer_scalar_storage.public_byte_size
-          (Integer_globals.storage_type slot)
+        if Integer_globals.storage_is_callback slot then Some 8
+        else
+          Integer_scalar_storage.public_byte_size
+            (Integer_globals.storage_type slot)
       with
       | Some width
         when cell >= 0
@@ -373,6 +497,59 @@ let prepare_fragment_initializer destination =
           retained = Some (Destination.reference destination);
         }
 
+let prepare_static_fragment_initializer destination =
+  let ( let* ) = Stdlib.Result.bind in
+  let module Destination = Static_initializer_destination in
+  let slot = Destination.storage destination in
+  let bytes = Destination.byte_offset destination in
+  let cell = Destination.cell_offset destination in
+  let* initializer_indices =
+    let width =
+      Integer_storage_shape.scalar
+        (Integer_static_allocation.shape (Destination.allocation destination))
+      |> Integer_scalar_storage.byte_size
+    in
+    if
+      cell < 0
+      || cell >= Integer_globals.storage_element_count slot
+      || bytes < 0
+      || bytes / width <> cell
+      || bytes mod width <> 0
+    then
+      error "HCIRL0004" "static initializer cell and byte destination disagree"
+    else
+      let rec coordinates offset = function
+        | [], [] when offset = 0L -> Ok []
+        | count :: dimensions, stride :: strides when count > 0L && stride > 0L
+          ->
+            let index = Int64.div offset stride in
+            if index >= count then
+              error "HCIRL0004" "static initializer exceeds its checked extent"
+            else
+              let* rest =
+                coordinates (Int64.rem offset stride) (dimensions, strides)
+              in
+              Ok ((stride, index) :: rest)
+        | _ ->
+            error "HCIRL0004"
+              "static initializer has inconsistent checked dimensions"
+      in
+      coordinates (Int64.of_int bytes)
+        ( Integer_globals.storage_dimensions slot,
+          Integer_globals.storage_strides slot )
+  in
+  match Type.pointer_to (Integer_globals.storage_type slot) with
+  | Error message -> error "HCIRL0004" message
+  | Ok address_type ->
+      Ok
+        {
+          slot;
+          address_type;
+          span = Destination.span destination;
+          initializer_indices;
+          retained = None;
+        }
+
 let prepare_initializer ~globals root =
   let ( let* ) = Stdlib.Result.bind in
   match
@@ -434,8 +611,7 @@ let prepare_static_initializer ~globals slot root =
       in
       match
         ( Result.initializer_source root |> Source.initializer_origin,
-          Type.pointer_to
-            (Sema.Function_frame_layout.location_checked_type location) )
+          Type.pointer_to (Integer_globals.storage_type storage) )
       with
       | Sema.Symbol.Source_location location, Ok address_type ->
           Ok

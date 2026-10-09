@@ -129,7 +129,12 @@ let signatures () =
           match integer_program_report_outcome (run mode source) with
           | Error (_ :: _) -> ()
           | _ -> Alcotest.fail ("unsupported signature executed: " ^ source))
-        rejected)
+        (if mode = Preprocessor.Jit then
+           List.filter
+             (fun source ->
+               not (Internal_binding_cases.is_parenthesized source))
+             rejected
+         else rejected))
     modes
 
 let default_cases =
@@ -254,7 +259,7 @@ let retained_values () =
       let report, execution = success mode retained in
       word "retained result" VM.I64 42L execution;
       Alcotest.(check int)
-        "original runtime work" 86
+        "original runtime work" 88
         (VM.executed_steps execution);
       Alcotest.(check int)
         "original preparation work" 9

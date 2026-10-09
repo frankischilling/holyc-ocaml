@@ -1,4 +1,5 @@
 type source =
+  | Callback_call of Callback_source.t
   | Function_call of Sema.Function_call_target_classification.t
   | Top_level_call of Sema.Top_level_function_call_target_classification.t
   | Function_output of Sema.Implicit_output_argument_binding.bound_output
@@ -22,11 +23,39 @@ val intrinsic_opcode_of_source : source -> Opcode.t option
 val cleanup_slot_count :
   source -> fixed_count:int -> variadic_count:int64 -> variadic:bool -> int64
 
-type provider = Print | Put_chars | Stream_print | Stream_exe_print
+type provider =
+  | Print
+  | Put_chars
+  | Stream_print
+  | Stream_exe_print
+  | Get_option
+  | Set_option
+
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 type argument
 type call
+
+type callback_call = private {
+  callback_source : Callback_source.t;
+  callback_pointer : Sema.Function_type_resolution.function_pointer;
+  callback_return_type : Sema.Type.t;
+  callback_first : Instruction_sequence.Instruction_id.t;
+  callback_last : Instruction_sequence.Instruction_id.t;
+  callback_capture : Instruction_sequence.Instruction_id.t;
+  callback_capture_value : Instruction_sequence.Value_id.t;
+  callback_load : Instruction_sequence.description;
+  callback_save : Instruction_sequence.Instruction_id.t;
+  callback_instruction : Instruction_sequence.Instruction_id.t;
+  callback_cleanup : Instruction_sequence.Instruction_id.t;
+  callback_saved_cleanup : Instruction_sequence.Instruction_id.t option;
+  callback_result : Instruction_sequence.Value_id.t;
+  callback_arguments : argument list;
+  callback_fixed_types : Sema.Type.t list;
+  callback_variadic_count : int64 option;
+  callback_callee_pop : bool;
+}
+
 type intrinsic
 type t
 
@@ -50,18 +79,21 @@ val create :
 (** Seal checked semantic call sources against the exact completed graphs.
     Declaration snapshots, complete call scopes, pushed argument producers,
     hidden counts and implicit statement discards are checked before
-    publication. Scheduled initializer calls must belong to that exact checked
-    initializer expression, including nested argument expressions; implicit
-    output statements cannot belong to initializer regions. Matching spellings
-    or table-local symbol IDs do not establish ownership. Pointer
-    scale/add/subtract, difference size/division and comparison instructions and
-    canonical constant shifts, integer AND and AND/SHR updates and their
-    original transitive producers are also sealed; replacing them with
-    type-compatible records does not retain source authority. A numeric producer
-    cannot be rewritten into a pointer comparison/difference or an unsealed
-    canonical constant shift. The complete original graph layout, control edges
-    and instruction records are retained as well. Changed comparisons, branches
-    and copies cannot acquire that checked source context. *)
+    publication. Entry callback records must belong to the exact top-level batch
+    and an executable root subtree, or to the original typed function and exact
+    static-initializer expression in its sealed entry region. Scheduled
+    initializer calls must belong to that exact checked initializer expression,
+    including nested argument expressions; implicit output statements cannot
+    belong to initializer regions. Matching spellings or table-local symbol IDs
+    do not establish ownership. Pointer scale/add/subtract, difference
+    size/division and comparison instructions and canonical constant shifts,
+    integer AND and AND/SHR updates and their original transitive producers are
+    also sealed; replacing them with type-compatible records does not retain
+    source authority. A numeric producer cannot be rewritten into a pointer
+    comparison/difference or an unsealed canonical constant shift. The complete
+    original graph layout, control edges and instruction records are retained as
+    well. Changed comparisons, branches and copies cannot acquire that checked
+    source context. *)
 
 val matches :
   t ->
@@ -71,8 +103,105 @@ val matches :
   bool
 (** Require the original bundle, graph layout and instruction records. *)
 
+val find_callback_start :
+  t ->
+  owner:owner ->
+  Instruction_sequence.Instruction_id.t ->
+  callback_call option
+
+val original_callback_calls : t -> owner:owner -> callback_call list option
+(** Validate the complete original graph before returning its sealed callback
+    scopes. Each receipt retains the original callee load, source declarator,
+    fixed/tail producers, saved slot and both forms of anonymous-header cleanup.
+    A physically copied load has no receipt; declaration or numeric IDs cannot
+    replace the original callee/body ownership. *)
+
+val find_callback_capture :
+  t ->
+  owner:owner ->
+  Instruction_sequence.Instruction_id.t ->
+  callback_call option
+
+val find_callback_load :
+  t -> owner:owner -> Instruction_sequence.description -> callback_call option
+
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option
+
+val matches_graph : t -> owner:owner -> Block_graph.t -> bool
+(** Require the physical original entry or function graph and every sealed
+    instruction record. Equal text, copied graphs and another context do not
+    establish storage ownership. *)
+
+type function_address
+type function_addresses
+
+val original_function_addresses : t -> owner:owner -> function_addresses option
+(** Collect source-owned resolved function-address producers after checking the
+    complete original graph. JIT immediates and AOT absolute producers retain
+    the exact declaration, registered publication and original body when local.
+    Saved callback arguments retain their original default expression and
+    selected function through the exact prepared object and sealed call
+    argument. Unresolved extern slots do not acquire executable authority here.
+*)
+
+val original_function_address :
+  function_addresses ->
+  Instruction_sequence.description ->
+  function_address option
+(** Only the physically original producer can select its receipt. Matching
+    names, instruction IDs, spans, copied records or another graph cannot. *)
+
+val function_address_source :
+  function_address -> Sema.Function_call_expression_result.expression_result
+
+val function_address_declaration :
+  function_address -> Sema.Function_resolution.resolved_declaration
+
+val function_address_link : function_address -> Retained_function.t
+val function_address_body : function_address -> Function_body.t option
+
+type function_slot_address
+type function_slot_addresses
+
+val original_function_slot_addresses :
+  t -> owner:owner -> function_slot_addresses option
+
+val original_function_slot_address :
+  function_slot_addresses ->
+  Instruction_sequence.description ->
+  function_slot_address option
+(** Select the complete original JIT IMM-slot/DEREF pair. Both original
+    instructions select the same receipt; copied instructions, incomplete pairs
+    and another graph do not. This receipt grants no native entry or
+    body-installation authority. *)
+
+val function_slot_address_cursor :
+  function_slot_address -> Instruction_sequence.description
+
+val function_slot_address_load :
+  function_slot_address -> Instruction_sequence.description
+
+val function_slot_address_source :
+  function_slot_address ->
+  Sema.Function_call_expression_result.expression_result
+
+val function_slot_address_declaration :
+  function_slot_address -> Sema.Function_resolution.resolved_declaration
+
+val function_slot_address_link :
+  function_slot_address -> Retained_function.t option
+
+val function_slot_address_item_index : function_slot_address -> int option
+val function_slot_address_provider : function_slot_address -> provider option
+
+val function_slot_address_matches_callback :
+  function_slot_address -> callback_call -> bool
+(** Compare an approved provider's captured slot declaration with a callback's
+    return, fixed arguments, variadic shape and cleanup policy. Public and
+    internal spellings of the same checked primitive have the provider ABI; user
+    aggregates retain their own identities. This comparison grants no source or
+    executable ownership. *)
 
 type pointer_difference_divisions
 
@@ -118,6 +247,12 @@ val is_implicit_discard :
 
 val is_prepared_default :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> bool
+
+val original_prepared_defaults :
+  t -> owner:owner -> Instruction_sequence.description list option
+(** Return the physical original producers after checking the complete sealed
+    graph. An equal reconstructed instruction grants no saved-default type
+    authority. *)
 
 val provider : call -> provider option
 val symbol : call -> Sema.Symbol.t
@@ -186,3 +321,6 @@ val owns_top_level :
   t -> Sema.Function_call_expression_result.top_level_t -> bool
 
 val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
+
+val argument_prepared_callback_default :
+  argument -> Prepared_callback_default.t option

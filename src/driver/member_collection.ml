@@ -52,8 +52,7 @@ let aggregate_definition_entries declarations =
       = Sema.Declaration_collection.Aggregate_definition)
 
 let aggregate_definitions (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Aggregate_definition definition ->
         Some (item_index, definition)
@@ -75,7 +74,7 @@ let aggregate_fact entry
     | Ok members ->
         Sema.Member_collection.make_aggregate ~symbol ~item_index members
 
-let aggregate_facts declarations module_ =
+let aggregate_facts ~metadata_only declarations module_ =
   let entries = aggregate_definition_entries declarations in
   let definitions = aggregate_definitions module_ in
   let rec pair facts_rev entries definitions =
@@ -84,14 +83,23 @@ let aggregate_facts declarations module_ =
     | entry :: entry_rest, definition :: definition_rest -> (
         match aggregate_fact entry definition with
         | Error _ as error -> error
-        | Ok fact -> pair (fact :: facts_rev) entry_rest definition_rest)
+        | Ok fact ->
+            let facts_rev =
+              if metadata_only (snd definition) then facts_rev
+              else fact :: facts_rev
+            in
+            pair facts_rev entry_rest definition_rest)
     | [], _ :: _ | _ :: _, [] ->
         Error "semantic aggregate declarations do not match the AST"
   in
   pair [] entries definitions
 
-let collect ~table ~declarations module_ =
-  match aggregate_facts declarations module_ with
+let collect ?(inherited_metadata = []) ~table ~declarations module_ =
+  let scope = Sema.Declaration_collection.scope declarations in
+  let metadata_only =
+    Inherited_metadata.contains ~table ~scope inherited_metadata
+  in
+  match aggregate_facts ~metadata_only declarations module_ with
   | Error _ as error -> error
   | Ok facts ->
       Sema.Member_collection.collect ~table

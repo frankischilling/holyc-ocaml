@@ -19,7 +19,11 @@ These notes describe the ABI facts audited so far from TempleOS commit `c26482bb
 
 `Compiler/CompilerA.HH` defines a separate parser mask. Its low bits represent `public`, assembly state, `static`, and the underscore-name form. Only `FSF_INTERRUPT`, `FSF_HASERRCODE`, `FSF_ARGPOP`, and `FSF_NOARGPOP` are copied into `CHashFun.flags` through `FSG_FUN_FLAGS1`. `public` updates the hash entry's type flags instead. Assembly, `static`, and underscore-name state remain parser concerns.
 
-`PrsStmt` preserves existing function flags, public state, and assembly state while reading `interrupt`, `haserrcode`, `argpop`, `noargpop`, or `public`. Reading `interrupt` also sets `FSF_NOARGPOP`. Reading `static` clears other staged declaration flags and retains only assembly state. The generated `Function_flag.apply_modifier` function reproduces these assignments. Bound prototype AST nodes now retain the modifier tokens in order, and parser tests fold them through this function. No stored flag or ABI effect is applied yet.
+`PrsStmt` preserves existing function flags, public state, and assembly state while reading `interrupt`, `haserrcode`, `argpop`, `noargpop`, or `public`. Reading `interrupt` also sets `FSF_NOARGPOP`. Reading `static` clears other staged declaration flags and retains only assembly state. The generated `Function_flag.apply_modifier` function reproduces these assignments. Prototype AST nodes retain the modifier tokens in order. Checked function and callback records retain their stored calling flags.
+
+`argpop` and `noargpop` may coexist. `Compiler/PrsExp.HC:572-573` and `Compiler/OptPass789A.HC:405-417` select callee cleanup only when `RET1` or `ARGPOP` is set and `NOARGPOP` is clear. The epilogue reads `HASERRCODE` only inside its interrupt branch, so the bit alone does not change an ordinary return. Both the integer interpreter and hosted native fixed-function adapter admit these ordinary combinations. Interrupt execution remains unsupported. The native adapter checks original cleanup metadata and uses its private plain-RET convention; this does not establish full HolyC ABI output.
+
+Local declarations use the same staged modifier transitions to select automatic or static storage. `PrsStmt.HC:1158-1163` passes only the selected storage mode to `PrsVarLst`, whose call to `PrsType` at `PrsVar.HC:521-522` passes zero staged flags. A local callback therefore keeps its ordinary anonymous-header cleanup even when the declaration spells `noargpop`. Global callback headers receive the staged flags through `PrsGlblVarLst`.
 
 ## Parameter register requests
 
@@ -33,7 +37,148 @@ This state is input to later compiler work, not an allocation result. `OPTf_NO_R
 
 `Compiler/PrsVar.HC:PrsType` parses a parenthesized function-pointer declarator and calls `PrsFunJoin` with a null name for its signature metadata. One through four stars inside the declarator determine the function-pointer type, while any stars between the primitive type and the declarator belong to the callback return type. `PrsVarLst` stores the returned function metadata in `CMemberLst.fun_ptr` and sets `MLF_FUN`. The parser keeps these parts separate in a recursive AST and accepts empty, fixed, variadic, and nested callback signatures. Semantic aggregate members retain the complete recursive signature and the checked `MLF_FUN` mask `0x8`; ordinary aggregate members carry zero.
 
-This is syntax and metadata capture, not ABI implementation. Checked direct and pointer member calls now recover the exact stored callback header through `MLF_FUN` and use it for semantic slots and return typing. They do not read the field or decide its machine address. Function type compatibility, indirect-call lowering, calling flags inside callback types, register assignment, and native invocation remain unavailable.
+Checked direct and pointer member calls recover the exact stored callback header through `MLF_FUN` for semantic slots and return typing. Runtime member-field access, function type compatibility, complete indirect-call lowering, calling flags inside callback types, register assignment and native invocation remain unfinished.
+
+Callback storage keeps that original declarator separately from its return type.
+`PrsType` selects internal `RT_PTR` with the callback indirection count; an
+`F64 (*callback)(I64)` cell stores an integer address. The checker accepts scalar
+callback assignments and updates, and selects the same storage class after all
+callback-array dimensions are consumed. The returned value still uses the
+callback signature's return class. Frame metadata retains the exact parameter
+or local callback declarator. Symbolic frame-address lowering checks that
+identity before emitting its RBP-relative fragment. Scalar callback parameters
+and automatic locals also lower to a word load from that exact cell. The original
+callee expression is retained before fixed and variadic argument typing for
+scalar, indexed and member calls. Callback parameter defaults use the integer
+address class while retaining their declared return type.
+
+`Expression_lowering.lower_indirect_callee` checks the exact source value tree
+and selected declarator, loads a supported frame or global cell, retags its producer to
+internal `RT_PTR`, and emits `IC_SET_RAX` followed by `IC_NOP2`. This follows
+`PrsFunCall` before its call-start and saved-callee push. The fragment preserves
+the original loaded value and consumes no additional value identity. Argument
+pushes and dispatch now compose through the ordinary integer program lowerer
+for one-star automatic/static/global cells, fully indexed arrays
+and scalar named callback parameters. The original
+anonymous signature determines fixed slots, hidden argc and word variadic tails.
+Local and parameter `PrsType` passes zero function specifier flags;
+`PrsFunJoin` derives RET1 for nonvariadic argument bytes from 1 through 32767.
+The call therefore saves RAX before right-to-left arguments, uses argument bytes
+as the `IC_CALL_INDIRECT` payload, and emits either `IC_ADD_RSP1(arguments)`
+followed by `IC_ADD_RSP(8)`, or `IC_ADD_RSP(arguments+8)`. The final
+`IC_CALL_END` retains the original callback declarator. The reached target's
+flags are checked for compatibility; they do not choose the caller's cleanup.
+
+[Global callbacks](global-callbacks.md) retain their declaration's original
+`fsp_flags` through the anonymous header. `argpop` and derived RET1 request
+callee cleanup unless `noargpop` is present. Their physical eight-byte element
+type remains separate from callback return metadata and retained source binding.
+
+The IR interpreter captures the opaque executable value before arguments and
+dispatches through its original prepared body and owner. Explicit fixed slots,
+word variadic tails, nested calls, recursion and integer/U0 results execute in
+both source modes. Clearing the callback during an argument preserves the
+earlier captured target. Null and numeric callees fail when reached; a reached
+signature or cleanup mismatch also fails after argument effects. Unused
+mismatched values can be overwritten before a call. Missing source context or
+changed graph records fail before execution. [Issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801)
+tracks the remaining consumers.
+
+Executable top-level scalar and fully indexed global calls now use the same
+callee capture, argument and cleanup composer. Their typed call records must
+belong to the original top-level batch and executable expression subtree.
+The call result retains its selected invocation signature separately from
+callback storage metadata and its return domain. Entry loads require an exact
+registered global cell; function-frame and initializer authority cannot be
+substituted. Nested calls, integer/U0 results and earlier JIT bodies retain the
+same checked receipts. See [global callbacks](global-callbacks.md).
+
+The IR runner now resolves checked JIT immediate and AOT absolute `&Function`
+producers to their original registered publication and prepared integer/U0 body.
+It carries an opaque value with that executable owner through ordinary word
+locals, globals, full-word casts and explicit fixed parameters. Scalar automatic
+callback locals, static locals, fully indexed automatic/static arrays and
+scalar named callback parameters use the original declarator to
+select eight-byte storage, including signatures that return F64 or U0. Plain
+assignment, copies, clearing to zero and equality with owned code or null execute
+in both source modes. JIT replacement keeps the earlier address bound to its
+original body. A matching name or numeric word cannot select executable code.
+
+The [native word-tail consumer](native-word-tails.md) uses the original hidden
+count and synthetic `argc`/`argv` slots for direct bodies and matching callbacks.
+It preserves fixed callback owners after each activation's actual tail and uses
+captured bounds independently of mutable `argc`. Original cleanup receipts
+remain separate from its private plain-RET adapter.
+
+[Native callback arguments](native-callback-arguments.md) retain original
+nested parameter declarators in indirect signatures. IR and native dispatch
+distinguish callback and object-reference kinds alongside physical types.
+Private owner lanes follow the actual argument area, and original destination
+headers retain authority over inner-call defaults.
+
+Named functions now prepare integer-word defaults for one-star callback
+parameters through the original declaration-time evaluator. The saved value is
+materialized as `IC_IMM_I64` with the parameter's physical internal `RT_PTR`
+class, independently of its callback return class. Closed defaults work in both
+IR source modes; JIT defaults can also retain declaration-time calls and effects.
+Repeated omission reuses the saved word. A numeric default grants no executable
+authority, and a reached invocation still checks the target after argument
+effects. The materializer requires the original completed parameter and physical
+producer. Resolved `&Function` values selected through an outer task scope now
+retain that scope's original function declaration and registered executable owner.
+
+Anonymous callback headers also retain their own ordered declaration receipts.
+`PrsFunJoin` creates the unnamed signature and `PrsVarLst` evaluates each original
+member default once. Our parser publishes that scope separately from named
+functions. The evaluator and saved-word receipt keep the original signature AST
+and parameter; the indirect call materializer consumes that signature's saved
+value, independently of defaults on the reached target. A callback member uses
+its physical `RT_PTR` class. Closed integer expressions work in both IR modes;
+JIT retained calls and effects execute during declaration. The existing callee
+capture, right-to-left pushes and cleanup remain tied to the original signature.
+An equal copied signature or producer has no saved-default authority.
+
+Anonymous defaults in class/union bodies retain the original `$$` selector,
+lexical write and expression node. `PrsExp.HC:708-721` selects an I64 class
+position only under `CCF_CLASS_DOL_OFFSET`; ordinary `$$` remains `IC_RIP` with
+`RT_PTR`. Argument-list writes alone do not select integer position semantics.
+The parser preserves the class flag while parsing nested callback headers and
+restores it on leaving the class body. Each fixed member occupies eight bytes.
+Writes precede the next member's type/default input, and nested signatures leave
+their last write current. Trailing delimiters publish the completed size; empty
+semicolons add no members; hidden argc/argv insertion leaves the preceding
+fixed-member write current. Class-position defaults execute through the original
+saved-word evaluator, including retained JIT calls and effects. Class callback
+layout requires the exact completed anonymous header and uses physical word
+storage independently of return class. Stored class callback invocation and
+ordinary instruction-address defaults remain unfinished.
+
+AOT defaults
+with references, F64 expressions, owned-code values and hosted native emission
+remain outside this consumer. A reached runtime failure retains prior output;
+constant-divisor preparation that needs unresolved optimizer behavior rejects
+before execution.
+
+Automatic and static callback arrays use the same original header and physical
+pointer word. Index lowering retains the exact declared storage root, each
+checked subscript, the eight-byte element width and the remaining strides.
+Only a fully indexed element supplies an invocation load. The interpreter checks
+the original header and declaring frame before using that load; a matching
+pointer type does not authorize a call. Copies between array elements, scalar
+cells and explicit callback parameters retain the executable owner. Each call
+uses the selected storage header's defaults, including when the same executable
+is copied between headers with different saved defaults. Static elements persist
+across calls and JIT replacement. Automatic arrays are fresh on every activation.
+The hosted arena checks the declared object's extent and offset overflow.
+
+These values do not supply concrete numeric addresses. Address arithmetic,
+numeric address output, callback members, native JIT owned-code/effectful initializers and callback updates,
+owned-code defaults, uncanceled dereferences or multistar callback forms, live task
+address linking and broader hosted native emission remain unfinished. F64 and aggregate
+callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the
+earlier native observations do not validate this new implementation. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)
+include assignment, member storage, eight-byte updates, callee capture before
+arguments, right-to-left arguments, callback defaults and word variadic tails.
 
 ## Resolved signature facts
 
@@ -91,7 +236,7 @@ Pointers and callback objects use eight-byte elements. Non-pointer primitives us
 
 The layout rejects foreign or inconsistent semantic batches, unresolved or non-integral dimensions, negative or mismatched extents, incomplete aggregate layouts, duplicate or missing locations, and checked `Int64` arithmetic overflow. A closed dimension may use floating intermediates, but its final finite value must be an exact, in-range integer. The pass returns no partial layout after an error. Overflow, unresolved dimensions, and fractional final dimensions are hosted safety strengthenings. The pinned path converts an `F64` result with `ToI64`, which truncates, and has no corresponding overflow or unresolved-dimension recovery branch at this boundary (`Compiler/PrsExp.HC:1140-1151`, `Kernel/KernelB.HH:121`). The deterministic dump schema is `holyc-function-frame-layout-v1`. [Issue #558](https://github.com/frankischilling/holyc-ocaml/issues/558) records this semantic boundary.
 
-`Ir.Frame_address_lowering` follows an identifier occurrence to its exact retained local binding, then uses `find_binding_location` without a spelling or symbol fallback. A supported non-static object slot emits `IC_RBP`, signed-displacement `IC_IMM_I64`, and `IC_ADD` in that order, with the base before the displacement. All three producers use one pointer layer over the checked location type, keep the exact identifier span, carry zero flags, and consume consecutive caller-owned instruction and value identities. Static locals, callback declarators, direct functions, module and outer bindings, unsupported positive parameter arrays, and values already at the maximum pointer depth return `Unsupported_location` without a fragment. This is an address calculation only. It does not load or store the object, scale an index, select a register, construct a machine frame, or execute the sequence. [Issue #560](https://github.com/frankischilling/holyc-ocaml/issues/560) records this IR boundary.
+`Ir.Frame_address_lowering` follows an identifier occurrence to its exact retained local binding, then uses `find_binding_location` without a spelling or symbol fallback. A supported non-static object or callback slot emits `IC_RBP`, signed-displacement `IC_IMM_I64`, and `IC_ADD` in that order, with the base before the displacement. All three producers use one pointer layer over the checked physical storage type, keep the exact identifier span, carry zero flags, and consume consecutive caller-owned instruction and value identities. Callback slots require the original declarator as well as the frame binding. Static locals, direct functions, module and outer bindings, unsupported positive parameter arrays, and storage already at the maximum pointer depth return `Unsupported_location` without a fragment. This fragment calculates the address for later load, store and call consumers. [Issue #560](https://github.com/frankischilling/holyc-ocaml/issues/560) records the original address boundary; [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801) owns callback execution.
 
 ## Classified function records
 
@@ -122,3 +267,29 @@ The final TempleOS backend saves the clobbered register set on interrupt entry a
 ## Work still requiring source audit
 
 The complete saved-register contract, floating returns, machine-frame lowering, register-variable allocation, indirect-call details, exception unwinding, and hosted ABI bridging are not yet specified here. The semantic layout above records source-backed `RBP` displacements and byte counts; it is not a prologue, epilogue, register assignment, or complete HolyC ABI implementation.
+
+The hosted [native callback consumer](native-local-callbacks.md) saves address and
+ownership snapshots before reverse arguments. Automatic/static/global cells,
+fully indexed arrays and fixed callback parameters preserve private ownership
+metadata; numeric stores clear it. Reached
+invocation checks the selected signature and cleanup policy. The indirect CALL
+enters the private fixed-RSP plain-RET adapter. Original closed integer callback
+defaults prepare once and retain their declaration's saved values. Native member
+callbacks, effectful/owned-code defaults, JIT owned-code/effectful initializers, updates and pointer/owned-code tails
+remain unfinished, along with HolyC ABI exports,
+RET-imm execution and interrupt entry.
+
+[Native callback-word defaults](native-callback-word-defaults.md) separate the
+original callback parameter storage from its return class. Integer preparation
+uses an internal I64 word; materialization retains RT_PTR and zero executable
+ownership. Original headers, receipts, complete charged evidence and selected
+`noreg` state remain checked.
+
+[Global callback initializers](global-callback-initializers.md) derive eight-byte physical storage from the original callback declaration before its return-type record is complete. IR initializers retain original executable identity and checked expression regions. Native closed-word initializers require original consumed preparations and charged completions; AOT load regions require their original ordered source and destination receipts in the exact callable bundle. Numeric payloads retain zero executable owners. This private adapter does not establish exported HolyC ABI or loader execution.
+
+AOT function-record reuse preserves a canonical callable identity, separately
+from each original checked definition and its frame. Earlier calls and callback
+addresses retain that definition's body. `PrsStmt.HC:67-143` applies function
+modifiers when creating a record; reuse keeps its stored cleanup flags. The
+private IR and native adapters check the selected call header against those
+original flags. Later source spelling cannot replace the checked cleanup policy.

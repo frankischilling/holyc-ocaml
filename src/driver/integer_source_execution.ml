@@ -27,10 +27,12 @@ type compilation_report = {
   compilation_progress_ : Task.progress option;
   task_units_ : Unit.compiled list;
   limits : limits;
+  compiler_exceptions_ : Parser.compiler_exception list;
 }
 
 type report = {
   outcome_ : (VM.t Unit.checked, Common.Diagnostic.t list) result;
+  native_final_value_ : Task.Native_dispatch.word option;
   output_bytes_ : string;
   output_work_ : int;
   dimension_work_ : int;
@@ -40,6 +42,7 @@ type report = {
   progress_ : Task.progress option;
   program_ : Unit.compiled option;
   task_units_ : Unit.compiled list;
+  compiler_exceptions_ : Parser.compiler_exception list;
 }
 
 let compilation_result report = report.compilation_outcome_
@@ -60,6 +63,9 @@ let compilation_outcome report =
 let compilation_progress report = report.compilation_progress_
 let compilation_task_units (report : compilation_report) = report.task_units_
 
+let compilation_compiler_exceptions (report : compilation_report) =
+  report.compiler_exceptions_
+
 let task_dimensions progress =
   Option.fold ~none:0 ~some:(fun p -> p.Task.dimension_work) progress
 
@@ -68,6 +74,7 @@ let compilation_dimension_work report =
 
 let compilation_switch_work report = report.source_switch_work
 let outcome report = report.outcome_
+let native_final_value report = report.native_final_value_
 let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
 let dimension_work report = report.dimension_work_
@@ -89,52 +96,24 @@ let preparation_work report =
 let progress report = report.progress_
 let program report = report.program_
 let task_units (report : report) = report.task_units_
+let compiler_exceptions (report : report) = report.compiler_exceptions_
 let ( let* ) = Result.bind
 
 let install_providers ?(suspended = false) task =
-  let session = Task.frontend task in
-  let symbols = Session.symbols session in
-  Frontend.Symbol_visibility.Environment.without_locals symbols (fun () ->
-      let storage primitive =
-        (Common.Primitive_type.info primitive).storage_spelling
-      in
-      let i64 = storage Common.Primitive_type.I64 in
-      let u0 = storage Common.Primitive_type.U0 in
-      let u8 = storage Common.Primitive_type.U8 in
-      let u64 = storage Common.Primitive_type.U64 in
-      let headers =
-        [
-          ( "StreamExePrint",
-            Printf.sprintf "extern %s StreamExePrint(%s *fmt,...);" i64 u8 );
-          ( "StreamPrint",
-            Printf.sprintf "extern %s StreamPrint(%s *fmt,...);" u0 u8 );
-          ("Print", Printf.sprintf "extern %s Print(%s *fmt,...);" u0 u8);
-          ("PutChars", Printf.sprintf "extern %s PutChars(%s ch);" u0 u64);
-        ]
-        |> List.filter_map (fun (name, header) ->
-            match
-              Frontend.Symbol_visibility.Environment.find_preprocessor symbols
-                name
-            with
-            | Absent -> Some header
-            | Present _ | Shadowed_by_local -> None)
-        |> String.concat "\n"
-      in
-      if headers = "" then Ok ()
-      else
-        let source =
-          Session.add_source session ~path:"<hosted-task-providers>"
-            ~contents:headers
-        in
-        if suspended then Task.run_suspended task ~source
-        else Task.run task ~source |> Result.map ignore)
+  match Task.provider_source task with
+  | None -> Ok ()
+  | Some source ->
+      if suspended then Task.run_suspended task ~source
+      else Task.run task ~source |> Result.map ignore
 
 let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_initializer_steps = 100_000) ?(max_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
-    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) session
-    ~config ~source =
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
+    ?native_dispatch ?native_static_allocation ?native_static_initializer
+    ?native_static_copy ?native_default ?native_dimension ?native_offset
+    ?native_internal_binding session ~config ~source =
   let limits =
     {
       steps = max_steps;
@@ -147,6 +126,10 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     }
   in
   let task = ref None in
+  let compiler_exceptions_rev = ref [] in
+  let compiler_exception exception_ =
+    compiler_exceptions_rev := exception_ :: !compiler_exceptions_rev
+  in
   let completed_sequence = ref None in
   let source_dimension_work = ref 0 in
   let source_switch_work = ref 0 in
@@ -171,6 +154,15 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
           Integer_source.diagnostic ~span "HCIRVM0001"
             "max_switch_work must be greater than zero";
         ]
+    else if
+      Option.is_some native_dispatch
+      && Frontend.Preprocessor.Config.compilation_mode config <> Jit
+    then
+      Error
+        [
+          Integer_source.diagnostic ~span "HCIRVM0001"
+            "native task source execution requires JIT compilation mode";
+        ]
     else
       let compiler_positions =
         Sema.Compiler_record.create_compiler_positions
@@ -191,6 +183,9 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
         else None
       in
       let is_jit = Option.is_none task_session in
+      let saved_compiler =
+        Option.map (fun _ -> Task.saved_compiler session ~ledger) task_session
+      in
       let ensure_task directive =
         match !task with
         | Some task -> Ok task
@@ -215,7 +210,10 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       ~max_output_bytes ~max_output_work
                       ~max_generated_bytes:
                         (Frontend.Preprocessor.Config.max_generated_bytes config)
-                      session ~source ~ledger
+                      ?native_dispatch ?native_static_allocation
+                      ?native_static_initializer ?native_static_copy
+                      ?native_default ?native_dimension ?native_offset
+                      ?native_internal_binding session ~source ~ledger
             in
             let* retained =
               create ()
@@ -242,21 +240,29 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
             providers_installed := true;
             Ok ()
         in
-        Task.stream_executor ~allow_stream_exe_print:(not is_jit) retained
-          directive
+        Task.stream_executor ?saved_compiler retained directive
       in
       let commands : Parser.command_sink =
         {
+          lexical_lookup =
+            Some (Task_declarations.observe_lexical_lookup ledger);
           checkpoint =
             Some
               (fun event ->
                 let* () = Task_declarations.observe_command ledger event in
+                let* () =
+                  match (native_dispatch, !task, event) with
+                  | Some _, None, Parser.Sequence_started context
+                    when Option.is_none (Parser.context_parent context) ->
+                      ensure_task span |> Result.map ignore
+                  | _ -> Ok ()
+                in
                 match (is_jit, !task, event) with
                 | true, Some task, Parser.Command_resumed receipt ->
                     let* command =
                       Task.compile_source_ast task receipt.command_ast
                     in
-                    Task.execute task command |> Result.map ignore
+                    Task.execute_source task command |> Result.map ignore
                 | true, Some _, Parser.Sequence_completed receipt ->
                     completed_sequence := Some receipt;
                     Ok ()
@@ -317,6 +323,14 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                       in
                       let* _ = ensure_task receipt.dimension_opening.span in
                       Ok true
+                  | true, None, Parser.Aggregate_advanced receipt
+                    when Task_declarations.offset_requires_runtime receipt ->
+                      let* () =
+                        Task_declarations.defer_source_runtime_offset ledger
+                          ~phase:receipt event
+                      in
+                      let* _ = ensure_task receipt.phase_location.span in
+                      Ok true
                   | _ -> Ok false
                 in
                 if deferred_dimension then Ok ()
@@ -332,7 +346,43 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                     | _ -> Task_declarations.observe ledger event
                   in
                   match (is_jit, !task, event) with
+                  | true, None, Parser.Function_local_allocated receipt
+                    when receipt.allocation_storage = Frontend.Ast.Static_local
+                         && Option.is_some receipt.allocation_initializer_equals
+                         &&
+                         match receipt.allocation_local.local_source with
+                         | Parser.Local_variable source ->
+                             Option.is_some source.local_function_pointer
+                         | _ -> false ->
+                      ensure_task
+                        receipt.allocation_function.function_name.location.span
+                      |> Result.map ignore
+                  | true, None, Parser.Internal_binding_preparing receipt ->
+                      ensure_task receipt.binding_ast.location.span
+                      |> Result.map ignore
                   | true, Some task, _ -> Task.observe_initializer task event
+                  | true, None, Parser.Function_header_completed header ->
+                      Task_declarations.emit_function_header_warnings ledger
+                        header
+                  | true, None, Parser.Callback_default_completed receipt -> (
+                      match receipt.callback_default_ast.value with
+                      | Frontend.Ast.Expression_default _ ->
+                          ensure_task receipt.callback_default_ast.location.span
+                          |> Result.map ignore
+                      | Lastclass_default _ -> Ok ())
+                  | false, _, Parser.Callback_default_completed receipt -> (
+                      match receipt.callback_default_ast.value with
+                      | Frontend.Ast.Expression_default _ ->
+                          let* task =
+                            ensure_task
+                              receipt.callback_default_ast.location.span
+                          in
+                          Task.prepare_source_callback_default task ~session
+                            ~ledger receipt
+                      | Lastclass_default _ -> Ok ())
+                  | false, _, Parser.Callback_signature_completed header ->
+                      Task_declarations.complete_source_callback_defaults ledger
+                        header
                   | true, None, Parser.Parameter_default_completed receipt -> (
                       match receipt.default_ast.value with
                       | Frontend.Ast.Expression_default _ ->
@@ -358,7 +408,7 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
         }
       in
       let parsed =
-        Parser.parse ~execute_stream ~commands
+        Parser.parse ~compiler_exception ~execute_stream ~commands
           ~sources:(Session.sources session)
           ~definitions:(Session.definitions session)
           ~symbols:(Session.symbols session) ~config source
@@ -406,15 +456,24 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     compilation_progress_ = Option.map Task.progress !task;
     task_units_ = Option.fold ~none:[] ~some:Task.compiled_units !task;
     limits;
+    compiler_exceptions_ =
+      List.rev !compiler_exceptions_rev
+      @ Option.fold ~none:[] ~some:Task.compiler_exceptions !task;
   }
 
 let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
-    ?max_output_bytes ?max_output_work session ~config ~source ~max_steps =
+    ?max_output_bytes ?max_output_work ?native_dispatch
+    ?native_static_allocation ?native_static_initializer ?native_static_copy
+    ?native_default ?native_dimension ?native_offset ?native_internal_binding
+    session ~config ~source ~max_steps =
   let compilation =
     compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
       ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
-      ?max_output_bytes ?max_output_work ~max_steps session ~config ~source
+      ?max_output_bytes ?max_output_work ?native_dispatch
+      ?native_static_allocation ?native_static_initializer ?native_static_copy
+      ?native_default ?native_dimension ?native_offset ?native_internal_binding
+      ~max_steps session ~config ~source
   in
   let span = Integer_source.source_span source in
   let program_ =
@@ -428,6 +487,13 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     let* checked = compilation.compilation_outcome_ in
     match checked.value with
     | Stateful value -> Ok { checked with Unit.value }
+    | Isolated _ when Option.is_some native_dispatch ->
+        Error
+          (checked.diagnostics
+          @ [
+              Integer_source.diagnostic ~span "HCIRVM0026"
+                "native task source unexpectedly produced isolated execution";
+            ])
     | Isolated compiled ->
         let execution =
           match compilation.task with
@@ -468,6 +534,10 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
   in
   {
     outcome_;
+    native_final_value_ =
+      (match outcome_ with
+      | Ok _ -> Option.bind compilation.task Task.native_final_value
+      | Error _ -> None);
     output_bytes_;
     output_work_;
     progress_;
@@ -478,4 +548,5 @@ let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     source_offset_work_ = compilation.source_offset_work;
     source_initializer_work_ = compilation.source_initializer_work;
     task_units_ = compilation.task_units_;
+    compiler_exceptions_ = compilation.compiler_exceptions_;
   }

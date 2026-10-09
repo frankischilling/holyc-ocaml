@@ -152,6 +152,8 @@ let resolution_name occurrence =
         (publication
        |> Semantic_module_expression_binding.publication_source_symbol
        |> Semantic_symbol.name)
+  | Semantic_top_level_outer_expression_binding.Static_binding _ ->
+      Alcotest.fail "unexpected private static binding"
   | Semantic_top_level_outer_expression_binding.Outer_binding binding ->
       outer_signature binding
 
@@ -164,6 +166,9 @@ let signature result =
 let query_resolution_name query =
   match Semantic_top_level_outer_expression_binding.query_resolution query with
   | Semantic_top_level_outer_expression_binding.Query_undefined -> "undefined"
+  | Semantic_top_level_outer_expression_binding.Query_binding
+      (Semantic_top_level_outer_expression_binding.Static_binding _) ->
+      Alcotest.fail "unexpected private static query"
   | Semantic_top_level_outer_expression_binding.Query_binding
       (Semantic_top_level_outer_expression_binding.Module_binding publication)
     ->

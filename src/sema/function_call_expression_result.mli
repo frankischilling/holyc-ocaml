@@ -43,6 +43,7 @@ type outer_callback_call
 type top_level_direct_call
 type top_level_global_callback_call
 type top_level_outer_callback_call
+type top_level_static_callback_call
 type top_level_indexed_global_callback_call
 type top_level_member_callback_call
 type direct_call
@@ -82,6 +83,33 @@ type t
 type top_level_root_result
 type top_level_statement_result
 type top_level_t
+
+val top_level_static_callback_calls :
+  top_level_t -> top_level_static_callback_call list
+
+val top_level_static_callback_source :
+  top_level_static_callback_call -> Top_level_expression_tree.call
+
+val top_level_static_callback_reference :
+  top_level_static_callback_call -> Static_reference.t
+
+val top_level_static_callback_callee_result :
+  top_level_static_callback_call -> expression_result
+
+val top_level_static_callback_callable :
+  top_level_static_callback_call -> Function_call_resolution.callable
+
+val top_level_static_callback_fixed_results :
+  top_level_static_callback_call -> top_level_fixed_result list
+
+val top_level_static_callback_variadic_results :
+  top_level_static_callback_call -> expression_result list
+
+val top_level_static_callback_variadic_count :
+  top_level_static_callback_call -> int64
+
+val top_level_static_callback_result_id : top_level_static_callback_call -> Id.t
+
 type error_kind = Invalid_input of string
 type error
 
@@ -190,6 +218,10 @@ val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_result list
+
+val function_all_results : resolved_function -> expression_result list
+(** The original checked expression results owned by this function, including
+    nested callees and arguments. Results from other functions are excluded. *)
 
 val function_outer_callback_calls :
   resolved_function -> outer_callback_call list
@@ -361,6 +393,9 @@ val top_level_global_callback_global :
 val top_level_global_callback_value :
   top_level_global_callback_call -> Function_call_resolution.identifier_value
 
+val top_level_global_callback_callee_result :
+  top_level_global_callback_call -> expression_result
+
 val top_level_global_callback_callable :
   top_level_global_callback_call -> Function_call_resolution.callable
 
@@ -465,6 +500,7 @@ val declared_default_parameter :
   declared_default_result -> Function_type_resolution.parameter
 
 val declared_default_type : declared_default_result -> Type.t
+val declared_default_storage_type : declared_default_result -> Type.t option
 val declared_default_class : declared_default_result -> result_class
 val declared_default_kind : declared_default_result -> declared_default_kind
 
@@ -498,6 +534,64 @@ val result_index_operands :
     [None]; this evidence does not change array rank or value category. *)
 
 val result_type : expression_result -> Type.t option
+
+val result_callback_pointer :
+  expression_result -> Function_type_resolution.function_pointer option
+(** Original callback declarator evidence propagated through storage selection,
+    grouping, indexing and a canceled identifier dereference. Call results and
+    arithmetic values do not inherit the callee signature. *)
+
+val result_callback_call_pointer :
+  expression_result -> Function_type_resolution.function_pointer option
+(** The original signature selected for an indirect call, separate from its
+    returned value and from callback-cell storage metadata. Runtime source
+    ownership and executable-target validation still govern invocation. *)
+
+val result_storage_type : expression_result -> Type.t option
+(** Callback cells use the internal [RT_PTR] class and the callback declarator's
+    indirection count. [result_type] separately retains the callback return
+    type. Ordinary expressions retain their checked type. This supplies no
+    executable address or authority to invoke code. *)
+
+val result_is_callback_storage : expression_result -> bool
+(** True for a scalar or fully indexed callback cell with positive declarator
+    evidence. An unindexed or partial callback array is not writable storage. *)
+
+val result_canceled_callback_operand :
+  expression_result -> expression_result option
+(** The original scalar or fully indexed callback operand whose pending star was
+    removed by [PrsPopDeref]. The result retains its signature, storage and
+    exact index expressions. Grouping under the star or within the bracket base,
+    and another remaining star, prevent cancellation. This view supplies no
+    runtime address or executable authority. *)
+
+val result_callback_update_operand :
+  expression_result -> expression_result option
+(** The exact callback cell selected by an original assignment, prefix, postfix
+    or compound update. Grouping retains the same operand. This does not expose
+    code bits. *)
+
+val result_callback_parser_pointer : expression_result -> Type.t option
+(** The parser's retained pointer class for an original one-star callback word
+    expression. Grouping, integer unary operations and the original binary left
+    operand preserve this class. Pointer subtraction consumes it. This supplies
+    parser metadata, not a storage address, signature or invocation authority.
+*)
+
+val result_is_numeric_callback : expression_result -> bool
+(** An original callback read, assignment or update, optionally followed by
+    integer operators on either side. [result_computation_type] supplies the
+    numeric word class while declaration and storage types remain separate.
+    Arbitrary pointer expressions do not qualify. *)
+
+val result_callback_numeric_scales : expression_result -> (bool * bool) option
+(** Left and right callback-word scales resolved from original parser SIZEOF
+    insertion and opposite operand classes in the first optimizer pass. Later
+    class changes do not reinsert a removed placeholder. No authority is minted.
+*)
+
+val result_callback_unsigned_comparison : expression_result -> bool
+(** Unsigned comparison flags retained across the original optimizer passes. *)
 
 val result_computation_type : expression_result -> Type.t option
 (** Effective native integer producer class, derived from retained expression

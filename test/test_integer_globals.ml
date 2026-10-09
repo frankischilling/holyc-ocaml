@@ -160,11 +160,15 @@ let unsupported () =
           "G=42;I64 G;G;";
         ];
       List.iter
-        (fun text ->
+        (fun (text, code) ->
           Alcotest.(check string)
-            "explicit binding boundary" "HCRUN0001"
+            "explicit binding boundary" code
             (F.first_error (run ~mode text)).code)
-        [ "_intern 42 I64 G;42;"; "_extern REMOTE I64 G;42;" ];
+        [
+          ( "_intern 42 I64 G;42;",
+            if mode = Preprocessor.Jit then "HCRUN0004" else "HCRUN0001" );
+          ("_extern REMOTE I64 G;42;", "HCRUN0001");
+        ];
       let module D = Test_globals_on_data_heap in
       let prepared = D.prepare ~mode ~path:"global-data-heap.hc" "I64 G;" in
       let records =

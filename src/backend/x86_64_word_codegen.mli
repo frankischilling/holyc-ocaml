@@ -29,6 +29,15 @@ type program_site = {
   arithmetic : (arithmetic_operation * bool) option;
   value_type : word_type option;
   call_site : bool;
+  callback_call_site : bool;
+  undefined_extern_site : bool;
+  extern_signature_site : bool;
+  code_comparison_site : bool;
+  code_update_site : bool;
+  code_word_escape_site : bool;
+  no_value_capture_site : bool;
+  callback_capture_site : bool;
+  data_capture_site : bool;
   uninitialized_read_site : bool;
   index_scale_site : bool;
   index_addition_site : bool;
@@ -37,6 +46,9 @@ type program_site = {
   pointer_difference_site : bool;
   output_site : bool;
   atomic_output_site : bool;
+  stream_print_site : bool;
+  stream_exe_site : bool;
+  compiler_option_site : bool;
 }
 
 type program_image
@@ -110,6 +122,62 @@ val compile_callable :
     defaults remain rejected unless [parameter_defaults] seals the exact
     original declaration-time preparation for this bundle. *)
 
+val compile_task_fragment :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?capture_callback_default:bool ->
+  ?capture_data_default:Ir.Saved_parameter_value.data ->
+  task_snapshot:X86_64_global_storage.task_snapshot ->
+  max_ir_instructions:int ->
+  max_code_bytes:int ->
+  runtime_calls:Ir.Runtime_call_context.t ->
+  retained_function_source:
+    (Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result) ->
+  retained_slot_binding:
+    (runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result) ->
+  retained_parameter_default:
+    (globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result) ->
+  retained_callback_default:
+    (globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result) ->
+  retained_slot_address_binding:
+    (runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result) ->
+  retained_slot_address_refresh:
+    (Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result) ->
+  initialization:Ir.Global_initialization.t ->
+  entry:Ir.X87_stack.t ->
+  functions:Ir.Integer_interpreter.function_definition list ->
+  unit ->
+  (program_image, error list) result
+(** Compile an original task fragment against its append-only storage snapshot.
+    Exact retained direct-function links and original joined JIT extern slots
+    may link their checked body and transitive closure into this transient
+    image. Unresolved slots and incompatible joined signatures fault at their
+    original reached call instruction after arguments. Slot proofs require this
+    original root request, occurrence, owner, storage and native source
+    generation. Each historical body keeps its own sealed runtime-call context
+    and task-storage provenance. Original callback owners retain their canonical
+    native leaf in the task arena and bind it to the current image's copy of the
+    same body. A callback default capture checks its live address against that
+    leaf before reporting the selected owner. Source activation authority
+    remains a separate requirement of the sealed image. *)
+
 val program_code : program_image -> string
 val program_code_bytes : program_image -> int
 val program_windows_unwind_info : program_image -> string
@@ -134,5 +202,16 @@ val validate_global_limit : max_global_bytes:int -> (unit, error list) result
 val program_global_bytes : program_image -> int
 val program_literal_bytes : program_image -> int
 val program_arena_metadata_bytes : program_image -> int
+val program_arena_bytes : program_image -> int
 val program_global_image : program_image -> string
+
+val program_task_snapshot :
+  program_image -> X86_64_global_storage.task_snapshot option
+
 val hard_max_global_bytes : int
+
+val program_code_owner_bindings :
+  program_image -> (int * int * int * int * int) list
+
+val program_private_function_count : program_image -> int
+val program_function_slot_bindings : program_image -> (int * int) list

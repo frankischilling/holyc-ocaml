@@ -44,6 +44,7 @@ let contents state = Buffer.contents state.output
 let work state = state.work_budget.count
 let committed_bytes state = state.bytes.committed
 let capacity state = state.bytes.capacity
+let byte_budget state = state.bytes
 let ( let* ) = Result.bind
 
 let charge state =
@@ -887,3 +888,19 @@ let put_chars state bits =
       loop (Int64.shift_right_logical bits 8)
   in
   loop bits
+
+let admit_native_capture ?scope state ~target capture =
+  let* before, after = Native_generation_capture.bounds capture ~target in
+  if
+    before <> state.bytes.committed
+    || after < before
+    || after > state.bytes.capacity
+  then Error "native generated capture has another original byte frontier"
+  else
+    let* bytes = Native_generation_capture.consume ?scope capture ~target in
+    if String.length bytes <> after - before then
+      Error "native generated capture exceeds its original byte budget"
+    else (
+      Buffer.add_string state.output bytes;
+      state.bytes.committed <- state.bytes.committed + String.length bytes;
+      Ok ())

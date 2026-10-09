@@ -73,21 +73,41 @@ let resolve_type visible type_source pointer_layers =
                    identifier.spelling)
           | Some symbol -> Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
-let make_type_reference visible type_source pointer_layers =
-  match type_source with
-  | Explicit_type
-      (( Frontend.Ast.Primitive_type_specifier _
-       | Frontend.Ast.Internal_type_specifier _ ) as type_specifier) ->
-      Sema.Source_type_reference.builtin type_specifier pointer_layers
+let make_type_reference ?selected_aggregate ?selected_owner
+    ?(callback_metadata = false) visible type_source pointer_layers =
+  let ( let* ) = Result.bind in
+  match (type_source, selected_aggregate) with
+  | ( Explicit_type (Frontend.Ast.Named_type_specifier _ as type_specifier),
+      Some resolve ) -> (
+      match resolve type_specifier with
+      | None -> Error "named global type lacks its original selected aggregate"
+      | Some proof ->
+          let* () =
+            match selected_owner with
+            | None -> Ok ()
+            | Some (table, namespace) ->
+                Sema.Source_type_reference.validate_selected_aggregate ~table
+                  ~namespace proof
+          in
+          (if callback_metadata then
+             Sema.Source_type_reference.selected_callback_return
+           else Sema.Source_type_reference.selected)
+            proof type_specifier pointer_layers)
   | _ -> (
-      match resolve_type visible type_source pointer_layers with
-      | Error _ as error -> error
-      | Ok resolved_type ->
-          Sema.Type_reference.make
-            ~spelling:(type_source_spelling type_source)
-            ~spelling_origin:(type_source_origin type_source)
-            ~pointer_origins:(pointer_origins pointer_layers)
-            ~resolved_type)
+      match type_source with
+      | Explicit_type
+          (( Frontend.Ast.Primitive_type_specifier _
+           | Frontend.Ast.Internal_type_specifier _ ) as type_specifier) ->
+          Sema.Source_type_reference.builtin type_specifier pointer_layers
+      | _ -> (
+          match resolve_type visible type_source pointer_layers with
+          | Error _ as error -> error
+          | Ok resolved_type ->
+              Sema.Type_reference.make
+                ~spelling:(type_source_spelling type_source)
+                ~spelling_origin:(type_source_origin type_source)
+                ~pointer_origins:(pointer_origins pointer_layers)
+                ~resolved_type))
 
 type aggregate_ast = {
   identifier : Frontend.Ast.identifier;
@@ -108,8 +128,7 @@ let aggregate_kind = function
   | Frontend.Ast.Union_aggregate -> Sema.Aggregate_resolution.Union
 
 let aggregate_ast (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Aggregate_forward_declaration forward ->
         Some
@@ -275,8 +294,8 @@ let declarator_ast ~declaration_kind ~item_index ~type_source
   }
 
 let global_ast (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item ->
+  Frontend.Ast.declaration_items module_
+  |> List.map (fun (item_index, item) ->
       match item with
       | Frontend.Ast.Global_variable variable ->
           [
@@ -390,11 +409,15 @@ let default_fact (default : Frontend.Ast.parameter_default) =
           keyword_origin = origin lastclass.lastclass_location;
         }
 
-let rec signature_fact visible ~opening parameters variadic ~closing =
+let rec signature_fact ?selected_aggregate ?selected_owner visible ~opening
+    parameters variadic ~closing =
   let rec parameter_facts index facts_rev = function
     | [] -> Ok (List.rev facts_rev)
     | (parameter : Frontend.Ast.function_parameter) :: rest -> (
-        match parameter_fact visible index parameter with
+        match
+          parameter_fact ?selected_aggregate ?selected_owner visible index
+            parameter
+        with
         | Error _ as error -> error
         | Ok fact -> parameter_facts (index + 1) (fact :: facts_rev) rest)
   in
@@ -416,19 +439,25 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
             ?closing_origin:(Option.map origin closing)
             ()))
 
-and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
+and parameter_fact ?selected_aggregate ?selected_owner visible index
+    (parameter : Frontend.Ast.function_parameter) =
   match
-    make_type_reference visible (Explicit_type parameter.type_specifier)
-      parameter.pointer_layers
+    make_type_reference ?selected_aggregate ?selected_owner
+      ~callback_metadata:(Option.is_some parameter.function_pointer)
+      visible (Explicit_type parameter.type_specifier) parameter.pointer_layers
   with
   | Error _ as error -> error
   | Ok type_reference -> (
-      match declarator_kind_fact visible parameter.function_pointer with
+      match
+        declarator_kind_fact ?selected_aggregate ?selected_owner visible
+          parameter.function_pointer
+      with
       | Error _ as error -> error
       | Ok declarator_kind ->
           Result.bind (Register_request.of_list parameter.register_qualifiers)
             (fun register_requests ->
-              Sema.Function_type_resolution.make_parameter ~index
+              Sema.Function_type_resolution.make_parameter ~source:parameter
+                ~index
                 ~origin:(origin parameter.location)
                 ~register_requests
                 ?name:
@@ -449,38 +478,43 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
                      parameter.delimiter)
                 ()))
 
-and function_pointer_fact visible
+and function_pointer_fact ?selected_aggregate ?selected_owner visible
     (pointer : Frontend.Ast.function_pointer_declarator) =
   match pointer_depth pointer.indirection_layers with
   | Error _ as error -> error
   | Ok _ -> (
       match
-        signature_fact visible ~opening:pointer.signature_opening_parenthesis
+        signature_fact ?selected_aggregate ?selected_owner visible
+          ~opening:pointer.signature_opening_parenthesis
           pointer.signature_parameters pointer.signature_variadic
           ~closing:pointer.signature_closing_parenthesis
       with
       | Error _ as error -> error
       | Ok signature ->
-          Sema.Function_type_resolution.make_function_pointer
+          Sema.Function_type_resolution.make_source_function_pointer
+            ~source:pointer
             ~origin:(origin pointer.function_pointer_location)
             ~opening_origin:(origin pointer.declarator_opening_parenthesis)
             ~indirection_origins:(pointer_origins pointer.indirection_layers)
             ~closing_origin:(origin pointer.declarator_closing_parenthesis)
             ~signature)
 
-and declarator_kind_fact visible = function
+and declarator_kind_fact ?selected_aggregate ?selected_owner visible = function
   | None -> Ok Sema.Function_type_resolution.Object
   | Some pointer ->
       Result.map
         (fun pointer -> Sema.Function_type_resolution.Function_pointer pointer)
-        (function_pointer_fact visible pointer)
+        (function_pointer_fact ?selected_aggregate ?selected_owner visible
+           pointer)
 
-let global_declarator_kind visible = function
+let global_declarator_kind ?selected_aggregate ?selected_owner visible =
+  function
   | None -> Ok Sema.Global_type_resolution.Object
   | Some pointer ->
       Result.map
         (fun pointer -> Sema.Global_type_resolution.Function_pointer pointer)
-        (function_pointer_fact visible pointer)
+        (function_pointer_fact ?selected_aggregate ?selected_owner visible
+           pointer)
 
 let array_dimension_fact index (dimension : Frontend.Ast.array_dimension) =
   Sema.Global_type_resolution.make_array_dimension ~index
@@ -537,12 +571,20 @@ let delimiter_fact kind origin =
   in
   Sema.Global_type_resolution.make_delimiter ~kind ~origin
 
-let global_fact ?initializers visible (event : global_event) =
+let global_fact ?initializers ?selected_aggregate ?selected_owner visible
+    (event : global_event) =
   let ast = event.ast in
-  match make_type_reference visible ast.type_source ast.pointer_layers with
+  match
+    make_type_reference ?selected_aggregate ?selected_owner
+      ~callback_metadata:(Option.is_some ast.function_pointer)
+      visible ast.type_source ast.pointer_layers
+  with
   | Error _ as error -> error
   | Ok type_reference -> (
-      match global_declarator_kind visible ast.function_pointer with
+      match
+        global_declarator_kind ?selected_aggregate ?selected_owner visible
+          ast.function_pointer
+      with
       | Error _ as error -> error
       | Ok declarator_kind -> (
           match array_dimension_facts ast.array_dimensions with
@@ -568,7 +610,12 @@ let global_fact ?initializers visible (event : global_event) =
 let publish visible (aggregate : aggregate_event) =
   String_map.add aggregate.name aggregate.identity visible
 
-let resolve_events ?initializers ~table ~scope aggregates globals =
+let resolve_events ?initializers ?selected_types ~table ~scope aggregates
+    globals =
+  let selected_aggregate = Option.map snd selected_types in
+  let selected_owner =
+    Option.map (fun (namespace, _) -> (table, namespace)) selected_types
+  in
   let rec resolve visible facts_rev aggregates globals =
     match (aggregates, globals) with
     | [], [] ->
@@ -577,7 +624,10 @@ let resolve_events ?initializers ~table ~scope aggregates globals =
     | aggregate :: aggregate_rest, [] ->
         resolve (publish visible aggregate) facts_rev aggregate_rest []
     | [], global :: global_rest -> (
-        match global_fact ?initializers visible global with
+        match
+          global_fact ?initializers ?selected_aggregate ?selected_owner visible
+            global
+        with
         | Error _ as error -> error
         | Ok fact -> resolve visible (fact :: facts_rev) [] global_rest)
     | aggregate :: aggregate_rest, global :: global_rest -> (
@@ -593,19 +643,26 @@ let resolve_events ?initializers ~table ~scope aggregates globals =
             Error "only aggregate-attached globals can share an aggregate item"
           else
             let visible = publish visible aggregate in
-            match global_fact ?initializers visible global with
+            match
+              global_fact ?initializers ?selected_aggregate ?selected_owner
+                visible global
+            with
             | Error _ as error -> error
             | Ok fact ->
                 resolve visible (fact :: facts_rev) aggregate_rest global_rest
         else
-          match global_fact ?initializers visible global with
+          match
+            global_fact ?initializers ?selected_aggregate ?selected_owner
+              visible global
+          with
           | Error _ as error -> error
           | Ok fact ->
               resolve visible (fact :: facts_rev) aggregates global_rest)
   in
   resolve String_map.empty [] aggregates globals
 
-let resolve ?initializers ~table ~declarations ~aggregates module_ =
+let resolve ?initializers ?selected_types ~table ~declarations ~aggregates
+    module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic global type module belongs to a different symbol table"
@@ -618,4 +675,5 @@ let resolve ?initializers ~table ~declarations ~aggregates module_ =
         match global_events ~table ~declarations module_ with
         | Error _ as error -> error
         | Ok globals ->
-            resolve_events ?initializers ~table ~scope aggregates globals)
+            resolve_events ?initializers ?selected_types ~table ~scope
+              aggregates globals)

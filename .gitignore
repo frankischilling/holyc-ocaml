@@ -1,5 +1,6 @@
 /_build/
 /test/_build/
+/test/native/_build/
 *.install
 *.merlin
 .merlin

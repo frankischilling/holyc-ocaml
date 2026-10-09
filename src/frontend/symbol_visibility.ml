@@ -51,6 +51,7 @@ type entry = {
   public_primitive : Common.Primitive_type.t option;
   function_call_shape : function_call_shape option;
   alias_original : entry option;
+  definition_payload : Definition.t option;
 }
 
 let id entry = entry.id
@@ -60,6 +61,7 @@ let origin entry = entry.origin
 let public_primitive entry = entry.public_primitive
 let function_call_shape entry = entry.function_call_shape
 let function_alias_original entry = entry.alias_original
+let definition_payload entry = entry.definition_payload
 
 let kind_name = function
   | Export_system_symbol -> "export-system-symbol"
@@ -100,6 +102,14 @@ let kind_bit = function
   | Frame_pointer -> 0x10000
 
 type lookup = Absent | Present of entry | Shadowed_by_local
+type table_scope = Current_table | Visible_tables
+type lexical_generation = { identity : unit ref; preceding : unit ref option }
+type lexical_journal = { mutable current_generation : lexical_generation }
+
+let lexical_generation_follows ~earlier ~later =
+  match later.preceding with
+  | Some preceding -> preceding == earlier.identity
+  | None -> false
 
 module String_set = Set.Make (String)
 
@@ -110,6 +120,7 @@ module Environment = struct
     entries_by_name : (string, entry list) Hashtbl.t;
     mutable entries_rev : entry list;
     mutable next_entry_id : int;
+    lexical_journal : lexical_journal;
   }
 
   type t = {
@@ -119,6 +130,27 @@ module Environment = struct
     mutable next_local_context_id : int;
   }
 
+  type local_snapshot = {
+    snapshot_environment : t;
+    snapshot_contexts : (local_context * String_set.t) list;
+  }
+
+  let capture_locals environment =
+    {
+      snapshot_environment = environment;
+      snapshot_contexts = environment.local_contexts;
+    }
+
+  let with_saved_locals environment snapshot run =
+    if snapshot.snapshot_environment != environment then
+      Error "saved compiler locals have another original environment"
+    else
+      let current = environment.local_contexts in
+      environment.local_contexts <- snapshot.snapshot_contexts;
+      Fun.protect
+        ~finally:(fun () -> environment.local_contexts <- current)
+        (fun () -> Ok (run ()))
+
   let create () =
     {
       store =
@@ -126,6 +158,8 @@ module Environment = struct
           entries_by_name = Hashtbl.create 128;
           entries_rev = [];
           next_entry_id = 0;
+          lexical_journal =
+            { current_generation = { identity = ref (); preceding = None } };
         };
       owner = None;
       local_contexts = [];
@@ -169,11 +203,21 @@ module Environment = struct
           entries_by_name;
           entries_rev;
           next_entry_id = environment.store.next_entry_id;
+          lexical_journal = environment.store.lexical_journal;
         };
       owner = environment.owner;
       local_contexts = environment.local_contexts;
       next_local_context_id = environment.next_local_context_id;
     }
+
+  let lexical_generation environment =
+    environment.store.lexical_journal.current_generation
+
+  let mark_lexical_read environment =
+    let preceding = (lexical_generation environment).identity in
+    let generation = { identity = ref (); preceding = Some preceding } in
+    environment.store.lexical_journal.current_generation <- generation;
+    generation
 
   let without_locals environment run =
     let contexts = environment.local_contexts in
@@ -181,7 +225,8 @@ module Environment = struct
     Fun.protect ~finally:(fun () -> environment.local_contexts <- contexts) run
 
   let add_entry ?(origin = Session_registration) ?function_call_shape
-      ?alias_original ?public_primitive environment ~name ~kind () =
+      ?alias_original ?public_primitive ?definition_payload environment ~name
+      ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
     if Option.is_some function_call_shape && kind <> Function then
       invalid_arg "only function symbols may carry a function call shape";
@@ -197,6 +242,7 @@ module Environment = struct
         public_primitive;
         function_call_shape;
         alias_original;
+        definition_payload;
       }
     in
     environment.store.next_entry_id <- environment.store.next_entry_id + 1;
@@ -211,6 +257,19 @@ module Environment = struct
 
   let add ?origin ?function_call_shape environment ~name ~kind () =
     add_entry ?origin ?function_call_shape environment ~name ~kind ()
+
+  let add_definition environment ~definitions ~definition =
+    if not (Definition.Environment.owns definitions definition) then
+      Error "definition publication requires its original writer's object"
+    else if environment.store.next_entry_id = max_int then
+      Error "symbol visibility identity space is exhausted"
+    else
+      Ok
+        (add_entry
+           ~origin:(Source_span (Definition.name_span definition))
+           ~definition_payload:definition environment
+           ~name:(Definition.name definition)
+           ~kind:Definition ())
 
   let add_public_primitive environment ~primitive ~origin =
     let info = Common.Primitive_type.info primitive in
@@ -307,6 +366,16 @@ module Environment = struct
       (Hashtbl.find_opt environment.store.entries_by_name name)
       (List.find_opt (fun entry ->
            visible environment entry && entry.kind = Function))
+
+  let find_kind environment ~scope ~kind name =
+    Option.bind
+      (Hashtbl.find_opt environment.store.entries_by_name name)
+      (List.find_opt (fun entry ->
+           entry.kind = kind
+           &&
+           match scope with
+           | Current_table -> same_owner environment.owner entry.owner
+           | Visible_tables -> visible environment entry))
 
   let begin_local_context environment =
     if environment.next_local_context_id = max_int then

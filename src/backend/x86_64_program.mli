@@ -20,6 +20,11 @@ type fault_kind =
   | Index_scale_overflow
   | Index_addition_overflow
   | Address_out_of_bounds
+  | Generated_limit_exceeded
+  | Stream_context_required
+  | Stream_exe_context_required
+  | Stream_exe_source_failed
+  | Compiler_option_failed
   | Output_limit_exceeded
   | Output_work_limit_exceeded
   | Output_invalid_format
@@ -28,6 +33,13 @@ type fault_kind =
   | Output_invalid_byte
   | Pointer_object_mismatch
   | Pointer_difference_object_mismatch
+  | Callback_unowned_address
+  | Callback_signature_mismatch
+  | Code_comparison_invalid_word
+  | Extern_signature_mismatch
+  | Undefined_extern
+  | Callback_owned_word_escape
+  | Callback_update_owned_address
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -49,9 +61,24 @@ type fault = private {
           derived from the sealed image, not from runtime status fields. *)
 }
 
-type execution = private { executed_steps : int; final_value : word option }
+type execution = private {
+  executed_steps : int;
+  final_value : word option;
+  captured_callback : Ir.Saved_parameter_value.t option;
+      (** Only an original callback parameter's default image can return this
+          checked owner capture. It carries source identity, not a machine PC;
+          [final_value] is [None] for that capture. *)
+  captured_data : Ir.Saved_parameter_value.t option;
+      (** Original task-owned data default capture. No host address is exposed.
+      *)
+}
+
 type outcome = Completed of execution | Fault of fault
 type t
+type task_layout = X86_64_global_storage.task_layout
+
+val data_default : t -> Ir.Saved_parameter_value.t option
+val data_default_has_misc_data : t -> bool
 
 val hard_max_stack_bytes : int
 (** Maximum shared spill frame size: 4088 bytes. *)
@@ -105,10 +132,16 @@ val compile_callable :
     and persistent pointer storage remain rejected. Every named definition is
     preflighted, including definitions unreachable from the entry. Calls are
     emitted only from exact sealed runtime-call metadata and preserve the shared
-    native status context. Checked Print and PutChars providers use bounded byte
-    capture; [has_output] identifies images needing that context. Print emits
-    ordinary bytes and [%%], [%d], [%s] and [%c] through a dynamic formatter,
-    publishing its complete draft on success. PutChars publishes packed bytes
+    native status context. Automatic one-star local callback cells accept
+    original owned function addresses, checked callback copies and literal zero.
+    A saved callee slot is checked against its original body/signature/cleanup
+    before an indirect native call. Callback cells and code values cannot escape
+    into object references or ordinary word cells/parameters/returns. Broader
+    callback storage, defaults, variadics and retained publication remain
+    unsupported. Checked Print and PutChars providers use bounded byte capture;
+    [has_output] identifies images needing that context. Print emits ordinary
+    bytes and [%%], [%d], [%s] and [%c] through a dynamic formatter, publishing
+    its complete draft on success. PutChars publishes packed bytes
     incrementally. Other providers and retained extern/body publication remain
     unsupported. The exact initialization context must be supplied even when
     empty. Integer global/static arrays and owned mutable strings use a private
@@ -119,6 +152,103 @@ val compile_callable :
     rejected. Declaration-time parameter defaults require [parameter_defaults]
     from the exact source preparation; omitting it preserves the low-level
     rejection. *)
+
+val create_task_layout :
+  max_global_bytes:int -> (task_layout, error list) result
+
+val create_task_layout_with_literals :
+  max_literal_bytes:int ->
+  max_global_bytes:int ->
+  (task_layout, error list) result
+(** Fix cumulative global and literal quotas for one original task layout. The
+    compatibility constructor uses a 1 MiB literal allowance. *)
+
+val compile_task_initializer :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_dispatch.initializer_request ->
+  (t, error list) result
+(** Compile the original live integer initializer leaf against the task's stable
+    storage layout. The image retains its exact one-shot source-entry token. *)
+
+val compile_task_default :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_default.request ->
+  (t, error list) result
+
+val compile_task_internal_binding :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_internal_binding.request ->
+  (t, error list) result
+
+val compile_task_dimension :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_dimension.request ->
+  (t, error list) result
+
+val compile_task_offset :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_offset.request ->
+  (t, error list) result
+
+val compile_task_command :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_dispatch.command_request ->
+  (t, error list) result
+(** Compile an original resumed source command using the same retained task
+    storage. Retained direct bodies and original literal regions keep their
+    source identities; cross-event executable addresses remain unsupported. *)
+
+val task_snapshot : t -> X86_64_global_storage.task_snapshot option
+
+val compile_task_static_initializer :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_static_initializer.request ->
+  (t, error list) result
+
+val check_task_request : t -> (unit, string) result
+(** Pure validation of the original live source request before retention or
+    storage admission. It rejects closed, already claimed and foreign requests.
+*)
+
+val check_task_activation : t -> (unit, string) result
+(** Internal runtime admission. A task image claims only its exact still-active
+    synchronous source request, once. Standalone images require no task claim.
+*)
 
 val code : t -> string
 
@@ -164,13 +294,16 @@ val decode_runtime_status :
   value_site:int64 ->
   bits:int64 ->
   (outcome, string) result
-(** Validate the status projection from the private execution context.
-    [value_site] is the dense one-based site of the last reached entry
-    IC_END_EXP; its checked metadata supplies the result type. Zero value-site
-    requires zero bits. Clean completion is kind/site zero with at least one
-    executed IR instruction. Step-limit faults require an executed count exactly
-    equal to [max_steps]; arithmetic, call-quota, uninitialized-read,
-    index-scale, index-addition, address-bounds and output faults must name a
+(** Validate the status projection from the private execution context. A
+    positive [value_site] is the dense one-based site of the last reached entry
+    IC_END_EXP; its checked metadata supplies the result type. Negative markers
+    retain the original no-value discard or callback-default capture site. A
+    callback capture additionally requires its original default destination and
+    a known owner from that image's task snapshot. Zero value-site requires zero
+    bits. Clean completion is kind/site zero with at least one executed IR
+    instruction. Step-limit faults require an executed count exactly equal to
+    [max_steps]; arithmetic, call-quota, uninitialized-read, index-scale,
+    index-addition, address-bounds, callback and output faults must name a
     matching checked dense site and consume their faulting instruction. Output
     calls cannot report a physical callee-stack fault because they are inlined.
     The native bridge validates the three restored callable quota words before
@@ -181,8 +314,25 @@ val validate_literal_limit : max_literal_bytes:int -> (unit, error list) result
 val global_bytes : t -> int
 val literal_bytes : t -> int
 val arena_metadata_bytes : t -> int
+val arena_bytes : t -> int
 
 val global_image : t -> string
 (** Fresh copy of the private initial data and per-object initialization flags.
     Each native invocation allocates its own non-executable arena from this
     image. *)
+
+val code_owner_bindings : t -> (int * int * int * int * int) list
+val private_function_count : t -> int
+val function_slot_bindings : t -> (int * int) list
+val internal_binding : t -> Ir.Internal_binding_fragment_program.t option
+
+type scalar_program =
+  | Internal_binding of Ir.Internal_binding_fragment_program.t
+  | Dimension of Ir.Dimension_fragment_program.t
+  | Offset of Ir.Offset_fragment_program.t
+
+val scalar_program : t -> scalar_program option
+val dimension : t -> Ir.Dimension_fragment_program.t option
+val offset : t -> Ir.Offset_fragment_program.t option
+val generation : t -> Ir.Integer_interpreter.native_generation option
+val source_callback : t -> Driver.Integer_task.native_source_callback option

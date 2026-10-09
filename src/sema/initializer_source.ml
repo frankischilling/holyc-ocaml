@@ -361,3 +361,41 @@ let leaf_identifiers leaf =
     (fun (identifier : Frontend.Ast.identifier) ->
       (identifier.spelling, origin_of_location identifier.location))
     (leaf_identifier_nodes leaf)
+
+let expression_position_nodes source =
+  let rec expression reversed = function
+    | Frontend.Ast.Current_position_expression _ as position ->
+        position :: reversed
+    | Frontend.Ast.Parenthesized_expression grouped ->
+        expression reversed grouped.grouped_expression
+    | Frontend.Ast.Prefix_expression prefix ->
+        expression reversed prefix.prefix_operand
+    | Frontend.Ast.Postfix_expression postfix ->
+        expression reversed postfix.postfix_operand
+    | Frontend.Ast.Postfix_cast_expression cast ->
+        expression reversed cast.cast_operand
+    | Frontend.Ast.Binary_expression binary ->
+        expression (expression reversed binary.binary_left) binary.binary_right
+    | Frontend.Ast.Call_expression call ->
+        List.fold_left
+          (fun reversed (argument : Frontend.Ast.call_argument) ->
+            match argument.call_argument_value with
+            | Frontend.Ast.Omitted_call_argument -> reversed
+            | Frontend.Ast.Provided_call_argument value ->
+                expression reversed value)
+          (expression reversed call.call_callee)
+          call.call_arguments
+    | Frontend.Ast.Index_expression index ->
+        expression (expression reversed index.index_base) index.index_value
+    | Frontend.Ast.Member_expression member ->
+        expression reversed member.member_base
+    | Frontend.Ast.Integer_literal _
+    | Frontend.Ast.Float_literal _
+    | Frontend.Ast.Character_literal _
+    | Frontend.Ast.String_literal _
+    | Frontend.Ast.Identifier_expression _
+    | Frontend.Ast.Sizeof_expression _
+    | Frontend.Ast.Offset_expression _
+    | Frontend.Ast.Defined_expression _ -> reversed
+  in
+  List.rev (expression [] source)

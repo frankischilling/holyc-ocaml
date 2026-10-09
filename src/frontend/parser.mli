@@ -15,16 +15,99 @@ val max_aggregate_depth : int
 val max_initializer_depth : int
 
 type command_context
+
+type compiler_exception
+(** Original [Compiler] exception from an audited executable-parser [LexExcept]
+    site. Matched sites include the missing-function return guard, statement
+    delimiters, invalid break targets, try header/catch checks, audited missing
+    expression operands, grouped closes, prefix-type rejection and owned
+    expression cleanup. Each retains its own lexer phase, exact control,
+    position and counted diagnostic. Generic parser reports, preprocessor,
+    authority and quota errors do not create one. This does not implement native
+    exception stacks, direct Compiler throws, SysTry/SysUntry calls or terminal
+    output. *)
+
+val compiler_exception_diagnostic : compiler_exception -> Common.Diagnostic.t
+val compiler_exception_error_count : compiler_exception -> int64
+val compiler_exception_context : compiler_exception -> command_context
+
+val compiler_exception_cause : compiler_exception -> compiler_exception option
+(** The exact original Compiler caught by an owned expression stack before its
+    cleanup LexExcept. Observing a cause grants no catch or execution authority.
+*)
+
+val compiler_exception_call_origin :
+  compiler_exception -> compiler_exception option
+(** Original argument producer retained through expression cleanup. Its exact
+    native argument shape is still required by runtime catch preflight. *)
+
+val compiler_exception_is_from_context :
+  compiler_exception -> command_context -> bool
+(** Physical ownership by the exact original parser context, in its domain.
+    Matching source names, diagnostics and counts provide no authority. *)
+
+val context_error_count : command_context -> (int64, string) result
+(** Read byte 344 of the current original compiler control. *)
+
 type compiler_position_source
 type suspension
+type failed_input
+
+val suspension_failed_input : suspension -> failed_input option
+(** The original [Compiler] failure of this consumed input, including its
+    complete parser abort chain. Rejected preflight, ordinary diagnostics,
+    callback exceptions and rejected abort checkpoints do not issue a receipt. A
+    failure grants no accepted AST or execution result. *)
+
+val failed_input_context : failed_input -> command_context
+val failed_input_compiler_exception : failed_input -> compiler_exception
+
+val failed_input_aborted_contexts : failed_input -> command_context list
+(** Original aborted contexts, from the producer to the entered input. These
+    observations grant no claim, acceptance or runtime completion. *)
+
+val context_is_in_suspended_input :
+  command_context -> suspension:suspension -> bool
+(** The original entered input or one of its parser descendants, in the original
+    domain and source stack. A copied context cannot join an input. *)
+
+val failed_input_is_from_suspension : failed_input -> suspension -> bool
+(** Physical ownership by the original consumed suspension and registered
+    source, in the original domain. This remains inspectable after the parent
+    closes; it grants no current parser or runtime authority. *)
+
+val failed_input_is_current : failed_input -> suspension:suspension -> bool
+(** The unclaimed failure still belongs to the unchanged, focused parent
+    position and event count. A different or advanced parent cannot catch it. *)
+
+val claim_failed_input : failed_input -> suspension:suspension -> bool
+(** Claim the current original failure once. Runtime and resource preflight must
+    finish before claiming; the receipt grants no successful work or completion.
+*)
 
 val suspend_context : command_context -> (suspension, string) result
 (** Capture the current stack position of a live parser context for one nested
     input. A suspended ancestor cannot issue a token while a child is active. *)
 
+val suspension_is_from_context : suspension -> command_context -> bool
+(** Whether this unconsumed suspension belongs to the exact currently focused
+    parser context, position, event count and domain. *)
+
+val suspension_input_is_current : suspension -> bool
+(** This consumed input has returned to its unchanged original focused parent
+    and remains the latest child. This does not prove success or claim a
+    failure. *)
+
+val suspension_enclosing_context :
+  suspension -> (command_context, string) result
+(** The unchanged enclosing compiler position saved by this active original
+    [#exe] sequence. Ordinary inputs, inactive directives, advanced parents and
+    consumed or foreign-domain tokens cannot supply saved compiler tables. *)
+
 type command_start = private {
   command_context : command_context;
   command_ordinal : int;
+  command_compiler_options : int64;
   command_predecessor : completed_command option;
 }
 
@@ -52,15 +135,65 @@ type command_event = private
   | Sequence_completed of completed_sequence
   | Sequence_aborted of command_context
 
+val context_command_events_match :
+  command_context -> events_rev:command_event list -> bool option
+(** Compare the complete lifecycle journal with the original physical parser
+    events. [None] means no original source journal was recorded. *)
+
 val context_sources : command_context -> Common.Source_manager.t
 val context_source : command_context -> Common.Source_file.t
 val context_environment : command_context -> Symbol_visibility.Environment.t
 val context_mode : command_context -> Preprocessor.compilation_mode
 
+val lexical_lookup_is_current :
+  command_context -> Preprocessor.lexical_lookup -> bool
+(** Whether this is an original current lexer read under the exact focused
+    parser context, environment, mode and domain. This does not authorize a
+    record mutation or advance a command, declaration or executable cursor. *)
+
+val context_compiler_options : command_context -> (int64, string) result
+(** Read the native option field of the original current control. A directive
+    shares its enclosing allocation; a nested ordinary input copies the live
+    caller's options before selecting its saved compiler tables. Suspended
+    ancestors, closed inputs and other domains cannot operate on the control. *)
+
+val context_get_option :
+  command_context -> bit_index:int64 -> (bool, string) result
+
+val context_set_option :
+  command_context -> bit_index:int64 -> bool -> (bool, string) result
+(** Set an original known compiler option and return its previous state, as
+    [_BEQU] does. Invalid indices leave the control unchanged. These operations
+    require the exact current parser context; a numeric mask grants no entry
+    authority. *)
+
+val context_emit_compiler_warning :
+  command_context -> Common.Diagnostic.t -> (unit, string) result
+(** Append a reached warning to the enclosing source diagnostic stream under the
+    original focused control. Child compiler warnings retain their order and
+    survive a later child or parent failure. *)
+
+val context_warning_count : command_context -> (int64, string) result
+
+val context_emit_counted_compiler_warning :
+  command_context -> Common.Diagnostic.t -> (unit, string) result
+(** Emit a warning and increment this original control's native warning_cnt.
+    Directives share the counter; ordinary child controls start at zero.
+    PrintWarn-only consumers use the uncounted emitter. *)
+
 val context_parent : command_context -> command_position option
 (** Exact input and environment ownership, with the parent's suspended parser
     phase at nested entry. Contexts from distinct parse calls remain distinct.
 *)
+
+val context_parent_in_environment :
+  command_context ->
+  environment:Symbol_visibility.Environment.t ->
+  (command_position option, string) result
+(** The nearest unchanged original ancestor using this exact environment.
+    Intermediate saved-compiler inputs may use different tables. Every link must
+    retain its live parser position and event count; inactive, advanced or
+    unrelated contexts cannot connect declaration sequences. *)
 
 val context_is_current : command_context -> observed_events:int -> bool
 (** The parser still owns this live context and has issued exactly this many
@@ -72,6 +205,40 @@ val sequence_accepted : completed_sequence -> bool
     successfully. Rejected or exceptional completion never accepts the sequence.
     Later parent parsing or stream-generation failures do not revoke accepted
     child syntax. *)
+
+type named_aggregate_selection = private {
+  type_specifier : Ast.type_specifier;
+  identifier : Ast.identifier;
+  environment : Symbol_visibility.Environment.t;
+  entry : Symbol_visibility.entry;
+}
+(** Exact visible aggregate selected when the original named type token was
+    produced. [type_specifier] is the same AST node retained by the surrounding
+    function source witness and [identifier] is its exact named child. The entry
+    is a snapshot, not authority for a later lookup or parser phase. A captured
+    Class selection takes precedence over a coincident public primitive
+    spelling, matching the original token's selected hash entry. *)
+
+type local_source = private
+  | Local_parameter of Ast.function_parameter
+  | Local_variable of {
+      local_type_specifier : Ast.type_specifier;
+      local_type_selection : named_aggregate_selection option;
+      local_type_entry : Symbol_visibility.entry option;
+      local_name : Ast.identifier;
+      local_pointer_layers : Ast.pointer_layer list;
+      local_array_dimensions : Ast.array_dimension list;
+      local_function_pointer : Ast.function_pointer_declarator option;
+    }
+  | Variadic_count of Ast.variadic_marker
+  | Variadic_vector of Ast.variadic_marker
+
+type local_publication = private {
+  local_environment : Symbol_visibility.Environment.t;
+  local_command : command_start;
+  local_spelling : string;
+  local_source : local_source;
+}
 
 type reference_selection
 
@@ -88,16 +255,23 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
     environment. Selected absence and local shadowing also remain fixed. Retain
     entry objects, not environment-local numeric IDs. *)
 
+val selected_local : reference_selection -> local_publication option
+(** Original local publication captured when this identifier token was produced,
+    before subsequent lookahead or generated input. This source record grants no
+    semantic symbol or storage authority. *)
+
 val selected_command : reference_selection -> command_start
 val reference_selection_is_current : reference_selection -> bool
 
 type call_activity
+type call_origin
 
 type call_start = private {
   call_reference : reference_selection;
   call_callee : Ast.expression;
   call_opening_parenthesis : Ast.location option;
   call_activity : call_activity;
+  call_origin : call_origin;
 }
 
 type completed_call = private {
@@ -113,6 +287,19 @@ val call_emission_is_current : completed_call -> bool
     retains the original identifier selection, including its command and
     environment, and the exact callee and opening location children. Emission
     retains the complete original call expression and argument children. *)
+
+val call_start_supplied_shape :
+  call_start -> Symbol_visibility.function_call_shape option option
+(** The exact result returned by the original start callback. Outer [None] means
+    the callback has not returned successfully. A consumer can compare physical
+    shape identity with its own native-phase record after an abort. *)
+
+val compiler_exception_requires_call_shape : compiler_exception -> bool
+
+val compiler_exception_is_from_call_start :
+  compiler_exception -> call_start -> bool
+(** A matched call-delimiter producer retains its original argument activity. A
+    runtime catch also requires that phase's original native shape. *)
 
 val claim_call_start : call_start -> bool
 
@@ -168,6 +355,14 @@ val implicit_statement :
 
 val implicit_selection_is_current : implicit_output_selection -> bool
 val implicit_arguments_are_current : implicit_output_selection -> bool
+
+val implicit_supplied_shape :
+  implicit_output_selection ->
+  Symbol_visibility.function_call_shape option option
+
+val compiler_exception_is_from_implicit_arguments :
+  compiler_exception -> implicit_output_selection -> bool
+
 val implicit_emission_is_current : implicit_output_selection -> bool
 val claim_implicit_arguments : implicit_output_selection -> bool
 
@@ -183,25 +378,6 @@ val claim_implicit_emission : implicit_output_selection -> bool
     only while its original observer runs. A successful parse later attaches the
     exact completed statement to the same receipt. No ordinary identifier or
     call is synthesized. *)
-
-type local_source = private
-  | Local_parameter of Ast.function_parameter
-  | Local_variable of {
-      local_type_specifier : Ast.type_specifier;
-      local_name : Ast.identifier;
-      local_pointer_layers : Ast.pointer_layer list;
-      local_array_dimensions : Ast.array_dimension list;
-      local_function_pointer : Ast.function_pointer_declarator option;
-    }
-  | Variadic_count of Ast.variadic_marker
-  | Variadic_vector of Ast.variadic_marker
-
-type local_publication = private {
-  local_environment : Symbol_visibility.Environment.t;
-  local_command : command_start;
-  local_spelling : string;
-  local_source : local_source;
-}
 
 type query_node =
   | Sizeof_target of Ast.identifier
@@ -281,10 +457,12 @@ type declaration_header = private {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
   declaration_command : command_start;
+  declaration_compiler_options : int64;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
   binding_preparation : internal_binding_preparation option;
   type_specifier : Ast.type_specifier;
+  declaration_type_selection : named_aggregate_selection option;
 }
 
 type global_activity
@@ -349,19 +527,21 @@ val initializer_delimiter_is_current : completed_initializer_delimiter -> bool
     predecessor chains retain ordering with leaves and other delimiters. *)
 
 type function_activity
+type join_lookup
 
-type named_aggregate_selection = private {
-  type_specifier : Ast.type_specifier;
-  identifier : Ast.identifier;
-  environment : Symbol_visibility.Environment.t;
-  entry : Symbol_visibility.entry;
-}
-(** Exact visible aggregate selected when the original named type token was
-    produced. [type_specifier] is the same AST node retained by the surrounding
-    function source witness and [identifier] is its exact named child. The entry
-    is a snapshot, not authority for a later lookup or parser phase. A captured
-    Class selection takes precedence over a coincident public primitive
-    spelling, matching the original token's selected hash entry. *)
+val join_lookup_environment : join_lookup -> Symbol_visibility.Environment.t
+val join_lookup_mode : join_lookup -> Preprocessor.compilation_mode
+val join_lookup_scope : join_lookup -> Symbol_visibility.table_scope
+val join_lookup_kind : join_lookup -> Symbol_visibility.kind
+val join_lookup_name : join_lookup -> Ast.identifier
+val join_lookup_selection : join_lookup -> Symbol_visibility.entry option
+
+val join_lookup_is_current : join_lookup -> bool
+(** Original kind-filtered declaration lookup before publication and parameter
+    or aggregate-body input. JIT selects the current writer's table; AOT also
+    searches visible baseline entries. This records selection before extern or
+    import filtering by a native record consumer. It is read-only and current
+    only in the original focused declaration callback. *)
 
 type function_publication = private {
   function_activity : function_activity;
@@ -370,6 +550,7 @@ type function_publication = private {
   function_environment : Symbol_visibility.Environment.t;
   function_entry : Symbol_visibility.entry;
   function_previous : Symbol_visibility.lookup;
+  function_join_lookup : join_lookup;
   function_name : Ast.identifier;
   function_pointer_layers : Ast.pointer_layer list;
   function_opening_parenthesis : Ast.location;
@@ -422,13 +603,19 @@ type function_local_allocation = private {
   allocation_function : function_publication;
   allocation_local : local_publication;
   allocation_storage : Ast.local_storage;
+  allocation_first_in_declaration : bool;
+  allocation_lookahead : Ast.location;
+  allocation_initializer_equals : Ast.location option;
   allocation_predecessor : function_local_allocation option;
   allocation_activity : function_position_activity;
 }
 
 val function_local_allocation_is_current : function_local_allocation -> bool
 (** Original local declaration after type/dimension lookahead and before its
-    initializer. The predecessor belongs to this function's parser cursor. *)
+    initializer. The predecessor belongs to this function's parser cursor. The
+    first-declarator flag and current lookahead are captured by the parser; they
+    cannot be supplied by consumers. Only the first automatic declarator enters
+    MemberAdd's duplicate-base-type index in the pinned source. *)
 
 type static_initializer_activity
 
@@ -510,6 +697,10 @@ val function_variadic_completion_is_current :
 
 type parameter_default_activity
 
+type default_position_source =
+  | Class_default_position of compiler_position_source option
+  | Instruction_default_position
+
 type completed_parameter_default = private {
   default_function : function_publication;
   default_parameter : function_parameter_publication;
@@ -520,6 +711,7 @@ type completed_parameter_default = private {
   default_pointer_layers : Ast.pointer_layer list;
   default_parameter_name : Ast.identifier option;
   default_function_pointer : Ast.function_pointer_declarator option;
+  default_position_reads : (Ast.expression * default_position_source) list;
   default_ast : Ast.parameter_default;
   default_activity : parameter_default_activity;
 }
@@ -529,10 +721,78 @@ val parameter_default_is_current : completed_parameter_default -> bool
     parameter delimiter is consumed. Only its synchronous callback is current;
     the receipt alone grants no evaluation or call-materialization authority. *)
 
+type callback_signature_activity
+
+type callback_signature_publication = private {
+  callback_command : command_start;
+  callback_return_type_specifier : Ast.type_specifier;
+  callback_return_selection : named_aggregate_selection option;
+  callback_return_pointer_layers : Ast.pointer_layer list;
+  callback_opening : Ast.location;
+  callback_indirection_layers : Ast.pointer_layer list;
+  callback_activity : callback_signature_activity;
+}
+
+type callback_parameter_publication = private {
+  callback_parameter_signature : callback_signature_publication;
+  callback_parameter_index : int;
+  callback_parameter_predecessor : completed_callback_parameter option;
+  callback_parameter_register_qualifiers : Ast.register_qualifier list;
+  callback_parameter_type_specifier : Ast.type_specifier;
+  callback_parameter_type_selection : named_aggregate_selection option;
+  callback_parameter_pointer_layers : Ast.pointer_layer list;
+  callback_parameter_name : Ast.identifier option;
+  callback_parameter_function_pointer : Ast.function_pointer_declarator option;
+  callback_parameter_activity : function_parameter_activity;
+}
+
+and completed_callback_parameter = private {
+  callback_parameter_publication : callback_parameter_publication;
+  callback_parameter_ast : Ast.function_parameter;
+  callback_parameter_completion_activity : parameter_completion_activity;
+}
+
+type callback_position_write = private {
+  callback_position_signature : callback_signature_publication;
+  callback_position_source : compiler_position_source;
+  callback_position_predecessor : completed_callback_parameter option;
+  callback_position_activity : function_position_activity;
+}
+
+type completed_callback_default = private {
+  callback_default_signature : callback_signature_publication;
+  callback_default_parameter : callback_parameter_publication;
+  callback_default_index : int;
+  callback_default_predecessor : completed_callback_default option;
+  callback_default_position_reads :
+    (Ast.expression * default_position_source) list;
+  callback_default_ast : Ast.parameter_default;
+  callback_default_activity : parameter_default_activity;
+}
+
+type completed_callback_signature = private {
+  callback_signature_publication : callback_signature_publication;
+  callback_pointer : Ast.function_pointer_declarator;
+  callback_parameters : completed_callback_parameter list;
+  callback_defaults : completed_callback_default list;
+  callback_completion_activity : callback_signature_activity;
+}
+
+val callback_signature_is_current : callback_signature_publication -> bool
+val callback_parameter_is_current : callback_parameter_publication -> bool
+val callback_default_is_current : completed_callback_default -> bool
+
+val callback_parameter_completion_is_current :
+  completed_callback_parameter -> bool
+
+val callback_signature_completion_is_current :
+  completed_callback_signature -> bool
+
 type function_header_activity
 
 type completed_function_header = private {
   function_publication : function_publication;
+  header_compiler_options : int64;
   completed_entry : Symbol_visibility.entry;
   parameters : Ast.function_parameter list;
   parameter_completions : completed_function_parameter list;
@@ -550,6 +810,37 @@ val function_header_is_current : completed_function_header -> bool
 val function_body_completion_is_current :
   completed_function_header -> Ast.function_definition -> bool
 (** Only the exact original body during its completion callback is current. *)
+
+val function_body_compiler_options :
+  completed_function_header -> Ast.function_definition -> (int64, string) result
+(** Immutable options reached after parsing this exact original body. The
+    receipt survives callback expiry; copies and substituted bodies reject. This
+    source evidence grants no execution authority. *)
+
+type function_return_step =
+  | Enter_function_body
+  | Check_bare_return
+  | Check_value_return
+  | Value_return_parsed
+  | Check_function_body_return
+
+type function_return_activity
+
+type function_return_phase = private {
+  return_header : completed_function_header;
+  return_step : function_return_step;
+  return_location : Ast.location;
+  return_activity : function_return_activity;
+}
+
+val function_return_phase_is_current : function_return_phase -> bool
+
+val consume_function_return_phase :
+  function_return_phase -> (bool, string) result
+(** Consume once during the original callback, returning the previous native
+    [CCF_HAS_RETURN]. Entry clears it; a parsed value sets it. Other phases read
+    it without changing it. This supplies no return type or executable
+    authority. *)
 
 type array_dimensions_owner = private {
   dimensions_command : command_start;
@@ -631,7 +922,17 @@ val switch_completion_is_current : completed_switch -> bool
 
 type aggregate_activity
 
+type aggregate_base_selection = private {
+  base_ast : Ast.aggregate_base;
+  base_environment : Symbol_visibility.Environment.t;
+  base_entry : Symbol_visibility.entry;
+}
+(** The original class entry selected before the base name's following
+    lookahead. Its layout is read only at [Aggregate_base_attached], after that
+    lookahead and before validating the opening brace. *)
+
 type aggregate_step =
+  | Aggregate_base_attached of aggregate_base_selection
   | Aggregate_body_started of Ast.aggregate_base option
   | Aggregate_member_prepared of {
       member_type : Ast.type_specifier;
@@ -651,13 +952,16 @@ type aggregate_publication = private {
   aggregate_environment : Symbol_visibility.Environment.t;
   aggregate_entry : Symbol_visibility.entry;
   aggregate_previous : Symbol_visibility.entry option;
+  aggregate_join_lookup : join_lookup option;
   aggregate_name : Ast.identifier;
   aggregate_kind : Ast.aggregate_kind;
   aggregate_activity : aggregate_activity;
 }
 (** [aggregate_previous] is the class-filtered entry selected in the original
     parser environment immediately before [aggregate_entry] is published.
-    Same-name entries of other kinds do not mask it. *)
+    Same-name entries of other kinds do not mask it. [aggregate_join_lookup]
+    records the separate declaration lookup; extern forward declarations have
+    none because the original compiler publishes a fresh class directly. *)
 
 type aggregate_phase = private {
   phase_aggregate : aggregate_publication;
@@ -706,12 +1010,19 @@ type declaration_event = private
   | Function_local_allocated of function_local_allocation
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
+  | Callback_position_written of callback_position_write
+  | Callback_signature_started of callback_signature_publication
+  | Callback_parameter_declared of callback_parameter_publication
+  | Callback_default_completed of completed_callback_default
+  | Callback_parameter_completed of completed_callback_parameter
+  | Callback_signature_completed of completed_callback_signature
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter
   | Function_variadic_started of function_variadic_publication
   | Function_variadic_completed of function_variadic_publication
   | Function_header_completed of completed_function_header
+  | Function_return_phase of function_return_phase
   | Function_body_completed of
       completed_function_header * Ast.function_definition
       (** Parser-owned source witnesses. Array preparation follows expression
@@ -758,6 +1069,11 @@ val source_observation_count : command_context -> int option
     Observations are recorded before each consumer is invoked. *)
 
 type command_sink = {
+  lexical_lookup :
+    (command_context ->
+    Preprocessor.lexical_lookup ->
+    (unit, Common.Diagnostic.t list) result)
+    option;
   checkpoint :
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
@@ -785,6 +1101,13 @@ type command_sink = {
     failure or exception, an abort checkpoint releases the context. A failed
     sequence has no successful sequence view. Declarations and references retain
     their exact command start, including across nested parsing.
+
+    [lexical_lookup] consumes original raw lexer reads under this focused
+    command context, including before the first command and during lookahead. A
+    directive selects its own service; [None] masks the suspended parent's
+    service. Errors stop parsing and retain reached diagnostics. Reads do not
+    advance lifecycle observation counts. The optional parser inspection
+    observer still sees the whole input after its scoped consumer.
 
     [dimension_count] requires [declaration]. After that observer accepts a
     completed dimension, before the next lexer read, this service may return its
@@ -815,7 +1138,9 @@ type stream_execution = {
     lexer position after restoring the outer environment. *)
 
 val parse :
+  ?compiler_exception:(compiler_exception -> unit) ->
   ?commands:command_sink ->
+  ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
   ?execute_stream:
     (Common.Span.t -> (stream_execution, Common.Diagnostic.t list) result) ->
   sources:Common.Source_manager.t ->
@@ -825,11 +1150,18 @@ val parse :
   Common.Source_file.t ->
   output
 
+(** [lexical_lookup] observes original raw lexer reads throughout this input,
+    including directives consumed before a syntax token is returned. A [#exe]
+    body shares the stream and observer while selecting its own JIT writer.
+    Supplying an observer does not enable a declaration or execution sink. *)
+
 val has_errors : output -> bool
 
 val parse_suspended :
   suspension ->
+  ?compiler_exception:(compiler_exception -> unit) ->
   ?commands:command_sink ->
+  ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
   ?execute_stream:
     (Common.Span.t -> (stream_execution, Common.Diagnostic.t list) result) ->
   sources:Common.Source_manager.t ->
@@ -839,13 +1171,38 @@ val parse_suspended :
   Common.Source_file.t ->
   (output, string) result
 
-(** Parse one input at the original suspension, requiring the same source
-    manager, symbol environment, compilation mode, stack position and event
-    count. Rejected preflight does not consume the token. Once parsing starts,
-    success, failure and exceptions consume it and restore the parent stack.
-    Definitions and other config options describe the new input; the task
-    adapter supplies its own original environments and config. *)
+(** Parse one input at the original suspension, requiring the exact registered
+    source and the same source manager, symbol environment, compilation mode,
+    stack position, event count and child generation. Rejected preflight does
+    not consume the token. Once parsing starts, success, failure and exceptions
+    consume it and restore the parent stack. Definitions and other config
+    options describe the new input; the task adapter supplies its own original
+    environments and config. *)
 
 val suspension_owns_sequence : suspension -> completed_sequence -> bool
 (** Only the exact accepted nested sequence belongs to a consumed token. This
     establishes syntax ownership; runtime admission remains separate. *)
+
+val parse_suspended_enclosing :
+  suspension ->
+  enclosing:command_context ->
+  ?compiler_exception:(compiler_exception -> unit) ->
+  ?commands:command_sink ->
+  ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
+  ?execute_stream:
+    (Common.Span.t -> (stream_execution, Common.Diagnostic.t list) result) ->
+  sources:Common.Source_manager.t ->
+  definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
+  config:Preprocessor.Config.t ->
+  Common.Source_file.t ->
+  (output, string) result
+(** Execute the parser part of [StreamExePrint] at its original directive
+    suspension with the exact saved enclosing symbols and source manager.
+    Original enclosing lexical local shadows are restored for child parsing; the
+    directive caller's locals supply no compiler-local frame authority. The
+    child starts in JIT mode, independently of the enclosing mode, and has no
+    inherited [#exe] permission. The original token and accepted sequence retain
+    the same consumption and completion rules as [parse_suspended]. *)
+
+val callback_position_is_current : callback_position_write -> bool

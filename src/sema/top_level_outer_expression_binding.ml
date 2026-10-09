@@ -1,4 +1,5 @@
 type resolution =
+  | Static_binding of Static_reference.t
   | Module_binding of Module_expression_binding.publication
   | Outer_binding of Outer_environment.binding
 
@@ -120,6 +121,8 @@ let error_to_string error = error.code ^ ": " ^ error_message error
 
 let resolve_occurrence environment source =
   match Top_level_expression_binding.occurrence_resolution source with
+  | Top_level_expression_binding.Static_binding reference ->
+      Ok { source; resolution = Static_binding reference }
   | Top_level_expression_binding.Module_binding publication ->
       Ok { source; resolution = Module_binding publication }
   | Top_level_expression_binding.Outer_candidate -> (
@@ -178,6 +181,7 @@ let resolve_query environment source =
       Query_undefined
     else
       match Top_level_expression_binding.query_resolution source with
+      | Top_level_expression_binding.Static_binding _ -> Query_undefined
       | Top_level_expression_binding.Module_binding publication ->
           Query_binding (Module_binding publication)
       | Top_level_expression_binding.Outer_candidate -> (

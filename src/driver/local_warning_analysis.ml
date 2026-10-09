@@ -22,8 +22,8 @@ type ast_function = {
 }
 
 let ast_functions (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item ->
+  Frontend.Ast.declaration_items module_
+  |> List.map (fun (item_index, item) ->
       match item with
       | Frontend.Ast.Function_prototype prototype ->
           Some { item_index; name = prototype.name; is_definition = false }
@@ -166,7 +166,8 @@ let binding_inputs indexed facts =
   in
   pair [] (Sema.Function_binding_index.function_bindings indexed) facts
 
-let validate_function table indexed typed local_types expressions ast =
+let validate_function ?compiler_options table indexed typed local_types
+    expressions ast =
   let indexed_symbol = Sema.Function_binding_index.function_symbol indexed in
   let indexed_scope = Sema.Function_binding_index.function_scope indexed in
   let indexed_item = Sema.Function_binding_index.function_item_index indexed in
@@ -228,12 +229,19 @@ let validate_function table indexed typed local_types expressions ast =
         match binding_inputs indexed facts with
         | Error _ as error -> error
         | Ok bindings ->
-            Sema.Local_warning_analysis.make_function_input
-              ~symbol:indexed_symbol ~scope:indexed_scope
-              ~item_index:indexed_item ~is_definition:ast.is_definition bindings
-        )
+            let mask =
+              match compiler_options with
+              | None -> Ok None
+              | Some resolve -> Result.map Option.some (resolve indexed_symbol)
+            in
+            Result.bind mask (fun compiler_option_mask ->
+                Sema.Local_warning_analysis.make_function_input
+                  ?compiler_option_mask ~symbol:indexed_symbol
+                  ~scope:indexed_scope ~item_index:indexed_item
+                  ~is_definition:ast.is_definition bindings))
 
-let function_inputs table bindings function_types local_types expressions ast =
+let function_inputs ?compiler_options table bindings function_types local_types
+    expressions ast =
   let rec loop inputs_rev bindings function_types local_types expressions ast =
     match (bindings, function_types, local_types, expressions, ast) with
     | [], [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -243,7 +251,8 @@ let function_inputs table bindings function_types local_types expressions ast =
         expression :: expression_rest,
         ast_function :: ast_rest ) -> (
         match
-          validate_function table indexed typed local expression ast_function
+          validate_function ?compiler_options table indexed typed local
+            expression ast_function
         with
         | Error _ as error -> error
         | Ok input ->
@@ -258,7 +267,8 @@ let function_inputs table bindings function_types local_types expressions ast =
   in
   loop [] bindings function_types local_types expressions ast
 
-let analyze ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
+let analyze ?compiler_options
+    ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
     ~declarations ~function_types ~local_types ~bindings ~expressions module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
@@ -268,7 +278,7 @@ let analyze ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
       Error "local warning analysis requires a module declaration collection"
     else
       match
-        function_inputs table
+        function_inputs ?compiler_options table
           (Sema.Function_binding_index.functions bindings)
           (Sema.Function_type_resolution.functions function_types)
           (Sema.Local_type_resolution.functions local_types)

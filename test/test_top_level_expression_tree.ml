@@ -217,6 +217,9 @@ let defined_resolution_fact expression =
             match
               Semantic_top_level_outer_expression_binding.query_resolution query
             with
+            | Semantic_top_level_outer_expression_binding.Query_binding
+                (Semantic_top_level_outer_expression_binding.Static_binding _)
+              -> Alcotest.fail "unexpected private static query"
             | Semantic_top_level_outer_expression_binding.Query_undefined ->
                 "false"
             | Semantic_top_level_outer_expression_binding.Query_binding
@@ -245,6 +248,9 @@ let sizeof_fact expression =
             match
               Semantic_top_level_outer_expression_binding.query_resolution query
             with
+            | Semantic_top_level_outer_expression_binding.Query_binding
+                (Semantic_top_level_outer_expression_binding.Static_binding _)
+              -> Alcotest.fail "unexpected private static query"
             | Semantic_top_level_outer_expression_binding.Query_undefined ->
                 "undefined"
             | Semantic_top_level_outer_expression_binding.Query_binding
@@ -424,6 +430,7 @@ let complete_shapes_roles_calls_and_identities () =
                 (publication
                |> Semantic_module_expression_binding.publication_kind
                |> Semantic_module_expression_binding.publication_kind_name)
+          | Semantic_top_level_outer_expression_binding.Static_binding _
           | Semantic_top_level_outer_expression_binding.Outer_binding _ ->
               Alcotest.fail "expected a module function binding")
         calls)
@@ -469,6 +476,7 @@ let generated_outer_binding_keeps_provenance () =
             (binding |> Semantic_outer_environment.binding_table
            |> Semantic_outer_environment.table_kind
            |> Semantic_outer_environment.table_kind_name)
+      | Semantic_top_level_outer_expression_binding.Static_binding _
       | Semantic_top_level_outer_expression_binding.Module_binding _ ->
           Alcotest.fail "expected an outer binding");
       match

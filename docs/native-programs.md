@@ -1,5 +1,10 @@
 # Native integer programs
 
+The separate [`host-jit-task` target](native-source-tasks.md) executes original
+live scalar and fixed-array JIT initializer leaves, retained direct functions
+and resumed commands against one shared native arena. The `host-jit` contracts
+below describe isolated native programs.
+
 Integer comparison chains now run in conditions with the original shared middle
 word and skipped later operands after a false link. Private frame homes preserve
 those words across branches and calls and count toward the existing stack bound.
@@ -8,7 +13,8 @@ See [conditional integer chains](conditional-comparison-chains.md) for native
 observations, grouping and the remaining floating/pending-reduction boundaries.
 
 `holyc run --target=host-jit` compiles integer statements, structured control
-flow and fixed direct scalar integer functions and U0 procedures with the project's OCaml x86-64
+flow and direct scalar integer functions and U0 procedures, including bounded
+integer word tails, with the project's OCaml x86-64
 backend, then executes the checked image on Windows or Linux x86-64. It uses the
 integer program lowerer's original source roots, function bodies, frame layouts
 and checked call context. It does not execute the entry through the interpreter
@@ -44,6 +50,11 @@ comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for` and `break`
 Source-defined functions add named fixed I8/U8/I16/U16/I32/U32/I64/U64 parameters,
 automatic scalar integer declarations, local assignment and updates, and
 value-return statements. U0 procedures also admit bare returns and fallthrough.
+[Native word tails](native-word-tails.md) add original hidden counts and
+per-activation `argc`/`argv` storage to direct and matching callback calls.
+[Native callback arguments](native-callback-arguments.md) carry retained code
+through fixed callback parameters of indirect signatures, including variadic
+parents and recursive forwarding.
 Function-local language labels and direct gotos use the same checked block
 lowering as the interpreter; [goto execution](integer-goto.md) records their
 source identity, empty-block fallthrough and initialization behavior. Ordinary
@@ -67,11 +78,13 @@ and payload-zero internal word views.
 
 The source driver parses without a command or stream executor. Original
 declaration callbacks prepare bounded scalar defaults and closed scalar global
-initializers in both modes; an iterative source gate admits ordinary scalar
-globals and rejects statics, prototypes/externs,
-explicit register/declaration modifiers, non-integer parameters or locals,
-arrays, broader pointer operations, indirect calls, implicit output and unsupported
-statements. Arrays and aggregates reject before their preparation.
+initializers in both modes. The source gate admits checked scalar globals and
+statics, integer arrays, typed pointer aliases, callback cells/indexed arrays,
+fixed callback parameters and integer word tails. Invocation returns remain
+integer or U0. The original Print/PutChars providers have their own checked
+consumer. General prototypes/extern linking, explicit register storage, callback
+member storage, arrays of pointer objects and F64/aggregate/mixed execution
+remain outside this gate.
 Entry statements cannot declare storage.
 It reports the first source-domain violation while retaining parser diagnostics.
 A directive needing
@@ -164,6 +177,10 @@ Word-returning callees preserve the full register result through RAX; U0 calls
 have a separate nonnumeric completion and no result staging. Cleanup IR remains checked and metered,
 but the private fixed-RSP convention needs no machine argument-pop instruction.
 Every function uses plain `RET`; this is not the full TempleOS call ABI.
+Ordinary `argpop`, `noargpop` and `haserrcode` declarations use this adapter after
+checking the original cleanup receipt. `noargpop` takes precedence over `argpop`
+and `RET1`; `haserrcode` changes an epilogue only with interrupt entry. See
+[ordinary calling modifiers](native-scalars.md#ordinary-calling-modifiers).
 
 Each automatic local has a fresh hidden initialization flag. Stores mark it;
 loads and read-modify-write operations test it before reading storage. An
@@ -320,8 +337,9 @@ TempleOS language rules.
 
 This gate does not complete general native source execution. Effectful defaults,
 interleaved source execution, owned string/`lastclass` defaults,
-broader persistent/pointer storage, automatic initialized arrays, indirect calls, variadics,
-explicit register and function flags, the complete HolyC ABI, floating operations,
+broader persistent/pointer storage, automatic initialized arrays, broader callbacks, variadics,
+explicit register requests, interrupt entry and public/static function definitions,
+the complete HolyC ABI, floating operations,
 Print and broader runtime providers, and native `#exe` remain required. Optimizer parity, the integrated
 assembler, object/BIN writing, loader acceptance and bootstrap retain their own
 gates. Canonical shifts and their verified full-word source integration are covered by #574/#787; #585 and #593 retain division and comparison-reduction requirements.
@@ -336,3 +354,20 @@ The checked PutChars provider captures native packed bytes with independent
 output and work limits; see [native output](native-output.md).
 [Native Print](native-print.md) formats owned strings and captured integer
 arguments with those same limits, publishing each complete call on success.
+
+Automatic, static and global callback cells, fully indexed arrays and fixed
+callback parameters have a native consumer;
+see [native callbacks](native-local-callbacks.md) for capture, private ownership,
+numeric faults and the remaining storage/default/variadic restrictions.
+
+Original [callback-word defaults](native-callback-word-defaults.md) load saved
+numeric values into callback parameters with zero executable owners. Effective
+`noreg` parameters use the existing stack path; explicit register allocation
+still rejects.
+
+[Retained native images](native-retained-images.md) provide an opaque host
+lifetime for an original compiled image and its data across activations. Reached
+writes survive checked faults; each activation keeps fresh bounded status and
+output capture. The source-task driver schedules original live JIT requests and
+compiles direct calls from their admitted function sources. Persistent native
+addresses across source events still require their own code owners.

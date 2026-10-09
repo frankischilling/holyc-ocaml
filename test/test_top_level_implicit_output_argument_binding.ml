@@ -177,8 +177,8 @@ let defaults_keep_mode_and_generated_provenance () =
 
 let missing_and_extra_values_have_stable_diagnostics () =
   let missing =
-    Test_implicit_output_argument_binding.prepare_legacy_missing
-      ~path:"top-level-output-missing-fixed" ~body:"\"value\";"
+    Test_implicit_output_argument_binding.prepare_legacy_arity
+      ~path:"top-level-output-missing-fixed" ~body:"\"value\";" ()
     |> analyze
   in
   (match bind missing with
@@ -198,8 +198,9 @@ let missing_and_extra_values_have_stable_diagnostics () =
             (missing.targets |> Target.outputs |> List.hd
            |> Target.output_marker_origin)));
   let extra =
-    prepare ~path:"top-level-output-extra-fixed.HC"
-      "extern U0 Print(U8 *fmt);\"value\",1;"
+    Test_implicit_output_argument_binding.prepare_legacy_arity
+      ~header:"extern U0 Print(U8 *fmt);"
+      ~path:"top-level-output-extra-fixed.HC" ~body:"\"value\",1;" ()
     |> analyze
   in
   match bind extra with

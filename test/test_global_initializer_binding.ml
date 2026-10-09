@@ -36,6 +36,7 @@ let prepare ?(mode = Preprocessor.Jit) ?query ~path contents =
     | Some query ->
         let commands : Parser.command_sink =
           {
+            lexical_lookup = None;
             checkpoint = None;
             call = None;
             implicit_output = None;
@@ -673,8 +674,8 @@ let selected_initializer_query_manifest () =
     (fun selection descriptor ->
       Alcotest.(check bool)
         "descriptor retains the exact query object" true
-        (G.query_selection descriptor = Some selection
-        && Option.get (G.query_selection descriptor) == selection
+        (Option.fold ~none:false ~some:(( == ) selection)
+           (G.query_selection descriptor)
         && G.query_expression descriptor == Q.expression selection
         && G.query_leaf descriptor == leaf))
     selections (G.global_queries global);

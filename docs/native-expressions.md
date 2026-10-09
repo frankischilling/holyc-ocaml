@@ -118,16 +118,24 @@ policy remains separate work in #585. Canonical constant shifts now have
 [native evidence and checked execution](constant-shifts.md); the public source
 program pipeline integrates that full-word policy under #787. Raw expression fragment APIs keep their existing default contract; broader optimizer work remains under #585/#696/#697.
 The only admitted cast form is a full-width internal I64/U64 word view with
-`IC_HOLYC_TYPECAST`, integer payload zero and zero flags. It preserves all bits
+`IC_HOLYC_TYPECAST`, integer payload zero or one and zero flags. It preserves all bits
 and selects the target computation class. The internal source spellings
 `I64i` and `U64i` in `CInit.HC:12` reach this form: for example,
 `0x8000000000000000(I64i)<0` returns one while preserving the original bits.
-A cast whose immediate source operand is parenthesized carries payload one
-and remains unsupported; so do public/narrow types, pointers and floating
-conversions. The parentheses around a postfix cast's target name alone do not
+A cast whose immediate source operand is parenthesized retains payload one.
+Both forms preserve the checked word's bits and select the declared target
+computation class. Native controls cover all 64 combinations of eight bit
+patterns, two input classes, two target classes and both parenthesis forms,
+plus signedness after shifts/division and shared values through spills.
+Public and narrow types, pointers and floating conversions remain outside
+this isolated expression API. The parentheses around a postfix cast's target name alone do not
 set that payload. Accepting a
 checked word-view instruction does not give arbitrary source or byte data
 execution authority.
+
+The word behavior follows Compiler/OptPass012.HC:87-110. Functions and source
+tasks use the same checked word path with their existing public-type admission;
+this does not add narrower conversions, floating casts or a general HolyC ABI.
 
 The allocator uses only RAX, RCX, RDX and R8 through R11, which are volatile
 in both supported host conventions. Ordinary images have seven value registers;

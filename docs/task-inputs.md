@@ -30,6 +30,15 @@ not satisfy this requirement. Its root value is returned independently of the
 outer task's previously captured value. Nested generated source and temporary
 initializer execution do not replace that input's root value.
 
+StreamExePrint inside a nested directive uses its immediate parent's original
+compiler namespace. If that parent belongs to the directive task, child input
+keeps the task's globals and retained declarations. If it belongs to ordinary
+child input, the saved adapter retains that child's ledger and namespace.
+Both selections require the live original suspension and completely observed
+parent events. A shared frontend environment cannot replace those receipts.
+See [native streams](native-stream-generation.md) for the maintained nested
+input example and the native caller's shared resource checks.
+
 The VM retains each input's original context, completion receipt, work boundary
 and result. Delayed starts, unaccepted completions, foreign tasks and stale
 completion receipts cannot certify a new result. Retained identifiers in local

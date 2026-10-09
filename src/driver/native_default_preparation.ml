@@ -34,6 +34,18 @@ type t = {
 let ( let* ) = Result.bind
 let work value = VM.task_initializer_steps value.state
 let bytes value = value.saved_bytes
+
+let synchronize_work value ~work ~bytes =
+  let before = VM.task_initializer_steps value.state in
+  if work < before || work > VM.task_initializer_limit value.state then
+    Error "native declaration work exceeds its cumulative preparation allowance"
+  else if bytes < value.saved_bytes || bytes > value.max_default_bytes then
+    Error "native saved defaults exceed their cumulative byte allowance"
+  else (
+    VM.record_task_preparation value.state ~before ~steps:(work - before);
+    value.saved_bytes <- bytes;
+    Ok ())
+
 let completions value = List.rev value.completed_rev
 let execution completion = completion.execution
 let initializer_completions value = List.rev value.initializers_rev
@@ -74,6 +86,17 @@ let scalar_word_type = function
   | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
   | _ -> false
 
+let callback_word_parameter function_pointer =
+  match function_pointer with
+  | Some (pointer : Ast.function_pointer_declarator) ->
+      List.length pointer.indirection_layers = 1
+  | _ -> false
+
+let stack_register_qualifiers register_qualifiers =
+  match List.rev register_qualifiers with
+  | [] -> true
+  | (request : Ast.register_qualifier) :: _ -> request.kind = Ast.Noreg
+
 let storage_shape ~type_ ~dimensions =
   Shape.create ~type_ ~dimensions
   |> Result.map_error (function
@@ -85,11 +108,23 @@ let storage_shape ~type_ ~dimensions =
         "HCIRL0005: native persistent storage size exceeds the host integer \
          range")
 
-let prepare_global_destination value fragment receipt =
-  let declaration = Sema.Initializer_fragment.declaration fragment in
-  let type_ =
-    declaration |> Sema.Compiler_record.declared_global_type
-    |> Sema.Type_reference.resolved_type
+let prepare_global_destination value declaration receipt =
+  let* type_ =
+    match
+      (Sema.Compiler_record.declared_global_source declaration)
+        .global_function_pointer
+    with
+    | Some pointer when callback_word_parameter (Some pointer) ->
+        Sema.Type.make_primitive ~form:Public_spelling ~primitive:I64
+          ~pointer_depth:0
+    | Some _ ->
+        Error
+          "HCRUN0001: native initializer requires original one-star callback \
+           storage"
+    | None ->
+        Ok
+          (declaration |> Sema.Compiler_record.declared_global_type
+         |> Sema.Type_reference.resolved_type)
   in
   let dimensions =
     Sema.Compiler_record.declared_global_dimensions declaration
@@ -121,9 +156,15 @@ let prepare_global_destination value fragment receipt =
   Ok destination
 
 let prepare_static_destination value fragment receipt =
+  let* type_ =
+    match Sema.Static_initializer_fragment.callback_source fragment with
+    | None -> Ok (Sema.Static_initializer_fragment.type_ fragment)
+    | Some _ ->
+        Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
+          ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+  in
   let* shape =
-    storage_shape
-      ~type_:(Sema.Static_initializer_fragment.type_ fragment)
+    storage_shape ~type_
       ~dimensions:(Sema.Static_initializer_fragment.dimensions fragment)
   in
   let* stream =
@@ -151,8 +192,9 @@ let prepare_static_destination value fragment receipt =
   value.static_stream <- Some (receipt.static_initializer, stream);
   Ok destination
 
-let prepare value ~session ~ledger receipt =
-  let span = receipt.Parser.default_ast.location.span in
+let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
+    ~pointer_layers ~function_pointer ~register_qualifiers ~default
+    ~begin_source ~finish_source =
   let fail code message =
     Error [ Integer_source.diagnostic ~span code message ]
   in
@@ -167,25 +209,25 @@ let prepare value ~session ~ledger receipt =
       || Option.fold ~none:false
            ~some:(fun prior -> prior != ledger)
            value.ledger
-      || Parser.context_mode
-           receipt.default_function.function_header.declaration_command
-             .command_context
-         <> value.compilation_mode
+      || mode <> value.compilation_mode
     then
       fail "HCRUN0004"
         "native default preparation has another source owner or mode"
     else if
-      (not (scalar_word_type receipt.default_type_specifier))
-      || receipt.default_pointer_layers <> []
-      || Option.is_some receipt.default_function_pointer
-      || receipt.default_register_qualifiers <> []
+      not
+        (stack_register_qualifiers register_qualifiers
+        && (callback_word_parameter function_pointer
+           || scalar_word_type type_specifier
+              && pointer_layers = []
+              && Option.is_none function_pointer))
     then
       fail "HCRUN0001"
-        "native defaults require unqualified nonzero scalar integer parameters"
+        "native defaults require scalar integer objects or original one-star \
+         callback-word parameters without explicit register selection"
     else Ok ()
   in
   let* expression =
-    match receipt.default_ast.value with
+    match default with
     | Ast.Expression_default expression -> Ok expression
     | Ast.Lastclass_default _ ->
         fail "HCRUN0006"
@@ -198,10 +240,7 @@ let prepare value ~session ~ledger receipt =
       fail "HCIRVM0011" "native saved-default payload exceeds max_default_bytes"
     else Ok ()
   in
-  let* authority =
-    Task_declarations.begin_native_source_default ledger ~runtime:value.state
-      receipt
-  in
+  let* authority = begin_source ledger ~runtime:value.state in
   value.ledger <- Some ledger;
   let fragment = Sema.Default_fragment.authorized_fragment authority in
   let create_context =
@@ -236,10 +275,43 @@ let prepare value ~session ~ledger receipt =
         fail "HCRUN0006" "native defaults require checked constant preparation"
   in
 
-  let* () = Task_declarations.finish_native_source_default ledger execution in
+  let* () = finish_source ledger execution in
   value.saved_bytes <- value.saved_bytes + 8;
   value.completed_rev <- { execution } :: value.completed_rev;
   Ok ()
+
+let prepare value ~session ~ledger receipt =
+  prepare_source value ~session ~ledger
+    ~span:receipt.Parser.default_ast.location.span
+    ~mode:
+      (Parser.context_mode
+         receipt.default_function.function_header.declaration_command
+           .command_context)
+    ~type_specifier:receipt.default_type_specifier
+    ~pointer_layers:receipt.default_pointer_layers
+    ~function_pointer:receipt.default_function_pointer
+    ~register_qualifiers:receipt.default_register_qualifiers
+    ~default:receipt.default_ast.value
+    ~begin_source:(fun ledger ~runtime ->
+      Task_declarations.begin_native_source_default ledger ~runtime receipt)
+    ~finish_source:Task_declarations.finish_native_source_default
+
+let prepare_callback value ~session ~ledger receipt =
+  let parameter = receipt.Parser.callback_default_parameter in
+  prepare_source value ~session ~ledger
+    ~span:receipt.callback_default_ast.location.span
+    ~mode:
+      (Parser.context_mode
+         receipt.callback_default_signature.callback_command.command_context)
+    ~type_specifier:parameter.callback_parameter_type_specifier
+    ~pointer_layers:parameter.callback_parameter_pointer_layers
+    ~function_pointer:parameter.callback_parameter_function_pointer
+    ~register_qualifiers:parameter.callback_parameter_register_qualifiers
+    ~default:receipt.callback_default_ast.value
+    ~begin_source:(fun ledger ~runtime ->
+      Task_declarations.begin_native_source_callback_default ledger ~runtime
+        receipt)
+    ~finish_source:Task_declarations.finish_native_source_callback_default
 
 let prepare_initializer value ~session ~ledger receipt =
   let span = receipt.Parser.leaf_initializer.initializer_equals.span in
@@ -267,40 +339,68 @@ let prepare_initializer value ~session ~ledger receipt =
             attempted")
     else Ok ()
   in
-  let* authority =
-    Task_declarations.native_initializer_fragment ledger ~runtime:value.state
-      receipt
+  let has_references =
+    match receipt.leaf_value with
+    | Ast.Scalar_initializer expression ->
+        Sema.Initializer_source.expression_identifier_nodes expression <> []
+    | _ -> false
   in
-  let fragment = Sema.Initializer_fragment.authorized_fragment authority in
-  value.ledger <- Some ledger;
-  value.initializer_attempts <- receipt :: value.initializer_attempts;
-  let* cell_offset, byte_offset, operation =
-    prepare_global_destination value fragment receipt |> diagnose
-  in
-  let create_context =
-    match value.compilation_mode with
-    | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
-    | Frontend.Preprocessor.Aot ->
-        Initializer_fragment_typing.create_aot_context
-  in
-  let* context =
-    create_context ~table:value.table
-      ~parent:(Task_declarations.initializer_scope ledger)
-    |> diagnose
-  in
-  let* typed =
-    Initializer_fragment_typing.prepare context fragment |> diagnose
-  in
-  let before = work value in
-  let* prepared =
-    Integer_initializers.prepare_native ~authority ~typed ~cell_offset
-      ~byte_offset ~operation
-      ~on_progress:(fun steps ->
-        VM.record_task_preparation value.state ~before ~steps)
-      ~max_steps:(VM.task_initializer_limit value.state - before)
-  in
-  value.initializers_rev <- { preparation = prepared } :: value.initializers_rev;
-  Ok ()
+  if value.compilation_mode = Frontend.Preprocessor.Aot && has_references then (
+    let* declaration, leaf =
+      Task_declarations.native_load_initializer_source ledger
+        ~runtime:value.state receipt
+    in
+    value.ledger <- Some ledger;
+    value.initializer_attempts <- receipt :: value.initializer_attempts;
+    let* cell_offset, byte_offset, operation =
+      prepare_global_destination value declaration receipt |> diagnose
+    in
+    let* prepared =
+      Integer_initializers.prepare_native_load ~declaration ~leaf ~cell_offset
+        ~byte_offset ~operation
+    in
+    value.initializers_rev <-
+      { preparation = prepared } :: value.initializers_rev;
+    Ok ())
+  else
+    let* authority =
+      Task_declarations.native_initializer_fragment ledger ~runtime:value.state
+        receipt
+    in
+    let fragment = Sema.Initializer_fragment.authorized_fragment authority in
+    value.ledger <- Some ledger;
+    value.initializer_attempts <- receipt :: value.initializer_attempts;
+    let* cell_offset, byte_offset, operation =
+      prepare_global_destination value
+        (Sema.Initializer_fragment.declaration fragment)
+        receipt
+      |> diagnose
+    in
+    let create_context =
+      match value.compilation_mode with
+      | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
+      | Frontend.Preprocessor.Aot ->
+          Initializer_fragment_typing.create_aot_context
+    in
+    let* context =
+      create_context ~table:value.table
+        ~parent:(Task_declarations.initializer_scope ledger)
+      |> diagnose
+    in
+    let* typed =
+      Initializer_fragment_typing.prepare context fragment |> diagnose
+    in
+    let before = work value in
+    let* prepared =
+      Integer_initializers.prepare_native ~authority ~typed ~cell_offset
+        ~byte_offset ~operation
+        ~on_progress:(fun steps ->
+          VM.record_task_preparation value.state ~before ~steps)
+        ~max_steps:(VM.task_initializer_limit value.state - before)
+    in
+    value.initializers_rev <-
+      { preparation = prepared } :: value.initializers_rev;
+    Ok ()
 
 let static_completions value = List.rev value.statics_rev
 let static_preparation completion = completion.static_preparation

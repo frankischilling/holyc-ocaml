@@ -132,6 +132,7 @@ let rec statement_facts declaration_index = function
   | Frontend.Ast.Implicit_output_statement _
   | Frontend.Ast.Label_statement _
   | Frontend.Ast.No_warn_statement _
+  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.Return_statement _ -> Ok ([], declaration_index)
 
 and statements_facts declaration_index statements =
@@ -187,8 +188,7 @@ let function_entries declarations =
       | Sema.Declaration_collection.Global_variable -> false)
 
 let functions (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Function_prototype prototype ->
         Some (item_index, Prototype prototype)

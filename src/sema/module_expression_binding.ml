@@ -399,7 +399,7 @@ let resolve_selected_occurrence publications environment source =
             | Reference_selection.Absent
             | Reference_selection.Unavailable
             | Reference_selection.Outer _ -> Ok Outer_candidate
-            | Reference_selection.Local ->
+            | Reference_selection.Local | Reference_selection.Static_local _ ->
                 Error (invalid_input "selected local has no function binding")
             | Reference_selection.Source
                 (_, Reference_selection.Function_declared) ->

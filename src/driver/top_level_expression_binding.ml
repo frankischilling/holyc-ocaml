@@ -254,6 +254,7 @@ let rec statement state = function
   | Frontend.Ast.Empty_statement _
   | Frontend.Ast.Goto_statement _
   | Frontend.Ast.Label_statement _
+  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.No_warn_statement _ -> Ok state
 
 and statements state values = fold_result statement state values
@@ -302,7 +303,7 @@ let ordinary_statement_inputs selections queries
                 rest)
     | _ :: rest -> loop statement_index inputs_rev (item_index + 1) rest
   in
-  loop 0 [] 0 module_.items
+  loop 0 [] 0 (List.map snd (Frontend.Ast.declaration_items module_))
 
 let statement_inputs ~table selections queries ?initializers
     (module_ : Frontend.Ast.module_) =
@@ -316,8 +317,7 @@ let statement_inputs ~table selections queries ?initializers
       | Error _ as error -> error
       | Ok globals ->
           let ordinary =
-            module_.items
-            |> List.mapi (fun index item -> (index, item))
+            Frontend.Ast.declaration_items module_
             |> List.filter_map (function
               | index, Frontend.Ast.Top_level_statement node ->
                   Some (index, `Statement node)

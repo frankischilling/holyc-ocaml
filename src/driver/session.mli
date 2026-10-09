@@ -11,6 +11,12 @@ val primitive_for :
 val primitive_symbol : primitive_binding -> Sema.Symbol.t
 val primitive_type : primitive_binding -> Common.Primitive_type.t
 val primitive_record : primitive_binding -> Sema.Compiler_record.t
+
+val pointer_primitive : t -> primitive_binding
+(** The exact intrinsic RT_PTR binding retained by the original source-order
+    seed. Later spelling shadows cannot replace it. Task views share this
+    association; a frontend fork rebinds it to its own semantic table. *)
+
 val create : unit -> t
 
 val task_frontend : t -> t

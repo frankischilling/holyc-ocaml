@@ -23,6 +23,7 @@ let parse ?(on_enter = fun () -> ()) ?(reference = fun _ -> Ok ())
        ~kind:Symbol_visibility.Function ?function_call_shape:selected_shape ());
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = Some reference;
       call = Some call;
@@ -509,6 +510,7 @@ let implicit_receipt_claims () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = Some call;
@@ -521,7 +523,8 @@ let implicit_receipt_claims () =
     }
   in
   let _, _, parsed, _, _, _ =
-    Test_stream_parser.parse ~session ~commands {|''(42);|}
+    Test_stream_parser.parse ~session ~commands
+      {|extern U0 PutChars(I64 n);''(42);|}
   in
   ignore (Test_parser.expect_ast parsed);
   let selection = Option.get !selected in
@@ -562,6 +565,7 @@ let parser_suspension_authority () =
   in
   let commands checkpoint : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some checkpoint;
       reference = None;
       call = None;
@@ -608,6 +612,7 @@ let parser_suspension_authority () =
         let nested_commands =
           {
             nested_commands with
+            lexical_lookup = None;
             checkpoint =
               Some
                 (fun event ->
@@ -672,9 +677,193 @@ let parser_suspension_authority () =
     (Parser.suspend_context (Option.get !root));
   reject "expired unused token cannot parse" (invoke (Option.get !expired))
 
+let saved_compiler_parser_authority () =
+  let checked = Test_declaration_collection.checked in
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  let session = Session.create () in
+  let sources = Session.sources session and symbols = Session.symbols session in
+  let definitions = Session.definitions session in
+  let local = Symbol_visibility.Environment.begin_local_context symbols in
+  Symbol_visibility.Environment.add_local symbols local ~name:"Hidden"
+  |> checked;
+  let aot =
+    Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot () |> checked
+  and jit =
+    Preprocessor.Config.create ~compilation_mode:Preprocessor.Jit () |> checked
+  in
+  let parent =
+    Session.add_source session ~path:"saved-compiler-parent.hc"
+      ~contents:"#exe {42;}"
+  in
+  let child =
+    Session.add_source session ~path:"saved-compiler-child.hc"
+      ~contents:"defined(Hidden)+17;"
+  in
+  let root = ref None and accepted = ref None and expired = ref None in
+  let sink checkpoint : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = Some checkpoint;
+      reference = None;
+      call = None;
+      implicit_output = None;
+      declaration = None;
+      query = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let child_commands =
+    sink (fun event ->
+        (match event with
+        | Parser.Sequence_completed sequence -> accepted := Some sequence
+        | _ -> ());
+        Ok ())
+  in
+  let child_commands =
+    {
+      child_commands with
+      query =
+        Some
+          (fun event ->
+            (match event with
+            | Parser.Query_root root ->
+                Alcotest.(check bool)
+                  "saved compiler local shadows survive table switching" true
+                  (root.query_lookup = Symbol_visibility.Shadowed_by_local)
+            | _ -> ());
+            Ok ());
+    }
+  in
+  let invoke ?(enclosing = Option.get !root) ?(sources = sources)
+      ?(symbols = symbols) ?(config = jit) ?(commands = child_commands) token =
+    Parser.parse_suspended_enclosing token ~enclosing ~commands ~sources
+      ~definitions ~symbols ~config child
+  in
+  let commands =
+    sink (fun event ->
+        (match event with
+        | Parser.Sequence_started context ->
+            root := Some context;
+            reject "ordinary source has no saved directive tables"
+              (Parser.suspension_enclosing_context
+                 (Parser.suspend_context context |> checked))
+        | _ -> ());
+        Ok ())
+  in
+  let execute_stream _ =
+    let task = Session.task_frontend (Session.fork_frontend session) in
+    let commands =
+      sink (fun event ->
+          (match event with
+          | Parser.Sequence_started context ->
+              let token = Parser.suspend_context context |> checked in
+              let enclosing =
+                Parser.suspension_enclosing_context token |> checked
+              in
+              Alcotest.(check bool)
+                "saved tables keep exact outer context" true
+                (enclosing == Option.get !root);
+              reject "suspended outer parser cannot issue a new token"
+                (Parser.suspend_context enclosing);
+              reject "directive tables cannot replace enclosing tables"
+                (invoke ~symbols:(Session.symbols task) token);
+              reject "another source manager cannot use saved tables"
+                (invoke ~sources:(Session.sources (Session.create ())) token);
+              reject
+                "directive context cannot impersonate its enclosing context"
+                (invoke ~enclosing:context token);
+              reject "child source cannot inherit AOT mode"
+                (invoke ~config:aot token);
+              Alcotest.(check bool)
+                "another domain cannot consume saved context" true
+                (Domain.spawn (fun () -> Result.is_error (invoke token))
+                |> Domain.join);
+              ignore (invoke token |> checked |> Test_parser.expect_ast);
+              Alcotest.(check bool)
+                "saved-table child owns exact accepted completion" true
+                (Parser.suspension_owns_sequence token (Option.get !accepted));
+              reject "accepted saved-table input consumes token" (invoke token);
+              let rejected = Parser.suspend_context context |> checked in
+              let failure =
+                sink (fun _ ->
+                    Error
+                      [
+                        Diagnostic.make ~code:"TEST" ~severity:Diagnostic.Error
+                          ~message:"reject saved compiler child"
+                          ~primary:
+                            (Span.unsafe_make ~source:(Source_file.id child)
+                               ~start:0 ~stop:0)
+                          ();
+                      ])
+              in
+              Alcotest.(check bool)
+                "saved-table rejection fails child parse" true
+                (invoke ~commands:failure rejected
+                |> checked |> Parser.has_errors);
+              reject "rejected saved-table child consumes token"
+                (invoke rejected);
+              let exceptional = Parser.suspend_context context |> checked in
+              let exception Abort_saved_child in
+              (try
+                 ignore
+                   (invoke
+                      ~commands:
+                        (sink (function
+                          | Parser.Sequence_aborted _ -> Ok ()
+                          | _ ->
+                              let transient =
+                                Symbol_visibility.Environment
+                                .begin_local_context symbols
+                              in
+                              Symbol_visibility.Environment.add_local symbols
+                                transient ~name:"Transient"
+                              |> checked;
+                              raise Abort_saved_child))
+                      exceptional)
+               with Abort_saved_child -> ());
+              reject "exceptional saved-table child consumes token"
+                (invoke exceptional);
+              Alcotest.(check bool)
+                "exception restores enclosing local visibility" true
+                (Symbol_visibility.Environment.find_preprocessor symbols
+                   "Hidden"
+                = Shadowed_by_local);
+              Alcotest.(check bool)
+                "exception releases child local visibility" true
+                (Symbol_visibility.Environment.find_preprocessor symbols
+                   "Transient"
+                = Absent);
+              expired := Some (Parser.suspend_context context |> checked)
+          | _ -> ());
+          Ok ())
+    in
+    Ok
+      Parser.
+        {
+          definitions = Session.definitions task;
+          symbols = Session.symbols task;
+          commands;
+          finish = (fun () -> Ok "");
+          abort = (fun () -> ());
+        }
+  in
+  ignore
+    (Parser.parse ~commands ~execute_stream ~sources ~definitions ~symbols
+       ~config:aot parent
+    |> Test_parser.expect_ast);
+  reject "completed directive cannot reuse saved compiler tables"
+    (invoke (Option.get !expired))
+
 let tests =
   tests
   @ [
       Alcotest.test_case "parser suspension owns its exact live source position"
         `Quick parser_suspension_authority;
+      Alcotest.test_case
+        "saved compiler parsing retains exact directive ancestry" `Quick
+        saved_compiler_parser_authority;
     ]

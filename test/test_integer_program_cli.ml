@@ -17,6 +17,12 @@ let with_file suffix contents action =
 
 let compiler = Sys.argv.(1)
 
+let first_error report =
+  let open Yojson.Safe.Util in
+  report |> member "diagnostics" |> to_list
+  |> List.find (fun diagnostic ->
+      diagnostic |> member "severity" |> to_string = "error")
+
 let invoke_raw arguments =
   with_file ".stdout" "" (fun stdout ->
       with_file ".stderr" "" (fun stderr ->
@@ -53,10 +59,40 @@ let contains text fragment =
   in
   find 0
 
-let success arguments =
+let success ?(warnings = []) arguments =
   let status, stdout, stderr = invoke arguments in
   require (status = Unix.WEXITED 0) ("command failed: " ^ stderr);
-  require (stderr = "") ("unexpected diagnostics: " ^ stderr);
+  (if warnings = [] then
+     require (stderr = "") ("unexpected diagnostics: " ^ stderr)
+   else if String.starts_with ~prefix:"[" (String.trim stderr) then
+     let open Yojson.Safe.Util in
+     let actual =
+       Yojson.Safe.from_string stderr
+       |> to_list
+       |> List.map (fun diagnostic ->
+           ( diagnostic |> member "code" |> to_string,
+             diagnostic |> member "severity" |> to_string,
+             diagnostic |> member "message" |> to_string ))
+     in
+     require
+       (actual
+       = List.map (fun (code, message) -> (code, "warning", message)) warnings)
+       "successful legacy JSON preserves reached warnings"
+   else
+     let lines =
+       String.split_on_char '\n' stderr
+       |> List.filter (fun line -> contains line "warning[")
+     in
+     require
+       (List.length lines = List.length warnings
+       && (not (contains stderr "error["))
+       && List.for_all2
+            (fun line (code, message) ->
+              String.ends_with
+                ~suffix:("warning[" ^ code ^ "]: " ^ message)
+                (String.trim line))
+            lines warnings)
+       "successful human report preserves reached warnings");
   stdout
 
 let () =
@@ -925,8 +961,20 @@ let () =
               require
                 (status = Unix.WEXITED 1 && stdout = "")
                 "failed U0 or word callee supplies no successful report";
+              let diagnostics = Yojson.Safe.from_string stderr |> to_list in
+              require
+                (diagnostics
+                |> List.filter (fun d ->
+                    d |> member "severity" |> to_string = "warning")
+                |> List.map (fun d -> d |> member "code" |> to_string)
+                =
+                if code = "HCIRVM0013" then [ "HCSEMA0078"; "HCSEMA0078" ]
+                else [])
+                "reached return warnings precede the callee fault";
               let diagnostic =
-                Yojson.Safe.from_string stderr |> to_list |> List.hd
+                List.find
+                  (fun d -> d |> member "severity" |> to_string = "error")
+                  diagnostics
               in
               let notes =
                 diagnostic |> member "notes" |> to_list |> List.map to_string
@@ -1024,8 +1072,7 @@ let () =
           require
             (failed |> member "executed_steps" |> to_int = steps
             && failed |> member "final_value" = `Null
-            && failed |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = "HCIRVM0007")
+            && first_error failed |> member "code" |> to_string = "HCIRVM0007")
             "later step fault retains output but no successful result")
         [ (Sys.argv.(15), 9, 7); (Sys.argv.(16), 8, 6) ];
       let human_status, human, human_errors =
@@ -1050,9 +1097,7 @@ let () =
                 && report |> member "final_value" = `Null
                 && report |> member "termination" = `Null)
                 "failure cannot fabricate a final result";
-              let diagnostic =
-                report |> member "diagnostics" |> to_list |> List.hd
-              in
+              let diagnostic = first_error report in
               require
                 (diagnostic |> member "code" |> to_string = code)
                 "v2 retains the actual runtime diagnostic"))
@@ -1095,9 +1140,7 @@ let () =
           require (status = Unix.WEXITED 1)
             "unresolved extern fails when reached";
           check_capture report "41" 1 3;
-          let diagnostic =
-            report |> member "diagnostics" |> to_list |> List.hd
-          in
+          let diagnostic = first_error report in
           require
             (diagnostic |> member "code" |> to_string = "HCIRVM0030"
             && diagnostic |> member "notes" |> to_list
@@ -1170,15 +1213,32 @@ let () =
           require
             (status = Unix.WEXITED 1
             && report |> member "final_value" = `Null
-            && report |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = code)
-            "joined fixture one-below resource bound")
+            && first_error report |> member "code" |> to_string = code)
+            "joined fixture one-below resource bound";
+          require
+            (report |> member "diagnostics" |> to_list
+            |> List.map (fun diagnostic ->
+                diagnostic |> member "code" |> to_string)
+            =
+            if mode = "jit" then [ "HCSEMA0075"; "HCSEMA0038"; code ]
+            else [ code ])
+            "joined header warning precedes the actual resource fault")
         [
           ("--step-limit=28", "HCIRVM0007");
           ("--frame-byte-limit=23", "HCIRVM0011");
         ];
       let legacy =
-        success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+        success
+          ~warnings:
+            (if mode = "jit" then
+               [
+                 ("HCSEMA0075", "Unused extern 'Add'");
+                 ( "HCSEMA0038",
+                   "function \"Add\" argument list does not match the replaced \
+                    header" );
+               ]
+             else [])
+          [ "run"; "--format=json"; "--mode=" ^ mode; source ]
         |> Yojson.Safe.from_string
       in
       require
@@ -1187,7 +1247,17 @@ let () =
         )
         "joined execution preserves legacy reporting";
       let dump () =
-        success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ]
+        success
+          ~warnings:
+            (if mode = "jit" then
+               [
+                 ("HCSEMA0075", "Unused extern 'Add'");
+                 ( "HCSEMA0038",
+                   "function \"Add\" argument list does not match the replaced \
+                    header" );
+               ]
+             else [])
+          [ "dump-ir"; "--program"; "--mode=" ^ mode; source ]
       in
       let first = dump () in
       require
@@ -1264,8 +1334,7 @@ let () =
           require
             (status = Unix.WEXITED 1
             && report |> member "final_value" = `Null
-            && report |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = code)
+            && first_error report |> member "code" |> to_string = code)
             "persistent byte one-below limit")
         [
           ("--step-limit=76", "HCIRVM0007");
@@ -1350,8 +1419,7 @@ let () =
           require
             (status = Unix.WEXITED 1
             && report |> member "final_value" = `Null
-            && report |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = code
+            && first_error report |> member "code" |> to_string = code
             && report |> member "output_hex" |> to_string = capture)
             ("persistent array one-below " ^ name))
         bounds;
@@ -1458,8 +1526,7 @@ let () =
           require
             (status = Unix.WEXITED 1
             && report |> member "final_value" = `Null
-            && report |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = code
+            && first_error report |> member "code" |> to_string = code
             && report |> member "output_hex" |> to_string = capture)
             ("byte update one-below " ^ name))
         bounds;
@@ -1488,8 +1555,8 @@ let () =
                 && report |> member "final_value" = `Null
                 && report |> member "output_hex" |> to_string = ""
                 && report |> member "output_work" |> to_int = 0
-                && report |> member "diagnostics" |> to_list |> List.hd
-                   |> member "code" |> to_string = "HCRUN0006")
+                && first_error report |> member "code" |> to_string
+                   = "HCRUN0006")
                 "native byte update initializer proof boundary"))
         [
           "U8 G=250;I64 N=(G+=10);N;";
@@ -1575,8 +1642,7 @@ let () =
           require
             (status = Unix.WEXITED 1
             && report |> member "final_value" = `Null
-            && report |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = code
+            && first_error report |> member "code" |> to_string = code
             && report |> member "output_hex" |> to_string = capture)
             ("byte signature one-below " ^ name))
         bounds;
@@ -1605,8 +1671,8 @@ let () =
               require
                 (status = Unix.WEXITED 1
                 && report |> member "final_value" = `Null
-                && report |> member "diagnostics" |> to_list |> List.hd
-                   |> member "code" |> to_string = "HCRUN0006"
+                && first_error report |> member "code" |> to_string
+                   = "HCRUN0006"
                 && report |> member "output_hex" |> to_string = ""
                 && report |> member "output_work" |> to_int = 0)
                 "native parameter and return proof boundary"))
@@ -1702,8 +1768,7 @@ let () =
           require
             (status = Unix.WEXITED 1
             && report |> member "final_value" = `Null
-            && report |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = code
+            && first_error report |> member "code" |> to_string = code
             && report |> member "output_hex" |> to_string = capture)
             ("narrow fixture one-below " ^ name))
         bounds;
@@ -1732,8 +1797,8 @@ let () =
                 && report |> member "final_value" = `Null
                 && report |> member "output_hex" |> to_string = ""
                 && report |> member "output_work" |> to_int = 0
-                && report |> member "diagnostics" |> to_list |> List.hd
-                   |> member "code" |> to_string = "HCRUN0006")
+                && first_error report |> member "code" |> to_string
+                   = "HCRUN0006")
                 "signed native initializer proof boundary"))
         [
           "I64 F(){I8 n=255;return n;}I64 N=F();N;";
@@ -1791,8 +1856,7 @@ let () =
           require
             (status = Unix.WEXITED 1
             && report |> member "dimension_preparation_work" |> to_int = 2
-            && report |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = "HCIRVM0007")
+            && first_error report |> member "code" |> to_string = "HCIRVM0007")
             "dimension limit preserves reached work";
           List.iter
             (fun version ->
@@ -1871,8 +1935,7 @@ let () =
           require
             (status = Unix.WEXITED 1
             && report |> member "dimension_preparation_work" |> to_int = 2
-            && report |> member "diagnostics" |> to_list |> List.hd
-               |> member "code" |> to_string = "HCIRVM0007")
+            && first_error report |> member "code" |> to_string = "HCIRVM0007")
             "unbraced initializer preserves one-below numeric limit";
           ignore
             (success
@@ -1892,8 +1955,7 @@ let () =
                 && report
                    |> member "dimension_preparation_work"
                    |> to_int = work
-                && report |> member "diagnostics" |> to_list |> List.hd
-                   |> member "code" |> to_string = code)
+                && first_error report |> member "code" |> to_string = code)
                 "parse and evaluation failures retain exact numeric work"))
         [ ("U8 A[2;", 1, 1, "HCPARSE0023"); ("U8 A[1/0;", 3, 3, "HCSEMA0004") ];
       List.iter
@@ -1929,7 +1991,7 @@ let () =
           let status, output, errors =
             run version
               [
-                "--step-limit=40";
+                "--step-limit=42";
                 "--initializer-step-limit=10";
                 "--global-byte-limit=16";
                 "--literal-byte-limit=8";
@@ -1943,7 +2005,7 @@ let () =
             (status = Unix.WEXITED 0
             && report |> member "final_value" |> member "value" |> to_string
                = "42"
-            && report |> member "executed_steps" |> to_int = 40
+            && report |> member "executed_steps" |> to_int = 42
             && report |> member "compiled_initializer_steps" |> to_int = 10)
             "AOT source reports cumulative stream and isolated work";
           require
@@ -1967,15 +2029,14 @@ let () =
                 let report = Yojson.Safe.from_string stdout in
                 require
                   (status = Unix.WEXITED 1
-                  && report |> member "diagnostics" |> to_list |> List.hd
-                     |> member "code" |> to_string = code
+                  && first_error report |> member "code" |> to_string = code
                   && report |> member "output_hex" |> to_string = output
                   && report |> member "executed_steps" |> to_int > 0
                   && report |> member "compiled_initializer_steps" |> to_int > 0
                   )
                   "AOT source failures retain reached cumulative work"))
             [
-              ("--step-limit=38", "HCIRVM0007", "4142");
+              ("--step-limit=40", "HCIRVM0007", "4142");
               ("--initializer-step-limit=9", "HCIRVM0007", "41");
               ("--global-byte-limit=15", "HCIRVM0016", "41");
               ("--literal-byte-limit=7", "HCIRVM0021", "41");

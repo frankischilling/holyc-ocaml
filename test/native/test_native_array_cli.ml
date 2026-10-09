@@ -107,9 +107,13 @@ let ir_json ?(status = 0) ?(options = []) ~mode source =
 let diagnostics report = report |> member "diagnostics" |> to_list
 
 let first_diagnostic report =
-  match diagnostics report with
-  | first :: _ -> first
-  | [] -> failwith "expected an array diagnostic"
+  match
+    List.find_opt
+      (fun diagnostic -> diagnostic |> member "severity" |> to_string = "error")
+      (diagnostics report)
+  with
+  | Some first -> first
+  | None -> failwith "expected an array error diagnostic"
 
 let first_code report = first_diagnostic report |> member "code" |> to_string
 
@@ -235,6 +239,23 @@ let () =
           with_file ".hc" source (fun path ->
               let native = host_json ~status:1 ~mode path in
               let interpreted = ir_json ~status:1 ~mode path in
+              let warnings report =
+                diagnostics report
+                |> List.filter (fun diagnostic ->
+                    diagnostic |> member "severity" |> to_string = "warning")
+                |> List.map (fun diagnostic ->
+                    ( diagnostic |> member "code" |> to_string,
+                      diagnostic |> member "message" |> to_string ))
+              in
+              let expected_warnings =
+                if label = "past-one-past materialization" then
+                  [ ("HCSEMA0034", "unused variable \"p\" in function \"F\"") ]
+                else []
+              in
+              require
+                (warnings native = expected_warnings
+                && warnings interpreted = expected_warnings)
+                (label ^ " retained compiler warnings");
               require
                 (first_code native = expected
                 && first_code interpreted = expected)

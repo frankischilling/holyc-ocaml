@@ -2,6 +2,19 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-OWNED-EXPRESSION-COMPILER-CLEANUP"
+description = "Original missing operands, grouped closes, prefix-type rejection and call failures retain the Compiler cause and the owned expression stack's counted cleanup."
+sources = ["Compiler/PrsExp.HC:264-303 PrsExpression owned and borrowed stacks", "Compiler/PrsExp.HC:430-536 required/default argument traversal", "Compiler/PrsExp.HC:729-744 original type selection and grouped close", "Compiler/PrsExp.HC:862-866 retained named function", "Compiler/PrsExp.HC:957 missing expression", "Compiler/Lex.HC:493-513 local shadows and selected hash entry", "Compiler/PrsStmt.HC:1200-1204 implicit call with NULL stack", "Compiler/CExcept.HC:81-96 LexExcept", "Compiler/CMain.HC:589-596 ExePutS selective catch"]
+implementation = ["src/frontend/parser.ml", "src/frontend/parser.mli", "src/driver/task_declarations.ml"]
+tests = ["test/compiler_exception_cases.ml", "test/test_compiler_exceptions.ml", "test/test_compiler_exceptions_cli.ml", "test/native/test_native_compiler_exceptions.ml"]
+documentation = ["docs/compiler-exceptions.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 801
+source_identity = "Each private receipt retains its original owner, parser control, position, events and domain. Cleanup retains the exact caught cause and unchanged token. Catch preflight follows the original argument phase and complete abort chain; AOT grammar fallback never replaces a callback's actual native result."
+execution = "Missing operands, grouped closes and original Class/Internal_type selections after an opening parenthesis produce one original error increment followed by one owned-stack cleanup increment. Nested groups and calls borrow the outer stack. Local/function/global shadows retain their original selection. Required implicit arguments own their stacks; completed arguments leave no stack for later delimiter errors. Authenticated child catches preserve prior effects and quotas, and later independent faults still propagate."
+verification_boundary = "Source-derived hosted IR/native tests are distinct from TempleOS runtime captures. General outer native AOT class declarations reject before a later type producer; saved children parse in their original JIT task. Unmatched earlier lval, pointer/member, update and IC type phases cannot authenticate later syntax. Other original expression producers, native exception stacks and terminal behavior remain required."
+
+[[feature]]
 id = "HC-COMPILER-ASSEMBLY-ORDER"
 description = "Compiler phases follow the include order in Compiler.PRJ."
 sources = ["Compiler/Compiler.PRJ"]
@@ -10259,7 +10272,7 @@ retained_identity = ["stable function ID", "function symbol", "declaration scope
 retained_signature = ["return type", "source-ordered parameters", "source-ordered locals", "member positions", "member symbols", "member types", "source spans"]
 retained_compiler_state = ["stored function flags", "compiler-option snapshot"]
 validation = ["function, parameter, and local symbol kinds", "member scope ownership", "nonnegative identities and positions", "duplicate positions within an inventory", "duplicate symbols across inventories", "known stored function flags", "known compiler options", "argument cleanup and interrupt flag combinations", "source span shape", "x87 stack discipline"]
-diagnostics = ["HCIR0026 negative function ID", "HCIR0027 invalid function symbol or scope", "HCIR0028 invalid source span", "HCIR0029 unknown flag or option bits", "HCIR0030 incompatible function flags", "HCIR0031 negative member position", "HCIR0032 invalid member symbol or scope", "HCIR0033 duplicate member position or symbol", "HCIR0021 through HCIR0025 propagated x87 failures"]
+diagnostics = ["HCIR0026 negative function ID", "HCIR0027 invalid function symbol or scope", "HCIR0028 invalid source span", "HCIR0029 unknown flag or option bits", "HCIR0031 negative member position", "HCIR0032 invalid member symbol or scope", "HCIR0033 duplicate member position or symbol", "HCIR0021 through HCIR0025 propagated x87 failures"]
 deterministic_dump = "holyc-ir-function-v1"
 focused_tests = 8
 mutation = "none"
@@ -11548,19 +11561,19 @@ native_oracle_status = "pinned-source audit and hosted adapter execution; no new
 
 [[feature]]
 id = "HC-STREAM-EXE-PRINT"
-description = "Checked StreamExePrint formats source and executes it through the retained outer task context for compiled AOT #exe commands."
-sources = ["Compiler/CMain.HC:673-688", "Compiler/CompilerB.HH:21", "Compiler/CMain.HC:60-75"]
+description = "Checked StreamExePrint formats source and executes it through the saved enclosing compiler context in active #exe blocks of either outer mode."
+sources = ["Compiler/CMain.HC:673-690", "Compiler/CompilerB.HH:21", "Compiler/CMain.HC:572-604", "Compiler/PrsStmt.HC:805-840"]
 implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_output.ml", "src/ir/runtime_call_context.ml"]
 tests = ["test/test_stateful_exe.ml", "test/test_stateful_exe_cli.ml", "test/test_task_parser_executor.ml", "test/test_task_command_order.ml"]
 documentation = ["docs/integer-task.md", "docs/retained-aggregates.md", "docs/reference-source-map.md", "CHANGELOG.md"]
 status = "implemented"
 issue = 684
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-semantics = "AOT calls format their variadic arguments, execute the resulting tracked source with current outer task declarations and replacements, and return its final I64 bits or zero when no final value exists. Nested declarations stay in the task. JIT performs the formatting work before HCIRVM0027 because the pinned service requires compiled #exe mode."
-ownership = "Nested parsing resumes from the exact live suspension and command history. Function locals are hidden while the outer task namespace remains visible. Stale, foreign or reconstructed completion evidence cannot authorize execution. Reached ordinary output and task effects survive a later nested fault."
+semantics = "Active calls in both outer modes format their variadic arguments and execute the tracked source in the saved enclosing compiler namespace, returning its final I64 bits or zero when no final value exists. Reached child declarations publish there. Ordinary child commands start in JIT mode without inherited EXE permission; a child's own directive supplies its separate context."
+ownership = "Nested parsing resumes from the exact live suspension and command history with the original enclosing table and local shadows. Directive caller locals supply no compiler-local frame authority. Stale, foreign or reconstructed completion evidence cannot authorize execution. Reached ordinary output and task effects survive a later nested fault."
 limits = "Nested execution shares cumulative instruction, active-frame, call-depth and output-work budgets. Formatted source is bounded by max_generated_bytes but is executed directly, so it does not increment generated_bytes. Exact and one-below tests cover source bytes, execution steps, frame bytes, call depth and output work."
-source_gate = "Public AOT source executes StreamExePrint(\"40+2;\") and returns 42 through a following StreamPrint fragment. Focused tests cover nested calls, same-name replacement, generated declarations and failure effects. Public JIT source reaches formatting work and then reports HCIRVM0027."
-excluded = ["remaining sizeof/offset/lastclass/defined/$$ consumers", "remaining compiler-option consumers", "other compiler-task stream services", "native/BIN/loader acceptance", "bootstrap"]
+source_gate = "Public source in both modes executes StreamExePrint(\"40+2;\") and returns 42 through a following StreamPrint fragment. Focused tests cover nested calls, saved enclosing types and replacements, child publication and persistence, directive-only name exclusion, caller lifetime, failure effects and resource edges. Inactive calls reach formatting before HCIRVM0027."
+excluded = ["pending original AOT runtime data and function imports", "original compiler-local metadata and frames", "remaining sizeof/offset/lastclass/defined/$$ consumers", "remaining compiler-option consumers", "other compiler-task stream services", "synchronous native execution", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
 
 [[feature]]
@@ -12776,7 +12789,7 @@ tests = ["test/oracle/prepared-integer-shifts.json", "test/test_prepared_integer
 documentation = ["docs/prepared-integer-shifts.md", "docs/prepared-pointer-difference.md", "docs/integer-defaults.md", "docs/integer-division.md", "docs/constant-shifts.md", "docs/optimizer.md", "docs/testing.md", "docs/oracle-fixtures.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md"]
 identity = "Validate current original and transitive source producers before collecting exact zero-flag full-word SHL_CONST/SHR_CONST or scalar SHR_EQ with original internal-I64 literal count 0..63. Use the published retained callee context without reconstructing or resealing it. Copied/foreign/changed/new-after-seal records reject; actual execution rechecks the original bundle."
 execution = "Canonical payloads retain full counts and original computation classes. Addressed updates narrow stored values. Narrow register candidates require every graph write to preserve the declared range; bounded right shifts preserve it, while unbounded writes and explicit hardware registers do not qualify. Saved defaults/global/static values and original effects occur once."
-resources = "Reached output, original division faults and attempted work retain their preparation phase and callee context. Existing runtime, preparation, call, storage, frame, output and code limits remain bounded. The maintained example uses 199 runtime instructions, seven preparation and seven formatting-work units in both modes."
+resources = "Reached output, original division faults and attempted work retain their preparation phase and callee context. Existing runtime, preparation, call, storage, frame, output and code limits remain bounded. The maintained example uses 200 runtime instructions, seven preparation and seven formatting-work units in both modes after connecting original live static initializer execution."
 verification_boundary = "32 accepted native commands, 64 capture hashes, nineteen primary fields each repeated in one boot and two repeated DivZero default-compilation faults after one counter increment. Seven source groups and public CLI checks compare both modes, saved and nested/live values, original/transitive authority, full counts, narrow range invariants, reached effects/faults and exact/one-below limits. Existing native operation and original bundle controls remain required."
 excluded = ["raw variable shifts, unsupported compound counts and direct/unsealed preparation", "unproved narrow/numeric/flagged domains and general literal division/modulo admission", "shared nonconstant power-of-two DIV and plain MOD-mask plans under #585/#696/#697", "general declaration preparation under #685", "native retained frontend publication HCPP0008 under #704", "native exception delivery, full artifacts, actual BIN loading and compiler bootstrap"]
 
@@ -12850,3 +12863,869 @@ execution = "All six integer comparison operators compose with if/while/do/for c
 resources = "Unique dominating cross-block definitions, fresh invocation maps, native permanent shared-word homes under existing stack bounds, dense IDs, atomic allocation exhaustion, exact runtime/IR/block/code/frame limits."
 verification_boundary = "Fifty native field/source pairs observed twice in one verified final-ISO TempleOS JIT boot: thirty-six context fields, six cumulative-class fields and eight conditional result/effect fields. Hosted regressions extend coverage to loops, recursion, narrow storage, defaults, faults, output and both native ABI encodings. Native AOT parity is not claimed."
 excluded = ["F64 comparison chains", "multiple pending comparison reductions under #593", "full optimizer/ABI, module loader and bootstrap requirements"]
+
+[[feature]]
+id = "HC-SEMA-CALLBACK-STORAGE-IDENTITY"
+description = "Callback cells retain their original declarator and integer address storage separately from the callback return type."
+sources = [
+  "Compiler/PrsVar.HC:285-366 callback signature and internal RT_PTR storage selection",
+  "Compiler/PrsExp.HC:96-116 storage loads and updates",
+  "Compiler/PrsExp.HC:195-202 assignment lvalue validation",
+  "Compiler/PrsExp.HC:383-588 callee load and RT_PTR/RAX capture before argument emission",
+  "Compiler/PrsExp.HC:764-809 local callback and frame selection",
+  "Compiler/PrsExp.HC:868-904 global callback selection",
+  "Compiler/PrsExp.HC:997-1022 callback member selection",
+  "Compiler/PrsExp.HC:1055-1100 indexing and callback flag preservation"
+]
+implementation = [
+  "src/sema/function_type_resolution.ml",
+  "src/sema/function_type_resolution.mli",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/function_frame_layout.ml",
+  "src/sema/function_frame_layout.mli",
+  "src/ir/frame_address_lowering.ml",
+  "src/ir/frame_address_lowering.mli",
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli",
+  "src/driver/top_level_expression_tree.ml"
+]
+tests = [
+  "test/test_callback_storage.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_top_level_expression_result.ml",
+  "test/test_ir_frame_address_lowering.ml",
+  "test/test_ir_expression_lowering.ml",
+  "test/oracle/callback-storage-and-calls.json"
+]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "semantic scalar and fully indexed callback storage; original callee trees and default storage class; original parameter/local frame metadata, symbolic RBP-relative addresses, scalar word loads and pre-argument RT_PTR/RAX callee fragments"
+storage = "internal RT_PTR represented by intrinsic I64 with the callback declarator indirection count; source return type and recursive signature remain separate"
+identity = "The original callback pointer object is carried from the checked declarator through identifier typing, grouping, indexing, and exact frame selection. A nonordinary array or a matching Type.t cannot invent a callback signature."
+assignments_and_updates = "Scalar callback cells and fully indexed callback arrays are writable; assignment/update result types use storage rather than return class. Call and arithmetic results do not inherit callable expression metadata."
+array_class = "Fully indexed callback arrays produce integer callback addresses, including F64 and backed-aggregate return signatures."
+frame_address = "Exact original frame binding, symbol, source type, callback declarator, rank, location kind and span are checked before a symbolic RBP/displacement/add fragment is emitted. Foreign frames and swapped declarators have no address authority."
+native_oracle = "Twelve field/source pairs and twenty-four original observations from one verified read-only TempleOS JIT boot; native AOT has not been observed."
+compilation_modes = ["jit", "aot"]
+callee = "Identifier and dereferenced identifier calls retain a separate original callee value without changing syntactic form. Member and indexed calls retain and type their original computed callee. Scalar top-level and retained outer callbacks keep the same source tree. Identifier callee values must match the original occurrence, name, origin and dereference depth."
+callee_fragment = "A supported original frame cell is loaded once; PrsFunCall retags that producer to internal RT_PTR before SET_RAX/NOP2. The fragment ends before CALL_START and does not emit argument pushes, the saved-callee push or cleanup. Exact instruction/value capacity and foreign frames are checked."
+callback_defaults = "Callback parameter defaults keep their source return type and original parameter while exposing physical RT_PTR storage and the integer address class. Runtime default materialization remains unfinished."
+execution_connection = "Resolved source-owned function addresses now carry their original registered publication, prepared body and executable owner in the IR runner. Scalar automatic callback locals and named parameters store, copy, clear and compare those values. One-star scalar automatic and named parameter callbacks now invoke original captured integer/U0 bodies with explicit fixed slots and word variadic tails. Broader callback consumers remain unfinished under issue 801."
+remaining = ["callback runtime globals/statics/arrays and updates", "callback defaults and dereferenced/multistar invocation", "live task executable linking and reached lifetime", "checked reached signature and cleanup", "native callback emission", "callback returns and aggregate runtime consumers", "general noninteger variadics under issue 688"]
+
+[[feature]]
+id = "HC-IR-OWNED-FUNCTION-ADDRESS-VALUES"
+description = "Resolved function-address values retain their original registered publication, prepared body and executable owner through scalar storage."
+sources = [
+  "Compiler/PrsExp.HC:622-655 original selected executable address, JIT immediate and AOT absolute producers",
+  "Compiler/PrsVar.HC:285-366 callback return signature and physical RT_PTR storage",
+  "Compiler/PrsExp.HC:96-116 ordinary assignment and storage consumers",
+  "Compiler/OptPass789A.HC:99-112 AOT absolute immediate and relocation boundary"
+]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml", "src/ir/expression_lowering.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The exact checked function or top-level result owns the original resolved declaration and address path. The completed graph seals the physical producer. Copies, foreign contexts and matching numeric instruction IDs or symbols cannot select its receipt."
+executable_identity = "Capture consumes the original registered function link and exact prepared declaration/body owner; no latest-name lookup, fabricated numeric function ID, fresh identity wrapper or ambient host pointer is used. Isolated source bundles register all original declarations so a replaced JIT address retains its original body."
+storage = "Opaque code values survive ordinary full-word locals/globals, full-word views, explicit fixed arguments and checked one-star scalar automatic callback locals and named callback parameters. Callback cells retain their original signature separately from physical integer storage. Plain assignment and clearing accept numeric words without treating them as executable authority."
+comparisons = "Equality and inequality compare original registered links, prepared body/callee and executable owner; null compares unequal to owned code. Nonzero numeric comparison and numeric consumers fail when reached with HCIRVM0024, preserving earlier output."
+resources = "Original source producers use ordinary instruction ticks; callback frame cells occupy eight bytes. Exact and one-below actual instruction and frame limits are exercised."
+verification_boundary = "Six new groups exercise 44 JIT/AOT source programs plus JIT same-name replacement, exact original receipts, copied/foreign/missing contexts and reached fault effects. Earlier callback native controls are retained separately and do not validate this new IR execution implementation."
+excluded = ["concrete numeric code addresses and arithmetic", "numeric code address output and returns", "callback globals/arrays, static callback initializers and updates", "callback default materialization", "unresolved extern address slots and live task address linking", "indirect invocation and reached signature/lifetime checks", "hosted native address and callback emission", "general F64/mixed/aggregate callback execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-SCALAR-FRAME-CALLBACK-INVOCATION"
+description = "Scalar automatic and named parameter callbacks invoke their captured original integer/U0 executable body."
+sources = [
+  "Compiler/PrsExp.HC:383-588 original callee snapshot, reverse arguments, hidden count, saved RAX, indirect argument-byte displacement and cleanup",
+  "Compiler/PrsStmt.HC:62-139 anonymous PrsFunJoin and derived RET1 flag",
+  "Compiler/PrsVar.HC:514-532 local and parameter PrsType with zero function specifier flags",
+  "Compiler/OptPass789A.HC:723-732 CALL through the saved RSP slot"
+]
+implementation = ["src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/instruction_sequence.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Original function-owned typed indirect calls retain their callee expression, scalar frame declarator and anonymous signature. Sealed receipts bind the exact physical callee load, capture, saved slot, pushed producers, indirect call, cleanup and result. Raw or changed graphs and copied loads do not acquire these receipts."
+callee_identity = "An opaque function-address value retains its original registered link, callee, prepared body and executable owner. Invocation consumes that captured body owner; a later same-name publication cannot replace it. Numeric words have no executable authority."
+argument_order = "Callee evaluation and capture precede saved RAX and right-to-left fixed/tail arguments. Callback storage changes during an argument do not replace the captured callee. Explicit nested callback parameters, narrow fixed values, nested calls, recursion, hidden argc and word argv tails execute."
+cleanup = "Only one-star scalar automatic and named parameter frame cells authorize this consumer. Original local/parameter PrsType passes fsp_flags=0; anonymous PrsFunJoin derives RET1 for nonvariadic argument bytes in 1..32767. CALL_INDIRECT carries argument bytes. Callee pop uses ADD_RSP1(arguments) then ADD_RSP(8); caller pop uses ADD_RSP(arguments+8). The actual target flags do not select the caller policy."
+reached_checks = "Null/numeric callees fail with HCIRVM0024. Reached return/fixed/variadic signature or cleanup mismatches fail with HCIRVM0014 after argument effects. Unused mismatches can be overwritten before invocation. Whole-graph and receipt failures reject at preflight with zero executed steps. Live task expiry is outside this retained-owner consumer."
+verification_boundary = "Four new groups exercise 36 JIT/AOT explicit-argument invocation programs, reached output effects, skipped null calls, original and copied receipts, missing/copied graph authority and exact/one-below step, frame and depth limits. A JIT source program invokes the earlier executable after a same-name replacement. Earlier TempleOS JIT controls remain separate; this implementation has no hosted native callback proof."
+excluded = ["callback globals/arrays, static callback initializers and updates", "anonymous callback signature defaults and owned-code parameter defaults", "dereferenced and multistar invocation", "concrete numeric code addresses", "live task linking and reached expiry", "hosted native function addresses and callbacks", "F64/mixed/aggregate callback execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-CALLBACK-PARAMETER-WORD-DEFAULTS"
+description = "Named-function callback parameters materialize their original saved integer default with the physical callback storage class."
+sources = [
+  "Compiler/PrsVar.HC:619-658 original parameter default compilation, execution and saved-word conversion",
+  "Compiler/PrsExp.HC:453-470 materialization with the original member_class",
+  "Compiler/PrsExp.HC:622-655 selected function address through the source hash chain"
+]
+implementation = ["src/ir/default_fragment_destination.ml", "src/ir/prepared_parameter_default.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The original named-function publication, completed header, parameter/default AST and physical default producer authorize materialization. The callback storage class is internal I64 with pointer depth one, independently of its return class. Equal copied producers and raw graphs reject before execution."
+preparation = "The existing declaration-time evaluator executes a checked integer expression once. Closed defaults work in both IR modes; JIT defaults also execute original retained calls and effects. Calls that omit the slot reuse its saved word. F64 default expressions and owned executable values are not converted to numeric address bits."
+execution = "Omitted callback parameters accept saved null and numeric words. These remain ordinary runtime words with no executable authority. A callback may be overwritten with an owned function address before invocation; a reached numeric target fails after argument effects. Defaults retain their original header across JIT replacement and preserve exact execution limits."
+retained_addresses = "A resolved outer function address retains the original source occurrence, physical outer binding and exact resolved declaration. Lowering consumes the originally registered executable link and body owner; a later same-name publication does not retarget it."
+verification_boundary = "Five new groups cover closed word defaults in both IR modes, independent callback return classes, provided and omitted slots, nested calls, original declaration effects, retained body replacement, reached numeric faults with output, copied/missing producer authority and exact/one-below limits. This entry does not claim hosted native callback or new independent TempleOS oracle verification."
+excluded = ["anonymous callback signature defaults", "owned-code defaults", "callback defaults with more than one indirection star", "F64 default expressions", "aggregate callback signature layout admission", "hosted native callback/default emission", "live task expiry"]
+
+[[feature]]
+id = "HC-IR-ANONYMOUS-CALLBACK-WORD-DEFAULTS"
+description = "Anonymous callback signatures evaluate and materialize their own original integer defaults through ordinary IR invocation."
+sources = [
+  "Compiler/PrsVar.HC:285-369 callback return/storage separation and original anonymous signature",
+  "Compiler/PrsVar.HC:408-658 anonymous parameter order and declaration-time saved default evaluation",
+  "Compiler/PrsStmt.HC:62-139 unnamed function record and fixed-slot cleanup policy",
+  "Compiler/PrsExp.HC:453-470 saved default materialization with the original member class",
+  "Compiler/PrsExp.HC:383-588 original callback signature, callee capture and right-to-left argument materialization"
+]
+implementation = ["src/frontend/parser.ml", "src/sema/default_fragment.ml", "src/sema/source_activation.ml", "src/sema/function_type_resolution.ml", "src/driver/task_declarations.ml", "src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/ir/prepared_callback_default.ml", "src/ir/default_fragment_destination.ml", "src/ir/integer_globals.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Each original anonymous signature owns ordered parser parameter/default/completion receipts and a separate source scope. No named symbol or enclosing named-header receipt is fabricated. Materialization joins the exact original signature AST, parameter, successful saved word and physical pushed producer. Equal copied signatures and graphs do not acquire authority."
+preparation = "Closed integer expressions execute once in both IR source modes. JIT original task references, retained calls and effects run during declaration, including signatures inside unused function bodies. Repeated omission reuses that signature's saved value rather than a default on its reached executable target."
+execution = "Scalar automatic-local and fixed-parameter callbacks consume their own fixed defaults and word variadic tails with original capture/cleanup. Narrow integer conversions, nested callback-member word defaults and integer/U0 results compose with ordinary source lowering. Saved callback words retain physical RT_PTR storage and do not grant executable authority."
+verification_boundary = "Five groups cover both IR modes, own-versus-target defaults, omitted/provided slots, nested members, variadic and U0 calls, once-only JIT effects, reached target and default faults with retained output, JIT replacement, exact/one-below preparation and runtime limits, and original-versus-copied source/producer authority. This is IR verification and does not establish hosted native emission or a new independent TempleOS comparison."
+excluded = ["ordinary instruction-address defaults and stored class callback invocation", "AOT reference-bearing default relocation", "F64 default expressions", "owned-code defaults", "unresolved constant-divisor default optimization", "aggregate signature execution", "AOT repeated same-name definitions", "hosted native callback/default emission", "live task expiry"]
+
+[[feature]]
+id = "HC-IR-CLASS-CALLBACK-DEFAULT-POSITIONS"
+description = "Original class-context anonymous header positions execute through saved integer-default preparation and retained JIT calls."
+sources = [
+  "Compiler/PrsExp.HC:708-721 CCF_CLASS_DOL_OFFSET selects class IMM I64; ordinary $$ selects IC_RIP RT_PTR",
+  "Compiler/PrsVar.HC:417-432 class flag and class_dol_offset write before member type/default input",
+  "Compiler/PrsVar.HC:619-658 fixed eight-byte member slots and declaration-time default evaluation",
+  "Compiler/PrsVar.HC:691-721 delimiter recursion, closing without another position write and class flag restoration",
+  "Compiler/PrsVar.HC:373-404 variadic hidden members after the fixed-member position write",
+  "Compiler/PrsVar.HC:285-369 callback return-class and physical RT_PTR storage separation",
+  "Compiler/PrsStmt.HC:62-139 unnamed PrsFunJoin and retained nested compiler state",
+  "Compiler/PrsExp.HC:453-470 original member-class saved default materialization"
+]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/default_fragment.ml", "src/sema/initializer_source.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/sema/top_level_expression_tree.ml", "src/sema/source_type_reference.ml", "src/sema/source_aggregate_layout.ml", "src/driver/task_declarations.ml", "src/driver/top_level_expression_tree.ml", "src/ir/expression_lowering.ml", "src/ir/dimension_requirements.ml", "src/ir/offset_requirements.ml"]
+tests = ["test/test_callback_storage.ml", "test/aot_default_authority/test_aot_default_authority.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "An anonymous write retains its live original signature and completed predecessor cursor. Each default captures the original class-offset versus instruction-address selector and exact $$ node. Class reads resolve through the original source manager and checked position store. Copied nodes, equal fragments, missing writes and replayed writes acquire no class position authority."
+semantics = "CCF_CLASS_DOL_OFFSET is set by class-body parsing and restored on exit. PrsVarLst argument writes do not set it. Fixed argument members occupy eight bytes independently of return class. Writes precede the next member's type/default input. Nested signatures leave their final write current; closing does not restore the enclosing position. Empty semicolons add no members, trailing delimiters publish the completed size, and variadic argc/argv insertion leaves the preceding write current."
+execution = "Class-position defaults lower to their original I64 value and run once through ordinary default evaluation. JIT retained functions and effects consume the position during declaration; AOT prepares closed constants and seals their actual saved words. Retained class callback layout requires the original completed anonymous header and uses RT_PTR storage independently of return class. Ordinary $$ stays an instruction address and remains outside scalar default execution."
+verification_boundary = "Class defaults cover first/second writes, nested/trailing delimiters, skipped semicolons, variadic headers, raw saved words with original parameter type, return/storage separation, actual saved values and consumed seals, once-only retained JIT calls/effects, reached faults with output, exact preparation/runtime limits and ordinary selector restoration. AOT authority tests reject copied nodes, foreign or missing writes, substituted fragments and replay. This establishes declaration-time IR evaluation and class size metadata, not stored class callback invocation, a new independent TempleOS comparison or hosted native callbacks."
+excluded = ["ordinary instruction-address defaults", "stored class callback invocation", "AOT reference-bearing default relocation", "F64 default expressions", "owned-code defaults", "aggregate callback execution", "hosted native callback/default emission", "live task expiry"]
+
+[[feature]]
+id = "HC-IR-SCALAR-STATIC-CALLBACK-INVOCATION"
+description = "Scalar static callback cells preserve original executable owners across calls and invoke through checked integer/U0 IR."
+sources = [
+  "Compiler/PrsVar.HC:285-369 anonymous callback header and internal RT_PTR storage independent of return class",
+  "Compiler/PrsVar.HC:490-535 static member flags and local PrsType with zero function specifier flags",
+  "Compiler/PrsVar.HC:537-571 eight-byte padded persistent JIT/AOT allocation and initialization",
+  "Compiler/PrsExp.HC:383-588 callee capture before reverse arguments, saved defaults, hidden argc and source cleanup",
+  "Compiler/PrsStmt.HC:62-139 anonymous PrsFunJoin and derived RET1 flag"
+]
+implementation = ["src/ir/integer_statics.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The exact original frame location, local binding and anonymous header authorize a one-star scalar persistent word. Callback return types do not select storage. The original global-address producer and callback graph retain their physical source receipts; copied or foreign graphs provide no authority."
+execution = "Static cells survive calls within the same execution and retain opaque original executable owners through assignment, copy, clearing and comparison. Calls capture that value before right-to-left argument effects. Original callback defaults, fixed slots, word tails and cleanup flags govern integer/U0 invocation. JIT same-name replacement preserves the earlier stored body. Reached null/numeric or signature faults preserve argument output."
+limits = "Each scalar static cell charges eight persistent bytes and no automatic frame slot. Tests exercise exact and one-below persistent storage, frame, instruction and call-depth quotas."
+initial_image = "Uninitialized JIT static cells retain the hosted unknown-value boundary. The AOT image contains numeric zero, which carries no executable capability. Static callback initializer syntax remains rejected."
+verification_boundary = "Source-grounded IR tests do not establish a new independent TempleOS native comparison or hosted native callback emission."
+excluded = ["global/array/member callback storage", "static callback initializers", "callback updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-LOCAL-CALLBACK-ARRAY-INVOCATION"
+description = "Fully indexed automatic/static callback arrays preserve original executable owners through checked word storage and integer/U0 calls."
+sources = [
+  "Compiler/PrsVar.HC:247-283 original array dimensions and cumulative element counts, with parameter arrays rejected",
+  "Compiler/PrsVar.HC:285-369 anonymous callback header and internal RT_PTR storage independent of return class",
+  "Compiler/PrsVar.HC:514-535 zero local specifier flags and physical element size multiplied by the original dimensions",
+  "Compiler/PrsVar.HC:537-609 persistent static allocation and automatic frame extent",
+  "Compiler/PrsExp.HC:1055-1101 original bracket chain, remaining dimensions, integer subscripts, IC_MUL and IC_ADD",
+  "Compiler/PrsExp.HC:383-588 callee capture before reverse arguments, saved defaults, hidden argc and source cleanup"
+]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_statics.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Every index retains the exact checked array root, original anonymous header, integer subscript and remaining strides. A fully indexed original load must match the header and declaring frame. Matching pointer types, names, copied producers and foreign graphs provide no invocation authority."
+execution = "Eight-byte elements store, copy, clear, compare and transfer opaque executable owners into explicit callback parameters. Calls capture the selected element before arguments and use its header's own saved defaults, fixed slots, word tails and cleanup. Static elements survive calls and JIT replacement; automatic elements belong to their activation."
+faults = "Index effects precede capture; arguments precede reached null/numeric and signature faults. Uninitialized automatic and JIT static elements fail during load. AOT static zero is a numeric word without code authority. Earlier output survives reached faults. Bounds and offset overflow use the declared object's hosted arena."
+limits = "A [2][3] callback array charges 48 bytes independently of return class. Tests exercise exact and one-below automatic/persistent storage, instruction and call-depth limits."
+verification_boundary = "Source-grounded IR tests do not establish new independent TempleOS native comparisons or hosted native callback emission."
+excluded = ["global/member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-GLOBAL-CALLBACK-INVOCATION"
+description = "Original one-star global cells and fully indexed arrays preserve opaque executable owners through checked integer/U0 calls."
+sources = [
+  "Compiler/PrsStmt.HC:223-224 original global fsp_flags passed to PrsType",
+  "Compiler/PrsVar.HC:247-283 checked dimensions and cumulative element counts",
+  "Compiler/PrsVar.HC:285-369 anonymous header flags and internal RT_PTR storage independent of return class",
+  "Compiler/PrsStmt.HC:403-407 global callback header kept separately from its physical class",
+  "Compiler/PrsExp.HC:383-588 callee capture before reverse arguments, saved defaults, hidden argc and original cleanup",
+  "Compiler/PrsExp.HC:1055-1101 original bracket chain, remaining dimensions and integer subscripts"
+]
+implementation = ["src/sema/compiler_record.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml", "test/test_global_callback_cli.ml", "examples/global-callbacks.hc"]
+documentation = ["docs/global-callbacks.md", "docs/integer-globals.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/compatibility.md", "docs/testing.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The exact global publication, selected anonymous header, original occurrence, declared return metadata and physical storage type authorize the load. Retained bindings also require their original outer occurrence and storage reference. Completing a declared callback reuses its allocation and reference without changing an earlier snapshot. Copied or foreign graphs acquire no invocation authority."
+execution = "Scalar cells and fully indexed arrays store, copy, clear, compare and transfer opaque executable owners. Top-level assignments can install addresses for calls in checked functions. Calls capture the owner before reverse arguments and use the selected callback's own saved integer defaults, fixed slots, word tails and original global fsp_flags. RET1 or argpop requests callee cleanup unless noargpop is present. The reached target must agree and cannot choose caller cleanup. JIT replacement preserves earlier stored bodies."
+faults = "JIT unknown values fail during callee load before arguments. AOT initial zero and explicitly stored null fail at reached invocation after arguments, as do signature and cleanup mismatches. Array bounds and offset overflow fail before callee loading and argument effects. Earlier output survives reached faults."
+limits = "Each element occupies eight global bytes independently of return class. The CLI example charges 56 global bytes, eight simultaneous frame bytes and two call levels; exact and one-below quotas and instruction counts are checked in both modes."
+verification_boundary = "Source-grounded IR and CLI tests do not establish a new independent TempleOS native comparison or hosted native callback emission."
+excluded = ["member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-TOP-LEVEL-CALLBACK-INVOCATION"
+description = "Original scalar and fully indexed global callbacks execute from top-level statement expressions through the shared integer/U0 IR call composer."
+sources = [
+  "Compiler/PrsExp.HC:383-588 original indirect callee capture, reverse arguments, defaults, hidden argc and cleanup",
+  "Compiler/PrsVar.HC:285-369 anonymous header and physical RT_PTR storage",
+  "Compiler/PrsStmt.HC:403-407 original global callback header",
+  "Compiler/PrsExp.HC:1055-1101 complete index chain and original dimensions",
+  "Compiler/OptPass789A.HC:723-732 CALL disp[RSP] with retained argument-byte displacement"
+]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/callback_source.ml", "src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_callback_storage.ml", "test/test_global_callback_cli.ml", "examples/top-level-callbacks.hc", "test/oracle/callback-storage-and-calls.json"]
+documentation = ["docs/global-callbacks.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The original typed global/indexed-global/outer call must belong to its exact top-level batch and executable statement subtree. Function sources and initializer regions cannot authorize entry calls. Invocation signature metadata is separate from callback storage and return type. The original registered global allocation, anonymous header and fully consumed dimensions authorize entry loads. Copied metadata, loads, foreign contexts and changed whole graphs provide no execution authority."
+execution = "Standalone calls and calls nested in supported arguments, output, conditions and loops preserve original integer/U0 bodies, saved defaults, callee snapshots, reverse arguments, hidden word tails and cleanup. Earlier JIT owners survive same-name replacement. Null/numeric or signature/cleanup faults follow argument effects; bounds, offset overflow and unknown JIT storage fail before them."
+limits = "The maintained top-level example returns 42 with 56 global bytes, eight active frame bytes and one call level. Tests check exact/one-below steps, storage and frame limits, plus recursion at the call-depth boundary."
+verification_boundary = "CLI word projections compare GLOBAL and ARRAY with both existing native JIT observations. GLOBAL substitutes an explicit store for the unsupported native initializer; ARRAY retains the observed declaration, store and call. Shell screen clearing and formatting are excluded from value projections. Hosted AOT replay does not establish native AOT behavior. No new native capture or hosted native callback emission is claimed."
+excluded = ["member callback storage", "callback initializers and updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]
+
+[[feature]]
+id = "HC-ORDINARY-CALLING-FLAGS"
+description = "Source-valid ordinary calling flags retain selected cleanup through IR execution and the hosted native fixed-function adapter."
+sources = [
+  "Compiler/PrsStmt.HC:1067-1082 staged modifier transitions",
+  "Compiler/PrsStmt.HC:1158-1163 final local storage selection",
+  "Compiler/PrsVar.HC:521-522 local anonymous headers receive zero staged flags",
+  "Compiler/PrsExp.HC:572-573 NOARGPOP takes precedence over RET1 and ARGPOP",
+  "Compiler/OptPass789A.HC:405-417 ordinary RET cleanup and interrupt-only HASERRCODE epilogue"
+]
+implementation = ["src/frontend/ast.ml", "src/frontend/parser.ml", "src/driver/local_type_resolution.ml", "src/ir/function_body.ml", "src/ir/integer_interpreter.ml", "src/hosted/native_program.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_parser.ml", "test/test_ir_function_body.ml", "test/test_callback_storage.ml", "test/test_native_scalar_functions.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-calling-flags.hc"]
+documentation = ["docs/holy-abi.md", "docs/native-programs.md", "docs/native-scalars.md", "docs/compatibility.md", "docs/testing.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+execution = "ARGPOP and NOARGPOP may coexist; NOARGPOP suppresses callee cleanup in either token order. HASERRCODE alone has no ordinary epilogue effect. Selected original cleanup opcodes and eight-byte slot payloads remain checked and metered. Native fixed functions adapt to the existing private fixed-RSP plain-RET convention. Local modifier transitions select storage in source order but do not change anonymous callback header flags."
+verification = "Both image ABIs compile in ordinary tests. The native scalar API/CLI execute the host ABI in both preprocessing modes and compare independent values, fresh public IR and checked-batch meters. Recursion checks exact/one-below frame, depth, physical stack and runtime work, followed by recovery on the same image. Global and local callback IR tests preserve selected cleanup and reached mismatch effects."
+verification_boundary = "This is pinned source audit and hosted execution. No new TempleOS oracle capture, HolyC ABI export, RET-imm export or IRETQ execution is claimed."
+excluded = ["interrupt function execution", "general HolyC ABI exports", "pointer/owned-code variadic calls", "mixed F64 or aggregate calls"]
+
+[[feature]]
+id = "HC-NATIVE-AUTOMATIC-CALLBACKS"
+description = "Original automatic/static/global callback cells, fully indexed arrays and fixed callback parameters invoke owned integer/U0 machine bodies through captured address and ownership slots."
+sources = ["Compiler/PrsVar.HC:285-369 original anonymous header and RT_PTR array shape", "Compiler/PrsVar.HC:521-628 physical element allocation", "Compiler/PrsExp.HC:541-586 saved callee, reverse arguments and anonymous-header cleanup", "Compiler/OptPass789A.HC:723-732 CALL through an RSP displacement", "Compiler/OpCodes.DD:573 RM64 CALL", "Compiler/OpCodes.DD:833 R64 LEA"]
+implementation = ["src/backend/x86_64_global_storage.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_native_expression.ml", "test/test_native_scalar_functions.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-local-callbacks.hc", "examples/native-callback-parameters.hc", "examples/native-callback-storage.hc"]
+documentation = ["docs/native-local-callbacks.md", "docs/native-programs.md", "docs/native-scalars.md", "docs/holy-abi.md", "docs/testing.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Only physical original function-address receipts select the original local body. Private ownership words follow original addresses through automatic/static/global cells, fully indexed arrays and fixed callback parameters. Numeric stores clear ownership. Cell addresses and owned code cannot escape to object references, ordinary word cells or ordinary parameters/returns. Bundle-wide copy and parameter-transfer dependencies close before dispatch budgeting and emission; matching numeric words cannot provide authority."
+execution = "RIP-relative LEA produces the owned body address. The callee address and ownership are saved before reverse arguments; a saved-slot indirect CALL follows original signature/cleanup checks and activation quota guards. Numeric, null and signature faults preserve earlier argument output. Valid integer/U0 calls retain width rules, shared metering, quota unwind and same-image recovery."
+verification = "Both image ABIs compile with source/encoder/budget/ownership controls. Host-native API and CLI tests compare independent values, fresh public IR and exact checked-batch meters in both source modes; Windows and Linux CI execute their own host ABI."
+verification_boundary = "Pinned source audit and hosted native execution add no independent TempleOS capture, exported HolyC ABI, RET-imm or IRETQ proof."
+excluded = ["native member callback storage", "callback initializers and updates", "effectful/owned-code callback declaration defaults", "ordinary code-valued word storage and returns", "pointer/owned-code variadic tails", "retained same-name native publication", "concrete numeric address operations", "live task linking/expiry", "general F64/mixed/aggregate calls"]
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-WORD-TAILS"
+description = "Original direct variadic bodies and matching callback calls execute integer word tails with captured argc/argv bounds in the private native adapter."
+sources = ["Compiler/PrsVar.HC:373-405 PrsDotDotDot creates internal I64 argc and argv with arbitrary placeholder dimensions", "Compiler/PrsExp.HC:435-530 fixed/default arguments, reverse tails and hidden count", "Compiler/PrsExp.HC:541-586 saved indirect callee and original argument/saved-slot cleanup"]
+implementation = ["src/hosted/native_program.ml", "src/backend/x86_64_word_codegen.ml", "src/ir/integer_interpreter.ml", "src/sema/function_type_resolution.ml", "src/sema/function_frame_layout.ml", "src/ir/runtime_call_context.ml", "src/driver/native_default_preparation.ml", "src/driver/native_parameter_defaults.ml", "src/driver/task_declarations.ml"]
+tests = ["test/test_native_program.ml", "test/test_native_scalar_functions.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-word-tails.hc", "examples/native-callback-defaults.hc"]
+documentation = ["docs/native-word-tails.md", "docs/native-local-callbacks.md", "docs/native-defaults.md", "docs/native-scalars.md", "docs/native-programs.md", "docs/holy-abi.md", "docs/testing.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Exact original synthetic bindings and checked frame locations provide argc/argv authority. Sealed call receipts supply fixed, hidden-count and tail roles. Equal foreign frames, reconstructed graphs and numeric words cannot select executable code. The largest sealed source-call count bounds private descriptor capacity; each activation uses its captured count for runtime bounds."
+execution = "Each tail preserves eight register bytes and reads through I64 storage. Mutable argc, indexed argv stores/updates and typed aliases retain the original extent, including empty and one-past cases. Fixed callback owner lanes follow the hidden count and actual tail. Indirect dispatch captures address/owner before reverse arguments and checks original return/fixed types, variadic shape and cleanup after argument effects. Logical frame, depth, physical-stack and step faults unwind before same-image recovery."
+default_authority = "Original anonymous declarations prepare closed integer defaults once and retain eight saved bytes each. The signature, parameter, saved object, namespace and consumed preparation receipt belong to one sealed bundle. Missing, duplicate, reconstructed or foreign evidence cannot supply authority, including unused declarations and explicit-only calls. Omission uses the selected original header saved word and shared preparation/byte quotas; narrowing occurs at callee entry."
+verification = "Both image ABIs compile. Fresh public IR checks independent values; isolated checked-batch IR checks exact native work. Host execution covers all eight integer widths, callback storage/parameters, defaults, ordinary flags, reverse effects, empty tails, mutable counts, aliases, updates, signature faults and exact/one-below recursive quotas. Maintained CLI coverage returns 42 with six native preparation steps and sixteen saved bytes."
+verification_boundary = "Pinned source audit and hosted IR/native comparisons preserve the existing bounded runtime contract. Arbitrary source placeholder dimensions do not authorize stack memory. Closed declaration preparation does not execute general effectful source. No new TempleOS capture, exported HolyC ABI, RET-imm/IRETQ, general assembler/BIN or bootstrap proof is claimed."
+excluded = ["pointer/owned-code variadic tail values", "general F64/mixed/aggregate calls", "callback member/initializer/update consumers", "effectful/owned-code declaration defaults", "ordinary code-valued word storage/returns", "retained replacement and live task linking/expiry", "general HolyC ABI exports"]
+
+[[feature]]
+id = "HC-NATIVE-INDIRECT-CALLBACK-ARGUMENTS"
+description = "Original nested callback parameters in indirect fixed signatures retain executable ownership through staged native arguments and original destination headers."
+sources = ["Compiler/PrsVar.HC:285-369 recursive anonymous headers and RT_PTR storage", "Compiler/PrsVar.HC:521-532 MLF_FUN and physical element shape", "Compiler/PrsExp.HC:435-586 reverse arguments, saved callee and original cleanup"]
+implementation = ["src/backend/x86_64_word_codegen.ml", "src/ir/integer_interpreter.ml", "src/sema/function_type_resolution.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/test_native_scalar_functions.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-callback-arguments.hc"]
+documentation = ["docs/native-callback-arguments.md", "docs/native-local-callbacks.md", "docs/native-programs.md", "docs/native-scalars.md", "docs/holy-abi.md", "docs/testing.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Original nested callback declarators select fixed owner lanes; physical pointer types alone do not. Indirect transfer edges activate only for original bodies in the captured parent target set, and close with ordinary copies before dispatch budgeting. Equal signatures, numeric words and copied/foreign receipts, graphs or frames do not supply executable authority."
+execution = "Owner words follow the actual fixed/count/tail area and precede capture/result stages. Parent capture occurs before reverse arguments. The destination parameter's original header owns inner-call defaults and signature checks. IR/native dispatch compares original callback/object kinds, return/fixed types, variadic shape and cleanup; numeric/null owners fault only when invoked after argument effects."
+verification = "Both image ABIs compile. Fresh public IR supplies independent value/effect comparisons; isolated checked-batch execution checks native meters. Host tests cover integer widths, U0, multiple lanes, forwarding/recursion, storage copies, variadic parents, nested saved defaults, capture mutation, reached faults, exact/one-below compile/runtime/preparation budgets and same-image recovery. The maintained CLI example returns 42 with nine preparation steps and 24 saved bytes."
+verification_boundary = "Pinned source audit and hosted private execution add no TempleOS capture, exported HolyC ABI, RET-imm/IRETQ or full compiler/release proof."
+excluded = ["ordinary object-reference parameters in indirect native signatures", "multi-star callback arguments", "pointer/owned-code variadic tails", "callback member/initializer/update consumers", "effectful/owned-code defaults", "ordinary code-valued word storage/returns", "retained replacement/linking/expiry", "general F64/mixed/aggregate calls", "general HolyC ABI exports"]
+
+[[feature]]
+id = "HC-NATIVE-CALLBACK-WORD-DEFAULTS"
+description = "Original one-star callback-valued fixed parameters prepare and materialize complete numeric defaults with zero executable ownership in named and indirect native calls."
+sources = ["Compiler/PrsVar.HC:350-357 original callback RT_PTR storage", "Compiler/PrsVar.HC:619-657 eight-byte fixed slots and declaration-time saved defaults", "Compiler/PrsExp.HC:435-586 saved default materialization, reverse arguments and callback cleanup"]
+implementation = ["src/driver/native_default_preparation.ml", "src/driver/native_parameter_defaults.ml", "src/ir/default_fragment_destination.ml", "src/ir/prepared_parameter_default.ml", "src/ir/prepared_callback_default.ml", "src/hosted/native_program.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/test_native_scalar_functions.ml", "test/native_default_authority/test_native_default_authority.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-callback-word-defaults.hc"]
+documentation = ["docs/native-callback-word-defaults.md", "docs/native-defaults.md", "docs/native-callback-arguments.md", "docs/native-local-callbacks.md", "docs/native-programs.md", "docs/native-scalars.md", "docs/holy-abi.md", "docs/testing.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The original one-star callback declarator selects full-word default storage independently of its return class. Evaluated internal I64 words and materialized RT_PTR arguments remain separate, with original selected headers, saved objects, charged consumed executions and exact bundle joins. Every unused or explicit-only declaration remains required."
+execution = "Closed numeric/null defaults load complete saved bits into private callback argument stages with zero owners. Copies and forwarding preserve numeric state; invocation reports reached unowned-code faults after effects. Scalar word comparisons retain runtime owner checks. Effective noreg uses the original stack parameter path; explicit register allocation remains gated."
+verification = "Fresh public IR values/effects and isolated checked-batch meters agree with host native execution in both modes. Tests cover callback return classes, all saved bits, header selection, multiple lanes, sparse omissions, explicit owned overrides, storage copies, variadic parents, noreg, reached faults and exact/one-below compile/runtime/preparation quotas with recovery. Both image ABIs compile; missing, duplicate, reconstructed and foreign saved/charged evidence rejects. Maintained CLI coverage returns 42 with six preparation steps and sixteen saved bytes."
+verification_boundary = "Pinned source audit and hosted private execution add no TempleOS capture, exported HolyC ABI, RET-imm/IRETQ, general assembler/BIN or compiler/release completion proof."
+excluded = ["effectful/owned-code/string/lastclass/floating-value defaults", "ordinary object-pointer defaults", "multistar consumers", "callback member/initializer/update consumers", "ordinary owned-code word storage/returns", "retained replacement/linking/expiry", "general F64/aggregate execution", "exported HolyC ABI"]
+
+[[feature]]
+id = "HC-GLOBAL-CALLBACK-INITIALIZERS"
+description = "One-star global callback initializers retain full-word storage, original executable identity and supported IR effects; native execution consumes closed numeric leaves."
+sources = ["Compiler/PrsStmt.HC:209-458 original global publication and physical callback allocation", "Compiler/PrsVar.HC:50-158,205-246 original initializer execution and AOT scheduling", "Compiler/PrsVar.HC:286-378 callback RT_PTR storage separate from return metadata", "Demo/Graphics/Grid.HC:13 automatic callback initializer syntax boundary"]
+implementation = ["src/ir/integer_globals.ml", "src/ir/integer_initializer_layout.ml", "src/ir/initializer_fragment_destination.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/initializer_fragment_lowering.ml", "src/driver/integer_unit.ml", "src/driver/native_default_preparation.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_callback_storage.ml", "test/test_integer_task.ml", "test/test_global_callback_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_scalar_function_cli.ml", "examples/global-callback-initializers.hc", "examples/native-callback-initializers.hc"]
+documentation = ["docs/global-callback-initializers.md", "docs/global-callbacks.md", "docs/integer-task.md", "docs/holy-abi.md", "docs/testing.md", "docs/compatibility.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Original declarations select physical callback words before return-type completion. Parser receipts, original leaves, retained allocations, checked array coordinates and exact initializer regions remain joined. Callback and nested direct-call records require physical membership in the selected initializer expression. Symbolic JIT function producers remain scheduled and retain their original executable; numeric payloads acquire no authority."
+execution = "IR initializes scalar and array callback destinations with complete integer words, original function addresses, copies and supported effects. Calls preserve selected defaults, callee capture, reverse arguments and reached faults. Streaming task inputs retain original bodies across JIT replacement. Native closed numeric leaves require original consumed preparation and charged completion joined to the complete callable bundle; return metadata does not narrow storage."
+verification = "Fresh public IR and source-task checks cover original bodies, copies, arrays, output, faults, flags, selected defaults, full bits, callback return classes and exact limits. Native tests compare independent values, fresh public IR and separately executed checked batch meters in both modes. Original completion ownership rejects missing, duplicate, reordered and foreign evidence and compiles both image ABIs. The maintained native CLI example returns 42 with nine preparation steps, sixteen global bytes and eight saved default bytes. Existing TempleOS global callback observations replay the original initializer and both native repeats agree."
+verification_boundary = "The existing capture is native JIT evidence; hosted AOT replay does not establish TempleOS AOT execution. Pinned source audit and hosted private execution add no new capture, exported HolyC ABI, general assembler/BIN or compiler/release completion proof."
+excluded = ["native JIT owned-code and effectful callback initializers", "callback members and updates", "direct automatic/static callback initializer syntax", "multistar consumers", "live native replacement/linking/expiry", "general F64/aggregate execution", "exported HolyC ABI", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-AOT-LOAD-INITIALIZERS"
+description = "Original AOT global initializer leaves execute checked integer and callback stores, copies and calls in native load-time regions."
+sources = ["Compiler/PrsVar.HC:50-115 nonconstant AOT initializer zero storage and load-time store emission", "Compiler/PrsVar.HC:132-205 array leaf destination traversal", "Compiler/PrsVar.HC:286-378 callback storage separate from return metadata", "Compiler/PrsStmt.HC:209-458 original global publication and allocation"]
+implementation = ["src/frontend/parser.ml", "src/driver/task_declarations.ml", "src/driver/native_default_preparation.ml", "src/driver/integer_initializers.ml", "src/driver/native_global_initializers.ml", "src/ir/integer_globals.ml", "src/backend/x86_64_global_storage.ml", "src/hosted/native_program.ml"]
+tests = ["test/native_initializer_authority/test_native_initializer_authority.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_load_initializer_cli.ml", "examples/native-aot-callback-initializers.hc"]
+documentation = ["docs/global-callback-initializers.md", "docs/native-globals.md", "docs/holy-abi.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["aot"]
+source_identity = "Private start, leaf and delimiter receipts require physical parser identity and the current top source context. Original AOT leaves retain their declaration and checked destination without a prepared value or runtime admission. Ordered completion joins exactly the original scheduled load roots, initialization, storage, entry, functions and runtime calls."
+execution = "Generated code executes original load regions against AOT zero storage and mixed closed prepared leaves. Function addresses and copies preserve private original executable owners; direct and indirect calls preserve callee capture, reverse arguments, selected defaults, callback parameters, U0 and numeric argc/argv tails. Reached effects and faults consume runtime work. Closed leaves and defaults keep the separate original preparation budget."
+verification = "Fresh public IR and separately executed checked batch IR agree with host native values, output and runtime work. Tests cover all integer returns and cleanup flags, metadata-independent callback word width, scalar and multidimensional copies, mixed prepared leaves, saved callees, skipped effects, reached null/numeric/signature/arithmetic/index faults, exact runtime limits and fresh-image recovery. Authority tests reject cloned/suspended/expired receipts and missing/reordered/duplicate/foreign evidence, and compile both image ABIs. The maintained CLI example returns 42, prints A and uses 86 runtime steps, three preparation steps, 24 global bytes and eight saved default bytes, with exact and one-below compile and execution bounds."
+verification_boundary = "Hosted private native execution and a pinned source audit add no TempleOS AOT capture, exported ABI, object/BIN, actual loader or bootstrap proof."
+excluded = ["native JIT reference-bearing initializer execution at its original parser callback", "effectful static initializers or defaults", "callback members and updates", "direct automatic/static callback initializer syntax", "retained native replacement/linking/expiry", "general F64/aggregate execution", "exported HolyC ABI", "full compiler and release"]
+
+[[feature]]
+id = "HC-AOT-ORIGINAL-FUNCTION-BODIES"
+description = "AOT public IR accepts distinct original checked definitions sharing a canonical callable record and executes the body selected by each call or address."
+sources = ["Compiler/PrsStmt.HC:67-143 AOT function-record reuse, rebuilt headers and preserved stored function flags", "Compiler/PrsStmt.HC:140-207 original function body emission", "Compiler/PrsExp.HC:621-654 original function-address selection"]
+implementation = ["src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_load_initializer_cli.ml", "examples/native-aot-callback-initializers.hc"]
+documentation = ["docs/global-callback-initializers.md", "docs/holy-abi.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["aot"]
+source_identity = "Body source symbols and function IDs stay unique. Shared canonical symbol IDs require the same physical checked callable record and distinct original bound declarations. Original frame validation and exact runtime bundle ownership remain required."
+verification = "Fresh public IR, isolated checked batch IR and host native execution agree for earlier and later callbacks and direct calls, changed parameter counts, selected anonymous defaults, recursion and original static storage. Maintained CLI tests check exact and one-below runtime bounds with fresh recovery. AOT record reuse retains its original cleanup flags; a disagreeing callback faults after argument output. Repeated bodies, reordered or foreign bundles and substituted frames reject before execution."
+verification_boundary = "This is a bounded private execution comparison and pinned source audit, without a new TempleOS AOT capture or exported ABI proof."
+excluded = ["native JIT reference-bearing initializer execution during its original parser callback", "live native replacement/linking/expiry", "general F64/aggregate execution", "exported HolyC ABI", "object/BIN loader or bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-RETAINED-IMAGE-LIFETIME"
+description = "Opaque retained host images preserve original executable mapping, data arena and native owners across activations."
+sources = ["Compiler/PrsStmt.HC:150-194 source-owned function code context", "Kernel/KTask.HC:251-264 task-owned code/data heap context"]
+implementation = ["src/runtime/native_program_execution.ml", "src/runtime/native_program_execution.mli", "src/native_execution_stubs.c"]
+tests = ["test/native/test_native_retained_execution.ml", "test/native/dune"]
+documentation = ["docs/native-retained-images.md", "docs/native-programs.md", "docs/native-persistent-storage.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Each opaque host owner retains the original sealed OCaml image and its checked unwind metadata. Closed entries preserve their original frameless or RSP spill frame and exact CALL footprint; callable entries preserve their separate saved-RBP frame. Closed entry ranges, spill allocations and host status prologues require exact metadata before mapping and activation, and admit no data arena. The API accepts no replacement image or exposed host pointer. Separate owners retain separate arenas."
+execution = "The original complete entry executes against persistent global/static/literal state and executable owners, including scheduled AOT load code. Each activation has fresh bounded status and output capture; reached writes persist on checked faults. Atomic host admission rejects overlapping activation or release."
+verification = "Maintained groups cover both source modes, native global/static/narrow array/literal writes, callback owners across GC/compaction, reached arithmetic and step faults, recursive frame/depth/stack recovery, AOT load calls and faults, separate arenas, release/expiry, collected owners, original bounds and foreign ABI rejection. Closed entries exercise frameless code, small/large spill frames, exact stack/work quotas, reached division/remainder faults, recovery and changed range/frame/prologue rejection. Concurrent domains accept distinct native writes or reject overlap."
+verification_boundary = "This host resource-lifetime primitive supplies neither once-only source declaration scheduling nor linkage between separate images. It adds no new TempleOS capture, exported ABI or native source-task parity."
+excluded = ["native execution during original JIT parser callbacks", "persistent source-task admission and cumulative quotas", "linking separate images", "live native replacement/target expiry", "general F64/aggregate execution", "exported HolyC ABI", "object/BIN loader or bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-CALLBACK-RETURN-STORAGE"
+description = "Native callback local/static storage admits return metadata independently of its physical one-star word."
+sources = ["Compiler/PrsVar.HC:285-369 original return-pointer parsing, anonymous callback header and internal RT_PTR storage", "Compiler/PrsVar.HC:521-532 physical array extent", "Compiler/PrsVar.HC:590-628 automatic and fixed-parameter allocation"]
+implementation = ["src/hosted/native_program.ml", "src/hosted/native_program.mli"]
+tests = ["test/native/test_callback_return_storage.ml", "test/native/test_native_scalar_function_cli.ml", "examples/native-callback-return-storage.hc"]
+documentation = ["docs/native-local-callbacks.md", "docs/native-scalars.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Original callback declarators select physical one-star storage; their return type and return-pointer layers remain in the anonymous signature. An ordinary object in a mixed declaration still requires an admitted integer type. Existing sealed frame, array and owner-transfer receipts remain required."
+execution = "Automatic/static scalar cells, fully indexed arrays and fixed callback parameters preserve complete numeric words and original executable owners across F64 and pointer-return metadata. A later integer/U0 callback can invoke the copied original body under its own selected header. No floating evaluation or pointer-returning invocation is introduced."
+verification = "Both image ABIs compile. Fresh public IR and checked-batch IR compare host-native values and work. The maintained example returns 42, prints A and consumes 101 runtime steps in both source modes, with 16 global bytes and 3 dimension visits; exact and one-below work limits preserve reached effects."
+verification_boundary = "Pinned source and hosted native checks add no TempleOS capture, general floating execution, exported ABI or native task linking proof."
+excluded = ["F64 object storage and execution", "F64 and pointer-returning calls", "multi-star callback consumers", "callback member storage", "live native publication/linking", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-RETAINED-CUMULATIVE-BUDGET"
+description = "Original retained native activations share cumulative instruction and output allowances."
+sources = ["Compiler/PrsStmt.HC:150-194 original function code context", "Kernel/KTask.HC:251-264 task-owned code/data context", "docs/native-retained-images.md hosted resource policy"]
+implementation = ["src/runtime/native_program_execution.ml", "src/runtime/native_program_execution.mli", "src/native_execution_stubs.c"]
+tests = ["test/native/test_native_retained_budget.ml", "test/native/dune"]
+documentation = ["docs/native-retained-images.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "An opaque allowance is separate from each original sealed native image and its private arena. Calls retain the original entry, owner and fault-site decoder. Sharing an allowance gives no new executable or source receipt authority."
+execution = "The host passes exact remaining instruction/output capacities to generated code, including zero. Checked completions and faults charge cumulative steps and per-activation output/work; partial native writes persist. Immutable progress publishes ordered output and counters atomically. Overlap rejects, preflight and rejected native admission preserve the allowance, and uncertain failures after native entry revoke further use. The host marks entry only after original image activation and lifetime checks. Existing one-shot limits remain positive and independent."
+verification = "Both source modes compare public IR values/output with native execution. Tests exercise repeated writes, exact and one-below steps, zero remaining output/work, partial and atomic faults, preflight recovery, separate arenas, concurrent admission, independent report bytes, bounded capture chunks and malformed or overdrawn consumed counters."
+verification_boundary = "These cumulative bounds are hosted resource policy. They add no TempleOS capture, source-task admission, original parser-callback execution or linkage between images."
+excluded = ["native source-session scheduling and receipts", "cumulative allocation admission", "linking separate images", "live native replacement/expiry", "general F64/aggregate execution", "exported HolyC ABI", "object/BIN loader or bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-CALLBACK-CANCELED-IDENTIFIER-DEREFERENCE"
+description = "A single pending dereference of an original scalar callback identifier preserves its storage and callable header."
+sources = ["Compiler/PrsLib.HC:21-29 PrsPopDeref", "Compiler/PrsExp.HC:264-277,728-747 nested expression stack", "Compiler/PrsExp.HC:761-770,899-903 callback identifier selection", "Compiler/PrsExp.HC:420-425,541-586 callee capture and argument order", "Kernel/QSort.HC:16,18 comparator calls", "Kernel/KTask.HC:295,497 global callback calls"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/sema/function_call_expression_result.mli", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/test_callback_dereference.ml", "test/test_function_call_expression_result.ml", "test/test_global_callback_cli.ml", "test/native/test_native_callback_dereference.ml", "examples/callback-dereference.hc"]
+documentation = ["src/holyc_lib.mli", "docs/native-local-callbacks.md", "docs/global-callbacks.md", "docs/holy-abi.md", "docs/compatibility.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The checked prefix keeps the exact scalar identifier operand and original callback header. Top-level and retained-outer selection checks the original occurrence. Lowering reuses its original storage load; runtime source validation follows that producer without creating new executable authority."
+execution = "One-star automatic/static/global cells and named callback parameters support canceled-star reads, plain stores and integer/U0 invocation. Parentheses around the complete canceled expression preserve the callee. Capture still precedes reverse arguments; defaults belong to the selected header. The canceled star adds no instructions or work."
+verification = "Both source modes compare public IR and native values, output, reached faults and exact work. Native retained calls share cumulative limits. Semantic/lowering tests check original signature and producer identity; public CLI tests check top-level values and exact/one-below steps."
+verification_boundary = "This source audit and hosted execution add no TempleOS oracle capture, exported ABI or native source-task linking proof."
+excluded = ["cancellation through a grouped operand", "remaining or multistar dereferences", "callback updates and compound assignment execution", "array and member callback cancellation", "F64 and pointer-returning calls", "native source-task linking", "full compiler and release"]
+
+[[feature]]
+id = "HC-CALLBACK-NUMERIC-UPDATES"
+description = "Numeric words in original one-star callback cells support prefix, postfix and compound updates in IR and native execution."
+sources = ["Compiler/PrsVar.HC:350-357 callback storage separate from return metadata", "Kernel/KernelA.HH:1572-1574 signed RT_PTR", "Compiler/PrsExp.HC:15-63 pointer compound scaling", "Compiler/BackB.HC:304-380 prefix and postfix pointee-size steps", "Compiler/OptPass012.HC:824-895 compound storage class"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_callback_updates.ml", "test/native/test_native_callback_updates.ml", "test/test_global_callback_cli.ml", "examples/callback-updates.hc"]
+documentation = ["docs/callback-updates.md", "docs/native-local-callbacks.md", "docs/global-callbacks.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The original checked update retains its scalar or fully indexed callback storage operand and separate return header. An exact numeric update result may flow into ordinary word consumers without granting an object reference or executable owner."
+execution = "Prefix/postfix increments and decrements use eight-byte steps. Compound addition/subtraction lower the original RHS times eight before updating; other compound operations follow signed RT_PTR computation. The RHS precedes the old-cell read. Bounds, initialization, arithmetic, ownership and quota faults preserve prior effects. Native owned-address status 22 requires an original update site and consumed work."
+verification = "Public IR and actual host native execution cover both source modes, storage shapes, return metadata, signed and scaled operations, result consumers, alias ordering, retained storage, decoder authority and exact/one-below work."
+verification_boundary = "The existing callback STORAGE oracle records the eight-byte step but also performs owned-address arithmetic. These numeric projections do not reproduce that full fixture or add a new TempleOS capture."
+excluded = ["numeric arithmetic on owned function addresses", "native callback-valued arithmetic RHS", "callback member storage", "remaining and multistar dereferences", "native source-session scheduling and linking", "general F64/aggregate execution", "full compiler and release"]
+
+[[feature]]
+id = "HC-CALLBACK-INDEXED-DEREFERENCE"
+description = "One pending star before a fully indexed callback selection aliases the original cell for calls, reads, stores and numeric updates."
+sources = ["Compiler/PrsExp.HC:609-676 pending prefix operators", "Compiler/PrsExp.HC:761-770,867-904 callback selection", "Compiler/PrsLib.HC:21-29 PrsPopDeref", "Compiler/PrsExp.HC:1071-1100 subscript evaluation and restored CCF_FUN_EXP", "Compiler/PrsExp.HC:1016-1020 PrsFunCall", "Compiler/PrsExp.HC:264-280 expression-stack terminators"]
+implementation = ["src/driver/function_call_resolution.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/test_callback_dereference.ml", "test/native/test_native_callback_dereference.ml", "test/test_global_callback_cli.ml", "examples/indexed-callback-dereference.hc"]
+documentation = ["docs/native-local-callbacks.md", "docs/callback-updates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Call discovery retains the original complete prefix/index source. A shared structural view selects its operand for bracket binding and typing without copying or reparsing. The typed alias requires original fully indexed callback storage and the exact anonymous header and index children."
+numeric_consumers = "PrsExp.HC:15-48,223-240 preserves pointer scaling through grouped addition/subtraction following original callback updates. OptLib.HC:96-179 and OptPass012.HC:485-486,619-620 select the common raw I64/U64 computation class. Semantic and IR consumers share one exact update-lineage check; bare callback reads and ordinary pointers receive no numeric authority from that view."
+execution = "Automatic/static/global one-star callback arrays reuse the existing checked address and private owner lanes. Every index is evaluated once; callee capture precedes reverse arguments. The canceled star emits no instruction or runtime work. Original bounds, initialization, numeric-call and ownership faults retain their reached phase and effects."
+grouping = "Parentheses around the whole canceled expression are transparent. A group under the star or inside the bracket base prevents cancellation; partial arrays, remaining indirections and callback members keep their separate boundaries. Ordinary pointer dereferences acquire no callback authority."
+verification = "Public IR/native and CLI cases cover both source modes, storage and header shapes, exact source identities, reads/copies/stores/updates/calls, one-time index effects, callee capture, faults and same-work comparisons with the ordinary indexed form."
+verification_boundary = "The compiler paths supply the indexed cancellation rule. No literal pinned-corpus indexed-star call or new TempleOS oracle capture is claimed."
+excluded = ["grouping under the pending star", "grouping within the bracket base", "partial array cancellation", "member callback cancellation", "remaining and multistar dereferences", "owned-address arithmetic", "native shared task scheduling and linking", "general F64/aggregate execution", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-TASK-SCALARS"
+description = "Original live scalar JIT initializer leaves and resumed commands execute against one native task arena."
+sources = ["Compiler/PrsVar.HC:53-107 original initializer compile, call and destination store", "Compiler/CMain.HC:1-32 original statement code and final expression", "docs/native-source-tasks.md hosted storage and resource policy"]
+implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_globals.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "src/holyc_lib.mli", "bin/holyc.ml", "bin/run_report.ml"]
+tests = ["test/native/test_native_source_execution.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_cli.ml", "test/test_jit_source_execution.ml", "test/native/dune", "examples/native-source-initializers.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/native-retained-images.md", "docs/native-programs.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "ROADMAP.md", "README.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Original parser events retain the declared storage, Retained_global reference, exact initializer destination or resumed command, and one-shot live request. Native source admission records metadata without allocating interpreter cells. Closed preparation retains its separate original context and counter."
+execution = "The host-jit-task adapter compiles each original scalar fragment through the existing native callable emitter. One non-executable arena appends data and flags at stable offsets; native writes stay authoritative across fragments. Requests are checked before retention and claimed once at entry. Each layout has one arena and one cumulative runtime allowance. Code owners retain their own mapping and unwind lifecycle."
+verification = "Source and CLI tests check the A/B reference initializer, once-only mutation, stable growth, declared widths and full unsigned words, actual native completions and faults, separate preparation/runtime counters, cumulative code/IR/global/step boundaries, arena owner and capacity controls, collection and sibling isolation. Fresh public IR and isolated AOT execution provide independent value comparisons."
+verification_boundary = "This source audit and hosted execution add no TempleOS oracle capture. Native task code uses the private host status ABI; resource bounds and fail-closed lifetime rules are hosted policy."
+excluded = ["task callback storage", "retained native function linking", "task literal storage", "effectful defaults and native #exe", "live function replacement and expiry", "AOT source-task execution", "general F64/aggregate execution", "exported HolyC ABI", "assembler/object/BIN loader and bootstrap", "whole-tree compilation", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-TASK-ARRAYS"
+description = "Fixed integer array initializer leaves and indexed commands execute in the original shared native task arena."
+sources = ["Compiler/PrsVar.HC:53-107 original initializer evaluation and declared-width store", "Compiler/PrsVar.HC:123-212 recursive fixed-count initialization", "Compiler/PrsExp.HC:1068-1100 original dimensions and indexed offset scaling"]
+implementation = ["src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/hosted/native_source_execution.ml", "src/ir/global_address_lowering.ml", "src/ir/integer_initializer_layout.ml", "src/driver/integer_task.ml"]
+tests = ["test/native/test_native_source_execution.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_cli.ml", "examples/native-source-arrays.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Task slots consume the original checked type, dimensions, strides, element count and retained storage reference. Each live leaf keeps its original destination and single-use request. Earlier elements are available to later initializer expressions without replay or copied storage."
+execution = "Array data and eight-byte-spaced per-element initialization flags append at stable offsets. The existing indexed native path performs reads, assignments and updates against that arena, including declared-width normalization and checked flat multidimensional offsets. Logical byte quotas exclude private flags; admission separately bounds the complete physical extent."
+verification = "Public source and CLI controls cover fixed arrays at all supported integer widths, earlier-element references, initialization and index effects once, separate unknown flags, bounds faults, original leaf order, unchanged storage during growth, exact and one-below resource limits, independent tasks and collection. Source authority controls cover original requests and host ABI compilation."
+verification_boundary = "Array bounds, unknown-read guards, arena reservation and private flag layout are hosted policy. These source audits and hosted executions add no TempleOS oracle capture."
+excluded = ["runtime-dependent array dimensions", "callback and aggregate task arrays", "task literal storage", "persistent native function addresses", "effectful defaults and native #exe", "AOT source-task execution", "exported HolyC ABI", "whole-tree compilation and bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-TASK-DIRECT-FUNCTIONS"
+description = "Original retained direct function bodies execute in caller fragments against one native task arena."
+sources = ["Compiler/PrsStmt.HC:62-137 original function records and extern reuse", "Compiler/PrsStmt.HC:140-207 original body compilation and publication", "Compiler/PrsExp.HC:544-586 original argument order, JIT unresolved call form and cleanup", "Compiler/PrsVar.HC:53-107 live initializer expression execution", "Compiler/CMain.HC:1-32 original statement compilation"]
+implementation = ["src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_global_storage.ml", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
+tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_function_cli.ml", "test/native/test_native_source_authority.ml", "examples/native-source-functions.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "A native task registry retains the exact Retained_function link, original checked definition, physical frame and source bundle at command claim. Request resolvers require the original live source request and execution domain. Earlier definitions remain distinct after replacement; metadata supplies no interpreter executable owner or machine address."
+execution = "Each caller fragment compiles the original direct-call closure with each body's own Runtime_call_context and source globals. Retained callee lookup consumes the original emission link while arguments retain the selected header. Historical global references resolve only against their original source and the same task's admitted physical storage. Integer/U0 calls, checked scalar-pointer parameters, bounded integer word tails, automatic frames and initializer calls reuse checked native calling and fault paths. Task self-recursion accepts the unresolved JIT call form only for the same physical owner body/frame and original declaration ancestry. The host releases fragment code after execution while the shared data arena preserves writes."
+verification = "Public API and CLI tests cover original definition and call events, initializer calls, right-to-left argument effects, integer widths, arrays, recursive and transitive calls, historical bodies and globals, reached function faults, cumulative code/IR/runtime limits, independent tasks and garbage collection. Original request and registry tests check publication, replay, source identity and host ABI compilation."
+verification_boundary = "Direct source relinking is a hosted code-lifetime policy. Each emitted copy counts against cumulative code and IR limits. The source audit and hosted execution add no TempleOS oracle capture, stable cross-fragment executable address or exported HolyC ABI."
+excluded = ["persistent native function addresses and task callbacks", "general unresolved extern slots and late replacement", "declaration defaults", "runtime-dependent dimensions", "native #exe", "AOT source-task execution", "general F64/aggregate execution", "exported HolyC ABI", "assembler/object/BIN output", "actual TempleOS loader acceptance", "whole-tree compilation and bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-TASK-OUTPUT"
+description = "Retained native source functions call checked Print and PutChars with cumulative output and original source ownership."
+sources = ["Compiler/PrsExp.HC:544-586 original call occurrence, argument order and cleanup", "Compiler/PrsStmt.HC:62-137 original extern record reuse", "Kernel/KeyDev.HC:20-27 packed PutChars bytes", "Kernel/StrPrint.HC:890-896 completed Print publication"]
+implementation = ["src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-output.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Each provider occurrence belongs to the exact admitted body and sealed runtime context. Its original retained extern link belongs to the same task. Request and domain checks remain live during compilation. A joined source definition disables provider fallback by exact symbol and declaration ancestry."
+execution = "The existing native provider path reads original global or automatic array formats, captures arguments in their original order, and charges the shared task instruction/output allowance. Print publishes complete drafts; PutChars retains reached prefixes. Earlier output survives later faults and fragments."
+verification = "Public source/API/CLI tests check independent interpreted bytes, historical functions and array formats, nested and reverse argument effects, initializer output once, recursion, late faults, atomic drafts and exact/one-below output, work, code and IR limits. Both provider bodies compile for both host status ABIs. Foreign tasks, contexts, call occurrences, domains and expired requests reject with valid retry controls."
+verification_boundary = "Provider adapters, memory guards and quota handling are hosted policy. This connection adds no TempleOS oracle capture or exported ABI."
+excluded = ["task literal storage", "StreamPrint and StreamExePrint native source bridges", "joined unresolved extern-slot execution", "persistent function addresses and task callbacks", "effectful defaults and native #exe", "AOT source tasks", "F64 and aggregate execution", "TempleOS loader and bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-TASK-LITERALS"
+description = "Original task string producers keep stable mutable bytes and canonical reference tables across native source fragments."
+sources = ["Compiler/PrsExp.HC:692-697 original string object, internal U8-pointer producer and combined byte payload", "Compiler/OptPass789A.HC:296-304 original string address within generated storage"]
+implementation = ["src/ir/block_graph.ml", "src/ir/runtime_call_context.ml", "src/backend/x86_64_literal_storage.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
+tests = ["test/native/test_native_source_literals.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_execution.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-literals.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Admission requires the physical original graph, owner, runtime-call context and sealed instruction records. Process-local graph keys index immutable storage maps but confer no ownership. Distinct producers keep separate regions even for equal text; historical and recursive calls retain the same original region."
+storage = "Literal bytes include their trailing NUL and are charged once. Each region appends its byte payload and bounded canonical reference table after the current unified task arena extent. Later globals, arrays and literals keep all earlier offsets. Logical literal bytes and private metadata have separate cumulative bounds; literal graph visits consume cumulative layout work."
+execution = "The host validates the new extent and bounded payload list before committing storage, zeroes only the new suffix, and copies original payloads once. Native code reads and mutates those authoritative bytes. Compilation, retention and detached reports never construct an arena-sized initialized seed image. Each caller still charges recompiled code and IR."
+verification = "Independent IR and actual native source/API/CLI runs cover retained formats, entry strings, embedded NULs, empty strings, mutation after later globals/arrays/functions, distinct producers, historical bodies, recursion, initializer calls, original argument effects, faults, collection, separate tasks and exact/one-below literal, code, IR, runtime and output limits. Both ABIs compile the exact regions. Authority controls reject copied graphs, foreign contexts/domains and expired requests, and preserve legitimate pre-entry retries. Raw host controls reject malformed and out-of-suffix payloads before changing the admitted prefix."
+verification_boundary = "Shared arena layout, canonical pointer metadata and resource guards are hosted policy. These source audits and hosted executions add no TempleOS oracle capture, exported ABI, object/BIN loader or bootstrap result."
+excluded = ["persistent pointer globals and pointer returns", "saved parameter defaults", "persistent function addresses and task callbacks", "joined unresolved extern-slot execution", "runtime-dependent dimensions", "native #exe", "AOT source tasks", "F64 and aggregate execution", "TempleOS loader and bootstrap", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-TASK-STATICS"
+description = "Original private integer static allocations and live initializer leaves share the native JIT task arena."
+sources = ["Compiler/PrsVar.HC:534-589 original static allocation and padding", "Compiler/PrsVar.HC:53-107,123-244 original leaf execution and PrsStaticInit", "Compiler/PrsExp.HC:776-784 static address selection", "Compiler/PrsStmt.HC:160-184 completed function publication"]
+implementation = ["src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/static_initializer_lowering.ml", "src/sema/static_reference.ml", "src/sema/static_initializer_fragment.ml", "src/ir/integer_static_allocation.ml", "src/ir/static_initializer_destination.ml", "src/ir/static_initializer_program.ml", "src/ir/global_initialization.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/hosted/native_source_execution.ml"]
+tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-statics.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/integer-statics.md", "docs/integer-static-initializers.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Original live allocation, partial-header symbol, namespace, checked fixed shape and token-selected local publication authorize private storage. Each initializer request binds its original leaf, typed root, static destination, graph and call context. Completion joins the original frame and exact leaf destinations without replay."
+storage = "Padded extents are charged once at allocation; declared extents bound access. Data and initialization flags append without changing earlier arena bytes. Scalar and fixed-array integer widths retain separate per-element state. Private records carry no host address, interpreter cells or prepared values."
+execution = "Live initializer machine code executes direct calls, provider effects and original global or same-function static references once in source order. Retained and historical bodies read and write the same allocation across later declarations and collection. Reached faults preserve earlier native work and output."
+verification = "Native source/API/CLI cases cover counters, scalar and multidimensional narrow arrays, source-order effects, replacement history, literal coexistence, faults and exact/one-below padded-storage, code, IR and runtime limits. Authority tests compile both ABIs, reject foreign tasks/domains and released arenas, preserve pre-entry retries and reject replay or expired requests. Independent IR results check counter values and initializer output."
+verification_boundary = "Arena layout, flags, bounds and quotas are hosted policy. These source audits and host executions add no TempleOS oracle capture, exported ABI, object/BIN loading or bootstrap evidence."
+excluded = ["automatic and parameter reads in static initializer leaves", "partial fixed-array initialization", "pointer, callback, F64 and aggregate statics in native tasks", "runtime-dependent dimensions", "AOT source tasks", "native #exe", "persistent executable addresses and task callbacks", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-STATIC-COPY"
+description = "The original parser literal-copy branch writes checked native task static byte arrays directly."
+sources = ["Compiler/PrsVar.HC:123-145 direct fixed byte-array literal MemCpy", "Compiler/PrsVar.HC:215-244 PrsStaticInit uses the original array traversal", "Kernel/KernelB.HH:168-169 original MemCpy declaration", "Kernel/KUtils.HC:54-68 REP_MOVSB implementation"]
+implementation = ["src/ir/static_initializer_destination.ml", "src/ir/integer_static_allocation.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/driver/integer_source_execution.ml", "src/backend/x86_64_global_storage.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
+tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-static-copies.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/integer-static-initializers.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The request retains the original live parser leaf, typed root, stream operation, allocation and task namespace. The checked copy plan belongs to that request and the current admitted arena. Completion joins the same leaf and checked offsets to the declaring frame without replay. Observed payloads are detached from retained source bytes."
+execution = "The bounded native host copies the original fixed count, including truncation or an included terminating zero, then marks only those elements initialized. The request charges copied bytes before writing. This parser branch emits no expression IR or machine-code image; detached static-copy observations remain separate from expression-code fragments."
+verification = "Independent source/IR cases cover empty and embedded-zero strings, nested and mixed rows, overwriting earlier original element writes, mutation, historical functions, faults, parse failure, collection and exact or one-below work and padded-storage allowances. Source authority rejects released and foreign arenas, cross-domain use, replay, expired requests, substituted layout prefixes and mutated payload observations. Raw C controls reject malformed descriptors, inaccessible extents, overlapping flags and malformed flag representations before the first write. Initialization flags do not substitute for the live request's single-use authority. Public CLI checks original copy results and reports."
+verification_boundary = "Length and extent checks, per-element flags, host mapping ownership and quotas are hosted policy. Counts beyond the literal plus terminator reject rather than reading past the original literal. This adds no TempleOS oracle capture, exported ABI, object/BIN loader or bootstrap evidence."
+excluded = ["partial fixed-array initialization", "pointer, callback, F64 and aggregate static copy destinations", "runtime-dependent dimensions", "AOT source tasks", "native #exe", "persistent executable addresses and task callbacks", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-NAMED-DEFAULTS"
+description = "Named integer defaults execute in original live native task fragments and publish their saved header words."
+sources = ["Compiler/PrsVar.HC:629-656 declaration-time LexExpression2Bin/Call and full dft_val", "Compiler/PrsExp.HC:455-469 selected original saved-default argument"]
+implementation = ["src/driver/default_fragment_lowering.ml", "src/driver/integer_task.ml", "src/driver/native_parameter_defaults.ml", "src/ir/default_fragment_program.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_globals.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
+tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-defaults.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/native-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The original parser receipt, declaration attempt, namespace, typed root and checked call graph remain joined through native entry and saved-header publication. Historical selected/source definitions and original call headers require their exact saved objects and successful native source attempts. Equal bits or copied saved objects grant no authority."
+execution = "Defaults execute once before body completion, including on unused functions and explicit-argument calls. Retained integer calls and admitted storage effects produce the saved full word. Later omission reuses it without executing the expression again. Native work shares runtime and initializer limits; each captured word consumes eight saved-default payload bytes."
+verification = "Independent source/IR cases cover effects, unused functions, explicit arguments, multiple defaults, recursion, historical headers, narrow words and original global/static initializer consumers. Fault and parse-failure tests preserve reached output and stop later publication. Exact and one-below quotas bound native steps, preparation, code, IR and payload. Both private ABIs compile; host execution rejects cross-domain claims, replay, expired requests, repeated work receipts and forged equal-source/equal-bit saved objects. Public CLI verifies native default fragments and saved bytes."
+verification_boundary = "Capability and mapping ownership, graph seals and quotas are hosted policy. This source audit and host execution add no TempleOS runtime capture, exported ABI, object/BIN loader, bootstrap or full-compiler acceptance."
+excluded = ["pointer and callback-valued named defaults", "string and lastclass defaults", "F64 and aggregate defaults", "anonymous callback defaults", "general extern-slot native dispatch", "persistent executable addresses and task callbacks", "runtime-dependent dimensions", "native #exe", "AOT source tasks", "full compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-SOURCE-STATIC-CALLBACK-ALLOCATION"
+description = "Live function-owned callback cells and fixed arrays retain their original allocation in the native JIT task."
+sources = ["Compiler/PrsVar.HC:350-357 anonymous signature and physical RT_PTR storage", "Compiler/PrsVar.HC:534-589 original static allocation and padding", "Compiler/PrsExp.HC:776-784 original static address", "Compiler/PrsVar.HC:629-656 saved anonymous defaults"]
+implementation = ["src/driver/task_declarations.ml", "src/ir/integer_static_allocation.ml", "src/ir/integer_globals.ml", "src/backend/x86_64_global_storage.ml"]
+tests = ["test/native/test_native_source_static_callbacks.ml", "test/native/test_native_source_anonymous_defaults.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-static-callbacks.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-statics.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The original live allocation, partial-header symbol, namespace, completed anonymous header and physical source declarator govern admission. Completion joins the exact original checked static frame and location without allocating or charging again."
+storage = "Each element has eight source-visible RT_PTR bytes, an independent initialization flag and eight private executable-owner bytes. Return metadata does not change that physical shape. Logical data and private arena allowances remain separate; JIT elements stay unknown until a reached write."
+execution = "Original assignments preserve numeric bits and callback owners through scalar and fixed-array copies. Saved anonymous defaults execute once during header parsing. Calls preserve callee capture, reverse arguments, original defaults and historical bodies across activations, later declarations and collection."
+verification = "Independent IR comparisons cover cells, arrays, return metadata, header effects, saved owners, history and recursion. Native faults retain initialization, bounds, ownership and reached target order. Both private ABIs compile; the host ABI executes with exact and one-below arena, logical storage, payload, code, IR and work controls. Original request tests cover foreign and released arenas, cross-domain use, replay and expiration."
+verification_boundary = "Unknown-value, ownership and bounds guards are hosted policy. This connection adds no TempleOS runtime capture, exported HolyC ABI, actual-loader, bootstrap or full-compiler evidence."
+excluded = ["direct static callback initializers", "callback members", "F64 and aggregate callback invocation", "runtime-dependent dimensions", "AOT source tasks", "native #exe", "full compiler and release"]
+
+
+[[feature]]
+id = "HC-SOURCE-STATIC-CALLBACK-INITIALIZERS"
+description = "Original static callback scalar and fixed-array initializer leaves execute with separate physical storage and anonymous metadata."
+sources = ["Compiler/PrsVar.HC:350-357 RT_PTR and anonymous metadata", "Compiler/PrsVar.HC:53-107,123-244 original static initializer leaves", "Compiler/PrsVar.HC:534-589 allocation and static branch", "Compiler/PrsExp.HC:621-654 unresolved address capture", "Compiler/PrsStmt.HC:95-114,181-191 placeholder and body installation", "Compiler/PrsVar.HC:607-612 automatic replay restriction", "Demo/Graphics/Grid.HC:13 automatic callback restriction"]
+implementation = ["src/frontend/parser.ml", "src/sema/static_initializer_fragment.ml", "src/sema/static_reference.ml", "src/sema/function_call_expression_result.ml", "src/driver/task_declarations.ml", "src/driver/static_initializer_lowering.ml", "src/ir/integer_static_allocation.ml", "src/ir/static_initializer_destination.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/test_callback_storage.ml", "test/native/test_native_source_static_callback_initializers.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-static-callback-initializers.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-statics.md", "docs/integer-static-initializers.md", "docs/holyc-language.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The original allocation, anonymous header, leaf, selected token, task snapshot and checked physical shape stay joined through initialization and completed function storage. Active original journal events permit interpreter replay; copied, consumed and foreign events grant no authority. Native entry still requires its live parser request."
+execution = "Live JIT leaves execute once before body installation in interpreter cells or actual native code. Owned copies retain executable owners, numeric words clear owners, and later leaves can read or call earlier initialized elements with their saved header. Completion joins successful original leaves and cells without replay or another allocation charge. Unresolved self-address capture preserves UndefinedExtern."
+verification = "Independent source executions cover scalar and multidimensional cells, physical return metadata, leaf order, effects, saved defaults, historical bodies and reached faults. Exact and one-below cumulative quotas include logical data, payload, code, IR, runtime and preparation. Authority tests compile both private ABIs and reject missing headers, foreign arenas and domains, replay and expiration. Closed numeric leaves also execute through isolated native JIT/AOT consumers."
+verification_boundary = "These source audits and private hosted executions add no TempleOS runtime capture, exported HolyC ABI, object/BIN loader, bootstrap or full-compiler acceptance."
+excluded = ["automatic callback declaration initializers", "callback members", "F64 and aggregate callback invocation", "runtime-dependent dimensions", "partial fixed-array initialization", "AOT source tasks", "native #exe", "full compiler and release"]
+
+
+[[feature]]
+id = "HC-SOURCE-NAMED-CALLBACK-TYPES"
+description = "Original named class selections remain attached to callback metadata, separately from physical RT_PTR storage."
+sources = ["Compiler/Lex.HC:492-513 selected identifier hash entry", "Compiler/PrsVar.HC:285-308 selected return class and original pointer stars", "Compiler/PrsVar.HC:350-356 anonymous header and physical RT_PTR class", "Compiler/PrsStmt.HC:62-115 anonymous return_class and parameters", "Compiler/PrsStmt.HC:14-35 forward completion and fresh class shadow"]
+implementation = ["src/frontend/parser.ml", "src/sema/source_type_reference.ml", "src/sema/function_type_resolution.ml", "src/sema/compiler_record.ml", "src/sema/static_reference.ml", "src/sema/static_local_source.ml", "src/driver/task_declarations.ml", "src/driver/function_type_resolution.ml", "src/driver/local_type_resolution.ml", "src/driver/global_type_resolution.ml", "src/driver/function_call_resolution.ml", "src/driver/integer_source.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_retained_named_aggregate.ml", "test/native/test_native_source_named_callback_types.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-named-callback-types.hc"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-statics.md", "docs/integer-static-initializers.md", "docs/holyc-language.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Synchronous original callback, parameter, local and global receipts freeze the selected class entry, environment, type occurrence and original pointer children. Immutable proofs retain canonical forward identity and distinguish later shadows. Original comma pointer variants can join only within the same occurrence and class."
+execution = "Callback storage and sizeof remain physical RT_PTR words independently of a named aggregate return class. Numeric words, fixed arrays and nested callback defaults execute through original IR or actual native fragments. Completed static frames must agree with the exact selected return class. Metadata supplies no aggregate layout or invocation authority."
+verification = "Independent IR and native source tests cover original local/global/static cells, arrays, complete words, sizeof, nested defaults, forward completion, header lookahead and source history. Proof controls reject copied children, sibling substitution, foreign ownership and expired minting. Both private ABIs compile original selected-class static requests; host execution preserves arena ownership and lifetime controls. Exact cumulative quotas and reached faults remain checked."
+verification_boundary = "Source audits and private hosted execution add no TempleOS runtime capture, aggregate ABI execution, exported HolyC ABI, actual-loader, bootstrap or full-compiler acceptance."
+excluded = ["aggregate-return callback invocation", "ordinary aggregate pointer execution", "callback members", "F64 callback invocation", "AOT source tasks", "native #exe", "full compiler and release"]
+
+[[feature]]
+id = "HC-NUMERIC-CALLBACK-EXPRESSIONS"
+description = "Original callback reads and assignment results supply guarded integer expression consumers with separate parser and computation classes."
+sources = ["Kernel/KernelA.HH:1572-1574 signed RT_PTR", "Compiler/PrsVar.HC:350-357 physical callback storage", "Compiler/PrsExp.HC:15-63,174-181,203-253 parser class, scaling, differences and comparison chains", "Compiler/OptLib.HC:96-177,195-228 raw computation classes", "Compiler/OptLib.HC:484-505 opposite operand size resolution", "Compiler/OptPass012.HC:151-160,458-485,866-895 node classes, bitwise operators and assignment destinations", "Compiler/OptPass012.HC:1259-1266 original size placeholders", "Compiler/PrsLib.HC:249-263 ordered optimizer passes"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
+tests = ["test/callback_expression_cases.ml", "test/test_callback_expressions.ml", "test/native/test_native_source_callback_expressions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/callback-expressions.hc"]
+documentation = ["docs/callback-expressions.md", "docs/callback-updates.md", "docs/native-local-callbacks.md", "docs/native-source-tasks.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Exact original AST children and positive callback declarator evidence retain the parser pointer class. Physical storage, selected return class, numeric computation and dynamic executable ownership remain distinct. Ordinary pointers acquire no callback provenance."
+execution = "One-star words and assignment results support integer unary, arithmetic, bitwise, shift, logical and comparison operators. Original parser classes insert size placeholders; the opposite operand's first optimized class resolves or removes each scale. Later class changes do not recreate scaling. Grouping emits no cast. Signed pointer differences and completed comparison chains consume the parser pointer class. Numeric views preserve dynamic owners, which guarded native operations reject at the reached consumer. Original callback copies retain their valid invocation owner."
+verification = "Shared source-derived cases cover JIT/AOT IR and actual native JIT tasks, all storage shapes, selected return metadata, signedness, nested scaling, comparison chains, effects, ownership faults and exact cumulative code, IR, frame and work limits. Original source requests compile for both private ABIs; the host ABI executes. Maintained examples and CLI reports check success and reached output."
+verification_boundary = "These pinned source audits and hosted executions add no TempleOS runtime capture, exported HolyC ABI, actual-loader, bootstrap or full-compiler acceptance."
+excluded = ["arithmetic on owned code addresses", "callback members", "wider callback indirection", "F64 or aggregate callback invocation", "AOT source tasks", "native #exe", "full compiler and release"]
+
+[[feature]]
+id = "HC-PUTCHARS-CALLBACK-ENTRIES"
+description = "Original JIT PutChars extern captures execute through distinct checked hosted provider entries."
+sources = ["Compiler/PrsExp.HC:624-652 original extern exe_addr capture", "Compiler/PrsStmt.HC:95-114,181-191 placeholder and body installation", "Kernel/KeyDev.HC:20-28 U0/U64 packed-byte loop", "Kernel/KExts.HC:84 extern declaration"]
+implementation = ["src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml"]
+tests = ["test/provider_callback_cases.ml", "test/test_provider_callbacks.ml", "test/native/test_native_provider_callbacks.ml", "test/native/test_native_source_authority.ml", "test/native/test_provider_callback_cli.ml", "examples/provider-callback-entries.hc"]
+documentation = ["docs/provider-callback-entries.md", "docs/native-source-tasks.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The complete sealed IMM-slot/DEREF pair retains the approved original extern declaration, link, U0/U64 signature and RET1 cleanup. Native owners require exact task bindings and source generations; a copied receipt or expired request supplies no entry authority."
+execution = "IR and native JIT source tasks invoke the packed-byte provider through automatic, static, global, indexed and parameter callback cells. Callee capture precedes arguments. Saved defaults and earlier copies retain the provider after a later source body replaces the extern slot. Native compilation emits separate private entries, stable owner cells and Windows unwind records without a fabricated source body."
+verification = "Independent IR and native executions cover captures, recursion, defaults, byte values, historical replacement and reached signature, output and numeric-owner faults. Measured limits cover cumulative work and machine-code, IR, frame and output allowances. Original entry tests compile both private ABIs and exercise malformed host tables, copied receipts, released owners and request expiry. Maintained CLI tests verify the example and fault prefixes."
+verification_boundary = "Packed-byte output is a bounded hosted contract. Source admission, machine mapping and reached saved-default capture remain separate. These checks add no TempleOS runtime capture, exported ABI, device scheduling, actual-loader, bootstrap or full-compiler acceptance."
+excluded = ["isolated native extern slot addresses", "native stream-provider callback entries", "native AOT source tasks", "callback members", "wider indirection", "TempleOS device hooks", "exported HolyC ABI", "full compiler and release"]
+
+[[feature]]
+id = "HC-PRINT-CALLBACK-ENTRIES"
+description = "Original Print extern captures execute through checked IR and separate native formatting entries."
+sources = ["Compiler/PrsExp.HC:624-652 original extern exe_addr capture", "Compiler/PrsStmt.HC:95-114,181-191 placeholder and body installation", "Kernel/StrPrint.HC:890-895 complete draft before publication"]
+implementation = ["src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_literal_storage.ml", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml"]
+tests = ["test/provider_callback_cases.ml", "test/integer_format_fixture.ml", "test/test_provider_callbacks.ml", "test/native/test_native_provider_callbacks.ml", "test/native/test_native_source_authority.ml", "test/native/test_provider_callback_cli.ml", "examples/print-callback-entries.hc"]
+documentation = ["docs/provider-callback-entries.md", "docs/native-print.md", "docs/native-source-tasks.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Exact original slot captures retain approved primitive return/fixed classes, variadic shape and cleanup. Installed internal storage spellings share the ABI of the same checked public primitive; named user aggregates remain distinct. Source receipt identity, task admission, reached capture and native mapping stay separate."
+execution = "Print captures, copies, indexed storage, callback parameters and saved JIT defaults retain their original executable owner after source replacement. Runtime tables carry exact counts and primitive pointer kinds. The native fixed-scratch entry uses the shared formatter, bounded scans and atomic drafts without a host formatting call or VM execution. Callback shape permits a retained function's argument staging before later provider publication."
+verification = "Independent IR and real native task executions cover source history, shared format grammar and exact work, pointer tails, signatures, original memory faults and draft atomicity. Measured physical stack and exact/one-below cumulative code, IR, frame, depth, work and output bounds remain checked. Both private ABIs compile; host execution rejects malformed mappings, copied receipts, released owners and expired requests. The maintained saved-default example and CLI faults execute through both task targets."
+verification_boundary = "Fragments currently re-emit admitted provider code; larger histories need an explicit allowance above the unchanged 64 KiB cumulative default. These hosted executions add no TempleOS runtime capture, exported ABI, actual-loader, bootstrap or full-compiler acceptance."
+excluded = ["source variadic pointer-tail bodies", "cross-image provider-code reuse", "isolated native extern slot addresses", "native stream-provider entries", "native AOT source tasks", "callback members", "wider indirection", "exported HolyC ABI", "full compiler and release"]
+
+[[feature]]
+id = "HC-IR-STREAM-CALLBACK-ENTRIES"
+description = "Original stream-provider captures invoke checked IR generation and saved compiler input in active blocks of either outer mode."
+sources = ["Compiler/PrsExp.HC:624-652 original extern capture", "Compiler/CMisc.HC:68-81 StreamPrint formatting and active block", "Compiler/CMain.HC:673-690 StreamExePrint saved context and source execution", "Compiler/PrsStmt.HC:805-840 active flag in both outer modes", "Compiler/CompilerB.HH:21-22 public stream signatures"]
+implementation = ["src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_provider_callbacks.ml", "test/test_task_stream.ml", "test/test_stateful_exe.ml"]
+documentation = ["docs/provider-callback-entries.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 705
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Provider selection retains the complete original declaration/link/slot pair and current task publication. Primitive ABI compatibility does not grant aggregate, source-body or executable ownership."
+execution = "StreamPrint callbacks format before active-buffer checks and publish into the original task-owned LIFO buffer. Saved defaults and earlier captures survive later directives or body replacement. StreamExePrint callbacks format before checking the active block, execute nested source through the saved enclosing compiler namespace, return its word and share execution/work bounds. Inactive ordinary children and expired contexts retain their reached faults after formatting."
+verification = "Maintained tests cover installed signatures, active and inactive contexts, arrays, history, defaults, replacement, nested buffers, generated capacity, failed drafts, nested source faults and exact/one-below cumulative execution and work. Existing direct stream tests remain required."
+verification_boundary = "This is checked hosted IR execution; native stream-provider entries and the original TempleOS runtime services remain open. These tests add no TempleOS capture, exported ABI, loader or full-compiler acceptance."
+excluded = ["native stream-provider callback entries", "native #exe", "native AOT source tasks", "TempleOS runtime services", "exported HolyC ABI", "full compiler and release"]
+
+[[feature]]
+id = "HC-IR-NATIVE-DATA-DEFAULTS"
+description = "Original JIT named and anonymous data-pointer defaults retain owned primitive objects and views; miscellaneous-data expressions copy their terminated result."
+sources = ["Compiler/PrsVar.HC:629-656 expression execution, miscellaneous-data copy and member flags", "Compiler/PrsExp.HC:457-469 selected member default and separate AOT string emission", "Compiler/LexLib.HC:165-172 string default comparison and 191-192 lifetime"]
+implementation = ["src/ir/default_fragment_destination.ml", "src/ir/saved_parameter_value.ml", "src/ir/prepared_parameter_default.ml", "src/ir/prepared_callback_default.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/driver/default_fragment_lowering.ml", "src/driver/native_parameter_defaults.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml"]
+tests = ["test/data_pointer_default_cases.ml", "test/test_data_pointer_defaults.ml", "test/native/test_native_data_pointer_defaults.ml", "test/test_data_pointer_defaults_cli.ml", "examples/data-pointer-defaults.hc"]
+documentation = ["docs/data-pointer-defaults.md", "docs/native-defaults.md", "docs/native-source-tasks.md", "docs/primitive-pointer-views.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Each saved data value retains its original typed default result, primitive view and opaque identity. Runtime completion requires the current source-header attempt. Later calls require its exact published saved object. Native materialization also requires the successful original image and arena capture; metadata, foreign arenas and replay cannot substitute it."
+execution = "The guarded interpreter and native task paths preserve original object extent, byte initialization, offset, alias snapshots and historical selected headers. Miscellaneous-data default expressions scan and copy the resulting terminated byte sequence once into independent mutable task storage. Reached effects and attempted scan work survive failures. Native captures append a 32-byte descriptor without moving earlier offsets; each logical saved parameter charges eight bytes and copied data consumes literal storage."
+verification = "Shared sources cover all 81 original/view read pairs and 81 write pairs, unused and explicit-only defaults, anonymous signatures, recursion, tails, historical declarations, one-past values, rebinding, copied suffixes, embedded NULs, complete view windows, unknown bytes and bounds. Native controls compile both private ABIs, reject unevaluated/foreign/substituted/replayed captures and retain an authentic completion. CLI/API checks exercise the maintained example and exact/one-below work, literal, saved-byte, code and IR limits."
+verification_boundary = "These are source-backed guarded hosted executions, with no new TempleOS runtime capture, raw-address ABI or AOT output relocation."
+excluded = ["AOT reference default relocation and per-call string emission", "closed host-jit object-pointer defaults", "raw/null address conversions", "persistent pointer variables and pointer returns", "source variadic pointer ownership", "deeper/F64/aggregate pointers", "live native internal bindings", "exported HolyC ABI", "TempleOS loader and bootstrap", "full compiler and release"]
+[[feature]]
+id = "HC-IR-NATIVE-LIVE-INTERNAL-BINDINGS"
+description = "Original ordinary JIT integer internal targets execute before type validation and install their saved operation at header completion."
+sources = ["Compiler/PrsStmt.HC:1055-1061 target evaluation before type validation", "Compiler/PrsStmt.HC:244-249 original header installs exe_addr and flags", "Compiler/PrsExp.HC:1116-1154 compiled expression execution and remaining floating conversion"]
+implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/integer_initializers.ml", "src/driver/internal_binding_fragment_lowering.ml", "src/ir/internal_binding_fragment_program.ml", "src/ir/integer_interpreter.ml", "src/ir/native_internal_binding_capture.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
+tests = ["test/internal_binding_cases.ml", "test/test_live_internal_bindings.ml", "test/native/test_native_internal_bindings.ml", "test/test_native_internal_bindings_cli.ml", "examples/native-internal-bindings.hc"]
+documentation = ["docs/native-internal-bindings.md", "docs/retained-internal.md", "docs/native-source-tasks.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The current source attempt retains the original typed target, namespace, task catalog and header receipt. Native C completion retains the physical original program and live arena, actual returned bits and actual execution work; one consumption registers the successful binding in its owning VM."
+execution = "IR activates while the original binding callback is current. Native targets execute their actual original entry with no interpreted instructions. Supported integer intrinsic scopes share original owned storage, view and byte state. Target effects precede type validation, run once even for unused declarations and survive later faults. Historical headers retain their saved operation."
+verification = "Shared tests cover all supported integer operations, parenthesized and computed targets, mutable cells, retained direct and callback calls, unused bindings, history, copied string defaults and reached faults. API/CLI tests cover exact/one-below preparation, execution, output, code and IR quotas. Both private ABIs compile; actual host execution rejects metadata-only, substituted, equal-program, foreign-domain/arena, wrong-work, expired and replayed completion while preserving authentic captures across collection."
+verification_boundary = "Guarded hosted integer execution adds no TempleOS runtime capture, exported raw-address ABI, native #exe, AOT source task, loader or full-compiler acceptance."
+excluded = ["floating target conversion", "arbitrary host executable targets", "intrinsic-entry executable addresses", "native stream services", "native #exe", "AOT source sessions", "exported HolyC ABI", "object/BIN output and actual loader acceptance", "whole-tree compiler and bootstrap"]
+
+[[feature]]
+id = "HC-IR-NATIVE-RUNTIME-LAYOUT-EXPRESSIONS"
+description = "Original integer JIT bounds and aggregate offsets execute in IR and native tasks and retain their layout dependencies."
+sources = ["Compiler/PrsVar.HC:247-283 array bounds before closing bracket", "Compiler/PrsVar.HC:408-449 offsets before semicolon", "Compiler/PrsVar.HC:660-721 class and union member placement and completion"]
+implementation = ["src/driver/integer_source_execution.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/integer_initializers.ml", "src/driver/dimension_fragment_lowering.ml", "src/driver/offset_fragment_lowering.ml", "src/sema/compiler_record.ml", "src/sema/source_activation.ml", "src/ir/integer_interpreter.ml", "src/ir/dimension_fragment_program.ml", "src/ir/offset_fragment_program.ml", "src/ir/native_scalar_capture.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
+tests = ["test/runtime_layout_cases.ml", "test/test_runtime_layout_expressions.ml", "test/native/test_native_runtime_layout.ml", "test/test_runtime_layout_cli.ml", "examples/runtime-layout-expressions.hc"]
+documentation = ["docs/runtime-layout-expressions.md", "docs/integer-runtime-dimensions.md", "docs/retained-aggregates.md", "docs/native-source-tasks.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Each original layout expression retains its typed root, task snapshot, namespace, parser receipt and predecessor chain. Native results require the physical original program, actual execution work and a live arena, and are consumed once."
+execution = "Bounds and offsets execute during their original parser callbacks. Counts fix global, automatic, static and primitive member dimensions. Class and union layouts preserve runtime dependencies through compiler positions, completed sizes, derived bounds and frames. Effects and output survive later syntax and allocation failures. Native execution uses zero interpreted instructions."
+verification = "Shared IR/native sources cover strides, unused declarations, repeated and historical functions, direct and callback calls, saved arguments, internal calls, primitive members, nested unions, negative offsets, compiler positions, size chains and prior ordinary results. Actual native captures reject equal metadata, substituted images, foreign domains and arenas, wrong work, expiration and replay while surviving collection. API and CLI controls exercise exact and one-below instruction, initializer, output, global, code and IR limits. Both private image ABIs compile and the host ABI executes."
+verification_boundary = "Guarded hosted integer execution adds no TempleOS runtime capture, AOT relocation, aggregate object execution, native AOT stream execution, exported ABI or loader acceptance."
+excluded = ["runtime floating bounds", "aggregate object execution", "AOT runtime relocation", "synchronous native StreamExePrint", "exported HolyC ABI", "object/BIN output and actual loader acceptance", "whole-tree compiler and bootstrap", "complete compiler and release"]
+
+[[feature]]
+id = "HC-STATEMENT-AGGREGATE-DECLARATIONS"
+description = "Classes and unions in function and statement bodies publish original global types during parsing."
+sources = ["Compiler/PrsStmt.HC:1-60 class publication", "Compiler/PrsStmt.HC:1143-1159 statement declarations", "Compiler/PrsStmt.HC:1208-1218 statement delimiters", "Compiler/PrsVar.HC:286-368 backed inline local declarations"]
+implementation = ["src/frontend/parser.ml", "src/frontend/ast.ml", "src/driver/task_declarations.ml", "src/sema/compiler_record.ml"]
+tests = ["test/local_aggregate_cases.ml", "test/test_local_aggregates.ml", "test/native/test_native_local_aggregates.ml", "test/test_local_aggregates_cli.ml", "examples/local-aggregate-declarations.hc"]
+documentation = ["docs/local-aggregate-declarations.md", "docs/runtime-layout-expressions.md", "docs/testing.md", "README.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "Statement ASTs retain exact completed aggregate items. Shared lexical declaration indices include nested declarations. Saved type selections, queries and defaults retain their original source occurrences."
+execution = "Type publication and original bounds and offsets occur during parsing, including in uncalled functions. Metadata statements emit no runtime operation; native calls and layout preparation still execute their original machine entries with zero interpreted instructions."
+verification = "Parser, semantic, IR and native tests cover comma definitions and forwards, global visibility, source indices, historical type replacement, inline local types, original callbacks, runtime effects, reached failures and resource limits."
+verification_boundary = "Type publication grants no aggregate object execution, AOT runtime relocation, raw code-address authority or complete compiler acceptance."
+excluded = ["aggregate object execution", "AOT runtime relocation", "native AOT sessions", "synchronous native StreamExePrint", "exported HolyC ABI", "object/BIN loader", "whole-tree compilation and bootstrap", "complete compiler and release"]
+
+[[feature]]
+id = "HC-SOURCE-INHERITED-LAYOUT-METADATA"
+description = "Original inherited size metadata copies the selected base's reached layout and transitive runtime dependencies."
+sources = ["Compiler/PrsStmt.HC:46-57 base selection before following lookahead and size copy after it", "Compiler/PrsVar.HC:408 root union base zero", "Compiler/PrsVar.HC:660-721 original member placement and padding"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/declaration_collection.ml", "src/sema/source_aggregate_layout.ml", "src/sema/aggregate_layout_core.ml", "src/driver/task_declarations.ml", "src/driver/inherited_metadata.ml", "src/driver/integer_source.ml"]
+tests = ["test/source_inherited_layout_cases.ml", "test/test_source_inherited_layouts.ml", "test/test_source_inherited_layout_authority.ml", "test/native/test_native_source_inherited_layouts.ml", "test/test_source_inherited_layouts_cli.ml", "examples/source-inherited-layouts.hc"]
+documentation = ["docs/source-inherited-layouts.md", "docs/local-aggregate-declarations.md", "docs/runtime-layout-expressions.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The parser freezes the physical selected class entry before following lookahead. Attachment reads only the current original record of its exact canonical identity; completing the original forward may change that record, while a fresh same-name definition cannot. Original completed metadata proofs retain exact definitions and namespace ownership."
+execution = "Original base size is copied once before brace validation. Member placement, offsets and padding retain original source phases. Runtime dimensions and offsets execute once, and their dependencies propagate through inherited sizes, saved queries, defaults, derived bounds and frames. Native source runs require actual machine fragments with zero interpreted instructions."
+verification = "Shared IR/native fixtures cover partial, forward and self bases, lookahead completion and replacement, union overlap, offsets, padding, pointer/callback members, uncalled functions, history, effects, malformed input and overflow. Authority controls reject foreign namespaces/tables, equal records from another class, stale snapshots, copied definitions, expiration and replay. Unexecuted inherited dimensions and offsets cannot authorize task or isolated preparation. API/CLI tests check exact and one-below source, execution, output, code and IR limits."
+verification_boundary = "Inherited metadata supplies captured size queries without admitting aggregate objects or a member index. Ordinary semantic layout APIs retain their completed-base requirements. Hosted execution adds no TempleOS runtime capture or full compiler acceptance."
+excluded = ["aggregate object execution and retained member indexes", "runtime AOT relocation", "native AOT source execution", "synchronous native StreamExePrint", "wider ABI", "object/BIN loader", "whole-tree compilation and bootstrap", "complete compiler and release"]
+
+[[feature]]
+id = "HC-NATIVE-AOT-SOURCE-SESSIONS"
+description = "Original native JIT directive tasks generate source during AOT parsing before a separate checked native module executes."
+sources = ["Compiler/PrsStmt.HC:805-840 stream task tables, JIT flags and restored source injection", "Compiler/Lex.HC:1031-1035 exe directive dispatch", "Compiler/CMisc.HC:68-81 formatting and active buffer", "Compiler/CMain.HC:673-690 separate synchronous StreamExePrint consumer"]
+implementation = ["src/hosted/native_source_execution.ml", "src/hosted/native_program.ml", "src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/native_default_preparation.ml", "src/driver/task_declarations.ml", "src/backend/x86_64_global_storage.ml", "src/runtime/native_program_execution.ml", "bin/holyc.ml", "bin/run_report.ml"]
+tests = ["test/aot_source_cases.ml", "test/test_aot_source_sessions.ml", "test/native/test_native_aot_source.ml", "test/native/test_native_aot_source_cli.ml", "test/native/test_native_source_execution.ml", "test/native/test_native_source_cli.ml", "examples/native-aot-streams.hc"]
+documentation = ["docs/native-aot-source-sessions.md", "docs/native-source-tasks.md", "docs/native-stream-generation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "The directive frontend freezes before outer module publications. Task requests retain their original live parser receipts, native entries and shared arena. The module compiler consumes the original accepted outer AST and preparation receipts in its separate table, without reparsing or graph merging. Resource checkpoints grant no execution, saved-value or storage authority."
+execution = "Native directives complete during parsing and inject only committed StreamPrint text. Retained task storage, functions, defaults, callbacks and layouts survive later directives. Original load-time module initialization and commands execute afterward in a separate private native arena. Every native fragment uses machine code; task runtime instruction counters remain zero."
+verification = "Seventeen shared source-derived fixtures check JIT directive mode, hidden function locals, task/module visibility, zero storage, original load calls, retained defaults and callbacks, task statics, historical bodies, inherited task layouts, nested streams and output order against fresh IR runs. API and CLI tests check exact and one-below instruction, preparation, default-byte, generated-byte, output, code, IR and combined global/literal limits, plus reached directive/module faults and malformed generated source. Native reports preserve distinct original fragment outcomes."
+verification_boundary = "Hosted integer AOT source orchestration retains the existing native outer module language boundary. These tests add no TempleOS runtime capture, exported HolyC ABI, BIN loader or whole-tree compiler acceptance."
+excluded = ["synchronous native StreamExePrint and reentrant parser/frame/arena/budget leases", "general outer aggregate declarations and object execution", "runtime AOT dimensions", "AOT reference-default relocation", "floating execution and wider signatures", "exported HolyC ABI", "object/BIN output and actual loader acceptance", "whole-tree compilation and bootstrap", "complete compiler and release"]
+
+[[feature]]
+id = "HC-IR-SAVED-COMPILER-STREAM-INPUT"
+description = "Original StreamExePrint suspensions select the saved enclosing compiler namespace and retain reached child publications under one resource owner."
+sources = ["Compiler/PrsStmt.HC:805-840 saved enclosing tables, task switch and active flag", "Compiler/CMain.HC:673-690 formatted source and htc.next selection", "Compiler/CMain.HC:572-604 child JIT context and saved tables", "Kernel/KTask.HC:302-357 reached child command compilation and execution"]
+implementation = ["src/frontend/parser.ml", "src/frontend/symbol_visibility.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/integer_source_execution.ml", "src/driver/public_integer_task.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_direct_call_phases.ml", "test/test_stateful_exe.ml", "test/test_stateful_exe_cli.ml", "examples/stream-exe-compiler-context.hc"]
+documentation = ["docs/integer-task.md", "docs/provider-callback-entries.md", "docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/native-aot-source-sessions.md", "docs/testing.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 704
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_identity = "A live original directive supplies a one-use suspension and its unchanged direct enclosing context. Child parsing requires that context's original sources, symbols, local shadows, domain and observed declaration ledger. The child runtime reuses the canonical namespace and original completed metadata, with its own command lifecycle and storage catalog. No unrelated declaration graphs are merged."
+execution = "Child input starts in JIT mode without inherited EXE permission. Reached types, replacements, cells, functions, defaults and statics publish into the original saved namespace and persist for later child inputs. A child's own directive switches back to the retained task and restores its compiler context afterward. Separate catalogs share actual cumulative instruction, preparation, global/literal, output and generation counters, exact stream stack, suspended frame bytes and call depth."
+verification = "Source cases cover enclosing type and replacement selection, directive-only type/function exclusion, child publication and persistence, original inherited metadata, nested table switches and saved local shadows. Parser controls reject ordinary contexts, foreign managers/symbols/contexts/domains, wrong modes, advanced parents, replay and expiry; failure and exception paths preserve one-use consumption and restore local visibility. API and CLI tests check exact and one-below instructions, preparation and work, including a live caller with a 40-byte frame limit and call depth three."
+verification_boundary = "This is source-backed hosted IR execution. Correct namespace selection does not make pending original AOT data/functions executable or supply original compiler-local metadata. These tests add no TempleOS runtime capture, native synchronous reentry, exported ABI or full compiler acceptance."
+excluded = ["pending original AOT runtime data and function imports", "original compiler-local metadata and invocation frames", "synchronous native StreamExePrint and reentrant leases", "floating and aggregate object execution", "AOT runtime relocation", "wider ABI", "object/BIN output and actual loader", "whole-tree compilation and bootstrap", "complete compiler and release"]

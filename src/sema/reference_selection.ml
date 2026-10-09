@@ -9,6 +9,7 @@ type kind =
   | Absent
   | Unavailable
   | Local
+  | Static_local of Static_reference.t
   | Source of Symbol.t * source_stage
   | Outer of Outer_environment.t * Outer_environment.binding
 
@@ -31,6 +32,17 @@ let make table name kind =
 let absent ~table ~name = make table name Absent
 let unavailable ~table ~name = make table name Unavailable
 let local ~table ~name = make table name Local
+
+let static_local ~table ~name reference =
+  if
+    (not (Symbol_table.owns_symbol table (Static_reference.symbol reference)))
+    || (not
+          (Compiler_record.static_allocation_owns_table
+             (Static_reference.allocation reference)
+             table))
+    || name <> Symbol.name (Static_reference.symbol reference)
+  then Error "static selection has another original table or spelling"
+  else make table name (Static_local reference)
 
 let source ~table ~name ~symbol ~stage =
   let expected =

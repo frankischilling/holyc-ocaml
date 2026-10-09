@@ -71,6 +71,7 @@ let activation_replays_original_phases () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some checkpoint;
       declaration = Some declaration;
       reference = None;

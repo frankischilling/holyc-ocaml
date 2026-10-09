@@ -73,16 +73,21 @@ let unsupported () =
   List.iter
     (fun text ->
       Alcotest.(check string) text "HCRUN0001" (diagnostic text).code)
-    [ "I0 x=0;"; "return;"; "lock {1;}"; "switch[1]{case 1:break;}" ];
+    [ "I0 x=0;"; "lock {1;}"; "switch[1]{case 1:break;}" ];
+  Alcotest.(check string)
+    "return fails at the original LexExcept phase" "HCPARSE0168"
+    (diagnostic "return;").code;
   List.iter
     (fun text ->
       Alcotest.(check string)
-        "output requires a checked visible target" "HCSEMA0059"
+        "output requires the original function header" "HCPARSE0172"
         (diagnostic text).code)
     [ "\"hello\";"; "if(0) {\"hidden\";}" ];
-  Alcotest.(check string) "unbound break" "HCRUN0002" (diagnostic "break;").code;
   Alcotest.(check string)
-    "break cannot escape for initializer" "HCRUN0002"
+    "unbound break fails at the original LexExcept phase" "HCPARSE0170"
+    (diagnostic "break;").code;
+  Alcotest.(check string)
+    "break cannot escape for initializer" "HCPARSE0170"
     (diagnostic "while(1) for(break;1;0) ;").code;
   List.iter
     (fun text -> succeeds text ())

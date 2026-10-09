@@ -14,6 +14,37 @@ The scalar fixture returns I64 42. The U0 fixture reaches a procedure call after
 a prior 42-valued expression and therefore finishes successfully without a final
 numeric value. The ordinary `run` target remains the checked interpreter.
 
+## Ordinary calling modifiers
+
+Fixed and integer word-tail variadic functions with integer or U0 returns admit
+`argpop`, `noargpop` and `haserrcode`.
+`noargpop` suppresses callee cleanup even when `argpop` is also present, in either
+token order. `haserrcode` alone has no ordinary epilogue effect. Interrupt bodies
+still require a separate execution consumer and remain rejected.
+
+The original call context retains the selected header's `IC_ADD_RSP1` or
+`IC_ADD_RSP` cleanup and its eight-byte argument slots. Native preflight checks
+that receipt before adapting the call to the private fixed-RSP convention. The
+adapter uses plain `RET`; it does not emit TempleOS `RET imm16` or `IRETQ`.
+
+Local declarations retain modifier tokens in source order. The final staged
+`STATIC` bit selects their storage: `static argpop` becomes automatic, while
+`argpop static` stays static. The pinned local parser passes zero staged flags to
+anonymous callback headers, so local modifiers do not give a callback a new
+cleanup policy. Global callback headers retain their staged calling flags.
+Visible type names take precedence over modifier keywords during local parsing.
+
+[`native-calling-flags.hc`](../examples/native-calling-flags.hc) returns I64 42
+in both targets and preprocessing modes. It combines different function cleanup
+policies, a U0 call, a saved U8 default and a static local. Tests also cover all
+eight integer widths, zero arguments, recursive quota failures and recovery of
+the same native image after a fault.
+
+These rules follow `Compiler/PrsStmt.HC:1067-1082,1158-1163`,
+`Compiler/PrsVar.HC:521-522`, `Compiler/PrsExp.HC:572-573` and
+`Compiler/OptPass789A.HC:405-417` at the pinned reference commit. They are source
+audits and hosted checks; no new TempleOS execution capture is claimed.
+
 ## Declared storage and register values
 
 Named fixed parameters, automatic locals and scalar returns admit I8, U8, I16,
@@ -30,12 +61,27 @@ and signedness; there is no additional native primitive registry.
 | Bool | 1 | Sign-extended I64 |
 | U8 / U16 / U32 | 1 / 2 / 4 | Zero-extended U64 |
 | I64 / U64 | 8 | Full I64 / U64 word |
+| One-star callback cell | 8 | Complete word and private executable owner |
+
+Callback return metadata does not determine storage width. This includes F64
+return classes and pointer-return headers on automatic/static cells and fully
+indexed arrays. Each selected callback header still governs its eventual call;
+native invocation currently supports integer and U0 returns. See
+[callback storage](native-local-callbacks.md).
 
 Each fixed parameter still occupies eight bytes in the private call convention.
 Its object accesses use the declared width. Automatic locals occupy their exact
 checked ranges within the padded semantic frame. Preflight verifies the complete
 range, declared slot size and owner, including overlap with adjacent objects.
 Hidden initialization flags, spills and call staging remain outside those ranges.
+
+[Native word tails](native-word-tails.md) retain original synthetic `argc`/`argv`
+locations and actual per-activation bounds. The hidden count and each tail word
+also occupy eight-byte slots; changing `argc` does not change their allocation.
+
+[Native callback arguments](native-callback-arguments.md) add private owner
+lanes for indirect fixed callback parameters. Their source slots stay eight
+bytes; owner staging and capture slots charge private physical storage.
 
 The encoder uses signed or unsigned extending byte/word loads, MOVSXD for signed
 dword loads, and a dword MOV for unsigned loads. Stores select the exact byte,
@@ -166,7 +212,17 @@ Automatic integer arrays are covered by [native arrays](native-arrays.md).
 Global/static arrays, closed initializers and strings are covered by
 [persistent storage](native-persistent-storage.md).
 Broader pointer storage, automatic initialized arrays, aggregate values, I0/F64 storage,
-variadic/indirect/external calls, prototypes, explicit register/function flags,
+variadic/indirect/external calls, prototypes, explicit register requests,
+interrupt function entry and public/static function definitions,
 runtime output and general declaration/`#exe` execution remain outside this gate.
 Optimizer parity, complete HolyC ABI, assembly/object/BIN output, actual loader
 acceptance, whole-tree compilation and bootstrap remain required project work.
+
+Automatic, static and global callback cells, fully indexed arrays and fixed
+callback parameters use the address and
+ownership snapshots described in [native callbacks](native-local-callbacks.md).
+Numeric callback words remain non-executable and fault at reached invocation.
+
+[Callback-word defaults](native-callback-word-defaults.md) retain complete
+eight-byte values independently of callback return classes. Effective `noreg`
+parameters and defaults use the checked stack path.

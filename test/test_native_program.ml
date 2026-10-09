@@ -169,12 +169,24 @@ let kind_name = function
   | Program.Index_addition_overflow -> "index-addition-overflow"
   | Program.Address_out_of_bounds -> "address-out-of-bounds"
   | Program.Output_limit_exceeded -> "output-limit"
+  | Program.Generated_limit_exceeded -> "generated-limit"
+  | Program.Stream_context_required -> "stream-context"
+  | Program.Stream_exe_context_required -> "stream-exe-context"
+  | Program.Stream_exe_source_failed -> "stream-exe-source-failed"
+  | Program.Compiler_option_failed -> "compiler-option-failed"
   | Program.Output_work_limit_exceeded -> "output-work-limit"
   | Program.Output_invalid_format -> "output-format"
   | Program.Output_invalid_argument -> "output-argument"
   | Program.Output_invalid_pointer -> "output-pointer"
   | Program.Output_invalid_byte -> "output-byte"
   | Program.Pointer_object_mismatch -> "pointer-object-mismatch"
+  | Program.Callback_unowned_address -> "callback-unowned-address"
+  | Program.Callback_signature_mismatch -> "callback-signature-mismatch"
+  | Program.Code_comparison_invalid_word -> "code-comparison-invalid-word"
+  | Program.Extern_signature_mismatch -> "extern-signature-mismatch"
+  | Program.Undefined_extern -> "undefined-extern"
+  | Program.Callback_owned_word_escape -> "callback-owned-word-escape"
+  | Program.Callback_update_owned_address -> "callback-update-owned-address"
   | Program.Pointer_difference_object_mismatch ->
       "pointer-difference-object-mismatch"
 
@@ -679,6 +691,8 @@ let source_gate_is_compile_only () =
       "I64 F(){static I64 n=0;return ++n;} F();";
       "I64 Bad(){static I64 n[2];return n[0];}42;";
       "I64 values[2]={40,2};values[0]+values[1];";
+      "I64 F(I64 n,...){return n;} F(42);";
+      "I64 F(...){argc=0;I64 *p=argv;return p[1];}F(20,42);";
     ]
   in
   List.iter
@@ -696,9 +710,31 @@ let source_gate_is_compile_only () =
           Alcotest.(check bool)
             "compile-only source emits a nonempty bounded image" true
             (Program.block_count checked.value > 0);
-          Alcotest.(check bool)
-            "compile-only source has no warnings" true (checked.diagnostics = []))
-        accepted;
+          let expected =
+            if source = "I64 F(I64 n,...){return n;} F(42);" then
+              [
+                ("HCSEMA0034", "unused variable \"argc\" in function \"F\"");
+                ("HCSEMA0034", "unused variable \"argv\" in function \"F\"");
+              ]
+            else []
+          in
+          Alcotest.(check (list (pair string string)))
+            "compile-only source retains exact warning rules" expected
+            (List.map
+               (fun (diagnostic : Diagnostic.t) ->
+                 Alcotest.(check bool)
+                   "nonfatal compiler warning" true
+                   (diagnostic.severity = Diagnostic.Warning);
+                 (diagnostic.code, diagnostic.message))
+               checked.diagnostics))
+        (accepted
+        @
+        if mode = Preprocessor.Aot then
+          [
+            "I64 F(){return 42;} I64 G=F(); G;";
+            "I64 F(I64 n){return 42/n;} I64 G=F(0); 42;";
+          ]
+        else []);
       List.iter
         (fun source ->
           match source_program_compile ~mode source with
@@ -713,26 +749,27 @@ let source_gate_is_compile_only () =
                      String.starts_with ~prefix:"HCIRVM" error.code
                      || String.starts_with ~prefix:"HCNATIVE" error.code)
                    diagnostics))
-        [
-          "I64 *x[1]; 42;";
-          "I64 Bad(){F64 x=1.0;return 0;} 42;";
-          "F64 Bad(){return 1.0;} 42;";
-          "I64 F(){return 42;} I64 G=F(); G;";
-          "I64 F(I64 p){static I64 n=p<<2;return ++n;} F(1);";
-          "I64 Bad(){static I64 n={1/0};return 0;}42;";
-          "I64 Bad(){static I64 *n;return 0;}42;";
-          "I64 Bad(){static I64 reg n;return 0;}42;";
-          "I64 F(I64 **p){return **p;} 42;";
-          "I64 F(I64 n,...){return n;} F(42);";
-          "extern I64 F(I64 n); 42;";
-          "I64 N=1;I64 F(I64 n=N<<3){return n;} F(1);";
-          "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
-          "I64 Missing(){42;} 0;";
-          "I64 Apply(I64 (*fp)(I64),I64 n){return fp(n);}\n\
-           I64 Inc(I64 n){return n+1;} Apply(&Inc,41);";
-          "\"output\";";
-          "#exe {1/0;}\n42;";
-        ];
+        ([
+           "I64 *x[1]; 42;";
+           "I64 Bad(){F64 x=1.0;return 0;} 42;";
+           "F64 Bad(){return 1.0;} 42;";
+           "I64 F(I64 p){static I64 n=p<<2;return ++n;} F(1);";
+           "I64 Bad(){static I64 n={1/0};return 0;}42;";
+           "I64 Bad(){static I64 *n;return 0;}42;";
+           "I64 Bad(){static I64 reg n;return 0;}42;";
+           "I64 F(I64 **p){return **p;} 42;";
+           "extern I64 F(I64 n); 42;";
+           "I64 N=1;I64 F(I64 n=N<<3){return n;} F(1);";
+           "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
+           "I64 Missing(){42;} 0;";
+           "I64 Apply(I64 (**fp)(I64),I64 n){return fp(n);}\n\
+            I64 Inc(I64 n){return n+1;} Apply(&Inc,41);";
+           "\"output\";";
+           "#exe {1/0;}\n42;";
+         ]
+        @
+        if mode = Preprocessor.Jit then [ "I64 F(){return 42;} I64 G=F(); G;" ]
+        else []);
       List.iter
         (fun call ->
           match
@@ -824,6 +861,44 @@ let callable_ownership_joins_are_exact () =
     (integer_program_entry left)
     (integer_program_functions left)
 
+let word_tail_bundles_retain_original_authority () =
+  let source =
+    "I64 Sum(I64 n,...){return n+argv[0];}I64 Apply(I64 (*p)(I64 \
+     n,...),...){return p(argv[0],argv[1]);}Apply(&Sum,20,22);"
+  in
+  List.iter
+    (fun mode ->
+      let original = integer_unit ~mode source
+      and foreign = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let image =
+            compile_callable ~status_abi:abi original
+            |> require_ok program_errors
+          in
+          Alcotest.(check int)
+            "original variadic bodies compile in both ABIs" 2
+            (Program.function_count image);
+          let functions = integer_program_functions original in
+          let foreign_functions = integer_program_functions foreign in
+          let copied_frame : VM.function_definition =
+            {
+              body = (List.hd functions).body;
+              frame = (List.hd foreign_functions).frame;
+            }
+          in
+          ignore
+            (Program.compile_callable ~status_abi:abi ~max_stack_bytes:4088
+               ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+               ~runtime_calls:(integer_program_runtime_calls original)
+               ~initialization:(integer_program_initialization original)
+               ~entry:(integer_program_entry original)
+               ~functions:(copied_frame :: List.tl functions)
+               ()
+            |> reject ~code:"HCBACK0003" "equal foreign variadic frame"))
+        [ Program.Windows_x64; Program.System_v_x64 ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let callable_prepared_defaults_are_rejected_at_argument_producer () =
   let compile_aot call =
     integer_unit ~mode:Preprocessor.Aot
@@ -912,7 +987,7 @@ let callable_prepared_defaults_are_rejected_at_argument_producer () =
        ~initialization:default_initialization
        ~entry:(integer_program_entry defaulted)
        ~functions:(integer_program_functions defaulted)
-       ~prepared:[ default_prepared ] ~completions:[]
+       ~prepared:[ default_prepared ] ~prepared_callbacks:[] ~completions:[]
     |> Result.is_error);
   (match compile_callable defaulted with
   | Ok _ -> Alcotest.fail "prepared default argument unexpectedly compiled"
@@ -1091,6 +1166,15 @@ let private_context_encoder_bytes () =
         Encoder.Store_indirect_narrow (Encoder.R8, Encoder.Frame8, Encoder.Rdx),
         "41889000000000" );
       ("decrement private meter", Encoder.Dec Encoder.R10, "49ffca");
+      ( "load immutable compiler option callback",
+        Encoder.Load_context (Encoder.Rax, 184),
+        "498b83b8000000" );
+      ( "Windows compiler option arguments",
+        Encoder.Compiler_option_arguments Encoder.Windows_x64,
+        "4c89d9" );
+      ( "System V compiler option arguments",
+        Encoder.Compiler_option_arguments Encoder.System_v_x64,
+        "4889d64c89c24c89df" );
     ]
   in
   List.iter
@@ -1110,7 +1194,8 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
-      Encoder.Load_context (Encoder.Rax, 112);
+      Encoder.Load_context (Encoder.Rax, 192);
+      Encoder.Store_context (184, Encoder.Rax);
       Encoder.Store_context (72, Encoder.Rax);
       Encoder.Store_context_imm (72, 0);
       Encoder.Store_context (80, Encoder.Rax);
@@ -1556,7 +1641,7 @@ let native_array_compilation_limits () =
           let twice = loop 2 in
           let many = loop 2000 in
           Alcotest.(check int)
-            "reference tables do not grow with the loop trip count"
+            "reference snapshots do not grow with the loop trip count"
             (Program.frame_bytes twice)
             (Program.frame_bytes many))
         [ Program.Windows_x64; Program.System_v_x64 ];
@@ -1564,18 +1649,10 @@ let native_array_compilation_limits () =
         (source_program_compile ~mode
            "I64 F(){I64 a[100];return sizeof(a);}F();"
         |> require_ok diagnostics_text);
-      match
-        source_program_compile ~mode
-          "I64 F(){I64 a[100];I64 *p=a;return 42;}F();"
-      with
-      | Ok _ -> Alcotest.fail "unbounded canonical reference table was accepted"
-      | Error diagnostics ->
-          Alcotest.(check bool)
-            "descriptor expansion is charged before allocation" true
-            (List.exists
-               (fun (diagnostic : Diagnostic.t) ->
-                 diagnostic.code = "HCBACK0004")
-               diagnostics))
+      ignore
+        (source_program_compile ~mode
+           "I64 F(){I64 a[100];I64 *p=a;return 42;}F();"
+        |> require_ok diagnostics_text))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let native_output_authority () =
@@ -1654,6 +1731,12 @@ let native_output_authority () =
           Alcotest.(check bool)
             "inlined provider cannot claim a physical callee stack fault" true
             (decode 6L call_site 3L |> Result.is_error);
+          List.iter
+            (fun kind ->
+              Alcotest.(check bool)
+                "ordinary output cannot claim a stream provider fault" true
+                (decode kind call_site 3L |> Result.is_error))
+            [ 26L; 27L; 28L ];
           List.iter
             (fun kind -> ignore (decode kind call_site 3L |> require_ok Fun.id))
             [ 4L; 5L ];
@@ -1925,8 +2008,8 @@ let tests =
       hard_ir_and_block_limits;
     Alcotest.test_case "program code and unwind exports are immutable" `Quick
       immutable_exports;
-    Alcotest.test_case "private six-word context encodings are literal goldens"
-      `Quick private_context_encoder_bytes;
+    Alcotest.test_case "private context encodings are literal goldens" `Quick
+      private_context_encoder_bytes;
     Alcotest.test_case "callable frame and CALL encodings are literal goldens"
       `Quick callable_frame_encoder_bytes;
     Alcotest.test_case "compiled callable frame and rel32 bytes are stable"
@@ -1939,6 +2022,8 @@ let tests =
       source_gate_is_compile_only;
     Alcotest.test_case "callable frame and call ownership joins are exact"
       `Quick callable_ownership_joins_are_exact;
+    Alcotest.test_case "word-tail frames retain original bundle authority"
+      `Quick word_tail_bundles_retain_original_authority;
     Alcotest.test_case
       "callable prepared defaults reject at the exact argument producer" `Quick
       callable_prepared_defaults_are_rejected_at_argument_producer;

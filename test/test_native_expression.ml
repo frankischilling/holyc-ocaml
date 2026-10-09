@@ -111,9 +111,10 @@ let unary ?(type_ = i64) id opcode operand =
 let binary ?(type_ = i64) id opcode left right =
   description ~operands:[ left; right ] ~result:id ~target_type:type_ id opcode
 
-let word_view ?(type_ = u64) id operand =
+let word_view ?(type_ = u64) ?(parenthesized = false) id operand =
   description ~operands:[ operand ] ~result:id ~target_type:type_
-    ~payload:(Sequence.Integer 0L) id Opcode.Ic_holyc_typecast
+    ~payload:(Sequence.Integer (if parenthesized then 1L else 0L))
+    id Opcode.Ic_holyc_typecast
 
 let return_value ?(type_ = i64) id operand =
   description ~operands:[ operand ] ~target_type:type_ id Opcode.Ic_return_val
@@ -1339,6 +1340,10 @@ let encoder_divmod_status_bytes () =
     [
       ("capture Windows status pointer", Capture_status Windows_x64, "4989cb");
       ("capture System V status pointer", Capture_status System_v_x64, "4989fb");
+      ("source Windows context argument", Source_arguments Windows_x64, "4c89d9");
+      ( "source System V context argument",
+        Source_arguments System_v_x64,
+        "4c89df" );
       ("zero RDX", Zero_edx, "33d2");
       ("sign extend RAX", Cqo, "4899");
       ("unsigned DIV RCX", Div_rcx, "48f7f1");
@@ -1511,6 +1516,47 @@ let encoder_predicate_bytes () =
       Alcotest.(check bool)
         "predicate batch exhaustion has a diagnostic" true (message <> "")
   | Ok _ -> Alcotest.fail "predicate batch accepted an insufficient byte quota"
+
+let encoder_owned_code_bytes () =
+  let open Encoder in
+  let slot offset = stack_slot ~offset |> require_ok Fun.id in
+  let cases =
+    [
+      (Address_code_relative (Rax, 0L), "488d0500000000");
+      (Address_code_relative (Rcx, 1L), "488d0d01000000");
+      (Address_code_relative (Rdx, -1L), "488d15ffffffff");
+      (Address_code_relative (R8, 0x7fffffffL), "4c8d05ffffff7f");
+      (Address_code_relative (R9, -0x80000000L), "4c8d0d00000080");
+      (Address_code_relative (R10, 42L), "4c8d152a000000");
+      (Address_code_relative (R11, -42L), "4c8d1dd6ffffff");
+      (Call_stack (slot 0), "ff942400000000");
+      (Call_stack (slot 8), "ff942408000000");
+      (Call_stack (slot 4080), "ff9424f00f0000");
+    ]
+  in
+  List.iter
+    (fun (instruction, bytes) ->
+      Alcotest.(check string)
+        "owned code instruction bytes" bytes
+        (hex (encode instruction));
+      Alcotest.(check int) "owned code instruction size" 7 (size instruction))
+    cases;
+  let instructions = List.map fst cases in
+  let expected = String.concat "" (List.map snd cases) in
+  Alcotest.(check string)
+    "exact owned code byte quota" expected
+    (encode_all ~max_code_bytes:70 instructions |> require_ok Fun.id |> hex);
+  Alcotest.(check bool)
+    "owned code one byte below quota" true
+    (Result.is_error (encode_all ~max_code_bytes:69 instructions));
+  List.iter
+    (fun displacement ->
+      Alcotest.(check bool)
+        "RIP address rejects out-of-range displacement" true
+        (Result.is_error
+           (encode_all ~max_code_bytes:7
+              [ Address_code_relative (Rax, displacement) ])))
+    [ -0x80000001L; 0x80000000L ]
 
 let encoder_stack_bytes () =
   let slot0 = Encoder.stack_slot ~offset:0 |> require_ok Fun.id in
@@ -1791,6 +1837,19 @@ let encoder_arena_bytes () =
       ( "load immutable arena pointer from context",
         Load_context (R9, 72),
         "4d8b4b48" );
+      ("load generation buffer with disp8", Load_context (Rdx, 112), "498b5370");
+      ( "load generation count with disp32",
+        Load_context (Rcx, 128),
+        "498b8b80000000" );
+      ( "load immutable generation activity with disp32",
+        Load_context (R8, 136),
+        "4d8b8388000000" );
+      ( "store generation count with disp32",
+        Store_context (128, Rcx),
+        "49898b80000000" );
+      ( "store immediate generation count with disp32",
+        Store_context_imm (128, 42),
+        "49c783800000002a000000" );
     ]
   in
   List.iter
@@ -1826,6 +1885,17 @@ let encoder_arena_bytes () =
   Alcotest.(check bool)
     "arena pointer context word is not writable by generated code" true
     invalid_write;
+  List.iter
+    (fun offset ->
+      let invalid =
+        try
+          ignore (Encoder.size (Encoder.Store_context (offset, Encoder.Rax)));
+          false
+        with Invalid_argument _ -> true
+      in
+      Alcotest.(check bool)
+        "generation pointers and activity are immutable" true invalid)
+    [ 112; 136; 144; 152; 168; 176 ];
   if Sys.int_size > 32 then (
     Alcotest.(check bool)
       "arena displacement above signed disp32 rejects" true
@@ -2185,8 +2255,8 @@ let predicate_rejections () =
         [
           "42(I64);";
           "0x8000000000000000(U64);";
-          "(42)(I64i);";
-          "(0x8000000000000000)(U64i);";
+          "(42)(I64);";
+          "(0x8000000000000000)(U64);";
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -3874,7 +3944,7 @@ let word_view_shared_cases () =
       -1L );
   ]
 
-let word_view_pressure_graph count =
+let word_view_pressure_graph ?(parenthesized = false) count =
   let definitions =
     List.init count (fun id -> imm id (Int64.of_int (id + 1)))
   in
@@ -3886,7 +3956,7 @@ let word_view_pressure_graph count =
   in
   single
     (definitions
-    @ word_view ~type_:i64 count 0
+    @ word_view ~type_:i64 ~parenthesized count 0
       :: reduce (count + 1) count (List.init count Fun.id))
 
 (* Comparing native with the VM alone cannot detect a shared lowering defect.
@@ -4206,7 +4276,9 @@ let word_view_bytes_and_types () =
             (type_name (Native.value_type compiled)))
         [
           ("0x8000000000000000(I64i);", Native.I64, 4);
+          ("(0x8000000000000000)(I64i);", Native.I64, 4);
           ("0x8000000000000000(U64i);", Native.U64, 4);
+          ("(0x8000000000000000)(U64i);", Native.U64, 4);
           ("0x8000000000000000(I64i)(U64i);", Native.U64, 5);
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ];
@@ -4449,7 +4521,7 @@ let word_view_malformed () =
   in
   List.iter
     (fun payload ->
-      preflight_error_at "unused word view requires integer payload zero"
+      preflight_error_at "unused word view requires integer payload zero or one"
         "HCBACK0003" 1
         (replace_instruction 1 (fun d -> { d with payload }) checked))
     [
@@ -4458,10 +4530,11 @@ let word_view_malformed () =
       Some (Sequence.Integer 2L);
       Some (Sequence.Float_bits 0L);
     ];
-  preflight_error_at "parenthesized word view remains unsupported" "HCBACK0002"
-    1
+  preflight_error_at "parenthesized word view rejects nonzero flags"
+    "HCBACK0002" 1
     (replace_instruction 1
-       (fun d -> { d with payload = Some (Sequence.Integer 1L) })
+       (fun d ->
+         { d with payload = Some (Sequence.Integer 1L); flags = 0x200L })
        checked);
   preflight_error_at "word view rejects nonzero flags" "HCBACK0002" 1
     (replace_instruction 1 (fun d -> { d with flags = 0x200L }) checked);
@@ -4531,6 +4604,9 @@ let logical_source_boundaries () =
 
 let tests =
   [
+    Alcotest.test_case
+      "owned code RIP addresses and captured indirect call bytes" `Quick
+      encoder_owned_code_bytes;
     Alcotest.test_case "reference materialization and indirect byte goldens"
       `Quick encoder_reference_bytes;
     Alcotest.test_case "extended REX and ModRM orientations have exact bytes"
@@ -4603,8 +4679,8 @@ let tests =
       `Quick predicate_limits;
     Alcotest.test_case "predicate type and dead-producer preflight failures"
       `Quick predicate_malformed;
-    Alcotest.test_case "general and parenthesized casts remain unsupported"
-      `Quick predicate_rejections;
+    Alcotest.test_case "isolated public casts remain unsupported" `Quick
+      predicate_rejections;
     Alcotest.test_case "logical source emits exact full-width truth bytes"
       `Quick logical_bytes;
     Alcotest.test_case "logical source classes and shared comparison chains"

@@ -31,11 +31,18 @@ let native_word expected = function
       Alcotest.(check int64) "independent native result" expected w.bits
   | None -> Alcotest.fail "missing native result"
 
-let compare_work native_report source_report source_execution =
+let compare_work mode contents native_report source_report source_execution =
   let native = success native_report in
+  let _, batch =
+    Native_scalar_fixture.execute_source ~mode ~contents () |> function
+    | Ok value -> value
+    | Error message -> Alcotest.fail message
+  in
+  Alcotest.(check bool)
+    "closed IR retains the independent source result" true
+    (VM.final_value batch = VM.final_value source_execution);
   Alcotest.(check int)
-    "original instruction work"
-    (VM.executed_steps source_execution)
+    "original closed IR/native instruction work" (VM.executed_steps batch)
     native.execution.executed_steps;
   Alcotest.(check string)
     "original output"
@@ -54,7 +61,7 @@ let values () =
           let native_report = report mode source in
           native_word expected (success native_report).execution.final_value;
           let source_report, source_execution = T.success mode source in
-          compare_work native_report source_report source_execution)
+          compare_work mode source native_report source_report source_execution)
         T.cases;
       let source =
         T.declarations ^ "I64 F(){I64 a=8,b=42;SwapI64(&a,&b);return a;}F();"
@@ -79,7 +86,7 @@ let void_completion () =
             "real void clears final latch" true
             (Option.is_none (success native_report).execution.final_value);
           let source_report, source_execution = T.success mode source in
-          compare_work native_report source_report source_execution)
+          compare_work mode source native_report source_report source_execution)
         T.void_cases;
       native_word 42L
         (success

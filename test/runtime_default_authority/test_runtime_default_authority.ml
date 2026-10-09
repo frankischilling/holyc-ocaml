@@ -190,6 +190,7 @@ let original_program ~contents ~values () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -319,6 +320,7 @@ let constant_execution ?(max_steps = 5) () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->

@@ -12,8 +12,10 @@ holyc run --mode=aot --format=json examples/stream-internal-bitscan.hc
 ```
 
 The ordinary example captures `42:-1;` and returns I64 42 in both modes and
-targets. It uses 53 runtime instructions, no preparation instructions and
-thirteen formatting-work units. The retained example evaluates an effectful
+targets. IR JIT execution includes the original binding targets and declaration
+work: 56 runtime steps and six preparation steps. AOT and closed native
+execution use 45 runtime steps and no preparation. Both use thirteen
+formatting-work units. The retained example evaluates an effectful
 argument once in its original default callback and reuses the saved index after
 a later write. It generates `42;`, returns I64 42 and captures no output. Both
 modes use 86 runtime instructions, nine preparation instructions and seven

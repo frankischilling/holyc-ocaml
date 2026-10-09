@@ -37,6 +37,7 @@ let prepare ?(mode = Preprocessor.Jit) ?capture_queries ~path contents =
     | Some query ->
         let commands : Parser.command_sink =
           {
+            lexical_lookup = None;
             checkpoint = None;
             call = None;
             implicit_output = None;

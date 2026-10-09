@@ -5,6 +5,30 @@ and owner checks to a complete batch of original expression leaves. Initializati
 still occurs at the containing definition's module position, including functions
 that are never invoked.
 
+The [native source-task target](native-source-tasks.md) executes scalar integer
+and fully initialized fixed-array static leaves at their original live JIT
+callbacks. Calls and earlier global/static reads use the same append-only arena;
+initializer effects occur once before the enclosing function is published.
+`examples/native-source-statics.hc` prints `I` once and returns 43 after two calls.
+This path charges initializer instructions to native runtime work. It does not
+prepare their values through the interpreter. Original fixed byte-array literal
+copies execute through the separate direct-copy request and charge each copied
+byte to initializer work. AOT source tasks, partial array initialization and
+dynamic bounds remain open.
+
+One-star callback scalar and fixed-array leaves follow the same original JIT
+allocation and initializer stream. Their physical destination is eight-byte
+`RT_PTR` storage, independent of callback return metadata. Owned addresses,
+copies and earlier-element calls keep their original header and executable
+owner. Numeric initialization preserves the full word. IR consumes these live
+source events in its own unknown cells; native tasks execute machine code with
+separate owner lanes. Completion reuses the original storage and successful
+receipts. `examples/native-source-static-callback-initializers.hc` returns 42.
+An address of the containing function captured during JIT initialization saves
+UndefinedExtern before body installation. A later call reaches that captured
+fault. Automatic callback declaration initialization remains rejected by the
+pinned parser path.
+
 A declaration region can materialize [scalar references](integer-pointers.md)
 for fixed pointer arguments. `IC_ADDR` checks authority at its own instruction;
 canonical metadata cannot be borrowed after the region ends. Explicit references
@@ -84,3 +108,11 @@ effect and fault order needs stateful compilation. Existing initializer shift
 and constant-divisor optimizer guards remain. General memory and output,
 stateful `#exe`, full optimizer parity, native backends, BIN/loader acceptance
 and bootstrap remain unfinished requirements of the full compiler.
+
+Named callback return classes now join the same original static initializer
+path. The source type proof binds the token-selected class to its original
+type occurrence and pointer children; the destination separately binds the
+completed anonymous header and physical callback storage. Reconstructing a
+matching type or looking up a later same-name class cannot supply that proof.
+Numeric leaves preserve all 64 bits, and nested callback parameter defaults
+retain their original header effects and selected class through completion.

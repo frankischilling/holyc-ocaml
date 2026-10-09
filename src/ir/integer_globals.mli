@@ -1,5 +1,7 @@
 type t
 
+val compilation_mode : t -> Sema.Global_resolution.compilation_mode
+
 val native_initializer_context :
   Sema.Initializer_fragment.t -> (t, string) result
 (** Empty storage for original closed native initializer preparation. *)
@@ -21,6 +23,11 @@ val with_native_source_defaults :
     executable admission separately requires their complete source and
     preparation certificate. Ordinary AOT and retained-task contracts are
     unchanged. *)
+
+val with_native_source_callback_defaults :
+  t -> Prepared_callback_default.t list -> (t, string) result
+(** Attach original anonymous saved defaults to an isolated JIT/AOT source
+    context. Native admission still requires opaque charged preparation. *)
 
 type slot
 type static_slot
@@ -147,6 +154,12 @@ val prepared_parameter_default :
 
 val task_catalog_owns_view : task_catalog -> task_view -> bool
 
+val task_catalog_contains_parameter_default :
+  task_catalog -> Prepared_parameter_default.t -> bool
+
+val task_catalog_contains_callback_default :
+  task_catalog -> Prepared_callback_default.t -> bool
+
 val task_global_binding :
   task_view -> Retained_global.t -> Sema.Outer_environment.binding option
 
@@ -156,7 +169,13 @@ val task_function_binding :
 val with_task_view : task_view -> t -> t
 
 val with_function_publications :
-  records:Sema.Function_record_classification.t -> t -> (t, string) result
+  ?retain_replaced:bool ->
+  records:Sema.Function_record_classification.t ->
+  t ->
+  (t, string) result
+(** Register original function links once for this source bundle. Task commands
+    publish the newest declaration; isolated programs retain replaced
+    declarations as well so an earlier address keeps its original target. *)
 
 val function_publications : t -> Retained_function.t list
 
@@ -178,6 +197,47 @@ val retained_binding :
   (Retained_global.t * storage_slot) option
 
 val declared_storage : declared_slot -> storage_slot
+val declared_static_storage : Integer_static_allocation.t -> storage_slot
+val static_source_allocation : static_slot -> Integer_static_allocation.t option
+
+val check_static_allocation :
+  ?activation:Sema.Source_activation.t ->
+  task_catalog ->
+  Integer_static_allocation.t ->
+  (unit, string) result
+
+val publish_static_allocation :
+  ?activation:Sema.Source_activation.t ->
+  task_catalog ->
+  Integer_static_allocation.t ->
+  (unit, string) result
+(** Retain private storage under its original live task function header. This
+    does not publish a global name or allocate execution values. *)
+
+val private_static_allocations : task_view -> Integer_static_allocation.t list
+
+val static_fragment_context :
+  task_view ->
+  Integer_static_allocation.t ->
+  Sema.Static_initializer_fragment.t ->
+  (t, string) result
+
+val static_fragment : t -> Sema.Static_initializer_fragment.t option
+
+val static_allocation_context :
+  task_view -> Integer_static_allocation.t -> (t, string) result
+(** Original private task view for live allocation, without an entry graph or
+    initializer values. It cannot be admitted as an executable task command. *)
+
+val private_static_bindings :
+  t -> (Integer_static_allocation.t * storage_slot) list
+
+val join_static_allocations :
+  sources:Sema.Static_local_source.t list -> t -> (t, string) result
+(** Join completed locals to the same original private allocations in this task
+    snapshot. Their padded quota was charged at declaration and is not charged
+    again at function completion. No initializer is evaluated by this join. *)
+
 val declared_record : declared_slot -> Sema.Compiler_record.declared_global
 val declared_initializer_failed : declared_slot -> bool
 val begin_declared_initializer : declared_slot -> (unit, string) result
@@ -198,6 +258,16 @@ val prepare_declared :
 val publish_declared : task_catalog -> declared_slot -> task_publication
 val join_declared : task_view -> t -> (t, string) result
 val retained_slot : t -> Retained_global.t -> storage_slot option
+
+val retained_storage_bindings : t -> (Retained_global.t * storage_slot) list
+(** Original retained references and storage objects visible in this immutable
+    task snapshot. This grants no source-command or initializer admission. *)
+
+val same_task_storage : t -> t -> bool
+(** Both storage views must belong to the same original task catalog. Matching
+    symbols, declarations or snapshot contents do not establish this identity.
+*)
+
 val is_task_command : t -> bool
 val check_task_command : task_catalog -> t -> (unit, string) result
 
@@ -233,6 +303,9 @@ val static_array_initializers :
   Integer_array_initializers.t
   option
 
+val static_root_executed :
+  static_slot -> Sema.Function_call_expression_result.initializer_result -> bool
+
 val static_storage : static_slot -> storage_slot
 val global_storage : slot -> storage_slot
 val storage_slots : t -> storage_slot list
@@ -243,6 +316,30 @@ val storage_strides : storage_slot -> int64 list
 val cell_count : t -> int
 val storage_symbol : storage_slot -> Sema.Symbol.t
 val storage_type : storage_slot -> Sema.Type.t
+
+val storage_is_callback : storage_slot -> bool
+(** Identify physical callback storage from its original declaration, including
+    the current parser-owned destination before its type record is complete. *)
+
+val storage_callback_pointer :
+  storage_slot -> Sema.Function_type_resolution.function_pointer option
+
+val global_callback_storage :
+  t -> Sema.Function_type_resolution.function_pointer -> storage_slot option
+(** Find the completed global storage owning this exact callback header,
+    including retained task bindings. *)
+
+val persistent_callback_storage :
+  t -> Sema.Function_type_resolution.function_pointer -> storage_slot option
+(** Find an exact global, completed static or live private static callback
+    header in this source snapshot. The caller still checks its scope and
+    original initializer or body authority. *)
+
+val callback_callee_pop :
+  t -> Sema.Function_type_resolution.function_pointer -> bool
+(** Use original global declaration flags when present; frame callbacks retain
+    the zero-specifier [PrsType] policy. *)
+
 val storage_opcode : storage_slot -> Opcode.t
 val storage_initial_bits : storage_slot -> int64 option
 val storage_preparation_steps : storage_slot -> int
@@ -370,3 +467,18 @@ val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
 
 val native_static_initializer_context :
   Sema.Static_initializer_fragment.t -> (t, string) result
+
+val with_source_callback_defaults :
+  t -> Prepared_callback_default.t list -> (t, string) result
+
+val publish_callback_defaults :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Prepared_callback_default.t list ->
+  (unit, string) result
+
+val prepared_callback_default :
+  t ->
+  pointer:Sema.Function_type_resolution.function_pointer ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  Prepared_callback_default.t option

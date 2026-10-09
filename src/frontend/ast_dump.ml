@@ -610,6 +610,11 @@ let print_assembly_token buffer sources ~indent index
     (location_text sources token.assembly_token_location)
 
 let rec print_statement buffer sources ~indent = function
+  | Ast.Aggregate_declaration_statement declaration ->
+      Printf.bprintf buffer "%saggregate_declaration_statement span=%s\n" indent
+        (location_text sources declaration.aggregate_statement_location);
+      print_aggregate_declaration buffer sources ~indent:(indent ^ "  ")
+        declaration.aggregate_statement_item
   | Ast.Assembly_block_statement statement ->
       let child_indent = indent ^ "  " in
       let token_count =
@@ -1527,7 +1532,7 @@ and print_variadic_marker buffer sources ~indent
   print_register_qualifiers buffer sources ~indent:(indent ^ "  ")
     ~position:Ast.Before_type variadic.register_qualifiers
 
-let print_global_declarator buffer sources ~indent ~label index
+and print_global_declarator buffer sources ~indent ~label index
     (declarator : Ast.global_declarator) =
   let child_indent = indent ^ "  " in
   Printf.bprintf buffer "%s%s index=%d span=%s\n" indent label index
@@ -1558,6 +1563,65 @@ let print_global_declarator buffer sources ~indent ~label index
     declarator.delimiter.spelling
     (location_text sources declarator.delimiter.location)
 
+and print_aggregate_declaration buffer sources ~indent = function
+  | Ast.Aggregate_forward_declaration declaration ->
+      Printf.bprintf buffer
+        "%saggregate_forward_declaration aggregate_kind=%s span=%s\n" indent
+        (aggregate_kind_name declaration.aggregate_kind)
+        (location_text sources declaration.location);
+      print_modifiers buffer sources ~indent:(indent ^ "  ")
+        declaration.modifiers;
+      print_binding buffer sources ~indent:(indent ^ "  ")
+        (Some declaration.binding);
+      Printf.bprintf buffer "%s  aggregate_keyword spelling=%S span=%s\n" indent
+        declaration.aggregate_keyword_spelling
+        (location_text sources declaration.aggregate_keyword_location);
+      Printf.bprintf buffer "%s  name spelling=%S span=%s\n" indent
+        declaration.name.spelling
+        (location_text sources declaration.name.location);
+      Option.iter
+        (fun semicolon ->
+          Printf.bprintf buffer "%s  semicolon span=%s\n" indent
+            (location_text sources semicolon))
+        declaration.semicolon
+  | Ast.Aggregate_definition definition ->
+      Printf.bprintf buffer
+        "%saggregate_definition aggregate_kind=%s span=%s members=%d\n" indent
+        (aggregate_kind_name definition.aggregate_kind)
+        (location_text sources definition.location)
+        (List.length definition.members);
+      print_modifiers buffer sources ~indent:(indent ^ "  ")
+        definition.modifiers;
+      Option.iter
+        (print_aggregate_backing buffer sources ~indent:(indent ^ "  "))
+        definition.backing;
+      Printf.bprintf buffer "%s  aggregate_keyword spelling=%S span=%s\n" indent
+        definition.aggregate_keyword_spelling
+        (location_text sources definition.aggregate_keyword_location);
+      Printf.bprintf buffer "%s  name spelling=%S span=%s\n" indent
+        definition.name.spelling
+        (location_text sources definition.name.location);
+      Option.iter
+        (print_aggregate_base buffer sources ~indent:(indent ^ "  "))
+        definition.base;
+      Printf.bprintf buffer "%s  opening_brace span=%s\n" indent
+        (location_text sources definition.opening_brace);
+      List.iteri
+        (print_aggregate_member buffer sources ~indent:(indent ^ "  "))
+        definition.members;
+      Printf.bprintf buffer "%s  closing_brace span=%s\n" indent
+        (location_text sources definition.closing_brace);
+      List.iteri
+        (print_global_declarator buffer sources ~indent:(indent ^ "  ")
+           ~label:"attached_declarator")
+        definition.attached_declarators;
+      Option.iter
+        (fun semicolon ->
+          Printf.bprintf buffer "%s  semicolon span=%s\n" indent
+            (location_text sources semicolon))
+        definition.semicolon
+  | _ -> invalid_arg "aggregate statement contains another declaration"
+
 let human sources module_ =
   let buffer = Buffer.create 256 in
   Printf.bprintf buffer "schema %s\n" schema;
@@ -1567,56 +1631,8 @@ let human sources module_ =
     (List.length module_.items);
   List.iter
     (function
-      | Ast.Aggregate_forward_declaration declaration ->
-          Printf.bprintf buffer
-            "  aggregate_forward_declaration aggregate_kind=%s span=%s\n"
-            (aggregate_kind_name declaration.aggregate_kind)
-            (location_text sources declaration.location);
-          print_modifiers buffer sources ~indent:"    " declaration.modifiers;
-          print_binding buffer sources ~indent:"    " (Some declaration.binding);
-          Printf.bprintf buffer "    aggregate_keyword spelling=%S span=%s\n"
-            declaration.aggregate_keyword_spelling
-            (location_text sources declaration.aggregate_keyword_location);
-          Printf.bprintf buffer "    name spelling=%S span=%s\n"
-            declaration.name.spelling
-            (location_text sources declaration.name.location);
-          Printf.bprintf buffer "    semicolon span=%s\n"
-            (location_text sources declaration.semicolon)
-      | Ast.Aggregate_definition definition ->
-          Printf.bprintf buffer
-            "  aggregate_definition aggregate_kind=%s span=%s members=%d\n"
-            (aggregate_kind_name definition.aggregate_kind)
-            (location_text sources definition.location)
-            (List.length definition.members);
-          print_modifiers buffer sources ~indent:"    " definition.modifiers;
-          Option.iter
-            (print_aggregate_backing buffer sources ~indent:"    ")
-            definition.backing;
-          Printf.bprintf buffer "    aggregate_keyword spelling=%S span=%s\n"
-            definition.aggregate_keyword_spelling
-            (location_text sources definition.aggregate_keyword_location);
-          Printf.bprintf buffer "    name spelling=%S span=%s\n"
-            definition.name.spelling
-            (location_text sources definition.name.location);
-          Option.iter
-            (print_aggregate_base buffer sources ~indent:"    ")
-            definition.base;
-          Printf.bprintf buffer "    opening_brace span=%s\n"
-            (location_text sources definition.opening_brace);
-          List.iteri
-            (print_aggregate_member buffer sources ~indent:"    ")
-            definition.members;
-          Printf.bprintf buffer "    closing_brace span=%s\n"
-            (location_text sources definition.closing_brace);
-          List.iteri
-            (print_global_declarator buffer sources ~indent:"    "
-               ~label:"attached_declarator")
-            definition.attached_declarators;
-          Option.iter
-            (fun semicolon ->
-              Printf.bprintf buffer "    semicolon span=%s\n"
-                (location_text sources semicolon))
-            definition.semicolon
+      | (Ast.Aggregate_forward_declaration _ | Ast.Aggregate_definition _) as
+        item -> print_aggregate_declaration buffer sources ~indent:"  " item
       | Ast.Global_variable variable ->
           Printf.bprintf buffer "  global_variable span=%s\n"
             (location_text sources variable.location);
@@ -2445,6 +2461,16 @@ let inline_assembly_item_to_yojson sources = function
       inline_assembly_directive_to_yojson sources directive
 
 let rec statement_to_yojson sources = function
+  | Ast.Aggregate_declaration_statement declaration ->
+      `Assoc
+        [
+          ("kind", `String "aggregate_declaration_statement");
+          ( "declaration",
+            item_to_yojson sources declaration.aggregate_statement_item );
+          ( "location",
+            location_to_yojson sources declaration.aggregate_statement_location
+          );
+        ]
   | Ast.Assembly_block_statement statement ->
       `Assoc
         [
@@ -3254,7 +3280,7 @@ and function_pointer_to_yojson sources ~name
         );
       ])
 
-let declarator_to_yojson sources (declarator : Ast.global_declarator) =
+and declarator_to_yojson sources (declarator : Ast.global_declarator) =
   `Assoc
     (pointer_layer_fields sources declarator.pointer_layers
     @ (match declarator.function_pointer with
@@ -3277,7 +3303,7 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
         ("location", location_to_yojson sources declarator.location);
       ])
 
-let item_to_yojson sources = function
+and item_to_yojson sources = function
   | Ast.Aggregate_forward_declaration declaration ->
       `Assoc
         ([
@@ -3297,7 +3323,10 @@ let item_to_yojson sources = function
                       declaration.aggregate_keyword_location );
                 ] );
             ("name", identifier_to_yojson sources declaration.name);
-            ("semicolon", location_to_yojson sources declaration.semicolon);
+            ( "semicolon",
+              Option.fold ~none:`Null
+                ~some:(location_to_yojson sources)
+                declaration.semicolon );
             ("location", location_to_yojson sources declaration.location);
           ])
   | Ast.Aggregate_definition definition ->

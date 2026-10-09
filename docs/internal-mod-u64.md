@@ -13,8 +13,10 @@ holyc run --mode=aot --format=json examples/stream-internal-mod-u64.hc
 ```
 
 The ordinary example divides an I64 object containing 442 by 10, stores 44,
-captures `44:2;` and returns I64 42. Both modes and targets use 52 runtime
-instructions, no preparation and twelve formatting-work units. The retained
+captures `44:2;` and returns I64 42. IR JIT execution includes the original
+binding target and declaration work: 58 runtime steps and three preparation
+steps. AOT and closed native execution use 52 runtime steps and no preparation.
+Both use twelve formatting-work units. The retained
 example prepares a default once, writes its original quotient, then reuses
 the saved remainder after another object write. It generates `42;`, returns
 I64 42 and captures no output. Both IR modes use 102 runtime instructions,

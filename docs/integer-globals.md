@@ -93,8 +93,10 @@ fixture establishes shared storage without erasing these phase rules.
 
 [Persistent arrays](integer-persistent-arrays.md), U8 storage and
 [byte updates](integer-byte-updates.md) extend this scalar connection.
-External/import/data-heap storage, aggregates, pointer-valued globals,
-callbacks and other narrow/floating storage remain unsupported, even in unused
+[Global callbacks](global-callbacks.md) add one-star scalar cells and fully
+indexed arrays to the IR runner, with original saved defaults and calling flags.
+External/import/data-heap storage, aggregates, other pointer-valued globals,
+and other narrow/floating storage remain unsupported, even in unused
 declarations. Full runtime output,
 stateful compilation and #exe, optimizer parity, native backends, actual-loader
 acceptance and bootstrap remain full-compiler requirements. These tests add

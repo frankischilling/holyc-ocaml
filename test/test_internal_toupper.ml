@@ -117,7 +117,12 @@ let source_rejections () =
           | Ok _ ->
               Alcotest.fail
                 ("unsupported internal declaration executed: " ^ source))
-        rejected)
+        (if mode = Preprocessor.Jit then
+           List.filter
+             (fun source ->
+               not (Internal_binding_cases.is_parenthesized source))
+             rejected
+         else rejected))
     modes
 
 let exact_steps_and_output () =

@@ -54,16 +54,35 @@ let resolve_type visible type_specifier pointer_layers =
                    identifier.spelling)
           | Some symbol -> Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
-let make_type_reference visible type_specifier pointer_layers =
-  match resolve_type visible type_specifier pointer_layers with
-  | Error _ as error -> error
-  | Ok resolved_type ->
-      Sema.Type_reference.make
-        ~spelling:(Frontend.Ast.type_specifier_spelling type_specifier)
-        ~spelling_origin:
-          (origin (Frontend.Ast.type_specifier_location type_specifier))
-        ~pointer_origins:(pointer_origins pointer_layers)
-        ~resolved_type
+let make_type_reference ?selected_aggregate ?selected_owner
+    ?(callback_metadata = false) visible type_specifier pointer_layers =
+  let ( let* ) = Result.bind in
+  match (type_specifier, selected_aggregate) with
+  | Frontend.Ast.Named_type_specifier _, Some resolve -> (
+      match resolve type_specifier with
+      | None -> Error "named local type lacks its original selected aggregate"
+      | Some proof ->
+          let* () =
+            match selected_owner with
+            | None -> Ok ()
+            | Some (table, namespace) ->
+                Sema.Source_type_reference.validate_selected_aggregate ~table
+                  ~namespace proof
+          in
+          (if callback_metadata then
+             Sema.Source_type_reference.selected_callback_return
+           else Sema.Source_type_reference.selected)
+            proof type_specifier pointer_layers)
+  | _ -> (
+      match resolve_type visible type_specifier pointer_layers with
+      | Error _ as error -> error
+      | Ok resolved_type ->
+          Sema.Type_reference.make
+            ~spelling:(Frontend.Ast.type_specifier_spelling type_specifier)
+            ~spelling_origin:
+              (origin (Frontend.Ast.type_specifier_location type_specifier))
+            ~pointer_origins:(pointer_origins pointer_layers)
+            ~resolved_type)
 
 type aggregate_ast = {
   aggregate_identifier : Frontend.Ast.identifier;
@@ -83,8 +102,7 @@ let aggregate_kind = function
   | Frontend.Ast.Union_aggregate -> Sema.Aggregate_resolution.Union
 
 let aggregate_ast (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Aggregate_forward_declaration forward ->
         Some
@@ -230,8 +248,7 @@ type function_event = {
 }
 
 let function_ast (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Function_prototype prototype ->
         Some
@@ -352,25 +369,36 @@ type local_ast = {
 }
 
 let storage_facts (declaration : Frontend.Ast.local_declaration) =
-  match declaration.local_storage with
-  | Frontend.Ast.Automatic_local ->
-      if declaration.local_modifiers <> [] then
-        Error "semantic automatic local has unexpected declaration modifiers"
-      else Ok (Sema.Local_type_resolution.Automatic, [])
-  | Frontend.Ast.Static_local ->
-      let rec validate origins_rev = function
-        | [] ->
-            if origins_rev = [] then
-              Error "semantic static local has no static source token"
-            else Ok (Sema.Local_type_resolution.Static, List.rev origins_rev)
-        | (modifier : Frontend.Ast.declaration_modifier) :: rest ->
-            if modifier.kind <> Frontend.Ast.Static then
-              Error "semantic static local has a nonstatic modifier"
-            else if not (String.equal modifier.spelling "static") then
-              Error "semantic static local has an invalid modifier spelling"
-            else validate (origin modifier.location :: origins_rev) rest
-      in
-      validate [] declaration.local_modifiers
+  let spelling (kind : Frontend.Ast.declaration_modifier_kind) =
+    match kind with
+    | Static -> "static"
+    | Interrupt -> "interrupt"
+    | Has_error_code -> "haserrcode"
+    | Argument_pop -> "argpop"
+    | No_argument_pop -> "noargpop"
+    | Public -> "public"
+  in
+  if
+    List.exists
+      (fun (m : Frontend.Ast.declaration_modifier) ->
+        m.spelling <> spelling m.kind)
+      declaration.local_modifiers
+  then Error "semantic local has an invalid modifier spelling"
+  else
+    let mask =
+      Frontend.Ast.declaration_modifier_staging_flags
+        declaration.local_modifiers
+    in
+    let is_static = Sema.Function_flag.Staging.is_set ~mask Static in
+    if is_static <> (declaration.local_storage = Frontend.Ast.Static_local) then
+      Error "semantic local storage disagrees with its staged modifiers"
+    else if not is_static then Ok (Sema.Local_type_resolution.Automatic, [])
+    else
+      Ok
+        ( Sema.Local_type_resolution.Static,
+          declaration.local_modifiers
+          |> List.filter_map (fun (m : Frontend.Ast.declaration_modifier) ->
+              if m.kind = Static then Some (origin m.location) else None) )
 
 let local_declaration_facts declaration_index
     (declaration : Frontend.Ast.local_declaration) =
@@ -454,6 +482,7 @@ let rec statement_facts declaration_index = function
   | Frontend.Ast.Implicit_output_statement _
   | Frontend.Ast.Label_statement _
   | Frontend.Ast.No_warn_statement _
+  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.Return_statement _ -> Ok ([], declaration_index)
 
 and statements_facts declaration_index statements =
@@ -573,11 +602,15 @@ let default_fact (default : Frontend.Ast.parameter_default) =
           keyword_origin = origin lastclass.lastclass_location;
         }
 
-let rec signature_fact visible ~opening parameters variadic ~closing =
+let rec signature_fact ?selected_aggregate ?selected_owner visible ~opening
+    parameters variadic ~closing =
   let rec parameter_facts index facts_rev = function
     | [] -> Ok (List.rev facts_rev)
     | (parameter : Frontend.Ast.function_parameter) :: rest -> (
-        match parameter_fact visible index parameter with
+        match
+          parameter_fact ?selected_aggregate ?selected_owner visible index
+            parameter
+        with
         | Error _ as error -> error
         | Ok fact -> parameter_facts (index + 1) (fact :: facts_rev) rest)
   in
@@ -599,10 +632,12 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
             ?closing_origin:(Option.map origin closing)
             ()))
 
-and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
+and parameter_fact ?selected_aggregate ?selected_owner visible index
+    (parameter : Frontend.Ast.function_parameter) =
   match
-    make_type_reference visible parameter.type_specifier
-      parameter.pointer_layers
+    make_type_reference ?selected_aggregate ?selected_owner
+      ~callback_metadata:(Option.is_some parameter.function_pointer)
+      visible parameter.type_specifier parameter.pointer_layers
   with
   | Error _ as error -> error
   | Ok type_reference -> (
@@ -614,7 +649,7 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
             | Error _ as error -> error
             | Ok _ -> (
                 match
-                  signature_fact visible
+                  signature_fact ?selected_aggregate ?selected_owner visible
                     ~opening:pointer.signature_opening_parenthesis
                     pointer.signature_parameters pointer.signature_variadic
                     ~closing:pointer.signature_closing_parenthesis
@@ -624,7 +659,8 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
                     Result.map
                       (fun pointer ->
                         Sema.Function_type_resolution.Function_pointer pointer)
-                      (Sema.Function_type_resolution.make_function_pointer
+                      (Sema.Function_type_resolution
+                       .make_source_function_pointer ~source:pointer
                          ~origin:(origin pointer.function_pointer_location)
                          ~opening_origin:
                            (origin pointer.declarator_opening_parenthesis)
@@ -639,7 +675,8 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
       | Ok declarator_kind ->
           Result.bind (Register_request.of_list parameter.register_qualifiers)
             (fun register_requests ->
-              Sema.Function_type_resolution.make_parameter ~index
+              Sema.Function_type_resolution.make_parameter ~source:parameter
+                ~index
                 ~origin:(origin parameter.location)
                 ~register_requests
                 ?name:
@@ -703,14 +740,14 @@ let delimiter (delimiter : Frontend.Ast.declaration_delimiter) =
   Sema.Local_type_resolution.make_delimiter ~kind
     ~origin:(origin delimiter.location)
 
-let declarator_kind visible = function
+let declarator_kind ?selected_aggregate ?selected_owner visible = function
   | None -> Ok Sema.Local_type_resolution.Object
   | Some (pointer : Frontend.Ast.function_pointer_declarator) -> (
       match pointer_depth pointer.indirection_layers with
       | Error _ as error -> error
       | Ok _ -> (
           match
-            signature_fact visible
+            signature_fact ?selected_aggregate ?selected_owner visible
               ~opening:pointer.signature_opening_parenthesis
               pointer.signature_parameters pointer.signature_variadic
               ~closing:pointer.signature_closing_parenthesis
@@ -720,7 +757,8 @@ let declarator_kind visible = function
               Result.map
                 (fun pointer ->
                   Sema.Local_type_resolution.Function_pointer pointer)
-                (Sema.Function_type_resolution.make_function_pointer
+                (Sema.Function_type_resolution.make_source_function_pointer
+                   ~source:pointer
                    ~origin:(origin pointer.function_pointer_location)
                    ~opening_origin:
                      (origin pointer.declarator_opening_parenthesis)
@@ -730,14 +768,21 @@ let declarator_kind visible = function
                      (origin pointer.declarator_closing_parenthesis)
                    ~signature)))
 
-let local_fact visible (symbol, ast) =
-  match make_type_reference visible ast.type_specifier ast.pointer_layers with
+let local_fact ?selected_aggregate ?selected_owner visible (symbol, ast) =
+  match
+    make_type_reference ?selected_aggregate ?selected_owner
+      ~callback_metadata:(Option.is_some ast.function_pointer)
+      visible ast.type_specifier ast.pointer_layers
+  with
   | Error _ as error -> error
   | Ok type_reference -> (
       match register_requests ast.register_qualifiers with
       | Error _ as error -> error
       | Ok register_requests -> (
-          match declarator_kind visible ast.function_pointer with
+          match
+            declarator_kind ?selected_aggregate ?selected_owner visible
+              ast.function_pointer
+          with
           | Error _ as error -> error
           | Ok declarator_kind -> (
               match array_dimensions ast.array_dimensions with
@@ -755,7 +800,7 @@ let local_fact visible (symbol, ast) =
                       (Option.map initializer_fact ast.initial_value)
                     ~delimiter:(delimiter ast.delimiter) ())))
 
-let function_fact visible event =
+let function_fact ?selected_aggregate ?selected_owner visible event =
   match local_events event with
   | Error _ as error -> error
   | Ok events ->
@@ -766,13 +811,19 @@ let function_fact visible event =
               ~item_index:event.function_ast.function_item_index
               (List.rev locals_rev)
         | event :: rest -> (
-            match local_fact visible event with
+            match
+              local_fact ?selected_aggregate ?selected_owner visible event
+            with
             | Error _ as error -> error
             | Ok local -> collect (local :: locals_rev) rest)
       in
       collect [] events
 
-let resolve_events ~table ~scope aggregates functions =
+let resolve_events ?selected_types ~table ~scope aggregates functions =
+  let selected_aggregate = Option.map snd selected_types in
+  let selected_owner =
+    Option.map (fun (namespace, _) -> (table, namespace)) selected_types
+  in
   let rec resolve visible facts_rev aggregates functions =
     match (aggregates, functions) with
     | [], [] ->
@@ -785,7 +836,9 @@ let resolve_events ~table ~scope aggregates functions =
         in
         resolve visible facts_rev aggregate_rest []
     | [], function_ :: function_rest -> (
-        match function_fact visible function_ with
+        match
+          function_fact ?selected_aggregate ?selected_owner visible function_
+        with
         | Error _ as error -> error
         | Ok fact -> resolve visible (fact :: facts_rev) [] function_rest)
     | aggregate :: aggregate_rest, function_ :: function_rest -> (
@@ -803,14 +856,17 @@ let resolve_events ~table ~scope aggregates functions =
           = function_.function_ast.function_item_index
         then Error "aggregate and function declarations share one module item"
         else
-          match function_fact visible function_ with
+          match
+            function_fact ?selected_aggregate ?selected_owner visible function_
+          with
           | Error _ as error -> error
           | Ok fact ->
               resolve visible (fact :: facts_rev) aggregates function_rest)
   in
   resolve String_map.empty [] aggregates functions
 
-let resolve ~table ~declarations ~aggregates ~functions module_ =
+let resolve ?selected_types ~table ~declarations ~aggregates ~functions module_
+    =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic local type module belongs to a different symbol table"
@@ -822,4 +878,5 @@ let resolve ~table ~declarations ~aggregates ~functions module_ =
     | Ok aggregates -> (
         match function_events ~table ~declarations ~functions module_ with
         | Error _ as error -> error
-        | Ok functions -> resolve_events ~table ~scope aggregates functions)
+        | Ok functions ->
+            resolve_events ?selected_types ~table ~scope aggregates functions)

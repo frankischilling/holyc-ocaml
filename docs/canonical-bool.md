@@ -11,9 +11,11 @@ holyc run --target=host-jit --mode=aot --format=json examples/canonical-bool.hc
 holyc run --mode=aot --format=json examples/stream-canonical-bool.hc
 ```
 
-The ordinary example captures `384:-128:1;` and returns I64 42. Both modes and
-targets use 68 runtime instructions, no preparation and 21 formatting-work
-units. The retained example evaluates the original ToBool default once,
+The ordinary example captures `384:-128:1;` and returns I64 42. IR JIT execution
+includes the original binding target and declaration work: 76 runtime steps
+and three preparation steps. AOT and closed native execution use 68 runtime
+steps and no preparation. Both use 21 formatting-work units. The retained
+example evaluates the original ToBool default once,
 resets the argument's effect counter, then reuses the saved value to generate
 `42;`. Both IR modes return I64 42 without captured output, using 77 runtime
 instructions, six preparation instructions and seven formatting-work units.

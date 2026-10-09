@@ -4,6 +4,7 @@ type t = {
   entry : Ir.X87_stack.t;
   runtime_calls : Ir.Runtime_call_context.t;
   functions : Ir.Function_body.t list;
+  load_roots : Sema.Function_call_expression_result.top_level_root_result list;
 }
 
 let bodies functions =
@@ -22,6 +23,15 @@ let matches proof ~runtime_calls ~initialization ~entry ~functions =
   && proof.runtime_calls == runtime_calls
   && List.length proof.functions = List.length functions
   && List.for_all2 ( == ) proof.functions (bodies functions)
+
+let is_load_root proof slot root =
+  List.exists (( == ) slot) (Ir.Integer_globals.slots proof.globals)
+  && List.exists (( == ) root) (Ir.Integer_globals.slot_initializers slot)
+  && List.exists (( == ) root) proof.load_roots
+
+let is_load_slot proof slot =
+  List.exists (is_load_root proof slot)
+    (Ir.Integer_globals.slot_initializers slot)
 
 let publications_precede_entry ~globals ~initialization ~entry =
   let module Initialization = Ir.Global_initialization in
@@ -64,6 +74,11 @@ let create ~span ~static_completions ~completions ~preparation ~runtime_calls
   let completed_statics =
     List.map Native_default_preparation.static_preparation static_completions
   in
+  let load_roots = Integer_initializers.native_load_roots preparation in
+  let load_evidence =
+    List.filter Integer_initializers.native_is_load evidence
+  in
+  let load_regions = Ir.Global_initialization.regions initialization in
   if
     (not (Integer_initializers.native_statics_complete ~span preparation))
     || List.length static_evidence <> List.length completed_statics
@@ -78,7 +93,15 @@ let create ~span ~static_completions ~completions ~preparation ~runtime_calls
     || (not
           (Ir.Runtime_call_context.matches runtime_calls ~entry
              ~initialization:(Some initialization) ~functions))
-    || Ir.Global_initialization.regions initialization <> []
+    || List.length load_roots <> List.length load_evidence
+    || List.length load_regions <> List.length load_roots
+    || (not
+          (List.for_all2
+             (fun region root ->
+               Ir.Global_initialization.root region == root
+               && Ir.Global_initialization.phase region
+                  = Ir.Global_initialization.Load_initializer)
+             load_regions load_roots))
     || Ir.Global_initialization.static_regions initialization <> []
     || (not (publications_precede_entry ~globals ~initialization ~entry))
     || Ir.Integer_globals.is_task_command globals
@@ -87,4 +110,5 @@ let create ~span ~static_completions ~completions ~preparation ~runtime_calls
   then
     Error
       "native global preparation has another initialization or callable bundle"
-  else Ok { globals; initialization; entry; runtime_calls; functions }
+  else
+    Ok { globals; initialization; entry; runtime_calls; functions; load_roots }

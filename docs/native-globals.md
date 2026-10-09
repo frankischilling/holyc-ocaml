@@ -41,6 +41,14 @@ duplicate, reordered or foreign evidence rejects. Ordinary batch preparation
 and caller-supplied initial bits cannot supply this certificate. Preparation
 faults occur before native entry and retain earlier declaration work.
 
+In AOT mode, original reference-bearing integer or callback leaves can retain
+their checked load-time regions instead of a prepared value. Generated code
+executes their stores and direct or indirect calls against zeroed global
+storage. Their output, calls and faults use the runtime meter. Exact original
+source and destination receipts join every scheduled region to the complete
+bundle. See [global callback initializers](global-callback-initializers.md) and
+`examples/native-aot-callback-initializers.hc`.
+
 `X86_64_global_storage` seals the original initialization/entry bundle, exact
 global symbol objects, declared types, slots and address opcodes. JIT uses the
 checked symbolic `IC_IMM_I64` path; AOT uses `IC_ABS_ADDR`. Integer payloads and
@@ -103,7 +111,7 @@ round each declared width up to eight bytes. Unused objects count.
 The compiler checks this bound before allocating the private image; execution
 checks it again before native entry. Scalars retain one initialization byte per
 object; arrays add eight-byte per-element flag slots. Literal objects have a
-separate data quota and arena reference tables. All private metadata is charged
+separate data quota and arena descriptors. All private metadata is charged
 in an arena capped at 33,554,432 bytes. The private
 layout does not expose static padding or raw pointers.
 
@@ -111,12 +119,13 @@ Native v2 reports retain `native.image.global_bytes` and `global_arena_bytes`,
 with separate `literal_bytes` and `arena_metadata_bytes` counts.
 Code, IR, block, spill, semantic frame, call-depth and active-stack limits remain
 independent. Storage bookkeeping adds machine instructions, not extra IR steps.
-Initializer work counts toward `--initializer-step-limit`, shared with defaults.
+Closed initializer work counts toward `--initializer-step-limit`, shared with
+defaults. Scheduled AOT regions count toward the runtime step limit.
 Global and static payloads count toward the global-byte quota, not `--default-byte-limit`.
 The native API tests compare exact runtime meters with fresh isolated checked
 interpreter execution; public source tests independently check values.
 
-Effectful or call-dependent initializers, persistent pointers, aggregates,
+JIT effectful or call-dependent initializers, persistent pointers, aggregates,
 aliases, extern/import/data-heap storage and retained task storage remain
 unsupported. Defaults still prepare closed numeric expressions in a separate
 empty fragment at their original declaration boundary; admitting globals does

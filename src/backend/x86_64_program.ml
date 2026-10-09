@@ -1,4 +1,6 @@
 module Codegen = X86_64_word_codegen
+module Task_dispatch = Driver.Integer_task.Native_dispatch
+module Task_storage = X86_64_global_storage
 
 type word_type = X86_64_expression.word_type = I64 | U64
 type status_abi = X86_64_encoder.status_abi = Windows_x64 | System_v_x64
@@ -22,6 +24,11 @@ type fault_kind =
   | Index_scale_overflow
   | Index_addition_overflow
   | Address_out_of_bounds
+  | Generated_limit_exceeded
+  | Stream_context_required
+  | Stream_exe_context_required
+  | Stream_exe_source_failed
+  | Compiler_option_failed
   | Output_limit_exceeded
   | Output_work_limit_exceeded
   | Output_invalid_format
@@ -30,6 +37,13 @@ type fault_kind =
   | Output_invalid_byte
   | Pointer_object_mismatch
   | Pointer_difference_object_mismatch
+  | Callback_unowned_address
+  | Callback_signature_mismatch
+  | Code_comparison_invalid_word
+  | Extern_signature_mismatch
+  | Undefined_extern
+  | Callback_owned_word_escape
+  | Callback_update_owned_address
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -49,10 +63,51 @@ type fault = {
   atomic_output : bool;
 }
 
-type execution = { executed_steps : int; final_value : word option }
-type outcome = Completed of execution | Fault of fault
-type t = { image : Codegen.program_image }
+type execution = {
+  executed_steps : int;
+  final_value : word option;
+  captured_callback : Ir.Saved_parameter_value.t option;
+  captured_data : Ir.Saved_parameter_value.t option;
+}
 
+type outcome = Completed of execution | Fault of fault
+type task_layout = Task_storage.task_layout
+
+type scalar_program =
+  | Internal_binding of Ir.Internal_binding_fragment_program.t
+  | Dimension of Ir.Dimension_fragment_program.t
+  | Offset of Ir.Offset_fragment_program.t
+
+type t = {
+  image : Codegen.program_image;
+  task_snapshot_ : Task_storage.task_snapshot option;
+  task_check_ : (unit -> (unit, string) result) option;
+  task_claim_ : (unit -> (unit, string) result) option;
+  generation_ : Ir.Integer_interpreter.native_generation option;
+  source_callback_ : Driver.Integer_task.native_source_callback option;
+  callback_default_ : Ir.Default_fragment_destination.t option;
+  data_default_ : Ir.Saved_parameter_value.t option;
+  data_default_misc_ : bool;
+  dimension_ : Ir.Dimension_fragment_program.t option;
+  offset_ : Ir.Offset_fragment_program.t option;
+  internal_binding_ : Ir.Internal_binding_fragment_program.t option;
+}
+
+let generation value = value.generation_
+let source_callback value = value.source_callback_
+let internal_binding value = value.internal_binding_
+let dimension value = value.dimension_
+let offset value = value.offset_
+
+let scalar_program value =
+  match (value.internal_binding_, value.dimension_, value.offset_) with
+  | Some program, None, None -> Some (Internal_binding program)
+  | None, Some program, None -> Some (Dimension program)
+  | None, None, Some program -> Some (Offset program)
+  | _ -> None
+
+let data_default value = value.data_default_
+let data_default_has_misc_data value = value.data_default_misc_
 let hard_max_stack_bytes = Codegen.hard_max_stack_bytes
 
 let project_error (error : Codegen.error) : error =
@@ -76,7 +131,21 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
   Codegen.compile_program ?status_abi ?max_stack_bytes ?max_blocks
     ~max_ir_instructions ~max_code_bytes verified
   |> Result.map_error project_errors
-  |> Result.map (fun image -> { image })
+  |> Result.map (fun image ->
+      {
+        image;
+        task_snapshot_ = None;
+        task_check_ = None;
+        task_claim_ = None;
+        generation_ = None;
+        source_callback_ = None;
+        callback_default_ = None;
+        data_default_ = None;
+        data_default_misc_ = false;
+        dimension_ = None;
+        offset_ = None;
+        internal_binding_ = None;
+      })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ?max_literal_bytes ?parameter_defaults ?global_initializers
@@ -87,7 +156,296 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
     ~initialization ~entry ~functions ()
   |> Result.map_error project_errors
-  |> Result.map (fun image -> { image })
+  |> Result.map (fun image ->
+      {
+        image;
+        task_snapshot_ = None;
+        task_check_ = None;
+        task_claim_ = None;
+        generation_ = None;
+        source_callback_ = None;
+        callback_default_ = None;
+        data_default_ = None;
+        data_default_misc_ = false;
+        dimension_ = None;
+        offset_ = None;
+        internal_binding_ = None;
+      })
+
+let project_storage_errors errors =
+  List.map
+    (fun (error : Task_storage.error) ->
+      { code = error.code; message = error.message; span = error.span })
+    errors
+
+let create_task_layout ~max_global_bytes =
+  Task_storage.create_task_layout ~max_global_bytes ()
+  |> Result.map_error project_storage_errors
+
+let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
+  Task_storage.create_task_layout ~max_literal_bytes ~max_global_bytes ()
+  |> Result.map_error project_storage_errors
+
+let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ?callback_default ?data_default ?dimension ?offset ?internal_binding
+    ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~generation
+    ~source_callback ~runtime_calls ~retained_function_source
+    ~retained_slot_binding ~retained_slot_address_binding
+    ~retained_slot_address_refresh ~retained_parameter_default
+    ~retained_callback_default ~initialization ~entry ~functions () =
+  let ( let* ) = Result.bind in
+  let invalid message =
+    Error [ { code = "HCBACK0003"; message; span = None } ]
+  in
+  let* () =
+    match check () with
+    | Ok () -> Ok ()
+    | Error message -> invalid message
+  in
+  let* snapshot =
+    Task_storage.create_task_snapshot ~functions layout ~initialization ~entry
+    |> Result.map_error project_storage_errors
+  in
+  let* image =
+    Codegen.compile_task_fragment ?status_abi ?max_stack_bytes ?max_blocks
+      ~capture_callback_default:(Option.is_some callback_default)
+      ?capture_data_default:
+        (Option.bind data_default Ir.Saved_parameter_value.data_source)
+      ~task_snapshot:snapshot ~max_ir_instructions ~max_code_bytes
+      ~runtime_calls ~retained_function_source ~retained_slot_binding
+      ~retained_slot_address_binding ~retained_slot_address_refresh
+      ~retained_parameter_default ~retained_callback_default ~initialization
+      ~entry ~functions ()
+    |> Result.map_error project_errors
+  in
+  let snapshot = Option.get (Codegen.program_task_snapshot image) in
+  if
+    Codegen.program_global_bytes image
+    <> Task_storage.task_snapshot_global_bytes snapshot
+    || Codegen.program_literal_bytes image
+       <> Task_storage.task_snapshot_literal_bytes snapshot
+    || Codegen.program_arena_bytes image
+       <> Task_storage.task_snapshot_arena_bytes snapshot
+  then invalid "native task code disagrees with its original storage snapshot"
+  else
+    Ok
+      {
+        image;
+        task_snapshot_ = Some snapshot;
+        task_check_ = Some check;
+        task_claim_ = Some claim;
+        generation_ = Some (generation ());
+        source_callback_ = source_callback;
+        callback_default_ = callback_default;
+        data_default_ = data_default;
+        dimension_ = dimension;
+        offset_ = offset;
+        internal_binding_ = internal_binding;
+        data_default_misc_ =
+          Option.is_some data_default
+          && Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
+             |> List.exists (fun block ->
+                 Ir.Block_graph.instructions block
+                 |> Ir.Instruction_sequence.instructions
+                 |> List.exists (fun instruction ->
+                     (Ir.Instruction_sequence.description instruction).opcode
+                     = Ir.Opcode.Ic_str_const));
+      }
+
+let compile_task_initializer ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Fragment = Ir.Initializer_fragment_program in
+  let program = Task_dispatch.initializer_program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Task_dispatch.check_initializer_request request)
+    ~claim:(fun () -> Task_dispatch.claim_initializer_request request)
+    ~generation:(fun () -> Task_dispatch.initializer_generation request)
+    ~source_callback:(Task_dispatch.initializer_source_callback request)
+    ~runtime_calls:(Fragment.runtime_calls program)
+    ~retained_function_source:
+      (Task_dispatch.initializer_function_source request)
+    ~retained_slot_binding:(Task_dispatch.initializer_slot_binding request)
+    ~retained_slot_address_binding:
+      (Task_dispatch.initializer_slot_address_binding request)
+    ~retained_slot_address_refresh:
+      (Task_dispatch.initializer_slot_address_refresh request)
+    ~retained_parameter_default:
+      (Task_dispatch.initializer_parameter_default request)
+    ~retained_callback_default:
+      (Task_dispatch.initializer_callback_default request)
+    ~initialization:(Fragment.initialization program)
+    ~entry:(Fragment.entry program) ~functions:[] ()
+
+let compile_task_static_initializer ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_static_initializer in
+  let module Program = Ir.Static_initializer_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_default ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_default in
+  let module Program = Ir.Default_fragment_program in
+  let program = Request.program request in
+  let destination = Program.destination program in
+  let callback_default =
+    if Ir.Default_fragment_destination.is_callback destination then
+      Some destination
+    else None
+  in
+  let ( let* ) = Result.bind in
+  let* data_default =
+    if
+      (not (Ir.Default_fragment_destination.is_callback destination))
+      && Sema.Type.pointer_depth
+           (Ir.Default_fragment_destination.type_ destination)
+         = 1
+    then
+      Ir.Saved_parameter_value.data
+        ~source:
+          (Sema.Function_call_expression_result.top_level_root_value
+             (Ir.Default_fragment_destination.root destination))
+        ~type_:(Ir.Default_fragment_destination.type_ destination)
+      |> Result.map Option.some
+      |> Result.map_error (fun message ->
+          [
+            {
+              code = "HCBACK0003";
+              message;
+              span = Some (Ir.Default_fragment_destination.span destination);
+            };
+          ])
+    else Ok None
+  in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ?callback_default ?data_default ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_internal_binding ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_internal_binding in
+  let module Program = Ir.Internal_binding_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~internal_binding:program ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_dimension ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_dimension in
+  let module Program = Ir.Dimension_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~dimension:program ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_offset ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_offset in
+  let module Program = Ir.Offset_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks ~offset:program
+    ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_command ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Unit = Driver.Integer_unit in
+  let program = Task_dispatch.command_program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Task_dispatch.check_command_request request)
+    ~claim:(fun () -> Task_dispatch.claim_command_request request)
+    ~generation:(fun () -> Task_dispatch.command_generation request)
+    ~source_callback:(Task_dispatch.command_source_callback request)
+    ~runtime_calls:(Unit.runtime_calls program)
+    ~retained_function_source:(Task_dispatch.command_function_source request)
+    ~retained_slot_binding:(Task_dispatch.command_slot_binding request)
+    ~retained_slot_address_binding:
+      (Task_dispatch.command_slot_address_binding request)
+    ~retained_slot_address_refresh:
+      (Task_dispatch.command_slot_address_refresh request)
+    ~retained_parameter_default:
+      (Task_dispatch.command_parameter_default request)
+    ~retained_callback_default:(Task_dispatch.command_callback_default request)
+    ~initialization:(Unit.initialization program)
+    ~entry:(Unit.entry program) ~functions:(Unit.functions program) ()
+
+let task_snapshot image = image.task_snapshot_
+
+let check_task_request image =
+  match image.task_check_ with
+  | None -> Ok ()
+  | Some check -> check ()
+
+let check_task_activation image =
+  match image.task_claim_ with
+  | None -> Ok ()
+  | Some claim -> claim ()
 
 let code compiled = Codegen.program_code compiled.image
 let code_bytes compiled = Codegen.program_code_bytes compiled.image
@@ -150,10 +508,141 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
     then Error "native program executed_steps is outside the supplied budget"
     else
       let executed_steps_int = Int64.to_int executed_steps in
+      let captured_callback = ref None in
+      let captured_data = ref None in
       let final_value =
         if Int64.equal value_site 0L then
           if Int64.equal bits 0L then Ok None
           else Error "native program status has bits without a value site"
+        else if Int64.compare value_site (-200_000L) < 0 then
+          match (compiled.data_default_, compiled.task_snapshot_) with
+          | Some value, Some snapshot -> (
+              let data =
+                Option.get (Ir.Saved_parameter_value.data_source value)
+              in
+              let original_site = Int64.sub (Int64.neg value_site) 200_000L in
+              match
+                ( site_by_value compiled original_site,
+                  Task_storage.find_saved_data snapshot data )
+              with
+              | Ok candidate, Some offset
+                when candidate.owner = Codegen.Entry_owner
+                     && candidate.data_capture_site && executed_steps_int > 0
+                     && Int64.equal bits (Int64.of_int offset) ->
+                  captured_data := Some value;
+                  Ok None
+              | _ ->
+                  Error
+                    "native data default capture has another original site or \
+                     task descriptor")
+          | _ -> Error "native data capture has no original default destination"
+        else if Int64.compare value_site (-100_000L) < 0 then
+          match (compiled.callback_default_, compiled.task_snapshot_) with
+          | Some destination, Some snapshot -> (
+              let original_site = Int64.sub (Int64.neg value_site) 100_000L in
+              match site_by_value compiled original_site with
+              | Ok candidate
+                when candidate.owner = Codegen.Entry_owner
+                     && candidate.callback_capture_site
+                     && executed_steps_int > 0 -> (
+                  match
+                    List.find_opt
+                      (fun owner ->
+                        Int64.equal bits
+                          (Int64.of_int (Task_storage.code_owner_id owner)))
+                      (Task_storage.task_code_owners snapshot)
+                  with
+                  | Some owner -> (
+                      match
+                        Ir.Saved_parameter_value.callback
+                          ~source:
+                            (Sema.Function_call_expression_result
+                             .top_level_root_value
+                               (Ir.Default_fragment_destination.root destination))
+                          ~link:(Task_storage.code_owner_link owner)
+                      with
+                      | Ok value ->
+                          captured_callback := Some value;
+                          Ok None
+                      | Error _ as error -> error)
+                  | None -> (
+                      let provider =
+                        List.find_opt
+                          (fun owner ->
+                            Int64.equal bits
+                              (Int64.of_int
+                                 (Task_storage.provider_code_owner_id owner)))
+                          (Task_storage.task_provider_code_owners snapshot)
+                      in
+                      match provider with
+                      | Some owner -> (
+                          let receipt =
+                            Task_storage.provider_code_owner_binding owner
+                            |> Ir.Integer_interpreter
+                               .native_slot_address_binding_receipt
+                          in
+                          let link =
+                            Ir.Runtime_call_context.function_slot_address_link
+                              receipt
+                            |> Option.get
+                          in
+                          match
+                            Ir.Saved_parameter_value.callback
+                              ~source:
+                                (Sema.Function_call_expression_result
+                                 .top_level_root_value
+                                   (Ir.Default_fragment_destination.root
+                                      destination))
+                              ~link
+                          with
+                          | Ok value ->
+                              captured_callback := Some value;
+                              Ok None
+                          | Error _ as error -> error)
+                      | None -> (
+                          match
+                            Task_storage.task_undefined_code_owner snapshot
+                          with
+                          | Some owner
+                            when Int64.equal bits
+                                   (Int64.of_int
+                                      (Task_storage.undefined_code_owner_id
+                                         owner)) -> (
+                              match
+                                Ir.Saved_parameter_value.undefined_callback
+                                  ~source:
+                                    (Sema.Function_call_expression_result
+                                     .top_level_root_value
+                                       (Ir.Default_fragment_destination.root
+                                          destination))
+                              with
+                              | Ok value ->
+                                  captured_callback := Some value;
+                                  Ok None
+                              | Error _ as error -> error)
+                          | _ ->
+                              Error
+                                "native default capture has an unknown \
+                                 original code owner")))
+              | Ok _ ->
+                  Error "native default capture has another original entry site"
+              | Error _ as error -> error)
+          | _ ->
+              Error
+                "native callback capture has no original default destination"
+        else if Int64.compare value_site 0L < 0 then
+          match site_by_value compiled (Int64.neg value_site) with
+          | Error _ as error -> error
+          | Ok candidate ->
+              if
+                candidate.owner = Codegen.Entry_owner
+                && candidate.no_value_capture_site && Int64.equal bits 0L
+                && executed_steps_int > 0
+              then Ok None
+              else
+                Error
+                  "native empty-result capture has another original discard \
+                   site"
         else
           match site_by_value compiled value_site with
           | Error _ as error -> error
@@ -178,7 +667,13 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
               Error "native program success status has no executed instruction"
             else
               Ok
-                (Completed { executed_steps = executed_steps_int; final_value })
+                (Completed
+                   {
+                     executed_steps = executed_steps_int;
+                     final_value;
+                     captured_callback = !captured_callback;
+                     captured_data = !captured_data;
+                   })
           else if Int64.equal site 0L then
             Error "native program fault status has no execution site"
           else
@@ -262,7 +757,11 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        IC_CALL"
                   else make_fault Frame_limit_exceeded None
                 else if Int64.equal kind 6L then
-                  if (not candidate.call_site) || candidate.output_site then
+                  if
+                    (not candidate.call_site)
+                    || candidate.output_site
+                       && not candidate.callback_call_site
+                  then
                     Error
                       "native program native-stack status names a non-call site"
                   else if executed_steps_int < 1 then
@@ -336,6 +835,34 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        else if Int64.equal kind 15L then Output_invalid_pointer
                        else Output_invalid_byte)
                       None
+                else if Int64.equal kind 30L then
+                  if
+                    (not candidate.compiler_option_site)
+                    || executed_steps_int < 1
+                  then
+                    Error
+                      "native compiler option fault has another reached site"
+                  else make_fault Compiler_option_failed None
+                else if kind >= 26L && kind <= 29L then
+                  let source_site =
+                    if Int64.equal kind 26L then
+                      candidate.stream_print_site || candidate.stream_exe_site
+                    else if Int64.equal kind 27L then
+                      candidate.stream_print_site
+                    else candidate.stream_exe_site
+                  in
+                  if (not source_site) || executed_steps_int < 1 then
+                    Error
+                      "native generation fault has no reached original stream \
+                       provider site"
+                  else
+                    make_fault
+                      (if Int64.equal kind 26L then Generated_limit_exceeded
+                       else if Int64.equal kind 27L then Stream_context_required
+                       else if Int64.equal kind 28L then
+                         Stream_exe_context_required
+                       else Stream_exe_source_failed)
+                      None
                 else if Int64.equal kind 17L then
                   if not candidate.pointer_ordering_site then
                     Error
@@ -356,6 +883,59 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       "native program pointer-difference fault did not consume \
                        its instruction"
                   else make_fault Pointer_difference_object_mismatch None
+                else if kind = 19L || kind = 20L then
+                  if not candidate.callback_call_site then
+                    Error "native callback fault names a non-callback site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native callback fault did not consume its call \
+                       instruction"
+                  else
+                    make_fault
+                      (if kind = 19L then Callback_unowned_address
+                       else Callback_signature_mismatch)
+                      None
+                else if kind = 21L then
+                  if not candidate.code_comparison_site then
+                    Error
+                      "native code-comparison fault names a non-comparison site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native code-comparison fault did not consume its \
+                       instruction"
+                  else make_fault Code_comparison_invalid_word None
+                else if kind = 22L then
+                  if not candidate.code_update_site then
+                    Error "native callback-update fault names a non-update site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native callback-update fault did not consume its \
+                       instruction"
+                  else make_fault Callback_update_owned_address None
+                else if kind = 23L then
+                  if not candidate.undefined_extern_site then
+                    Error
+                      "native undefined-extern status names another call site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native undefined-extern fault did not consume its call"
+                  else make_fault Undefined_extern None
+                else if kind = 24L then
+                  if not candidate.extern_signature_site then
+                    Error
+                      "native extern-signature status names another call site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native extern-signature fault did not consume its call"
+                  else make_fault Extern_signature_mismatch None
+                else if kind = 25L then
+                  if
+                    (not candidate.code_word_escape_site)
+                    || executed_steps_int < 1
+                  then
+                    Error
+                      "native code-word escape fault names another reached site"
+                  else make_fault Callback_owned_word_escape None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =
@@ -374,4 +954,14 @@ let literal_bytes compiled = Codegen.program_literal_bytes compiled.image
 let arena_metadata_bytes compiled =
   Codegen.program_arena_metadata_bytes compiled.image
 
+let arena_bytes compiled = Codegen.program_arena_bytes compiled.image
 let global_image compiled = Codegen.program_global_image compiled.image
+
+let code_owner_bindings compiled =
+  Codegen.program_code_owner_bindings compiled.image
+
+let private_function_count compiled =
+  Codegen.program_private_function_count compiled.image
+
+let function_slot_bindings compiled =
+  Codegen.program_function_slot_bindings compiled.image

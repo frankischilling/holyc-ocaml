@@ -128,6 +128,7 @@ let rec statement state target = function
   | Ast.Label_statement _
   | Ast.Local_declaration_statement _
   | Ast.No_warn_statement _
+  | Ast.Aggregate_declaration_statement _
   | Ast.Return_statement _ -> Ok state
 
 and statements state target values =
@@ -191,8 +192,7 @@ type function_ast =
   | Definition of Ast.function_definition
 
 let ast_functions (module_ : Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Ast.Function_prototype prototype ->
         Some (item_index, Prototype prototype)

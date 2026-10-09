@@ -1,5 +1,81 @@
 # holyc-ocaml architecture
 
+`Hosted.Native_source_execution` freezes a separate directive task before AOT
+module publication. `Hosted.Native_program` supplies the original outer parser
+and checked module compiler; its stream adapter executes only original task
+requests. Both use the same native instruction/output budget and cumulative
+preparation, saved-default and code allowances. The module retains a separate
+native arena and follows all directive fragments. No task graph is merged into
+the module. See [native AOT sessions](docs/native-aot-source-sessions.md).
+
+The live internal-binding adapter lowers the original typed target before its
+header is read. Native execution returns an opaque C capture rooted to that
+program and task arena, with actual result bits and work. The current source
+attempt consumes it once before publishing the saved operation. The IR driver
+activates on the original binding callback so it cannot replay that expression
+after publication. See [live internal bindings](docs/native-internal-bindings.md).
+
+`Ir.Saved_parameter_value` separates numeric words, executable callback owners
+and opaque data-default identities. Interpreted tasks retain the evaluated data
+address under that identity. Native fragments save a four-word descriptor in
+the shared task arena; runtime completion requires the successful original
+image capture before copying miscellaneous-data defaults or publishing the
+saved value. Calls consume the exact published header receipt. See
+[saved data-pointer defaults](docs/data-pointer-defaults.md).
+
+`Hosted.Native_source_execution` connects original live JIT source requests to
+the backend through an internal synchronous driver dispatch. The public source
+API accepts source and configuration; it exposes actual native fragment reports.
+`Backend.X86_64_global_storage` appends original scalar and array data and flags
+at stable offsets in one task layout. The runtime owns one non-executable arena and one
+cumulative allowance for those fragments. Driver admission retains metadata
+without allocating interpreter cells or importing native values. The driver has
+no dependency on the backend. See [native source tasks](docs/native-source-tasks.md).
+
+Named integer defaults lower their original typed expression directly to a
+native fragment. The live request binds the task, original attempt, graph and
+execution domain. A claimed entry captures its native word and work once;
+original header completion publishes that exact saved object. Each caller
+seals saved-default requirements across its historical function closure and
+original call headers. The task catalog verifies native completion, physical
+saved-object identity and source receipt before backend admission. The host
+limits default steps without resetting the shared native allowance and counts
+each saved word as eight separate payload bytes.
+
+Private function statics append data and initialization flags during their
+original allocation callback. Each live initializer request binds the original
+static destination, selected references, checked graph and runtime context.
+Successful native leaves join the completed frame without replaying their
+values. Historical bodies retain the same private arena allocation.
+The original string-copy branch uses a separate live request and a bounded
+native storage copy. It writes only the checked literal byte count and marks
+those elements initialized. The task charges this work before writing; detached
+copy reports retain no source, arena or executable authority. No expression
+opcode or machine-code image is invented for the compiler's direct MemCpy call.
+
+Native task admission also publishes original function source records in
+`Ir.Integer_interpreter`, independently of interpreter executable owners.
+Request-scoped Driver resolvers return exact retained definitions and frames.
+`Backend.X86_64_word_codegen` compiles their direct-call closure into each caller
+fragment, using each body's original runtime-call context and storage references.
+Historical callees remain distinct after same-name declarations. Code mappings
+belong to individual fragments; the source registry supplies no stable native
+function address.
+
+Task literal regions belong to their original sealed graph and producer.
+`Backend.X86_64_literal_storage` appends data and canonical reference tables to
+the same layout as globals. Process-local graph keys provide bounded map lookup;
+physical graph, context and instruction checks establish ownership. The C host
+zeros each newly admitted suffix and copies its original payloads once. Later
+fragments preserve mutated bytes without an arena-sized seed copy.
+
+Retained Print and PutChars calls use the original body's sealed call occurrence
+and admitted extern link. A request-scoped check verifies their task and source
+owner before compilation. If the original extern slot has gained a joined
+source body, the backend rejects provider fallback until native extern-slot
+dispatch is implemented. Output shares the task's cumulative allowance and
+keeps the existing atomic Print and incremental PutChars contracts.
+
 `Ir.Expression_lowering` emits branch continuations for original integer
 comparison chains used as conditions. `Ir.Block_graph` validates dominance of
 values shared across blocks and supplies definition order for type preparation.

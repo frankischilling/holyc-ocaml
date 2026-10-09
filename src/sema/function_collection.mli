@@ -58,6 +58,19 @@ val function_entries : collected_function -> entry list
 val function_completed_header :
   collected_function -> Frontend.Parser.completed_function_header option
 
+val declare_static :
+  ?activation:Source_activation.t ->
+  table:Symbol_table.t ->
+  collected_function ->
+  Compiler_record.static_allocation ->
+  (Symbol.t, string) result
+(** Allocate the original static's semantic symbol during its live callback in
+    the declaring partial header's scope. Completion must consume that exact
+    symbol. This grants no runtime storage or initializer authority. *)
+
+val static_symbol :
+  collected_function -> Compiler_record.static_allocation -> Symbol.t option
+
 val entry_symbol : entry -> Symbol.t
 val entry_kind : entry -> binding_kind
 val entry_parameter_index : entry -> int option

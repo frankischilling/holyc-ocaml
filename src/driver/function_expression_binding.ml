@@ -279,6 +279,7 @@ let rec statement state = function
   | Frontend.Ast.Break_statement _
   | Frontend.Ast.Empty_statement _
   | Frontend.Ast.Goto_statement _
+  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.Label_statement _ -> Ok state
   | Frontend.Ast.No_warn_statement no_warn ->
       fold_result add_no_warn_suppression state no_warn.no_warn_targets
@@ -314,8 +315,7 @@ type function_ast =
   | Definition of Frontend.Ast.function_definition
 
 let ast_functions (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Function_prototype prototype ->
         Some (item_index, Prototype prototype)

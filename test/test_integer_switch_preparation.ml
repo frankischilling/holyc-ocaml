@@ -26,6 +26,7 @@ let parse ?(max_work = 100000) ?budget ~mode contents =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (fun _ -> Ok ());
       reference = None;
       call = None;
@@ -79,7 +80,8 @@ let values_and_ownership () =
            (Preparation.cases prepared));
       Alcotest.(check bool)
         "exact AST lookup" true
-        (Preparation.find tracker (Preparation.source prepared) = Some prepared);
+        (Option.fold ~none:false ~some:(( == ) prepared)
+           (Preparation.find tracker (Preparation.source prepared)));
       let work = Preparation.budget_work budget in
       let endpoint =
         List.find

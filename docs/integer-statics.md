@@ -80,6 +80,25 @@ before publishing its compiled entry.
 
 ## Remaining connections
 
+The [native source-task path](native-source-tasks.md) supports scalar and fixed
+integer-array statics with original live allocation and once-only initializer
+execution. Each allocation retains its declaring function and later completed
+frame. Narrow storage uses its accessible extent for bounds checks and its
+eight-byte padded extent for the cumulative allocation allowance.
+
+One-star callback statics also retain their original live allocation, anonymous
+header and physical eight-byte elements. Assignment copies both the numeric
+word and its private executable owner. Anonymous defaults execute once while
+parsing the header; later calls use that saved value. Scalar and fixed-array
+cells preserve writes across activations and historical function bodies. Direct
+scalar and fixed-array callback initializers retain that same physical storage
+and anonymous header. Original live JIT leaves execute once before the body is
+installed; later leaves can copy or call an earlier initialized element.
+Numeric leaves keep their complete word independently of return metadata.
+The completed function joins the original allocation and successful leaf
+receipts without replay. Automatic callback declaration initializers retain the
+pinned parser rejection.
+
 Nonconstant AOT statics with globals-on-data-heap still require their separate
 compile-time phase. The normal JIT/AOT declaration paths are documented in
 [static initializers](integer-static-initializers.md). Parameter reads cannot
@@ -91,3 +110,10 @@ Pointer-valued statics, other narrow/floating/aggregate storage, full runtime ou
 stateful compilation, broader optimizer parity (#585/#696/#697), native execution, BIN/loader
 acceptance and bootstrap remain unfinished. This increment has hosted execution
 tests and pinned-source evidence, without a new native TempleOS capture.
+
+A static callback with a named class in its return metadata keeps the original
+class selection and completed anonymous header. Its checked frame location must
+agree with that exact canonical return class. The live allocation and completed
+frame still use physical RT_PTR cells, so `static Pair (*p)()[2]` occupies 16
+logical bytes even when Pair has another size. Class metadata alone grants no
+aggregate layout or callback invocation authority.

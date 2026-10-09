@@ -37,6 +37,9 @@ type task_state
 type task_call_start
 type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
 
+type compiler_options =
+  int64 -> bool option -> (bool, Common.Diagnostic.t list) result
+
 val observe_task_function_selection :
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
@@ -91,8 +94,75 @@ val owns_call_phase : task_state -> Sema.Function_call_phase.t -> bool
 type task_stream
 type task_admission
 type initializer_attempt
+type native_program_attempt
 type internal_binding_attempt
 type dimension_attempt
+
+val check_native_task_dimension :
+  task_state ->
+  dimension_attempt ->
+  Dimension_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_dimension :
+  task_state ->
+  dimension_attempt ->
+  Dimension_fragment_program.t ->
+  (unit, string) result
+
+val record_native_dimension_steps :
+  task_state -> dimension_attempt -> int -> (unit, string) result
+
+val complete_native_task_dimension :
+  task_state ->
+  dimension_attempt ->
+  Dimension_fragment_program.t ->
+  Dimension_fragment_program.t Native_scalar_capture.t ->
+  (unit, string) result
+
+val admit_static_allocation :
+  task_state -> Integer_static_allocation.t -> (unit, string) result
+(** Charge one original live private static declaration. Interpreter tasks
+    allocate unknown cells; native tasks retain metadata without shadow values.
+*)
+
+val execute_task_static_initializer :
+  ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
+  ?stream_exe_print:stream_exe_print ->
+  task_state ->
+  Static_initializer_program.t ->
+  (unit, error list) result
+
+val execute_task_static_copy :
+  task_state -> Static_initializer_destination.t -> (unit, string) result
+(** Consume each original live leaf once in interpreter storage. Foreign,
+    expired, replayed and native-authoritative requests are rejected before
+    execution. Failed attempts remain consumed. *)
+
+val check_native_static_allocation :
+  task_state ->
+  Integer_static_allocation.t ->
+  Integer_globals.task_view ->
+  (unit, string) result
+
+val check_native_static_initializer :
+  task_state -> Static_initializer_program.t -> (unit, string) result
+
+val complete_native_static_initializer :
+  task_state -> Static_initializer_program.t -> (unit, string) result
+
+val check_native_static_copy :
+  task_state -> Static_initializer_destination.t -> (unit, string) result
+
+val begin_native_static_copy :
+  task_state -> Static_initializer_destination.t -> (unit, string) result
+(** Charge the original direct byte-copy leaf against its owning task's
+    initializer allowance before writing native storage. No expression is
+    interpreted and no prepared values are produced. *)
+
+val complete_native_static_copy :
+  task_state -> Static_initializer_destination.t -> (unit, string) result
 
 val prepare_task_closed_dimension :
   task_state ->
@@ -124,6 +194,7 @@ val task_dimension_bits :
 
 val execute_task_dimension :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   dimension_attempt ->
@@ -138,6 +209,28 @@ val begin_task_internal_binding :
 val fail_task_internal_binding :
   task_state -> internal_binding_attempt -> (unit, string) result
 
+val check_native_task_internal_binding :
+  task_state ->
+  internal_binding_attempt ->
+  Internal_binding_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_internal_binding :
+  task_state ->
+  internal_binding_attempt ->
+  Internal_binding_fragment_program.t ->
+  (unit, string) result
+
+val record_native_internal_binding_steps :
+  task_state -> internal_binding_attempt -> int -> (unit, string) result
+
+val complete_native_task_internal_binding :
+  task_state ->
+  internal_binding_attempt ->
+  Internal_binding_fragment_program.t ->
+  Native_internal_binding_capture.t ->
+  (unit, string) result
+
 val task_internal_binding_target :
   task_state ->
   Frontend.Parser.internal_binding_preparation ->
@@ -145,6 +238,7 @@ val task_internal_binding_target :
 
 val execute_task_internal_binding :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   internal_binding_attempt ->
@@ -193,8 +287,63 @@ val begin_task_default :
 
 val fail_task_default : task_state -> default_attempt -> (unit, string) result
 
+val check_native_task_default :
+  task_state ->
+  default_attempt ->
+  Default_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_default :
+  task_state ->
+  default_attempt ->
+  Default_fragment_program.t ->
+  (unit, string) result
+
+val complete_native_task_default :
+  task_state ->
+  default_attempt ->
+  Default_fragment_program.t ->
+  Saved_parameter_value.t ->
+  (unit, string) result
+
+val record_native_default_steps :
+  task_state -> default_attempt -> int -> (unit, string) result
+
+val task_native_parameter_default :
+  task_state ->
+  globals:Integer_globals.t ->
+  header:Sema.Function_type_resolution.resolved_function ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  Prepared_parameter_default.t ->
+  (unit, string) result
+
+val task_native_callback_default :
+  task_state ->
+  globals:Integer_globals.t ->
+  pointer:Sema.Function_type_resolution.function_pointer ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  Prepared_callback_default.t ->
+  (unit, string) result
+
 val task_default_bits :
   task_state -> Frontend.Parser.completed_parameter_default -> int64 option
+
+val task_default_value :
+  task_state ->
+  Frontend.Parser.completed_parameter_default ->
+  Saved_parameter_value.t option
+(** Read only an original successful evaluation. A parsed or pending receipt
+    supplies no available default value. *)
+
+val compare_saved_parameter_values :
+  task_state ->
+  Saved_parameter_value.t ->
+  Saved_parameter_value.t ->
+  (bool, string) result
+(** Compare owned saved words without executing expressions. Callback equality
+    uses the captured executable owner in this runtime. Data equality requires
+    actual live interpreter addresses or checked native arena captures. This
+    grants no address or entry authority. *)
 
 val complete_task_defaults :
   task_state ->
@@ -204,6 +353,7 @@ val complete_task_defaults :
 
 val execute_task_default :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   default_attempt ->
@@ -232,8 +382,36 @@ val begin_task_initializer_leaf :
 val initializer_attempt_destination :
   initializer_attempt -> Integer_initializer_layout.entry
 
+val check_native_task_initializer :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_initializer :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  (unit, string) result
+
+val complete_native_task_initializer :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  Initializer_fragment_program.t ->
+  (unit, string) result
+(** Metadata-only live initializer admission for a native-authoritative task.
+    The exact current attempt and prepared/lowered fragment must agree. Claim is
+    one-shot and completion advances the original live layout without storing
+    value bytes or initialization flags in interpreter storage. *)
+
 val fail_task_initializer_attempt :
   task_state -> initializer_attempt -> (unit, string) result
+(** Settle only this task's exact current original initializer attempt while it
+    is preparing or executing. Failed, successful, stale and foreign attempts
+    cannot settle again. *)
 
 val complete_task_initializer :
   task_state ->
@@ -244,6 +422,7 @@ val complete_task_initializer :
 
 val execute_task_initializer :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   initializer_attempt ->
@@ -286,11 +465,90 @@ val create_task_state :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
+  ?native_storage_authority:bool ->
   table:Sema.Symbol_table.t ->
   unit ->
   (task_state, string) result
 
+val create_compiler_namespace_task :
+  task_state -> table:Sema.Symbol_table.t -> (task_state, string) result
+(** Create a separate declaration and execution catalog during the original
+    suspended IR source callback. Both catalogs retain the same counters,
+    limits, output/generation buffers and live frame/depth reservations. Sharing
+    resources grants no declaration, storage or source authority. Native tasks
+    require their own synchronous machine bridge. *)
+
+val task_shares_resources : task_state -> task_state -> bool
+(** Physical shared-counter/buffer identity, without source or storage
+    authority. *)
+
+type task_child_input
+
+val begin_task_child_input :
+  task_state ->
+  target:task_state ->
+  suspension:Frontend.Parser.suspension ->
+  source:Common.Source_file.t ->
+  (task_child_input, string) result
+(** Enter one original saved input while its caller is suspended. Participating
+    namespaces retain their own work and lifecycle journals under the shared
+    resource owner. Rejected preflight grants no scope. *)
+
+val complete_task_child_input :
+  task_child_input ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result
+
+val catch_task_child_compiler :
+  task_child_input -> Frontend.Parser.failed_input -> (unit, string) result
+(** Check all original ownership, work and abort journals before claiming the
+    parser failure once. Only work created inside this child can be excluded;
+    its syntax remains failed and its incomplete bindings remain unavailable. *)
+
+val close_task_child_input : task_child_input -> (unit, string) result
+(** Close the original scope after success, a catch or propagation. Unhandled
+    faults keep enclosing completion invalid. *)
+
 val begin_task_stream : task_state -> (task_stream, string) result
+
+type native_generation
+
+val native_task_generation :
+  ?use_active_stream:bool -> task_state -> native_generation
+
+val native_generation_limits :
+  native_generation -> (bool * int * int, string) result
+
+val native_generation_byte_budget :
+  native_generation -> (Integer_output.byte_budget, string) result
+
+val with_native_source_suspension :
+  native_generation ->
+  scope:Native_source_suspension.t ->
+  (task_state -> 'a) ->
+  ('a, string) result
+(** Reserve the original native caller's observed frame and depth while its
+    physical source callback is suspended. The exact C scope and generation must
+    agree; foreign domains, copied targets and expired scopes reject. Saved
+    compiler peers retain native storage authority and share the original
+    resources. This reservation grants no machine, arena or budget entry. *)
+
+val complete_native_generation :
+  ?scope:Native_source_suspension.t ->
+  native_generation ->
+  native_generation Native_generation_capture.t ->
+  (unit, string) result
+(** Reached native generation is accepted once, in the original domain and exact
+    LIFO stream state. Equal metadata and caller-provided bytes grant no
+    authority. *)
+
+val admit_native_generation_prefix :
+  native_generation ->
+  scope:Native_source_suspension.t ->
+  native_generation Native_generation_capture.t ->
+  (unit, string) result
+(** Admit the C caller's actual generated prefix while its exact source scope is
+    live. Keep this generation open for its resumed suffix. *)
 
 val task_stream_is_active : task_state -> task_stream -> bool
 (** Read-only exact top-buffer ownership check for parser callback admission. *)
@@ -375,6 +633,7 @@ val promote_task_source :
 val promote_task_source_activation :
   ?offsets:Sema.Compiler_record.aggregate_offset list ->
   ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
+  ?pending_runtime_offset:Frontend.Parser.aggregate_phase ->
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
   activation:Sema.Source_activation.t ->
@@ -439,6 +698,41 @@ val bind_task_source_program :
 (** Internal compiler join. Bind source order to the exact final compilation
     bundle before exposing it. Registration admits no runtime effects. *)
 
+val check_native_task_program :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (unit, string) result
+
+val claim_native_task_program :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (native_program_attempt, string) result
+
+val complete_native_task_program :
+  task_state ->
+  native_program_attempt ->
+  captured:bool ->
+  final_value:(word_type * int64) option ->
+  (unit, string) result
+
+val fail_native_task_program :
+  task_state -> native_program_attempt -> (unit, string) result
+
+val fail_native_task_program_before_entry : task_state -> unit
+(** Native-authoritative source command admission. The pure check validates the
+    exact bound source program and live resume event. Claim commits source order
+    immediately before native entry; completion publishes only the returned word
+    into task-result metadata. No native object bytes are copied into VM arenas.
+*)
+
 val task_owns_snapshot : task_state -> Integer_globals.task_view -> bool
 val task_owns_table : task_state -> Sema.Symbol_table.t -> bool
 
@@ -467,9 +761,109 @@ val latest_task_admission : task_state -> task_admission option
 
 val task_function_source :
   task_state -> Retained_function.t -> task_function_source option
-(** Read the original checked source owner for an exact admitted executable
-    link. Unadmitted definitions and foreign links have no source publication.
+(** Read the original checked source owner for an admitted retained link. Exact
+    native source-only publications are preferred; the older interpreter-owned
+    executable lookup remains available for source inspection. This grants no
+    native execution or address authority. *)
+
+val task_native_function_source :
+  task_state -> Retained_function.t -> task_function_source option
+(** Exact source-only publication for a retained function admitted by native
+    task claim. This carries no executable owner or address authority and never
+    follows a later joined definition. *)
+
+type native_slot_binding
+
+val task_native_slot_binding :
+  task_state ->
+  root_runtime_calls:Runtime_call_context.t ->
+  root_globals:Integer_globals.t ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  Runtime_call_context.call ->
+  (native_slot_binding, string) result
+(** Resolve an original JIT extern address slot from this task's admitted native
+    source publications. An absent body is a reached undefined-extern fault, not
+    a compilation failure. This grants no executable address or entry authority.
 *)
+
+val native_slot_binding_matches :
+  native_slot_binding ->
+  root_runtime_calls:Runtime_call_context.t ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  globals:Integer_globals.t ->
+  Runtime_call_context.call ->
+  bool
+
+val native_slot_binding_source :
+  native_slot_binding -> task_function_source option
+
+type native_slot_address_binding
+
+val task_native_slot_address_binding :
+  task_state ->
+  root_runtime_calls:Runtime_call_context.t ->
+  root_globals:Integer_globals.t ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  Runtime_call_context.function_slot_address ->
+  (native_slot_address_binding, string) result
+
+val native_slot_address_binding_matches :
+  native_slot_address_binding ->
+  root_runtime_calls:Runtime_call_context.t ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  globals:Integer_globals.t ->
+  Runtime_call_context.function_slot_address ->
+  bool
+
+val native_slot_address_binding_source :
+  native_slot_address_binding ->
+  (Retained_function.t * task_function_source) option
+
+val native_slot_address_binding_local_owner :
+  native_slot_address_binding -> Function_body.t option
+(** A current request's own original body can install its slot when that request
+    claims admission. Other bodies must already be in the native publication
+    generation. Neither a source receipt nor this binding grants native entry
+    permission. *)
+
+val native_slot_address_binding_receipt :
+  native_slot_address_binding -> Runtime_call_context.function_slot_address
+
+val native_slot_address_binding_runtime_calls :
+  native_slot_address_binding -> Runtime_call_context.t
+
+val native_slot_address_binding_owner :
+  native_slot_address_binding -> Runtime_call_context.owner
+
+val native_slot_address_binding_globals :
+  native_slot_address_binding -> Integer_globals.t
+
+val native_slot_address_binding_root_runtime_calls :
+  native_slot_address_binding -> Runtime_call_context.t
+
+val refresh_native_slot_address_binding :
+  task_state ->
+  root_runtime_calls:Runtime_call_context.t ->
+  root_globals:Integer_globals.t ->
+  native_slot_address_binding ->
+  (native_slot_address_binding, string) result
+(** Refresh an already admitted logical slot through the same original task's
+    native body generation. The stored source identity never changes. *)
+
+val task_native_provider_available :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  owner:Runtime_call_context.owner ->
+  Runtime_call_context.call ->
+  (bool, string) result
+(** Check an original Print/PutChars occurrence in an admitted native function.
+    The retained extern link must belong to this task. [false] means that its
+    original address slot has acquired a joined source body; hosted provider
+    fallback cannot stand in for that executable. This grants no entry. *)
 
 val task_output_bytes : task_state -> string
 val task_output_work : task_state -> int
@@ -481,6 +875,7 @@ val record_task_preparation : task_state -> before:int -> steps:int -> unit
 
 val execute_task_program :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   runtime_calls:Runtime_call_context.t ->
@@ -550,32 +945,37 @@ val execute_program :
     frame and options. Static address producers and storage consumers also
     accept their owner's checked entry initializer region. Other entry
     instructions and functions fail preflight; region authority never enters a
-    called function. JIT static calls require transitively earlier definitions
-    in the supplied bodies. Checked one-level integer pointer locals and fixed
-    parameters hold references to nonzero scalar integer objects and automatic
-    array elements. Memory stores retain low declared bits and reads sign- or
-    zero-extend them. Plain assignment expressions retain the full RHS bits
-    independently of narrowed storage. Arithmetic retains checked raw classes
-    and separately derived native computation classes. Ordinary binary selection
-    takes the greater raw ID; comparisons retain their unsigned-operand rule.
-    Direct public unsigned calls, forwarded storage and COM node/result classes
-    remain distinct. Updates store low declared bits and normalize
-    prefix/postfix results. This canonical reference path retains zero flags and
-    a materialized result; it does not select native BY_VAL or discarded-result
-    optimizations. Unsigned internal negation selects the signed partner while
-    retaining full register bits. Checked indexing retains declared-object
-    extents and remaining array strides; grouping/materialization consumes
-    dimensions. Final pointer values may be one-past; memory access must be
-    within the original object. Scale/add overflow and object bounds report
-    HCIRVM0020 and HCIRVM0019 respectively. Offsets, strides and object extents
-    use actual element byte widths. Active allocation charges the checked padded
-    local frame plus eight-byte parameter slots. Cell counts and allocation
-    bytes are bounded before expansion. [IC_ADDR] materializes a reference
-    without reading the object, with its own static-consumer ownership check.
-    Dereferences and updates retain the actual caller or recursive activation,
-    even when slots have identical offsets. Explicit references can pass to
-    callees without granting canonical static-address authority. Returned frames
-    are invalidated; pointer returns, arbitrary integer addresses and pointer
+    called function. One-star automatic/static callback arrays retain their
+    original storage root, anonymous header and remaining strides through each
+    index. Fully indexed word loads preserve executable owners for copies and
+    integer/U0 calls. Static elements persist across calls; automatic elements
+    belong to their activation. Return types do not select element width. JIT
+    static calls require transitively earlier definitions in the supplied
+    bodies. Checked one-level integer pointer locals and fixed parameters hold
+    references to nonzero scalar integer objects and automatic array elements.
+    Memory stores retain low declared bits and reads sign- or zero-extend them.
+    Plain assignment expressions retain the full RHS bits independently of
+    narrowed storage. Arithmetic retains checked raw classes and separately
+    derived native computation classes. Ordinary binary selection takes the
+    greater raw ID; comparisons retain their unsigned-operand rule. Direct
+    public unsigned calls, forwarded storage and COM node/result classes remain
+    distinct. Updates store low declared bits and normalize prefix/postfix
+    results. This canonical reference path retains zero flags and a materialized
+    result; it does not select native BY_VAL or discarded-result optimizations.
+    Unsigned internal negation selects the signed partner while retaining full
+    register bits. Checked indexing retains declared-object extents and
+    remaining array strides; grouping/materialization consumes dimensions. Final
+    pointer values may be one-past; memory access must be within the original
+    object. Scale/add overflow and object bounds report HCIRVM0020 and
+    HCIRVM0019 respectively. Offsets, strides and object extents use actual
+    element byte widths. Active allocation charges the checked padded local
+    frame plus eight-byte parameter slots. Cell counts and allocation bytes are
+    bounded before expansion. [IC_ADDR] materializes a reference without reading
+    the object, with its own static-consumer ownership check. Dereferences and
+    updates retain the actual caller or recursive activation, even when slots
+    have identical offsets. Explicit references can pass to callees without
+    granting canonical static-address authority. Returned frames are
+    invalidated; pointer returns, arbitrary integer addresses and pointer
     arithmetic remain unsupported. Canonical [IC_STR_CONST] instructions own
     mutable byte regions containing the exact payload followed by one zero byte.
     Every literal site in every definition and the entry is checked before
@@ -770,6 +1170,28 @@ val check_task_suspended_completion :
 
 type offset_attempt
 
+val check_native_task_offset :
+  task_state ->
+  offset_attempt ->
+  Offset_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_offset :
+  task_state ->
+  offset_attempt ->
+  Offset_fragment_program.t ->
+  (unit, string) result
+
+val record_native_offset_steps :
+  task_state -> offset_attempt -> int -> (unit, string) result
+
+val complete_native_task_offset :
+  task_state ->
+  offset_attempt ->
+  Offset_fragment_program.t ->
+  Offset_fragment_program.t Native_scalar_capture.t ->
+  (unit, string) result
+
 val begin_task_offset :
   task_state ->
   Sema.Offset_fragment.authority ->
@@ -784,8 +1206,21 @@ val task_offset :
 
 val execute_task_offset :
   ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   offset_attempt ->
   Offset_fragment_program.execution ->
   (unit, error list) result
+
+val begin_task_callback_default :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_callback_default ->
+  (default_attempt, string) result
+
+val complete_task_callback_defaults :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_callback_signature ->
+  (unit, string) result

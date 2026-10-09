@@ -35,10 +35,16 @@ type fragment_region = {
   destination : Initializer_fragment_destination.t;
 }
 
+type static_fragment_region = {
+  static_fragment_description : region_description;
+  static_destination : Static_initializer_destination.t;
+}
+
 type storage_region =
   | Global_region of region
   | Static_region of static_region
   | Fragment_region of fragment_region
+  | Static_fragment_region of static_fragment_region
 
 type prepared_root = Initializer_publication.prepared_root =
   | Prepared_global of Typed.top_level_root_result
@@ -62,6 +68,7 @@ type pending =
   | Global_pending of Integer_globals.slot * Typed.top_level_root_result
   | Static_pending of Integer_globals.static_slot * Typed.initializer_result
   | Fragment_pending of Initializer_fragment_destination.t
+  | Static_fragment_pending of Static_initializer_destination.t
 
 type description =
   | Global_description of region_description
@@ -115,6 +122,9 @@ let static_regions context =
     context.regions_
 
 let storage_symbol = function
+  | Static_fragment_region region ->
+      Static_initializer_destination.storage region.static_destination
+      |> Integer_globals.storage_symbol
   | Fragment_region region ->
       Integer_globals.storage_symbol
         (Initializer_fragment_destination.storage region.destination)
@@ -124,22 +134,26 @@ let storage_symbol = function
       |> Sema.Function_frame_layout.location_symbol
 
 let storage_phase = function
+  | Static_fragment_region _ -> Compile_initializer
   | Fragment_region _ -> Compile_initializer
   | Global_region region -> phase region
   | Static_region region -> static_phase region
 
 let storage_frame = function
+  | Static_fragment_region _ -> None
   | Fragment_region _ -> None
   | Global_region _ -> None
   | Static_region region ->
       Some (Integer_globals.static_frame (static_slot region))
 
 let storage_first = function
+  | Static_fragment_region region -> region.static_fragment_description.first
   | Fragment_region region -> region.fragment_description.first
   | Global_region region -> region.description.first
   | Static_region region -> region.static_description.first
 
 let storage_last = function
+  | Static_fragment_region region -> region.static_fragment_description.last
   | Fragment_region region -> region.fragment_description.last
   | Global_region region -> region.description.last
   | Static_region region -> region.static_description.last
@@ -147,6 +161,8 @@ let storage_last = function
 let prepared_steps context = context.prepared_steps_
 
 let storage_root = function
+  | Static_fragment_region region ->
+      Some region.static_fragment_description.root
   | Global_region region -> Some region.description.root
   | Fragment_region region -> Some region.fragment_description.root
   | Static_region _ -> None
@@ -174,8 +190,9 @@ let find context instruction =
   | Some (Global_region region) -> Some region
   | _ -> None
 
-let create_internal ?fragment ?(static_descriptions = []) ?(publications = [])
-    ?publication_evidence ~span:context_span ~globals ~entry descriptions =
+let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
+    ?(publications = []) ?publication_evidence ~span:context_span ~globals
+    ~entry descriptions =
   let ( let* ) = Result.bind in
   let invalid ?span message =
     Error
@@ -278,16 +295,23 @@ let create_internal ?fragment ?(static_descriptions = []) ?(publications = [])
   let pending =
     Option.to_list
       (Option.map (fun destination -> Fragment_pending destination) fragment)
+    @ Option.to_list
+        (Option.map
+           (fun destination -> Static_fragment_pending destination)
+           static_fragment)
     @ pending
     @ (Integer_globals.statics globals
       |> List.concat_map (fun slot ->
           Integer_globals.static_initializers slot
           |> List.filter_map (fun root ->
-              if Integer_globals.static_root_materialized slot root then None
+              if
+                Integer_globals.static_root_materialized slot root
+                || Integer_globals.static_root_executed slot root
+              then None
               else Some (Static_pending (slot, root)))))
     |> List.stable_sort (fun left right ->
         let index = function
-          | Fragment_pending _ -> 0
+          | Fragment_pending _ | Static_fragment_pending _ -> 0
           | Global_pending (slot, _) ->
               Integer_globals.slot_record slot
               |> Sema.Global_record_classification.classified_record_source
@@ -332,6 +356,20 @@ let create_internal ?fragment ?(static_descriptions = []) ?(publications = [])
     | slot :: slots, description :: descriptions ->
         let* storage, first, last, value, make_region =
           match (slot, description) with
+          | Static_fragment_pending destination, Global_description description
+            when Static_initializer_destination.root destination
+                 == description.root ->
+              Ok
+                ( Static_initializer_destination.storage destination,
+                  description.first,
+                  description.last,
+                  Typed.top_level_root_value description.root,
+                  fun _ ->
+                    Static_fragment_region
+                      {
+                        static_fragment_description = description;
+                        static_destination = destination;
+                      } )
           | Fragment_pending destination, Global_description description
             when Initializer_fragment_destination.root destination
                  == description.root ->
@@ -420,6 +458,9 @@ let create_internal ?fragment ?(static_descriptions = []) ?(publications = [])
             | [ address :: rest ] -> (
                 let* prepared =
                   (match slot with
+                    | Static_fragment_pending destination ->
+                        Global_address_lowering
+                        .prepare_static_fragment_initializer destination
                     | Fragment_pending destination ->
                         Global_address_lowering.prepare_fragment_initializer
                           destination
@@ -507,6 +548,9 @@ let create_internal ?fragment ?(static_descriptions = []) ?(publications = [])
                       && address.opcode = Integer_globals.storage_opcode storage
                       && address.operands = [] && address.flags = 0L
                       && (match (slot, address.payload) with
+                        | ( Static_fragment_pending _,
+                            Some (Sequence.Symbol actual) ) ->
+                            actual == Integer_globals.storage_symbol storage
                         | ( Fragment_pending destination,
                             Some (Sequence.Retained_global actual) ) ->
                             Retained_global.same actual
@@ -596,10 +640,12 @@ let create_internal ?fragment ?(static_descriptions = []) ?(publications = [])
       |> List.concat_map (fun slot ->
           List.map
             (fun root -> Static_pending (slot, root))
-            (Integer_globals.static_initializers slot)))
+            (Integer_globals.static_initializers slot
+            |> List.filter (fun root ->
+                not (Integer_globals.static_root_executed slot root)))))
     |> List.stable_sort (fun left right ->
         let index = function
-          | Fragment_pending _ -> 0
+          | Fragment_pending _ | Static_fragment_pending _ -> 0
           | Global_pending (slot, _) ->
               Integer_globals.slot_record slot
               |> Sema.Global_record_classification.classified_record_source
@@ -612,7 +658,7 @@ let create_internal ?fragment ?(static_descriptions = []) ?(publications = [])
         Int.compare (index left) (index right))
   in
   let prepared_entry = function
-    | Fragment_pending _ -> None
+    | Fragment_pending _ | Static_fragment_pending _ -> None
     | Global_pending (slot, root)
       when Integer_globals.slot_reuses_declared_storage slot
            && Option.is_none (Integer_globals.slot_array_initializers slot)
@@ -644,6 +690,8 @@ let create_internal ?fragment ?(static_descriptions = []) ?(publications = [])
                   (Integer_array_initializers.prepared entry)))
   in
   let storage = function
+    | Static_fragment_pending destination ->
+        Static_initializer_destination.storage destination
     | Fragment_pending destination ->
         Initializer_fragment_destination.storage destination
     | Global_pending (slot, _) -> Integer_globals.global_storage slot
@@ -770,6 +818,18 @@ let create_fragment ~destination ~entry description =
     ~span:(Initializer_fragment_destination.span destination)
     ~globals:(Initializer_fragment_destination.globals destination)
     ~entry [ description ]
+
+let create_static_fragment ~destination ~entry description =
+  create_internal ~static_fragment:destination
+    ~span:(Static_initializer_destination.span destination)
+    ~globals:(Static_initializer_destination.globals destination)
+    ~entry [ description ]
+
+let has_static_fragment context destination =
+  match context.regions_ with
+  | [ Static_fragment_region region ] ->
+      region.static_destination == destination
+  | _ -> false
 
 let human context =
   match regions context with

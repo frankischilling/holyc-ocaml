@@ -29,6 +29,7 @@ type statement =
   | Initialize of Typed.initializer_result
   | Initialize_global of Typed.top_level_root_result
   | Initialize_fragment of Initializer_fragment_destination.t
+  | Initialize_static_fragment of Static_initializer_destination.t
   | Initialize_static of Integer_globals.static_slot
   | Initialize_static_leaf of
       Integer_globals.static_slot * Typed.initializer_result
@@ -90,7 +91,8 @@ let span_of_result fallback result =
   | _ -> fallback
 
 let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
-    ?(function_calls = []) ~span statements =
+    ?(function_calls = []) ?(callback_calls = []) ?(top_callback_calls = [])
+    ~span statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
@@ -342,7 +344,37 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                   ~optimize_division:true ?frame ?globals
                   ~lower_call:(direct_call_in frame) ~instruction_id ~value_id
                   ~target value
-            | None -> Ok Direct_call_lowering.Unsupported_call)
+            | None -> (
+                match (frame, Typed.result_call_resolution value) with
+                | Some frame, Some (Source.Indirect_call resolution) -> (
+                    match
+                      List.find_opt
+                        (fun call ->
+                          call |> Typed.indirect_source
+                          |> Sema.Function_call_conversion_policy
+                             .indirect_source
+                          |> fun original -> original == resolution)
+                        callback_calls
+                    with
+                    | Some call ->
+                        Direct_call_lowering.lower_indirect ~frame
+                          ~optimize_shifts:true ~optimize_division:true ?globals
+                          ~lower_call:(direct_call_in (Some frame))
+                          ~instruction_id ~value_id ~call value
+                    | None -> Ok Direct_call_lowering.Unsupported_call)
+                | None, _ -> (
+                    match
+                      List.find_opt
+                        (fun call -> Callback_source.matches_result call value)
+                        top_callback_calls
+                    with
+                    | Some call ->
+                        Direct_call_lowering.lower_callback
+                          ~optimize_shifts:true ~optimize_division:true ?globals
+                          ~lower_call:(direct_call_in None) ~instruction_id
+                          ~value_id ~call value
+                    | None -> Ok Direct_call_lowering.Unsupported_call)
+                | _ -> Ok Direct_call_lowering.Unsupported_call))
       in
       Result.map
         (function
@@ -623,6 +655,45 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
               fail at "HCRUN0004"
                 "initializer fragment requires its exact retained module \
                  storage")
+      | Initialize_static_fragment destination -> (
+          let module Destination = Static_initializer_destination in
+          let at = Destination.span destination in
+          match (globals, frame) with
+          | Some globals, None when globals == Destination.globals destination
+            -> (
+              let first =
+                Sequence.Instruction_id.of_int !instruction_count |> checked_id
+              in
+              match
+                Expression_lowering.lower_static_fragment_initializer
+                  ~optimize_shifts:true ~optimize_division:true
+                  ~lower_call:direct_call ~instruction_id:first
+                  ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
+                  destination
+              with
+              | Error errors -> lower_errors errors
+              | Ok Expression_lowering.Unsupported_expression ->
+                  fail at "HCRUN0003"
+                    "static initializer fragment is outside integer program \
+                     lowering"
+              | Ok (Expression_lowering.Lowered result) ->
+                  let operand = append_expression result in
+                  let last =
+                    Sequence.Instruction_id.of_int !instruction_count
+                    |> checked_id
+                  in
+                  instruction ~at ~operands:[ operand ] ~flags:0x200L
+                    Opcode.Ic_end_exp;
+                  initial_regions :=
+                    {
+                      Global_initialization.root = Destination.root destination;
+                      first;
+                      last;
+                    }
+                    :: !initial_regions)
+          | _ ->
+              fail at "HCRUN0004"
+                "static initializer requires its original task storage")
       | Publish_array prepared_root -> (
           match (globals, frame) with
           | Some _, None ->

@@ -35,8 +35,12 @@ let batch_fault ~mode contents =
   | Ok _ -> Alcotest.fail "checked batch unexpectedly accepted the fault case"
 
 let first_diagnostic = function
-  | Error (diagnostic :: _) -> diagnostic
   | Error [] -> Alcotest.fail "source execution failed without a diagnostic"
+  | Error diagnostics ->
+      List.find
+        (fun (diagnostic : Diagnostic.t) ->
+          diagnostic.severity = Diagnostic.Error)
+        diagnostics
   | Ok _ -> Alcotest.fail "source execution unexpectedly completed"
 
 let span_range = Option.map (fun (span : Span.t) -> (span.start, span.stop))
@@ -53,6 +57,11 @@ let status_kind = function
   | Program.Index_addition_overflow -> 9L
   | Program.Address_out_of_bounds -> 10L
   | Program.Output_limit_exceeded -> 11L
+  | Program.Generated_limit_exceeded -> 26L
+  | Program.Stream_context_required -> 27L
+  | Program.Stream_exe_context_required -> 28L
+  | Program.Stream_exe_source_failed -> 29L
+  | Program.Compiler_option_failed -> 30L
   | Program.Output_work_limit_exceeded -> 12L
   | Program.Output_invalid_format -> 13L
   | Program.Output_invalid_argument -> 14L
@@ -60,6 +69,13 @@ let status_kind = function
   | Program.Output_invalid_byte -> 16L
   | Program.Pointer_object_mismatch -> 17L
   | Program.Pointer_difference_object_mismatch -> 18L
+  | Program.Callback_unowned_address -> 19L
+  | Program.Callback_signature_mismatch -> 20L
+  | Program.Code_comparison_invalid_word -> 21L
+  | Program.Extern_signature_mismatch -> 24L
+  | Program.Undefined_extern -> 23L
+  | Program.Callback_owned_word_escape -> 25L
+  | Program.Callback_update_owned_address -> 22L
 
 let check_fault_site label (expected : Program.fault) (actual : Program.fault) =
   Alcotest.(check int64)

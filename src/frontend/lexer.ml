@@ -15,6 +15,7 @@ type t = {
   mutable offset : int;
   mutable emitted_eof : bool;
   mutable termination : termination option;
+  mutable input_source : Common.Source_id.t;
 }
 
 type cursor = { positions : (t * int) list }
@@ -52,6 +53,7 @@ let create ?(mode = Token.Raw) ?generated_from ?defined_at ?caller
     offset = 0;
     emitted_eof = false;
     termination = None;
+    input_source = Common.Source_file.id source;
   }
 
 let source_id (lexer : t) = Common.Source_file.id lexer.source
@@ -59,6 +61,7 @@ let offset (lexer : t) = lexer.offset
 let termination (lexer : t) = lexer.termination
 let source_length (lexer : t) = String.length lexer.contents
 let local_at_end (lexer : t) = lexer.offset >= source_length lexer
+let input_source (lexer : t) = lexer.input_source
 
 let rec at_end (lexer : t) =
   if not (local_at_end lexer) then false
@@ -87,6 +90,8 @@ let advance_located (lexer : t) =
   | None -> None
   | Some (owner, offset) ->
       let byte = owner.contents.[offset] in
+      lexer.input_source <- source_id owner;
+      owner.input_source <- source_id owner;
       owner.offset <- owner.offset + 1;
       Some { owner; offset; byte }
 
@@ -1038,7 +1043,38 @@ let eof_token lexer leading_trivia =
   make_token lexer leading_trivia ~kind:Token_kind.Eof ~value:Token.No_value
     start
 
-let next lexer =
+let read_input_lookahead lexer distance =
+  (* LexGetChar pops exhausted inputs before returning the character that Lex
+     retains with CCF_USE_LAST_U16. Peeking leaves hosted source offsets intact,
+     but this input selection must follow that original character read. *)
+  let owner =
+    match owner_at_distance lexer distance with
+    | Some (owner, _) -> owner
+    | None -> terminal_lexer lexer
+  in
+  lexer.input_source <- source_id owner;
+  owner.input_source <- source_id owner
+
+let record_token_input lexer token =
+  match token.Token.kind with
+  | Token_kind.Identifier | Token_kind.Keyword _ -> read_input_lookahead lexer 0
+  | Token_kind.Integer | Token_kind.Float ->
+      let distance =
+        if peek lexer 0 = Some '.' && peek lexer 1 = Some '.' then 1 else 0
+      in
+      read_input_lookahead lexer distance
+  | Token_kind.Operator
+      (Operator.Shift_left | Operator.Shift_right | Operator.Dot_dot) ->
+      read_input_lookahead lexer 0
+  | Token_kind.Punctuation byte
+    when byte = '.'
+         || List.exists
+              (fun (spelling, _) ->
+                String.length spelling > 1 && spelling.[0] = byte)
+              Operator.all -> read_input_lookahead lexer 0
+  | _ -> ()
+
+let next_raw lexer =
   if (terminal_lexer lexer).emitted_eof then Token (eof_token lexer [])
   else
     let leading_trivia, trivia_error = skip_trivia lexer [] in
@@ -1092,6 +1128,13 @@ let next lexer =
                    "Remove the byte or place it inside a string or character \
                     literal."
                  ~start ()))
+
+let next lexer =
+  let item = next_raw lexer in
+  (match item with
+  | Token token -> record_token_input lexer token
+  | Diagnostic _ -> ());
+  item
 
 let lex_all ?mode ?nul_terminates ?recover_normalized_doldoc source =
   let lexer = create ?mode ?nul_terminates ?recover_normalized_doldoc source in

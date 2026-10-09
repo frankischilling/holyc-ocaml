@@ -1,5 +1,10 @@
 # Internal calls in retained source tasks
 
+Ordinary JIT sources now use the same original binding timing in IR and native
+tasks. The native adapter executes the target's actual machine entry and
+consumes its original capture once. See [live internal bindings](native-internal-bindings.md).
+The examples below describe the existing interpreted `#exe` path.
+
 Retained `#exe` tasks execute the supported numeric `IC_TOUPPER` and `IC_STRLEN`
 operations through their original task declarations. Both outer source modes
 use the retained JIT task namespace:

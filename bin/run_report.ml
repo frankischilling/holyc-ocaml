@@ -217,63 +217,120 @@ type native_limits = {
   default_bytes : int;
 }
 
-let native_decimal (word : Holyc_lib.X86_64_program.word) =
+type native_word = { type_ : Holyc_lib.X86_64_program.word_type; bits : int64 }
+
+type native_view = {
+  completed : bool;
+  diagnostics : Holyc_lib.Diagnostic.t list;
+  platform : Holyc_lib.Native_program_execution.platform;
+  executed_steps : int option;
+  preparation_steps : int;
+  switch_work : int;
+  dimension_work : int;
+  default_bytes : int;
+  bytes : string;
+  work : int;
+  final_value : native_word option;
+  image : Holyc_lib.X86_64_program.t option;
+  fragments : Holyc_lib.Native_source_execution.fragment list option;
+  static_copies : Holyc_lib.Native_source_execution.static_copy list option;
+}
+
+let native_decimal (word : native_word) =
   match word.type_ with
   | Holyc_lib.X86_64_program.I64 -> Int64.to_string word.bits
   | Holyc_lib.X86_64_program.U64 -> Printf.sprintf "%Lu" word.bits
 
-let native_word_type (word : Holyc_lib.X86_64_program.word) =
+let native_word_type (word : native_word) =
   match word.type_ with
   | Holyc_lib.X86_64_program.I64 -> "i64"
   | Holyc_lib.X86_64_program.U64 -> "u64"
 
-let render_native ~human ~session ~limits ~native_limits ?command_error ?report
-    () =
-  let result, diagnostics =
-    match report with
-    | None -> (None, [])
-    | Some report -> (
-        match Holyc_lib.Native_program.outcome report with
-        | Ok checked -> (Some checked.value, checked.diagnostics)
-        | Error diagnostics -> (None, diagnostics))
+let native_fragment_json (fragment : Holyc_lib.Native_source_execution.fragment)
+    =
+  let module Image = Holyc_lib.X86_64_program in
+  let outcome, steps =
+    match fragment.native_outcome with
+    | None -> ("not-entered", `Null)
+    | Some (Error _) -> ("host-error", `Null)
+    | Some (Ok (Image.Completed execution)) ->
+        ("success", `Int execution.executed_steps)
+    | Some (Ok (Image.Fault fault)) -> ("fault", `Int fault.executed_steps)
   in
-  let platform =
-    Option.fold
-      ~none:(Holyc_lib.Native_program_execution.platform ())
-      ~some:Holyc_lib.Native_program.platform report
+  `Assoc
+    [
+      ( "kind",
+        `String
+          (match fragment.kind with
+          | Initializer -> "initializer"
+          | Default -> "default"
+          | Internal_binding -> "internal-binding"
+          | Dimension -> "dimension"
+          | Offset -> "offset"
+          | Aot_module -> "aot-module"
+          | Command -> "command") );
+      ("outcome", `String outcome);
+      ("executed_steps", steps);
+      ("ir_instructions", `Int fragment.image.ir_instructions);
+      ("code_bytes", `Int fragment.image.code_bytes);
+      ("global_bytes", `Int fragment.image.global_bytes);
+      ("global_arena_bytes", `Int fragment.image.global_arena_bytes);
+      ("literal_bytes", `Int fragment.image.literal_bytes);
+      ("arena_metadata_bytes", `Int fragment.image.arena_metadata_bytes);
+      ("function_count", `Int fragment.image.function_count);
+    ]
+
+let native_static_copy_json
+    (copy : Holyc_lib.Native_source_execution.static_copy) =
+  `Assoc
+    [
+      ("cell_offset", `Int copy.cell_offset);
+      ("byte_offset", `Int copy.byte_offset);
+      ("byte_count", `Int copy.byte_count);
+      ( "outcome",
+        `String (if Result.is_ok copy.outcome then "success" else "error") );
+      ( "error",
+        match copy.outcome with
+        | Ok () -> `Null
+        | Error s -> `String s );
+    ]
+
+let render_native_view ~human ~session ~limits ~native_limits ?command_error
+    ?view () =
+  let view =
+    Option.value view
+      ~default:
+        {
+          completed = false;
+          diagnostics = [];
+          platform = Holyc_lib.Native_program_execution.platform ();
+          executed_steps = None;
+          preparation_steps = 0;
+          switch_work = 0;
+          dimension_work = 0;
+          default_bytes = 0;
+          bytes = "";
+          work = 0;
+          final_value = None;
+          image = None;
+          fragments = None;
+          static_copies = None;
+        }
   in
-  let executed_steps =
-    Option.bind report Holyc_lib.Native_program.executed_steps
-  in
-  let preparation_steps =
-    Option.fold ~none:0 ~some:Holyc_lib.Native_program.preparation_steps report
-  in
-  let switch_work =
-    Option.fold ~none:0 ~some:Holyc_lib.Native_program.switch_work report
-  in
-  let dimension_work =
-    Option.fold ~none:0 ~some:Holyc_lib.Native_program.dimension_work report
-  in
-  let default_bytes =
-    Option.fold ~none:0 ~some:Holyc_lib.Native_program.default_bytes report
-  in
-  let bytes =
-    Option.fold ~none:"" ~some:Holyc_lib.Native_program.output_bytes report
-  in
-  let work =
-    Option.fold ~none:0 ~some:Holyc_lib.Native_program.output_work report
-  in
+  let result = if view.completed then Some () else None in
+  let diagnostics = view.diagnostics in
+  let platform = view.platform in
+  let executed_steps = view.executed_steps in
+  let preparation_steps = view.preparation_steps in
+  let switch_work = view.switch_work in
+  let dimension_work = view.dimension_work in
+  let default_bytes = view.default_bytes in
+  let bytes = view.bytes in
+  let work = view.work in
   let output_hex = hex bytes in
-  let final_value =
-    Option.bind result (fun (value : Holyc_lib.Native_program.result) ->
-        value.execution.final_value)
-  in
+  let final_value = view.final_value in
   let outcome = if Option.is_some result then "success" else "error" in
-  let image =
-    Option.map
-      (fun (value : Holyc_lib.Native_program.result) -> value.image)
-      result
-  in
+  let image = view.image in
   (if human then (
      Printf.printf
        "holyc-integer-program-v2 implementation=%s reference=%s\n\
@@ -353,6 +410,23 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
            (Holyc_lib.X86_64_program.arena_metadata_bytes image)
            (String.length (Holyc_lib.X86_64_program.global_image image)))
        image;
+     Option.iter
+       (fun fragments ->
+         Printf.printf "native-fragments=%d\n" (List.length fragments);
+         List.iteri
+           (fun index fragment ->
+             Printf.printf "native-fragment-%d=%s\n" index
+               (native_fragment_json fragment |> Yojson.Safe.to_string))
+           fragments)
+       view.fragments;
+     Option.iter
+       (fun copies ->
+         List.iteri
+           (fun index copy ->
+             Printf.printf "native-static-copy-%d=%s\n" index
+               (native_static_copy_json copy |> Yojson.Safe.to_string))
+           copies)
+       view.static_copies;
      List.iter
        (fun diagnostic ->
          Holyc_lib.Diagnostic_render.human
@@ -463,24 +537,113 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
              command_error );
          ( "native",
            `Assoc
-             [
-               ( "platform",
-                 `String
-                   (Holyc_lib.Native_program_execution.platform_name platform)
-               );
-               ( "limits",
-                 `Assoc
+             ([
+                ( "platform",
+                  `String
+                    (Holyc_lib.Native_program_execution.platform_name platform)
+                );
+                ( "limits",
+                  `Assoc
+                    [
+                      ("ir_instructions", `Int native_limits.ir_instructions);
+                      ("code_bytes", `Int native_limits.code_bytes);
+                      ("stack_bytes", `Int native_limits.stack_bytes);
+                      ("blocks", `Int native_limits.blocks);
+                      ( "active_stack_bytes",
+                        `Int native_limits.active_stack_bytes );
+                      ("default_bytes", `Int native_limits.default_bytes);
+                    ] );
+                ("image", image);
+              ]
+             @ Option.fold ~none:[]
+                 ~some:(fun fragments ->
                    [
-                     ("ir_instructions", `Int native_limits.ir_instructions);
-                     ("code_bytes", `Int native_limits.code_bytes);
-                     ("stack_bytes", `Int native_limits.stack_bytes);
-                     ("blocks", `Int native_limits.blocks);
-                     ( "active_stack_bytes",
-                       `Int native_limits.active_stack_bytes );
-                     ("default_bytes", `Int native_limits.default_bytes);
-                   ] );
-               ("image", image);
-             ] );
+                     ( "fragments",
+                       `List (List.map native_fragment_json fragments) );
+                   ])
+                 view.fragments
+             @ Option.fold ~none:[]
+                 ~some:(fun copies ->
+                   [
+                     ( "static_copies",
+                       `List (List.map native_static_copy_json copies) );
+                   ])
+                 view.static_copies) );
        ]
      |> Yojson.Safe.pretty_to_string |> print_endline);
   if Option.is_some result then 0 else 1
+
+let render_native ~human ~session ~limits ~native_limits ?command_error ?report
+    () =
+  let view =
+    Option.map
+      (fun report ->
+        let module Native = Holyc_lib.Native_program in
+        let result, diagnostics =
+          match Native.outcome report with
+          | Ok checked -> (Some checked.value, checked.diagnostics)
+          | Error diagnostics -> (None, diagnostics)
+        in
+        {
+          completed = Option.is_some result;
+          diagnostics;
+          platform = Native.platform report;
+          executed_steps = Native.executed_steps report;
+          preparation_steps = Native.preparation_steps report;
+          switch_work = Native.switch_work report;
+          dimension_work = Native.dimension_work report;
+          default_bytes = Native.default_bytes report;
+          bytes = Native.output_bytes report;
+          work = Native.output_work report;
+          final_value =
+            Option.bind result (fun (result : Native.result) ->
+                Option.map
+                  (fun (word : Holyc_lib.X86_64_program.word) ->
+                    { type_ = word.type_; bits = word.bits })
+                  result.execution.final_value);
+          image =
+            Option.map (fun (result : Native.result) -> result.image) result;
+          fragments = None;
+          static_copies = None;
+        })
+      report
+  in
+  render_native_view ~human ~session ~limits ~native_limits ?command_error ?view
+    ()
+
+let render_native_task ~human ~session ~limits ~native_limits ?command_error
+    ?report () =
+  let view =
+    Option.map
+      (fun report ->
+        let module Native = Holyc_lib.Native_source_execution in
+        let result, diagnostics =
+          match Native.outcome report with
+          | Ok checked -> (Some checked.value, checked.diagnostics)
+          | Error diagnostics -> (None, diagnostics)
+        in
+        {
+          completed = Option.is_some result;
+          diagnostics;
+          platform = Native.platform report;
+          executed_steps = Some (Native.executed_steps report);
+          preparation_steps = Native.preparation_steps report;
+          switch_work = Native.switch_work report;
+          dimension_work = Native.dimension_work report;
+          default_bytes = Native.default_bytes report;
+          bytes = Native.output_bytes report;
+          work = Native.output_work report;
+          final_value =
+            Option.bind result (fun (result : Native.result) ->
+                Option.map
+                  (fun (word : Native.word) ->
+                    { type_ = word.type_; bits = word.bits })
+                  result.final_value);
+          image = None;
+          fragments = Some (Native.fragments report);
+          static_copies = Some (Native.static_copies report);
+        })
+      report
+  in
+  render_native_view ~human ~session ~limits ~native_limits ?command_error ?view
+    ()

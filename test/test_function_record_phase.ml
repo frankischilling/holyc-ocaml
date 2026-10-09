@@ -6,13 +6,17 @@ module A = Holyc_lib__Sema.Source_activation
 
 let checked = Test_declaration_collection.checked
 
-let fixture ?(session = Session.create ()) ?(inspect = fun _ _ -> ())
+let fixture ?(session = Session.create ()) ?namespace ?(inspect = fun _ _ -> ())
     ?(inspect_position = fun _ _ -> ())
     ?(allocate =
       fun _ _ record receipt ->
         N.observe_local_allocation record receipt |> checked) source =
   let table = Session.semantic_symbols session in
-  let namespace = C.create_namespace ~table () |> checked in
+  let namespace =
+    match namespace with
+    | Some namespace -> namespace
+    | None -> C.create_namespace ~table () |> checked
+  in
   let registry =
     N.create_registry ~mode:Preprocessor.Jit ~table ~namespace |> checked
   in
@@ -152,6 +156,76 @@ let local_allocation_release () =
   in
   ignore (fixture ~allocate "I64 F(){U8 a;U8 b;}");
   Alcotest.(check int) "both original allocation callbacks reached" 2 !count
+
+let original_static_allocations () =
+  let module R = Semantic_compiler_record in
+  let session = Session.create () in
+  let positions =
+    R.create_compiler_positions ~sources:(Session.sources session)
+  in
+  let originals = ref [] in
+  let allocate table namespace record receipt =
+    Alcotest.(check bool)
+      "unconsumed receipt has no static witness" true
+      (Option.is_none (R.static_allocation positions receipt));
+    let before = N.snapshot record in
+    let foreign = Session.create () in
+    Alcotest.(check bool)
+      "failed foreign capture has no witness" true
+      (Result.is_error
+         (R.record_local_allocation
+            ~table:(Session.semantic_symbols foreign)
+            ~namespace ~dimensions:[] positions record receipt));
+    Alcotest.(check bool)
+      "failed capture preserves the original phase" true
+      (N.snapshot record == before);
+    R.record_local_allocation ~table ~namespace ~dimensions:[] positions record
+      receipt
+    |> checked;
+    match R.static_allocation positions receipt with
+    | None ->
+        Alcotest.(check bool)
+          "automatic locals have no static witness" true
+          (receipt.Parser.allocation_storage = Ast.Automatic_local)
+    | Some original ->
+        Alcotest.(check bool)
+          "original static receipt" true
+          (R.static_allocation_receipt original == receipt);
+        Alcotest.(check bool)
+          "original function publication" true
+          (R.static_allocation_publication original == N.publication before);
+        Alcotest.(check bool)
+          "original namespace" true
+          (R.static_allocation_namespace original == namespace);
+        Alcotest.(check bool)
+          "original table" true
+          (R.static_allocation_owns_table original table);
+        Alcotest.(check bool)
+          "foreign table has no ownership" false
+          (R.static_allocation_owns_table original
+             (Session.semantic_symbols foreign));
+        originals := (record, receipt, original) :: !originals
+  in
+  ignore
+    (fixture ~session ~allocate
+       "I64 F(){I64 X;static I64 A;}I64 G(){static I64 A;}");
+  Alcotest.(check int)
+    "two independent static owners" 2 (List.length !originals);
+  List.iter
+    (fun (_, receipt, original) ->
+      Alcotest.(check bool)
+        "source witness survives callback expiry" true
+        (Option.get (R.static_allocation positions receipt) == original);
+      Alcotest.(check bool)
+        "expired witness does not reactivate allocation" false
+        (Parser.function_local_allocation_is_current receipt);
+      Alcotest.(check bool)
+        "fresh registry cannot reconstruct a source owner" true
+        (Option.is_none
+           (R.static_allocation
+              (R.create_compiler_positions ~sources:(Session.sources session))
+              receipt)))
+    !originals
 
 let original_header_positions () =
   let module R = Semantic_compiler_record in
@@ -390,6 +464,9 @@ let unknown_lineage () =
   Alcotest.(check (option int))
     "untracked prior count is never guessed" None (N.argument_count partial);
   Alcotest.(check bool)
+    "unknown lineage cannot authorize header comparison" true
+    (Result.is_error (N.checked_header_members partial));
+  Alcotest.(check bool)
     "completion cannot fabricate missing native lineage" true
     (Result.is_error (N.call_shape (N.snapshot (snd (List.hd records)))))
 
@@ -548,6 +625,7 @@ let activation_replay () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint = Some checkpoint;
     }
   in
@@ -638,7 +716,10 @@ let nested_native_duplicates () =
         (N.member_count final);
       Alcotest.(check bool)
         "body member collision cannot grant callable metadata" true
-        (Result.is_error (N.call_shape final)))
+        (Result.is_error (N.call_shape final));
+      Alcotest.(check bool)
+        "body member collision cannot authorize header comparison" true
+        (Result.is_error (N.checked_header_members final)))
     [ "m"; "argc" ];
   let _, records, _ =
     fixture "I64 F(I64 n,#exe {extern I64 F(I64 m);}I64 m);"
@@ -1028,8 +1109,154 @@ let nested_event_snapshot_authority () =
   ignore (fixture ~inspect "I64 F(I64 n)#exe {extern I64 F(I64 x);}{return n;}");
   Alcotest.(check bool) "nested shared-record sample exercised" true !sampled
 
+let saved_header_cursor_and_types () =
+  let module Types = Holyc_lib__Driver__Function_type_resolution in
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let headers = ref [] in
+  let inspect record = function
+    | Parser.Function_header_completed _ ->
+        headers := N.snapshot record :: !headers
+    | _ -> ()
+  in
+  ignore
+    (fixture ~session ~namespace ~inspect
+       "extern I64 F(I64 old=40,...);extern U8 F(I64 now);");
+  match List.rev !headers with
+  | [ original; current ] ->
+      let saved = Option.get (N.saved_previous_header current) in
+      Alcotest.(check bool)
+        "saved header is the original pre-reset snapshot" true
+        (saved == original);
+      count "PrsDotDotDot does not increment the saved argument count" 1 saved;
+      let before = List.length (Semantic_symbol_table.all_symbols table) in
+      let _, members =
+        Types.resolve_native_header_types ~table ~namespace saved |> checked
+      in
+      Alcotest.(check int)
+        "full saved cursor includes both variadic members" 3
+        (List.length members);
+      let internal_i64 =
+        Semantic_type.make_primitive ~form:Semantic_type.Internal_storage
+          ~primitive:Primitive_type.I64 ~pointer_depth:0
+        |> checked
+      in
+      List.iter
+        (fun (_, type_) ->
+          Alcotest.(check bool)
+            "synthetic member class is internal I64" true
+            (Semantic_type.equal internal_i64 type_))
+        (List.tl members);
+      Alcotest.(check int)
+        "metadata resolution creates no declaration identity" before
+        (List.length (Semantic_symbol_table.all_symbols table));
+      let old_member = fst (List.hd members) in
+      Alcotest.(check bool)
+        "old member cannot borrow the new cursor" true
+        (Result.is_error
+           (Types.resolve_native_header_member_type ~table ~namespace current
+              old_member));
+      let foreign_table = Session.semantic_symbols (Session.create ()) in
+      let foreign_namespace =
+        C.create_namespace ~table:foreign_table () |> checked
+      in
+      Alcotest.(check bool)
+        "foreign type table rejects" true
+        (Result.is_error
+           (Types.resolve_native_header_types ~table:foreign_table ~namespace
+              saved));
+      Alcotest.(check bool)
+        "foreign type namespace rejects" true
+        (Result.is_error
+           (Types.resolve_native_header_types ~table
+              ~namespace:foreign_namespace saved));
+      Gc.full_major ();
+      count "saved cursor survives closure and collection" 1 saved
+  | _ -> Alcotest.fail "expected two original completed headers"
+
+let nested_saved_header_cursor () =
+  let _, records, _ =
+    fixture
+      "extern I64 F(I64 old);extern I64 F(I64 outer)#exe {extern U8 F(I64 \
+       inner);};"
+  in
+  match records with
+  | [ (_, _); (outer_source, outer); (inner_source, inner) ] ->
+      let outer = N.snapshot outer and inner = N.snapshot inner in
+      Alcotest.(check bool)
+        "outer source transcript remains original" true
+        (N.source outer == outer_source);
+      Alcotest.(check bool)
+        "return class owner follows nested replacement" true
+        (N.native_source outer == inner_source);
+      let saved = Option.get (N.saved_previous_header inner) in
+      count "saved suspended count is actually zero" 0 saved;
+      Alcotest.(check int)
+        "zero-count saved cursor still contains a member" 1
+        (List.length (N.header_members saved));
+      Alcotest.(check bool)
+        "nested save keeps outer return owner" true
+        (N.native_source saved == outer_source);
+      count "outer completion cannot rewrite nested saved count" 0 saved;
+      Alcotest.(check bool)
+        "outer save keeps the earlier completed header" true
+        (N.native_source (Option.get (N.saved_previous_header outer))
+        != inner_source)
+  | _ -> Alcotest.fail "expected outer, nested and prior original headers"
+
+let reentrant_body_members_in_header_cursor () =
+  let _, records, _ =
+    fixture
+      "I64 F(I64 n){I64 first,second;static I64 frozen;#exe {extern I64 F(I64 \
+       n);}return n;}"
+  in
+  let inner = N.snapshot (snd (List.nth records 1)) in
+  let saved = Option.get (N.saved_previous_header inner) in
+  count "saved arguments exclude body allocations" 1 saved;
+  Alcotest.(check int)
+    "checked body cursor preserves its ordinary member count" 4
+    (List.length (N.checked_header_members saved |> checked));
+  Alcotest.(check int)
+    "saved cursor includes original body locals" 4
+    (List.length (N.header_members saved));
+  Alcotest.(check (list bool))
+    "original MemberAdd class-base flags"
+    [ false; true; false; false ]
+    (List.map N.header_member_has_class_base (N.header_members saved));
+  let _, records, _ =
+    fixture
+      "extern I64 F(I64 old);extern I64 F(I64 outer,#exe {I64 F(I64 inner){I64 \
+       body;return inner;};}I64 after);"
+  in
+  let outer = N.snapshot (snd (List.nth records 1)) in
+  let name = function
+    | N.Fixed_header_member member ->
+        Option.get (P.member_source member).parameter_name |> fun name ->
+        name.Ast.spelling
+    | N.Local_header_member receipt -> receipt.allocation_local.local_spelling
+    | N.Argc_header_member _ -> "argc"
+    | N.Argv_header_member _ -> "argv"
+  in
+  Alcotest.(check (list string))
+    "shared native insertion order includes intervening body local"
+    [ "inner"; "body"; "after" ]
+    (List.map name (N.header_members outer));
+  Alcotest.(check bool)
+    "body metadata cannot fabricate a callable fixed parameter" true
+    (Result.is_error (N.call_shape outer))
+
 let tests =
   [
+    Alcotest.test_case
+      "reentrant headers retain body locals and native insertion order" `Quick
+      reentrant_body_members_in_header_cursor;
+    Alcotest.test_case
+      "saved header retains full cursor and original type ownership" `Quick
+      saved_header_cursor_and_types;
+    Alcotest.test_case
+      "nested reuse preserves zero-count saved members and return owner" `Quick
+      nested_saved_header_cursor;
     Alcotest.test_case "header positions retain original source and native size"
       `Quick original_header_positions;
     Alcotest.test_case "fresh and reused headers clear active count" `Quick
@@ -1064,6 +1291,8 @@ let tests =
       original_local_allocations;
     Alcotest.test_case "local allocation exceptions release original authority"
       `Quick local_allocation_release;
+    Alcotest.test_case "static allocations retain original source owners" `Quick
+      original_static_allocations;
     Alcotest.test_case "original source activation updates native phases once"
       `Quick activation_replay;
     Alcotest.test_case "bound lifecycle requires separate executable evidence"

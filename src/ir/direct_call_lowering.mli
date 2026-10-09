@@ -23,6 +23,39 @@ val lower :
     origin receives a charged view of the original source class and producer
     span before pushing; original source ownership remains checked. *)
 
+val lower_callback :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:Expression_lowering.call_lowerer ->
+  ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  call:Callback_source.t ->
+  Sema.Function_call_expression_result.expression_result ->
+  (lowering_result, Instruction_sequence.error list) result
+
+val lower_indirect :
+  frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:Expression_lowering.call_lowerer ->
+  ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  call:Sema.Function_call_expression_result.indirect_call ->
+  Sema.Function_call_expression_result.expression_result ->
+  (lowering_result, Instruction_sequence.error list) result
+
+(** Compose an original one-star automatic/static/global callback or scalar
+    named callback parameter through its callee snapshot, saved RAX,
+    right-to-left arguments, hidden variadic count, indirect call and original
+    anonymous-header cleanup. Fully indexed arrays retain the exact storage
+    root, original header and checked dimensions. The original declarator
+    authorizes the local/parameter zero-specifier or original global-specifier
+    PrsFunJoin policy and its prepared integer-word defaults. Member storage and
+    broader callback execution remain unsupported. *)
+
 val lower_top_level :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->

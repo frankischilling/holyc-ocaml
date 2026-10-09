@@ -114,12 +114,12 @@ let () =
             "unexpected replay output")
         projections;
       let report =
-        invoke ~steps:199 ~preparation:7 ~status:0 compiler mode example
+        invoke ~steps:202 ~preparation:7 ~status:0 compiler mode example
       in
       require
         (member "final_value" report |> member "value" = `String "42")
         "maintained example value";
-      require (member "executed_steps" report = `Int 199) "runtime work";
+      require (member "executed_steps" report = `Int 202) "runtime work";
       require
         (member "compiled_initializer_steps" report = `Int 7)
         "preparation work";
@@ -127,7 +127,7 @@ let () =
         (member "output_hex" report = `String "")
         "once-only source assertions";
       require (member "output_work" report = `Int 7) "formatting work";
-      error (invoke ~steps:198 ~status:1 compiler mode example) "HCIRVM0007";
+      error (invoke ~steps:201 ~status:1 compiler mode example) "HCIRVM0007";
       error (invoke ~preparation:6 ~status:1 compiler mode example) "HCIRVM0007";
       error
         (invoke ~target:"host-jit" ~status:1 compiler mode example)

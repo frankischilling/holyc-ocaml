@@ -32,6 +32,7 @@ let with_dimensions callback =
   let declaration, finish = callback table namespace owner foreign in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->

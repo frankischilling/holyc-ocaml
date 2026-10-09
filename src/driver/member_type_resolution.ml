@@ -84,8 +84,7 @@ let aggregate_kind = function
   | Frontend.Ast.Union_aggregate -> Sema.Aggregate_resolution.Union
 
 let ast_declarations (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Aggregate_forward_declaration forward ->
         Some
@@ -473,7 +472,8 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
       | Ok declarator_kind ->
           Result.bind (Register_request.of_list parameter.register_qualifiers)
             (fun register_requests ->
-              Sema.Function_type_resolution.make_parameter ~index
+              Sema.Function_type_resolution.make_parameter ~source:parameter
+                ~index
                 ~origin:(origin parameter.location)
                 ~register_requests
                 ?name:
@@ -506,7 +506,8 @@ and function_pointer_fact visible
       with
       | Error _ as error -> error
       | Ok signature ->
-          Sema.Member_type_resolution.make_function_pointer
+          Sema.Function_type_resolution.make_source_function_pointer
+            ~source:pointer
             ~origin:(origin pointer.function_pointer_location)
             ~opening_origin:(origin pointer.declarator_opening_parenthesis)
             ~indirection_origins:(pointer_origins pointer.indirection_layers)
@@ -592,7 +593,7 @@ let resolve_definition ~table ~scope visible event header collected
                              (Sema.Member_collection.aggregate_scope collected)
                            ~item_index:event.ast.item_index members)))))
 
-let resolve_events ~table ~scope events headers collected =
+let resolve_events ~metadata_only ~table ~scope events headers collected =
   let rec resolve visible facts_rev events headers collected =
     match events with
     | [] ->
@@ -606,6 +607,11 @@ let resolve_events ~table ~scope events headers collected =
     | event :: rest -> (
         match event.ast.definition with
         | None ->
+            resolve
+              (String_map.add event.ast.identifier.spelling
+                 event.identity_symbol visible)
+              facts_rev rest headers collected
+        | Some definition when metadata_only definition ->
             resolve
               (String_map.add event.ast.identifier.spelling
                  event.identity_symbol visible)
@@ -628,7 +634,8 @@ let resolve_events ~table ~scope events headers collected =
   in
   resolve String_map.empty [] events headers collected
 
-let resolve ~table ~declarations ~aggregates ~headers ~members module_ =
+let resolve ?(inherited_metadata = []) ~table ~declarations ~aggregates ~headers
+    ~members module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic member declarations belong to a different symbol table"
@@ -638,6 +645,9 @@ let resolve ~table ~declarations ~aggregates ~headers ~members module_ =
     match events ~table ~declarations ~aggregates module_ with
     | Error _ as error -> error
     | Ok events ->
-        resolve_events ~table ~scope events
+        resolve_events
+          ~metadata_only:
+            (Inherited_metadata.contains ~table ~scope inherited_metadata)
+          ~table ~scope events
           (Sema.Aggregate_header_resolution.headers headers)
           (Sema.Member_collection.aggregates members)

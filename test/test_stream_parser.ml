@@ -23,6 +23,17 @@ let parse ?(session = Session.create ()) ?(mode = Preprocessor.Jit)
   let finished = ref 0 in
   let enter opener =
     on_enter ();
+    (* The text-producing test executor supplies a Function-kind Print header,
+       as the real directive task's provider installation does. It grants no
+       native argument record or runtime authority. *)
+    if
+      Option.is_none
+        (Symbol_visibility.Environment.find_function (Session.symbols task)
+           "Print")
+    then
+      ignore
+        (Symbol_visibility.Environment.add (Session.symbols task) ~name:"Print"
+           ~kind:Symbol_visibility.Function ());
     let body = Buffer.create 32 in
     let command item =
       visited := item :: !visited;
@@ -72,6 +83,7 @@ let parse ?(session = Session.create ()) ?(mode = Preprocessor.Jit)
                    reference = None;
                    declaration = None;
                    dimension_count = None;
+                   lexical_lookup = None;
                    checkpoint = None;
                    command;
                    resume = (fun () -> Ok ());
@@ -263,6 +275,7 @@ let selected_occurrence () =
             Ok ());
       declaration = None;
       dimension_count = None;
+      lexical_lookup = None;
       checkpoint = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
@@ -440,6 +453,7 @@ let pending_command_order () =
       reference = None;
       declaration = None;
       dimension_count = None;
+      lexical_lookup = None;
       checkpoint = None;
       command =
         (function
@@ -493,6 +507,7 @@ let declaration_sink consume =
       reference = None;
       declaration = Some consume;
       dimension_count = None;
+      lexical_lookup = None;
       checkpoint = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
@@ -585,6 +600,10 @@ let function_publication_timing () =
         Parser.Parameter_default_completed default;
         Parser.Function_parameter_completed completed;
         Parser.Function_header_completed header;
+        Parser.Function_return_phase entry;
+        Parser.Function_return_phase value;
+        Parser.Function_return_phase parsed;
+        Parser.Function_return_phase ending;
         Parser.Function_body_completed (same_header, same_definition);
       ] ) ->
       Alcotest.(check bool)
@@ -605,6 +624,22 @@ let function_publication_timing () =
       Alcotest.(check bool)
         "body completion retains exact header and definition" true
         (same_header == header && same_definition == definition);
+      List.iter2
+        (fun receipt step ->
+          Alcotest.(check bool)
+            "original return phase and header" true
+            (receipt.Parser.return_header == header
+            && receipt.return_step = step);
+          Alcotest.(check bool)
+            "return phase expired" false
+            (Parser.function_return_phase_is_current receipt))
+        [ entry; value; parsed; ending ]
+        [
+          Parser.Enter_function_body;
+          Parser.Check_value_return;
+          Parser.Value_return_parsed;
+          Parser.Check_function_body_return;
+        ];
       Alcotest.(check bool)
         "parenthesis and parameter source nodes are shared" true
         (provisional.function_opening_parenthesis
@@ -958,6 +993,7 @@ let command_receipt_ownership () =
            declarations := event :: !declarations;
            Ok ()))
       with
+      lexical_lookup = None;
       Parser.checkpoint = Some checkpoint;
       call = None;
       implicit_output = None;
@@ -1114,6 +1150,7 @@ let checkpoint_failure_cleanup () =
           let commands =
             {
               (declaration_sink (fun _ -> Ok ())) with
+              lexical_lookup = None;
               Parser.checkpoint = Some checkpoint;
             }
           in
@@ -1153,6 +1190,7 @@ let query_consumption_order () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       call = None;
       implicit_output = None;
@@ -1285,6 +1323,7 @@ let query_native_presence () =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       call = None;
       implicit_output = None;
@@ -1320,6 +1359,7 @@ let query_rejection_order () =
       let reached = ref false in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = None;
           call = None;
           implicit_output = None;
@@ -1641,6 +1681,7 @@ let implicit_target_before_lookahead () =
   let replacement = ref None in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = None;
@@ -1701,23 +1742,69 @@ let implicit_target_before_lookahead () =
 
 let implicit_defaults_do_not_consume_supplied_values () =
   List.iter
-    (fun source ->
+    (fun (code, source) ->
       let entered = ref 0 in
       let parsed = parse ~on_enter:(fun () -> incr entered) source in
-      error "HCPARSE0164" parsed;
+      error code parsed;
       Alcotest.(check int)
         "unconsumed default argument does not reach later directive" 0 !entered)
     [
-      {|extern U0 Print(U8 *s,I64 n=7);"text",42 #exe {};|};
-      {|extern U0 Print(U8 *s,I64 n=7,...);"text",42 #exe {};|};
-      {|extern U0 Print(U8 *s=0);"text" #exe {};|};
-      {|extern U0 PutChars(U64 ch=7);'A' #exe {};|};
-      {|extern U0 Print(U8 *s=0);"" value #exe {};|};
-      {|extern U0 Print(U8 *s=0);"" "value" #exe {};|};
+      ("HCPARSE0046", {|extern U0 Print(U8 *s,I64 n=7);"text",42 #exe {};|});
+      ("HCPARSE0167", {|extern U0 Print(U8 *s,I64 n=7,...);"text",42 #exe {};|});
+      ("HCPARSE0046", {|extern U0 Print(U8 *s=0);"text" #exe {};|});
+      ("HCPARSE0046", {|extern U0 PutChars(U64 ch=7);'A' #exe {};|});
+      ("HCPARSE0046", {|extern U0 Print(U8 *s=0);"" value #exe {};|});
+      ("HCPARSE0046", {|extern U0 Print(U8 *s=0);"" "value" #exe {};|});
     ]
+
+let original_local_identifier_selection () =
+  let allocations = ref [] and selections = ref [] in
+  let commands =
+    {
+      (declaration_sink (function
+        | Parser.Function_local_allocated receipt ->
+            allocations := receipt :: !allocations;
+            Ok ()
+        | _ -> Ok ()))
+      with
+      reference =
+        Some
+          (fun selection ->
+            selections := selection :: !selections;
+            Ok ());
+      call = None;
+    }
+  in
+  let _, _, parsed, _, _, _ =
+    parse ~same_task:true ~commands
+      {|I64 Top;I64 F(){static I64 A;A;I64 B;B;return A;}I64 G(){static I64 A;return A;}Top;|}
+  in
+  ignore (P.expect_ast parsed);
+  let allocations = List.rev !allocations
+  and selections = List.rev !selections in
+  let first = (List.nth allocations 0).Parser.allocation_local in
+  let automatic = (List.nth allocations 1).Parser.allocation_local in
+  let later = (List.nth allocations 2).Parser.allocation_local in
+  List.iter2
+    (fun selection expected ->
+      match (Parser.selected_local selection, expected) with
+      | Some original, Some expected ->
+          Alcotest.(check bool)
+            "identifier retains exact original local publication" true
+            (original == expected)
+      | None, None -> ()
+      | _ -> Alcotest.fail "identifier lost its original local selection")
+    selections
+    [ Some first; Some automatic; Some first; Some later; None ];
+  Alcotest.(check bool)
+    "same spelling in another function has a distinct owner" true
+    (first != later)
 
 let tests =
   [
+    Alcotest.test_case
+      "identifiers retain original static and automatic local selections" `Quick
+      original_local_identifier_selection;
     Alcotest.test_case
       "implicit call parentheses retain separate expression groups" `Quick
       (fun () ->
@@ -1771,8 +1858,8 @@ let tests =
             ("HCPARSE0167", {|extern U0 Print(U8 *s,...);""("x");#exe {}|});
             ( "HCPARSE0167",
               {|extern U0 Print(U8 *s,I64 a);""("x",42, #exe {} 7);|} );
-            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''(42);#exe {}|});
-            ("HCPARSE0165", {|extern U0 Print(U8 *s,I64 a=7);""("x",;#exe {}|});
+            ("HCPARSE0018", {|extern U0 PutChars(I64 a,I64 b);''(42);#exe {}|});
+            ("HCPARSE0018", {|extern U0 Print(U8 *s,I64 a=7);""("x",;#exe {}|});
           ]);
     Alcotest.test_case
       "absent implicit values retain original delimiters and omissions" `Quick
@@ -1876,7 +1963,7 @@ let tests =
             Alcotest.(check int) "later directive is not reached" 0 !entered)
           [
             ("HCPARSE0167", {|extern U0 Print(I64 a=7,I64 b=2);""();#exe {}|});
-            ("HCPARSE0165", {|extern U0 Print(I64 a=7,I64 b);""(,);#exe {}|});
+            ("HCPARSE0018", {|extern U0 Print(I64 a=7,I64 b);""(,);#exe {}|});
             ("HCPARSE0167", {|extern U0 Print(I64 a=7,...);""();#exe {}|});
             ("HCPARSE0018", {|extern U0 Print(...);""();#exe {}|});
             ("HCPARSE0167", {|extern U0 PutChars();''(42);#exe {}|});
@@ -1977,10 +2064,10 @@ let tests =
             error code (parse ~on_enter:(fun () -> incr entered) contents);
             Alcotest.(check int) "later directive remains unreached" 0 !entered)
           [
-            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''40-2;#exe {}|});
-            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''40,#exe {}22;|});
-            ("HCPARSE0165", {|extern U0 PutChars(I64 a=40,I64 b);'',#exe {}2;|});
-            ( "HCPARSE0164",
+            ("HCPARSE0018", {|extern U0 PutChars(I64 a,I64 b);''40-2;#exe {}|});
+            ("HCPARSE0018", {|extern U0 PutChars(I64 a,I64 b);''40,#exe {}22;|});
+            ("HCPARSE0018", {|extern U0 PutChars(I64 a=40,I64 b);'',#exe {}2;|});
+            ( "HCPARSE0046",
               {|extern U0 PutChars(I64 a=40,I64 b=2);'A' #exe {};|} );
             ("HCPARSE0046", {|extern U0 PutChars(I64 a,...);''40 2 #exe {};|});
             ( "HCPARSE0046",
@@ -2076,7 +2163,7 @@ let tests =
         List.iter
           (fun contents ->
             let entered = ref 0 in
-            error "HCPARSE0165"
+            error "HCPARSE0018"
               (parse ~on_enter:(fun () -> incr entered) contents);
             Alcotest.(check int) "later directive was not reached" 0 !entered)
           [
@@ -2092,7 +2179,7 @@ let tests =
             ~on_enter:(fun () -> incr entered)
             {|extern U0 Print(U8 *s,I64 n=7,I64 required);"text";#exe {}42;|}
         in
-        error "HCPARSE0165" parsed;
+        error "HCPARSE0018" parsed;
         Alcotest.(check int)
           "missing required slot stops before directive" 0 !entered);
     Alcotest.test_case "implicit defaults leave supplied tokens unconsumed"

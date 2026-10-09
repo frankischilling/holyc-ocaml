@@ -743,6 +743,93 @@ let retained_function_initializers () =
   value 41L (run session task "Next();");
   value 42L (run session task "Next();")
 
+let retained_callback_initializers () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task
+       "extern U0 Print(U8 *fmt,...);I64 Seed(I64 n){Print(\"A\");return n+2;}"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 (*p)(I64 n)=&Seed;I64 (*q)(I64 n)[2]={p,p};"
+    |> Test_integer_program.checked);
+  value 42L (run session task "q[1](40);");
+  ignore
+    (run session task "I64 (*word)()=p(15);" |> Test_integer_program.checked);
+  value 17L (run session task "word;");
+  Alcotest.(check string)
+    "initializer effects occur once at declaration" "AA"
+    (Task.output_bytes task);
+  ignore
+    (run session task "I64 Seed(I64 n){return n+3;}"
+    |> Test_integer_program.checked);
+  value 42L (run session task "q[0](40);");
+  value 43L (run session task "Seed(40);");
+  Alcotest.(check string)
+    "retained callback still invokes its original body" "AAA"
+    (Task.output_bytes task);
+  List.iter
+    (fun return_type ->
+      let session = Session.create () in
+      let task = create session in
+      value 42L
+        (run session task
+           (return_type
+          ^ " (*p)()[2]={0xFFFFFFFFFFFFFFFF,0x8000000000000000};I64 \
+             Check(){if(p[0]==-1&&p[1]==0x8000000000000000)return 42;return \
+             0;}Check();")))
+    [
+      "I8";
+      "U8";
+      "I16";
+      "U16";
+      "I32";
+      "U32";
+      "I64";
+      "U64";
+      "F64";
+      "U0";
+      "I64 *";
+      "I64 ****";
+    ]
+
+let retained_callback_open_initializers () =
+  List.iter
+    (fun (source, output) ->
+      let session = Session.create () in
+      let task = create session in
+      ignore
+        (run session task
+           "extern U0 Print(U8 *fmt,...);I64 Add(I64 n){return n+2;}"
+        |> Test_integer_program.checked);
+      value 42L (run session task source);
+      Alcotest.(check string)
+        "open callback initializer preserves reached output" output
+        (Task.output_bytes task))
+    [
+      ("I64 (*P)(I64 n=40)[2]={&Add,P[0]};P[0]=0;P[1]();", "");
+      ( "I64 (*P)(I64 n=40)[2]={&Add,P[0]()};I64 Check(){if(P[1]==42)return \
+         42;return 0;}Check();",
+        "" );
+      ( "I64 (*P)(I64 \
+         n=40)[2][2]={{&Add,P[0][0]},{P[0][1],P[1][0]}};P[0][0]=0;P[1][1]();",
+        "" );
+      ( "F64 (*P)(I64 n=40)[2]={9007199254740993,P[0]};I64 \
+         Check(){if(P[1]==9007199254740993)return 42;return 0;}Check();",
+        "" );
+      ( "I64 Seed(I64 n){Print(\"A\");return n+2;}I64 \
+         Side(){Print(\"B\");return 40;}I64 (*P)(I64 \
+         n=40)[2]={&Seed,P[0](Side())};I64 Check(){if(P[1]==42)return \
+         42;return 0;}Check();",
+        "BA" );
+    ];
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Add(I64 n){return n+2;}"
+    |> Test_integer_program.checked);
+  fault "HCIRVM0012" (run session task "I64 (*P)(I64 n=40)[2]={P[1],&Add};42;")
+
 let retained_function_pointer_owner () =
   let session = Session.create () in
   let task = create session in
@@ -1111,7 +1198,7 @@ let retained_implicit_absence_and_mask () =
   (match run session task {|"" (++N);|} with
   | Error (diagnostic :: _) ->
       Alcotest.(check string)
-        "missing implicit header precedes arguments" "HCRUN0003"
+        "missing implicit header precedes arguments" "HCPARSE0172"
         diagnostic.Diagnostic.code
   | _ -> Alcotest.fail "missing implicit header was accepted");
   value 0L (run session task "N;");
@@ -1370,6 +1457,10 @@ let tests =
     Alcotest.test_case
       "task inputs use original default and dimension callbacks" `Quick
       source_callbacks_across_inputs;
+    Alcotest.test_case "task initializers retain original callbacks and effects"
+      `Quick retained_callback_initializers;
+    Alcotest.test_case "open callback arrays retain their original header"
+      `Quick retained_callback_open_initializers;
     Alcotest.test_case "task inputs execute each resumed command" `Quick
       source_command_timing;
     Alcotest.test_case "task input results are local and recover after failures"

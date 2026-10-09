@@ -95,6 +95,37 @@ let context_family order context =
     (fun (saved, family) -> if saved == context then Some family else None)
     order.contexts
 
+let context_events_rev order context =
+  List.filter
+    (fun event ->
+      let original =
+        match event with
+        | Parser.Sequence_started original | Parser.Sequence_aborted original ->
+            original
+        | Parser.Command_started start -> start.command_context
+        | Parser.Command_completed receipt | Parser.Command_resumed receipt ->
+            receipt.command_start.command_context
+        | Parser.Sequence_completed receipt -> receipt.sequence_context
+      in
+      original == context)
+    order.events
+
+let check_child_input_parent order ~suspension =
+  match
+    List.find_opt
+      (fun (context, _) -> Parser.suspension_is_from_context suspension context)
+      order.contexts
+  with
+  | Some (context, _) ->
+      let events_rev = context_events_rev order context in
+      if
+        Parser.context_is_current context
+          ~observed_events:(List.length events_rev)
+        && Parser.context_command_events_match context ~events_rev = Some true
+      then Ok context
+      else Error "child input requires its complete original parent journal"
+  | None -> Error "child input requires its original observed parser suspension"
+
 let find_node (order : t) receipt =
   List.find_opt (fun node -> node.receipt == receipt) order.nodes
 
@@ -352,7 +383,9 @@ let contains_global command ~(publication : Parser.global_publication)
       == publication.global_header.declaration_command)
     command.nodes
   &&
-  match List.nth_opt command.ast.items item_index with
+  match
+    List.assoc_opt item_index (Frontend.Ast.declaration_items command.ast)
+  with
   | Some (Global_declaration declaration) ->
       Option.fold ~none:false
         ~some:(fun index ->

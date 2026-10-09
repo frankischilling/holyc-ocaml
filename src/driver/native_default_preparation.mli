@@ -12,9 +12,12 @@ val create :
   (t, string) result
 (** An isolated preparation budget. It has no source-command executor, retained
     task bindings or executable-memory capability. Saved payloads default to
-    65,536 bytes and charge eight bytes per successful scalar integer default.
-    Saved bits retain the full register value even for narrow parameter types;
-    the callee's parameter storage applies its declared width. *)
+    65,536 bytes and charge eight bytes per successful scalar integer or
+    original one-star callback-word default. Saved bits retain the full register
+    value even for narrow parameter types; the callee's parameter storage
+    applies its declared width. Callback parameters keep all word bits
+    independently of their return class and receive zero executable ownership
+    from numeric/null defaults. *)
 
 val prepare :
   t ->
@@ -25,6 +28,20 @@ val prepare :
 
 val work : t -> int
 
+val synchronize_work : t -> work:int -> bytes:int -> (unit, string) result
+(** Charge other original source contexts to the same invocation allowance.
+    Counters can only increase within their existing bounds. This creates no
+    preparation, saved-value, storage or source-completion receipt. *)
+
+val prepare_callback :
+  t ->
+  session:Session.t ->
+  ledger:Task_declarations.t ->
+  Frontend.Parser.completed_callback_default ->
+  (unit, Common.Diagnostic.t list) result
+(** Prepare the original anonymous parameter default in the same declaration
+    work and saved-byte budgets as named defaults and initializers. *)
+
 val prepare_initializer :
   t ->
   session:Session.t ->
@@ -34,12 +51,15 @@ val prepare_initializer :
 (** Prepare one original global initializer leaf under the same declaration-work
     budget as defaults. The exact live layout decides scalar stores versus
     source-owned byte copies. Copy work is charged to [max_initializer_steps].
-*)
+    AOT scalar leaves with original references retain their source and checked
+    destination for load-time lowering, without evaluating or charging a
+    prepared value. Their eventual calls and effects use the runtime meter. *)
 
 val initializers : t -> Integer_initializers.native_preparation list
 
 type initializer_completion
-(** Successful original preparation charged to the source invocation budget. *)
+(** Original closed preparation charged to the source invocation budget, or an
+    original AOT load leaf whose execution remains scheduled in its bundle. *)
 
 val initializer_completions : t -> initializer_completion list
 

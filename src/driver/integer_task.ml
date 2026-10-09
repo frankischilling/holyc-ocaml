@@ -1,5 +1,1076 @@
 module VM = Ir.Integer_interpreter
 
+type native_source_callback =
+  Ir.Native_source_suspension.t ->
+  Ir.Native_source_suspension.request ->
+  ((int64, Common.Diagnostic.t list) result, string) result
+
+let native_source_callback ~generation ~valid ?compiler_options handler =
+  if Option.is_none handler && Option.is_none compiler_options then None
+  else
+    Some
+      (fun scope request ->
+        let ( let* ) = Result.bind in
+        if not (valid ()) then
+          Error "native compiler callback requires its entered original request"
+        else
+          let* owns = Ir.Native_source_suspension.owns_request scope request in
+          if not owns then
+            Error
+              "native compiler callback has another original machine request"
+          else
+            VM.with_native_source_suspension generation ~scope (fun _ ->
+                match request with
+                | Ir.Native_source_suspension.Execute_source contents -> (
+                    match handler with
+                    | Some execute -> execute contents
+                    | None -> Error [])
+                | Ir.Native_source_suspension.Read_option index
+                | Ir.Native_source_suspension.Write_option (index, _) -> (
+                    let enabled =
+                      match request with
+                      | Ir.Native_source_suspension.Write_option (_, value) ->
+                          Some value
+                      | _ -> None
+                    in
+                    match compiler_options with
+                    | None -> Error []
+                    | Some execute ->
+                        execute index enabled
+                        |> Result.map (fun previous ->
+                            if previous then 1L else 0L))))
+
+module Native_dispatch = struct
+  type word = I64 of int64 | U64 of int64
+  type capture = Unchanged | Captured of word option
+  type entry_state = Offered | Claiming | Entered | Closed
+
+  type initializer_request = {
+    initializer_task : VM.task_state;
+    initializer_attempt : VM.initializer_attempt;
+    initializer_execution : Ir.Initializer_fragment_program.execution;
+    initializer_program_ : Ir.Initializer_fragment_program.t;
+    initializer_generation_ : VM.native_generation;
+    initializer_source_handler : VM.stream_exe_print option;
+    initializer_compiler_options_handler : VM.compiler_options option;
+    initializer_domain : Domain.id;
+    initializer_state : entry_state Atomic.t;
+  }
+
+  type command_request = {
+    command_task : VM.task_state;
+    command_program_ : Integer_unit.compiled;
+    command_generation_ : VM.native_generation;
+    command_source_handler : VM.stream_exe_print option;
+    command_compiler_options_handler : VM.compiler_options option;
+    command_domain : Domain.id;
+    command_state : entry_state Atomic.t;
+    command_attempt : VM.native_program_attempt option Atomic.t;
+  }
+
+  type t = {
+    execute_initializer :
+      initializer_request -> (unit, Common.Diagnostic.t list) result;
+    execute_command :
+      command_request -> (capture, Common.Diagnostic.t list) result;
+  }
+
+  let initializer_generation request = request.initializer_generation_
+  let command_generation request = request.command_generation_
+  let initializer_program request = request.initializer_program_
+  let command_program request = request.command_program_
+  let owns_domain expected = Domain.self () = expected
+
+  let check_initializer_request request =
+    if not (owns_domain request.initializer_domain) then
+      Error "native initializer request belongs to another execution domain"
+    else if Atomic.get request.initializer_state <> Offered then
+      Error "native initializer request was already entered or closed"
+    else
+      VM.check_native_task_initializer request.initializer_task
+        request.initializer_attempt request.initializer_execution
+        request.initializer_program_
+
+  let claim_initializer_request request =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    if not (Atomic.compare_and_set request.initializer_state Offered Claiming)
+    then Error "native initializer request was already claimed"
+    else
+      match
+        VM.claim_native_task_initializer request.initializer_task
+          request.initializer_attempt request.initializer_execution
+          request.initializer_program_
+      with
+      | Ok () ->
+          Atomic.set request.initializer_state Entered;
+          Ok ()
+      | Error message ->
+          Atomic.set request.initializer_state Closed;
+          Error message
+
+  let initializer_function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    match VM.task_native_function_source request.initializer_task link with
+    | Some source -> Ok source
+    | None ->
+        Error "native initializer request has no exact admitted function source"
+
+  let initializer_slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    let program = request.initializer_program_ in
+    VM.task_native_slot_binding request.initializer_task
+      ~root_runtime_calls:
+        (Ir.Initializer_fragment_program.runtime_calls program)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Initializer_fragment_program.initialization program))
+      ~runtime_calls ~owner call
+
+  let initializer_slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    let program = request.initializer_program_ in
+    VM.task_native_slot_address_binding request.initializer_task
+      ~root_runtime_calls:
+        (Ir.Initializer_fragment_program.runtime_calls program)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Initializer_fragment_program.initialization program))
+      ~runtime_calls ~owner address
+
+  let initializer_slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    let program = request.initializer_program_ in
+    VM.refresh_native_slot_address_binding request.initializer_task
+      ~root_runtime_calls:
+        (Ir.Initializer_fragment_program.runtime_calls program)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Initializer_fragment_program.initialization program))
+      binding
+
+  let initializer_provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    VM.task_native_provider_available request.initializer_task ~runtime_calls
+      ~owner call
+
+  let check_command_request request =
+    if not (owns_domain request.command_domain) then
+      Error "native command request belongs to another execution domain"
+    else if Atomic.get request.command_state <> Offered then
+      Error "native command request was already entered or closed"
+    else
+      let program = request.command_program_ in
+      VM.check_native_task_program request.command_task
+        ~runtime_calls:(Integer_unit.runtime_calls program)
+        ~globals:(Integer_unit.globals program)
+        ~initialization:(Integer_unit.initialization program)
+        ~functions:(Integer_unit.functions program)
+        (Integer_unit.entry program)
+
+  let claim_command_request request =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    if not (Atomic.compare_and_set request.command_state Offered Claiming) then
+      Error "native command request was already claimed"
+    else
+      let program = request.command_program_ in
+      match
+        VM.claim_native_task_program request.command_task
+          ~runtime_calls:(Integer_unit.runtime_calls program)
+          ~globals:(Integer_unit.globals program)
+          ~initialization:(Integer_unit.initialization program)
+          ~functions:(Integer_unit.functions program)
+          (Integer_unit.entry program)
+      with
+      | Ok attempt ->
+          Atomic.set request.command_attempt (Some attempt);
+          Atomic.set request.command_state Entered;
+          Ok ()
+      | Error message ->
+          Atomic.set request.command_state Closed;
+          Error message
+
+  let command_function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    match VM.task_native_function_source request.command_task link with
+    | Some source -> Ok source
+    | None ->
+        Error "native command request has no exact admitted function source"
+
+  let command_slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    let program = request.command_program_ in
+    VM.task_native_slot_binding request.command_task
+      ~root_runtime_calls:(Integer_unit.runtime_calls program)
+      ~root_globals:(Integer_unit.globals program)
+      ~runtime_calls ~owner call
+
+  let command_slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    let program = request.command_program_ in
+    VM.task_native_slot_address_binding request.command_task
+      ~root_runtime_calls:(Integer_unit.runtime_calls program)
+      ~root_globals:(Integer_unit.globals program)
+      ~runtime_calls ~owner address
+
+  let command_slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    let program = request.command_program_ in
+    VM.refresh_native_slot_address_binding request.command_task
+      ~root_runtime_calls:(Integer_unit.runtime_calls program)
+      ~root_globals:(Integer_unit.globals program)
+      binding
+
+  let command_provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    VM.task_native_provider_available request.command_task ~runtime_calls ~owner
+      call
+
+  let initializer_parameter_default request ~globals ~header ~parameter prepared
+      =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    VM.task_native_parameter_default request.initializer_task ~globals ~header
+      ~parameter prepared
+
+  let initializer_callback_default request ~globals ~pointer ~parameter prepared
+      =
+    let ( let* ) = Result.bind in
+    let* () = check_initializer_request request in
+    VM.task_native_callback_default request.initializer_task ~globals ~pointer
+      ~parameter prepared
+
+  let create_initializer ?(use_active_stream = true) ?compiler_options
+      ?stream_exe_print ~task ~attempt ~execution ~program () =
+    {
+      initializer_task = task;
+      initializer_attempt = attempt;
+      initializer_execution = execution;
+      initializer_program_ = program;
+      initializer_generation_ =
+        VM.native_task_generation ~use_active_stream task;
+      initializer_source_handler = stream_exe_print;
+      initializer_compiler_options_handler = compiler_options;
+      initializer_domain = Domain.self ();
+      initializer_state = Atomic.make Offered;
+    }
+
+  let command_parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    VM.task_native_parameter_default request.command_task ~globals ~header
+      ~parameter prepared
+
+  let command_callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check_command_request request in
+    VM.task_native_callback_default request.command_task ~globals ~pointer
+      ~parameter prepared
+
+  let create_command ?(use_active_stream = true) ?compiler_options
+      ?stream_exe_print ~task ~program () =
+    {
+      command_task = task;
+      command_program_ = program;
+      command_generation_ = VM.native_task_generation ~use_active_stream task;
+      command_source_handler = stream_exe_print;
+      command_compiler_options_handler = compiler_options;
+      command_domain = Domain.self ();
+      command_state = Atomic.make Offered;
+      command_attempt = Atomic.make None;
+    }
+
+  let initializer_entered request =
+    Atomic.get request.initializer_state = Entered
+
+  let command_entered request = Atomic.get request.command_state = Entered
+
+  let initializer_source_callback request =
+    native_source_callback
+      ?compiler_options:request.initializer_compiler_options_handler
+      ~generation:request.initializer_generation_
+      ~valid:(fun () ->
+        owns_domain request.initializer_domain && initializer_entered request)
+      request.initializer_source_handler
+
+  let command_source_callback request =
+    native_source_callback
+      ?compiler_options:request.command_compiler_options_handler
+      ~generation:request.command_generation_
+      ~valid:(fun () ->
+        owns_domain request.command_domain && command_entered request)
+      request.command_source_handler
+
+  let command_attempt request = Atomic.get request.command_attempt
+  let close_initializer request = Atomic.set request.initializer_state Closed
+  let close_command request = Atomic.set request.command_state Closed
+end
+
+module Native_static_allocation = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    allocation_ : Ir.Integer_static_allocation.t;
+    view : Ir.Integer_globals.task_view;
+    context_ : Ir.Integer_globals.t;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  let allocation request = request.allocation_
+  let context request = request.context_
+
+  let check request =
+    if Domain.self () <> request.domain then
+      Error "native static allocation belongs to another execution domain"
+    else if Atomic.get request.phase <> Offered then
+      Error "native static allocation was already claimed or closed"
+    else
+      VM.check_native_static_allocation request.task request.allocation_
+        request.view
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      Atomic.set request.phase Entered;
+      Ok ())
+    else Error "native static allocation was already claimed"
+
+  let create task allocation_ =
+    let ( let* ) = Result.bind in
+    let* view = VM.task_snapshot task in
+    let* context_ =
+      Ir.Integer_globals.static_allocation_context view allocation_
+    in
+    let request =
+      {
+        task;
+        allocation_;
+        view;
+        context_;
+        domain = Domain.self ();
+        phase = Atomic.make Offered;
+      }
+    in
+    let* () = check request in
+    Ok request
+
+  let entered request = Atomic.get request.phase = Entered
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_static_initializer = struct
+  type phase = Offered | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    program_ : Ir.Static_initializer_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
+    compiler_options_handler : VM.compiler_options option;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  let generation request = request.generation_
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error
+        "native static initializer belongs to another domain or was already \
+         claimed"
+    else VM.check_native_static_initializer request.task request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Entered then Ok ()
+    else Error "native static initializer was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None ->
+        Error "native static initializer lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Static_initializer_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Static_initializer_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Static_initializer_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Static_initializer_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Static_initializer_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Static_initializer_program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+      task program_ =
+    {
+      task;
+      program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
+      compiler_options_handler = compiler_options;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ?compiler_options:request.compiler_options_handler
+      ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_default = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.default_attempt;
+    program_ : Ir.Default_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
+    compiler_options_handler : VM.compiler_options option;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t =
+    request -> (Ir.Saved_parameter_value.t, Common.Diagnostic.t list) result
+
+  let generation request = request.generation_
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then Error "native default belongs to another domain or was already claimed"
+    else
+      VM.check_native_task_default request.task request.attempt request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_default request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native default was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native default lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Default_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Default_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Default_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Default_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Default_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Default_fragment_program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let initializer_remaining request =
+    VM.task_initializer_limit request.task
+    - VM.task_initializer_steps request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native default work requires its entered original request"
+    else VM.record_native_default_steps request.task request.attempt steps
+
+  let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+      task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
+      compiler_options_handler = compiler_options;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ?compiler_options:request.compiler_options_handler
+      ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_internal_binding = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.internal_binding_attempt;
+    program_ : Ir.Internal_binding_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
+    compiler_options_handler : VM.compiler_options option;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t =
+    request ->
+    (Ir.Native_internal_binding_capture.t, Common.Diagnostic.t list) result
+
+  let generation request = request.generation_
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error
+        "native internal binding belongs to another domain or was already \
+         claimed"
+    else
+      VM.check_native_task_internal_binding request.task request.attempt
+        request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_internal_binding request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native internal binding was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native internal binding lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Internal_binding_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Internal_binding_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Internal_binding_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Internal_binding_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Internal_binding_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Internal_binding_fragment_program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let initializer_remaining request =
+    VM.task_initializer_limit request.task
+    - VM.task_initializer_steps request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then
+      Error "native internal binding work requires its entered original request"
+    else
+      VM.record_native_internal_binding_steps request.task request.attempt steps
+
+  let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+      task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
+      compiler_options_handler = compiler_options;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ?compiler_options:request.compiler_options_handler
+      ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_dimension = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.dimension_attempt;
+    program_ : Ir.Dimension_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
+    compiler_options_handler : VM.compiler_options option;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t =
+    request ->
+    ( Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  let generation request = request.generation_
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error "native dimension belongs to another domain or was already claimed"
+    else
+      VM.check_native_task_dimension request.task request.attempt
+        request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_dimension request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native dimension was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native dimension lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Dimension_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Dimension_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Dimension_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Dimension_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Dimension_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Dimension_fragment_program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let initializer_remaining request =
+    VM.task_initializer_limit request.task
+    - VM.task_initializer_steps request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native dimension work requires its entered original request"
+    else VM.record_native_dimension_steps request.task request.attempt steps
+
+  let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+      task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
+      compiler_options_handler = compiler_options;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ?compiler_options:request.compiler_options_handler
+      ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_offset = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.offset_attempt;
+    program_ : Ir.Offset_fragment_program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
+    compiler_options_handler : VM.compiler_options option;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t =
+    request ->
+    ( Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  let generation request = request.generation_
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then Error "native offset belongs to another domain or was already claimed"
+    else
+      VM.check_native_task_offset request.task request.attempt request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_offset request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native offset was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native offset lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:
+        (Ir.Offset_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Offset_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Offset_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Offset_fragment_program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:
+        (Ir.Offset_fragment_program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Ir.Offset_fragment_program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let initializer_remaining request =
+    VM.task_initializer_limit request.task
+    - VM.task_initializer_steps request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native offset work requires its entered original request"
+    else VM.record_native_offset_steps request.task request.attempt steps
+
+  let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+      task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
+      compiler_options_handler = compiler_options;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ?compiler_options:request.compiler_options_handler
+      ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_static_copy = struct
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    destination_ : Ir.Static_initializer_destination.t;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  let destination request = request.destination_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error
+        "native static copy belongs to another domain or was already claimed"
+    else VM.check_native_static_copy request.task request.destination_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match VM.begin_native_static_copy request.task request.destination_ with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native static copy was already claimed"
+
+  let create task destination_ =
+    { task; destination_; domain = Domain.self (); phase = Atomic.make Offered }
+
+  let entered request = Atomic.get request.phase = Entered
+  let close request = Atomic.set request.phase Closed
+end
+
 type stream = VM.task_stream
 
 type progress = {
@@ -14,20 +1085,48 @@ type t = {
   state : VM.task_state;
   declarations : Task_declarations.t;
   identity : unit ref;
+  native_dispatch : Native_dispatch.t option;
+  native_static_allocation : Native_static_allocation.t option;
+  native_static_initializer : Native_static_initializer.t option;
+  native_static_copy : Native_static_copy.t option;
+  native_default : Native_default.t option;
+  native_dimension : Native_dimension.t option;
+  native_offset : Native_offset.t option;
+  native_internal_binding : Native_internal_binding.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
+  compiled_rev : Integer_unit.compiled list ref;
+  compiler_diagnostics_rev : Common.Diagnostic.t list ref;
+  compiler_exceptions_rev : Frontend.Parser.compiler_exception list ref;
+  compiler_tasks : t list ref;
 }
 
 and command = {
   owner : unit ref;
   program : Integer_unit.compiled;
   span : Common.Span.t;
+  source_metadata_only : bool;
   mutable frontend_pending : bool;
 }
+
+type saved_compiler = {
+  compiler_session : Session.t;
+  compiler_declarations : Task_declarations.t;
+  mutable compiler_task : t option;
+}
+
+let saved_compiler session ~ledger =
+  {
+    compiler_session = session;
+    compiler_declarations = ledger;
+    compiler_task = None;
+  }
 
 let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_initializer_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
-    ?max_stream_depth session =
+    ?max_stream_depth ?native_dispatch ?native_static_allocation
+    ?native_static_initializer ?native_static_copy ?native_default
+    ?native_dimension ?native_offset ?native_internal_binding session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -37,6 +1136,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
   VM.create_task_state ?max_steps ?max_initializer_steps ?max_global_bytes
     ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
     ?max_output_work ?max_generated_bytes ?max_stream_depth
+    ~native_storage_authority:(Option.is_some native_dispatch)
     ~table:(Session.semantic_symbols session)
     ()
   |> fun result ->
@@ -50,21 +1150,81 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             state;
             declarations;
             identity = ref ();
+            native_dispatch;
+            native_static_allocation;
+            native_static_initializer;
+            native_static_copy;
+            native_default;
+            native_dimension;
+            native_offset;
+            native_internal_binding;
             commands = [];
+            compiled_rev = ref [];
+            compiler_diagnostics_rev = ref [];
+            compiler_exceptions_rev = ref [];
+            compiler_tasks = ref [];
           }))
 
 let frontend task = task.session
+let compiler_diagnostics task = List.rev !(task.compiler_diagnostics_rev)
+let compiler_exceptions task = List.rev !(task.compiler_exceptions_rev)
+
+let compiler_options task ~span index enabled =
+  Task_declarations.execute_compiler_option task.declarations
+    ~runtime:task.state index enabled
+  |> Result.map_error (fun message ->
+      [ Integer_source.message_diagnostic ~span message ])
+
+let provider_source task =
+  let session = task.session in
+  let symbols = Session.symbols session in
+  Frontend.Symbol_visibility.Environment.without_locals symbols (fun () ->
+      let storage primitive =
+        (Common.Primitive_type.info primitive).storage_spelling
+      in
+      let i64 = storage Common.Primitive_type.I64
+      and u0 = storage Common.Primitive_type.U0
+      and u8 = storage Common.Primitive_type.U8
+      and u64 = storage Common.Primitive_type.U64 in
+      let headers =
+        [
+          ( "StreamExePrint",
+            Printf.sprintf "extern %s StreamExePrint(%s *fmt,...);" i64 u8 );
+          ( "StreamPrint",
+            Printf.sprintf "extern %s StreamPrint(%s *fmt,...);" u0 u8 );
+          ("Print", Printf.sprintf "extern %s Print(%s *fmt,...);" u0 u8);
+          ("PutChars", Printf.sprintf "extern %s PutChars(%s ch);" u0 u64);
+          ("GetOption", Printf.sprintf "extern %s GetOption(%s num);" u8 i64);
+          ("Option", Printf.sprintf "extern %s Option(%s num,%s val);" u8 i64 u8);
+        ]
+        |> List.filter_map (fun (name, header) ->
+            match
+              Frontend.Symbol_visibility.Environment.find_preprocessor symbols
+                name
+            with
+            | Absent -> Some header
+            | Present _ | Shadowed_by_local -> None)
+        |> String.concat "\n"
+      in
+      if headers = "" then None
+      else
+        Some
+          (Session.add_source session ~path:"<hosted-task-providers>"
+             ~contents:headers))
 
 let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
-    session ~source ~ledger =
+    ?native_dispatch ?native_static_allocation ?native_static_initializer
+    ?native_static_copy ?native_default ?native_dimension ?native_offset
+    ?native_internal_binding session ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
     VM.create_task_state ?max_steps ?max_initializer_steps ?max_global_bytes
       ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
       ?max_output_work ?max_generated_bytes ?max_stream_depth
+      ~native_storage_authority:(Option.is_some native_dispatch)
       ~table:(Session.semantic_symbols session)
       ()
   in
@@ -76,7 +1236,19 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       state;
       declarations = ledger;
       identity = ref ();
+      native_dispatch;
+      native_static_allocation;
+      native_static_initializer;
+      native_static_copy;
+      native_default;
+      native_dimension;
+      native_offset;
+      native_internal_binding;
       commands = [];
+      compiled_rev = ref [];
+      compiler_diagnostics_rev = ref [];
+      compiler_exceptions_rev = ref [];
+      compiler_tasks = ref [];
     }
 
 let adopt_source = adopt_source_with_promotion Task_declarations.promote_source
@@ -89,6 +1261,14 @@ let output_work task = VM.task_output_work task.state
 let generated_bytes task = VM.task_generated_bytes task.state
 let executed_steps task = VM.task_executed_steps task.state
 let initializer_steps task = VM.task_initializer_steps task.state
+
+let synchronize_preparation_work task ~work =
+  let before = VM.task_initializer_steps task.state in
+  if work < before || work > VM.task_initializer_limit task.state then
+    Error "source task work exceeds its cumulative preparation allowance"
+  else (
+    VM.record_task_preparation task.state ~before ~steps:(work - before);
+    Ok ())
 
 let observe_source_offset task ledger event =
   Task_declarations.observe ~offset_runtime:task.state ledger event
@@ -165,6 +1345,31 @@ let prepare_default_context task receipt =
   in
   Ok (context, authority, task_view, typed)
 
+let prepare_callback_default_context task receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.callback_default_ast.location.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* task_view = VM.task_snapshot task.state |> diagnose in
+  let* authority =
+    Task_declarations.callback_default_fragment_authority task.declarations
+      ~runtime:task.state ~task_view receipt
+  in
+  let fragment = Sema.Default_fragment.authorized_fragment authority in
+  let* context =
+    Initializer_fragment_typing.create_context
+      ~table:(Session.semantic_symbols task.session)
+      ~parent:(Task_declarations.initializer_scope task.declarations)
+    |> diagnose
+  in
+  let* typed =
+    Initializer_fragment_typing.prepare_default context fragment |> diagnose
+  in
+  Ok (context, authority, task_view, typed)
+
 let prepare_parameter_default task receipt =
   prepare_default_context task receipt
   |> Result.map (fun (_, _, _, typed) -> typed)
@@ -222,6 +1427,60 @@ let prepare_source_default task ~session ~ledger receipt =
 
   Task_declarations.finish_source_default ledger result
 
+let prepare_source_callback_default task ~session ~ledger receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.callback_default_ast.location.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* authority =
+    Task_declarations.begin_source_callback_default ledger ~runtime:task.state
+      receipt
+  in
+  let fragment = Sema.Default_fragment.authorized_fragment authority in
+  let* () =
+    if
+      Expression_facts.contains_string_literal
+        (Sema.Default_fragment.expression fragment)
+    then
+      Error
+        "HCRUN0006: defaults containing string storage require native \
+         owned-default preparation" |> diagnose
+    else Ok ()
+  in
+  let* context =
+    Initializer_fragment_typing.create_aot_context
+      ~table:(Session.semantic_symbols session)
+      ~parent:(Task_declarations.initializer_scope ledger)
+    |> diagnose
+  in
+  let* typed =
+    Initializer_fragment_typing.prepare_default context fragment |> diagnose
+  in
+  let* destination =
+    Ir.Default_fragment_destination.create_source typed |> diagnose
+  in
+  let before = VM.task_initializer_steps task.state in
+  let* classification, _steps =
+    Integer_initializers.prepare_default ~runtime:task.state ~authority
+      ~on_progress:(fun steps ->
+        VM.record_task_preparation task.state ~before ~steps)
+      ~max_steps:(VM.task_initializer_limit task.state - before)
+      ~top_calls:[] destination
+  in
+  let* result =
+    match classification with
+    | Integer_initializers.Prepared_default result -> Ok result
+    | Scheduled_default ->
+        Error
+          "HCRUN0006: AOT default requires proven output relocation and \
+           callable authority" |> diagnose
+  in
+
+  Task_declarations.finish_source_callback_default ledger result
+
 let prepare_initializer_destination_context task ~destination receipt =
   let ( let* ) = Result.bind in
   let span = receipt.Frontend.Parser.leaf_initializer.initializer_equals.span in
@@ -272,6 +1531,7 @@ let lower_initializer_fragment task ~destination receipt =
 let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
     receipt =
   let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.leaf_initializer.initializer_equals.span in
   let* attempt =
     Task_declarations.begin_initializer_attempt task.declarations
       ~runtime:task.state receipt
@@ -285,17 +1545,109 @@ let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
       Initializer_fragment_lowering.prepare ~context ~authority
         ~runtime:task.state destination
     in
-    VM.execute_task_initializer ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error
-         (Integer_execution_diagnostics.of_errors
-            ~span:
-              receipt.Frontend.Parser.leaf_initializer.initializer_equals.span)
+    match task.native_dispatch with
+    | None ->
+        VM.execute_task_initializer
+          ~compiler_options:(compiler_options task ~span)
+          ~use_active_stream ?stream_exe_print task.state attempt execution
+        |> Result.map_error
+             (Integer_execution_diagnostics.of_errors
+                ~span:
+                  receipt.Frontend.Parser.leaf_initializer.initializer_equals
+                    .span)
+    | Some dispatch ->
+        let module Program = Ir.Initializer_fragment_program in
+        let span =
+          receipt.Frontend.Parser.leaf_initializer.initializer_equals.span
+        in
+        let diagnose result =
+          Result.map_error
+            (fun message -> [ Integer_source.message_diagnostic ~span message ])
+            result
+        in
+        let* program =
+          match Program.execution_code execution with
+          | Program.Scheduled program -> Ok program
+          | Program.Prepared _ ->
+              Initializer_fragment_lowering.lower ~context ~authority
+                destination
+        in
+        let request =
+          Native_dispatch.create_initializer
+            ~compiler_options:(compiler_options task ~span)
+            ~use_active_stream ?stream_exe_print ~task:task.state ~attempt
+            ~execution ~program ()
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_dispatch.close_initializer request)
+          (fun () ->
+            try
+              match dispatch.execute_initializer request with
+              | Error diagnostics -> Error diagnostics
+              | Ok () when Native_dispatch.initializer_entered request ->
+                  VM.complete_native_task_initializer task.state attempt
+                    execution program
+                  |> diagnose
+              | Ok () ->
+                  Error
+                    [
+                      Integer_source.diagnostic ~span "HCIRVM0026"
+                        "native initializer callback returned without claiming \
+                         its original entry";
+                    ]
+            with exn ->
+              ignore (VM.fail_task_initializer_attempt task.state attempt);
+              raise exn)
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_initializer_attempt task.state attempt)
   | Ok () -> ());
   outcome
+
+let execute_default_destination ~use_active_stream ?stream_exe_print task
+    ~attempt ~context ~authority destination =
+  let ( let* ) = Result.bind in
+  let span = Ir.Default_fragment_destination.span destination in
+  match task.native_default with
+  | Some evaluate ->
+      let* program =
+        Default_fragment_lowering.lower_native ~context ~authority destination
+      in
+      let request =
+        Native_default.create
+          ~compiler_options:(compiler_options task ~span)
+          ~use_active_stream ?stream_exe_print task.state attempt program
+      in
+      Fun.protect
+        ~finally:(fun () -> Native_default.close request)
+        (fun () ->
+          let* value = evaluate request in
+          if Native_default.entered request then
+            VM.complete_native_task_default task.state attempt program value
+            |> Result.map_error (fun message ->
+                [ Integer_source.message_diagnostic ~span message ])
+          else
+            Error
+              [
+                Integer_source.diagnostic ~span "HCIRVM0026"
+                  "native default returned without claiming its original \
+                   expression";
+              ])
+  | None when Option.is_some task.native_dispatch ->
+      Error
+        [
+          Integer_source.diagnostic ~span "HCRUN0006"
+            "native task defaults require a native consumer";
+        ]
+  | None ->
+      let* execution =
+        Default_fragment_lowering.prepare ~context ~authority
+          ~runtime:task.state destination
+      in
+      VM.execute_task_default
+        ~compiler_options:(compiler_options task ~span)
+        ~use_active_stream ?stream_exe_print task.state attempt execution
+      |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
 
 let execute_parameter_default ?(use_active_stream = true) ?stream_exe_print task
     receipt =
@@ -314,13 +1666,33 @@ let execute_parameter_default ?(use_active_stream = true) ?stream_exe_print task
       |> Result.map_error (fun message ->
           [ Integer_source.message_diagnostic ~span message ])
     in
-    let* execution =
-      Default_fragment_lowering.prepare ~context ~authority ~runtime:task.state
-        destination
+    execute_default_destination ~use_active_stream ?stream_exe_print task
+      ~attempt ~context ~authority destination
+  in
+  (match outcome with
+  | Error _ -> ignore (VM.fail_task_default task.state attempt)
+  | Ok () -> ());
+  outcome
+
+let execute_callback_default ?(use_active_stream = true) ?stream_exe_print task
+    receipt =
+  let ( let* ) = Result.bind in
+  let* attempt =
+    Task_declarations.begin_callback_default_attempt task.declarations
+      ~runtime:task.state receipt
+  in
+  let outcome =
+    let* context, authority, task_view, typed =
+      prepare_callback_default_context task receipt
     in
-    VM.execute_task_default ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    let span = receipt.Frontend.Parser.callback_default_ast.location.span in
+    let* destination =
+      Ir.Default_fragment_destination.create ~task_view typed
+      |> Result.map_error (fun message ->
+          [ Integer_source.message_diagnostic ~span message ])
+    in
+    execute_default_destination ~use_active_stream ?stream_exe_print task
+      ~attempt ~context ~authority destination
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_default task.state attempt)
@@ -355,13 +1727,47 @@ let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
     let* destination =
       Ir.Dimension_fragment_destination.create ~task_view typed |> diagnose
     in
-    let* execution =
-      Dimension_fragment_lowering.prepare ~context ~authority
-        ~runtime:task.state destination
-    in
-    VM.execute_task_dimension ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    match task.native_dimension with
+    | Some evaluate ->
+        let* program =
+          Dimension_fragment_lowering.lower_native ~context ~authority
+            destination
+        in
+        let request =
+          Native_dimension.create
+            ~compiler_options:(compiler_options task ~span)
+            ~use_active_stream ?stream_exe_print task.state attempt program
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_dimension.close request)
+          (fun () ->
+            let* capture = evaluate request in
+            if Native_dimension.entered request then
+              VM.complete_native_task_dimension task.state attempt program
+                capture
+              |> diagnose
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native dimension returned without claiming its original \
+                     expression";
+                ])
+    | None when Option.is_some task.native_dispatch ->
+        Error
+          [
+            Integer_source.diagnostic ~span "HCRUN0006"
+              "native task execution requires its dimension adapter";
+          ]
+    | None ->
+        let* execution =
+          Dimension_fragment_lowering.prepare ~context ~authority
+            ~runtime:task.state destination
+        in
+        VM.execute_task_dimension
+          ~compiler_options:(compiler_options task ~span)
+          ~use_active_stream ?stream_exe_print task.state attempt execution
+        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_dimension task.state attempt)
@@ -405,13 +1811,47 @@ let execute_runtime_internal_binding ?(use_active_stream = true)
       Ir.Internal_binding_fragment_destination.create ~task_view typed
       |> diagnose
     in
-    let* execution =
-      Internal_binding_fragment_lowering.prepare ~context ~authority
-        ~runtime:task.state destination
-    in
-    VM.execute_task_internal_binding ~use_active_stream ?stream_exe_print
-      task.state attempt execution
-    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    match task.native_internal_binding with
+    | Some evaluate ->
+        let* program =
+          Internal_binding_fragment_lowering.lower_native ~context ~authority
+            destination
+        in
+        let request =
+          Native_internal_binding.create
+            ~compiler_options:(compiler_options task ~span)
+            ~use_active_stream ?stream_exe_print task.state attempt program
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_internal_binding.close request)
+          (fun () ->
+            let* capture = evaluate request in
+            if Native_internal_binding.entered request then
+              VM.complete_native_task_internal_binding task.state attempt
+                program capture
+              |> diagnose
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native internal binding returned without claiming its \
+                     original expression";
+                ])
+    | None when Option.is_some task.native_dispatch ->
+        Error
+          [
+            Integer_source.diagnostic ~span "HCRUN0006"
+              "native task execution requires its internal binding adapter";
+          ]
+    | None ->
+        let* execution =
+          Internal_binding_fragment_lowering.prepare ~context ~authority
+            ~runtime:task.state destination
+        in
+        VM.execute_task_internal_binding
+          ~compiler_options:(compiler_options task ~span)
+          ~use_active_stream ?stream_exe_print task.state attempt execution
+        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_internal_binding task.state attempt)
@@ -452,13 +1892,45 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
     let* destination =
       Ir.Offset_fragment_destination.create ~task_view typed |> diagnose
     in
-    let* execution =
-      Offset_fragment_lowering.prepare ~context ~authority ~runtime:task.state
-        destination
-    in
-    VM.execute_task_offset ~use_active_stream ?stream_exe_print task.state
-      attempt execution
-    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+    match task.native_offset with
+    | Some evaluate ->
+        let* program =
+          Offset_fragment_lowering.lower_native ~context ~authority destination
+        in
+        let request =
+          Native_offset.create
+            ~compiler_options:(compiler_options task ~span)
+            ~use_active_stream ?stream_exe_print task.state attempt program
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_offset.close request)
+          (fun () ->
+            let* capture = evaluate request in
+            if Native_offset.entered request then
+              VM.complete_native_task_offset task.state attempt program capture
+              |> diagnose
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native offset returned without claiming its original \
+                     expression";
+                ])
+    | None when Option.is_some task.native_dispatch ->
+        Error
+          [
+            Integer_source.diagnostic ~span "HCRUN0006"
+              "native task execution requires its offset adapter";
+          ]
+    | None ->
+        let* execution =
+          Offset_fragment_lowering.prepare ~context ~authority
+            ~runtime:task.state destination
+        in
+        VM.execute_task_offset
+          ~compiler_options:(compiler_options task ~span)
+          ~use_active_stream ?stream_exe_print task.state attempt execution
+        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
   | Error _ -> ignore (VM.fail_task_offset task.state attempt)
@@ -472,7 +1944,105 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
 
 let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     task event =
+  let ( let* ) = Result.bind in
+  let native_reject span work =
+    Error
+      [
+        Integer_source.diagnostic ~span "HCRUN0006"
+          ("native task execution does not yet support live " ^ work);
+      ]
+  in
   (match event with
+    | Frontend.Parser.Static_initializer_preparing receipt -> (
+        let span =
+          receipt.static_allocation.allocation_function.function_name.location
+            .span
+        in
+        let diagnose result =
+          Result.map_error
+            (fun message -> [ Integer_source.message_diagnostic ~span message ])
+            result
+        in
+        let* task_view = VM.task_snapshot task.state |> diagnose in
+        let* allocation, fragment =
+          Task_declarations.task_static_fragment task.declarations
+            ~runtime:task.state ~task_view receipt
+        in
+        let* context =
+          Initializer_fragment_typing.create_context
+            ~table:(Session.semantic_symbols task.session)
+            ~parent:(Task_declarations.initializer_scope task.declarations)
+          |> diagnose
+        in
+        let* typed =
+          Initializer_fragment_typing.prepare_static context fragment
+          |> diagnose
+        in
+        let* destination =
+          Ir.Static_initializer_destination.create ~allocation ~task_view
+            ~cursor:(Ir.Integer_static_allocation.cursor allocation)
+            typed
+          |> diagnose
+        in
+        match Ir.Static_initializer_destination.copy_byte_count destination with
+        | Some _ when Option.is_none task.native_dispatch ->
+            VM.execute_task_static_copy task.state destination |> diagnose
+        | Some _ -> (
+            match task.native_static_copy with
+            | None -> native_reject span "static string copies"
+            | Some copy ->
+                let request =
+                  Native_static_copy.create task.state destination
+                in
+                Fun.protect
+                  ~finally:(fun () -> Native_static_copy.close request)
+                  (fun () ->
+                    let* () = copy request in
+                    if Native_static_copy.entered request then
+                      VM.complete_native_static_copy task.state destination
+                      |> diagnose
+                    else
+                      Error
+                        [
+                          Integer_source.diagnostic ~span "HCIRVM0026"
+                            "native static copy returned without claiming its \
+                             original leaf";
+                        ]))
+        | None when Option.is_none task.native_dispatch ->
+            let* program =
+              Static_initializer_lowering.lower ~runtime:task.state ~context
+                destination
+            in
+            VM.execute_task_static_initializer
+              ~compiler_options:(compiler_options task ~span)
+              ~use_active_stream ?stream_exe_print task.state program
+            |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+        | None -> (
+            match task.native_static_initializer with
+            | None -> native_reject span "static scalar initializers"
+            | Some initialize ->
+                let* program =
+                  Static_initializer_lowering.lower ~context destination
+                in
+                let request =
+                  Native_static_initializer.create
+                    ~compiler_options:(compiler_options task ~span)
+                    ~use_active_stream ?stream_exe_print task.state program
+                in
+                Fun.protect
+                  ~finally:(fun () -> Native_static_initializer.close request)
+                  (fun () ->
+                    let* () = initialize request in
+                    if Native_static_initializer.entered request then
+                      VM.complete_native_static_initializer task.state program
+                      |> diagnose
+                    else
+                      Error
+                        [
+                          Integer_source.diagnostic ~span "HCIRVM0026"
+                            "native static initializer returned without \
+                             claiming its original entry";
+                        ])))
     | Frontend.Parser.Internal_binding_preparing receipt ->
         execute_runtime_internal_binding ~use_active_stream ?stream_exe_print
           task receipt
@@ -483,6 +2053,35 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
       when Task_declarations.dimension_requires_runtime receipt ->
         execute_runtime_dimension ~use_active_stream ?stream_exe_print task
           receipt
+    | Frontend.Parser.Function_local_allocated receipt
+      when receipt.allocation_storage = Frontend.Ast.Static_local -> (
+        let* allocation =
+          Task_declarations.declare_static_symbol task.declarations
+            ~runtime:task.state receipt
+        in
+        match task.native_static_allocation with
+        | None -> Ok ()
+        | Some allocate ->
+            let span =
+              receipt.allocation_function.function_name.location.span
+            in
+            let* request =
+              Native_static_allocation.create task.state allocation
+              |> Result.map_error (fun message ->
+                  [ Integer_source.message_diagnostic ~span message ])
+            in
+            Fun.protect
+              ~finally:(fun () -> Native_static_allocation.close request)
+              (fun () ->
+                let* () = allocate request in
+                if Native_static_allocation.entered request then Ok ()
+                else
+                  Error
+                    [
+                      Integer_source.diagnostic ~span "HCIRVM0026"
+                        "native static allocator returned without claiming its \
+                         original request";
+                    ]))
     | Frontend.Parser.Global_declared publication ->
         admit_global task publication
     | Frontend.Parser.Global_initializer_started start ->
@@ -494,6 +2093,15 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf ~use_active_stream ?stream_exe_print task
           receipt
+    | Frontend.Parser.Callback_default_completed receipt -> (
+        match receipt.callback_default_ast.value with
+        | Frontend.Ast.Expression_default _ ->
+            execute_callback_default ~use_active_stream ?stream_exe_print task
+              receipt
+        | Lastclass_default _ -> Ok ())
+    | Frontend.Parser.Callback_signature_completed header ->
+        Task_declarations.complete_callback_defaults_runtime task.declarations
+          ~runtime:task.state header
     | Frontend.Parser.Parameter_default_completed receipt -> (
         match receipt.default_ast.value with
         | Frontend.Ast.Expression_default _ ->
@@ -504,6 +2112,24 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
         Result.bind
           (Task_declarations.complete_defaults_runtime task.declarations
              ~runtime:task.state header) (fun () ->
+            let ( let* ) = Result.bind in
+            let* consumed =
+              Task_declarations.function_header_warnings_consumed
+                task.declarations header
+              |> Result.map_error (fun message ->
+                  [
+                    Integer_source.message_diagnostic
+                      ~span:
+                        header.function_publication.function_name.location.span
+                      message;
+                  ])
+            in
+            let* () =
+              if consumed then Ok ()
+              else
+                Task_declarations.emit_function_header_warnings
+                  ~runtime:task.state task.declarations header
+            in
             Task_declarations.admit_function_header task.declarations
               ~runtime:task.state header)
     | Frontend.Parser.Global_completed (_, completed)
@@ -530,13 +2156,20 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
             else error))
 
 let observe_initializer task event = observe_initializer_internal task event
-
-let compiled_units task =
-  List.rev_map (fun (_, command) -> command.program) task.commands
+let compiled_units task = List.rev !(task.compiled_rev)
 
 let compile_isolated task ~source_command session ~config parsed =
-  Integer_unit.compile_source_in_task_budget ~task:task.state ~source_command
-    session ~config parsed
+  match task.native_dispatch with
+  | None ->
+      Integer_unit.compile_source_in_task_budget ~task:task.state
+        ~source_command session ~config parsed
+  | Some _ ->
+      let span = (Option.get parsed.Frontend.Parser.ast).span in
+      Error
+        [
+          Integer_source.diagnostic ~span "HCIRVM0026"
+            "native source tasks cannot compile isolated interpreter programs";
+        ]
 
 let execute_isolated task program =
   VM.execute_isolated_program_in_task task.state
@@ -570,6 +2203,18 @@ let same_syntax (left : Frontend.Ast.module_) (right : Frontend.Ast.module_) =
      && List.length left.items = List.length right.items
      && List.for_all2 same_item left.items right.items
 
+let source_metadata_only (ast : Frontend.Ast.module_) =
+  let open Frontend.Ast in
+  List.for_all
+    (function
+      | Aggregate_forward_declaration _
+      | Aggregate_definition _
+      | Global_variable _
+      | Global_declaration _
+      | Function_prototype _ -> true
+      | Function_definition _ | Top_level_statement _ -> false)
+    ast.items
+
 let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
     =
   match
@@ -594,15 +2239,32 @@ let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
         Integer_unit.compile_task_ast ~task:task.state ?declaration_command
           task.session ~config:task.config ast
       in
+      let warnings =
+        Integer_unit.compiler_warnings checked.Integer_unit.value
+      in
+      let* () =
+        match declaration_command with
+        | None -> Ok ()
+        | Some _ ->
+            Task_declarations.emit_compiler_warnings task.declarations
+              ~runtime:task.state warnings
+            |> Result.map_error (fun message ->
+                [ Integer_source.message_diagnostic ~span:ast.span message ])
+      in
+      task.compiler_diagnostics_rev :=
+        List.rev_append warnings !(task.compiler_diagnostics_rev);
       let command =
         {
           owner = task.identity;
           program = checked.Integer_unit.value;
           span = ast.span;
+          source_metadata_only =
+            Option.is_some declaration_command && source_metadata_only ast;
           frontend_pending = Option.is_none declaration_command;
         }
       in
       task.commands <- (ast, command) :: task.commands;
+      task.compiled_rev := command.program :: !(task.compiled_rev);
       Ok command
 
 let compile_ast task ast = compile_ast_internal task ast
@@ -623,7 +2285,9 @@ let execute_internal ?(use_active_stream = true) ?stream_exe_print task command
       ]
   else
     let outcome =
-      VM.execute_task_program ~use_active_stream ?stream_exe_print task.state
+      VM.execute_task_program
+        ~compiler_options:(compiler_options task ~span:command.span)
+        ~use_active_stream ?stream_exe_print task.state
         ~runtime_calls:(Integer_unit.runtime_calls program)
         ~globals:(Integer_unit.globals program)
         ~initialization:(Integer_unit.initialization program)
@@ -656,7 +2320,135 @@ let execute_internal ?(use_active_stream = true) ?stream_exe_print task command
     | Error errors, Error publication_errors ->
         Error (errors @ publication_errors)
 
+let native_word_of_vm (word : VM.word) =
+  match word.type_ with
+  | VM.I64 -> Native_dispatch.I64 word.bits
+  | VM.U64 -> Native_dispatch.U64 word.bits
+
+let native_word_for_vm = function
+  | Native_dispatch.I64 bits -> (VM.I64, bits)
+  | Native_dispatch.U64 bits -> (VM.U64, bits)
+
+let execute_source ?(use_active_stream = true) ?stream_exe_print task command =
+  if task.identity != command.owner then
+    Error
+      [
+        Integer_source.diagnostic ~span:command.span "HCIRVM0026"
+          "compiled command belongs to another task";
+      ]
+  else
+    match task.native_dispatch with
+    | None ->
+        execute_internal ~use_active_stream ?stream_exe_print task command
+        |> Result.map (fun execution ->
+            Option.map native_word_of_vm (VM.final_value execution))
+    | Some _ when command.frontend_pending ->
+        Error
+          [
+            Integer_source.diagnostic ~span:command.span "HCIRVM0026"
+              "native source dispatch requires an original parser resume \
+               command";
+          ]
+    | Some _ when command.source_metadata_only -> (
+        let program = command.program in
+        let diagnose result =
+          Result.map_error
+            (fun message ->
+              [ Integer_source.message_diagnostic ~span:command.span message ])
+            result
+        in
+        match
+          VM.claim_native_task_program task.state
+            ~runtime_calls:(Integer_unit.runtime_calls program)
+            ~globals:(Integer_unit.globals program)
+            ~initialization:(Integer_unit.initialization program)
+            ~functions:(Integer_unit.functions program)
+            (Integer_unit.entry program)
+        with
+        | Error message ->
+            VM.fail_native_task_program_before_entry task.state;
+            Error
+              [ Integer_source.message_diagnostic ~span:command.span message ]
+        | Ok attempt -> (
+            match
+              VM.complete_native_task_program task.state attempt ~captured:false
+                ~final_value:None
+              |> diagnose
+            with
+            | Ok () -> Ok None
+            | Error diagnostics ->
+                ignore (VM.fail_native_task_program task.state attempt);
+                Error diagnostics))
+    | Some dispatch ->
+        let request =
+          Native_dispatch.create_command
+            ~compiler_options:(compiler_options task ~span:command.span)
+            ~use_active_stream ?stream_exe_print ~task:task.state
+            ~program:command.program ()
+        in
+        let diagnose result =
+          Result.map_error
+            (fun message ->
+              [ Integer_source.message_diagnostic ~span:command.span message ])
+            result
+        in
+        let fail_request () =
+          match Native_dispatch.command_attempt request with
+          | Some attempt ->
+              ignore (VM.fail_native_task_program task.state attempt)
+          | None -> VM.fail_native_task_program_before_entry task.state
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_dispatch.close_command request)
+          (fun () ->
+            try
+              match dispatch.execute_command request with
+              | Error diagnostics ->
+                  fail_request ();
+                  Error diagnostics
+              | Ok capture -> (
+                  let captured, value =
+                    match capture with
+                    | Native_dispatch.Unchanged -> (false, None)
+                    | Native_dispatch.Captured value -> (true, value)
+                  in
+                  match
+                    ( Native_dispatch.command_entered request,
+                      Native_dispatch.command_attempt request )
+                  with
+                  | true, Some attempt -> (
+                      let settled =
+                        VM.complete_native_task_program task.state attempt
+                          ~captured
+                          ~final_value:(Option.map native_word_for_vm value)
+                        |> diagnose
+                      in
+                      match settled with
+                      | Ok () -> Ok value
+                      | Error diagnostics ->
+                          fail_request ();
+                          Error diagnostics)
+                  | _ ->
+                      fail_request ();
+                      Error
+                        [
+                          Integer_source.diagnostic ~span:command.span
+                            "HCIRVM0026"
+                            "native command callback returned without claiming \
+                             its original entry";
+                        ])
+            with exn ->
+              fail_request ();
+              raise exn)
+
 let execute task command = execute_internal task command
+
+let native_final_value task =
+  match task.native_dispatch with
+  | None -> None
+  | Some _ ->
+      let progress = VM.task_progress task.state in
+      Option.map native_word_of_vm progress.final_value
 
 let stream_diagnostics span message =
   let code, detail =
@@ -674,7 +2466,7 @@ let activate_source task ~span =
   Task_declarations.activate_source task.declarations ~runtime:task.state ~span
     ~declaration:(observe_initializer task) ~command:(fun ast ->
       Result.bind (compile_source_ast task ast) (fun command ->
-          execute task command |> Result.map ignore))
+          execute_source task command |> Result.map ignore))
 
 let result task ~sequence =
   VM.task_result task.state ~sequence
@@ -776,8 +2568,23 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
             .declaration_command
       | Function_variadic_started p | Function_variadic_completed p ->
           p.variadic_function.function_header.declaration_command
+      | Callback_position_written p ->
+          p.callback_position_signature.callback_command
+      | Callback_signature_started p -> p.callback_command
+      | Callback_parameter_declared p ->
+          p.callback_parameter_signature.callback_command
+      | Callback_parameter_completed p ->
+          p.callback_parameter_publication.callback_parameter_signature
+            .callback_command
+      | Callback_default_completed p ->
+          p.callback_default_signature.callback_command
+      | Callback_signature_completed p ->
+          p.callback_signature_publication.callback_command
       | Parameter_default_completed receipt ->
           receipt.default_function.function_header.declaration_command
+      | Function_return_phase p ->
+          p.return_header.function_publication.function_header
+            .declaration_command
       | Function_header_completed header | Function_body_completed (header, _)
         -> header.function_publication.function_header.declaration_command
     in
@@ -795,6 +2602,8 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
   in
   let commands : Frontend.Parser.command_sink =
     {
+      lexical_lookup =
+        Some (Task_declarations.observe_lexical_lookup task.declarations);
       checkpoint =
         Some
           (fun event ->
@@ -832,8 +2641,8 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
             | Frontend.Parser.Command_resumed completed ->
                 let ast = completed.command_ast in
                 let* command = compile_source_ast task ast in
-                let* execution = execute_command command in
-                final_value := VM.final_value execution;
+                let* value = execute_command command in
+                final_value := value;
                 Ok ()
             | Frontend.Parser.Sequence_completed completed ->
                 sequence := Some completed;
@@ -921,7 +2730,8 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
             (stream_diagnostics span
                "HCIRVM0027: source sequence has not been accepted") )
 
-let rec stream_executor ?(allow_stream_exe_print = false) task span =
+let rec stream_executor ?saved_compiler ?(allow_stream_exe_print = true) task
+    span =
   let ( let* ) = Result.bind in
   let* stream =
     begin_stream task |> Result.map_error (stream_diagnostics span)
@@ -936,11 +2746,16 @@ let rec stream_executor ?(allow_stream_exe_print = false) task span =
   in
   let stream_exe_print =
     if allow_stream_exe_print then
-      Some (run_stream_exe_source task ~active ~span)
+      Some (run_stream_exe_source ?saved_compiler task ~active ~span)
     else None
   in
   let execute_command command =
-    execute_internal ?stream_exe_print task command
+    match task.native_dispatch with
+    | Some _ -> execute_source ?stream_exe_print task command
+    | None ->
+        execute_internal ?stream_exe_print task command
+        |> Result.map (fun execution ->
+            Option.map native_word_of_vm (VM.final_value execution))
   in
   let commands, completed =
     execution_commands ?stream_exe_print task span ~active ~execute_command
@@ -967,39 +2782,143 @@ let rec stream_executor ?(allow_stream_exe_print = false) task span =
             | Error _ -> ());
       }
 
-and run_stream_exe_source task ~active ~span contents =
+and run_stream_exe_source ?saved_compiler task ~active ~span contents =
   let ( let* ) = Result.bind in
   let* () = active () in
   let* suspension =
     Task_declarations.parser_suspension task.declarations
     |> Result.map_error (stream_diagnostics span)
   in
+  let* enclosing =
+    Frontend.Parser.suspension_enclosing_context suspension
+    |> Result.map_error (stream_diagnostics span)
+  in
+  let* target =
+    match
+      Task_declarations.saved_compiler_context task.declarations
+        ~session:task.session ~suspension
+    with
+    | Ok _ -> Ok task
+    | Error _ -> (
+        match saved_compiler with
+        | None ->
+            Error
+              (stream_diagnostics span
+                 "saved compiler tables require their original namespace \
+                  adapter")
+        | Some saved -> (
+            let* _ =
+              Task_declarations.saved_compiler_context
+                saved.compiler_declarations ~session:saved.compiler_session
+                ~suspension
+              |> Result.map_error (stream_diagnostics span)
+            in
+            match saved.compiler_task with
+            | Some target when VM.task_shares_resources task.state target.state
+              -> Ok target
+            | Some _ ->
+                Error
+                  (stream_diagnostics span
+                     "saved compiler execution has another original resource \
+                      owner")
+            | None ->
+                let* state =
+                  VM.create_compiler_namespace_task task.state
+                    ~table:(Session.semantic_symbols saved.compiler_session)
+                  |> Result.map_error (stream_diagnostics span)
+                in
+                let* declarations =
+                  Task_declarations.create_saved_compiler_runtime
+                    saved.compiler_declarations ~session:saved.compiler_session
+                    ~suspension ~runtime:state
+                  |> Result.map_error (stream_diagnostics span)
+                in
+                let target =
+                  {
+                    task with
+                    session = saved.compiler_session;
+                    state;
+                    declarations;
+                    identity = ref ();
+                    commands = [];
+                  }
+                in
+                saved.compiler_task <- Some target;
+                task.compiler_tasks := target :: !(task.compiler_tasks);
+                Ok target))
+  in
+  let execute ?(catch_compiler = true) suspension source =
+    let diagnose message =
+      [
+        Integer_source.diagnostic
+          ~span:(Integer_source.source_span source)
+          "HCRUN0004" message;
+      ]
+    in
+    let* scope =
+      VM.begin_task_child_input task.state ~target:target.state ~suspension
+        ~source
+      |> Result.map_error diagnose
+    in
+    Fun.protect
+      ~finally:(fun () ->
+        match VM.close_task_child_input scope with
+        | Ok () -> ()
+        | Error message -> failwith message)
+      (fun () ->
+        match
+          run_input_execution ~suspension ~enclosing ~stream_task:task
+            ~use_active_stream:false ~active target ~source
+        with
+        | Ok (sequence, final_value) ->
+            let* () =
+              VM.complete_task_child_input scope sequence
+              |> Result.map_error diagnose
+            in
+            let* () = active () in
+            Ok final_value
+        | Error diagnostics -> (
+            match Frontend.Parser.suspension_failed_input suspension with
+            | Some failure when catch_compiler ->
+                let* () = active () in
+                let* () =
+                  Task_declarations.check_failed_compiler_input
+                    ~directive_ledger:task.declarations target.declarations
+                    ~session:target.session ~runtime:target.state ~suspension
+                    failure
+                  |> Result.map_error diagnose
+                in
+                let* () =
+                  VM.catch_task_child_compiler scope failure
+                  |> Result.map_error diagnose
+                in
+                Ok (Some (Native_dispatch.I64 0L))
+            | _ -> Error diagnostics))
+  in
+  let* suspension =
+    if target == task then Ok suspension
+    else
+      match provider_source target with
+      | None -> Ok suspension
+      | Some providers ->
+          let* _ = execute ~catch_compiler:false suspension providers in
+          Task_declarations.parser_suspension task.declarations
+          |> Result.map_error (stream_diagnostics span)
+  in
   let source =
-    Session.add_source task.session ~path:"<StreamExePrint>" ~contents
+    Session.add_source target.session ~path:"<StreamExePrint>" ~contents
   in
   Frontend.Symbol_visibility.Environment.without_locals
-    (Session.symbols task.session) (fun () ->
-      let* sequence, final_value =
-        run_input_execution ~suspension ~use_active_stream:false
-          ~allow_stream_exe_print:true ~active task ~source
-      in
-      let* () =
-        VM.check_task_suspended_completion task.state ~suspension sequence
-        |> Result.map_error (fun message ->
-            [
-              Integer_source.diagnostic
-                ~span:(Integer_source.source_span source)
-                "HCRUN0004" message;
-            ])
-      in
-      let* () = active () in
+    (Session.symbols target.session) (fun () ->
+      let* final_value = execute suspension source in
       Ok
         (Option.fold ~none:0L
-           ~some:(fun (word : VM.word) -> word.bits)
+           ~some:(function
+             | Native_dispatch.I64 bits | Native_dispatch.U64 bits -> bits)
            final_value))
 
-and run_input_execution ?suspension ?(use_active_stream = true)
-    ?(allow_stream_exe_print = false) ?(active = fun () -> Ok ()) task ~source =
+and run_input_execution ?suspension ?enclosing ?stream_task
+    ?(use_active_stream = true) ?(active = fun () -> Ok ()) task ~source =
   let ( let* ) = Result.bind in
   let* () =
     match
@@ -1016,34 +2935,62 @@ and run_input_execution ?suspension ?(use_active_stream = true)
               "HCRUN0004" "task input is not the exact registered source";
           ]
   in
-  let stream_exe_print =
-    if allow_stream_exe_print then
-      Some
-        (run_stream_exe_source task ~active
-           ~span:(Integer_source.source_span source))
-    else None
-  in
   let execute_command command =
-    execute_internal ~use_active_stream ?stream_exe_print task command
+    match task.native_dispatch with
+    | Some _ -> execute_source ~use_active_stream task command
+    | None ->
+        execute_internal ~use_active_stream task command
+        |> Result.map (fun execution ->
+            Option.map native_word_of_vm (VM.final_value execution))
   in
   let commands, completed =
     execution_commands task
       (Integer_source.source_span source)
-      ~use_active_stream ?stream_exe_print ~active ~execute_command
+      ~use_active_stream ~active ~execute_command
+  in
+  let execute_stream =
+    match stream_task with
+    | None -> stream_executor task
+    | Some stream_task when stream_task == task -> stream_executor task
+    | Some stream_task ->
+        let saved =
+          {
+            compiler_session = task.session;
+            compiler_declarations = task.declarations;
+            compiler_task = Some task;
+          }
+        in
+        stream_executor ~saved_compiler:saved stream_task
   in
   let* parsed =
-    match suspension with
-    | None ->
+    let compiler_exception exception_ =
+      task.compiler_exceptions_rev :=
+        exception_ :: !(task.compiler_exceptions_rev)
+    in
+    match (suspension, enclosing) with
+    | None, _ ->
         Ok
-          (Frontend.Parser.parse ~commands
-             ~execute_stream:(stream_executor ~allow_stream_exe_print task)
+          (Frontend.Parser.parse ~compiler_exception ~commands ~execute_stream
              ~sources:(Session.sources task.session)
              ~definitions:(Session.definitions task.session)
              ~symbols:(Session.symbols task.session)
              ~config:task.config source)
-    | Some suspension ->
-        Frontend.Parser.parse_suspended suspension ~commands
-          ~execute_stream:(stream_executor ~allow_stream_exe_print task)
+    | Some suspension, None ->
+        Frontend.Parser.parse_suspended suspension ~compiler_exception ~commands
+          ~execute_stream
+          ~sources:(Session.sources task.session)
+          ~definitions:(Session.definitions task.session)
+          ~symbols:(Session.symbols task.session)
+          ~config:task.config source
+        |> Result.map_error (fun message ->
+            [
+              Integer_source.diagnostic
+                ~span:(Integer_source.source_span source)
+                "HCRUN0004" message;
+            ])
+    | Some suspension, Some enclosing ->
+        Frontend.Parser.parse_suspended_enclosing suspension ~enclosing
+          ~compiler_exception ~commands ~execute_stream
           ~sources:(Session.sources task.session)
           ~definitions:(Session.definitions task.session)
           ~symbols:(Session.symbols task.session)

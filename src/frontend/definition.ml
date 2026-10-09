@@ -115,6 +115,13 @@ module Environment = struct
       (Names.find_opt name environment.store.by_name)
       (List.find_opt (visible environment))
 
+  let owns environment (definition : definition) =
+    (match (environment.owner, definition.owner) with
+      | None, None -> true
+      | Some left, Some right -> left == right
+      | _ -> false)
+    && List.exists (( == ) definition) environment.store.history_rev
+
   let all environment =
     List.rev environment.store.history_rev |> List.filter (visible environment)
 

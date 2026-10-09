@@ -171,6 +171,7 @@ let rec statement_occurrences state source =
   | Frontend.Ast.Implicit_output_statement _
   | Frontend.Ast.Local_declaration_statement _
   | Frontend.Ast.No_warn_statement _
+  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.Return_statement _ -> Ok state
 
 and statements_occurrences state statements =
@@ -267,6 +268,7 @@ let rec outside_statement = function
   | Frontend.Ast.Implicit_output_statement _
   | Frontend.Ast.Local_declaration_statement _
   | Frontend.Ast.No_warn_statement _
+  | Frontend.Ast.Aggregate_declaration_statement _
   | Frontend.Ast.Return_statement _ -> None
 
 and outside_statements = function
@@ -321,8 +323,7 @@ type function_ast =
   | Definition of Frontend.Ast.function_definition
 
 let ast_functions (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Function_prototype prototype ->
         Some (item_index, Prototype prototype)

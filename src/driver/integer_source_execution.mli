@@ -10,6 +10,19 @@ val compilation_result :
 
 type report
 
+val compilation_compiler_exceptions :
+  compilation_report -> Frontend.Parser.compiler_exception list
+
+val compiler_exceptions : report -> Frontend.Parser.compiler_exception list
+(** Original counted [Compiler] failures reached during source parsing,
+    including failed nested inputs. These receipts do not admit execution or
+    turn a failed input into a successful one. *)
+
+val install_providers :
+  ?suspended:bool -> Integer_task.t -> (unit, Common.Diagnostic.t list) result
+(** Install the original hosted provider declarations in the task frontend.
+    Existing selected source entries retain precedence. *)
+
 val compile_report :
   ?max_dimension_work:int ->
   ?max_switch_work:int ->
@@ -21,6 +34,14 @@ val compile_report :
   ?max_call_depth:int ->
   ?max_output_bytes:int ->
   ?max_output_work:int ->
+  ?native_dispatch:Integer_task.Native_dispatch.t ->
+  ?native_static_allocation:Integer_task.Native_static_allocation.t ->
+  ?native_static_initializer:Integer_task.Native_static_initializer.t ->
+  ?native_static_copy:Integer_task.Native_static_copy.t ->
+  ?native_default:Integer_task.Native_default.t ->
+  ?native_dimension:Integer_task.Native_dimension.t ->
+  ?native_offset:Integer_task.Native_offset.t ->
+  ?native_internal_binding:Integer_task.Native_internal_binding.t ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->
@@ -45,6 +66,14 @@ val run :
   ?max_call_depth:int ->
   ?max_output_bytes:int ->
   ?max_output_work:int ->
+  ?native_dispatch:Integer_task.Native_dispatch.t ->
+  ?native_static_allocation:Integer_task.Native_static_allocation.t ->
+  ?native_static_initializer:Integer_task.Native_static_initializer.t ->
+  ?native_static_copy:Integer_task.Native_static_copy.t ->
+  ?native_default:Integer_task.Native_default.t ->
+  ?native_dimension:Integer_task.Native_dimension.t ->
+  ?native_offset:Integer_task.Native_offset.t ->
+  ?native_internal_binding:Integer_task.Native_internal_binding.t ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->
@@ -56,6 +85,11 @@ val outcome :
   ( Ir.Integer_interpreter.t Integer_unit.checked,
     Common.Diagnostic.t list )
   result
+
+val native_final_value : report -> Integer_task.Native_dispatch.word option
+(** Final word returned by the exact native source command on successful native
+    task execution. Runtime work and quota counters remain owned by the native
+    execution report rather than this metadata value. *)
 
 val output_bytes : report -> string
 val output_work : report -> int

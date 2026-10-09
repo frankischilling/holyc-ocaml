@@ -12,6 +12,7 @@ let lowering value = value.lowering_
 let entry value = value.entry_
 let initialization value = value.initialization_
 let runtime_calls value = value.runtime_calls_
+let source_authority value = value.authority_
 
 let create ~authority ~destination ~lowered ~entry ~initialization
     ~runtime_calls =

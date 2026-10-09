@@ -137,7 +137,7 @@ let combined_limits () =
   in
   Alcotest.(check (list int))
     "measured cumulative resources"
-    [ 40; 10; 16; 8; 3; 13; 2 ]
+    [ 42; 10; 16; 8; 3; 13; 2 ]
     counts;
   Alcotest.(check int)
     "VM reports cumulative instruction work" measured.executed_steps
@@ -218,6 +218,7 @@ let prepare_isolated task contents =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (Task_declarations.observe_command ledger);
       call = None;
       implicit_output = None;

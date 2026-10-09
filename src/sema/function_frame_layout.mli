@@ -94,6 +94,11 @@ val find_binding_location :
     index. A binding rebuilt around the same symbol does not match. *)
 
 val location_binding : location -> Function_binding_index.binding
+
+val location_local_source : location -> Local_type_resolution.local option
+(** The exact local type evidence consumed by this location. Parameter and
+    synthetic locations have no local source. *)
+
 val location_symbol : location -> Symbol.t
 val location_kind : location -> location_kind
 
@@ -104,6 +109,15 @@ val location_register_selection : location -> Register_request.selection
 val location_type_reference : location -> Type_reference.t option
 val location_checked_type : location -> Type.t
 val location_declarator_shape : location -> declarator_shape
+
+val location_callback_pointer :
+  location -> Function_type_resolution.function_pointer option
+(** Exact parameter or local callback declarator consumed by this frame. *)
+
+val location_storage_type : location -> (Type.t, string) result
+(** Physical storage class. Callback return types remain available separately
+    through [location_checked_type] and [location_type_reference]. *)
+
 val location_value_shape : location -> value_shape
 val location_dimensions : location -> dimension list
 

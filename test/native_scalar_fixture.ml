@@ -9,6 +9,7 @@ type t = {
   preparation_steps : int;
   default_bytes : int;
   prepared_defaults : Holyc_lib__Ir.Prepared_parameter_default.t list;
+  prepared_callbacks : Holyc_lib__Ir.Prepared_callback_default.t list;
   completions : Preparation.completion list;
 }
 
@@ -46,6 +47,7 @@ let compile ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (Declarations.observe_command ledger);
       query = Some (Declarations.observe_query ledger);
       reference = Some (Declarations.observe_reference ledger);
@@ -58,6 +60,11 @@ let compile ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
             match event with
             | Parser.Parameter_default_completed receipt ->
                 Preparation.prepare preparation ~session ~ledger receipt
+            | Parser.Callback_default_completed receipt ->
+                Preparation.prepare_callback preparation ~session ~ledger
+                  receipt
+            | Parser.Callback_signature_completed header ->
+                Declarations.complete_source_callback_defaults ledger header
             | Parser.Function_header_completed header ->
                 Declarations.complete_source_defaults ledger header
             | _ -> Ok ());
@@ -87,6 +94,10 @@ let compile ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
     Declarations.native_source_defaults ~table ~ast source_command
     |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
   in
+  let* prepared_callbacks =
+    Declarations.native_source_callback_defaults ~table ~ast source_command
+    |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
+  in
   let* checked =
     Unit.compile_source_output ~source_command ~max_initializer_steps session
       ~config
@@ -99,6 +110,7 @@ let compile ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
       preparation_steps = Preparation.work preparation;
       default_bytes = Preparation.bytes preparation;
       prepared_defaults;
+      prepared_callbacks;
       completions = Preparation.completions preparation;
     }
 
@@ -111,3 +123,23 @@ let execute ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ~max_steps ~max_frame_bytes ~max_call_depth ~max_global_bytes
     ~functions:(Unit.functions fixture.unit_)
     (Unit.entry fixture.unit_)
+
+let execute_source ~mode ~contents () =
+  let ( let* ) = Result.bind in
+  let* fixture =
+    compile ~mode ~path:"closed-native-work-control.hc" ~contents ()
+    |> Result.map_error (fun errors ->
+        errors
+        |> List.map (fun (error : Diagnostic.t) ->
+            error.code ^ ": " ^ error.message)
+        |> String.concat "; ")
+  in
+  let* execution =
+    execute ~max_steps:100_000 fixture
+    |> Result.map_error (fun errors ->
+        errors
+        |> List.map (fun (error : VM.error) ->
+            error.code ^ ": " ^ error.message)
+        |> String.concat "; ")
+  in
+  Ok (fixture, execution)

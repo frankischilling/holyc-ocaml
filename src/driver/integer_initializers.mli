@@ -5,6 +5,7 @@ type default_preparation =
   | Scheduled_default
 
 val prepare_default :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->
@@ -17,6 +18,7 @@ val prepare_default :
   (default_preparation * int, Common.Diagnostic.t list) result
 
 val prepare_dimension :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->
@@ -27,6 +29,7 @@ val prepare_dimension :
   (classification * int, Common.Diagnostic.t list) result
 
 val prepare_internal_binding :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->
@@ -57,7 +60,22 @@ val prepare_native :
 
 val native_leaf : native_preparation -> Sema.Initializer_source.leaf
 val native_steps : native_preparation -> int
+val native_is_load : native_preparation -> bool
 val native_evidence : t -> native_preparation list
+
+val prepare_native_load :
+  declaration:Sema.Compiler_record.declared_global ->
+  leaf:Sema.Initializer_source.leaf ->
+  cell_offset:int ->
+  byte_offset:int ->
+  operation:Ir.Integer_initializer_layout.operation ->
+  (native_preparation, Common.Diagnostic.t list) result
+(** Retain an original current AOT scalar leaf for its checked load-time region.
+    This grants no prepared value, executable address or runtime admission. *)
+
+val native_load_roots :
+  t -> Sema.Function_call_expression_result.top_level_root_result list
+(** Exact scheduled roots joined to their original load-time source receipts. *)
 
 val native_complete : span:Common.Span.t -> t -> bool
 (** Every scalar initial value has its original successful native preparation.
@@ -65,7 +83,19 @@ val native_complete : span:Common.Span.t -> t -> bool
 
 type fragment_preparation
 
+val check_static_fragment :
+  ?retained_function_source:
+    (Ir.Retained_function.t ->
+    Ir.Integer_interpreter.task_function_source option) ->
+  top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  top_callback_calls:Ir.Callback_source.t list ->
+  Ir.Static_initializer_destination.t ->
+  (unit, Common.Diagnostic.t list) result
+(** Apply the original initializer optimizer, transitive call and update guards
+    to a live static leaf without preparing or executing a value. *)
+
 val prepare_fragment :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->
@@ -92,6 +122,8 @@ val prepare :
   ?native_preparations:native_preparation list ->
   ?native_static_preparations:native_static_preparation list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
+  ?callback_calls:Sema.Function_call_expression_result.indirect_call list ->
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?allow_zero_budget:bool ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
@@ -133,6 +165,7 @@ val item_steps : item -> int
 val human : t -> string
 
 val prepare_offset :
+  ?top_callback_calls:Ir.Callback_source.t list ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->

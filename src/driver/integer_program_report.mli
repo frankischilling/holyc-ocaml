@@ -1,5 +1,7 @@
 type t
 
+val compiler_exceptions : t -> Frontend.Parser.compiler_exception list
+
 val run :
   ?max_dimension_work:int ->
   ?max_switch_work:int ->

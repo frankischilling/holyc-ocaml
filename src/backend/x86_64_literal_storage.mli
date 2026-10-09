@@ -1,9 +1,36 @@
 type error = { code : string; message : string; span : Common.Span.t option }
 type region
 type t
+type source
 
 val hard_max_literal_bytes : int
 val validate_limit : max_literal_bytes:int -> (unit, error list) result
+val empty : t
+
+val source :
+  runtime_calls:Ir.Runtime_call_context.t ->
+  owner:Ir.Runtime_call_context.owner ->
+  graph:Ir.Block_graph.t ->
+  (source, error list) result
+(** Seal an original graph and its runtime context for storage admission. *)
+
+val append :
+  t ->
+  max_literal_bytes:int ->
+  max_arena_bytes:int ->
+  arena_prefix_bytes:int ->
+  sources:source list ->
+  (t, error list) result
+(** Append unseen original producers after the supplied arena prefix. Existing
+    graphs keep their data and reference-table offsets. Logical bytes, including
+    each trailing NUL, and table bytes accumulate without allocating a byte
+    image. Every source is revalidated against its sealed instructions. *)
+
+val arena_bytes : t -> int
+
+val initializations_since : t -> arena_prefix_bytes:int -> (int * string) list
+(** Original payloads whose regions start in the newly admitted suffix. The
+    consumer zeroes that suffix before copying these bytes once. *)
 
 val create :
   max_literal_bytes:int ->
@@ -16,8 +43,8 @@ val create :
   (t, error list) result
 (** Allocate a separate mutable byte region for each original IC_STR_CONST
     producer in the sealed entry and function graphs. Each region includes its
-    trailing NUL and a bounded canonical reference table. Layout and all quotas
-    are checked before the initial byte image is allocated. *)
+    trailing NUL and one 32-byte reference descriptor. Layout and all quotas are
+    checked before the initial byte image is allocated. *)
 
 val find :
   t ->

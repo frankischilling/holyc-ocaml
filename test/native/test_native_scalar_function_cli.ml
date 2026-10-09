@@ -23,13 +23,28 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 14)
     "usage: test_native_scalar_function_cli.exe <holyc.exe> \
-     <native-scalar-functions.hc> <native-u0-functions.hc>"
+     <native-scalar-functions.hc> <native-u0-functions.hc> \
+     <native-calling-flags.hc> <native-local-callbacks.hc> \
+     <native-callback-parameters.hc> <native-callback-storage.hc> \
+     <native-callback-defaults.hc> <native-word-tails.hc> \
+     <native-callback-arguments.hc> <native-callback-word-defaults.hc> \
+     <native-callback-initializers.hc> <native-callback-return-storage.hc>"
 
 let compiler = Sys.argv.(1)
 let scalar_fixture = Sys.argv.(2)
 let u0_fixture = Sys.argv.(3)
+let flags_fixture = Sys.argv.(4)
+let callbacks_fixture = Sys.argv.(5)
+let parameters_fixture = Sys.argv.(6)
+let storage_fixture = Sys.argv.(7)
+let defaults_fixture = Sys.argv.(8)
+let word_tail_fixture = Sys.argv.(9)
+let callback_argument_fixture = Sys.argv.(10)
+let callback_word_default_fixture = Sys.argv.(11)
+let callback_initializer_fixture = Sys.argv.(12)
+let callback_return_storage_fixture = Sys.argv.(13)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -116,18 +131,32 @@ let ir_json ?(status = 0) ?(options = []) ~mode source =
 let diagnostics report = report |> member "diagnostics" |> to_list
 
 let first_code report =
-  match diagnostics report with
-  | first :: _ -> first |> member "code" |> to_string
-  | [] -> (
+  match
+    List.find_opt
+      (fun diagnostic -> diagnostic |> member "severity" |> to_string = "error")
+      (diagnostics report)
+  with
+  | Some first -> first |> member "code" |> to_string
+  | None -> (
       match member "command_error" report with
       | `Assoc _ as error -> error |> member "code" |> to_string
       | _ -> failwith "expected a diagnostic or command error")
 
-let check_success report =
+let diagnostic_signature diagnostic =
+  ( diagnostic |> member "code" |> to_string,
+    diagnostic |> member "severity" |> to_string,
+    diagnostic |> member "message" |> to_string )
+
+let unused_warning variable function_ =
+  ( "HCSEMA0034",
+    "warning",
+    Printf.sprintf "unused variable %S in function %S" variable function_ )
+
+let check_success ?(expected_warnings = []) report =
   require
     (report |> member "outcome" |> to_string = "success"
     && report |> member "termination" |> to_string = "stream-end"
-    && diagnostics report = []
+    && List.map diagnostic_signature (diagnostics report) = expected_warnings
     && member "command_error" report = `Null)
     "successful scalar report"
 
@@ -179,16 +208,23 @@ let batch_execution ~max_steps fixture =
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
 
-let check_native_meter_against_ir ~mode ~source ~expected_preparation
+let fixture_warnings source =
+  if source = callbacks_fixture then [ unused_warning "n" "Visit" ]
+  else if source = word_tail_fixture then [ unused_warning "argc" "Apply" ]
+  else []
+
+let check_native_meter_with_preparation ~initializer_steps
+    ~expected_source_preparation ~mode ~source ~expected_preparation
     ~expected_default_bytes ~check_final =
   (* This public IR run is a fresh source-stream semantic oracle. Expression
      defaults intentionally activate separate JIT task units, so its executed
      step count is not the native batch meter. *)
   let ir = ir_json ~mode source in
-  check_success ir;
+  let expected_warnings = fixture_warnings source in
+  check_success ~expected_warnings ir;
   check_final ir;
   require
-    (preparation ir = expected_preparation)
+    (preparation ir = expected_source_preparation)
     "IR preparation work changed from source-derived fixture contract";
   let source_stream_steps = executed_steps ir in
   require (source_stream_steps > 1)
@@ -198,7 +234,7 @@ let check_native_meter_against_ir ~mode ~source ~expected_preparation
      the independent native runtime oracle. *)
   let fixture = batch_fixture ~mode source in
   require
-    (fixture.preparation_steps = expected_preparation
+    (fixture.preparation_steps + initializer_steps = expected_preparation
     && fixture.default_bytes = expected_default_bytes)
     "isolated native-batch preparation metadata differs from fixture contract";
   let batch = batch_execution ~max_steps:100_000 fixture in
@@ -206,7 +242,7 @@ let check_native_meter_against_ir ~mode ~source ~expected_preparation
   require (batch_steps > 1)
     "native-batch fixture needs a nontrivial one-below runtime boundary";
   let native = host_json ~mode source in
-  check_success native;
+  check_success ~expected_warnings native;
   check_final native;
   require
     (executed_steps native = batch_steps)
@@ -228,7 +264,7 @@ let check_native_meter_against_ir ~mode ~source ~expected_preparation
       ~options:[ "--step-limit=" ^ string_of_int batch_steps ]
       source
   in
-  check_success exact;
+  check_success ~expected_warnings exact;
   check_final exact;
   require
     (executed_steps exact = batch_steps)
@@ -245,6 +281,12 @@ let check_native_meter_against_ir ~mode ~source ~expected_preparation
     "host-jit scalar one-below runtime allowance did not stop at the exact \
      meter";
   (source_stream_steps, batch_steps)
+
+let check_native_meter_against_ir ~mode ~source ~expected_preparation
+    ~expected_default_bytes ~check_final =
+  check_native_meter_with_preparation ~initializer_steps:0
+    ~expected_source_preparation:expected_preparation ~mode ~source
+    ~expected_preparation ~expected_default_bytes ~check_final
 
 let scalar_fixture_modes () =
   List.iter
@@ -386,8 +428,215 @@ let u0_final_latch_cli_contract () =
             [ "jit"; "aot" ]))
     [ ("U0 V(){}\n42;V();", false); ("U0 V(){}\nV();42;", true) ]
 
+let ordinary_calling_flags_cli_contract () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode ~source:flags_fixture
+           ~expected_preparation:3 ~expected_default_bytes:8
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun flags ->
+      with_file ".hc" (flags ^ " U8 Answer(U8 n=554){return n;}Answer();")
+        (fun source ->
+          List.iter
+            (fun mode ->
+              ignore
+                (check_native_meter_against_ir ~mode ~source
+                   ~expected_preparation:3 ~expected_default_bytes:8
+                   ~check_final:(fun report ->
+                     check_word report "u64" "42" "0x000000000000002a")))
+            [ "jit"; "aot" ]))
+    [
+      "argpop";
+      "noargpop";
+      "argpop noargpop";
+      "noargpop argpop";
+      "haserrcode";
+      "haserrcode argpop noargpop";
+    ]
+
+let owned_local_callbacks_cli_contract () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode ~source:callbacks_fixture
+           ~expected_preparation:0 ~expected_default_bytes:0
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a"));
+      List.iter
+        (fun (body, assignment, expected) ->
+          let contents =
+            "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}"
+            ^ body ^ "I64 Run(){I64 (*p)(I64 n);p=" ^ assignment
+            ^ ";return p(Arg());}Run();"
+          in
+          with_file ".hc" contents (fun source ->
+              let ir = ir_json ~status:1 ~mode source
+              and native = host_json ~status:1 ~mode source in
+              require
+                (first_code ir = expected && first_code native = expected)
+                "local callback CLI fault code";
+              require
+                (executed_steps ir = executed_steps native)
+                "local callback CLI reached meter";
+              require
+                (member "output_hex" ir = `String "41"
+                && member "output_hex" native = `String "41")
+                "local callback CLI reached argument output";
+              require
+                (member "final_value" native = `Null)
+                "faulting callback exposes no final word"))
+        [
+          ("", "0", "HCIRVM0024");
+          ("", "123", "HCIRVM0024");
+          ("I64 Bad(I64 a,I64 b){return a+b;}", "&Bad", "HCIRVM0014");
+          ("noargpop I64 Bad(I64 n){return n;}", "&Bad", "HCIRVM0014");
+        ])
+    [ "jit"; "aot" ]
+
+let callback_parameters_cli_contract () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode ~source:parameters_fixture
+           ~expected_preparation:0 ~expected_default_bytes:0
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a"));
+      with_file ".hc"
+        "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}I64 \
+         Apply(I64 (*p)(I64 n)){return p(Arg());}Apply(123);" (fun source ->
+          let ir = ir_json ~status:1 ~mode source
+          and native = host_json ~status:1 ~mode source in
+          require
+            (first_code ir = "HCIRVM0024" && first_code native = "HCIRVM0024")
+            "numeric callback parameter has no executable authority";
+          require
+            (executed_steps ir = executed_steps native)
+            "callback parameter CLI reached meter";
+          require
+            (member "output_hex" ir = `String "41"
+            && member "output_hex" native = `String "41")
+            "callback parameter CLI reached argument output";
+          require
+            (member "final_value" native = `Null)
+            "callback parameter fault exposes no final word"))
+    [ "jit"; "aot" ]
+
+let callback_storage_cli_contract () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode ~source:storage_fixture
+           ~expected_preparation:0 ~expected_default_bytes:0
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a"));
+      List.iter
+        (fun (contents, code, output) ->
+          with_file ".hc" contents (fun source ->
+              let ir = ir_json ~status:1 ~mode source
+              and native = host_json ~status:1 ~mode source in
+              require
+                (first_code ir = code && first_code native = code)
+                "callback storage CLI fault code";
+              require
+                (member "output_hex" ir = `String output
+                && member "output_hex" native = `String output)
+                "callback storage CLI reached output";
+              let fixture = batch_fixture ~mode source in
+              let fault =
+                match
+                  Native_scalar_fixture.execute ~max_steps:100000 fixture
+                with
+                | Error (first :: _) -> first
+                | _ -> failwith "callback storage checked-batch fault missing"
+              in
+              require
+                (executed_steps native = fault.executed_steps)
+                "callback storage CLI exact reached work";
+              require
+                (member "final_value" native = `Null)
+                "callback storage CLI fault exposes no numeric word"))
+        [
+          ( "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}I64 \
+             Run(){static I64 (*p)(I64 n)[2];p[1]=123;return \
+             p[1](Arg());}Run();",
+            "HCIRVM0024",
+            "41" );
+          ( "extern U0 PutChars(U64 ch);I64 Arg(){PutChars('A');return 40;}I64 \
+             (*G)(I64 n)[2];G[2](Arg());",
+            "HCIRVM0019",
+            "" );
+        ])
+    [ "jit"; "aot" ]
+
 let () =
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_against_ir ~mode
+           ~source:callback_return_storage_fixture ~expected_preparation:0
+           ~expected_default_bytes:0 ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a";
+             require
+               (member "output_hex" report = `String "41")
+               "callback copies preserve their original executable owner")))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_with_preparation ~initializer_steps:6
+           ~expected_source_preparation:(if mode = "jit" then 10 else 9)
+           ~mode ~source:callback_initializer_fixture ~expected_preparation:9
+           ~expected_default_bytes:8
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_with_preparation ~initializer_steps:0
+           ~expected_source_preparation:6 ~mode
+           ~source:callback_word_default_fixture ~expected_preparation:6
+           ~expected_default_bytes:16 ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_with_preparation ~initializer_steps:0
+           ~expected_source_preparation:9 ~mode
+           ~source:callback_argument_fixture ~expected_preparation:9
+           ~expected_default_bytes:24 ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_with_preparation ~initializer_steps:0
+           ~expected_source_preparation:(if mode = "jit" then 7 else 6)
+           ~mode ~source:word_tail_fixture ~expected_preparation:6
+           ~expected_default_bytes:16
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      ignore
+        (check_native_meter_with_preparation ~initializer_steps:0
+           ~expected_source_preparation:(if mode = "jit" then 10 else 9)
+           ~mode ~source:defaults_fixture ~expected_preparation:9
+           ~expected_default_bytes:24
+           ~check_final:(fun report ->
+             check_word report "i64" "42" "0x000000000000002a")))
+    [ "jit"; "aot" ];
+  callback_storage_cli_contract ();
+  callback_parameters_cli_contract ();
+  owned_local_callbacks_cli_contract ();
   scalar_fixture_modes ();
   u0_fixture_modes ();
   narrow_default_cli_contract ();
-  u0_final_latch_cli_contract ()
+  u0_final_latch_cli_contract ();
+  ordinary_calling_flags_cli_contract ()

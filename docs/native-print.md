@@ -49,9 +49,13 @@ Later argument effects cannot replace an earlier captured pointer value.
 
 Every supplied argument is evaluated and charged even when the format ignores
 it. A consumed missing argument or wrong value kind reports `HCIRVM0025`.
-A source-defined Print function executes its own body. The native target still
-rejects a provider selection followed by later same-name body publication;
-that program needs the retained execution phases under #704.
+A source-defined Print function executes its own body. The isolated native
+target rejects provider selection followed by later same-name publication;
+the retained task target preserves that source order. Its
+[provider callback entries](provider-callback-entries.md) also preserve earlier
+Print captures and saved defaults after the slot changes. Those entries use
+runtime argument counts and original primitive pointer kinds with the same
+formatter and atomic draft rules.
 
 Explicit U0 calls clear the ordinary numeric result. Implicit string statements
 preserve the preceding result through their original discard identity. Provider

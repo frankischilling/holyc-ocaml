@@ -9,7 +9,8 @@ let resolve ~table ~environment ~publications ~name selection =
   match Reference_selection.kind selection with
   | Reference_selection.Absent
   | Reference_selection.Unavailable
-  | Reference_selection.Local -> Ok Unavailable
+  | Reference_selection.Local
+  | Reference_selection.Static_local _ -> Ok Unavailable
   | Reference_selection.Source (symbol, stage) -> (
       match stage with
       | Reference_selection.Function_header_completed

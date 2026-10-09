@@ -1295,8 +1295,8 @@ let function_address_provenance_and_storage_shadowing () =
   let _, results = analyze prepared in
   let roots = root_results results "Caller" in
   Alcotest.(check (list string))
-    "storage shadowing keeps ordinary address-of types" [ "I64*"; "I64*" ]
-    (List.map type_name roots);
+    "storage shadowing keeps object and callback cell address types"
+    [ "I64*"; "I64**" ] (List.map type_name roots);
   let shapes =
     roots
     |> List.map (fun result ->
@@ -1405,11 +1405,27 @@ let dereferences_retain_source_types_and_shapes () =
           "object-value";
           "object-value";
           "object-value";
-          "function-value";
+          "callback-value";
           "object-value";
           "unavailable";
         ]
         (category_names roots);
+      let canceled = List.nth roots 10 in
+      let operand =
+        Semantic_function_call_expression_result
+        .result_canceled_callback_operand canceled
+      in
+      Alcotest.(check bool)
+        "the canceled star preserves the original callback header" true
+        (match operand with
+        | Some operand ->
+            Option.get
+              (Semantic_function_call_expression_result.result_callback_pointer
+                 canceled)
+            == Option.get
+                 (Semantic_function_call_expression_result
+                  .result_callback_pointer operand)
+        | None -> false);
       Alcotest.(check (list string))
         "dereferenced classes follow the resulting type"
         [
@@ -3151,9 +3167,9 @@ let invalid_assignment_destinations_report_the_operator () =
       "extern I64 Target(I64 value);I64 Caller(){I64 array[1];return \
        Target(array=0);}",
       "assignment destination is not an lvalue" );
-    ( "callback",
-      "extern I64 Target(I64 value);I64 Caller(I64 (*callback)(I64)){return \
-       Target(callback=0);}",
+    ( "callback array",
+      "extern I64 Target(I64 value);I64 Caller(){I64 \
+       (*callback)(I64)[2];return Target(callback=0);}",
       "assignment destination is not an lvalue" );
     ( "aggregate",
       "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
@@ -3376,14 +3392,13 @@ let invalid_update_operands_report_the_operator () =
        Target(array--);}",
       "--",
       "post-decrement operand is not an lvalue" );
-    ( "callback",
-      "extern I64 Target(I64 value);I64 Caller(I64 (*callback)(I64)){return \
-       Target(callback++);}",
+    ( "callback array",
+      "extern I64 Target(I64 value);I64 Caller(){I64 \
+       (*callback)(I64)[2];return Target(callback++);}",
       "++",
       "post-increment operand is not an lvalue" );
-    ( "function",
-      "extern I64 Target(I64 value);I64 Caller(I64 (*callback)(I64)){return \
-       Target((*callback)--);}",
+    ( "function address",
+      "extern I64 Target(I64 value);I64 Caller(){return Target((&Caller)--);}",
       "--",
       "post-decrement operand is not an lvalue" );
     ( "aggregate",
@@ -4222,7 +4237,9 @@ let selected_defaults_retain_semantic_results () =
                  result))
         (direct_defaults "Target" @ indirect_defaults);
       Alcotest.(check int)
-        "selected defaults add no identities beyond the three statement calls" 3
+        "selected defaults add no identities beyond three calls and their \
+         callback callee"
+        4
         (results |> Semantic_function_call_expression_result.all_results
        |> List.length))
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -6045,9 +6062,9 @@ let indexed_callback_arrays_keep_callee_results () =
       Alcotest.(check (list string))
         "each fully indexed callee has one checked value"
         [
-          "F64:object-value:f64-result:rank-0";
-          "F64:object-value:f64-result:rank-0";
-          "F64:object-value:f64-result:rank-0";
+          "F64:callback-value:integer-result:rank-0";
+          "F64:callback-value:integer-result:rank-0";
+          "F64:callback-value:integer-result:rank-0";
         ]
         (List.map
            (fun call ->
@@ -6437,13 +6454,13 @@ let indexed_outer_callback_arrays_use_checked_headers () =
       Alcotest.(check (list string))
         "each indexed outer callee is fully selected before slot binding"
         [
-          "I64:object-value:integer-result:rank-0";
-          "F64:object-value:f64-result:rank-0";
-          "I64*:object-value:integer-result:rank-0";
-          "CallbackBacked:object-value:f64-result:rank-0";
-          "I64:object-value:integer-result:rank-0";
-          "I64:object-value:integer-result:rank-0";
-          "F64:object-value:f64-result:rank-0";
+          "I64:callback-value:integer-result:rank-0";
+          "F64:callback-value:integer-result:rank-0";
+          "I64*:callback-value:integer-result:rank-0";
+          "CallbackBacked:callback-value:integer-result:rank-0";
+          "I64:callback-value:integer-result:rank-0";
+          "I64:callback-value:integer-result:rank-0";
+          "F64:callback-value:integer-result:rank-0";
         ]
         (calls
         |> List.map (fun call ->

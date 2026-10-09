@@ -57,14 +57,40 @@ val function_alias_original : entry -> entry option
 (** Exact immutable immediate original of an explicit function alias. Ordinary
     entries, including same-name/origin/shape clones, have no alias ancestry. *)
 
+val definition_payload : entry -> Definition.t option
+(** Exact immutable source definition attached by [Environment.add_definition].
+    A plain Definition-kind registration carries no replacement authority. *)
+
 val kind_name : kind -> string
 val kind_bit : kind -> int
 
 type lookup = Absent | Present of entry | Shadowed_by_local
+type table_scope = Current_table | Visible_tables
+type lexical_generation
+
+val lexical_generation_follows :
+  earlier:lexical_generation -> later:lexical_generation -> bool
 
 module Environment : sig
   type t
   type local_context
+  type local_snapshot
+
+  val lexical_generation : t -> lexical_generation
+
+  val mark_lexical_read : t -> lexical_generation
+  (** Advance the lexer journal. A generation cannot be copied or rewound to
+      conceal omitted original reads. This does not change a hash use count.
+      Views sharing or copying entry objects retain the same journal. Only the
+      current and preceding identities are retained. *)
+
+  val capture_locals : t -> local_snapshot
+
+  val with_saved_locals :
+    t -> local_snapshot -> (unit -> 'a) -> ('a, string) result
+  (** Restore a snapshot only in its physical original environment and restore
+      the current visibility on every exit. Local names do not grant frame,
+      storage, declaration or parser-position authority. *)
 
   val create : unit -> t
 
@@ -88,6 +114,16 @@ module Environment : sig
     entry
 
   val find_preprocessor : t -> string -> lookup
+
+  val add_definition :
+    t ->
+    definitions:Definition.Environment.t ->
+    definition:Definition.t ->
+    (entry, string) result
+  (** Publish a definition in the same ordered symbol store as other kinds. The
+      replacement object must physically belong to the supplied definition
+      writer; a visible foreign baseline object rejects. This supplies frontend
+      selection metadata, not native hash-record ownership. *)
 
   val add_public_primitive :
     t -> primitive:Common.Primitive_type.t -> origin:origin -> entry
@@ -136,6 +172,11 @@ module Environment : sig
 
   val find_function : t -> string -> entry option
   (** Function-kind-filtered table lookup used at function publication. *)
+
+  val find_kind : t -> scope:table_scope -> kind:kind -> string -> entry option
+  (** Pure kind-filtered lookup. [Current_table] selects this writer's entries;
+      [Visible_tables] also includes visible baseline entries. Neither lookup
+      observes a lexer read or increments a native hash use count. *)
 
   val begin_local_context : t -> local_context
 

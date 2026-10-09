@@ -64,7 +64,7 @@ let distinct_original_regions () =
         "equal text has distinct object addresses" true
         (Storage.data_offset first <> Storage.data_offset second);
       Alcotest.(check bool)
-        "equal text has distinct canonical tables" true
+        "equal text has distinct descriptors" true
         (Storage.table_offset first <> Storage.table_offset second);
       let image = Storage.image storage in
       List.iter
@@ -76,7 +76,7 @@ let distinct_original_regions () =
           Alcotest.(check bool)
             "table is after its data and fits the suffix" true
             (Storage.table_offset region >= Storage.data_offset region + 2
-            && Storage.table_offset region - 7 + 96 <= String.length image))
+            && Storage.table_offset region - 7 + 32 <= String.length image))
         [ first; second ];
       Alcotest.(check int)
         "logical and private bytes cover suffix" (String.length image)
@@ -115,20 +115,20 @@ let distinct_original_regions () =
 let quotas_before_expansion () =
   let unit = H.integer_unit "I64 F(){return \"*\"[0];}42;" in
   let exact =
-    create ~literal_limit:2 ~arena_limit:98 unit |> H.require_ok show
+    create ~literal_limit:2 ~arena_limit:34 unit |> H.require_ok show
   in
   Alcotest.(check int)
-    "two bytes and three reference records" 98
+    "two bytes and one descriptor" 34
     (String.length (Storage.image exact));
   rejects "one-below literal bytes" (create ~literal_limit:1 unit);
-  rejects "one-below data and table bytes" (create ~arena_limit:97 unit);
+  rejects "one-below data and descriptor bytes" (create ~arena_limit:33 unit);
   let prefixed =
-    create ~literal_limit:2 ~arena_limit:105 ~prefix:7 unit |> H.require_ok show
+    create ~literal_limit:2 ~arena_limit:41 ~prefix:7 unit |> H.require_ok show
   in
   Alcotest.(check int)
-    "prefix is not duplicated in suffix" 98
+    "prefix is not duplicated in suffix" 34
     (String.length (Storage.image prefixed));
-  rejects "prefix consumes arena quota" (create ~arena_limit:104 ~prefix:7 unit);
+  rejects "prefix consumes arena quota" (create ~arena_limit:40 ~prefix:7 unit);
   rejects "near-cap prefix checked before image allocation"
     (create ~arena_limit:33_554_432 ~prefix:33_554_400 unit);
   List.iter

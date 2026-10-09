@@ -57,3 +57,6 @@ val expression_identifier_nodes :
   Frontend.Ast.expression -> Frontend.Ast.identifier list
 
 val origin_of_location : Frontend.Ast.location -> Symbol.origin
+
+val expression_position_nodes :
+  Frontend.Ast.expression -> Frontend.Ast.expression list

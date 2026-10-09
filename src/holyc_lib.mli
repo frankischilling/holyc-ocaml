@@ -5,7 +5,7 @@ module Span = Common.Span
 module Diagnostic = Common.Diagnostic
 module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
-module Integer_task = Driver.Integer_task
+module Integer_task = Driver.Public_integer_task
 module Task_declarations = Driver.Task_declarations
 module Semantic_compiler_record = Sema.Compiler_record
 module Semantic_provisional_function = Sema.Provisional_function
@@ -33,6 +33,7 @@ module Native_execution = Runtime.Native_execution
 module Native_program_execution = Runtime.Native_program_execution
 module Native_expression = Hosted.Native_expression
 module Native_program = Hosted.Native_program
+module Native_source_execution = Hosted.Native_source_execution
 
 module Ir_integer_globals : sig
   type t = Ir.Integer_globals.t
@@ -111,8 +112,15 @@ module Ir_initializer_fragment_program : sig
   val runtime_calls : t -> Ir.Runtime_call_context.t
 end
 
-module Ir_integer_interpreter = Ir.Integer_interpreter
+module Ir_integer_interpreter = Ir.Public_integer_interpreter
+
+module Ir_prepared_callback_default = Ir.Prepared_callback_default
+(** Original anonymous signature/member evidence for a saved integer default.
+    Its numeric word grants no executable authority. Actual source preparation
+    and call materialization remain tied to their original owning receipts. *)
+
 module Ir_runtime_call_context = Ir.Runtime_call_context
+module Ir_callback_source = Ir.Callback_source
 module Native_parameter_defaults = Driver.Native_parameter_defaults
 module Native_global_initializers = Driver.Native_global_initializers
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
@@ -870,6 +878,9 @@ type integer_program_compilation =
 
 type integer_program_compilation_report
 
+val integer_program_compilation_compiler_exceptions :
+  integer_program_compilation_report -> Parser.compiler_exception list
+
 val compile_integer_program_report :
   ?max_dimension_work:int ->
   ?max_switch_work:int ->
@@ -996,14 +1007,42 @@ val run_integer_program :
     Scheduled arithmetic uses runtime IR semantics; initializers and their
     transitive callees retain explicit shift/divisor and narrow read/range
     optimizer boundaries. Supported pure constants supply initial-image bits.
-    General memory, arbitrary indirect/external calls and native code remain
-    unsupported. Checked Print/PutChars calls execute under separate positive
-    output/work limits (both default 1,048,576). This convenience entrypoint
-    projects the outcome; use [run_integer_program_report] to retain captured
-    bytes on both success and failure. Implicit output preserves the last
-    ordinary expression. *)
+    Resolved function addresses retain their original registered publication,
+    prepared body and executable owner as opaque values. Full-word copies, casts
+    and equality with owned code or null execute through ordinary word storage
+    and checked scalar callback automatic/static locals or named parameters.
+    Callback return types remain separate from their word storage. Concrete
+    numeric code addresses, callback globals/arrays and static callback
+    initializers remain unsupported. Named functions materialize original
+    integer-word defaults for one-star callback parameters; JIT declaration
+    effects occur once and closed defaults work in both IR modes. Anonymous
+    signatures also materialize their own integer defaults. Class/union callback
+    defaults also evaluate original lexical $$ class positions under their
+    retained selector. Ordinary $$ remains an instruction address and address
+    defaults remain unsupported. Nested headers leave their last class position
+    write visible; the evaluator retains each exact source node and successful
+    saved word. Numeric defaults confer no executable authority. Owned-code
+    defaults remain unsupported. One-star scalar automatic/static locals and
+    named parameter callbacks invoke their original captured integer/U0 body
+    with explicit fixed arguments and word variadic tails. Callee capture
+    precedes right-to-left arguments; null/numeric and incompatible reached
+    targets fail after argument effects. The original local/parameter anonymous
+    header controls saved-callee cleanup. A single star directly before a scalar
+    callback identifier is canceled, retaining its original storage and header.
+    Uncanceled dereferences and multistar callback invocation, live task address
+    linking and F64/aggregate callbacks remain unsupported. General memory and
+    native code also remain unsupported. Checked Print/PutChars calls execute
+    under separate positive output/work limits (both default 1,048,576). This
+    convenience entrypoint projects the outcome; use
+    [run_integer_program_report] to retain captured bytes on both success and
+    failure. Implicit output preserves the last ordinary expression. *)
 
 type integer_program_report
+
+val integer_program_report_compiler_exceptions :
+  integer_program_report -> Parser.compiler_exception list
+(** Original counted parser [Compiler] exceptions. Other diagnostics carry no
+    compiler exception authority. *)
 
 val run_integer_program_report :
   ?max_dimension_work:int ->

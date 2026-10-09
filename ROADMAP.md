@@ -1,5 +1,57 @@
 # holyc-ocaml roadmap
 
+Issue #704 now connects native AOT source sessions: original JIT `#exe` tasks
+generate source during parsing, and a distinct native module runs afterward.
+Instructions, output, preparation, defaults, code and storage stay bounded
+across both contexts. Synchronous StreamExePrint, runtime AOT dimensions,
+reference relocation and wider outer module support remain open. See
+[native AOT sessions](docs/native-aot-source-sessions.md).
+
+Original inherited size metadata now carries the selected base's reached layout
+and runtime dependencies into saved queries, defaults and frames. Partial bases,
+forward completion and same-name replacement follow the original parser phases.
+Aggregate object storage and member-index admission remain open. See
+[inherited layouts](docs/source-inherited-layouts.md).
+
+Issue #704 now connects integer runtime array bounds and aggregate `$$` offsets
+to original IR and native JIT task execution. Primitive member layouts retain
+runtime dependencies through completed sizes and derived frames. AOT relocation,
+floating bounds, aggregate object execution and synchronous native StreamExePrint
+remain open. See [runtime layout expressions](docs/runtime-layout-expressions.md).
+
+Issue #704 now connects integer `_intern` target expressions to original JIT
+task execution in IR and native code. Supported internal calls share the native
+task's owned storage and budgets. Floating targets, synchronous native
+StreamExePrint and exported executable addresses remain open. See
+[live internal bindings](docs/native-internal-bindings.md).
+
+Issue #704 now connects one-level primitive data-pointer defaults to original
+JIT headers, saved calls and native task storage. Miscellaneous-data expressions
+copy their resulting terminated string. AOT relocation, pointer returns,
+persistent pointer variables, source variadic pointer ownership and the wider
+memory model remain open. See [saved data defaults](docs/data-pointer-defaults.md).
+
+Issue #704 connects original scalar and fixed-array JIT initializer leaves,
+retained direct functions and resumed commands to one native arena through
+`host-jit-task`. Source requests execute once under a shared native budget.
+Each caller compiles its original function bodies and historical global bindings.
+Retained Print and PutChars calls use those original contexts and share the
+task's output allowance. Joined JIT extern calls retain their selected bodies
+and source contexts.
+Original task literals now keep their mutable bytes and reference tables across
+fragments, including retained formats and initializer calls.
+Integer function statics now allocate at the original live declaration and
+execute initializer leaves once in source order. Retained calls share their
+original private storage, including historical bodies after replacement.
+The compiler's direct literal-copy branch now initializes original fixed byte
+array statics under the same task ownership and initializer allowance.
+Named integer defaults now execute once at their original live header callback,
+including storage effects and calls to retained functions. Later and historical
+calls require the exact original saved word and native completion receipt.
+Wider defaults, synchronous native StreamExePrint and AOT reference relocation
+remain open. See
+[native source tasks](docs/native-source-tasks.md).
+
 Issue #797 adds [conditional integer chains](docs/conditional-comparison-chains.md)
 with original middle values, branch-skipped effects, cumulative classes and
 checked cross-block definitions. Pending reductions and floating chains remain
@@ -193,5 +245,16 @@ The complete HolyC ABI, persistent and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS
 loader acceptance, whole-tree compilation and bootstrap retain their own gates.
+
+Issue #801 connects original callback storage and checked integer/U0 invocation
+through IR and hosted native execution. Automatic, static and global cells,
+fully indexed arrays and callback parameters retain their selected headers,
+saved defaults and original calling flags. Explicit canceled dereferences reuse
+the same cells for calls, reads, assignments and numeric updates. Arithmetic
+after an update preserves eight-byte scaling and its I64 or U64 computation
+class. Supported global initializer regions and top-level calls also execute.
+Native source-session scheduling and shared task storage remain under #704;
+callback members, effectful defaults, owned-address arithmetic, remaining
+indirections and broader executable return domains keep #801 open.
 
 This file does not mark planned work as implemented. Current support is listed in the README and generated compatibility reports.

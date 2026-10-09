@@ -70,6 +70,25 @@
     },
     {
       "id": 578,
+      "name": "GENERATED",
+      "kind": "definition",
+      "origin": {
+        "kind": "source-span",
+        "span": {
+          "path": "cli/symbol-dump.hc",
+          "source_id": 0,
+          "start": 131,
+          "stop": 140,
+          "line": 7,
+          "column": 9,
+          "end_line": 7,
+          "end_column": 18
+        }
+      },
+      "call_shape": null
+    },
+    {
+      "id": 579,
       "name": "generated",
       "kind": "global-variable",
       "origin": {
@@ -120,7 +139,7 @@
       "call_shape": null
     },
     {
-      "id": 579,
+      "id": 580,
       "name": "Compute",
       "kind": "function",
       "origin": {

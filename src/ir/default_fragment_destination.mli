@@ -17,5 +17,7 @@ val typed : t -> Sema.Function_call_expression_result.top_level_t
 val root : t -> Sema.Function_call_expression_result.top_level_root_result
 val globals : t -> Integer_globals.t
 val type_ : t -> Sema.Type.t
+val is_callback : t -> bool
 val symbol : t -> Sema.Symbol.t
 val span : t -> Common.Span.t
+val symbol_opt : t -> Sema.Symbol.t option

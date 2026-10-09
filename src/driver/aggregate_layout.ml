@@ -34,8 +34,7 @@ let aggregate_kind = function
   | Frontend.Ast.Union_aggregate -> Sema.Aggregate_resolution.Union
 
 let ast_declarations (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Aggregate_forward_declaration forward ->
         Some
@@ -366,7 +365,8 @@ let aggregate_input ~offset ~dimension ~table ~scope event header aggregate
                 aggregate_items = items;
               }))
 
-let inputs ~offset ~dimension ~table ~scope events headers aggregates =
+let inputs ~metadata_only ~offset ~dimension ~table ~scope events headers
+    aggregates =
   let rec loop inputs_rev events headers aggregates =
     match events with
     | [] ->
@@ -375,6 +375,8 @@ let inputs ~offset ~dimension ~table ~scope events headers aggregates =
     | event :: rest -> (
         match event.ast.definition with
         | None -> loop inputs_rev rest headers aggregates
+        | Some definition when metadata_only definition ->
+            loop inputs_rev rest headers aggregates
         | Some definition -> (
             match (headers, aggregates) with
             | header :: header_rest, aggregate :: aggregate_rest ->
@@ -387,8 +389,8 @@ let inputs ~offset ~dimension ~table ~scope events headers aggregates =
   in
   loop [] events headers aggregates
 
-let layout ?offsets ?prepared ~table ~declarations ~aggregates ~headers ~members
-    module_ =
+let layout ?(inherited_metadata = []) ?offsets ?prepared ~table ~declarations
+    ~aggregates ~headers ~members module_ =
   let dimension = dimension ~table ?prepared in
   let offset ast =
     match offsets with
@@ -417,7 +419,10 @@ let layout ?offsets ?prepared ~table ~declarations ~aggregates ~headers ~members
       Result.bind (events ~table ~declarations ~aggregates module_)
         (fun events ->
           Result.bind
-            (inputs ~offset ~dimension ~table ~scope events
+            (inputs
+               ~metadata_only:
+                 (Inherited_metadata.contains ~table ~scope inherited_metadata)
+               ~offset ~dimension ~table ~scope events
                (Sema.Aggregate_header_resolution.headers headers)
                (Sema.Member_type_resolution.aggregates members))
             (fun inputs ->

@@ -100,27 +100,32 @@ let () =
     (fun target ->
       List.iter
         (fun mode ->
+          let steps, prep =
+            if target = "ir" && mode = "jit" then (274, 13) else (256, 0)
+          in
           validate
-            (invoke ~target ~mode ~steps:256 example)
-            ~steps:256 ~prep:0 ~hex:"34323a34323a34323a34323a3132383a42413b"
-            ~bytes:19 ~work:41;
-          let below = invoke ~target ~mode ~steps:255 ~status:1 example in
+            (invoke ~target ~mode ~steps example)
+            ~steps ~prep ~hex:"34323a34323a34323a34323a3132383a42413b" ~bytes:19
+            ~work:41;
+          let below =
+            invoke ~target ~mode ~steps:(steps - 1) ~status:1 example
+          in
           error below "HCIRVM0007";
           output below "34323a34323a34323a34323a3132383a42413b" 19 41)
         [ "jit"; "aot" ])
     (if native then [ "ir"; "host-jit" ] else [ "ir" ]);
   List.iter
     (fun mode ->
-      let report = invoke ~target:"ir" ~mode ~steps:118 retained_example in
-      validate report ~steps:118 ~prep:12 ~hex:"" ~bytes:0 ~work:7;
+      let report = invoke ~target:"ir" ~mode ~steps:120 retained_example in
+      validate report ~steps:120 ~prep:12 ~hex:"" ~bytes:0 ~work:7;
       validate
-        (invoke ~target:"ir" ~mode ~steps:118 ~preparation:12 retained_example)
-        ~steps:118 ~prep:12 ~hex:"" ~bytes:0 ~work:7;
+        (invoke ~target:"ir" ~mode ~steps:120 ~preparation:12 retained_example)
+        ~steps:120 ~prep:12 ~hex:"" ~bytes:0 ~work:7;
       error
         (invoke ~target:"ir" ~mode ~preparation:11 ~status:1 retained_example)
         "HCIRVM0007";
       error
-        (invoke ~target:"ir" ~mode ~steps:117 ~status:1 retained_example)
+        (invoke ~target:"ir" ~mode ~steps:119 ~status:1 retained_example)
         "HCIRVM0007";
       if native then
         error

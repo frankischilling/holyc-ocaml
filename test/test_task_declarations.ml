@@ -24,6 +24,7 @@ let parse_source ?sources ?symbols ?observe ?checkpoint ?reference
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some (Option.value checkpoint ~default:(D.observe_command ledger));
       reference;
@@ -283,7 +284,25 @@ let phase_order_and_replay () =
   in
   let ast = Test_parser.expect_ast output in
   match events with
-  | [ declared; position; header; body ] ->
+  | [ declared; position; header; entry; value; parsed; ending; body ] ->
+      let phases = [ entry; value; parsed; ending ] in
+      List.iter2
+        (fun event step ->
+          match event with
+          | Parser.Function_return_phase receipt ->
+              Alcotest.(check bool)
+                "original return phase order" true
+                (receipt.return_step = step);
+              reject "expired return receipt cannot mutate native flags"
+                (Parser.consume_function_return_phase receipt)
+          | _ -> Alcotest.fail "expected original return phase")
+        phases
+        [
+          Parser.Enter_function_body;
+          Parser.Check_value_return;
+          Parser.Value_return_parsed;
+          Parser.Check_function_body_return;
+        ];
       let initial, completion =
         match List.rev !checkpoints with
         | first :: second :: rest -> ([ first; second ], rest)
@@ -308,6 +327,11 @@ let phase_order_and_replay () =
       | _ -> Alcotest.fail "expected completed header");
       reject "header cannot complete twice" (D.observe ledger header);
       reject "unfinished function cannot seal" (D.seal ledger ast);
+      List.iter
+        (fun phase ->
+          ignore (D.observe ledger phase |> expect);
+          reject "metadata return phase cannot replay" (D.observe ledger phase))
+        phases;
       ignore (D.observe ledger body |> expect);
       reject "body cannot complete twice" (D.observe ledger body);
       List.iter
@@ -334,6 +358,7 @@ let nested_publication_views () =
   in
   let sink checkpoint : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -624,6 +649,7 @@ let nested_receipt_views () =
       let child_context = ref None in
       let sink checkpoint : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some checkpoint;
           query = None;
           call = None;
@@ -989,6 +1015,7 @@ let selected_runtime_source session runtime ledger contents =
   in
   let sink run : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -2340,6 +2367,7 @@ let nested_dimension_receipts () =
   in
   let sink checkpoint : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->
@@ -2966,6 +2994,7 @@ let nested_grammar_dimensions () =
       in
       let commands : Parser.command_sink =
         {
+          lexical_lookup = None;
           checkpoint = Some (D.observe_command ledger);
           call = None;
           implicit_output = None;
@@ -3016,6 +3045,11 @@ let nested_grammar_dimensions () =
 
 let implicit_selection_ownership () =
   let session, runtime, ledger = runtime_setup () in
+  (* This source-identity test needs a Function-kind header. The unbound frontend
+     entry still supplies no native argument metadata or executable target. *)
+  ignore
+    (Symbol_visibility.Environment.add (Session.symbols session) ~name:"Print"
+       ~kind:Symbol_visibility.Function ());
   let receipt = ref None in
   let source =
     Session.add_source session ~path:"implicit-selection.hc"
@@ -3050,8 +3084,397 @@ let implicit_selection_ownership () =
     (D.observe_implicit_output ledger receipt);
   ignore (resolve statement |> checked)
 
+let original_static_frame_sources () =
+  let module Unit = Holyc_lib__Driver.Integer_unit in
+  let module Source = Holyc_lib__Sema.Static_local_source in
+  let module Frame = Semantic_function_frame_layout in
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"original-statics.hc"
+      ~contents:
+        "I64 F(){static I64 A=41;static U8 B[2]={1,2};return 42;}I64 \
+         G(){static I64 A;return 42;}"
+  in
+  let ledger = D.create_source session ~source |> checked in
+  let output, events = parse_source session ledger source in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal_source ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let allocations = D.source_static_allocations ~table ~ast command |> expect in
+  Alcotest.(check int)
+    "three original static allocations" 3 (List.length allocations);
+  let receipts =
+    List.filter_map
+      (function
+        | Parser.Function_local_allocated receipt -> Some receipt
+        | _ -> None)
+      events
+  in
+  Alcotest.(check bool)
+    "source allocation order is retained" true
+    (List.for_all2
+       (fun allocation receipt ->
+         Extent.static_allocation_receipt allocation == receipt)
+       allocations receipts);
+  reject "static source seal rejects rebuilt AST"
+    (D.source_static_allocations ~table
+       ~ast:(copy_module ast ast.items)
+       command);
+  reject "static source seal rejects foreign table"
+    (D.source_static_allocations
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~ast command);
+  let compiled =
+    Unit.compile_source_output ~source_command:command
+      ~max_initializer_steps:200 session ~config:(config ()) output
+    |> expect
+    |> fun value -> value.Unit.value
+  in
+  let bound = Unit.static_sources compiled in
+  Alcotest.(check int) "three source/frame joins" 3 (List.length bound);
+  List.iter2
+    (fun allocation owner ->
+      Alcotest.(check bool)
+        "join retains original allocation" true
+        (Source.allocation owner == allocation);
+      let frame = Source.frame owner and location = Source.location owner in
+      Alcotest.(check bool)
+        "static location has no automatic frame slot" true
+        (Option.is_none (Frame.location_frame_slot location));
+      Alcotest.(check bool)
+        "exact checked local is retained" true
+        (Option.is_some (Frame.location_local_source location));
+      List.iter
+        (fun other ->
+          if other != owner then
+            reject "another original local cannot borrow this allocation"
+              (Source.bind ~allocation ~frame:(Source.frame other)
+                 ~location:(Source.location other)))
+        bound;
+      List.iter
+        (fun other ->
+          if Source.frame other != frame then
+            reject "exact location cannot borrow another function frame"
+              (Source.bind ~allocation ~frame:(Source.frame other) ~location))
+        bound)
+    allocations bound;
+  Alcotest.(check (list int64))
+    "original array dimensions remain checked" [ 2L ]
+    (Extent.static_allocation_dimensions (List.nth allocations 1)
+    |> List.map Extent.dimension_count)
+
+let native_static_storage_owners () =
+  let module Task = Holyc_lib__Driver.Integer_task in
+  let module Dispatch = Task.Native_dispatch in
+  let module Unit = Holyc_lib__Driver.Integer_unit in
+  let module Globals = Holyc_lib__Ir.Integer_globals in
+  let module Allocation = Holyc_lib__Ir.Integer_static_allocation in
+  let module Source = Holyc_lib__Sema.Static_local_source in
+  let session = Session.create () in
+  let observed_programs = ref [] in
+  let dispatch : Dispatch.t =
+    {
+      execute_initializer =
+        (fun _ -> Alcotest.fail "metadata probe reached an initializer");
+      execute_command =
+        (fun request ->
+          observed_programs :=
+            Dispatch.command_program request :: !observed_programs;
+          Dispatch.claim_command_request request |> checked;
+          Ok Dispatch.Unchanged);
+    }
+  in
+  let task =
+    Task.create ~native_dispatch:dispatch ~max_global_bytes:24 session
+    |> checked
+  in
+  let source =
+    Session.add_source session ~path:"private-native-statics.hc"
+      ~contents:
+        "I64 F(){static I64 A;static U8 B[2];return 42;}I64 G(){static I64 \
+         A;return 42;}"
+  in
+  ignore (Task.run task ~source |> expect);
+  let programs = List.rev !observed_programs in
+  Alcotest.(check int)
+    "both original definitions reach the metadata probe" 2
+    (List.length programs);
+  Alcotest.(check int)
+    "original padded allocation quota is charged once" 24
+    (Task.progress task).runtime.global_bytes;
+  Alcotest.(check int)
+    "metadata probe executes no interpreter instructions" 0
+    (Task.progress task).runtime.executed_steps;
+  let first = List.hd programs and second = List.nth programs 1 in
+  let bindings = Globals.private_static_bindings (Unit.globals first) in
+  Alcotest.(check int)
+    "first snapshot has two private allocations" 2 (List.length bindings);
+  Alcotest.(check int)
+    "later snapshot retains all original private allocations" 3
+    (List.length (Globals.private_static_bindings (Unit.globals second)));
+  List.iter
+    (fun program ->
+      Alcotest.(check int)
+        "completion does not charge storage again" 0
+        (Globals.byte_size (Unit.globals program));
+      Alcotest.(check int)
+        "private statics create no ordinary global declarations" 0
+        (List.length (Globals.slots (Unit.globals program)));
+      Alcotest.(check int)
+        "private statics create no retained global bindings" 0
+        (List.length (Globals.retained_storage_bindings (Unit.globals program)));
+      Alcotest.(check int)
+        "completed private statics need no new interpreter cells" 0
+        (List.length (Globals.allocated_storage_slots (Unit.globals program)));
+      let private_ = Globals.private_static_bindings (Unit.globals program) in
+      List.iter2
+        (fun slot source ->
+          let allocation =
+            Globals.static_source_allocation slot |> Option.get
+          in
+          Allocation.check_completed allocation source |> checked;
+          Alcotest.(check bool)
+            "completed slot retains exact original allocation" true
+            (Allocation.source allocation == Source.allocation source);
+          Alcotest.(check bool)
+            "pending and completed storage share one owner" true
+            (Globals.same_storage
+               (Globals.declared_static_storage allocation)
+               (Globals.static_storage slot));
+          List.iter
+            (fun (other, _) ->
+              if other != allocation then
+                reject
+                  "another private declaration cannot borrow the completed \
+                   local"
+                  (Allocation.check_completed other source))
+            private_;
+          let foreign =
+            Holyc_lib__Ir.Integer_interpreter.create_task_state
+              ~native_storage_authority:true
+              ~table:(Session.semantic_symbols (Session.create ()))
+              ()
+            |> checked
+          in
+          reject "expired allocation cannot enter another task"
+            (Holyc_lib__Ir.Integer_interpreter.admit_static_allocation foreign
+               allocation))
+        (Globals.statics (Unit.globals program))
+        (Unit.static_sources program))
+    programs;
+  Gc.full_major ();
+  let later = Globals.private_static_bindings (Unit.globals second) in
+  List.iter2
+    (fun (original, _) (retained, _) ->
+      Alcotest.(check bool)
+        "later view preserves original allocation objects" true
+        (original == retained))
+    bindings
+    (List.filteri (fun index _ -> index < 2) later);
+  let exhausted =
+    Session.add_source session ~path:"private-static-quota.hc"
+      ~contents:"I64 H(){static U8 C;return 42;}"
+  in
+  let errors =
+    match Task.run task ~source:exhausted with
+    | Error errors -> errors
+    | Ok _ ->
+        Alcotest.fail "private static exceeded the original cumulative quota"
+  in
+  Alcotest.(check bool)
+    "private declaration reports cumulative quota failure" true
+    (List.exists
+       (fun (error : Diagnostic.t) -> error.code = "HCIRVM0016")
+       errors);
+  Alcotest.(check int)
+    "failed allocation preserves earlier charges" 24
+    (Task.progress task).runtime.global_bytes;
+  Alcotest.(check int)
+    "failed declaration never reaches a command request" 2
+    (List.length !observed_programs)
+
+let original_header_warning_consumption () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"header-warning-control.hc"
+      ~contents:"extern I64 F(I64 n);U8 F(U8 n){return n;}42;"
+  in
+  let ledger = D.create_source session ~source |> checked in
+  let foreign = D.create_source session ~source |> checked in
+  let counts = ref [] and headers = ref [] in
+  let observe event =
+    let ( let* ) = Result.bind in
+    let* () = D.observe ledger event in
+    match event with
+    | Parser.Function_header_completed header ->
+        reject "foreign ledger cannot emit warnings"
+          (D.emit_function_header_warnings foreign header);
+        let copied : Parser.completed_function_header =
+          Obj.obj (Obj.dup (Obj.repr header))
+        in
+        reject "copied header cannot emit warnings"
+          (D.emit_function_header_warnings ledger copied);
+        let* () = D.emit_function_header_warnings ledger header in
+        reject "original completed warning phase is single use"
+          (D.emit_function_header_warnings ledger header);
+        let context =
+          header.function_publication.function_header.declaration_command
+            .command_context
+        in
+        counts := (Parser.context_warning_count context |> checked) :: !counts;
+        headers := header :: !headers;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let parsed, _ = parse_source ~observe session ledger source in
+  ignore (Test_parser.expect_ast parsed);
+  Alcotest.(check (list int64))
+    "only actual mismatches increment warning_cnt" [ 0L; 2L ] (List.rev !counts);
+  Alcotest.(check (list string))
+    "return warning precedes argument warning"
+    [ "HCSEMA0037"; "HCSEMA0038" ]
+    (List.map
+       (fun (diagnostic : Diagnostic.t) -> diagnostic.code)
+       parsed.diagnostics);
+  List.iter
+    (fun header ->
+      Alcotest.(check bool)
+        "original consumption evidence survives closure" true
+        (D.function_header_warnings_consumed ledger header |> checked);
+      reject "expired header cannot re-emit"
+        (D.emit_function_header_warnings ledger header);
+      reject "closed control cannot operate on its counter"
+        (Parser.context_warning_count
+           header.function_publication.function_header.declaration_command
+             .command_context))
+    !headers
+
+let original_saved_compiler_contexts () =
+  let session, ledger = setup () in
+  let unobserved = D.create session |> checked in
+  let missing = D.create session |> checked in
+  let foreign_session, foreign = setup () in
+  let root = ref None and tokens = ref [] and accepted = ref 0 in
+  let skipped = ref false in
+  let checkpoint event =
+    D.observe_command ledger event |> expect;
+    let skip =
+      match event with
+      | Parser.Command_completed receipt
+        when Option.is_some
+               (Parser.context_parent receipt.command_start.command_context)
+             && not !skipped -> true
+      | _ -> false
+    in
+    if skip then skipped := true
+    else if not !skipped then D.observe_command missing event |> expect;
+    (match event with
+    | Parser.Sequence_started context
+      when Option.is_none (Parser.context_parent context) ->
+        root := Some context
+    | Parser.Command_completed receipt -> (
+        let context = receipt.command_start.command_context in
+        let token = Parser.suspend_context context |> checked in
+        tokens := (token, context) :: !tokens;
+        Alcotest.(check bool)
+          "suspension owns its exact current parser" true
+          (Parser.suspension_is_from_context token context);
+        match Parser.context_parent context with
+        | None ->
+            reject "ordinary input grants no saved compiler tables"
+              (D.saved_compiler_context ledger ~session ~suspension:token)
+        | Some parent ->
+            let expected =
+              match parent with
+              | Parser.Before_first_command context -> context
+              | Parser.Reading_command command -> command.command_context
+              | Parser.Awaiting_resume completed ->
+                  completed.command_start.command_context
+            in
+            let selected =
+              D.saved_compiler_context ledger ~session ~suspension:token
+              |> checked
+            in
+            incr accepted;
+            Alcotest.(check bool)
+              "ledger selects the immediate original parent" true
+              (selected == expected);
+            Alcotest.(check bool)
+              "parent cannot replace current child receipt" false
+              (Parser.suspension_is_from_context token (Option.get !root));
+            reject "same environment without original events grants no ledger"
+              (D.saved_compiler_context unobserved ~session ~suspension:token);
+            reject "foreign source ledger grants no tables"
+              (D.saved_compiler_context foreign ~session:foreign_session
+                 ~suspension:token);
+            if skip then
+              reject "missing child checkpoint rejects saved parent selection"
+                (D.saved_compiler_context missing ~session ~suspension:token);
+            Alcotest.(check bool)
+              "foreign domain cannot select live saved tables" true
+              (Domain.spawn (fun () ->
+                   (not (Parser.suspension_is_from_context token context))
+                   && Result.is_error
+                        (D.saved_compiler_context ledger ~session
+                           ~suspension:token))
+              |> Domain.join))
+    | _ -> ());
+    Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = Some checkpoint;
+      reference = None;
+      call = None;
+      implicit_output = None;
+      query = None;
+      declaration = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let execute_stream _ =
+    Ok
+      Parser.
+        {
+          definitions = Session.definitions session;
+          symbols = Session.symbols session;
+          commands;
+          finish = (fun () -> Ok "");
+          abort = (fun () -> ());
+        }
+  in
+  let output, _ =
+    parse ~checkpoint ~execute_stream session ledger
+      "42;#exe {40;#exe {2;}42;}42;"
+  in
+  ignore (Test_parser.expect_ast output);
+  Alcotest.(check bool)
+    "nested saved selections were reached" true (!accepted >= 3);
+  List.iter
+    (fun (token, context) ->
+      Alcotest.(check bool)
+        "closed parser suspension expires" false
+        (Parser.suspension_is_from_context token context);
+      reject "closed saved compiler context rejects"
+        (D.saved_compiler_context ledger ~session ~suspension:token))
+    !tokens
+
 let tests =
   [
+    Alcotest.test_case
+      "nested saved compiler tables require complete original ledger events"
+      `Quick original_saved_compiler_contexts;
+    Alcotest.test_case
+      "original header warnings retain count and single-use authority" `Quick
+      original_header_warning_consumption;
+    Alcotest.test_case
+      "live native statics retain private storage and completed frames" `Quick
+      native_static_storage_owners;
+    Alcotest.test_case "static allocations join exact original completed frames"
+      `Quick original_static_frame_sources;
     Alcotest.test_case
       "global extents retain exact publication and record ownership" `Quick
       global_extent_ownership;

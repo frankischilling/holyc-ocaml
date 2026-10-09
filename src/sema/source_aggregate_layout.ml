@@ -73,9 +73,9 @@ module Offsets = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
-let layout ~offsets ~dimensions ~table ~namespace ~symbol
-    (definition : Ast.aggregate_definition) =
-  if Option.is_some definition.base then
+let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
+    ~table ~namespace ~symbol (definition : Ast.aggregate_definition) =
+  if Option.is_some definition.base <> Option.is_some initial_size then
     Error "retained aggregate bases require original selected layout metadata"
   else if definition.attached_declarators <> [] then
     Error "retained aggregate attached storage is not implemented"
@@ -98,18 +98,26 @@ let layout ~offsets ~dimensions ~table ~namespace ~symbol
               map_result
                 (fun ( declarator_index,
                        (member : Ast.aggregate_member_declarator) ) ->
-                  if
-                    Option.is_some member.member_function_pointer
-                    || member.member_metadata <> []
-                  then
+                  if member.member_metadata <> [] then
                     Error
-                      "retained aggregate callbacks and member metadata \
-                       require original preparation"
+                      "retained aggregate member metadata requires original \
+                       preparation"
                   else
                     let* type_ =
-                      Source_type_reference.builtin
-                        declaration.member_type_specifier
-                        member.member_pointer_layers
+                      match member.member_function_pointer with
+                      | None ->
+                          Source_type_reference.builtin
+                            declaration.member_type_specifier
+                            member.member_pointer_layers
+                      | Some source -> (
+                          match callbacks source with
+                          | Some header ->
+                              Source_type_reference.callback_storage ~header
+                                source
+                          | None ->
+                              Error
+                                "retained callback layout lacks its original \
+                                 completed header")
                     in
                     let* fact =
                       Member_collection.make_member
@@ -181,7 +189,8 @@ let layout ~offsets ~dimensions ~table ~namespace ~symbol
                       member_declarator_index = declarator_index;
                       member_origin = origin member.member_declarator_location;
                       member_type = Type_reference.resolved_type type_;
-                      member_is_function_pointer = false;
+                      member_is_function_pointer =
+                        Option.is_some member.member_function_pointer;
                       member_dimensions =
                         List.map2
                           (fun (dimension : Ast.array_dimension) count ->
@@ -202,20 +211,23 @@ let layout ~offsets ~dimensions ~table ~namespace ~symbol
         members
       |> List.concat
     in
-    Layout.layout ~table ~parent
-      [
-        {
-          aggregate_symbol = symbol;
-          aggregate_scope = Member_collection.aggregate_scope collected;
-          aggregate_kind =
-            (match definition.aggregate_kind with
-            | Class_aggregate -> Layout.Class
-            | Union_aggregate -> Layout.Union);
-          aggregate_item_index = 0;
-          aggregate_origin = origin definition.location;
-          aggregate_base = None;
-          aggregate_items = items [] definition.members;
-        };
-      ]
+    let input : Layout.aggregate_input =
+      {
+        aggregate_symbol = symbol;
+        aggregate_scope = Member_collection.aggregate_scope collected;
+        aggregate_kind =
+          (match definition.aggregate_kind with
+          | Class_aggregate -> Layout.Class
+          | Union_aggregate -> Layout.Union);
+        aggregate_item_index = 0;
+        aggregate_origin = origin definition.location;
+        aggregate_base = None;
+        aggregate_items = items [] definition.members;
+      }
+    in
+    (match initial_size with
+      | None -> Layout.layout ~table ~parent [ input ]
+      | Some initial_size ->
+          Layout.layout_from_size ~table ~parent ~initial_size input)
     |> Result.map_error Layout.error_to_string
     |> Result.map (fun result -> (List.hd (Layout.layouts result)).size)

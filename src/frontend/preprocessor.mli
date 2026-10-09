@@ -58,6 +58,36 @@ module Config : sig
 end
 
 type t
+type lexical_lookup
+
+val lexical_lookup_environment :
+  lexical_lookup -> Symbol_visibility.Environment.t
+
+val lexical_lookup_mode : lexical_lookup -> compilation_mode
+val lexical_lookup_token : lexical_lookup -> Token.t
+val lexical_lookup_selection : lexical_lookup -> Symbol_visibility.lookup
+val lexical_lookup_definition : lexical_lookup -> Definition.t option
+val lexical_lookup_predefined : lexical_lookup -> Predefined.t option
+val lexical_lookup_ordinal : lexical_lookup -> int
+
+val lexical_lookup_generation :
+  lexical_lookup -> Symbol_visibility.lexical_generation
+
+val lexical_lookup_is_current : lexical_lookup -> bool
+
+val same_lexical_lookup_stream : lexical_lookup -> lexical_lookup -> bool
+(** A read-only observation of one original identifier or keyword lexer read,
+    including reads consumed by directives and definition expansion. The symbol
+    selection uses the preprocessor mask and original local visibility. Source
+    Definition entries carry their exact replacement payload and expansion
+    consumes this original selection. Definition and predefined metadata also
+    retain fallback candidates, which may be suppressed by the selected symbol
+    or local member. They do not establish native hash-record ownership. The
+    ordinal is stream-local and increases once per observation. The opaque
+    receipt is current only in its original domain during its synchronous
+    callback; a saved receipt, copied token or another stream cannot grant
+    original lookup authority. These observations do not increment a native hash
+    use count. *)
 
 type stream_output = {
   generated : string;
@@ -82,6 +112,7 @@ type output = {
     scoped to this stream. *)
 
 val create :
+  ?lexical_lookup:(lexical_lookup -> unit) ->
   ?execute_stream:
     (t -> Common.Span.t -> (stream_output, Common.Diagnostic.t list) result) ->
   sources:Common.Source_manager.t ->
@@ -104,11 +135,26 @@ val with_environment :
 
 val next : t -> Lexer.item
 
+val with_lexical_consumer :
+  t -> consume:(lexical_lookup -> unit) option -> (unit -> 'a) -> 'a
+(** Select the synchronous consumer for original lexer reads within this scope.
+    It runs before the input's inspection observer, under the same original
+    current receipt. [None] masks an enclosing consumer. Nested scopes restore
+    their predecessor on every exit and expire their last receipt; restoration
+    never revives an old receipt. This service supplies no native record or
+    executable authority by itself. *)
+
 val take_pending_diagnostics : t -> Common.Diagnostic.t list
 (** Drain already produced diagnostics without reading any further source. An
     execution-enabled parser uses this when stopping at the first error. *)
 
 val diagnostic_context : t -> diagnostic_context
+
+val in_definition_input : t -> bool
+(** Whether the current original lexer input is a definition replacement.
+    Capture this with the returned token, before requesting another item.
+    Generated stream and included source inputs are not definitions. *)
+
 val definitions : t -> Definition.t list
 val definition_dump : t -> string
 val help_metadata : t -> Help_metadata.t

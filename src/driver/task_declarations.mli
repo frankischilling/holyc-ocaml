@@ -1,5 +1,18 @@
 type t
 
+val observe_lexical_lookup :
+  t ->
+  Frontend.Parser.command_context ->
+  Frontend.Preprocessor.lexical_lookup ->
+  (unit, Common.Diagnostic.t list) result
+(** Consume one original scoped lexer receipt in this ledger's active source or
+    runtime context. Foreign sources, environments, domains, expired receipts,
+    suspended contexts and duplicate reads reject. This records a source read;
+    it does not admit execution or increment a native hash counter. *)
+
+val lexical_read_count : t -> int
+(** Number of original reads accepted by this ledger, not a native use count. *)
+
 val observe_call_start :
   t ->
   Frontend.Parser.call_start ->
@@ -88,6 +101,14 @@ val begin_runtime_dimension :
     Common.Diagnostic.t list )
   result
 
+val defer_source_runtime_offset :
+  t ->
+  phase:Frontend.Parser.aggregate_phase ->
+  Frontend.Parser.declaration_event ->
+  (unit, Common.Diagnostic.t list) result
+(** Record the original pending offset event before JIT activation without
+    advancing its layout, evaluating its expression or charging work. *)
+
 val finish_runtime_dimension :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
@@ -117,6 +138,20 @@ val complete_defaults_runtime :
   Frontend.Parser.completed_function_header ->
   (unit, Common.Diagnostic.t list) result
 
+val emit_function_header_warnings :
+  ?runtime:Ir.Integer_interpreter.task_state ->
+  t ->
+  Frontend.Parser.completed_function_header ->
+  (unit, Common.Diagnostic.t list) result
+(** Consume the exact live completed header once. JIT extern joins compare the
+    saved original native cursor and successful default values before body
+    parsing. Ordinary source observation grants no execution authority. *)
+
+val function_header_warnings_consumed :
+  t -> Frontend.Parser.completed_function_header -> (bool, string) result
+(** Read an original observed receipt's consumption state. Activation can admit
+    an earlier source header without replaying its completed warning phase. *)
+
 val default_fragment_authority :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
@@ -135,6 +170,16 @@ val native_initializer_fragment :
   (Sema.Initializer_fragment.authority, Common.Diagnostic.t list) result
 (** Authorize only the current original closed scalar leaf of an isolated source
     ledger, without admitting its declaration to a runtime task. *)
+
+val native_load_initializer_source :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_initializer_leaf ->
+  ( Sema.Compiler_record.declared_global * Sema.Initializer_source.leaf,
+    Common.Diagnostic.t list )
+  result
+(** Retain the exact observed AOT leaf and declaration for load-time
+    compilation. This admits no runtime storage and evaluates no expression. *)
 
 val initializer_declaration :
   t ->
@@ -194,6 +239,14 @@ val complete_initializer_runtime :
 
 type command
 
+val inherited_metadata :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Sema.Compiler_record.inherited_metadata list,
+    Common.Diagnostic.t list )
+  result
+
 val selected_type_resolver :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -218,6 +271,14 @@ val retained_function_headers :
     Common.Diagnostic.t list )
   result
 
+val function_compiler_options :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  (Sema.Symbol.t -> (int64, string) result, Common.Diagnostic.t list) result
+(** Original per-function masks reached at body completion, or header completion
+    for declarations without a body, in this exact sealed command. *)
+
 val implicit_output_resolver :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -233,6 +294,20 @@ val implicit_output_resolver :
 *)
 
 type source_command
+
+val source_function_compiler_options :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Sema.Symbol.t -> (int64, string) result, Common.Diagnostic.t list) result
+
+val source_inherited_metadata :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Sema.Compiler_record.inherited_metadata list,
+    Common.Diagnostic.t list )
+  result
 
 val source_selected_type_resolver :
   table:Sema.Symbol_table.t ->
@@ -365,6 +440,7 @@ type reference_stage = private
       * Frontend.Ast.function_definition option
 
 val dimension_work : t -> int
+val compiler_positions : t -> Sema.Compiler_record.compiler_positions
 val switch_budget : t -> Sema.Integer_switch_preparation.budget
 val switch_work : t -> int
 val switch_preparation_work : t -> int
@@ -645,6 +721,62 @@ val observe_implicit_emission :
   (unit, Common.Diagnostic.t list) result
 
 val parser_suspension : t -> (Frontend.Parser.suspension, string) result
+
+val execute_compiler_option :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  int64 ->
+  bool option ->
+  (bool, string) result
+(** Operate on the exact current original compiler control owned by this source
+    runtime and its fully observed ledger. A saved namespace, another runtime,
+    domain, advanced or closed context supplies no authority. *)
+
+val emit_compiler_warnings :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Common.Diagnostic.t list ->
+  (unit, string) result
+(** Emit reached warnings through this runtime's original fully observed active
+    parser control. Nested source contexts use their enclosing warning sink. *)
+
+val saved_compiler_context :
+  t ->
+  session:Session.t ->
+  suspension:Frontend.Parser.suspension ->
+  (Frontend.Parser.command_context, string) result
+(** Validate this original ledger against the unchanged enclosing position of
+    the active directive. The enclosing context must be the ledger's active head
+    or the immediate parent of the exact suspended directive. Both observed
+    contexts require complete original events. Environment equality alone grants
+    no authority. *)
+
+val create_saved_compiler_runtime :
+  t ->
+  session:Session.t ->
+  suspension:Frontend.Parser.suspension ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  (t, string) result
+(** Observe JIT child input in the saved original namespace. Declarations and
+    completed type metadata stay in that namespace; source sequences, command
+    admission and executable/storage publications stay in the child's distinct
+    runtime catalog. The enclosing source is not replayed or promoted into
+    execution. *)
+
+val check_failed_compiler_input :
+  ?directive_ledger:t ->
+  t ->
+  session:Session.t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  suspension:Frontend.Parser.suspension ->
+  Frontend.Parser.failed_input ->
+  (unit, string) result
+(** Require the exact failed input's closed original ledger, session and
+    semantic table before the runtime claims a Compiler catch. A call producer
+    in a nested directive can use that directive's original ledger only when its
+    closed physical journal, captured native shape and shared runtime resources
+    match the actual producer context in this suspended input. *)
+
 val offset_work : t -> int
 val source_offset_work : source_command -> int
 
@@ -684,11 +816,56 @@ val finish_runtime_offset :
   Frontend.Parser.aggregate_phase ->
   (unit, Common.Diagnostic.t list) result
 
+val declare_static_symbol :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.function_local_allocation ->
+  (Ir.Integer_static_allocation.t, Common.Diagnostic.t list) result
+
+val declare_native_static_symbol :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.function_local_allocation ->
+  (Ir.Integer_static_allocation.t, Common.Diagnostic.t list) result
+
 val native_static_initializer_fragment :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
   Frontend.Parser.static_initializer_preparation ->
   (Sema.Static_initializer_fragment.t, Common.Diagnostic.t list) result
+
+val task_static_fragment :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( Ir.Integer_static_allocation.t * Sema.Static_initializer_fragment.t,
+    Common.Diagnostic.t list )
+  result
+
+val native_task_static_fragment :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.static_initializer_preparation ->
+  ( Ir.Integer_static_allocation.t * Sema.Static_initializer_fragment.t,
+    Common.Diagnostic.t list )
+  result
+
+val static_allocations :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  (Sema.Compiler_record.static_allocation list, Common.Diagnostic.t list) result
+
+val source_static_allocations :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Sema.Compiler_record.static_allocation list, Common.Diagnostic.t list) result
+(** Original live JIT static allocations in this exact sealed command, in source
+    order. These source witnesses contain no prepared values or native storage
+    authority. AOT and callback-free parsing retain no such witnesses. *)
 
 val begin_runtime_internal_binding :
   t ->
@@ -706,3 +883,61 @@ val finish_runtime_internal_binding :
   succeeded:bool ->
   Frontend.Parser.internal_binding_preparation ->
   (unit, Common.Diagnostic.t list) result
+
+val begin_callback_default_attempt :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_callback_default ->
+  (Ir.Integer_interpreter.default_attempt, Common.Diagnostic.t list) result
+
+val callback_default_fragment_authority :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.completed_callback_default ->
+  (Sema.Default_fragment.authority, Common.Diagnostic.t list) result
+
+val complete_callback_defaults_runtime :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_callback_signature ->
+  (unit, Common.Diagnostic.t list) result
+
+val begin_source_callback_default :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_callback_default ->
+  (Sema.Default_fragment.authority, Common.Diagnostic.t list) result
+
+val finish_source_callback_default :
+  t ->
+  Ir.Integer_interpreter.default_constant ->
+  (unit, Common.Diagnostic.t list) result
+
+val begin_native_source_callback_default :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_callback_default ->
+  (Sema.Default_fragment.authority, Common.Diagnostic.t list) result
+
+val finish_native_source_callback_default :
+  t ->
+  Ir.Integer_interpreter.default_constant ->
+  (unit, Common.Diagnostic.t list) result
+
+val complete_source_callback_defaults :
+  t ->
+  Frontend.Parser.completed_callback_signature ->
+  (unit, Common.Diagnostic.t list) result
+
+val source_callback_defaults :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Ir.Prepared_callback_default.t list, Common.Diagnostic.t list) result
+
+val native_source_callback_defaults :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Ir.Prepared_callback_default.t list, Common.Diagnostic.t list) result

@@ -515,6 +515,7 @@ let resolve_function table indexed (input : function_input) =
                     | Reference_selection.Absent
                     | Reference_selection.Unavailable
                     | Reference_selection.Source _
+                    | Reference_selection.Static_local _
                     | Reference_selection.Outer _ -> Ok Nonlocal_candidate)
           in
           match resolution with

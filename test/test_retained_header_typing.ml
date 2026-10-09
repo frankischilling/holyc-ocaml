@@ -61,6 +61,7 @@ let parse_fixture text =
   let header = ref None in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = None;

@@ -119,13 +119,50 @@ type t = {
   mutable stream_depth : int;
   mutable halted : Token.t option;
   mutable current : Lexer_frame.t;
+  mutable returned_definition_input : bool;
   mutable lookahead : Token.t option;
   mutable generated_bytes : int;
   mutable conditionals : conditional list;
   mutable conditional_poisoned : bool;
   mutable pending_diagnostics : Common.Diagnostic.t list;
   mutable help_metadata : Help_metadata.t;
+  lexical_lookup : (lexical_lookup -> unit) option;
+  mutable lexical_consumer : (lexical_lookup -> unit) option;
+  mutable current_lookup : lexical_lookup option;
+  mutable next_lookup_ordinal : int;
 }
+
+and lexical_lookup = {
+  lookup_stream : t;
+  lookup_domain : Domain.id;
+  lookup_environment : Symbol_visibility.Environment.t;
+  lookup_mode : compilation_mode;
+  lookup_token : Token.t;
+  lookup_selection : Symbol_visibility.lookup;
+  lookup_definition : Definition.t option;
+  lookup_predefined : Predefined.t option;
+  lookup_ordinal : int;
+  lookup_generation : Symbol_visibility.lexical_generation;
+}
+
+let lexical_lookup_environment lookup = lookup.lookup_environment
+let lexical_lookup_mode lookup = lookup.lookup_mode
+let lexical_lookup_token lookup = lookup.lookup_token
+let lexical_lookup_selection lookup = lookup.lookup_selection
+let lexical_lookup_definition lookup = lookup.lookup_definition
+let lexical_lookup_predefined lookup = lookup.lookup_predefined
+let lexical_lookup_ordinal lookup = lookup.lookup_ordinal
+let lexical_lookup_generation lookup = lookup.lookup_generation
+
+let lexical_lookup_is_current lookup =
+  lookup.lookup_domain = Domain.self ()
+  && Option.fold ~none:false ~some:(( == ) lookup)
+       lookup.lookup_stream.current_lookup
+  && lookup.lookup_stream.symbols == lookup.lookup_environment
+  && lookup.lookup_stream.compilation_mode = lookup.lookup_mode
+
+let same_lexical_lookup_stream left right =
+  left.lookup_stream == right.lookup_stream
 
 type diagnostic_context = {
   include_stack : Common.Diagnostic.related list;
@@ -139,8 +176,10 @@ type output = {
   conditional_recovery : conditional_recovery;
 }
 
-let create ?execute_stream ~sources ~definitions ~symbols ~config source =
+let create ?lexical_lookup ?execute_stream ~sources ~definitions ~symbols
+    ~config source =
   {
+    returned_definition_input = false;
     sources;
     definitions;
     symbols;
@@ -160,9 +199,14 @@ let create ?execute_stream ~sources ~definitions ~symbols ~config source =
     conditional_poisoned = false;
     pending_diagnostics = [];
     help_metadata = Help_metadata.empty;
+    lexical_lookup;
+    lexical_consumer = None;
+    current_lookup = None;
+    next_lookup_ordinal = 0;
   }
 
 let with_environment stream ~definitions ~symbols ~compilation_mode run =
+  stream.current_lookup <- None;
   let old_definitions = stream.definitions in
   let old_symbols = stream.symbols in
   let old_mode = stream.compilation_mode in
@@ -174,6 +218,16 @@ let with_environment stream ~definitions ~symbols ~compilation_mode run =
       stream.definitions <- old_definitions;
       stream.symbols <- old_symbols;
       stream.compilation_mode <- old_mode)
+    run
+
+let with_lexical_consumer stream ~consume run =
+  stream.current_lookup <- None;
+  let previous = stream.lexical_consumer in
+  stream.lexical_consumer <- consume;
+  Fun.protect
+    ~finally:(fun () ->
+      stream.current_lookup <- None;
+      stream.lexical_consumer <- previous)
     run
 
 let take_pending_diagnostics stream =
@@ -202,16 +256,93 @@ let rec align_current_to_source stream source =
         stream.current <- caller;
         align_current_to_source stream source
 
-let next_lexer_item stream =
+type raw_lookup = {
+  raw_token : Token.t;
+  raw_selection : Symbol_visibility.lookup;
+  raw_definition : Definition.t option;
+  raw_predefined : Predefined.t option;
+  raw_generation : Symbol_visibility.lexical_generation;
+}
+
+let read_lexer_item stream =
+  stream.current_lookup <- None;
   discard_exhausted_frames stream;
   let item = Lexer.next (Lexer_frame.lexer stream.current) in
+  let input_source = Lexer.input_source (Lexer_frame.lexer stream.current) in
+  let rec definition_input frame =
+    if Common.Source_id.equal input_source (Lexer_frame.source_id frame) then
+      match Lexer_frame.kind frame with
+      | Lexer_frame.Definition | Lexer_frame.Predefined -> true
+      | Lexer_frame.Root | Lexer_frame.Included | Lexer_frame.Generated_stream
+        -> false
+    else
+      match Lexer_frame.caller frame with
+      | Some caller -> definition_input caller
+      | None ->
+          invalid_arg "lexer input selection left its original frame chain"
+  in
+  stream.returned_definition_input <- definition_input stream.current;
   let source =
     match item with
     | Lexer.Token token -> token.Token.span.source
     | Lexer.Diagnostic diagnostic -> diagnostic.Common.Diagnostic.primary.source
   in
   align_current_to_source stream source;
-  item
+  let raw_lookup =
+    match item with
+    | Lexer.Token token
+      when match token.Token.kind with
+           | Token_kind.Identifier | Token_kind.Keyword _ -> true
+           | _ -> false ->
+        let name =
+          match token.value with
+          | Token.Text name -> name
+          | _ -> token.raw
+        in
+        Some
+          {
+            raw_token = token;
+            raw_selection =
+              Symbol_visibility.Environment.find_preprocessor stream.symbols
+                name;
+            raw_definition = Definition.Environment.find stream.definitions name;
+            raw_predefined = Predefined.find name;
+            raw_generation =
+              Symbol_visibility.Environment.mark_lexical_read stream.symbols;
+          }
+    | _ -> None
+  in
+  (match raw_lookup with
+  | Some raw
+    when Option.is_some stream.lexical_lookup
+         || Option.is_some stream.lexical_consumer ->
+      if stream.next_lookup_ordinal = max_int then
+        invalid_arg "lexical lookup observation identity space is exhausted";
+      let lookup =
+        {
+          lookup_stream = stream;
+          lookup_domain = Domain.self ();
+          lookup_environment = stream.symbols;
+          lookup_mode = stream.compilation_mode;
+          lookup_token = raw.raw_token;
+          lookup_selection = raw.raw_selection;
+          lookup_definition = raw.raw_definition;
+          lookup_predefined = raw.raw_predefined;
+          lookup_ordinal = stream.next_lookup_ordinal;
+          lookup_generation = raw.raw_generation;
+        }
+      in
+      stream.next_lookup_ordinal <- stream.next_lookup_ordinal + 1;
+      stream.current_lookup <- Some lookup;
+      Fun.protect
+        ~finally:(fun () -> stream.current_lookup <- None)
+        (fun () ->
+          Option.iter (fun consume -> consume lookup) stream.lexical_consumer;
+          Option.iter (fun observe -> observe lookup) stream.lexical_lookup)
+  | _ -> ());
+  (item, raw_lookup)
+
+let next_lexer_item stream = fst (read_lexer_item stream)
 
 let zero_span source =
   Common.Span.unsafe_make
@@ -225,6 +356,7 @@ let current_diagnostic_context stream =
   }
 
 let diagnostic_context stream = current_diagnostic_context stream
+let in_definition_input stream = stream.returned_definition_input
 
 let same_related (left : Common.Diagnostic.related)
     (right : Common.Diagnostic.related) =
@@ -645,13 +777,22 @@ let define stream hash =
                 (diagnostic stream ~code:"HCPP0014"
                    ~message:"a NUL byte ended the #define replacement"
                    capture.replacement_span)
-          | Lexer.End_of_line | Lexer.End_of_file ->
-              ignore
-                (Definition.Environment.define stream.definitions ~name
-                   ~replacement:capture.replacement ~name_span:name_token.span
-                   ~definition_span ~replacement_span:capture.replacement_span
-                   ~segments:capture.segments);
-              Ok ()))
+          | Lexer.End_of_line | Lexer.End_of_file -> (
+              let definition =
+                Definition.Environment.define stream.definitions ~name
+                  ~replacement:capture.replacement ~name_span:name_token.span
+                  ~definition_span ~replacement_span:capture.replacement_span
+                  ~segments:capture.segments
+              in
+              match
+                Symbol_visibility.Environment.add_definition stream.symbols
+                  ~definitions:stream.definitions ~definition
+              with
+              | Ok _ -> Ok ()
+              | Error message ->
+                  Error
+                    (diagnostic stream ~code:"HCPP0035" ~message name_token.span)
+              )))
 
 let definition_cycle stream definition invocation =
   diagnostic stream ~code:"HCPP0011"
@@ -775,31 +916,43 @@ let push_predefined stream token predefined =
     (predefined_replacement stream token predefined)
     (push_replacement stream token (Compiler_predefined predefined))
 
-let expand stream token =
-  match definition_name token with
+let expand stream token original =
+  match original with
   | None -> Ok false
-  | Some name -> (
-      match Definition.Environment.find stream.definitions name with
-      | None -> (
-          match Predefined.find name with
+  | Some raw -> (
+      if raw.raw_token != token then
+        invalid_arg "expansion requires its original raw lexer selection";
+      let selection = raw.raw_selection in
+      let definition =
+        match selection with
+        | Symbol_visibility.Present entry ->
+            Symbol_visibility.definition_payload entry
+        | Symbol_visibility.Absent -> raw.raw_definition
+        | Symbol_visibility.Shadowed_by_local -> None
+      in
+      match (selection, definition) with
+      | Symbol_visibility.Shadowed_by_local, _ -> Ok false
+      | Symbol_visibility.Present _, None -> Ok false
+      | _, None -> (
+          match raw.raw_predefined with
           | None -> Ok false
           | Some predefined ->
               Result.map
                 (fun () -> true)
                 (push_predefined stream token predefined))
-      | Some definition ->
+      | _, Some definition ->
           Result.map (fun () -> true) (push_definition stream token definition))
 
 let rec next_expanded_source stream =
-  match next_lexer_item stream with
-  | Lexer.Diagnostic item ->
+  match read_lexer_item stream with
+  | Lexer.Diagnostic item, _ ->
       let item = decorate_lexer_diagnostic stream item in
       Lexer.Diagnostic item
-  | Lexer.Token token -> (
+  | Lexer.Token token, original -> (
       match token.Token.kind with
       | Token_kind.Eof -> Lexer.Token token
       | Token_kind.Identifier | Token_kind.Keyword _ -> (
-          match expand stream token with
+          match expand stream token original with
           | Ok false -> Lexer.Token token
           | Ok true -> next_expanded_source stream
           | Error item -> Lexer.Diagnostic item)

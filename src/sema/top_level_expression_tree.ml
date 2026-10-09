@@ -171,12 +171,15 @@ let root_role_name = function
       ^ (Static_initializer_fragment.receipt fragment).static_allocation
           .allocation_local
           .local_spelling
-  | Default_fragment fragment ->
-      Printf.sprintf "function:%d:parameter-default:%d"
-        (fragment |> Default_fragment.publication
-       |> Declaration_collection.publication_symbol |> Symbol.id
-       |> Symbol.Id.to_int)
-        (Default_fragment.receipt fragment).default_parameter_index
+  | Default_fragment fragment -> (
+      match Default_fragment.symbol_opt fragment with
+      | Some symbol ->
+          Printf.sprintf "function:%d:parameter-default:%d"
+            (Symbol.id symbol |> Symbol.Id.to_int)
+            (Default_fragment.index fragment)
+      | None ->
+          Printf.sprintf "anonymous-parameter-default:%d"
+            (Default_fragment.index fragment))
   | Initializer_fragment fragment ->
       Printf.sprintf "global:%d:initializer-leaf:%d"
         (fragment |> Initializer_fragment.declaration
@@ -406,7 +409,7 @@ let make_default_root ~index ~fragment ~expression ~calls =
   let* () =
     Function_call_resolution.validate_source_expression
       ~source:(Default_fragment.expression fragment)
-      ~expression ~calls:source_calls
+      ~default_fragment:fragment ~expression ~calls:source_calls
       ~callee_expressions:
         (List.map (fun (source, callee, _) -> (source, callee)) trees)
       ~call_expressions:
@@ -793,24 +796,32 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
     | None, Some static -> (
         Option.is_none offset && Option.is_none dimension
         && Option.is_none default && Option.is_none fragment
-        && Option.is_none owner && switch_cases = [] && calls = []
+        && Option.is_none owner && switch_cases = []
         &&
         match roots with
         | [
-         {
-           role = Static_initializer_fragment selected;
-           static_fragment_ = Some proof;
-           initializer_calls_ = [];
-           initializer_call_trees_ = [];
-           origin;
-           expression;
-           _;
-         };
+         ({
+            role = Static_initializer_fragment selected;
+            static_fragment_ = Some proof;
+            origin;
+            expression;
+            _;
+          } as root);
         ] ->
             selected == static && proof == static
             && origin = Static_initializer_fragment.origin static
             && Function_call_resolution.argument_expression_origin expression
                = origin
+            && List.length calls = List.length root.initializer_call_trees_
+            && List.for_all2
+                 (fun (call : call) (source_call, callee, result) ->
+                   call.source == source_call
+                   && call.callee_expression == callee
+                   && call.result_expression == result
+                   && List.exists (( == ) call.callee)
+                        (Top_level_outer_expression_binding
+                         .statement_occurrences source))
+                 calls root.initializer_call_trees_
         | _ -> false)
     | None, None -> (
         match (offset, dimension, default, fragment) with
@@ -1373,6 +1384,11 @@ let expression_nodes statements =
     |> List.rev
   in
   List.mapi (fun index source -> { index; source }) expressions
+
+let statement_owns_expression statement expression =
+  List.exists
+    (fun node -> node.source == expression)
+    (expression_nodes [ statement ])
 
 let validate_fragment_identifiers (statement : statement) =
   match

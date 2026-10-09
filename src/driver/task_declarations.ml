@@ -96,6 +96,10 @@ type source =
         * Sema.Function_type_resolution.resolved_function)
         option;
       mutable body : Ast.function_definition option;
+      mutable body_compiler_options : int64 option;
+      mutable header_warnings_emitted : bool;
+      mutable return_phases_seen : Parser.function_return_phase list;
+      mutable local_allocations_seen : Parser.function_local_allocation list;
     }
 
 type assigned = {
@@ -142,6 +146,7 @@ type selected_call = {
   mutable emission_capture :
     Sema.Function_record_phase.call_emission_snapshot option;
   arguments : Sema.Function_record_phase.snapshot option;
+  parser_shape : Visibility.function_call_shape option;
   mutable runtime_start : VM.task_call_start option;
   mutable runtime_phase : Sema.Function_call_phase.t option;
   mutable emission :
@@ -157,6 +162,7 @@ type selected_implicit_output = {
   mutable implicit_pending : VM.task_implicit_call_start option;
   mutable implicit_phase : Sema.Function_call_phase.t option;
   mutable arguments_observed : bool;
+  mutable parser_shape : Visibility.function_call_shape option option;
   mutable emission_observed : bool;
   implicit_selection : Parser.implicit_output_selection;
   implicit_target : reference_target;
@@ -178,7 +184,9 @@ type reading_query = {
 
 type command = {
   calls : Sema.Function_call_phase.t list;
+  function_compiler_options : (Sema.Symbol.t * int64) list;
   namespace : Collection.namespace;
+  inherited_metadata : Sema.Compiler_record.inherited_metadata list;
   selected_aggregate_types :
     Sema.Source_type_reference.selected_aggregate Type_specifiers.t;
   function_headers :
@@ -186,7 +194,10 @@ type command = {
     * Sema.Function_collection.collected_function
     * Sema.Function_type_resolution.resolved_function)
     list;
+  static_allocations : Sema.Compiler_record.static_allocation list;
   implicit_outputs : selected_implicit_output list;
+  source_callback_defaults : Ir.Prepared_callback_default.t list;
+  native_source_callback_defaults : Ir.Prepared_callback_default.t list;
   source_defaults : Ir.Prepared_parameter_default.t list;
   native_source_defaults : Ir.Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
@@ -230,10 +241,30 @@ type command_sequence = {
   mutable completed_rev : parsed_command list;
 }
 
+type callback_state = {
+  callback_publication : Parser.callback_signature_publication;
+  mutable callback_pending : Parser.callback_parameter_publication option;
+  mutable callback_members_rev : Parser.completed_callback_parameter list;
+  mutable callback_defaults_rev : Parser.completed_callback_default list;
+  mutable callback_header : Parser.completed_callback_signature option;
+}
+
 type t = {
+  mutable callback_states : callback_state list;
+  mutable source_callback_attempts :
+    (Parser.completed_callback_default
+    * Sema.Default_fragment.authority
+    * source_default_owner
+    * int
+    * int64 option ref)
+    list;
+  mutable prepared_source_callback_defaults :
+    Ir.Prepared_callback_default.t list;
   compiler_positions : Sema.Compiler_record.compiler_positions;
   call_journal : Sema.Source_activation.call_journal;
   mutable calls : selected_call list;
+  mutable lexical_frontiers : Frontend.Preprocessor.lexical_lookup list;
+  mutable lexical_reads : int;
   mutable native_functions : Sema.Function_record_phase.registry option;
   mutable native_function_events :
     (Parser.declaration_event * Sema.Function_record_phase.snapshot) list;
@@ -252,6 +283,7 @@ type t = {
   mutable prepared_internal_bindings : Sema.Prepared_internal_binding.t list;
   mutable static_preparations : Parser.static_initializer_preparation list;
   mutable static_completions : Parser.completed_static_initializer list;
+  mutable static_allocations_rev : Sema.Compiler_record.static_allocation list;
   mutable native_initializer_attempts : Sema.Initializer_source.leaf list;
   storage_boundaries : storage_boundary Names.t;
   mutable last_storage_global : Sema.Symbol.t option;
@@ -263,14 +295,16 @@ type t = {
   names : assigned Names.t;
   entries : assigned Entries.t;
   mutable commands : command list;
-  mutable next_ordinal : int;
+  next_ordinal : int ref;
   mutable sequences : command_sequence list;
   mutable active : command_sequence list;
+  saved_parent : Parser.command_context option;
   mutable views : (Ast.module_ * parsed_command list) list;
   mutable sequence_views : (Ast.module_ * Parser.completed_sequence) list;
   mutable authority : authority;
   mutable source_events_rev : Parser.command_event list;
   mutable activation_events_rev : Sema.Source_activation.event list;
+  mutable pending_runtime_offset : Parser.aggregate_phase option;
   mutable activation : Sema.Source_activation.t option;
   switch_budget : Switch.budget;
   switch_tracker : Switch.tracker;
@@ -322,9 +356,9 @@ let origin (name : Ast.identifier) =
       defined_at = location.defined_at;
     }
 
-let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
-    ?(max_dimension_work = 100_000) ?(max_offset_work = 100_000) authority
-    session =
+let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
+    ?max_switch_work ?switch_budget ?(max_dimension_work = 100_000)
+    ?(max_offset_work = 100_000) authority session =
   let runtime =
     match authority with
     | Task_runtime runtime -> Some runtime
@@ -364,7 +398,10 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
               Some (Common.Source_file.display_path source)
           | _ -> None
         in
-        Collection.create_namespace ~table ?module_name () |> fun result ->
+        (match enclosing_ledger with
+          | None -> Collection.create_namespace ~table ?module_name ()
+          | Some enclosing -> Ok enclosing.namespace)
+        |> fun result ->
         Result.bind result (fun namespace ->
             let binding =
               match authority with
@@ -378,8 +415,13 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   call_journal =
                     Sema.Source_activation.create_call_journal ~namespace ();
                   calls = [];
+                  lexical_frontiers = [];
+                  lexical_reads = 0;
                   native_functions = None;
                   native_function_events = [];
+                  callback_states = [];
+                  source_callback_attempts = [];
+                  prepared_source_callback_defaults = [];
                   source_default_attempts = [];
                   source_defaults_runtime = None;
                   prepared_source_defaults = [];
@@ -389,6 +431,7 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   prepared_internal_bindings = [];
                   static_preparations = [];
                   static_completions = [];
+                  static_allocations_rev = [];
                   storage_boundaries = Names.create 16;
                   last_storage_global = None;
                   session;
@@ -396,17 +439,28 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   namespace;
                   sources = Session.sources session;
                   symbols = Session.symbols session;
-                  names = Names.create 32;
-                  entries = Entries.create 32;
+                  names =
+                    Option.fold ~none:(Names.create 32)
+                      ~some:(fun enclosing -> enclosing.names)
+                      enclosing_ledger;
+                  entries =
+                    Option.fold ~none:(Entries.create 32)
+                      ~some:(fun enclosing -> enclosing.entries)
+                      enclosing_ledger;
                   commands = [];
-                  next_ordinal = 0;
+                  next_ordinal =
+                    Option.fold ~none:(ref 0)
+                      ~some:(fun enclosing -> enclosing.next_ordinal)
+                      enclosing_ledger;
                   sequences = [];
                   active = [];
+                  saved_parent;
                   views = [];
                   sequence_views = [];
                   authority;
                   source_events_rev = [];
                   activation_events_rev = [];
+                  pending_runtime_offset = None;
                   activation = None;
                   switch_budget;
                   switch_tracker = Switch.create_tracker ~budget:switch_budget;
@@ -425,9 +479,20 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   query_roots = Query_roots.create 16;
                   queries = Query_expressions.create 16;
                   dimension_owners = Names.create 16;
-                  dimensions = Dimensions.create 16;
-                  checked_dimensions = Dimensions.create 16;
-                  selected_aggregate_types = Type_specifiers.create 16;
+                  dimensions =
+                    Option.fold ~none:(Dimensions.create 16)
+                      ~some:(fun enclosing -> enclosing.dimensions)
+                      enclosing_ledger;
+                  checked_dimensions =
+                    Option.fold ~none:(Dimensions.create 16)
+                      ~some:(fun enclosing -> enclosing.checked_dimensions)
+                      enclosing_ledger;
+                  selected_aggregate_types =
+                    Option.fold
+                      ~none:(Type_specifiers.create 16)
+                      ~some:(fun enclosing ->
+                        enclosing.selected_aggregate_types)
+                      enclosing_ledger;
                   initializers = Names.create 16;
                 })
               binding))
@@ -508,6 +573,7 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
                Result.bind pending_runtime_dimension
                  (fun pending_runtime_dimension ->
                    VM.promote_task_source_activation ?pending_runtime_dimension
+                     ?pending_runtime_offset:ledger.pending_runtime_offset
                      ~offsets:(List.rev ledger.offsets_rev)
                      runtime ~namespace:ledger.namespace ~activation
                      ~dimensions:(List.rev ledger.source_dimensions_rev)
@@ -551,6 +617,7 @@ let requires_query_metadata ledger =
   | _ -> true
 
 let dimension_work ledger = ledger.dimension_work
+let compiler_positions ledger = ledger.compiler_positions
 let offset_work ledger = ledger.offset_work
 let switch_budget ledger = ledger.switch_budget
 let switch_work ledger = Switch.budget_work ledger.switch_budget
@@ -563,21 +630,20 @@ let selected_aggregate_for ledger type_specifier =
   Type_specifiers.find_opt ledger.selected_aggregate_types type_specifier
 
 let prepare_selected_aggregate ledger source =
-  let selection, type_specifier, span =
+  let module Source = Sema.Source_type_reference in
+  let span =
     match source with
-    | Sema.Source_type_reference.Function_return function_ ->
-        ( function_.Parser.function_return_selection,
-          function_.function_header.type_specifier,
-          (Frontend.Ast.type_specifier_location
-             function_.function_header.type_specifier)
-            .span )
-    | Sema.Source_type_reference.Function_parameter parameter ->
-        ( parameter.Parser.parameter_type_selection,
-          parameter.parameter_type_specifier,
-          (Frontend.Ast.type_specifier_location
-             parameter.parameter_type_specifier)
-            .span )
+    | Source.Function_return p -> p.Parser.function_name.location.span
+    | Source.Function_parameter p ->
+        p.Parser.parameter_function.function_name.location.span
+    | Source.Callback_return p -> p.Parser.callback_opening.span
+    | Source.Callback_parameter p ->
+        p.Parser.callback_parameter_signature.callback_opening.span
+    | Source.Function_local p ->
+        p.Parser.allocation_function.function_name.location.span
+    | Source.Global_type p -> p.Parser.global_name.location.span
   in
+  let type_specifier, selection = Source.source_type source |> checked span in
   match type_specifier with
   | Ast.Primitive_type_specifier _ | Ast.Internal_type_specifier _ ->
       if Option.is_some selection then
@@ -585,8 +651,6 @@ let prepare_selected_aggregate ledger source =
           "primitive function type unexpectedly retained a class selection";
       None
   | Ast.Named_type_specifier _ ->
-      if Type_specifiers.mem ledger.selected_aggregate_types type_specifier then
-        fail span "named function type selection was already retained";
       let selection =
         match selection with
         | Some selection -> selection
@@ -612,10 +676,40 @@ let prepare_selected_aggregate ledger source =
 let retain_selected_aggregate ledger type_specifier = function
   | None -> ()
   | Some proof ->
-      if Type_specifiers.mem ledger.selected_aggregate_types type_specifier then
-        fail (Frontend.Ast.type_specifier_location type_specifier).span
-          "named function type selection was already retained";
-      Type_specifiers.add ledger.selected_aggregate_types type_specifier proof
+      let proof =
+        match
+          Type_specifiers.find_opt ledger.selected_aggregate_types
+            type_specifier
+        with
+        | None -> proof
+        | Some original ->
+            Sema.Source_type_reference.merge_selections original proof
+            |> checked
+                 (Frontend.Ast.type_specifier_location type_specifier).span
+      in
+      Type_specifiers.replace ledger.selected_aggregate_types type_specifier
+        proof
+
+let local_type_base ledger (receipt : Parser.function_local_allocation) =
+  match receipt.allocation_local.local_source with
+  | Parser.Local_variable local -> (
+      if Option.is_some local.local_function_pointer then
+        Session.pointer_primitive ledger.session |> Session.primitive_symbol
+      else
+        match selected_aggregate_for ledger local.local_type_specifier with
+        | Some proof -> Sema.Source_type_reference.selected_base_symbol proof
+        | None -> (
+            match
+              Option.bind local.local_type_entry
+                (Session.primitive_for ledger.session)
+            with
+            | Some binding -> Session.primitive_symbol binding
+            | None ->
+                fail receipt.allocation_lookahead.span
+                  "local type lacks its original primitive binding"))
+  | _ ->
+      fail receipt.allocation_lookahead.span
+        "local allocation lacks its original type occurrence"
 
 let runtime_symbol = VM.admitted_source_symbol
 let retained_for ledger entry = Entries.find_opt ledger.runtime_entries entry
@@ -853,8 +947,28 @@ let observe_command_source ledger event =
               (fun sequence -> sequence.context == context)
               ledger.sequences
           then fail span "parser command context was already consumed";
-          let parent_context, matches =
+          let parent =
             match Parser.context_parent context with
+            | None -> None
+            | Some position ->
+                let parent =
+                  match position with
+                  | Parser.Before_first_command parent -> parent
+                  | Parser.Reading_command start -> start.command_context
+                  | Parser.Awaiting_resume completed ->
+                      completed.command_start.command_context
+                in
+                (* Historical events in this namespace remain observations.
+                   Crossing compiler tables requires the live original stack. *)
+                if Parser.context_environment parent == ledger.symbols then
+                  Some position
+                else
+                  Parser.context_parent_in_environment context
+                    ~environment:ledger.symbols
+                  |> checked span
+          in
+          let parent_context, matches =
+            match parent with
             | None -> (None, fun _ -> false)
             | Some (Parser.Before_first_command parent) ->
                 ( Some parent,
@@ -882,7 +996,8 @@ let observe_command_source ledger event =
           | Some parent, sequence :: _
             when sequence.context == parent && matches sequence -> ()
           | Some parent, []
-            when Parser.context_environment parent != ledger.symbols -> ()
+            when Option.fold ~none:false ~some:(( == ) parent)
+                   ledger.saved_parent -> ()
           | _ ->
               fail span
                 "nested parser context does not match the suspended parent \
@@ -1018,6 +1133,48 @@ let validate_command ledger (header : Parser.declaration_header) =
       fail
         (context_span start.command_context)
         "declaration does not belong to the active parser command"
+
+let observe_lexical_lookup ledger context lookup =
+  protect (fun () ->
+      let span =
+        (Frontend.Preprocessor.lexical_lookup_token lookup).Frontend.Token.span
+      in
+      (match ledger.authority with
+      | Semantic_analysis ->
+          fail span
+            "lexical consumption requires original source or runtime ownership"
+      | Source_compilation _ | Task_runtime _ -> ());
+      ignore (active_sequence ledger context);
+      if
+        (not (Parser.lexical_lookup_is_current context lookup))
+        || Parser.context_environment context != ledger.symbols
+        || Parser.context_sources context != ledger.sources
+      then fail span "lexical lookup has a foreign or expired parser context";
+      let same_stream =
+        Frontend.Preprocessor.same_lexical_lookup_stream lookup
+      in
+      let ordinal = Frontend.Preprocessor.lexical_lookup_ordinal lookup in
+      (match List.find_opt same_stream ledger.lexical_frontiers with
+      | Some previous
+        when ordinal <= Frontend.Preprocessor.lexical_lookup_ordinal previous ->
+          fail span "original lexical lookup was already consumed"
+      | _ -> ());
+      if ledger.lexical_reads = max_int then
+        fail span "source lexical observation identity space is exhausted";
+      Option.iter
+        (fun registry ->
+          Sema.Function_record_phase.observe_lexical_lookup registry context
+            lookup
+          |> checked span)
+        ledger.native_functions;
+      ledger.lexical_frontiers <-
+        lookup
+        :: List.filter
+             (fun previous -> not (same_stream previous))
+             ledger.lexical_frontiers;
+      ledger.lexical_reads <- ledger.lexical_reads + 1)
+
+let lexical_read_count ledger = ledger.lexical_reads
 
 let selection_target ledger span = function
   | Visibility.Absent -> Selected_absent
@@ -1290,6 +1447,7 @@ let observe_call_start ledger start =
           capture;
           emission_capture = None;
           arguments;
+          parser_shape = shape;
           emission = None;
           runtime_start = None;
           runtime_phase = None;
@@ -1467,6 +1625,7 @@ let observe_implicit_output ledger selection =
              implicit_pending = None;
              implicit_phase = None;
              arguments_observed = false;
+             parser_shape = None;
              emission_observed = false;
            }
            :: ledger.implicit_outputs;
@@ -1559,6 +1718,7 @@ let observe_implicit_arguments ledger selection =
           |> record_activation_event ledger
       | _ -> ());
       call.arguments_observed <- true;
+      call.parser_shape <- Some shape;
       call.arguments_capture <- capture;
       capture_runtime_implicit_arguments ledger call;
       shape)
@@ -1618,6 +1778,40 @@ let validate_implicit_output ledger selection ~execution =
               "implicit output has no checked function header at its source \
                read"
         | _ -> ())
+
+let selected_base_record ledger (phase : Parser.aggregate_phase) =
+  match phase.phase_step with
+  | Parser.Aggregate_base_attached selection
+    when selection.base_environment == ledger.symbols -> (
+      match Entries.find_opt ledger.entries selection.base_entry with
+      | Some { publication; source = Aggregate _; _ } -> (
+          match
+            Collection.current_aggregate_publication ledger.namespace
+              publication
+          with
+          | None ->
+              Error "inherited class has no original canonical publication"
+          | Some current -> (
+              let selected =
+                Entries.fold
+                  (fun _ assigned found ->
+                    if assigned.publication == current then Some assigned.source
+                    else found)
+                  ledger.entries None
+              in
+              match selected with
+              | Some (Aggregate { record = Some (Ok record); _ }) ->
+                  Sema.Compiler_record.select_aggregate_base ~table:ledger.table
+                    ~namespace:ledger.namespace
+                    ~selected_publication:publication phase record
+              | Some (Aggregate { record = Some (Error message); _ }) ->
+                  Error message
+              | _ ->
+                  Error
+                    "inherited class lacks its current original layout record"))
+      | _ -> Error "inherited class has no original retained source publication"
+      )
+  | _ -> Error "inherited layout read belongs to another original base phase"
 
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
@@ -1829,7 +2023,7 @@ let assign ledger (name : Ast.identifier) kind source entry =
   if Names.mem ledger.names name || Entries.mem ledger.entries entry then
     fail name.Ast.location.span
       "parser declaration publication was already consumed";
-  if ledger.next_ordinal = max_int then
+  if !(ledger.next_ordinal) = max_int then
     fail name.location.span "task declaration publication order is exhausted";
   let publication =
     (match source with
@@ -1883,9 +2077,9 @@ let assign ledger (name : Ast.identifier) kind source entry =
             |> checked name.location.span)
   | _ -> ());
   let assigned =
-    { publication; source; ordinal = ledger.next_ordinal; claimed = false }
+    { publication; source; ordinal = !(ledger.next_ordinal); claimed = false }
   in
-  ledger.next_ordinal <- ledger.next_ordinal + 1;
+  incr ledger.next_ordinal;
   Names.add ledger.names name assigned;
   Entries.add ledger.entries entry assigned
 
@@ -2156,9 +2350,211 @@ let validate_global_dimensions ledger (publication : Parser.global_publication)
       fail publication.global_name.location.span
         "global publication is missing its original completed array dimensions"
 
+let callback_state ledger publication span =
+  match
+    List.find_opt
+      (fun state -> state.callback_publication == publication)
+      ledger.callback_states
+  with
+  | Some state -> state
+  | None ->
+      fail span "anonymous signature has no original observed declaration scope"
+
+let validate_callback_command ledger publication span =
+  let sequence =
+    active_sequence ledger publication.Parser.callback_command.command_context
+  in
+  match sequence.phase with
+  | Reading original when original == publication.callback_command -> ()
+  | _ -> fail span "anonymous signature belongs to another source command"
+
+let completed_callback_header ledger source =
+  List.find_map
+    (fun state ->
+      Option.bind state.callback_header (fun header ->
+          if header.Parser.callback_pointer == source then Some header else None))
+    ledger.callback_states
+
+let declared_callback_for ledger span =
+  Option.map (fun source ->
+      let header =
+        match completed_callback_header ledger source with
+        | Some header -> header
+        | None ->
+            fail span "declared callback lacks its original observed header"
+      in
+      let pointer =
+        Function_type_resolution.resolve_completed_callback ~table:ledger.table
+          ~namespace:ledger.namespace
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          header
+        |> checked span
+      in
+      (header, pointer))
+
 let observe ?offset_runtime ledger event =
   protect (fun () ->
       match event with
+      | Parser.Callback_position_written receipt ->
+          let owner = receipt.callback_position_signature in
+          let span = owner.callback_opening.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            Option.is_some state.callback_header
+            || Option.is_some state.callback_pending
+          then
+            fail span
+              "anonymous position is outside its original member boundary";
+          Sema.Compiler_record.record_callback_position
+            ledger.compiler_positions
+            ~parameters:(List.rev state.callback_members_rev)
+            receipt
+          |> checked span
+      | Parser.Callback_signature_started publication ->
+          let span = publication.callback_opening.span in
+          validate_callback_command ledger publication span;
+          if
+            (not (Parser.callback_signature_is_current publication))
+            || List.exists
+                 (fun state -> state.callback_publication == publication)
+                 ledger.callback_states
+          then fail span "anonymous signature start is foreign or repeated";
+          let selected =
+            prepare_selected_aggregate ledger
+              (Sema.Source_type_reference.Callback_return publication)
+          in
+          retain_selected_aggregate ledger
+            publication.callback_return_type_specifier selected;
+          ledger.callback_states <-
+            {
+              callback_publication = publication;
+              callback_pending = None;
+              callback_members_rev = [];
+              callback_defaults_rev = [];
+              callback_header = None;
+            }
+            :: ledger.callback_states
+      | Parser.Callback_parameter_declared publication ->
+          let owner = publication.callback_parameter_signature in
+          let span = owner.callback_opening.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            (not (Parser.callback_parameter_is_current publication))
+            || Option.is_some state.callback_header
+            || Option.is_some state.callback_pending
+            || publication.callback_parameter_index
+               <> List.length state.callback_members_rev
+            || not
+                 (same_option ( == ) publication.callback_parameter_predecessor
+                    (List.nth_opt state.callback_members_rev 0))
+          then
+            fail span
+              "anonymous parameter has another original position or predecessor";
+          let selected =
+            prepare_selected_aggregate ledger
+              (Sema.Source_type_reference.Callback_parameter publication)
+          in
+          retain_selected_aggregate ledger
+            publication.callback_parameter_type_specifier selected;
+          state.callback_pending <- Some publication
+      | Parser.Callback_default_completed receipt ->
+          let owner = receipt.callback_default_signature in
+          let span = receipt.callback_default_ast.location.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            (not (Parser.callback_default_is_current receipt))
+            || Option.is_some state.callback_header
+            || (not
+                  (Option.fold ~none:false
+                     ~some:(( == ) receipt.callback_default_parameter)
+                     state.callback_pending))
+            || receipt.callback_default_index
+               <> receipt.callback_default_parameter.callback_parameter_index
+            || (not
+                  (same_option ( == ) receipt.callback_default_predecessor
+                     (List.nth_opt state.callback_defaults_rev 0)))
+            || List.exists (( == ) receipt) state.callback_defaults_rev
+          then
+            fail span
+              "anonymous default has another original member or completion \
+               order";
+          state.callback_defaults_rev <- receipt :: state.callback_defaults_rev
+      | Parser.Callback_parameter_completed receipt ->
+          let publication = receipt.callback_parameter_publication in
+          let owner = publication.callback_parameter_signature in
+          let span = receipt.callback_parameter_ast.location.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          let ast = receipt.callback_parameter_ast in
+          if
+            (not (Parser.callback_parameter_completion_is_current receipt))
+            || (not
+                  (Option.fold ~none:false ~some:(( == ) publication)
+                     state.callback_pending))
+            || ast.type_specifier
+               != publication.callback_parameter_type_specifier
+            || ast.pointer_layers
+               != publication.callback_parameter_pointer_layers
+            || ast.register_qualifiers
+               != publication.callback_parameter_register_qualifiers
+            || (not
+                  (same_option ( == ) ast.name
+                     publication.callback_parameter_name))
+            || (not
+                  (same_option ( == ) ast.function_pointer
+                     publication.callback_parameter_function_pointer))
+            ||
+            match ast.default with
+            | None ->
+                List.exists
+                  (fun r -> r.Parser.callback_default_parameter == publication)
+                  state.callback_defaults_rev
+            | Some default ->
+                not
+                  (List.exists
+                     (fun r ->
+                       r.Parser.callback_default_parameter == publication
+                       && r.callback_default_ast == default)
+                     state.callback_defaults_rev)
+          then
+            fail span
+              "anonymous parameter completion lost its exact original children";
+          state.callback_pending <- None;
+          state.callback_members_rev <- receipt :: state.callback_members_rev
+      | Parser.Callback_signature_completed header ->
+          let owner = header.callback_signature_publication in
+          let span = owner.callback_opening.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            (not (Parser.callback_signature_completion_is_current header))
+            || Option.is_some state.callback_header
+            || Option.is_some state.callback_pending
+            || List.length header.callback_parameters
+               <> List.length state.callback_members_rev
+            || (not
+                  (List.for_all2 ( == ) header.callback_parameters
+                     (List.rev state.callback_members_rev)))
+            || List.length header.callback_defaults
+               <> List.length state.callback_defaults_rev
+            || (not
+                  (List.for_all2 ( == ) header.callback_defaults
+                     (List.rev state.callback_defaults_rev)))
+            || List.length header.callback_pointer.signature_parameters
+               <> List.length header.callback_parameters
+            || not
+                 (List.for_all2
+                    (fun ast r -> ast == r.Parser.callback_parameter_ast)
+                    header.callback_pointer.signature_parameters
+                    header.callback_parameters)
+          then
+            fail span
+              "anonymous signature completion is foreign, repeated or missing \
+               original members";
+          state.callback_header <- Some header
       | Parser.Internal_binding_preparing receipt ->
           let span = receipt.binding_ast.location.span in
           let sequence =
@@ -2275,6 +2671,8 @@ let observe ?offset_runtime ledger event =
                       fail ~code phase.phase_location.span message)
               | _ -> ());
               Sema.Compiler_record.advance_aggregate
+                ~callbacks:(completed_callback_header ledger)
+                ~bases:(selected_base_record ledger)
                 ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
                 progress phase
               |> checked phase.phase_location.span;
@@ -2298,6 +2696,7 @@ let observe ?offset_runtime ledger event =
               state.record <-
                 Some
                   (Sema.Compiler_record.complete_aggregate
+                     ~callbacks:(completed_callback_header ledger)
                      ?progress:state.progress ~table:ledger.table
                      ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
                      ~namespace:ledger.namespace assigned.publication receipt);
@@ -2370,6 +2769,12 @@ let observe ?offset_runtime ledger event =
           validate_source ledger publication.global_environment
             publication.global_header publication.global_name;
           validate_global_dimensions ledger publication;
+          let selected =
+            prepare_selected_aggregate ledger
+              (Sema.Source_type_reference.Global_type publication)
+          in
+          retain_selected_aggregate ledger
+            publication.global_header.type_specifier selected;
           assign ledger publication.global_name Sema.Symbol.Global_variable
             (Global { publication; completed = None; initializing = None })
             publication.global_entry;
@@ -2417,6 +2822,10 @@ let observe ?offset_runtime ledger event =
                  declared_header = None;
                  typed_header = None;
                  body = None;
+                 body_compiler_options = None;
+                 header_warnings_emitted = false;
+                 return_phases_seen = [];
+                 local_allocations_seen = [];
                })
             publication.function_entry;
           retain_selected_aggregate ledger
@@ -2429,6 +2838,113 @@ let observe ?offset_runtime ledger event =
             fail span "local allocation is outside its original callback";
           match (find ledger publication.function_name).source with
           | Function state when state.publication == publication ->
+              if List.exists (( == ) receipt) state.local_allocations_seen then
+                fail receipt.allocation_lookahead.span
+                  "local allocation was already observed";
+              let selected =
+                prepare_selected_aggregate ledger
+                  (Sema.Source_type_reference.Function_local receipt)
+              in
+              (match receipt.allocation_local.local_source with
+              | Parser.Local_variable local ->
+                  retain_selected_aggregate ledger local.local_type_specifier
+                    selected
+              | _ ->
+                  fail span
+                    "local allocation lacks its original type occurrence");
+              let context =
+                receipt.allocation_local.local_command.command_context
+              in
+              let enabled =
+                Parser.context_get_option context ~bit_index:18L
+                |> checked receipt.allocation_lookahead.span
+              in
+              let locals, member_names =
+                match state.native_record with
+                | Some record ->
+                    let module N = Sema.Function_record_phase in
+                    let members =
+                      match N.snapshot record |> N.checked_header_members with
+                      | Ok members -> members
+                      | Error _ when not enabled -> []
+                      | Error reason -> fail span reason
+                    in
+                    ( List.filter_map
+                        (function
+                          | N.Local_header_member local -> Some local
+                          | _ -> None)
+                        members,
+                      List.filter_map
+                        (function
+                          | N.Local_header_member local ->
+                              Some local.allocation_local.local_spelling
+                          | N.Fixed_header_member member ->
+                              (Sema.Provisional_function.member_source member)
+                                .parameter_name
+                              |> Option.map (fun (name : Ast.identifier) ->
+                                  name.spelling)
+                          | N.Argc_header_member _ -> Some "argc"
+                          | N.Argv_header_member _ -> Some "argv")
+                        members )
+                | None ->
+                    let header =
+                      match state.header with
+                      | Some header -> header
+                      | None ->
+                          fail span
+                            "local allocation lacks a completed original header"
+                    in
+                    ( state.local_allocations_seen,
+                      List.map
+                        (fun local ->
+                          local.Parser.allocation_local.local_spelling)
+                        state.local_allocations_seen
+                      @ List.filter_map
+                          (fun member ->
+                            member.Parser.parameter_publication.parameter_name
+                            |> Option.map (fun (name : Ast.identifier) ->
+                                name.spelling))
+                          header.parameter_completions
+                      @
+                      if Option.is_some header.variadic then [ "argc"; "argv" ]
+                      else [] )
+              in
+              let local_name = receipt.allocation_local.local_spelling in
+              if
+                (not (List.mem local_name [ "pad"; "reserved"; "_anon_" ]))
+                && List.mem local_name member_names
+              then
+                fail ~code:"HCSEMA0015" receipt.allocation_lookahead.span
+                  (Printf.sprintf "duplicate member %S in function %S"
+                     local_name publication.function_name.spelling);
+              state.local_allocations_seen <-
+                receipt :: state.local_allocations_seen;
+              (* LexLib.HC:120-141 and PrsVar.HC:525-528. Only the first
+                 automatic local enters this per-function class-base index.
+                 The index is populated even while the warning option is off. *)
+              (if
+                 receipt.allocation_storage = Ast.Automatic_local
+                 && receipt.allocation_first_in_declaration
+               then
+                 let base = local_type_base ledger receipt in
+                 let duplicate =
+                   List.exists
+                     (fun local ->
+                       local.Parser.allocation_storage = Ast.Automatic_local
+                       && local.allocation_first_in_declaration
+                       && local_type_base ledger local == base)
+                     locals
+                 in
+                 if duplicate && enabled then
+                   Common.Diagnostic.make ~code:"HCSEMA0076"
+                     ~severity:Common.Diagnostic.Warning
+                     ~message:
+                       (Printf.sprintf
+                          "duplicate local-variable type for %S in function %S"
+                          local_name publication.function_name.spelling)
+                     ~primary:receipt.allocation_lookahead.span ()
+                   |> Parser.context_emit_counted_compiler_warning context
+                   |> checked receipt.allocation_lookahead.span);
               Option.iter
                 (fun record ->
                   let dimensions =
@@ -2440,7 +2956,13 @@ let observe ?offset_runtime ledger event =
                   Sema.Compiler_record.record_local_allocation
                     ~table:ledger.table ~namespace:ledger.namespace ~dimensions
                     ledger.compiler_positions record receipt
-                  |> checked span)
+                  |> checked span;
+                  Option.iter
+                    (fun allocation ->
+                      ledger.static_allocations_rev <-
+                        allocation :: ledger.static_allocations_rev)
+                    (Sema.Compiler_record.static_allocation
+                       ledger.compiler_positions receipt))
                 state.native_record
           | _ -> fail span "local allocation belongs to another declaration")
       | Parser.Static_initializer_preparing receipt ->
@@ -2674,6 +3196,108 @@ let observe ?offset_runtime ledger event =
               fail publication.function_name.location.span
                 "function header completion is foreign, repeated or out of \
                  order")
+      | Parser.Function_return_phase receipt -> (
+          let header = receipt.return_header in
+          let publication = header.function_publication in
+          let span = receipt.return_location.span in
+          validate_command ledger publication.function_header;
+          let assigned = find ledger publication.function_name in
+          match assigned.source with
+          | Function state
+            when state.publication == publication
+                 && Option.fold ~none:false ~some:(( == ) header) state.header
+                 && Option.is_none state.body
+                 && not (List.exists (( == ) receipt) state.return_phases_seen)
+            ->
+              (match ledger.authority with
+              | Semantic_analysis -> ()
+              | Source_compilation _ | Task_runtime _ ->
+                  if not (Parser.function_return_phase_is_current receipt) then
+                    fail span
+                      "return warning requires its original parser phase";
+                  let size () =
+                    let selected_aggregate type_specifier =
+                      Type_specifiers.find_opt ledger.selected_aggregate_types
+                        type_specifier
+                    in
+                    let reference =
+                      match state.native_record with
+                      | Some record ->
+                          Function_type_resolution
+                          .resolve_native_header_return_type ~selected_aggregate
+                            ~table:ledger.table ~namespace:ledger.namespace
+                            (Sema.Function_record_phase.snapshot record)
+                      | None ->
+                          Function_type_resolution
+                          .resolve_publication_return_type ~selected_aggregate
+                            ~table:ledger.table ~namespace:ledger.namespace
+                            publication
+                    in
+                    let type_ =
+                      reference |> checked span
+                      |> Sema.Type_reference.resolved_type
+                    in
+                    let aggregate =
+                      match
+                        (Sema.Type.pointer_depth type_, Sema.Type.base type_)
+                      with
+                      | depth, _ when depth > 0 -> None
+                      | _, Sema.Type.Primitive _ -> None
+                      | _, Sema.Type.Aggregate symbol ->
+                          Entries.fold
+                            (fun _ assigned found ->
+                              match assigned.source with
+                              | Aggregate state
+                                when Option.fold ~none:false
+                                       ~some:(( == ) symbol)
+                                       (Collection
+                                        .publication_aggregate_identity
+                                          assigned.publication)
+                                     && Option.fold ~none:false
+                                          ~some:(( == ) assigned.publication)
+                                          (Collection
+                                           .current_aggregate_publication
+                                             ledger.namespace
+                                             assigned.publication) ->
+                                  Option.map (checked span) state.record
+                              | _ -> found)
+                            ledger.entries None
+                    in
+                    Sema.Compiler_record.return_class_size ~table:ledger.table
+                      ~namespace:ledger.namespace ~type_ ~aggregate
+                    |> checked span
+                  in
+                  let class_size =
+                    match receipt.return_step with
+                    | Parser.Enter_function_body | Parser.Value_return_parsed ->
+                        None
+                    | _ -> Some (size ())
+                  in
+                  let has_return =
+                    Parser.consume_function_return_phase receipt |> checked span
+                  in
+                  let message =
+                    match (receipt.return_step, class_size) with
+                    | Parser.Check_value_return, Some 0L ->
+                        Some "Function should NOT return val"
+                    | Parser.Check_bare_return, Some n when n <> 0L ->
+                        Some "Function should return val"
+                    | Parser.Check_function_body_return, Some n
+                      when n <> 0L && not has_return ->
+                        Some "Function should return val"
+                    | _ -> None
+                  in
+                  Option.iter
+                    (fun message ->
+                      Common.Diagnostic.make ~severity:Common.Diagnostic.Warning
+                        ~code:"HCSEMA0078" ~message ~primary:span ()
+                      |> Parser.context_emit_counted_compiler_warning
+                           publication.function_header.declaration_command
+                             .command_context
+                      |> checked span)
+                    message);
+              state.return_phases_seen <- receipt :: state.return_phases_seen
+          | _ -> fail span "return phase is foreign, repeated or out of order")
       | Parser.Function_body_completed (header, body) -> (
           let publication = header.function_publication in
           validate_command ledger publication.function_header;
@@ -2690,6 +3314,10 @@ let observe ?offset_runtime ledger event =
                   Sema.Function_record_phase.observe record event
                   |> checked body.location.span)
                 state.native_record;
+              state.body_compiler_options <-
+                Some
+                  (Parser.function_body_compiler_options header body
+                  |> checked body.location.span);
               state.body <- Some body
           | _ ->
               fail publication.function_name.location.span
@@ -2765,6 +3393,38 @@ let defer_source_runtime_dimension ledger ~preparation event =
           fail preparation.dimension_opening.span
             "deferred runtime dimension requires its exact preparation event")
 
+let defer_source_runtime_offset ledger ~phase event =
+  protect (fun () ->
+      let span = phase.Parser.phase_location.span in
+      match event with
+      | Parser.Aggregate_advanced original when original == phase ->
+          let context =
+            phase.phase_aggregate.aggregate_header.declaration_command
+              .command_context
+          in
+          if
+            (match ledger.authority with
+              | Source_compilation _ -> false
+              | _ -> true)
+            || (not (offset_requires_runtime phase))
+            || Parser.context_mode context <> Frontend.Preprocessor.Jit
+            || Option.is_some (Parser.context_parent context)
+            || not (Parser.aggregate_phase_is_current phase)
+          then
+            fail span "deferred offset requires its original live JIT callback";
+          validate_command ledger phase.phase_aggregate.aggregate_header;
+          (match (find ledger phase.phase_aggregate.aggregate_name).source with
+          | Aggregate { publication; progress = Some _; _ }
+            when publication == phase.phase_aggregate -> ()
+          | _ ->
+              fail span "deferred offset lacks its original aggregate progress");
+          if Option.is_some ledger.pending_runtime_offset then
+            fail span "source offset was already deferred";
+          ledger.pending_runtime_offset <- Some phase;
+          record_activation_event ledger
+            (Sema.Source_activation.Declaration event)
+      | _ -> fail span "deferred offset requires its exact original phase event")
+
 let admit_global ledger ~runtime (publication : Parser.global_publication) =
   protect (fun () ->
       let span = publication.global_name.location.span in
@@ -2817,8 +3477,13 @@ let admit_global ledger ~runtime (publication : Parser.global_publication) =
         | Some declaration -> declaration
         | None ->
             let assigned = Names.find ledger.names publication.global_name in
+            let callback =
+              declared_callback_for ledger span
+                publication.global_function_pointer
+            in
             let declaration =
-              Sema.Compiler_record.declare_global
+              Sema.Compiler_record.declare_global ?callback
+                ~selected_aggregate:(selected_aggregate_for ledger)
                 ~dimensions:
                   (selected_dimensions ledger publication.global_dimensions)
                 ~predecessor:boundary.storage_predecessor
@@ -2922,8 +3587,9 @@ let seal ledger (ast : Ast.module_) =
               claimed := assigned :: !claimed;
               facts := (assigned.publication, fact) :: !facts
             in
-            List.iteri
-              (fun item_index -> function
+            List.iter
+              (fun (item_index, item) ->
+                match item with
                 | Ast.Global_variable variable -> (
                     let assigned = find ledger variable.name in
                     match assigned.source with
@@ -3042,7 +3708,7 @@ let seal ledger (ast : Ast.module_) =
                         fail name.location.span
                           "aggregate command lacks its original completed \
                            declaration"))
-              ast.items;
+              (Ast.declaration_items ast);
             (match ledger.authority with
             | Source_compilation _ ->
                 List.iter
@@ -3140,6 +3806,51 @@ let seal ledger (ast : Ast.module_) =
                         else None)
                       ledger.implicit_outputs;
                 namespace = ledger.namespace;
+                function_compiler_options =
+                  List.filter_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Function
+                          { header = Some header; body_compiler_options; _ } ->
+                          Some
+                            ( Collection.publication_symbol assigned.publication,
+                              Option.value body_compiler_options
+                                ~default:header.header_compiler_options )
+                      | _ -> None)
+                    !claimed;
+                inherited_metadata =
+                  List.filter_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Aggregate
+                          {
+                            completed =
+                              Some
+                                {
+                                  aggregate_item =
+                                    Ast.Aggregate_definition definition;
+                                  _;
+                                };
+                            record = Some (Ok record);
+                            _;
+                          }
+                        when Option.is_some definition.base ->
+                          Some
+                            (Sema.Compiler_record.retain_inherited_metadata
+                               ~table:ledger.table ~namespace:ledger.namespace
+                               definition record
+                            |> checked definition.location.span)
+                      | _ -> None)
+                    !claimed;
+                static_allocations =
+                  List.rev ledger.static_allocations_rev
+                  |> List.filter (fun allocation ->
+                      List.exists
+                        (fun assigned ->
+                          assigned.publication
+                          == Sema.Compiler_record.static_allocation_publication
+                               allocation)
+                        !claimed);
                 selected_aggregate_types =
                   Type_specifiers.copy ledger.selected_aggregate_types;
                 function_headers =
@@ -3163,6 +3874,39 @@ let seal ledger (ast : Ast.module_) =
                           == Parser.implicit_command original.implicit_selection)
                         original_commands)
                     ledger.implicit_outputs;
+                source_callback_defaults =
+                  List.filter
+                    (fun value ->
+                      let owner =
+                        (Ir.Prepared_callback_default.header value)
+                          .Parser.callback_signature_publication
+                      in
+                      List.exists
+                        (fun entry ->
+                          entry.receipt.command_start == owner.callback_command)
+                        original_commands)
+                    ledger.prepared_source_callback_defaults;
+                native_source_callback_defaults =
+                  List.filter
+                    (fun value ->
+                      let publication =
+                        (Ir.Prepared_callback_default.header value)
+                          .Parser.callback_signature_publication
+                      in
+                      List.exists
+                        (fun entry ->
+                          entry.receipt.command_start
+                          == publication.callback_command)
+                        original_commands
+                      && List.exists
+                           (fun (receipt, _, owner, _, bits) ->
+                             owner = Native_source_default
+                             && receipt
+                                == Ir.Prepared_callback_default.receipt value
+                             && !bits
+                                = Ir.Prepared_callback_default.word_bits value)
+                           ledger.source_callback_attempts)
+                    ledger.prepared_source_callback_defaults;
                 source_defaults =
                   List.filter
                     (fun value ->
@@ -3186,8 +3930,8 @@ let seal ledger (ast : Ast.module_) =
                              && receipt
                                 == Ir.Prepared_parameter_default.receipt value
                              && !bits
-                                = Some
-                                    (Ir.Prepared_parameter_default.bits value))
+                                = Ir.Prepared_parameter_default.word_bits value
+                             && Option.is_some !bits)
                            ledger.source_default_attempts)
                     ledger.prepared_source_defaults;
                 table = ledger.table;
@@ -3287,7 +4031,7 @@ let initializer_leaf_for ledger (receipt : Parser.completed_initializer_leaf) =
           Sema.Initializer_source.parser_leaf pending receipt |> checked span
       | _ -> fail span "initializer leaf belongs to another source declaration")
 
-let native_initializer_fragment ledger ~runtime receipt =
+let native_initializer_source ledger ~runtime ~closed receipt =
   let ( let* ) = Result.bind in
   let* leaf = initializer_leaf_for ledger receipt in
   protect (fun () ->
@@ -3307,7 +4051,7 @@ let native_initializer_fragment ledger ~runtime receipt =
       | _ -> ());
       if List.exists (( == ) leaf) ledger.native_initializer_attempts then
         fail span "native initializer was already attempted";
-      if Sema.Initializer_source.leaf_identifier_nodes leaf <> [] then
+      if closed && Sema.Initializer_source.leaf_identifier_nodes leaf <> [] then
         fail ~code:"HCRUN0006" span
           "native initializers require closed expressions without value or \
            function references";
@@ -3329,9 +4073,14 @@ let native_initializer_fragment ledger ~runtime receipt =
                 "native array initializer requires every original dimension to \
                  have a checked fixed bound";
             let assigned = find ledger publication.global_name in
+            let callback =
+              declared_callback_for ledger span
+                publication.global_function_pointer
+            in
             let declaration =
-              Sema.Compiler_record.declare_global ~dimensions
-                ~table:ledger.table ~namespace:ledger.namespace
+              Sema.Compiler_record.declare_global ?callback
+                ~selected_aggregate:(selected_aggregate_for ledger)
+                ~dimensions ~table:ledger.table ~namespace:ledger.namespace
                 ~predecessor:boundary.storage_predecessor
                 ~previous_global:boundary.storage_previous_global
                 assigned.publication
@@ -3340,6 +4089,31 @@ let native_initializer_fragment ledger ~runtime receipt =
             boundary.storage_declaration <- Some declaration;
             declaration
       in
+      ledger.native_initializer_attempts <-
+        leaf :: ledger.native_initializer_attempts;
+      ledger.source_defaults_runtime <- Some runtime;
+      (declaration, leaf))
+
+let native_load_initializer_source ledger ~runtime receipt =
+  let context =
+    receipt.Parser.leaf_initializer.initializer_owner.global_header
+      .declaration_command
+      .command_context
+  in
+  if Parser.context_mode context <> Frontend.Preprocessor.Aot then
+    protect (fun () ->
+        fail ~code:"HCRUN0006" receipt.leaf_initializer.initializer_equals.span
+          "native load initializer requires its original AOT callback")
+  else native_initializer_source ledger ~runtime ~closed:false receipt
+
+let native_initializer_fragment ledger ~runtime receipt =
+  let ( let* ) = Result.bind in
+  let* declaration, leaf =
+    native_initializer_source ledger ~runtime ~closed:true receipt
+  in
+  protect (fun () ->
+      let publication = receipt.Parser.leaf_initializer.initializer_owner in
+      let span = receipt.leaf_initializer.initializer_equals.span in
       let module Outer = Sema.Outer_environment in
       let compilation_mode, tables =
         match
@@ -3380,10 +4154,63 @@ let native_initializer_fragment ledger ~runtime receipt =
         Sema.Initializer_fragment.authorize ~namespace:ledger.namespace fragment
         |> checked span
       in
-      ledger.native_initializer_attempts <-
-        leaf :: ledger.native_initializer_attempts;
-      ledger.source_defaults_runtime <- Some runtime;
       authority)
+
+let declare_static_symbol ledger ~runtime receipt =
+  protect (fun () ->
+      let publication = receipt.Parser.allocation_function in
+      let span = publication.function_name.location.span in
+      if
+        not
+          (Option.fold ~none:false ~some:(( == ) runtime)
+             (ledger_runtime ledger))
+      then fail span "static symbol belongs to another task runtime";
+      if
+        not (Sema.Source_activation.static_allocation ledger.activation receipt)
+      then validate_command ledger publication.function_header;
+      if receipt.allocation_storage <> Ast.Static_local then
+        fail span "native static symbol requires original static storage";
+      let allocation =
+        match
+          Sema.Compiler_record.static_allocation ledger.compiler_positions
+            receipt
+        with
+        | Some allocation -> allocation
+        | None -> fail span "native static symbol has no observed allocation"
+      in
+      let partial =
+        match (find ledger publication.function_name).source with
+        | Function state when state.publication == publication -> (
+            match state.typed_header with
+            | Some (collected, _) -> collected
+            | None ->
+                fail span "native static symbol has no original partial header")
+        | _ -> fail span "native static symbol has another function owner"
+      in
+      let symbol =
+        Sema.Function_collection.declare_static ?activation:ledger.activation
+          ~table:ledger.table partial allocation
+        |> checked span
+      in
+      let storage =
+        let callback =
+          match receipt.allocation_local.local_source with
+          | Parser.Local_variable source ->
+              declared_callback_for ledger span source.local_function_pointer
+          | _ -> None
+        in
+        Ir.Integer_static_allocation.create ?activation:ledger.activation
+          ?callback
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          ~table:ledger.table ~header:partial allocation
+        |> checked span
+      in
+      if Ir.Integer_static_allocation.symbol storage != symbol then
+        fail span "private static storage substituted its original symbol";
+      VM.admit_static_allocation runtime storage |> checked span;
+      storage)
+
+let declare_native_static_symbol = declare_static_symbol
 
 let native_static_initializer_fragment ledger ~runtime
     (receipt : Parser.static_initializer_preparation) =
@@ -3448,6 +4275,12 @@ let native_static_initializer_fragment ledger ~runtime
                 fail span "native static initializer lacks its original query")
       in
       let fragment =
+        let callback =
+          match receipt.static_allocation.allocation_local.local_source with
+          | Parser.Local_variable source ->
+              declared_callback_for ledger span source.local_function_pointer
+          | _ -> None
+        in
         let dimensions =
           match receipt.static_allocation.allocation_local.local_source with
           | Parser.Local_variable source ->
@@ -3455,9 +4288,11 @@ let native_static_initializer_fragment ledger ~runtime
               |> List.map Sema.Compiler_record.dimension_count
           | _ -> []
         in
-        Sema.Static_initializer_fragment.create ~table:ledger.table
-          ~namespace:ledger.namespace ~publication:assigned.publication ~receipt
-          ~dimensions ~environment ~queries
+        Sema.Static_initializer_fragment.create ?callback
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          ~table:ledger.table ~namespace:ledger.namespace
+          ~publication:assigned.publication ~receipt ~dimensions ~environment
+          ~queries ()
         |> function
         | Error message when String.starts_with ~prefix:"HCRUN0001: " message ->
             fail ~code:"HCRUN0001" span
@@ -3510,7 +4345,8 @@ let initializer_declaration ledger (start : Parser.global_initializer_start) =
       | _ -> fail span "initializer layout storage has not been admitted");
       declaration)
 
-let selected_fragment_transcript ledger ~task_view ~span expression =
+let selected_fragment_transcript ?resolve_local ledger ~task_view ~span
+    expression =
   let module Selection = Sema.Reference_selection in
   let module Globals = Ir.Integer_globals in
   let table = ledger.table in
@@ -3539,13 +4375,16 @@ let selected_fragment_transcript ledger ~task_view ~span expression =
           | None ->
               fail span
                 "initializer reference has no original source observation"
-          | Some { target; _ } -> (
+          | Some ({ target; _ } as original) -> (
               match target with
               | Selected_absent -> Selection.absent ~table ~name |> checked span
               | Selected_unbound _ | Selected_source { admitted = None; _ } ->
                   Selection.unavailable ~table ~name |> checked span
-              | Selected_local ->
-                  fail span "global initializer selected a local reference"
+              | Selected_local -> (
+                  match resolve_local with
+                  | Some resolve -> resolve identifier original
+                  | None ->
+                      fail span "global initializer selected a local reference")
               | Selected_runtime publication
               | Selected_source { admitted = Some publication; _ } ->
                   retained name publication)
@@ -3562,6 +4401,121 @@ let selected_fragment_transcript ledger ~task_view ~span expression =
             fail span "initializer query has no original source observation")
   in
   (environment, references, queries)
+
+let task_static_fragment ledger ~runtime ~task_view receipt =
+  protect (fun () ->
+      let publication = receipt.Parser.static_allocation.allocation_function in
+      let span = publication.function_name.location.span in
+      (match ledger.authority with
+      | Task_runtime owner when owner == runtime -> ()
+      | _ ->
+          fail span
+            "native static initializer requires its original task authority");
+      if
+        (not
+           (Parser.static_initializer_is_current receipt
+           || Sema.Source_activation.static_initializer ledger.activation
+                receipt))
+        || (not
+              (Option.fold ~none:false ~some:(( == ) runtime)
+                 (ledger_runtime ledger)))
+        || (not (VM.task_owns_snapshot runtime task_view))
+        || (not (List.exists (( == ) receipt) ledger.static_preparations))
+        || List.exists (( == ) receipt) ledger.native_static_attempts
+      then
+        fail span
+          "native task static initializer is foreign, unobserved or already \
+           attempted";
+      if
+        not
+          (Sema.Source_activation.static_initializer ledger.activation receipt)
+      then validate_command ledger publication.function_header;
+      let allocation =
+        match
+          List.find_opt
+            (fun allocation ->
+              Ir.Integer_static_allocation.source allocation
+              |> Sema.Compiler_record.static_allocation_receipt
+              |> fun original -> original == receipt.static_allocation)
+            (Ir.Integer_globals.private_static_allocations task_view)
+        with
+        | Some allocation -> allocation
+        | None ->
+            fail span
+              "native static initializer has no admitted original allocation"
+      in
+      let assigned = find ledger publication.function_name in
+      let expression =
+        match receipt.static_leaf_value with
+        | Ast.Scalar_initializer expression -> expression
+        | _ ->
+            fail span "native static initializer is not an original scalar leaf"
+      in
+      let resolve_local (identifier : Ast.identifier) original =
+        let selected = Parser.selected_local original.selection in
+        let storage =
+          List.find_opt
+            (fun storage ->
+              let original =
+                Ir.Integer_static_allocation.source storage
+                |> Sema.Compiler_record.static_allocation_receipt
+              in
+              original.allocation_function == publication
+              && Option.fold ~none:false
+                   ~some:(( == ) original.allocation_local)
+                   selected)
+            (Ir.Integer_globals.private_static_allocations task_view)
+        in
+        let storage =
+          match storage with
+          | Some storage -> storage
+          | None ->
+              fail ~code:"HCRUN0006" span
+                "native static initializer cannot read automatic or parameter \
+                 storage"
+        in
+        let header =
+          match assigned.source with
+          | Function state -> (
+              match state.typed_header with
+              | Some (header, _) -> header
+              | None ->
+                  fail span "static reference has no original partial header")
+          | _ -> fail span "static reference has another declaring function"
+        in
+        let reference =
+          Sema.Static_reference.create ~table:ledger.table ~header
+            ?callback:(Ir.Integer_static_allocation.callback_source storage)
+            ~selected_aggregate:(selected_aggregate_for ledger)
+            ~allocation:(Ir.Integer_static_allocation.source storage)
+            ~selection:original.selection ()
+          |> checked span
+        in
+        Sema.Reference_selection.static_local ~table:ledger.table
+          ~name:identifier.Ast.spelling reference
+        |> checked span
+      in
+      let environment, references, queries =
+        selected_fragment_transcript ~resolve_local ledger ~task_view ~span
+          expression
+      in
+      let fragment =
+        Sema.Static_initializer_fragment.create_selected
+          ?activation:ledger.activation
+          ?callback:(Ir.Integer_static_allocation.callback_source allocation)
+          ~selected_aggregate:(selected_aggregate_for ledger)
+          ~table:ledger.table ~namespace:ledger.namespace
+          ~publication:assigned.publication ~receipt
+          ~dimensions:
+            (Ir.Integer_storage_shape.dimensions
+               (Ir.Integer_static_allocation.shape allocation))
+          ~environment ~references ~queries ()
+        |> checked span
+      in
+      ledger.native_static_attempts <- receipt :: ledger.native_static_attempts;
+      (allocation, fragment))
+
+let native_task_static_fragment = task_static_fragment
 
 let initializer_fragment ledger ~runtime ~task_view
     (receipt : Parser.completed_initializer_leaf) =
@@ -3715,6 +4669,7 @@ let finish_runtime_offset ledger ~runtime ~before ~succeeded phase =
         in
         ledger.offsets_rev <- offset :: ledger.offsets_rev;
         Sema.Compiler_record.advance_aggregate
+          ~callbacks:(completed_callback_header ledger)
           ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
           progress phase
         |> checked span;
@@ -3867,6 +4822,25 @@ let retained_function_headers ~table ~ast (command : command) =
         fail ast.Ast.span "retained headers belong to another source command";
       (command.namespace, command.function_headers))
 
+let function_compiler_options ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "function options belong to another source command";
+      fun symbol ->
+        if not (Sema.Symbol_table.owns_symbol table symbol) then
+          Error "function options have another symbol table"
+        else
+          match
+            List.find_opt
+              (fun (original, _) -> original == symbol)
+              command.function_compiler_options
+          with
+          | Some (_, mask) -> Ok mask
+          | None -> Error "function has no original reached option snapshot")
+
+let source_function_compiler_options ~table ~ast (Source_command command) =
+  function_compiler_options ~table ~ast command
+
 let selected_type_resolver ~table ~ast (command : command) =
   protect (fun () ->
       if command.table != table || command.ast != ast then
@@ -3878,6 +4852,16 @@ let selected_type_resolver ~table ~ast (command : command) =
 
 let source_selected_type_resolver ~table ~ast (Source_command command) =
   selected_type_resolver ~table ~ast command
+
+let inherited_metadata ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "inherited metadata belongs to another original source command";
+      command.inherited_metadata)
+
+let source_inherited_metadata ~table ~ast (Source_command command) =
+  inherited_metadata ~table ~ast command
 
 let native_publication_event = function
   | Parser.Function_declared p -> Some p
@@ -3929,6 +4913,12 @@ let admit_function_phase ledger ~runtime event =
                   VM.check_function_phase_source runtime
                     ~namespace:ledger.namespace ~event snapshot
                   |> checked span;
+                  let compiler_option_mask =
+                    Parser.context_compiler_options
+                      publication.function_header.declaration_command
+                        .command_context
+                    |> checked span
+                  in
                   let module R = Sema.Function_resolution in
                   let module C = Sema.Function_record_classification in
                   let current =
@@ -3961,9 +4951,8 @@ let admit_function_phase ledger ~runtime event =
                     match current with
                     | None ->
                         R.make_provisional_declaration ~table:ledger.table
-                          ~namespace:ledger.namespace
-                          ~compiler_option_mask:
-                            Sema.Compiler_option.initial_mask ~function_
+                          ~namespace:ledger.namespace ~compiler_option_mask
+                          ~function_
                     | Some current ->
                         let current = C.classified_declaration_source current in
                         let earlier =
@@ -3980,10 +4969,8 @@ let admit_function_phase ledger ~runtime event =
                             state.runtime_phase
                         in
                         R.make_provisional_advance ?pending ~table:ledger.table
-                          ~namespace:ledger.namespace
-                          ~compiler_option_mask:
-                            Sema.Compiler_option.initial_mask ~current
-                          ~transition ~function_ ()
+                          ~namespace:ledger.namespace ~compiler_option_mask
+                          ~current ~transition ~function_ ()
                   in
                   let fact = fact |> checked span in
                   let previous = Option.to_list current in
@@ -4112,7 +5099,7 @@ let admit_function_header ledger ~runtime header =
             ( None,
               Sema.Function_resolution.make_pending_declaration
                 ~table:ledger.table ~namespace:ledger.namespace
-                ~compiler_option_mask:Sema.Compiler_option.initial_mask ~source
+                ~compiler_option_mask:header.header_compiler_options ~source
                 ~function_ )
       in
       let fact = fact |> checked span in
@@ -4212,6 +5199,10 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
         Sema.Default_fragment.create ~table:ledger.table
           ~publication:assigned.publication ~receipt ~environment ~references
           ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
         |> checked span
       in
       Sema.Default_fragment.authorize ?activation:ledger.activation
@@ -4319,6 +5310,10 @@ let begin_source_default_with_owner owner ledger ~runtime receipt =
         Sema.Default_fragment.create ~table:ledger.table
           ~publication:assigned.publication ~receipt ~environment ~references:[]
           ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
         |> checked span
       in
       let authority =
@@ -4667,6 +5662,13 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
         let* () =
           protect (fun () ->
               match event with
+              | Parser.Aggregate_advanced phase
+                when Option.fold ~none:false ~some:(( == ) phase)
+                       ledger.pending_runtime_offset ->
+                  if not (Parser.aggregate_phase_is_current phase) then
+                    fail phase.phase_location.span
+                      "deferred source offset expired";
+                  ledger.pending_runtime_offset <- None
               | Parser.Aggregate_advanced
                   ({ phase_step = Parser.Aggregate_offset_reached _; _ } as
                    phase) -> (
@@ -4789,6 +5791,14 @@ let collection ~table ~ast (command : command) =
         fail ast.Ast.span
           "task declaration seal belongs to another table or source AST";
       command.declarations)
+
+let static_allocations ~table ~ast (command : command) =
+  Result.map
+    (fun _ -> command.static_allocations)
+    (collection ~table ~ast command)
+
+let source_static_allocations ~table ~ast (Source_command command) =
+  static_allocations ~table ~ast command
 
 let reference_for ~table ~ast (command : command) (identifier : Ast.identifier)
     =
@@ -5145,3 +6155,736 @@ let parser_suspension ledger =
   match ledger.active with
   | active :: _ -> Parser.suspend_context active.context
   | [] -> Error "task has no suspended parser source"
+
+let compiler_control_context ledger ~runtime =
+  let ( let* ) = Result.bind in
+  let* () =
+    match ledger.authority with
+    | Task_runtime original when original == runtime -> Ok ()
+    | _ -> Error "compiler option request has another original source task"
+  in
+  let* context =
+    match ledger.active with
+    | current :: _ -> Ok current.context
+    | [] -> Error "compiler option request has no active parser control"
+  in
+  let observed_events =
+    List.fold_left
+      (fun count event ->
+        let original =
+          match event with
+          | Parser.Sequence_started context | Parser.Sequence_aborted context ->
+              context
+          | Parser.Command_started start -> start.command_context
+          | Parser.Command_completed completed
+          | Parser.Command_resumed completed ->
+              completed.command_start.command_context
+          | Parser.Sequence_completed completed -> completed.sequence_context
+        in
+        if original == context then count + 1 else count)
+      0 ledger.source_events_rev
+  in
+  if
+    Parser.context_environment context != ledger.symbols
+    || Parser.context_sources context != ledger.sources
+    || not (Parser.context_is_current context ~observed_events)
+  then
+    Error
+      "compiler option request lacks its original fully observed parser control"
+  else Ok context
+
+let execute_compiler_option ledger ~runtime index enabled =
+  Result.bind (compiler_control_context ledger ~runtime) (fun context ->
+      match enabled with
+      | None -> Parser.context_get_option context ~bit_index:index
+      | Some value -> Parser.context_set_option context ~bit_index:index value)
+
+let emit_compiler_warnings ledger ~runtime diagnostics =
+  match diagnostics with
+  | [] -> Ok ()
+  | _ ->
+      Result.bind (compiler_control_context ledger ~runtime) (fun context ->
+          List.fold_left
+            (fun result diagnostic ->
+              Result.bind result (fun () ->
+                  Parser.context_emit_compiler_warning context diagnostic))
+            (Ok ()) diagnostics)
+
+type header_default =
+  | Header_word of int64
+  | Header_saved of VM.task_state * Ir.Saved_parameter_value.t
+
+let function_header_warnings_consumed ledger header =
+  match
+    Names.find_opt ledger.names header.Parser.function_publication.function_name
+  with
+  | Some { source = Function state; _ }
+    when Option.fold ~none:false ~some:(( == ) header) state.header ->
+      Ok state.header_warnings_emitted
+  | _ -> Error "header warning receipt has another original source ledger"
+
+let emit_function_header_warnings ?runtime ledger header =
+  protect (fun () ->
+      let module N = Sema.Function_record_phase in
+      let module P = Sema.Provisional_function in
+      let publication = header.Parser.function_publication in
+      let span = publication.function_name.location.span in
+      let context =
+        publication.function_header.declaration_command.command_context
+      in
+      let observed_events =
+        List.fold_left
+          (fun count event ->
+            let original =
+              match event with
+              | Parser.Sequence_started original
+              | Parser.Sequence_aborted original -> original
+              | Parser.Command_started start -> start.command_context
+              | Parser.Command_completed completed
+              | Parser.Command_resumed completed ->
+                  completed.command_start.command_context
+              | Parser.Sequence_completed completed ->
+                  completed.sequence_context
+            in
+            if original == context then count + 1 else count)
+          0 ledger.source_events_rev
+      in
+      (match (ledger.authority, runtime) with
+      | Source_compilation _, None -> ()
+      | Task_runtime original, Some runtime when original == runtime -> ()
+      | _ -> fail span "header warnings have another original source authority");
+      if
+        not
+          (Parser.function_header_is_current header
+          && Parser.context_is_current context ~observed_events)
+      then
+        fail span
+          "header warnings require their original fully observed completion";
+      let assigned = find ledger publication.function_name in
+      match assigned.source with
+      | Function state
+        when state.publication == publication
+             && Option.fold ~none:false ~some:(( == ) header) state.header
+             && not state.header_warnings_emitted ->
+          state.header_warnings_emitted <- true;
+          if
+            Sema.Compiler_option.is_enabled ~mask:header.header_compiler_options
+              Sema.Compiler_option.Warn_header_mismatch
+          then
+            Option.iter
+              (fun record ->
+                let current = N.snapshot record in
+                if
+                  not
+                    (List.exists
+                       (fun (event, _) ->
+                         match event with
+                         | Parser.Function_header_completed original
+                           when original == header ->
+                             N.matches_event current event
+                         | _ -> false)
+                       ledger.native_function_events)
+                then
+                  fail span
+                    "header warning cursor lost its original completed phase";
+                Option.iter
+                  (fun previous ->
+                    let selected_aggregate type_specifier =
+                      Type_specifiers.find_opt ledger.selected_aggregate_types
+                        type_specifier
+                    in
+                    let return_type snapshot =
+                      Function_type_resolution.resolve_native_header_return_type
+                        ~selected_aggregate ~table:ledger.table
+                        ~namespace:ledger.namespace snapshot
+                      |> checked span |> Sema.Type_reference.resolved_type
+                    in
+                    let warn code message =
+                      Common.Diagnostic.make ~severity:Common.Diagnostic.Warning
+                        ~code ~message ~primary:span ()
+                      |> Parser.context_emit_counted_compiler_warning context
+                      |> checked span
+                    in
+                    if
+                      not
+                        (Sema.Type.equal (return_type current)
+                           (return_type previous))
+                    then
+                      warn "HCSEMA0037"
+                        (Printf.sprintf
+                           "function %S return type does not match the \
+                            replaced header"
+                           publication.function_name.spelling);
+                    let saved_count =
+                      match N.argument_count previous with
+                      | Some count when count >= 0 -> count
+                      | _ ->
+                          fail span
+                            "header comparison lacks its actual saved argument \
+                             count"
+                    in
+                    let name = function
+                      | N.Fixed_header_member member ->
+                          (P.member_source member).parameter_name
+                          |> Option.fold ~none:"_anon_"
+                               ~some:(fun (name : Ast.identifier) ->
+                                 name.Ast.spelling)
+                      | N.Argc_header_member _ -> "argc"
+                      | N.Argv_header_member _ -> "argv"
+                      | N.Local_header_member receipt ->
+                          receipt.allocation_local.local_spelling
+                    in
+                    let default = function
+                      | N.Argc_header_member _
+                      | N.Argv_header_member _
+                      | N.Local_header_member _ -> None
+                      | N.Fixed_header_member member ->
+                          Option.bind (P.member_default_source member)
+                            (fun receipt ->
+                              match receipt.default_ast.value with
+                              | Ast.Lastclass_default _ -> Some (Header_word 0L)
+                              | Ast.Expression_default _ ->
+                                  Option.bind runtime (fun runtime ->
+                                      VM.task_default_value runtime receipt
+                                      |> Option.map (fun value ->
+                                          Header_saved (runtime, value))))
+                    in
+                    let same_default left right =
+                      match (left, right) with
+                      | None, None -> true
+                      | None, Some _ | Some _, None -> false
+                      | Some (Header_word left), Some (Header_word right) ->
+                          Int64.equal left right
+                      | ( Some (Header_saved (left_runtime, left)),
+                          Some (Header_saved (right_runtime, right)) ) ->
+                          if left_runtime != right_runtime then
+                            fail span
+                              "header default words have different original \
+                               runtimes";
+                          VM.compare_saved_parameter_values left_runtime left
+                            right
+                          |> checked span
+                      | Some (Header_word bits), Some (Header_saved (_, value))
+                      | Some (Header_saved (_, value)), Some (Header_word bits)
+                        ->
+                          Option.fold ~none:false ~some:(Int64.equal bits)
+                            (Ir.Saved_parameter_value.word_bits value)
+                    in
+                    let member_type snapshot member =
+                      Function_type_resolution.resolve_native_header_member_type
+                        ~selected_aggregate ~table:ledger.table
+                        ~namespace:ledger.namespace snapshot member
+                      |> checked span
+                    in
+                    let rec compare count left right =
+                      match (left, right) with
+                      | [], [] -> true
+                      | _ :: _, _ :: _ when count = 0 -> true
+                      | left :: left_rest, right :: right_rest ->
+                          String.equal (name left) (name right)
+                          && Sema.Type.equal (member_type current left)
+                               (member_type previous right)
+                          && N.header_member_has_class_base left
+                             = N.header_member_has_class_base right
+                          && same_default (default left) (default right)
+                          && compare (count - 1) left_rest right_rest
+                      | [], _ :: _ | _ :: _, [] -> false
+                    in
+                    if
+                      not
+                        (compare saved_count
+                           (N.checked_header_members current |> checked span)
+                           (N.checked_header_members previous |> checked span))
+                    then
+                      warn "HCSEMA0038"
+                        (Printf.sprintf
+                           "function %S argument list does not match the \
+                            replaced header"
+                           publication.function_name.spelling))
+                  (N.saved_previous_header current))
+              state.native_record
+      | _ ->
+          fail span
+            "header warnings require one original unconsumed completed header")
+
+let saved_compiler_context ledger ~session ~suspension =
+  let ( let* ) = Result.bind in
+  let* context = Parser.suspension_enclosing_context suspension in
+  let observed_events context =
+    List.fold_left
+      (fun count event ->
+        let original =
+          match event with
+          | Parser.Sequence_started original | Parser.Sequence_aborted original
+            -> original
+          | Parser.Command_started start -> start.command_context
+          | Parser.Command_completed completed
+          | Parser.Command_resumed completed ->
+              completed.command_start.command_context
+          | Parser.Sequence_completed completed -> completed.sequence_context
+        in
+        if original == context then count + 1 else count)
+      0 ledger.source_events_rev
+  in
+  if
+    ledger.session != session
+    || ledger.sources != Session.sources session
+    || ledger.symbols != Session.symbols session
+    || ledger.table != Session.semantic_symbols session
+    || Parser.context_environment context != ledger.symbols
+    || (not
+          (Parser.context_is_current context
+             ~observed_events:(observed_events context)))
+    || not
+         (match ledger.active with
+         | active :: _ when active.context == context -> true
+         | active :: parent :: _ ->
+             parent.context == context
+             && Parser.suspension_is_from_context suspension active.context
+             && Parser.context_is_current active.context
+                  ~observed_events:(observed_events active.context)
+         | _ :: _ -> false
+         | [] -> false)
+  then Error "saved compiler context has another original source ledger"
+  else Ok context
+
+let create_saved_compiler_runtime ledger ~session ~suspension ~runtime =
+  let ( let* ) = Result.bind in
+  let* saved_parent = saved_compiler_context ledger ~session ~suspension in
+  create_with_authority ~enclosing_ledger:ledger ~saved_parent
+    ~compiler_positions:ledger.compiler_positions
+    ~switch_budget:ledger.switch_budget
+    ~max_dimension_work:ledger.max_dimension_work
+    ~max_offset_work:ledger.max_offset_work (Task_runtime runtime) session
+
+let check_failed_compiler_input ?directive_ledger ledger ~session ~runtime
+    ~suspension failure =
+  let context = Parser.failed_input_context failure in
+  let exception_ = Parser.failed_input_compiler_exception failure in
+  let same_shape expected actual =
+    match (expected, actual) with
+    | None, None -> true
+    | Some expected, Some actual -> expected == actual
+    | _ -> false
+  in
+  let returned_shape expected = function
+    | Some actual -> same_shape expected actual
+    | None -> false
+  in
+  let in_input command =
+    Parser.context_is_in_suspended_input command.Parser.command_context
+      ~suspension
+  in
+  let shape_results_match ledger =
+    List.for_all
+      (fun (call : selected_call) ->
+        (not (in_input (Parser.selected_command call.start.call_reference)))
+        || returned_shape call.parser_shape
+             (Parser.call_start_supplied_shape call.start))
+      ledger.calls
+    && List.for_all
+         (fun (call : selected_implicit_output) ->
+           (not (in_input (Parser.implicit_command call.implicit_selection)))
+           ||
+           match call.parser_shape with
+           | None -> not call.arguments_observed
+           | Some expected ->
+               returned_shape expected
+                 (Parser.implicit_supplied_shape call.implicit_selection))
+         ledger.implicit_outputs
+  in
+  let producer_shape_matches ledger =
+    (not (Parser.compiler_exception_requires_call_shape exception_))
+    || List.exists
+         (fun (call : selected_call) ->
+           Parser.compiler_exception_is_from_call_start exception_ call.start
+           && Option.is_some call.capture
+           && Option.is_some call.arguments
+           && Option.is_some call.parser_shape)
+         ledger.calls
+    || List.exists
+         (fun (call : selected_implicit_output) ->
+           Parser.compiler_exception_is_from_implicit_arguments exception_
+             call.implicit_selection
+           && Option.is_some call.arguments_capture
+           && Option.fold ~none:false ~some:Option.is_some call.parser_shape)
+         ledger.implicit_outputs
+  in
+  let events_for ledger context =
+    List.filter
+      (fun event ->
+        let original =
+          match event with
+          | Parser.Sequence_started original | Parser.Sequence_aborted original
+            -> original
+          | Parser.Command_started start -> start.command_context
+          | Parser.Command_completed completed
+          | Parser.Command_resumed completed ->
+              completed.command_start.command_context
+          | Parser.Sequence_completed completed -> completed.sequence_context
+        in
+        original == context)
+      ledger.source_events_rev
+  in
+  let closed_original ledger context =
+    Parser.context_sources context == ledger.sources
+    && Parser.context_environment context == ledger.symbols
+    && Parser.context_command_events_match context
+         ~events_rev:(events_for ledger context)
+       = Some true
+    && List.exists
+         (fun sequence ->
+           sequence.context == context && sequence.phase = Aborted)
+         ledger.sequences
+    && not
+         (List.exists
+            (fun sequence ->
+              Parser.context_is_in_suspended_input sequence.context ~suspension)
+            ledger.active)
+  in
+  let producer_context =
+    Parser.compiler_exception_context
+      (Option.value ~default:exception_
+         (Parser.compiler_exception_call_origin exception_))
+  in
+  let producer_matches candidate =
+    candidate.sources == Session.sources candidate.session
+    && candidate.symbols == Session.symbols candidate.session
+    && candidate.table == Session.semantic_symbols candidate.session
+    && Option.fold ~none:false
+         ~some:(fun producer_runtime ->
+           VM.task_owns_table producer_runtime candidate.table
+           && VM.task_shares_resources runtime producer_runtime)
+         (ledger_runtime candidate)
+    && Parser.context_is_in_suspended_input producer_context ~suspension
+    && closed_original candidate producer_context
+    && shape_results_match candidate
+    && producer_shape_matches candidate
+  in
+  let matched_producer =
+    (not (Parser.compiler_exception_requires_call_shape exception_))
+    || producer_matches ledger
+    || Option.fold ~none:false ~some:producer_matches directive_ledger
+  in
+  if
+    ledger.session != session
+    || (not (shape_results_match ledger))
+    || (not matched_producer)
+    || ledger.sources != Session.sources session
+    || ledger.symbols != Session.symbols session
+    || ledger.table != Session.semantic_symbols session
+    || (not
+          (Option.fold ~none:false ~some:(( == ) runtime)
+             (ledger_runtime ledger)))
+    || Parser.context_sources context != ledger.sources
+    || Parser.context_environment context != ledger.symbols
+    || (not (Parser.failed_input_is_current failure ~suspension))
+    || Parser.context_command_events_match context
+         ~events_rev:(events_for ledger context)
+       <> Some true
+    || (not
+          (List.exists
+             (fun sequence ->
+               sequence.context == context && sequence.phase = Aborted)
+             ledger.sequences))
+    || List.exists
+         (fun sequence ->
+           Parser.context_is_in_suspended_input sequence.context ~suspension)
+         ledger.active
+  then
+    Error
+      "failed Compiler input requires its original session, tables and closed \
+       source ledger"
+  else Ok ()
+
+let require_observed_callback_default ledger receipt =
+  let span = receipt.Parser.callback_default_ast.location.span in
+  let state = callback_state ledger receipt.callback_default_signature span in
+  if
+    (not (List.exists (( == ) receipt) state.callback_defaults_rev))
+    || not
+         (Parser.callback_default_is_current receipt
+         || Sema.Source_activation.callback_default ledger.activation receipt)
+  then fail span "anonymous default lacks its original observed active boundary"
+
+let begin_callback_default_attempt ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.callback_default_ast.location.span in
+      require_initializer_runtime ledger runtime span;
+      require_observed_callback_default ledger receipt;
+      VM.begin_task_callback_default runtime ~namespace:ledger.namespace receipt
+      |> checked span)
+
+let callback_default_fragment_authority ledger ~runtime ~task_view receipt =
+  protect (fun () ->
+      let span = receipt.Parser.callback_default_ast.location.span in
+      require_initializer_runtime ledger runtime span;
+      require_observed_callback_default ledger receipt;
+      if not (VM.task_owns_snapshot runtime task_view) then
+        fail span "anonymous default has another task snapshot";
+      let expression =
+        match receipt.callback_default_ast.value with
+        | Ast.Expression_default e -> e
+        | Lastclass_default _ ->
+            fail span "lastclass needs separate materialization"
+      in
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span expression
+      in
+      let fragment =
+        Sema.Default_fragment.create_callback ~table:ledger.table
+          ~namespace:ledger.namespace ~receipt ~environment ~references ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
+        |> checked span
+      in
+      Sema.Default_fragment.authorize ?activation:ledger.activation
+        ~namespace:ledger.namespace fragment
+      |> checked span)
+
+let complete_callback_defaults_runtime ledger ~runtime header =
+  protect (fun () ->
+      let span =
+        header.Parser.callback_signature_publication.callback_opening.span
+      in
+      require_initializer_runtime ledger runtime span;
+      let state =
+        callback_state ledger header.callback_signature_publication span
+      in
+      if
+        not
+          (Option.fold ~none:false ~some:(( == ) header) state.callback_header)
+      then fail span "anonymous completion lacks its original observed header";
+      VM.complete_task_callback_defaults runtime ~namespace:ledger.namespace
+        header
+      |> checked span)
+
+let begin_source_callback_default_with_owner owner ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.callback_default_ast.location.span in
+      require_observed_callback_default ledger receipt;
+      let mode =
+        Parser.context_mode
+          receipt.callback_default_signature.callback_command.command_context
+      in
+      (match ledger.authority with
+      | Source_compilation _
+        when owner = Native_source_default || mode = Frontend.Preprocessor.Aot
+        -> ()
+      | _ ->
+          fail span
+            "anonymous output defaults require their original AOT source ledger");
+      if
+        owner = Native_source_default
+        && not (VM.task_owns_table runtime ledger.table)
+      then fail span "anonymous native preparation has another semantic table";
+      if
+        List.exists
+          (fun (r, _, _, _, _) -> r == receipt)
+          ledger.source_callback_attempts
+      then fail span "anonymous output default already attempted";
+      (match ledger.source_defaults_runtime with
+      | Some prior when prior != runtime ->
+          fail span "anonymous defaults have another invocation budget"
+      | _ -> ());
+      let rec predecessor = function
+        | None -> ()
+        | Some r -> (
+            match r.Parser.callback_default_ast.value with
+            | Ast.Lastclass_default _ ->
+                predecessor r.callback_default_predecessor
+            | Expression_default _ ->
+                if
+                  not
+                    (List.exists
+                       (fun (p, _, prior_owner, _, bits) ->
+                         p == r && prior_owner = owner && Option.is_some !bits)
+                       ledger.source_callback_attempts)
+                then
+                  fail span
+                    "anonymous default requires its successful predecessor")
+      in
+      predecessor receipt.callback_default_predecessor;
+      let expression =
+        match receipt.callback_default_ast.value with
+        | Ast.Expression_default e -> e
+        | Lastclass_default _ ->
+            fail span "lastclass needs separate materialization"
+      in
+      if Sema.Initializer_source.expression_identifier_nodes expression <> []
+      then
+        fail ~code:"HCRUN0006" span
+          (match owner with
+          | Output_aot_default ->
+              "AOT anonymous default references require output relocation and \
+               callable authority"
+          | Native_source_default ->
+              "native defaults require closed expressions without value or \
+               function references");
+      let module Outer = Sema.Outer_environment in
+      let compilation_mode, tables =
+        match mode with
+        | Frontend.Preprocessor.Aot -> (Outer.Aot, [ (Outer.Assembler, 0) ])
+        | Frontend.Preprocessor.Jit ->
+            (Outer.Jit, [ (Outer.Jit_task 0, 0); (Outer.Assembler, 1) ])
+      in
+      let tables =
+        List.map
+          (fun (table_kind, table_index) ->
+            Outer.make_table ~table_kind ~table_index []
+            |> Result.map_error Outer.error_to_string
+            |> checked span)
+          tables
+      in
+      let environment =
+        Outer.create ~table:ledger.table ~compilation_mode tables
+        |> Result.map_error Outer.error_to_string
+        |> checked span
+      in
+      let queries =
+        Sema.Query_selection.source_queries expression
+        |> List.map (fun expression ->
+            match Query_expressions.find_opt ledger.queries expression with
+            | Some query -> query.query_selection
+            | None ->
+                fail span "anonymous default lacks its original checked query")
+      in
+      let fragment =
+        Sema.Default_fragment.create_callback ~table:ledger.table
+          ~namespace:ledger.namespace ~receipt ~environment ~references:[]
+          ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
+        |> checked span
+      in
+      let authority =
+        Sema.Default_fragment.authorize ~namespace:ledger.namespace fragment
+        |> checked span
+      in
+      ledger.source_defaults_runtime <- Some runtime;
+      ledger.source_callback_attempts <-
+        (receipt, authority, owner, VM.task_initializer_steps runtime, ref None)
+        :: ledger.source_callback_attempts;
+      authority)
+
+let begin_source_callback_default =
+  begin_source_callback_default_with_owner Output_aot_default
+
+let begin_native_source_callback_default =
+  begin_source_callback_default_with_owner Native_source_default
+
+let finish_source_callback_default_with_owner owner ledger execution =
+  protect (fun () ->
+      let fragment =
+        Sema.Default_fragment.authorized_fragment
+          (VM.default_constant_authority execution)
+      in
+      let receipt =
+        match Sema.Default_fragment.source fragment with
+        | Callback (namespace, r) when namespace == ledger.namespace -> r
+        | _ ->
+            fail (Sema.Default_fragment.ast fragment).location.span
+              "anonymous output default has another original source"
+      in
+      let span = receipt.callback_default_ast.location.span in
+      require_observed_callback_default ledger receipt;
+      let before, bits =
+        match
+          List.find_opt
+            (fun (r, a, prior_owner, _, bits) ->
+              r == receipt && prior_owner = owner
+              && a == VM.default_constant_authority execution
+              && !bits = None)
+            ledger.source_callback_attempts
+        with
+        | Some (_, _, _, before, bits) -> (before, bits)
+        | _ ->
+            fail span
+              "anonymous output default completion is foreign or repeated"
+      in
+      let runtime =
+        match ledger.source_defaults_runtime with
+        | Some runtime
+          when VM.task_initializer_steps runtime - before
+               = VM.default_constant_steps execution -> runtime
+        | _ ->
+            fail span
+              "anonymous output preparation was not charged to its owning \
+               invocation"
+      in
+      bits :=
+        Some (VM.consume_default_constant runtime execution |> checked span))
+
+let finish_source_callback_default =
+  finish_source_callback_default_with_owner Output_aot_default
+
+let finish_native_source_callback_default =
+  finish_source_callback_default_with_owner Native_source_default
+
+let complete_source_callback_defaults ledger header =
+  protect (fun () ->
+      let span =
+        header.Parser.callback_signature_publication.callback_opening.span
+      in
+      let state =
+        callback_state ledger header.callback_signature_publication span
+      in
+      if
+        (not (Parser.callback_signature_completion_is_current header))
+        || not
+             (Option.fold ~none:false ~some:(( == ) header)
+                state.callback_header)
+      then
+        fail span
+          "anonymous output defaults require their original current completed \
+           signature";
+      let values =
+        List.filter_map
+          (fun receipt ->
+            match receipt.Parser.callback_default_ast.value with
+            | Ast.Lastclass_default _ -> None
+            | Expression_default _ ->
+                let bits =
+                  match
+                    List.find_opt
+                      (fun (r, _, _, _, bits) ->
+                        r == receipt && Option.is_some !bits)
+                      ledger.source_callback_attempts
+                  with
+                  | Some (_, _, _, _, bits) -> Option.get !bits
+                  | _ ->
+                      fail span
+                        "anonymous output signature requires every successful \
+                         original default"
+                in
+                if
+                  List.exists
+                    (fun v -> Ir.Prepared_callback_default.receipt v == receipt)
+                    ledger.prepared_source_callback_defaults
+                then fail span "anonymous output defaults cannot publish twice";
+                Some
+                  (Ir.Prepared_callback_default.create
+                     ~namespace:ledger.namespace ~header ~receipt ~bits
+                  |> checked span))
+          header.callback_defaults
+      in
+      ledger.prepared_source_callback_defaults <-
+        values @ ledger.prepared_source_callback_defaults)
+
+let source_callback_defaults ~table ~ast (Source_command command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "anonymous output defaults belong to another original source seal";
+      command.source_callback_defaults)
+
+let native_source_callback_defaults ~table ~ast (Source_command command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "anonymous native defaults belong to another original source seal";
+      command.native_source_callback_defaults)

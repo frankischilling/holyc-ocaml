@@ -1,5 +1,150 @@
 # holyc-ocaml
 
+The bounded source pipeline now emits JIT joined-header warnings before body
+parsing, using original saved members and evaluated defaults. It also emits
+unused-local and unneeded-`no_warn` diagnostics using each function's reached
+option mask. The [header example](examples/compiler-header-warnings.hc) and
+[warning example](examples/compiler-warning-options.hc) run through IR and
+native tasks in both outer modes. Owned JIT function prefixes now count original
+source lookups and warn before resetting an unused joined extern, as shown by
+the [unused-extern example](examples/compiler-unused-extern.hc).
+Those admitted allocations now use native buckets and the pinned byte hash.
+Original source receipts still check each selected record; full task, assembler
+and AOT table setup remains required.
+Original parser inputs also own native option, error and warning fields. Directives
+share their caller's allocation; ordinary child inputs copy live options into
+fresh storage. These fields retain the pinned offsets while the full compiler
+control and remaining error producers remain unfinished. Executable `return`
+outside a function now fails before expression lookahead and increments the
+original error count. [Compiler exceptions](docs/compiler-exceptions.md) describes
+the source receipts and authenticated suspended-input abort chains. Audited
+statement delimiters, invalid break targets and missing try headers now throw at
+their original parser phases. Captured call delimiters and missing Print/PutChars headers also throw
+at their original phases; catches require the exact native argument-shape result.
+Zero-argument implicit calls leave a nonempty literal unread for the original
+statement terminator check, after argument capture and call emission.
+Parenthesis-free defaults also leave their current expression unread, and a
+completed fixed Print call leaves a comma for the following statement. Native
+joined bodies retain the original variadic flag while their checked replacement
+header determines whether they have `argc` and `argv` slots.
+`StreamExePrint` catches these original child
+`Compiler` failures, returns zero and preserves reached effects. Runtime Break,
+direct throws and the remaining original producers remain open.
+Option 17 now checks unnecessary parentheses during original expression
+parsing, with live options, native warning counts and both definition-input
+suppression checks. The [parenthesis example](examples/compiler-parenthesis-warnings.hc)
+keeps macro grouping quiet and warns on a removable binary group.
+Option 18 warns at the original local-allocation boundary. It indexes only
+the first automatic declarator of each declaration and compares exact class
+bases, including the original intrinsic base for callbacks. The
+[duplicate-type example](examples/compiler-duplicate-types.hc) runs through IR
+and native tasks in both outer modes.
+Return statements and body completion now emit unconditional warnings from
+the original parser phases. They read the current return class size and native
+`CCF_HAS_RETURN` bit; a bare return leaves that bit clear. The
+[return example](examples/compiler-return-warnings.hc) emits one warning
+and prints `42;` through IR and native tasks in both outer modes.
+[The warning notes](docs/compiler-warnings.md)
+describe counting, child contexts, retained diagnostics and the remaining
+warning phase boundaries.
+
+AOT source now runs `#exe` blocks in their original native JIT task before
+executing the separately compiled module. The
+[AOT example](examples/native-aot-streams.hc) prints `parse43;load1;` and returns
+42 while keeping task and module variables separate. See
+[native AOT sessions](docs/native-aot-source-sessions.md) for execution, shared
+limits. Synchronous native StreamExePrint now executes original child commands
+while the caller is suspended. The [child example](examples/native-stream-children.hc)
+prints `before;child;after;` and returns 42 in both outer modes;
+[native streams](docs/native-stream-generation.md) describe scope and quota checks.
+Nested directives retain their immediate parent's original compiler tables.
+The [nested input example](examples/native-stream-saved-inputs.hc) publishes a
+function and class through successive children and executes another directive
+inside ordinary child input in both outer modes.
+
+Inherited class and union sizes now retain the exact base selected by the
+original parser, including reached partial layouts and forward completion
+during JIT lookahead. Their runtime dependencies remain attached to saved
+queries, defaults and derived frames. The [inherited layout example](examples/source-inherited-layouts.hc)
+prints `dimoff42` and returns 42 in IR and native JIT. See
+[inherited metadata](docs/source-inherited-layouts.md) for source timing and the
+remaining aggregate object limits.
+
+Classes and unions inside function bodies now publish their types when the
+parser reaches them, including in uncalled functions. The
+[local aggregate example](examples/local-aggregate-declarations.hc) prints and
+returns 42 with IR in either mode and native JIT. See
+[statement aggregate declarations](docs/local-aggregate-declarations.md) for
+source order, saved type selections, runtime bounds and remaining object limits.
+
+Ordinary JIT `_intern` targets now execute at their original source phase in
+both IR and native tasks, including effectful calls and saved-data defaults in
+their callers. The maintained example prints `bind` once and returns 42. See
+[live internal bindings](docs/native-internal-bindings.md) for supported
+operations, execution evidence and remaining compiler work.
+
+The `host-jit-task` target executes integer scalar and fixed-array initializers
+at their original live source callbacks. Later commands share the same native
+storage. `examples/native-source-arrays.hc` returns 42 from
+`I64 A[2]={41,1}; I64 B=A[0]+A[1]; B;`.
+Direct functions retain their original source across commands;
+`examples/native-source-functions.hc` returns 42 from
+`I64 A=41; I64 F(){return A+1;} F();`.
+Retained functions can also call the checked Print and PutChars providers.
+`examples/native-source-output.hc` prints `A42;` and returns 42.
+JIT tasks can capture Print or PutChars through its original extern slot and invoke it
+as a callback. [Provider entries](docs/provider-callback-entries.md) retain
+captures and saved defaults after a later source body replaces that slot.
+`examples/provider-callback-entries.hc` prints `AB` and returns 42.
+The saved Print example also prints `AB` and returns 42:
+`holyc run --target=host-jit-task --code-byte-limit=262144 examples/print-callback-entries.hc`.
+IR and native JIT tasks also execute StreamPrint through direct calls and saved
+callbacks in their original `#exe` generation buffers. The
+[native stream example](examples/native-stream-generation.hc) generates a global,
+prints `made`, and returns 42. Run it with
+`holyc run --mode=jit --target=host-jit-task --code-byte-limit=524288 examples/native-stream-generation.hc`.
+See [native stream generation](docs/native-stream-generation.md) for shared work,
+separate byte budgets, capture lifetime, and the remaining native AOT dependency.
+Task strings retain their original mutable bytes across fragments;
+`examples/native-source-literals.hc` prints `42;` from a retained format.
+Function statics use that same arena and initialize at their original source
+position. `examples/native-source-statics.hc` prints `I` once and returns 43
+after two counter calls.
+Static byte arrays also copy their original literal bytes at declaration;
+`examples/native-source-static-copies.hc` returns 69 after two calls and a later
+array allocation.
+Named integer defaults execute their original expressions once during header
+parsing. `examples/native-source-defaults.hc` returns 42 again after its source
+counter changes; omitted arguments reuse the original saved word.
+[Saved data-pointer defaults](docs/data-pointer-defaults.md) retain their
+original object and primitive view. String-producing defaults copy their
+terminated result into mutable task storage. The maintained
+[example](examples/data-pointer-defaults.hc) prints `AB` and returns 42 through
+IR and `host-jit-task` execution.
+JIT function-slot addresses preserve capture timing and the original record.
+`examples/native-source-slot-addresses.hc` returns 42 after a same-name
+replacement; its saved default keeps the earlier unresolved entry.
+Numeric callback words can supply compound operands for locals, globals, array
+elements and references. `examples/native-source-callback-updates.hc` exercises
+all four destinations and returns 42 in IR and native source-task execution.
+Live anonymous callback defaults also save original numeric values and function
+owners at their headers. The [anonymous-default example](examples/native-source-anonymous-defaults.hc)
+returns 42 after later storage and body replacement. See
+[anonymous defaults](docs/native-anonymous-defaults.md) for execution and limits.
+See [native source tasks](docs/native-source-tasks.md) for the supported boundary
+and remaining native address, dimension and runtime work under #704.
+
+Explicit indexed callback forms such as `(*callbacks[index])(40)` run through
+IR and native execution, as do reads, stores and numeric updates through the
+same selected cell. The [indexed example](examples/indexed-callback-dereference.hc)
+prints `I` once and returns 42. See [callback storage](docs/native-local-callbacks.md).
+
+[Numeric callback updates](docs/callback-updates.md) run through IR and native
+execution in both source modes. Callback cells keep their separate return
+headers while increments and scaled compound assignments update numeric words.
+`examples/callback-updates.hc` returns 42. Arithmetic on owned function addresses
+and the remaining native source-session work are still open.
+
 [Conditional integer comparison chains](docs/conditional-comparison-chains.md)
 retain each original middle operand and skip later operands after a false link.
 They run through both IR and native targets in JIT/AOT parsing modes; the
@@ -372,6 +517,11 @@ including a following comparison.
 a pointer parameter and returns the updated 42 in 43 runtime instructions.
 [Scalar pointer aliases](docs/integer-pointers.md) retain actual local, global
 and static objects through copies, indirect updates and recursive calls.
+[Explicit primitive pointer views](docs/primitive-pointer-views.md) let the
+interpreter and native executor read and write the same owned bytes at a
+different integer width. Partial byte stores preserve initialization state
+and the original extent. Native descriptor snapshots preserve aliases across
+pointer assignments, captured arguments and loop iterations.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,
@@ -537,13 +687,13 @@ Semantic function-frame layout assigns exact-identity locations to named paramet
 
 Global array-extent binding uses the same checked publication cursor but stops before the owning global enters the module table. Earlier declarations are visible; the current and later declarations may only resolve through the supplied outer snapshot. Empty first dimensions stay explicit, and identifiers in a multidimensional declarator receive one stable occurrence order. This pass records bindings and provenance without evaluating an extent or allocating storage.
 
-Executable top-level statements replay the same checked module publication stream in source order. Each ordinary identifier selects the newest aggregate, function, or global publication already visible before that statement; a missing module name continues through a supplied JIT task-parent or AOT enclosing-compilation table chain and then the assembler table. Immutable follow-up passes build complete semantic trees, classify bound identifier leaves, and type supported scalar, aggregate-member, aggregate-offset, and call roots through the shared expression engine. Module globals retain their exact type plus object, array, or callback shape; direct functions retain their identity and address policy; aggregates retain their offset-base publication; and metadata-bearing outer globals retain their supplied object, array, or callback shape plus the exact outer binding. A metadata-free outer record remains explicitly unavailable. Both object members and offset paths reuse the completed aggregate index, with separate runtime-layout and integer-offset results. A direct module call reuses the function-body slot binder and retains the visible declaration, canonical target, provided or defaulted fixed slots, typed variadic tail, count, return type, and exact result identity. Scalar module callbacks, fully indexed module callback arrays, aggregate-member callbacks, and scalar or fully indexed metadata-bearing outer callbacks use the shared indirect binder. Module callback records retain the exact global base, while outer callback records retain the exact source occurrence, selected table binding, and computed callee when indexed. Every record keeps its stored signature, slots, tail, count, return type, and result identity; indexed arrays also retain each target-integer index and selected callee result, while member calls retain the exact inherited lookup and computed callee result. This includes parenthesis-free direct calls, explicit middle holes, replacement headers, nested calls, and primitive, pointer, or aggregate returns. `HCSEMA0054` through `HCSEMA0057` cover unresolved names and inconsistent tree, leaf, result, or call inputs. These passes preserve stable identities and generated-source provenance without inventing a function scope or mutating the symbol table. Checked top-level direct calls can now emit standalone call fragments through the same fixed, variadic, opcode, and cleanup composer used in function bodies. Ordinary outer objects, records without checked metadata, partial outer or module callback arrays, partial or unindexed callback-member arrays, and unrelated computed callees remain unavailable or receive a source-positioned diagnostic. The bounded integer program path connects supported direct calls, runtime storage, addresses and statements to execution, including its separately prepared supported defaults. This semantic tree/call layer does not itself perform declaration-time default execution. Callback execution, callback/string/`lastclass` default materialization, general statement coverage and serialized AOT `IET_MAIN` emission remain unfinished.
+Executable top-level statements replay the same checked module publication stream in source order. Each ordinary identifier selects the newest aggregate, function, or global publication already visible before that statement; a missing module name continues through a supplied JIT task-parent or AOT enclosing-compilation table chain and then the assembler table. Immutable follow-up passes build complete semantic trees, classify bound identifier leaves, and type supported scalar, aggregate-member, aggregate-offset, and call roots through the shared expression engine. Module globals retain their exact type plus object, array, or callback shape; direct functions retain their identity and address policy; aggregates retain their offset-base publication; and metadata-bearing outer globals retain their supplied object, array, or callback shape plus the exact outer binding. A metadata-free outer record remains explicitly unavailable. Both object members and offset paths reuse the completed aggregate index, with separate runtime-layout and integer-offset results. A direct module call reuses the function-body slot binder and retains the visible declaration, canonical target, provided or defaulted fixed slots, typed variadic tail, count, return type, and exact result identity. Scalar module callbacks, fully indexed module callback arrays, aggregate-member callbacks, and scalar or fully indexed metadata-bearing outer callbacks use the shared indirect binder. Module callback records retain the exact global base, while outer callback records retain the exact source occurrence, selected table binding, and computed callee when indexed. Every record keeps its stored signature, slots, tail, count, return type, and result identity; indexed arrays also retain each target-integer index and selected callee result, while member calls retain the exact inherited lookup and computed callee result. This includes parenthesis-free direct calls, explicit middle holes, replacement headers, nested calls, and primitive, pointer, or aggregate returns. `HCSEMA0054` through `HCSEMA0057` cover unresolved names and inconsistent tree, leaf, result, or call inputs. These passes preserve stable identities and generated-source provenance without inventing a function scope or mutating the symbol table. Checked top-level direct calls can now emit standalone call fragments through the same fixed, variadic, opcode, and cleanup composer used in function bodies. Ordinary outer objects, records without checked metadata, partial outer or module callback arrays, partial or unindexed callback-member arrays, and unrelated computed callees remain unavailable or receive a source-positioned diagnostic. The bounded integer program path connects supported direct calls, runtime storage, addresses and statements to execution, including its separately prepared supported defaults. This semantic tree/call layer does not itself perform declaration-time default execution. The integer/U0 IR runner executes supported scalar and fully indexed global callbacks from functions and top-level expressions, including saved integer defaults and word tails. Global callback initializers retain numeric words, original function addresses and supported effects in IR; native execution accepts closed numeric callback initializers. Member storage, callback updates, native owned-code/effectful initializers, general default values, general statement coverage and serialized AOT `IET_MAIN` emission remain unfinished. See [global callback initializers](docs/global-callback-initializers.md).
 
 Top-level named function defaults bind after `PrsFunJoin` has published the current header but before `PrsFun` installs the function member list as the active local environment. A recursive default can therefore select the current function record, while a parameter name does not bind as a local at this point. Missing module names continue through the supplied JIT or AOT outer snapshot. Joined declarations keep their source-site symbols and share the canonical function identity selected by reconciliation. `lastclass` remains a distinct default marker and does not create an ordinary-name occurrence. The pass does not evaluate or substitute defaults, compare headers, check calls, or cover defaults nested inside callback declarators.
 
 Aggregate header resolution distinguishes public primitive spellings, intrinsic storage spellings, and aggregate identities at pointer depths zero through four. It resolves an optional backing against the state before the definition is published, then publishes the canonical identity before resolving an optional base. Definition, keyword, backing, pointer, colon, and base-name origins remain available to later diagnostics. This is a checked semantic header boundary, not class layout or general type checking.
 
-`no_warn` has its own AST node. It keeps each target and comma in order, including a trailing comma, and accepts only parameters or locals visible in the function-wide parser context. Empty forms follow the common statement boundary. A checked semantic pass binds each target to its stable function-local identity, derives an effective `MLF_NO_UNUSED_WARN` mask without mutating the symbol table, and retains ordinary uses, specialized name queries, suppression lookups, and initializer resets separately. Its library result classifies source-shaped unused-variable and unneeded-suppression warnings. A locally resolved root in `sizeof` or `offset`, or a name-shaped `defined` operand, contributes to that source count. Member-path spellings and non-name `defined` operands do not. These query facts do not resolve members or calculate the value of any of the three operators. Type roles, labels, assembly names, source-positioned `Option(...)` execution, and CLI warning rendering remain pending.
+`no_warn` has its own AST node. It keeps each target and comma in order, including a trailing comma, and accepts only parameters or locals visible in the function-wide parser context. Empty forms follow the common statement boundary. A checked semantic pass binds each target to its stable function-local identity, derives an effective `MLF_NO_UNUSED_WARN` mask without mutating the symbol table, and retains ordinary uses, specialized name queries, suppression lookups, and initializer resets separately. Its library result classifies source-shaped unused-variable and unneeded-suppression warnings. The bounded integer pipeline emits those warnings as source diagnostics and lowers `no_warn` without runtime instructions. Original function-body option snapshots retain changes reached through `Option(...)` during parsing. A locally resolved root in `sizeof` or `offset`, or a name-shaped `defined` operand, contributes to that source count. Member-path spellings and non-name `defined` operands do not. These query facts do not resolve members or calculate the value of any of the three operators. Type roles, labels, assembly names and full native warning timing remain pending; [the warning notes](docs/compiler-warnings.md) give the implemented boundary.
 
 ## What is not implemented
 
@@ -553,7 +703,7 @@ Semantic analysis still lacks general duplicate-declaration legality, complete t
 
 The bounded integer program path does type, lower and execute supported expressions, global/static initializers, local storage, direct calls, returns, loop breaks and conditions. Pointer aliases and automatic array elements retain checked object identity and invocation lifetimes. Broader execution still needs full `Print` formatting and variadic promotion, assembly operand resolution and output-address validation, unused-label warnings, lock propagation, complete switch labels/tables and sub-switch rules, exception unwinding, `SysTry`/`SysUntry`, and unsupported expression and storage forms. Source publication boundaries and explicit diagnostics remain part of each implemented slice.
 
-Definition backings and bases resolve to semantic header types or aggregate identities. Fixed-call target policy follows a backing chain for the narrow `PrsFunCall` raw-type comparison, but general backing collapse, whole-value conversion, and subinteger access are not implemented. A closed base contributes its size at offset zero, and the member index follows the resolved base chain; cycle handling outside closed layout and call-target policy remains incomplete. Member metadata expressions are not evaluated, indexed, or exposed through `MemberMetaData` and `MemberMetaFind`. A top-level aggregate definition may declare pointer, array, function-pointer, or comma-separated globals after its closing brace, and globals retain scalar or recursive braced initializer syntax. Callback globals and members have resolved recursive signatures. Parameter, local, global, and checked aggregate-member callback values participate in semantic indirect calls. Callback members also carry `MLF_FUN`, have pointer-sized layout, and retain their exact header in lookup entries. Member-call selection, slot binding, and return typing are implemented; default evaluation, storage reads, lowering, and execution remain unavailable. No aggregate declaration has runtime allocation, lowering, or execution. Aggregate and callback initializer trees remain unevaluated; supported scalar declaration initializers execute through the integer program path. Closed aggregate-offset directives do affect layout, while symbol-dependent offset expressions remain explicit semantic failures. Nested named definitions, direct local callback initializers, automatic local braced initializers, and many other corpus declaration forms remain unavailable and fail with explicit diagnostics. Exception semantics, lock-aware IR and code emission, direct-assembly label collection, directive evaluation and state changes, operand validation, and complete corpus parsing also remain unavailable.
+Definition backings and bases resolve to semantic header types or aggregate identities. Fixed-call target policy follows a backing chain for the narrow `PrsFunCall` raw-type comparison, but general backing collapse, whole-value conversion, and subinteger access are not implemented. A closed base contributes its size at offset zero, and the member index follows the resolved base chain; cycle handling outside closed layout and call-target policy remains incomplete. Member metadata expressions are not evaluated, indexed, or exposed through `MemberMetaData` and `MemberMetaFind`. A top-level aggregate definition may declare pointer, array, function-pointer, or comma-separated globals after its closing brace, and globals retain scalar or recursive braced initializer syntax. Callback globals and members have resolved recursive signatures. Parameter, local, global, and checked aggregate-member callback values participate in semantic indirect calls. Callback members also carry `MLF_FUN`, have pointer-sized layout, and retain their exact header in lookup entries. Member-call selection, slot binding, and return typing are implemented; default evaluation, storage reads, lowering, and execution remain unavailable. No aggregate declaration has runtime allocation, lowering, or execution. Aggregate initializer trees remain unevaluated; global callback initializer execution is covered by its [bounded consumer](docs/global-callback-initializers.md); supported scalar declaration initializers execute through the integer program path. Closed aggregate-offset directives do affect layout, while symbol-dependent offset expressions remain explicit semantic failures. Nested named definitions, direct local callback initializers, automatic local braced initializers, and many other corpus declaration forms remain unavailable and fail with explicit diagnostics. Exception semantics, lock-aware IR and code emission, direct-assembly label collection, directive evaluation and state changes, operand validation, and complete corpus parsing also remain unavailable.
 
 Execution beyond the bounded integer program domain, optimization beyond the verified integer-unary pass, general x86-64 program emission and native execution, general hosted runtime services, the integrated assembler, and the TempleOS `.BIN` writer remain unfinished. The native expression gate already emits and executes its checked subset through the project's encoder. The opcode and BIN specification APIs alone do not provide a general assembler or loader. Unsupported parser input reports an `HCPARSE` diagnostic and prevents a successful public AST; there is no raw-token fallback.
 

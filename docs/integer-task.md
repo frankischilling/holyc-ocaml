@@ -1,5 +1,19 @@
 # Incremental integer task execution
 
+The [native source-task API](native-source-tasks.md) now shares this driver's
+original declaration and command scheduling for scalar and fixed-array integer
+JIT source and retained direct functions.
+Integer function statics use their original private allocation and live
+initializer requests. Native effects occur before the enclosing body completes;
+later retained calls reuse the same storage without initializer replay.
+Original literal byte-array statics use a live direct-copy request. The task
+charges their fixed copied byte count before writing the native allocation.
+`holyc run --target=host-jit-task` executes each live initializer and resumed
+command in one native arena. Native function source records retain original
+definitions and frames independently of interpreter executable owners.
+The public `Integer_task` interface below
+retains its interpreted execution contract and broader supported task domain.
+
 Primitive-member classes and unions retain checked size metadata during member
 parsing and across directives. Original member bounds are prepared once, and consumed
 `sizeof` values survive type replacement. Closed `$$` offset expressions also
@@ -10,8 +24,14 @@ aggregate writes from nested declarations and named JIT header/local writes.
 Primitive locals and checked array extents retain their original downward
 allocation history, including bounds evaluated once against the owning task.
 Original dimension and offset dependencies survive captured positions and derived
-sizes. Aggregate-valued frames, unnamed callbacks and ordinary AOT function-record
-writes remain guarded. Later lookahead cannot change an already captured position.
+sizes. Anonymous callback headers publish their own fixed-member position
+writes. Defaults inside class/union bodies retain the original `$$` class-offset
+selector and lower its checked integer through the saved-default evaluator.
+Nested signatures leave their last write current. Class callback members retain
+their completed original header for eight-byte layout. Ordinary function/default
+`$$` retains instruction-address typing; address defaults, aggregate-valued
+frames, stored class callback invocation and ordinary AOT function-record writes
+remain guarded. Later lookahead cannot change an already captured position.
 Their derived sizes retain the successful execution dependency. See
 [retained aggregate sizes](retained-aggregates.md) for source evidence, receipt
 ownership, CLI limits and the remaining dependent-layout and storage work.
@@ -105,6 +125,34 @@ Missing, repeated, foreign, consumed or expired activation evidence cannot
 authorize a charge or skip a pending dimension. The separate inert adoption API
 still imports already reached dimension work atomically and permits retry when
 its preparation preflight fails.
+
+Scalar static callback locals retain the exact declaring frame, local binding
+and anonymous signature. Their pointer word uses persistent task storage,
+independently of the callback return class. Assignment, copying, clearing and
+integer/U0 invocation preserve the original executable owner across calls and
+JIT same-name replacement. Invocation captures that owner before right-to-left
+arguments and checks the reached signature after argument effects. Saved
+integer defaults and word variadic tails use the original callback header.
+Static cells charge the persistent byte quota; they add no automatic frame
+slot. One-star automatic/static callback arrays retain their exact root, original
+anonymous header and remaining strides through each subscript. Fully indexed
+elements support word storage, copies, parameter transfer and integer/U0
+invocation with the selected header's saved defaults. Static elements survive
+later calls and JIT same-name replacement; automatic elements belong to their
+activation. Bounds and offset overflow use the declared object's hosted arena.
+Each element charges eight bytes independently of the callback return type.
+One-star [global callback cells and arrays](global-callbacks.md) share this
+storage contract. Retained completion keeps the original allocation and outer
+reference; the checked header supplies its saved defaults and original calling
+flags to later functions. Top-level assignments can install or copy addresses.
+Top-level calls and [global callback initializers](global-callback-initializers.md)
+retain original callbacks, full-word storage and supported effects through the
+source journal. Hosted native AOT consumes checked load-time initializer regions
+in an isolated bundle. [Numeric callback updates](callback-updates.md) execute
+through the original cells in IR and native code. Member callbacks, arithmetic
+on owned function addresses, native JIT callback initializers with references
+and broader retained native linking remain unfinished under
+[issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801).
 
 Each deferred operation requires its exact active journal event. Failure or
 exception revokes that authority, including saved storage and command admission;
@@ -464,23 +512,53 @@ remain part of the complete #635 connection below.
 
 `extern I64 StreamExePrint(U8 *fmt,...);` is a separate service. The pinned
 compiler formats the call and executes the resulting text through the enclosing
-compiler hash-table context. Hosted AOT execution follows that boundary by
-formatting with the shared checked formatter, creating a `<StreamExePrint>`
-source, and resuming the task parser with function locals hidden. The nested
-source therefore sees the current outer task declarations and replacements. Its
-final integer value is returned to the caller, or zero when the nested source has
-no final value. Declarations reached by the nested source remain published in the
-same task.
+compiler hash-table context. `PrsStreamBlk` sets `CCF_EXE_BLK` in both JIT and AOT
+outer modes; `StreamExePrint` checks that bit after formatting. The wording of
+the reference error does not impose an AOT-only condition.
+
+The IR service creates a `<StreamExePrint>` source at the original directive
+suspension and selects the saved enclosing compiler namespace. JIT source uses
+its original retained task. AOT source uses the original enclosing symbol table,
+declaration ledger, replacements and completed type metadata. Directive-only
+names are not visible there. Reached child declarations publish into that saved
+namespace and are visible to subsequent child calls and resumed outer parsing.
+Its final integer value is returned to the caller, or zero when it has no final
+value. The child starts in JIT mode without `CCF_EXE_BLK`; its ordinary commands
+cannot call StreamExePrint again. A child `#exe` establishes its own permission,
+which ends when that directive returns. Retained bodies and callbacks use the
+active invocation's context.
 
 StreamExePrint text is executed directly and is never injected into the active
 StreamPrint buffer. Formatting shares the task output-work budget and is bounded
 by `max_generated_bytes`, but those bytes do not increment `generated_bytes`.
-Nested execution shares cumulative instruction, frame-byte and call-depth
-limits. Reached ordinary output and task effects remain visible when nested
-execution later fails. JIT calls still perform checked formatting first, then
-report HCIRVM0027 because the pinned service requires compiled `#exe` mode.
+Each namespace keeps its own storage catalog and command admissions. They share
+one resource owner for cumulative instructions, preparation, storage bytes,
+live frame bytes, call depth, stream buffers and output. Reached ordinary output
+and task effects remain visible when nested
+execution later fails. Inactive calls perform checked formatting first, then
+report HCIRVM0027. Original initializer, saved-default, dimension and offset
+evaluations can suspend for nested commands without releasing the caller's
+frame or admitting an unrelated preparation attempt. Integer defaults can use
+existing owned format buffers during IR evaluation. A miscellaneous-data
+integer default still requires the reference's result-string copy semantics
+and remains rejected by this path.
 Suspended parser ownership remains exact, so stale, foreign or reconstructed
 completion evidence cannot authorize the nested source.
+
+The saved compiler snapshot preserves original lexical local shadows while
+hiding the directive caller's locals. It does not supply an invocation frame or
+the original compiler-local `sizeof` metadata; unsupported local queries report
+`HCRUN0004` instead of selecting a same-name global. Original AOT globals and
+functions still pending runtime publication cannot execute through this bridge.
+Child-created cells, functions, defaults and statics have their own checked JIT
+execution and persist across later directives. Native synchronous execution now retains the original machine caller and
+borrows storage only under its exact C scope and cumulative budget.
+
+The maintained [example](../examples/stream-exe-compiler-context.hc) derives a
+child class from an enclosing class, creates a child array and function, and
+calls that function from a later directive. In both modes it prints
+`before;child;after;` and returns 42. This is hosted IR coverage; it adds no
+TempleOS runtime capture or full compiler acceptance.
 
 ## Bounds
 
@@ -584,6 +662,15 @@ snapshots. It updates only unconsumed tokens selecting the exact provisional
 function. Global alias candidates retain the selection made at the name token,
 before directives in dimensions. These frontend controls do not demonstrate
 stateful #exe execution.
+
+Executable top-level callback calls use original scalar or fully indexed global
+storage, including retained JIT bindings with an exact checked header and storage
+reference. Their source records must belong to the current typed statement
+batch; the runtime context checks the executable subtree and seals its whole
+graph. Supported defaults, nested calls, word tails and integer/U0 results use
+the shared call composer. Stored owners preserve earlier JIT bodies after
+same-name replacement. Initializers, member invocation, live task expiry and
+native callback emission remain separate work. See [global callbacks](global-callbacks.md).
 
 The reference remains `c26482bb6ad3f80106d28504ec5db3c6a360732c`. The hosted task
 tests do not constitute a new native TempleOS capture.

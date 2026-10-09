@@ -412,8 +412,45 @@ let original_read_timing () =
       {|I64 F(){I64 N=40;#exe {StreamPrint("%d;",N+2);}return 42;};F();|};
     ]
 
+let retained_scalar_storage_proofs () =
+  List.iter
+    (fun text ->
+      let session = Session.create () in
+      let source =
+        Session.add_source session ~path:"retained-scalar.hc" ~contents:text
+      in
+      let task =
+        match Integer_task.create session with
+        | Ok task -> task
+        | Error message -> Alcotest.fail message
+      in
+      let result =
+        match Integer_task.run task ~source with
+        | Ok result -> result
+        | Error errors ->
+            errors
+            |> List.map (fun (error : Diagnostic.t) ->
+                error.code ^ ": " ^ error.message)
+            |> String.concat "; " |> Alcotest.fail
+      in
+      Alcotest.(check (option int64))
+        "original retained scalar load proof" (Some 42L)
+        (Option.map (fun word -> word.VM.bits) (VM.final_value result)))
+    [
+      "I8 A=-1; I8 B=A+43; B;";
+      "U8 A=255; U8 B=A+43; B;";
+      "I16 A=-2; I16 B=A+44; B;";
+      "U16 A=65535; U16 B=A+43; B;";
+      "I32 A=-3; I32 B=A+45; B;";
+      "U32 A=4294967295; U32 B=A+43; B;";
+      "I64 A=-4; I64 B=A+46; B;";
+      "U64 A=41; U64 B=A+1; B;";
+    ]
+
 let tests =
   [
+    Alcotest.test_case "retained scalar globals preserve narrow memory proofs"
+      `Quick retained_scalar_storage_proofs;
     Alcotest.test_case "ordinary JIT inputs retain isolated counts" `Quick
       inactive_text;
     Alcotest.test_case "stateful reports retain cumulative task ownership"

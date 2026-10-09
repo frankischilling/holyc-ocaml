@@ -48,46 +48,6 @@ type stored_type =
   | Stored_narrow of Scalar.t
   | Stored_pointer of Type.t
 
-type runtime_value =
-  | Runtime_word of word
-  | Runtime_pointer of runtime_address
-  | Runtime_offset of int64
-  | Runtime_void
-
-and runtime_address = {
-  pointer_storage : runtime_storage;
-  pointer_base : int;
-  pointer_count : int;
-  pointer_element_bytes : int;
-  pointer_extent_bytes : int64;
-  pointer_offset : int64;
-  pointer_pointee : Type.t;
-}
-
-and runtime_storage = {
-  cells : runtime_value option array;
-  mutable live : bool;
-  unknown_message : string;
-}
-
-type frame_slot = {
-  slot_type : Type.t;
-  stored_type : stored_type;
-  initial : runtime_value option;
-  object_count : int;
-  strides : int64 list;
-}
-
-type frame_context = {
-  layout : Frame.function_layout;
-  slots : frame_slot array;
-  offsets : int Offset_map.t;
-  return_type : Type.t;
-  allocated_bytes : int;
-  variadic_location : (int64 * Type.t) option;
-  initial_variadic : runtime_value option array;
-}
-
 type termination = Stream_end | Returned of word option
 type error_stage = Configuration | Preflight | Execution
 
@@ -106,33 +66,9 @@ type error = {
   initializer_name : string option;
 }
 
-type t = {
-  termination_ : termination;
-  executed_steps_ : int;
-  final_value_ : word option;
-  compiled_initializer_steps_ : int;
-}
-
-type report = {
-  outcome_ : (t, error list) result;
-  output_bytes_ : string;
-  output_work_ : int;
-}
-
-type task_progress = {
-  executed_steps : int;
-  initializer_steps : int;
-  global_bytes : int;
-  literal_bytes : int;
-  output_bytes : string;
-  output_work : int;
-  generated_bytes : int;
-  final_value : word option;
-}
-
-let report_outcome report = report.outcome_
-let report_output_bytes report = report.output_bytes_
-let report_output_work report = report.output_work_
+type callback_capture =
+  | Captured_body of Retained_function.t
+  | Captured_undefined
 
 type literal_region = { literal_base : int; literal_count : int }
 
@@ -194,9 +130,59 @@ type storage_location =
   | Indirect_slot of prepared_pointer
   | Indexed_slot of prepared_pointer
 
-type prepared_operation =
+type runtime_value =
+  | Runtime_word of word
+  | Runtime_code of runtime_code
+  | Runtime_undefined_code of word_type
+  | Runtime_function_slot_cursor of Runtime.function_slot_address
+  | Runtime_pointer of runtime_address
+  | Runtime_offset of int64
+  | Runtime_void
+
+and runtime_address = {
+  pointer_storage : runtime_storage;
+  pointer_base : int;
+  pointer_count : int;
+  pointer_storage_pointee : Type.t;
+  pointer_element_bytes : int;
+  pointer_extent_bytes : int64;
+  pointer_offset : int64;
+  pointer_pointee : Type.t;
+}
+
+and runtime_storage = {
+  cells : runtime_value option array;
+  (* Unknown scalar cells can acquire individual bytes through a cast view.
+     A cell enters [cells] only when all of its original bytes are known. *)
+  partial_words : (int, int64 * int) Hashtbl.t;
+  mutable live : bool;
+  unknown_message : string;
+}
+
+and frame_slot = {
+  slot_type : Type.t;
+  slot_callback : Sema.Function_type_resolution.function_pointer option;
+  stored_type : stored_type;
+  initial : runtime_value option;
+  object_count : int;
+  strides : int64 list;
+}
+
+and frame_context = {
+  layout : Frame.function_layout;
+  slots : frame_slot array;
+  offsets : int Offset_map.t;
+  return_type : Type.t;
+  allocated_bytes : int;
+  variadic_location : (int64 * Type.t) option;
+  initial_variadic : runtime_value option array;
+}
+
+and prepared_operation =
   | Call_start of int option
   | Call of int
+  | Callback_start of prepared_value
+  | Callback_call of Runtime.callback_call * stored_type array
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
@@ -223,11 +209,19 @@ type prepared_operation =
       * bool
       * Value_id.t
       * stored_type
+      * bool
   | Immediate of Value_id.t * word
+  | Saved_data_address of Value_id.t * Saved_parameter_value.data * Type.t
+  | Function_address of Value_id.t * Runtime.function_address
+  | Function_slot_cursor of Value_id.t * Runtime.function_slot_address
+  | Function_slot_load of
+      Value_id.t * Value_id.t * Runtime.function_slot_address
+  | Undefined_function_address of Value_id.t
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Constant_shift of
       binary_operation * prepared_operand * int64 * Value_id.t * word_type
   | Word_view of prepared_operand * Value_id.t * word_type
+  | Pointer_view of prepared_pointer * Value_id.t * Type.t
   | Compare_pointers of
       comparison_operation * prepared_pointer * prepared_pointer * Value_id.t
   | Subtract_pointers of prepared_pointer * prepared_pointer * Value_id.t
@@ -246,7 +240,7 @@ type prepared_operation =
   | Return
   | End
 
-type prepared_instruction = {
+and prepared_instruction = {
   instruction_id : Instruction_id.t;
   span : Common.Span.t option;
   operation : prepared_operation;
@@ -254,13 +248,13 @@ type prepared_instruction = {
   capture_discard : bool;
 }
 
-type prepared_block = {
+and prepared_block = {
   block_id : Block_id.t;
   instructions : prepared_instruction array;
   fallthrough : int option;
 }
 
-type prepared = {
+and prepared = {
   blocks : prepared_block array;
   entry_index : int;
   initial_slots : runtime_value option array;
@@ -271,7 +265,7 @@ type prepared = {
   owner : (int * string) option;
 }
 
-type callee = {
+and callee = {
   callee_index : int;
   callee_symbol : Sema.Symbol.t;
   callee_definition : Sema.Function_resolution.resolved_declaration option;
@@ -282,14 +276,12 @@ type callee = {
   variadic : bool;
 }
 
-(* A prepared index and a literal offset are meaningful only in the command
-   that admitted them. Keep that owner when a body outlives its entry. *)
-type executable_owner = {
+and executable_owner = {
   owner_callees : (callee * prepared) array;
   owner_literals : runtime_storage;
 }
 
-type retained_executable = {
+and retained_executable = {
   function_link : Retained_function.t;
   function_callee : callee;
   function_program : prepared;
@@ -297,8 +289,51 @@ type retained_executable = {
   function_source : task_function_source;
 }
 
+and runtime_code = {
+  code_type : word_type;
+  code_link : Retained_function.t;
+  code_entry : runtime_code_entry;
+}
+
+and runtime_code_entry =
+  | Source_entry of callee * prepared * executable_owner
+  | Provider_entry of Runtime.function_slot_address
+
+type t = {
+  termination_ : termination;
+  executed_steps_ : int;
+  final_value_ : word option;
+  final_callback_ : callback_capture option;
+  final_pointer_ : runtime_address option;
+  compiled_initializer_steps_ : int;
+}
+
+type report = {
+  outcome_ : (t, error list) result;
+  output_bytes_ : string;
+  output_work_ : int;
+}
+
+type task_progress = {
+  executed_steps : int;
+  initializer_steps : int;
+  global_bytes : int;
+  literal_bytes : int;
+  output_bytes : string;
+  output_work : int;
+  generated_bytes : int;
+  final_value : word option;
+}
+
+let report_outcome report = report.outcome_
+let report_output_bytes report = report.output_bytes_
+let report_output_work report = report.output_work_
+
 type task_stream = { stream_output : Output.t }
 type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
+
+type compiler_options =
+  int64 -> bool option -> (bool, Common.Diagnostic.t list) result
 
 type admitted_publication =
   | Admitted_declared_global of
@@ -319,6 +354,18 @@ type task_source_program = {
   source_initialization : Global_initialization.t;
   source_calls : Runtime.t;
   source_bodies : function_definition list;
+}
+
+type native_program_attempt_state =
+  | Native_program_entered
+  | Native_program_completed
+  | Native_program_failed
+
+type native_program_attempt = {
+  native_program_catalog : Integer_globals.task_catalog;
+  native_program_source : task_source_program;
+  native_program_admission : task_admission;
+  mutable native_program_state : native_program_attempt_state;
 }
 
 type isolated_preparation = {
@@ -350,16 +397,20 @@ and initializer_attempt = {
   attempt_destination : Integer_initializer_layout.entry;
   attempt_next : Integer_initializer_layout.live;
   attempt_preparation_before : int;
+  mutable attempt_native_preparation : int option;
   mutable attempt_state : initializer_attempt_state;
 }
 
 type default_attempt = {
   default_catalog : Integer_globals.task_catalog;
-  default_publication : Sema.Declaration_collection.publication;
-  default_receipt : Frontend.Parser.completed_parameter_default;
+  default_source : Sema.Default_fragment.source;
   default_preparation_before : int;
   mutable default_state : initializer_attempt_state;
   mutable default_bits : int64 option;
+  mutable default_value : Saved_parameter_value.t option;
+  mutable default_native : bool;
+  mutable default_native_program : Default_fragment_program.t option;
+  mutable default_native_work : int option;
 }
 
 type default_constant = {
@@ -386,6 +437,8 @@ type dimension_attempt = {
   mutable dimension_state : initializer_attempt_state;
   mutable dimension_bits : int64 option;
   mutable dimension_work : int option;
+  mutable dimension_native_program : Dimension_fragment_program.t option;
+  mutable dimension_native_work : int option;
 }
 
 type internal_binding_attempt = {
@@ -395,6 +448,9 @@ type internal_binding_attempt = {
   internal_binding_preparation_before : int;
   mutable internal_binding_state : initializer_attempt_state;
   mutable internal_binding_prepared : Sema.Prepared_internal_binding.t option;
+  mutable internal_binding_native_program :
+    Internal_binding_fragment_program.t option;
+  mutable internal_binding_native_work : int option;
 }
 
 type offset_attempt = {
@@ -404,12 +460,15 @@ type offset_attempt = {
   offset_preparation_before : int;
   mutable offset_state : initializer_attempt_state;
   mutable offset_result : Sema.Compiler_record.aggregate_offset option;
+  mutable offset_native_program : Offset_fragment_program.t option;
+  mutable offset_native_work : int option;
 }
 
 type task_input = {
   input_context : Frontend.Parser.command_context;
   input_streams : task_stream list;
   input_failure : unit ref;
+  input_child_failure : unit ref;
   input_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
   input_internal_bindings : internal_binding_attempt list;
   input_dimensions : dimension_attempt list;
@@ -441,7 +500,76 @@ type task_implicit_call_start = {
   mutable implicit_completed : bool;
 }
 
-type task_state = {
+type task_resources = {
+  domain : Domain.id;
+  mutable global_bytes : int;
+  mutable literal_bytes : int;
+  mutable steps : int;
+  mutable initializer_steps : int;
+  max_steps : int;
+  max_initializer_steps : int;
+  max_global_bytes : int;
+  max_literal_bytes : int;
+  max_frame_bytes : int;
+  max_call_depth : int;
+  mutable nested_frame_bytes : int;
+  mutable nested_call_depth : int;
+  mutable nested_source_depth : int;
+  mutable native_source_scopes : Native_source_suspension.t list;
+  output : Output.t;
+  generated : Output.t;
+  max_stream_depth : int;
+  mutable streams : task_stream list;
+  mutable child_input_stack : task_child_input list;
+  mutable child_inputs : task_child_input list;
+  mutable child_failure_generation : unit ref;
+}
+
+and task_child_input = {
+  child_caller : task_state;
+  child_target : task_state;
+  child_suspension : Frontend.Parser.suspension;
+  child_source : Common.Source_file.t;
+  child_parent : Frontend.Parser.command_context;
+  child_enclosing : Frontend.Parser.command_context;
+  child_streams : task_stream list;
+  child_failure : unit ref;
+  mutable child_context : Frontend.Parser.command_context option;
+  mutable child_participants : child_participant list;
+  mutable child_aborts : (task_state * Frontend.Parser.command_context) list;
+  mutable child_fault : bool;
+  mutable child_phase : child_input_phase;
+}
+
+and child_input_phase =
+  | Child_open
+  | Child_completed of Frontend.Parser.completed_sequence
+  | Child_failed
+  | Child_caught of Frontend.Parser.failed_input
+
+and child_participant = {
+  participant_task : task_state;
+  participant_before : child_work;
+  mutable participant_after : child_work option;
+  mutable participant_contexts : Frontend.Parser.command_context list;
+}
+
+and child_work = {
+  work_failure : unit ref;
+  work_failed : bool;
+  work_activation : Sema.Source_activation.t option;
+  work_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
+  work_internal_bindings : internal_binding_attempt list;
+  work_dimensions : dimension_attempt list;
+  work_offsets : offset_attempt list;
+  work_defaults : default_attempt list;
+  work_default_constants : default_constant list;
+  work_initializers : task_initializer list;
+  work_deferred_dimensions : Sema.Compiler_record.dimension_preparation list;
+  work_deferred_offsets : Sema.Compiler_record.aggregate_offset list;
+}
+
+and task_state = {
   mutable implicit_selections :
     (Frontend.Parser.implicit_output_selection * Retained_function.t) list;
   mutable implicit_starts : task_implicit_call_start list;
@@ -459,6 +587,8 @@ type task_state = {
   mutable runtime_offsets : offset_attempt list;
   mutable defaults : default_attempt list;
   mutable default_constants : default_constant list;
+  mutable saved_data_values :
+    (Saved_parameter_value.data * runtime_address) list;
   mutable initializers : task_initializer list;
   mutable declared_admissions : admitted_publication list;
   mutable source_promotion_open : bool;
@@ -470,39 +600,75 @@ type task_state = {
   mutable source_execution_failed : bool;
   mutable source_result : (Frontend.Parser.completed_sequence * t) option;
   catalog : Integer_globals.task_catalog;
+  native_storage_authority : bool;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
+  mutable static_attempts : Frontend.Parser.static_initializer_preparation list;
   mutable literal_arenas : runtime_storage list;
   mutable started : X87.t list;
   mutable functions : retained_executable list;
-  mutable global_bytes : int;
-  mutable literal_bytes : int;
-  mutable steps : int;
-  mutable initializer_steps : int;
+  mutable provider_entries :
+    (Retained_function.t * Runtime.function_slot_address) list;
+  mutable native_function_sources :
+    (Retained_function.t * task_function_source) list;
   mutable outer_value : word option;
-  max_steps : int;
-  max_initializer_steps : int;
-  max_global_bytes : int;
-  max_literal_bytes : int;
-  max_frame_bytes : int;
-  max_call_depth : int;
-  mutable nested_frame_bytes : int;
-  mutable nested_call_depth : int;
-  mutable nested_source_depth : int;
-  output : Output.t;
-  generated : Output.t;
-  max_stream_depth : int;
-  mutable streams : task_stream list;
   mutable admissions : task_admission list;
+  mutable native_program_attempts : native_program_attempt list;
   mutable source_programs : task_source_program list;
   mutable isolated_programs : task_source_program list;
+  resources : task_resources;
 }
+
+let make_task_state ~resources ~native_storage_authority ~table =
+  {
+    call_starts = [];
+    call_selections = [];
+    implicit_selections = [];
+    implicit_starts = [];
+    call_phases = [];
+    defaults = [];
+    default_constants = [];
+    saved_data_values = [];
+    internal_bindings = [];
+    dimensions = [];
+    runtime_offsets = [];
+    initializers = [];
+    declared_admissions = [];
+    source_promotion_open = true;
+    source_activation = None;
+    deferred_dimensions = [];
+    deferred_offsets = [];
+    charged_offsets = [];
+    attempted_offsets = [];
+    seen_dimensions = [];
+    closed_dimensions = [];
+    completed_dimensions = [];
+    source_execution_failed = false;
+    inputs = [];
+    failure_generation = ref ();
+    source_result = None;
+    catalog = Integer_globals.create_task_catalog ~table;
+    native_storage_authority;
+    arenas = [];
+    static_attempts = [];
+    literal_arenas = [];
+    started = [];
+    functions = [];
+    native_function_sources = [];
+    provider_entries = [];
+    outer_value = None;
+    resources;
+    admissions = [];
+    native_program_attempts = [];
+    source_programs = [];
+    isolated_programs = [];
+  }
 
 let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
-    ?(max_generated_bytes = 16 * 1024 * 1024) ?(max_stream_depth = 64) ~table ()
-    =
+    ?(max_generated_bytes = 16 * 1024 * 1024) ?(max_stream_depth = 64)
+    ?(native_storage_authority = false) ~table () =
   if
     List.exists
       (fun limit -> limit <= 0)
@@ -526,43 +692,13 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
        and output capacities must fit host strings"
   else
     let output = Output.create ~max_output_bytes ~max_output_work in
-    Ok
+    let resources =
       {
-        call_starts = [];
-        call_selections = [];
-        implicit_selections = [];
-        implicit_starts = [];
-        call_phases = [];
-        defaults = [];
-        default_constants = [];
-        internal_bindings = [];
-        dimensions = [];
-        runtime_offsets = [];
-        initializers = [];
-        declared_admissions = [];
-        source_promotion_open = true;
-        source_activation = None;
-        deferred_dimensions = [];
-        deferred_offsets = [];
-        charged_offsets = [];
-        attempted_offsets = [];
-        seen_dimensions = [];
-        closed_dimensions = [];
-        completed_dimensions = [];
-        source_execution_failed = false;
-        inputs = [];
-        failure_generation = ref ();
-        source_result = None;
-        catalog = Integer_globals.create_task_catalog ~table;
-        arenas = [];
-        literal_arenas = [];
-        started = [];
-        functions = [];
+        domain = Domain.self ();
         global_bytes = 0;
         literal_bytes = 0;
         steps = 0;
         initializer_steps = 0;
-        outer_value = None;
         max_steps;
         max_initializer_steps;
         max_global_bytes;
@@ -572,47 +708,421 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         nested_frame_bytes = 0;
         nested_call_depth = 0;
         nested_source_depth = 0;
+        native_source_scopes = [];
         output;
         generated =
           Output.share_work output ~max_output_bytes:max_generated_bytes;
         max_stream_depth;
         streams = [];
-        admissions = [];
-        source_programs = [];
-        isolated_programs = [];
+        child_input_stack = [];
+        child_inputs = [];
+        child_failure_generation = ref ();
       }
+    in
+    Ok (make_task_state ~resources ~native_storage_authority ~table)
+
+let native_source_is_suspended task =
+  task.native_storage_authority
+  &&
+  match task.resources.native_source_scopes with
+  | scope :: _ -> Result.is_ok (Native_source_suspension.check scope)
+  | [] -> false
+
+let create_compiler_namespace_task task ~table =
+  if task.native_storage_authority && not (native_source_is_suspended task) then
+    Error "native saved compiler input requires its synchronous machine bridge"
+  else if
+    Domain.self () <> task.resources.domain
+    || task.resources.nested_source_depth = 0
+  then Error "saved compiler input requires its original suspended execution"
+  else
+    Ok
+      (make_task_state ~resources:task.resources
+         ~native_storage_authority:task.native_storage_authority ~table)
+
+let task_shares_resources left right = left.resources == right.resources
 
 let begin_task_stream task =
   task.source_promotion_open <- false;
-  if List.length task.streams >= task.max_stream_depth then
+  if List.length task.resources.streams >= task.resources.max_stream_depth then
     Error "HCIRVM0029: the task generation nesting limit was exhausted"
   else
-    let stream = { stream_output = Output.fork task.generated } in
-    task.streams <- stream :: task.streams;
+    let stream = { stream_output = Output.fork task.resources.generated } in
+    task.resources.streams <- stream :: task.resources.streams;
     Ok stream
 
 let task_stream_is_active task stream =
-  match task.streams with
+  match task.resources.streams with
   | active :: _ -> active == stream
   | [] -> false
 
 let finish_task_stream task stream =
-  match task.streams with
+  match task.resources.streams with
   | active :: rest when active == stream ->
       let contents = Output.contents stream.stream_output in
-      task.streams <- rest;
+      task.resources.streams <- rest;
       Ok contents
   | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
 
 let abort_task_stream task stream =
-  match task.streams with
+  match task.resources.streams with
   | active :: rest when active == stream ->
-      task.streams <- rest;
+      task.resources.streams <- rest;
       Ok ()
   | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
 
+type native_generation = {
+  generation_task : task_state;
+  generation_streams : task_stream list;
+  generation_active : bool;
+  generation_output : Output.t;
+  mutable generation_before : int;
+  generation_domain : Domain.id;
+  mutable generation_closed : bool;
+}
+
+let native_task_generation ?(use_active_stream = true) task =
+  let output =
+    match (use_active_stream, task.resources.streams) with
+    | true, active :: _ -> active.stream_output
+    | false, _ | true, [] -> task.resources.generated
+  in
+  {
+    generation_task = task;
+    generation_streams = task.resources.streams;
+    generation_active = use_active_stream && task.resources.streams <> [];
+    generation_output = output;
+    generation_before = Output.committed_bytes output;
+    generation_domain = Domain.self ();
+    generation_closed = false;
+  }
+
+let check_native_generation_lifetime generation =
+  if Domain.self () <> generation.generation_domain then
+    Error "native generation belongs to another execution domain"
+  else if generation.generation_closed then
+    Error "native generation was already completed"
+  else if
+    generation.generation_task.resources.streams
+    != generation.generation_streams
+  then Error "native generation no longer owns its original active stream"
+  else Ok ()
+
+let check_native_generation generation =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation_lifetime generation in
+  if
+    Output.committed_bytes generation.generation_output
+    <> generation.generation_before
+  then Error "native generation byte budget changed before entry"
+  else Ok ()
+
+let native_generation_limits generation =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  Ok
+    ( generation.generation_active,
+      Output.capacity generation.generation_output
+      - generation.generation_before,
+      Output.capacity generation.generation_output )
+
+let native_generation_byte_budget generation =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  Ok (Output.byte_budget generation.generation_output)
+
+let with_native_source_suspension generation ~scope execute =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  let task = generation.generation_task in
+  let* owns = Native_source_suspension.owns_generation scope generation in
+  if not owns then
+    Error "native source suspension has another generation target"
+  else if not task.native_storage_authority then
+    Error "native source suspension requires its original native task"
+  else if Domain.self () <> task.resources.domain then
+    Error "native source suspension belongs to another task domain"
+  else
+    let* _, frame_bytes, call_depth, _ =
+      Native_source_suspension.limits scope
+    in
+    if
+      frame_bytes > task.resources.max_frame_bytes
+      || call_depth > task.resources.max_call_depth
+    then Error "native caller limits exceed their original task allowance"
+    else
+      let saved_frames = task.resources.nested_frame_bytes in
+      let saved_depth = task.resources.nested_call_depth in
+      let saved_source_depth = task.resources.nested_source_depth in
+      let saved_scopes = task.resources.native_source_scopes in
+      (* These are observations of the original physical context. The C scope
+         and exact generation own this reservation; copied counters do not. *)
+      task.resources.nested_frame_bytes <-
+        task.resources.max_frame_bytes - frame_bytes;
+      task.resources.nested_call_depth <-
+        task.resources.max_call_depth - call_depth;
+      task.resources.nested_source_depth <- saved_source_depth + 1;
+      task.resources.native_source_scopes <- scope :: saved_scopes;
+      Fun.protect
+        ~finally:(fun () ->
+          task.resources.nested_frame_bytes <- saved_frames;
+          task.resources.nested_call_depth <- saved_depth;
+          task.resources.nested_source_depth <- saved_source_depth;
+          task.resources.native_source_scopes <- saved_scopes)
+        (fun () -> Ok (execute task))
+
+let admit_native_generation_prefix generation ~scope capture =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation_lifetime generation in
+  let* owns = Native_source_suspension.owns_generation scope generation in
+  if not owns then
+    Error "native source checkpoint has another generation target"
+  else
+    let* () =
+      Output.admit_native_capture ~scope generation.generation_output
+        ~target:generation capture
+    in
+    generation.generation_before <-
+      Output.committed_bytes generation.generation_output;
+    Ok ()
+
+let complete_native_generation ?scope generation capture =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation_lifetime generation in
+  let* () =
+    Output.admit_native_capture ?scope generation.generation_output
+      ~target:generation capture
+  in
+  generation.generation_closed <- true;
+  Ok ()
+
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
 let task_source_order task = Integer_globals.task_source_order task.catalog
+
+let child_work task =
+  {
+    work_failure = task.failure_generation;
+    work_failed = task.source_execution_failed;
+    work_activation = task.source_activation;
+    work_seen_dimensions = task.seen_dimensions;
+    work_internal_bindings = task.internal_bindings;
+    work_dimensions = task.dimensions;
+    work_offsets = task.runtime_offsets;
+    work_defaults = task.defaults;
+    work_default_constants = task.default_constants;
+    work_initializers = task.initializers;
+    work_deferred_dimensions = task.deferred_dimensions;
+    work_deferred_offsets = task.deferred_offsets;
+  }
+
+let child_participant scope task =
+  match
+    List.find_opt
+      (fun participant -> participant.participant_task == task)
+      scope.child_participants
+  with
+  | Some participant -> participant
+  | None ->
+      let participant =
+        {
+          participant_task = task;
+          participant_before = child_work task;
+          participant_after = None;
+          participant_contexts = [];
+        }
+      in
+      scope.child_participants <- participant :: scope.child_participants;
+      participant
+
+let child_input_is_active scope =
+  scope.child_caller.resources.domain = Domain.self ()
+  && scope.child_caller.resources == scope.child_target.resources
+  && scope.child_caller.resources.child_failure_generation
+     == scope.child_failure
+  && (match scope.child_caller.resources.child_input_stack with
+    | original :: _ -> original == scope
+    | [] -> false)
+  &&
+  match scope.child_phase with
+  | Child_open -> true
+  | _ -> false
+
+let begin_task_child_input caller ~target ~suspension ~source =
+  let ( let* ) = Result.bind in
+  let* parent =
+    Sema.Task_command_order.check_child_input_parent (task_source_order caller)
+      ~suspension
+  in
+  let* enclosing = Frontend.Parser.suspension_enclosing_context suspension in
+  let sources = Frontend.Parser.context_sources enclosing in
+  if
+    caller.resources != target.resources
+    || caller.resources.domain <> Domain.self ()
+    || caller.resources.nested_source_depth = 0
+    || caller.resources.streams = []
+    || caller.native_storage_authority
+       && not (native_source_is_suspended caller)
+    || target.native_storage_authority
+       && not (native_source_is_suspended target)
+    || not
+         (Option.fold ~none:false ~some:(( == ) source)
+            (Common.Source_manager.find sources (Common.Source_file.id source)))
+  then
+    Error
+      "child input requires its original source, resources and suspended \
+       execution"
+  else
+    let scope =
+      {
+        child_caller = caller;
+        child_target = target;
+        child_suspension = suspension;
+        child_source = source;
+        child_parent = parent;
+        child_enclosing = enclosing;
+        child_streams = caller.resources.streams;
+        child_failure = caller.resources.child_failure_generation;
+        child_context = None;
+        child_participants = [];
+        child_aborts = [];
+        child_fault = false;
+        child_phase = Child_open;
+      }
+    in
+    ignore (child_participant scope caller);
+    ignore (child_participant scope target);
+    caller.resources.child_input_stack <-
+      scope :: caller.resources.child_input_stack;
+    caller.resources.child_inputs <- scope :: caller.resources.child_inputs;
+    Ok scope
+
+let close_task_child_input scope =
+  if scope.child_caller.resources.domain <> Domain.self () then
+    Error "child input cleanup belongs to another domain"
+  else
+    match scope.child_caller.resources.child_input_stack with
+    | original :: rest when original == scope ->
+        (match scope.child_phase with
+        | Child_open ->
+            scope.child_phase <- Child_failed;
+            scope.child_caller.resources.child_failure_generation <- ref ()
+        | _ -> ());
+        scope.child_caller.resources.child_input_stack <- rest;
+        Ok ()
+    | _ -> Error "child input cleanup requires its original active scope"
+
+let catch_task_child_compiler scope failure =
+  let module Parser = Frontend.Parser in
+  let chain = Parser.failed_input_aborted_contexts failure in
+  let context = Parser.failed_input_context failure in
+  let parent_context = function
+    | Parser.Before_first_command parent -> parent
+    | Parser.Reading_command start -> start.command_context
+    | Parser.Awaiting_resume command -> command.command_start.command_context
+  in
+  let same_contexts left right =
+    List.length left = List.length right && List.for_all2 ( == ) left right
+  in
+  let participant_valid participant =
+    let task = participant.participant_task in
+    let before = participant.participant_before in
+    task.resources == scope.child_caller.resources
+    && task.failure_generation == before.work_failure
+    && task.source_execution_failed = before.work_failed
+    && task.source_activation == before.work_activation
+    && List.for_all
+         (fun context ->
+           Parser.context_is_in_suspended_input context
+             ~suspension:scope.child_suspension
+           && Parser.context_command_events_match context
+                ~events_rev:
+                  (Sema.Task_command_order.context_events_rev
+                     (task_source_order task) context)
+              = Some true)
+         participant.participant_contexts
+  in
+  if
+    (not (child_input_is_active scope))
+    || scope.child_fault
+    || scope.child_caller.resources.streams != scope.child_streams
+    || (not
+          (Parser.failed_input_is_current failure
+             ~suspension:scope.child_suspension))
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) (Parser.failed_input_context failure))
+             scope.child_context))
+    || Parser.context_source (Parser.failed_input_context failure)
+       != scope.child_source
+    || Parser.context_sources context
+       != Parser.context_sources scope.child_enclosing
+    || Parser.context_environment context
+       != Parser.context_environment scope.child_enclosing
+    || (not
+          (Option.fold ~none:false
+             ~some:(fun position ->
+               parent_context position == scope.child_parent)
+             (Parser.context_parent context)))
+    || (not (same_contexts chain (List.rev_map snd scope.child_aborts)))
+    || (not (List.for_all participant_valid scope.child_participants))
+    || not
+         (List.for_all
+            (fun (task, context) ->
+              List.exists
+                (fun participant ->
+                  participant.participant_task == task
+                  && List.exists (( == ) context)
+                       participant.participant_contexts)
+                scope.child_participants)
+            scope.child_aborts)
+  then
+    Error
+      "Compiler catch requires its complete original child execution and abort \
+       journals"
+  else
+    let snapshots =
+      List.map
+        (fun participant ->
+          (participant, child_work participant.participant_task))
+        scope.child_participants
+    in
+    if
+      not (Parser.claim_failed_input failure ~suspension:scope.child_suspension)
+    then Error "Compiler child failure was advanced, claimed or replaced"
+    else (
+      List.iter
+        (fun (participant, after) ->
+          participant.participant_after <- Some after)
+        snapshots;
+      scope.child_phase <- Child_caught failure;
+      Ok ())
+
+let child_work_is_excluded task select item =
+  List.exists
+    (fun scope ->
+      match scope.child_phase with
+      | Child_caught _ ->
+          List.exists
+            (fun participant ->
+              participant.participant_task == task
+              && Option.fold ~none:false
+                   ~some:(fun after ->
+                     List.exists (( == ) item) (select after)
+                     && not
+                          (List.exists (( == ) item)
+                             (select participant.participant_before)))
+                   participant.participant_after)
+            scope.child_participants
+      | _ -> false)
+    task.resources.child_inputs
+
+let child_inputs_complete task =
+  List.for_all
+    (fun scope ->
+      match scope.child_phase with
+      | Child_completed _ | Child_caught _ -> true
+      | Child_open | Child_failed -> false)
+    task.resources.child_inputs
 
 let rec input_prefix_complete before current complete =
   current == before
@@ -626,60 +1136,259 @@ let input_has_active_work task =
     | Preparing_initializer | Executing_initializer -> true
     | _ -> false
   in
-  List.exists (fun attempt -> active attempt.default_state) task.defaults
+  List.exists
+    (fun attempt ->
+      active attempt.default_state
+      && not
+           (child_work_is_excluded task
+              (fun work -> work.work_defaults)
+              attempt))
+    task.defaults
   || List.exists
-       (fun attempt -> active attempt.internal_binding_state)
+       (fun attempt ->
+         active attempt.internal_binding_state
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_internal_bindings)
+                 attempt))
        task.internal_bindings
-  || List.exists (fun attempt -> active attempt.dimension_state) task.dimensions
   || List.exists
-       (fun attempt -> active attempt.offset_state)
+       (fun attempt ->
+         active attempt.dimension_state
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_dimensions)
+                 attempt))
+       task.dimensions
+  || List.exists
+       (fun attempt ->
+         active attempt.offset_state
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_offsets)
+                 attempt))
        task.runtime_offsets
   || List.exists
        (fun state ->
          Option.fold ~none:false
            ~some:(fun attempt -> active attempt.attempt_state)
-           state.initializer_attempt)
+           state.initializer_attempt
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_initializers)
+                 state))
        task.initializers
 
 let completed_input task input =
   input.input_ready
+  && input.input_child_failure == task.resources.child_failure_generation
+  && task.resources.child_input_stack = []
   && input.input_failure == task.failure_generation
-  && input.input_streams == task.streams
+  && input.input_streams == task.resources.streams
   && Sema.Source_activation.finished task.source_activation
-  && task.deferred_dimensions = []
-  && task.deferred_offsets = []
+  && List.for_all
+       (child_work_is_excluded task (fun work -> work.work_deferred_dimensions))
+       task.deferred_dimensions
+  && List.for_all
+       (child_work_is_excluded task (fun work -> work.work_deferred_offsets))
+       task.deferred_offsets
   && input_prefix_complete input.input_internal_bindings task.internal_bindings
-       (fun attempt -> attempt.internal_binding_state = Successful_initializer)
+       (fun attempt ->
+         attempt.internal_binding_state = Successful_initializer
+         || child_work_is_excluded task
+              (fun work -> work.work_internal_bindings)
+              attempt)
   && input_prefix_complete input.input_seen_dimensions task.seen_dimensions
        (fun preparation ->
          List.exists
            (fun receipt ->
              receipt.Frontend.Parser.dimension_preparation == preparation)
-           task.completed_dimensions)
+           task.completed_dimensions
+         || child_work_is_excluded task
+              (fun work -> work.work_seen_dimensions)
+              preparation)
   && input_prefix_complete input.input_offsets task.runtime_offsets
-       (fun attempt -> attempt.offset_state = Successful_initializer)
+       (fun attempt ->
+         attempt.offset_state = Successful_initializer
+         || child_work_is_excluded task (fun work -> work.work_offsets) attempt)
   && input_prefix_complete input.input_dimensions task.dimensions
-       (fun attempt -> attempt.dimension_state = Successful_initializer)
+       (fun attempt ->
+         attempt.dimension_state = Successful_initializer
+         || child_work_is_excluded task
+              (fun work -> work.work_dimensions)
+              attempt)
   && input_prefix_complete input.input_default_constants task.default_constants
        (fun result ->
          result.constant_state = Successful_initializer
-         && result.constant_consumed)
+         && result.constant_consumed
+         || child_work_is_excluded task
+              (fun work -> work.work_default_constants)
+              result)
   && input_prefix_complete input.input_defaults task.defaults (fun attempt ->
-      attempt.default_state = Successful_initializer)
+      attempt.default_state = Successful_initializer
+      || child_work_is_excluded task (fun work -> work.work_defaults) attempt)
   && input_prefix_complete input.input_initializers task.initializers
-       (fun state -> state.initializer_complete)
+       (fun state ->
+         state.initializer_complete
+         || child_work_is_excluded task
+              (fun work -> work.work_initializers)
+              state)
+
+let complete_task_child_input scope sequence =
+  let context = sequence.Frontend.Parser.sequence_context in
+  let parent_context = function
+    | Frontend.Parser.Before_first_command parent -> parent
+    | Frontend.Parser.Reading_command start -> start.command_context
+    | Frontend.Parser.Awaiting_resume command ->
+        command.command_start.command_context
+  in
+  let participant_complete participant =
+    let task = participant.participant_task in
+    let before = participant.participant_before in
+    let done_or_excluded select complete item =
+      complete item || child_work_is_excluded task select item
+    in
+    task.resources == scope.child_caller.resources
+    && task.failure_generation == before.work_failure
+    && task.source_execution_failed = before.work_failed
+    && task.source_activation == before.work_activation
+    && List.for_all
+         (fun context ->
+           Frontend.Parser.context_command_events_match context
+             ~events_rev:
+               (Sema.Task_command_order.context_events_rev
+                  (task_source_order task) context)
+           = Some true)
+         participant.participant_contexts
+    && input_prefix_complete before.work_internal_bindings
+         task.internal_bindings
+         (done_or_excluded
+            (fun work -> work.work_internal_bindings)
+            (fun item -> item.internal_binding_state = Successful_initializer))
+    && input_prefix_complete before.work_seen_dimensions task.seen_dimensions
+         (done_or_excluded
+            (fun work -> work.work_seen_dimensions)
+            (fun item ->
+              List.exists
+                (fun receipt ->
+                  receipt.Frontend.Parser.dimension_preparation == item)
+                task.completed_dimensions))
+    && input_prefix_complete before.work_dimensions task.dimensions
+         (done_or_excluded
+            (fun work -> work.work_dimensions)
+            (fun item -> item.dimension_state = Successful_initializer))
+    && input_prefix_complete before.work_offsets task.runtime_offsets
+         (done_or_excluded
+            (fun work -> work.work_offsets)
+            (fun item -> item.offset_state = Successful_initializer))
+    && input_prefix_complete before.work_defaults task.defaults
+         (done_or_excluded
+            (fun work -> work.work_defaults)
+            (fun item -> item.default_state = Successful_initializer))
+    && input_prefix_complete before.work_default_constants
+         task.default_constants
+         (done_or_excluded
+            (fun work -> work.work_default_constants)
+            (fun item ->
+              item.constant_state = Successful_initializer
+              && item.constant_consumed))
+    && input_prefix_complete before.work_initializers task.initializers
+         (done_or_excluded
+            (fun work -> work.work_initializers)
+            (fun item -> item.initializer_complete))
+    && List.for_all
+         (fun item ->
+           List.exists (( == ) item) before.work_deferred_dimensions
+           || child_work_is_excluded task
+                (fun work -> work.work_deferred_dimensions)
+                item)
+         task.deferred_dimensions
+    && List.for_all
+         (fun item ->
+           List.exists (( == ) item) before.work_deferred_offsets
+           || child_work_is_excluded task
+                (fun work -> work.work_deferred_offsets)
+                item)
+         task.deferred_offsets
+  in
+  if
+    (not (child_input_is_active scope))
+    || scope.child_fault || scope.child_aborts <> []
+    || scope.child_caller.resources.streams != scope.child_streams
+    || (not (List.for_all participant_complete scope.child_participants))
+    || (not
+          (Frontend.Parser.suspension_input_is_current scope.child_suspension))
+    || Frontend.Parser.context_sources context
+       != Frontend.Parser.context_sources scope.child_enclosing
+    || Frontend.Parser.context_environment context
+       != Frontend.Parser.context_environment scope.child_enclosing
+    || (not
+          (Option.fold ~none:false
+             ~some:(fun position ->
+               parent_context position == scope.child_parent)
+             (Frontend.Parser.context_parent context)))
+    || (not
+          (Frontend.Parser.suspension_owns_sequence scope.child_suspension
+             sequence))
+    || not
+         (Option.fold ~none:false
+            ~some:(( == ) sequence.Frontend.Parser.sequence_context)
+            scope.child_context)
+  then
+    Error
+      "child input completion requires its exact accepted original execution"
+  else
+    Result.map
+      (fun () -> scope.child_phase <- Child_completed sequence)
+      (Integer_globals.check_suspended_completion scope.child_target.catalog
+         ~suspension:scope.child_suspension sequence)
 
 let observe_task_source_event task event =
   Result.map
     (fun () ->
+      (match task.resources.child_input_stack with
+      | scope :: _ ->
+          let context =
+            match event with
+            | Frontend.Parser.Sequence_started context
+            | Frontend.Parser.Sequence_aborted context -> context
+            | Frontend.Parser.Command_started start -> start.command_context
+            | Frontend.Parser.Command_completed command
+            | Frontend.Parser.Command_resumed command ->
+                command.command_start.command_context
+            | Frontend.Parser.Sequence_completed sequence ->
+                sequence.sequence_context
+          in
+          if
+            Frontend.Parser.context_is_in_suspended_input context
+              ~suspension:scope.child_suspension
+          then
+            let participant = child_participant scope task in
+            match event with
+            | Frontend.Parser.Sequence_started _ ->
+                participant.participant_contexts <-
+                  context :: participant.participant_contexts;
+                if Option.is_none scope.child_context then
+                  scope.child_context <- Some context
+            | Frontend.Parser.Sequence_aborted _ ->
+                if
+                  List.exists
+                    (fun (_, original) -> original == context)
+                    scope.child_aborts
+                then scope.child_fault <- true
+                else scope.child_aborts <- (task, context) :: scope.child_aborts
+            | _ -> ()
+          else scope.child_fault <- true
+      | [] -> ());
       match event with
       | Frontend.Parser.Sequence_started context
         when Option.is_none (Frontend.Parser.context_parent context) ->
           task.inputs <-
             {
               input_context = context;
-              input_streams = task.streams;
+              input_streams = task.resources.streams;
               input_failure = task.failure_generation;
+              input_child_failure = task.resources.child_failure_generation;
               input_seen_dimensions = task.seen_dimensions;
               input_internal_bindings = task.internal_bindings;
               input_dimensions = task.dimensions;
@@ -692,7 +1401,12 @@ let observe_task_source_event task event =
               input_result = None;
             }
             :: task.inputs
-      | Frontend.Parser.Sequence_aborted _ -> task.failure_generation <- ref ()
+      | Frontend.Parser.Sequence_aborted context -> (
+          match task.resources.child_input_stack with
+          | scope :: _
+            when Frontend.Parser.context_is_in_suspended_input context
+                   ~suspension:scope.child_suspension -> ()
+          | _ -> task.failure_generation <- ref ())
       | Frontend.Parser.Sequence_completed sequence
         when Option.is_none
                (Frontend.Parser.context_parent sequence.sequence_context)
@@ -703,9 +1417,11 @@ let observe_task_source_event task event =
           let result =
             {
               termination_ = Stream_end;
-              executed_steps_ = task.steps;
-              compiled_initializer_steps_ = task.initializer_steps;
+              executed_steps_ = task.resources.steps;
+              compiled_initializer_steps_ = task.resources.initializer_steps;
               final_value_ = task.outer_value;
+              final_callback_ = None;
+              final_pointer_ = None;
             }
           in
           task.source_result <- Some (sequence, result);
@@ -817,8 +1533,8 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
     Error "source promotion requires a fresh task runtime"
   else if
     dimension_steps < 0
-    || dimension_steps > task.max_initializer_steps
-    || offset_work > task.max_initializer_steps - dimension_steps
+    || dimension_steps > task.resources.max_initializer_steps
+    || offset_work > task.resources.max_initializer_steps - dimension_steps
   then Error "source dimension work exceeds the task preparation allowance"
   else if (not manifest_valid) || not offsets_valid then
     Error "source promotion requires its original closed dimension manifest"
@@ -830,7 +1546,7 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
     |> fun result ->
     Result.bind result (fun () -> bind_task_namespace task namespace)
     |> Result.map (fun () ->
-        task.initializer_steps <- dimension_steps + offset_work;
+        task.resources.initializer_steps <- dimension_steps + offset_work;
         task.charged_offsets <- offsets;
         task.seen_dimensions <- originals;
         task.closed_dimensions <- dimensions;
@@ -848,7 +1564,7 @@ let bind_source_activation task ~namespace activation =
     Ok ())
 
 let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
-    task ~namespace ~activation ~dimensions =
+    ?pending_runtime_offset task ~namespace ~activation ~dimensions =
   let originals = Sema.Source_activation.dimension_preparations activation in
   let pending_valid, closed_originals =
     match pending_runtime_dimension with
@@ -868,14 +1584,27 @@ let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
         | last :: rest when valid && last == pending -> (true, List.rev rest)
         | _ -> (false, originals))
   in
+  let pending_offset_valid, closed_offsets =
+    let phases = Sema.Source_activation.aggregate_offset_phases activation in
+    match pending_runtime_offset with
+    | None -> (true, phases)
+    | Some pending -> (
+        let valid =
+          Option.is_none pending_runtime_dimension
+          && Frontend.Parser.aggregate_phase_is_current pending
+          && Option.fold ~none:false ~some:(( == ) pending)
+               (Sema.Source_activation.trailing_aggregate_offset activation)
+        in
+        match List.rev phases with
+        | last :: rest when valid && last == pending -> (true, List.rev rest)
+        | _ -> (false, phases))
+  in
   if
     Option.is_some task.source_activation
     || (not (Sema.Source_activation.available activation))
     || (not (Sema.Source_activation.owns_namespace activation namespace))
-    || (not pending_valid)
-    || (let phases =
-          Sema.Source_activation.aggregate_offset_phases activation
-        in
+    || (not pending_valid) || (not pending_offset_valid)
+    || (let phases = closed_offsets in
         List.length phases <> List.length offsets
         || not
              (List.for_all2
@@ -920,8 +1649,11 @@ let charge_source_aggregate_offset task phase =
          && Sema.Source_activation.aggregate_offset_preparing
               task.source_activation phase ->
       let work = Sema.Compiler_record.aggregate_offset_work offset in
-      let remaining = task.max_initializer_steps - task.initializer_steps in
-      task.initializer_steps <- task.initializer_steps + min work remaining;
+      let remaining =
+        task.resources.max_initializer_steps - task.resources.initializer_steps
+      in
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + min work remaining;
       task.deferred_offsets <- rest;
       task.charged_offsets <- offset :: task.charged_offsets;
       if work > remaining then (
@@ -975,8 +1707,12 @@ let charge_isolated_aggregate_offsets task ~table offsets =
       | [] -> Ok ()
       | offset :: rest ->
           let work = Record.aggregate_offset_work offset in
-          let remaining = task.max_initializer_steps - task.initializer_steps in
-          task.initializer_steps <- task.initializer_steps + min work remaining;
+          let remaining =
+            task.resources.max_initializer_steps
+            - task.resources.initializer_steps
+          in
+          task.resources.initializer_steps <-
+            task.resources.initializer_steps + min work remaining;
           if work > remaining then
             Error
               "HCIRVM0007: the bounded aggregate offset preparation work limit \
@@ -1007,8 +1743,11 @@ let charge_source_dimension task preparation =
               preparation ->
       let work = Sema.Compiler_record.dimension_preparation_work next in
       task.seen_dimensions <- preparation :: task.seen_dimensions;
-      let remaining = task.max_initializer_steps - task.initializer_steps in
-      task.initializer_steps <- task.initializer_steps + min work remaining;
+      let remaining =
+        task.resources.max_initializer_steps - task.resources.initializer_steps
+      in
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + min work remaining;
       if work > remaining then (
         task.source_execution_failed <- true;
         task.failure_generation <- ref ();
@@ -1068,6 +1807,390 @@ let bind_task_source_program task ~runtime_calls ~globals ~initialization
           }
           :: task.source_programs;
         Ok ()
+
+let native_source_program task ~runtime_calls ~globals ~initialization
+    ~functions entry =
+  List.find_opt
+    (fun program ->
+      matches_source_program program ~runtime_calls ~globals ~initialization
+        ~functions entry)
+    task.source_programs
+
+let exact_native_function_source task link =
+  List.find_map
+    (fun (candidate, source) ->
+      if Retained_function.same candidate link then Some source else None)
+    task.native_function_sources
+
+let validate_dimension_dependencies task dependencies =
+  let module Record = Sema.Compiler_record in
+  if
+    List.for_all
+      (fun dependency ->
+        Option.fold ~none:false
+          ~some:(fun task ->
+            Integer_globals.task_catalog_owns_namespace task.catalog
+              (Record.runtime_dimension_namespace dependency)
+            && List.exists
+                 (fun attempt ->
+                   attempt.dimension_catalog == task.catalog
+                   && attempt.dimension_receipt
+                      == Record.runtime_dimension_source dependency
+                   && attempt.dimension_state = Successful_initializer
+                   && attempt.dimension_bits
+                      = Some (Record.runtime_dimension_count dependency)
+                   && attempt.dimension_work
+                      = Some (Record.runtime_dimension_work dependency))
+                 task.dimensions)
+          task)
+      dependencies
+  then Ok ()
+  else
+    Error
+      "runtime array extent requires its owning task's successful original \
+       evaluation"
+
+let validate_offset_dependencies task dependencies =
+  if
+    List.for_all
+      (fun dependency ->
+        Option.fold ~none:false
+          ~some:(fun task ->
+            Integer_globals.task_catalog_owns_namespace task.catalog
+              (Sema.Compiler_record.aggregate_offset_namespace dependency)
+            && List.exists
+                 (fun attempt ->
+                   attempt.offset_catalog == task.catalog
+                   && attempt.offset_state = Successful_initializer
+                   && Option.fold ~none:false ~some:(( == ) dependency)
+                        attempt.offset_result)
+                 task.runtime_offsets)
+          task)
+      dependencies
+  then Ok ()
+  else
+    Error
+      "runtime aggregate layout requires its owning task's successful original \
+       evaluation"
+
+let native_function_sources_for_program task source =
+  let module Functions = Sema.Function_resolution in
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      Runtime.matches source.source_calls ~entry:source.source_entry
+        ~initialization:(Some source.source_initialization)
+        ~functions:
+          (List.map (fun definition -> definition.body) source.source_bodies)
+    then Ok ()
+    else Error "native task function source has another original call graph"
+  in
+  let source_for definition =
+    {
+      source_globals = source.source_storage;
+      source_runtime_calls = source.source_calls;
+      source_functions = source.source_bodies;
+      source_definition = definition;
+    }
+  in
+  let publications =
+    Integer_globals.function_publications source.source_storage
+  in
+  let rec collect rev = function
+    | [] -> Ok (List.rev rev)
+    | link :: rest -> (
+        if List.exists (fun (prior, _) -> Retained_function.same prior link) rev
+        then Error "native task function source repeats its retained link"
+        else
+          let declaration =
+            Retained_function.metadata link
+            |> Sema.Outer_environment.function_declaration
+          in
+          let site = Functions.resolved_declaration_site declaration in
+          if Functions.declaration_site_kind site <> Functions.Definition then
+            collect rev rest
+          else if Option.is_some (exact_native_function_source task link) then
+            Error "native task function source was already admitted"
+          else
+            let matches =
+              List.filter
+                (fun (definition : function_definition) ->
+                  Option.fold ~none:false ~some:(( == ) declaration)
+                    (Function.definition_declaration definition.body))
+                source.source_bodies
+            in
+            match matches with
+            | [ definition ]
+              when Function.definition_matches_frame definition.body
+                     definition.frame
+                   && Function.callable_symbol definition.body
+                      == Retained_function.symbol link ->
+                collect ((link, source_for definition) :: rev) rest
+            | [ definition ]
+              when Function.callable_symbol definition.body
+                   != Retained_function.symbol link ->
+                Error
+                  "native task function source body has another callable symbol"
+            | [ _ ] ->
+                Error
+                  "native task function source body has another physical frame"
+            | [] ->
+                Error
+                  "native task function publication has no exact bound source \
+                   body"
+            | _ ->
+                Error
+                  "native task function publication repeats its exact source \
+                   body")
+  in
+  let* sources = collect [] publications in
+  let* () =
+    List.fold_left
+      (fun checked (definition : function_definition) ->
+        let* () = checked in
+        let* () =
+          validate_dimension_dependencies (Some task)
+            (Dimension_requirements.frame definition.frame
+            @ Function.dimension_dependencies definition.body)
+        in
+        let* () =
+          validate_offset_dependencies (Some task)
+            (Offset_requirements.frame definition.frame
+            @ Function.offset_dependencies definition.body)
+        in
+        match Function.definition_declaration definition.body with
+        | None ->
+            Error "native task function source body has no bound definition"
+        | Some declaration ->
+            let matches =
+              List.filter
+                (fun (link, source) ->
+                  source.source_definition.body == definition.body
+                  && source.source_definition.frame == definition.frame
+                  && Retained_function.metadata link
+                     |> Sema.Outer_environment.function_declaration
+                     |> ( == ) declaration)
+                sources
+            in
+            if List.length matches = 1 then Ok ()
+            else
+              Error
+                "native task function source body has no unique retained \
+                 definition link")
+      (Ok ()) source.source_bodies
+  in
+  Ok sources
+
+let check_native_task_program task ~runtime_calls ~globals ~initialization
+    ~functions entry =
+  if not task.native_storage_authority then
+    Error "native task entry requires native-authoritative storage"
+  else if not (source_dimensions_ready task) then
+    Error "native task entry requires completed runtime dimensions"
+  else if
+    not
+      (List.for_all
+         (Sema.Source_activation.command_admission task.source_activation)
+         (Integer_globals.source_command_receipts globals))
+  then Error "native source command is outside its original resume event"
+  else if
+    (not (native_source_is_suspended task))
+    && (List.exists
+          (fun state ->
+            (match state.initializer_attempt with
+              | None -> false
+              | Some attempt -> attempt.attempt_state <> Successful_initializer)
+            && not
+                 (Integer_globals.declared_initializer_failed
+                    state.initializer_slot))
+          task.initializers
+       || List.exists
+            (fun attempt ->
+              attempt.default_state = Preparing_initializer
+              || attempt.default_state = Executing_initializer)
+            task.defaults
+       || List.exists
+            (fun attempt ->
+              attempt.dimension_state = Preparing_initializer
+              || attempt.dimension_state = Executing_initializer)
+            task.dimensions
+       || List.exists
+            (fun attempt ->
+              attempt.internal_binding_state = Preparing_initializer
+              || attempt.internal_binding_state = Executing_initializer)
+            task.internal_bindings
+       || List.exists
+            (fun attempt ->
+              attempt.offset_state = Preparing_initializer
+              || attempt.offset_state = Executing_initializer)
+            task.runtime_offsets)
+  then Error "native source command cannot interleave active preparation"
+  else if List.exists (fun started -> started == entry) task.started then
+    Error "native source command has already entered this task"
+  else if
+    Option.is_none
+      (native_source_program task ~runtime_calls ~globals ~initialization
+         ~functions entry)
+  then Error "native source command lacks its exact bound task program"
+  else
+    let source =
+      Option.get
+        (native_source_program task ~runtime_calls ~globals ~initialization
+           ~functions entry)
+    in
+    Result.bind (Integer_globals.check_task_command task.catalog globals)
+      (fun () ->
+        Result.map
+          (fun _ -> ())
+          (native_function_sources_for_program task source))
+
+let retain_native_provider_sources task runtime_calls owner graph =
+  (* Retain logical source contracts at the same admission as function bodies.
+     Native mapping, stable entry cells and reached captures remain separate. *)
+  Option.iter
+    (fun addresses ->
+      Graph.blocks graph
+      |> List.iter (fun block ->
+          Graph.instructions block |> Sequence.instructions
+          |> List.iter (fun instruction ->
+              Option.iter
+                (fun receipt ->
+                  if
+                    List.mem
+                      (Runtime.function_slot_address_provider receipt)
+                      [
+                        Some Runtime.Put_chars;
+                        Some Runtime.Print;
+                        Some Runtime.Stream_print;
+                        Some Runtime.Stream_exe_print;
+                        Some Runtime.Get_option;
+                        Some Runtime.Set_option;
+                      ]
+                  then
+                    Option.iter
+                      (fun link ->
+                        if
+                          Integer_globals.task_catalog_contains_function
+                            task.catalog link
+                          && not
+                               (List.exists
+                                  (fun (original, _) ->
+                                    Retained_function.same original link)
+                                  task.provider_entries)
+                        then
+                          task.provider_entries <-
+                            (link, receipt) :: task.provider_entries)
+                      (Runtime.function_slot_address_link receipt))
+                (Runtime.original_function_slot_address addresses
+                   (Sequence.description instruction)))))
+    (Runtime.original_function_slot_addresses runtime_calls ~owner)
+
+let claim_native_task_program task ~runtime_calls ~globals ~initialization
+    ~functions entry =
+  let ( let* ) = Result.bind in
+  let* () =
+    check_native_task_program task ~runtime_calls ~globals ~initialization
+      ~functions entry
+  in
+  let source =
+    Option.get
+      (native_source_program task ~runtime_calls ~globals ~initialization
+         ~functions entry)
+  in
+  let* native_function_sources =
+    native_function_sources_for_program task source
+  in
+  let admission_publications =
+    Integer_globals.publish_task task.catalog globals
+    |> List.map (function
+      | Integer_globals.Global_publication (reference, slot) ->
+          Admitted_global (reference, slot)
+      | Integer_globals.Declared_publication (reference, slot) ->
+          Admitted_declared_global (reference, slot)
+      | Integer_globals.Function_publication reference ->
+          Admitted_function reference)
+  in
+  let admission =
+    {
+      admission_catalog = task.catalog;
+      admission_globals = globals;
+      admission_entry = entry;
+      admission_publications;
+    }
+  in
+  let attempt =
+    {
+      native_program_catalog = task.catalog;
+      native_program_source = source;
+      native_program_admission = admission;
+      native_program_state = Native_program_entered;
+    }
+  in
+  task.started <- entry :: task.started;
+  task.admissions <- admission :: task.admissions;
+  task.native_program_attempts <- attempt :: task.native_program_attempts;
+  task.native_function_sources <-
+    native_function_sources @ task.native_function_sources;
+  retain_native_provider_sources task runtime_calls Runtime.Entry
+    (X87.graph entry);
+  List.iter
+    (fun (definition : function_definition) ->
+      retain_native_provider_sources task runtime_calls
+        (Runtime.Function definition.body)
+        (Function.body definition.body))
+    functions;
+  Ok attempt
+
+let owns_active_native_task_program task attempt =
+  let admission = attempt.native_program_admission in
+  attempt.native_program_catalog == task.catalog
+  && admission.admission_catalog == task.catalog
+  && admission.admission_entry == attempt.native_program_source.source_entry
+  && admission.admission_globals == attempt.native_program_source.source_storage
+  && attempt.native_program_state = Native_program_entered
+  && List.exists (fun saved -> saved == admission) task.admissions
+  && List.exists (fun saved -> saved == attempt) task.native_program_attempts
+
+let complete_native_task_program task attempt ~captured ~final_value =
+  if not (owns_active_native_task_program task attempt) then
+    Error "native source command completion is foreign or repeated"
+  else if (not captured) && Option.is_some final_value then
+    Error
+      "native source command cannot publish a value without a reached capture"
+  else
+    let value = Option.map (fun (type_, bits) -> { type_; bits }) final_value in
+    if captured && task.resources.streams = [] then task.outer_value <- value;
+    let receipts =
+      Integer_globals.source_command_receipts
+        attempt.native_program_source.source_storage
+    in
+    List.iter
+      (fun input ->
+        if
+          captured && input.input_result = None
+          && List.exists
+               (fun receipt ->
+                 receipt.Frontend.Parser.command_start.command_context
+                 == input.input_context)
+               receipts
+        then input.input_value <- value)
+      task.inputs;
+    attempt.native_program_state <- Native_program_completed;
+    Ok ()
+
+let fail_native_task_program task attempt =
+  if not (owns_active_native_task_program task attempt) then
+    Error "native source command failure is foreign or already settled"
+  else (
+    attempt.native_program_state <- Native_program_failed;
+    task.source_execution_failed <- true;
+    task.failure_generation <- ref ();
+    Ok ())
+
+let fail_native_task_program_before_entry task =
+  if task.native_storage_authority then (
+    task.source_execution_failed <- true;
+    task.failure_generation <- ref ())
 
 let task_owns_snapshot task view =
   Integer_globals.task_catalog_owns_view task.catalog view
@@ -1661,57 +2784,6 @@ let admit_function_header task ~namespace ~source ~records =
         (Integer_globals.publish_function_header task.catalog ~namespace ~source
            ~records))
 
-let validate_dimension_dependencies task dependencies =
-  let module Record = Sema.Compiler_record in
-  if
-    List.for_all
-      (fun dependency ->
-        Option.fold ~none:false
-          ~some:(fun task ->
-            Integer_globals.task_catalog_owns_namespace task.catalog
-              (Record.runtime_dimension_namespace dependency)
-            && List.exists
-                 (fun attempt ->
-                   attempt.dimension_catalog == task.catalog
-                   && attempt.dimension_receipt
-                      == Record.runtime_dimension_source dependency
-                   && attempt.dimension_state = Successful_initializer
-                   && attempt.dimension_bits
-                      = Some (Record.runtime_dimension_count dependency)
-                   && attempt.dimension_work
-                      = Some (Record.runtime_dimension_work dependency))
-                 task.dimensions)
-          task)
-      dependencies
-  then Ok ()
-  else
-    Error
-      "runtime array extent requires its owning task's successful original \
-       evaluation"
-
-let validate_offset_dependencies task dependencies =
-  if
-    List.for_all
-      (fun dependency ->
-        Option.fold ~none:false
-          ~some:(fun task ->
-            Integer_globals.task_catalog_owns_namespace task.catalog
-              (Sema.Compiler_record.aggregate_offset_namespace dependency)
-            && List.exists
-                 (fun attempt ->
-                   attempt.offset_catalog == task.catalog
-                   && attempt.offset_state = Successful_initializer
-                   && Option.fold ~none:false ~some:(( == ) dependency)
-                        attempt.offset_result)
-                 task.runtime_offsets)
-          task)
-      dependencies
-  then Ok ()
-  else
-    Error
-      "runtime aggregate layout requires its owning task's successful original \
-       evaluation"
-
 let admit_declared_global task declaration =
   let ( let* ) = Result.bind in
   let* () =
@@ -1736,26 +2808,72 @@ let admit_declared_global task declaration =
     Integer_globals.prepare_declared task.catalog declaration
   in
   let bytes = Integer_globals.byte_size globals in
-  if bytes > task.max_global_bytes - task.global_bytes then
+  if bytes > task.resources.max_global_bytes - task.resources.global_bytes then
     Error "HCIRVM0016: task global storage exceeds the cumulative byte limit"
   else
-    let storage =
-      {
-        cells = Array.make (Integer_globals.cell_count globals) None;
-        live = true;
-        unknown_message =
-          "hosted execution reached an uninitialized JIT persistent object";
-      }
-    in
     let publication =
       match Integer_globals.publish_declared task.catalog slot with
       | Integer_globals.Declared_publication (reference, slot) ->
           Admitted_declared_global (reference, slot)
       | _ -> assert false
     in
-    task.arenas <- (globals, storage) :: task.arenas;
+    (if not task.native_storage_authority then
+       let storage =
+         {
+           cells = Array.make (Integer_globals.cell_count globals) None;
+           partial_words = Hashtbl.create 0;
+           live = true;
+           unknown_message =
+             "hosted execution reached an uninitialized JIT persistent object";
+         }
+       in
+       task.arenas <- (globals, storage) :: task.arenas);
     task.declared_admissions <- publication :: task.declared_admissions;
-    task.global_bytes <- task.global_bytes + bytes;
+    task.resources.global_bytes <- task.resources.global_bytes + bytes;
+    task.source_promotion_open <- false;
+    Ok ()
+
+let admit_static_allocation task allocation =
+  let ( let* ) = Result.bind in
+  let* () =
+    Integer_globals.check_static_allocation ?activation:task.source_activation
+      task.catalog allocation
+  in
+  let* bytes =
+    match
+      Integer_storage_shape.padded_byte_size
+        (Integer_static_allocation.shape allocation)
+    with
+    | Some bytes -> Ok bytes
+    | None -> Error "HCIRVM0016: task static allocation extent overflows"
+  in
+  if bytes > task.resources.max_global_bytes - task.resources.global_bytes then
+    Error "HCIRVM0016: task static storage exceeds the cumulative byte limit"
+  else
+    let* () =
+      Integer_globals.publish_static_allocation
+        ?activation:task.source_activation task.catalog allocation
+    in
+    let* () =
+      if task.native_storage_authority then Ok ()
+      else
+        let* view = Integer_globals.snapshot_task task.catalog in
+        let* globals =
+          Integer_globals.static_allocation_context view allocation
+        in
+        let storage =
+          {
+            cells = Array.make (Integer_globals.cell_count globals) None;
+            partial_words = Hashtbl.create 0;
+            live = true;
+            unknown_message =
+              "hosted execution reached an uninitialized JIT persistent object";
+          }
+        in
+        task.arenas <- (globals, storage) :: task.arenas;
+        Ok ()
+    in
+    task.resources.global_bytes <- task.resources.global_bytes + bytes;
     task.source_promotion_open <- false;
     Ok ()
 
@@ -1763,6 +2881,116 @@ let require_initializer_namespace task namespace =
   if Integer_globals.task_catalog_owns_namespace task.catalog namespace then
     Ok ()
   else Error "initializer operation belongs to another task source namespace"
+
+let check_native_static_allocation task allocation view =
+  let source = Integer_static_allocation.source allocation in
+  let receipt = Sema.Compiler_record.static_allocation_receipt source in
+  if
+    (not task.native_storage_authority)
+    || (not (Integer_globals.task_catalog_owns_view task.catalog view))
+    || (not
+          (List.exists (( == ) allocation)
+             (Integer_globals.private_static_allocations view)))
+    || not (Frontend.Parser.function_local_allocation_is_current receipt)
+  then Error "native static allocation requires its original live task source"
+  else
+    require_initializer_namespace task
+      (Sema.Compiler_record.static_allocation_namespace source)
+
+let check_static_destination task destination =
+  let module Destination = Static_initializer_destination in
+  let allocation = Destination.allocation destination in
+  let source = Integer_static_allocation.source allocation in
+  let receipt =
+    Sema.Static_initializer_fragment.receipt (Destination.fragment destination)
+  in
+  if
+    (not
+       (Integer_globals.owns_task_storage task.catalog
+          (Destination.globals destination)))
+    || (not
+          (Frontend.Parser.static_initializer_is_current receipt
+          || Sema.Source_activation.static_initializer task.source_activation
+               receipt))
+    || receipt.static_allocation
+       != Sema.Compiler_record.static_allocation_receipt source
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) (Destination.fragment destination))
+             (Integer_globals.static_fragment (Destination.globals destination))))
+    || not
+         (List.exists
+            (fun (original, _) -> original == allocation)
+            (Integer_globals.private_static_bindings
+               (Destination.globals destination)))
+  then
+    Error
+      "native static initializer requires its original live task, leaf and \
+       storage"
+  else
+    require_initializer_namespace task
+      (Sema.Compiler_record.static_allocation_namespace source)
+
+let check_native_static_destination task destination =
+  if
+    (not task.native_storage_authority)
+    || not
+         (Frontend.Parser.static_initializer_is_current
+            (Sema.Static_initializer_fragment.receipt
+               (Static_initializer_destination.fragment destination)))
+  then Error "native static initializer requires native task storage"
+  else check_static_destination task destination
+
+let check_native_static_initializer task program =
+  check_native_static_destination task
+    (Static_initializer_program.destination program)
+
+let complete_native_static_destination task destination =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_destination task destination in
+  Integer_static_allocation.record_native_leaf
+    (Static_initializer_destination.allocation destination)
+    (Sema.Static_initializer_fragment.receipt
+       (Static_initializer_destination.fragment destination))
+    ~cell_offset:(Static_initializer_destination.cell_offset destination)
+    ~byte_offset:(Static_initializer_destination.byte_offset destination)
+    ~operation:(Static_initializer_destination.operation destination)
+
+let complete_native_static_initializer task program =
+  complete_native_static_destination task
+    (Static_initializer_program.destination program)
+
+let check_native_static_copy task destination =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_destination task destination in
+  match Static_initializer_destination.copy_byte_count destination with
+  | None -> Error "native static copy requires an original string-copy leaf"
+  | Some count ->
+      if
+        count
+        > task.resources.max_initializer_steps
+          - task.resources.initializer_steps
+      then
+        Error
+          "HCIRVM0007: the bounded initializer copy work limit was exhausted"
+      else Ok ()
+
+let begin_native_static_copy task destination =
+  let ( let* ) = Result.bind in
+  let* () = check_native_static_copy task destination in
+  match Static_initializer_destination.copy_byte_count destination with
+  | None -> assert false
+  | Some count ->
+      task.source_promotion_open <- false;
+      task.resources.initializer_steps <-
+        task.resources.initializer_steps + count;
+      Ok ()
+
+let complete_native_static_copy task destination =
+  match Static_initializer_destination.copy_byte_count destination with
+  | None ->
+      Error "native static copy completion requires an original string leaf"
+  | Some _ -> complete_native_static_destination task destination
 
 let begin_task_default task ~namespace ~publication receipt =
   let ( let* ) = Result.bind in
@@ -1776,7 +3004,8 @@ let begin_task_default task ~namespace ~publication receipt =
         | Frontend.Ast.Expression_default _ ->
             List.exists
               (fun attempt ->
-                attempt.default_receipt == prior
+                Sema.Default_fragment.same_source attempt.default_source
+                  (Named (publication, prior))
                 && attempt.default_state = Successful_initializer)
               task.defaults)
   in
@@ -1796,7 +3025,9 @@ let begin_task_default task ~namespace ~publication receipt =
              (Sema.Declaration_collection.publication_source_function
                 publication)))
     || List.exists
-         (fun attempt -> attempt.default_receipt == receipt)
+         (fun attempt ->
+           Sema.Default_fragment.same_source attempt.default_source
+             (Named (publication, receipt)))
          task.defaults
   then
     Error
@@ -1805,11 +3036,14 @@ let begin_task_default task ~namespace ~publication receipt =
     let attempt =
       {
         default_catalog = task.catalog;
-        default_publication = publication;
-        default_receipt = receipt;
-        default_preparation_before = task.initializer_steps;
+        default_source = Sema.Default_fragment.Named (publication, receipt);
+        default_preparation_before = task.resources.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
+        default_value = None;
+        default_native = false;
+        default_native_program = None;
+        default_native_work = None;
       }
     in
     task.defaults <- attempt :: task.defaults;
@@ -1827,15 +3061,316 @@ let fail_task_default task attempt =
     attempt.default_state <- Failed_initializer;
     Ok ())
 
+let task_default_value task receipt =
+  List.find_map
+    (fun attempt ->
+      if
+        (match attempt.default_source with
+          | Named (_, original) -> original == receipt
+          | Callback _ -> false)
+        && attempt.default_state = Successful_initializer
+      then attempt.default_value
+      else None)
+    task.defaults
+
 let task_default_bits task receipt =
   List.find_map
     (fun attempt ->
       if
-        attempt.default_receipt == receipt
+        (match attempt.default_source with
+          | Named (_, original) -> original == receipt
+          | Callback _ -> false)
         && attempt.default_state = Successful_initializer
       then attempt.default_bits
       else None)
     task.defaults
+
+let compare_saved_parameter_values task left right =
+  let owns value =
+    List.exists
+      (fun attempt ->
+        attempt.default_state = Successful_initializer
+        && Option.fold ~none:false ~some:(( == ) value) attempt.default_value)
+      task.defaults
+  in
+  if not (owns left && owns right) then
+    Error
+      "saved default comparison requires both original successful evaluations"
+  else
+    match Saved_parameter_value.compare_string_defaults left right with
+    | Some equal -> Ok equal
+    | None -> (
+        match
+          ( Saved_parameter_value.word_bits left,
+            Saved_parameter_value.word_bits right )
+        with
+        | Some left, Some right -> Ok (Int64.equal left right)
+        | _ -> (
+            match
+              ( Saved_parameter_value.callback_source left,
+                Saved_parameter_value.callback_source right )
+            with
+            | Some (left, _), Some (right, _) ->
+                Ok (Retained_function.same left right)
+            | _ -> (
+                match
+                  ( Saved_parameter_value.data_source left,
+                    Saved_parameter_value.data_source right )
+                with
+                | Some left, Some right -> (
+                    let address data =
+                      List.find_map
+                        (fun (original, address) ->
+                          if Saved_parameter_value.same_data original data then
+                            Some address
+                          else None)
+                        task.saved_data_values
+                    in
+                    match (address left, address right) with
+                    | Some left, Some right
+                      when left.pointer_storage.live
+                           && right.pointer_storage.live ->
+                        let offset address =
+                          Int64.add
+                            (Int64.mul
+                               (Int64.of_int address.pointer_base)
+                               (Int64.of_int address.pointer_element_bytes))
+                            address.pointer_offset
+                        in
+                        Ok
+                          (left.pointer_storage == right.pointer_storage
+                          && Int64.equal (offset left) (offset right))
+                    | _ ->
+                        Option.value
+                          (Saved_parameter_value.compare_native_data left right)
+                          ~default:
+                            (Error
+                               "saved data header comparison requires the \
+                                original live evaluated addresses"))
+                | Some _, None | None, Some _ ->
+                    let data, other =
+                      match
+                        ( Saved_parameter_value.data_source left,
+                          Saved_parameter_value.data_source right )
+                      with
+                      | Some data, None -> (data, right)
+                      | None, Some data -> (data, left)
+                      | _ -> assert false
+                    in
+                    let live =
+                      List.exists
+                        (fun (original, address) ->
+                          Saved_parameter_value.same_data original data
+                          && address.pointer_storage.live)
+                        task.saved_data_values
+                      || Saved_parameter_value.compare_native_data data data
+                         = Some (Ok true)
+                    in
+                    if live && Saved_parameter_value.word_bits other = Some 0L
+                    then Ok false
+                    else
+                      Error
+                        "saved data header comparison requires the original \
+                         evaluated words"
+                | None, None ->
+                    let undefined value =
+                      Option.is_some
+                        (Saved_parameter_value.undefined_callback_source value)
+                    in
+                    if undefined left || undefined right then
+                      Ok (undefined left && undefined right)
+                    else Ok false)))
+
+let check_native_task_default task attempt program =
+  let module Program = Default_fragment_program in
+  let module Destination = Default_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.default_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.defaults))
+    || attempt.default_state <> Preparing_initializer
+    || (not
+          (Sema.Default_fragment.current_source
+             ~activation:task.source_activation attempt.default_source))
+    || (not
+          (Sema.Default_fragment.same_source attempt.default_source
+             (Sema.Default_fragment.source fragment)))
+    || Sema.Default_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_default_fragment
+             (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.resources.initializer_steps <> attempt.default_preparation_before
+  then
+    Error
+      "native default requires its original live task, attempt and expression"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_default task attempt program =
+  Result.map
+    (fun () ->
+      attempt.default_state <- Executing_initializer;
+      attempt.default_native_program <- Some program;
+      retain_native_provider_sources task
+        (Default_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Default_fragment_program.entry program)))
+    (check_native_task_default task attempt program)
+
+let record_native_default_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.default_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.defaults))
+    || attempt.default_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.default_native_work
+    || Option.is_none attempt.default_native_program
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
+  then
+    Error "native default work has another task, attempt or exhausted allowance"
+  else (
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
+    attempt.default_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_default task attempt program value =
+  let destination = Default_fragment_program.destination program in
+  if
+    (not task.native_storage_authority)
+    || attempt.default_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.defaults))
+    || attempt.default_state <> Executing_initializer
+    || Option.is_none attempt.default_native_work
+    || (not
+          (Option.fold ~none:false ~some:(( == ) program)
+             attempt.default_native_program))
+    || (not
+          (Sema.Default_fragment.current_source
+             ~activation:task.source_activation attempt.default_source))
+    || not
+         (Sema.Default_fragment.same_source attempt.default_source
+            (Sema.Default_fragment.source
+               (Default_fragment_destination.fragment destination)))
+  then Error "native default completion has another task or expired expression"
+  else if
+    Option.fold ~none:false
+      ~some:(fun data ->
+        Default_fragment_destination.is_callback destination
+        || Saved_parameter_value.data_expression data
+           != Sema.Function_call_expression_result.top_level_root_value
+                (Default_fragment_destination.root destination)
+        || not
+             (Type.equal
+                (Saved_parameter_value.data_type data)
+                (Default_fragment_destination.type_ destination)))
+      (Saved_parameter_value.data_source value)
+    || Option.fold ~none:false
+         ~some:(fun (link, source) ->
+           (not (Default_fragment_destination.is_callback destination))
+           || source
+              != Sema.Function_call_expression_result.top_level_root_value
+                   (Default_fragment_destination.root destination)
+           || (not
+                 (Integer_globals.task_catalog_contains_function task.catalog
+                    link))
+           || Option.is_none (exact_native_function_source task link)
+              && not
+                   (List.exists
+                      (fun (original, _) ->
+                        Retained_function.same original link)
+                      task.provider_entries))
+         (Saved_parameter_value.callback_source value)
+    || Option.fold ~none:false
+         ~some:(fun source ->
+           (not (Default_fragment_destination.is_callback destination))
+           || source
+              != Sema.Function_call_expression_result.top_level_root_value
+                   (Default_fragment_destination.root destination))
+         (Saved_parameter_value.undefined_callback_source value)
+  then
+    Error
+      "native callback default lost its original expression or admitted body"
+  else (
+    attempt.default_value <- Some value;
+    attempt.default_bits <- Saved_parameter_value.word_bits value;
+    attempt.default_native <- true;
+    attempt.default_state <- Successful_initializer;
+    Ok ())
+
+let task_native_parameter_default task ~globals ~header ~parameter prepared =
+  if
+    (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog globals))
+    || (not
+          (Integer_globals.task_catalog_contains_parameter_default task.catalog
+             prepared))
+    || (not (Prepared_parameter_default.matches prepared ~header ~parameter))
+    || (not
+          (Option.fold ~none:false ~some:(( == ) prepared)
+             (Integer_globals.prepared_parameter_default globals ~header
+                ~parameter)))
+    || not
+         (List.exists
+            (fun attempt ->
+              attempt.default_native
+              && attempt.default_state = Successful_initializer
+              && (match attempt.default_source with
+                | Named (publication, receipt) ->
+                    publication
+                    == Prepared_parameter_default.publication prepared
+                    && receipt == Prepared_parameter_default.receipt prepared
+                | Callback _ -> false)
+              && Option.fold ~none:false
+                   ~some:(fun value ->
+                     Saved_parameter_value.same value
+                       (Prepared_parameter_default.value prepared))
+                   attempt.default_value)
+            task.defaults)
+  then Error "native saved default lacks its exact completed source execution"
+  else Ok ()
+
+let task_native_callback_default task ~globals ~pointer ~parameter prepared =
+  if
+    (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog globals))
+    || (not
+          (Integer_globals.task_catalog_contains_callback_default task.catalog
+             prepared))
+    || (not (Prepared_callback_default.matches prepared ~pointer ~parameter))
+    || (not
+          (Option.fold ~none:false ~some:(( == ) prepared)
+             (Integer_globals.prepared_callback_default globals ~pointer
+                ~parameter)))
+    || not
+         (List.exists
+            (fun attempt ->
+              attempt.default_native
+              && attempt.default_state = Successful_initializer
+              && (match attempt.default_source with
+                | Callback (namespace, receipt) ->
+                    namespace == Prepared_callback_default.namespace prepared
+                    && receipt == Prepared_callback_default.receipt prepared
+                | Named _ -> false)
+              && Option.fold ~none:false
+                   ~some:(fun value ->
+                     Saved_parameter_value.same value
+                       (Prepared_callback_default.value prepared))
+                   attempt.default_value)
+            task.defaults)
+  then
+    Error "native anonymous default lacks its exact completed source execution"
+  else Ok ()
 
 let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
   let module Record = Sema.Compiler_record in
@@ -1865,9 +3400,12 @@ let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
             task.seen_dimensions <- preparation :: task.seen_dimensions;
             let result, work =
               Record.prepare_dimension ~table ~namespace ~preparation ~queries
-                ~max_work:(task.max_initializer_steps - task.initializer_steps)
+                ~max_work:
+                  (task.resources.max_initializer_steps
+                 - task.resources.initializer_steps)
             in
-            task.initializer_steps <- task.initializer_steps + work;
+            task.resources.initializer_steps <-
+              task.resources.initializer_steps + work;
             (match result with
             | Ok checked ->
                 task.closed_dimensions <- checked :: task.closed_dimensions
@@ -1910,10 +3448,13 @@ let prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
         let result, work =
           Sema.Compiler_record.prepare_aggregate_offset ~table ~namespace
             ~queries
-            ~max_work:(task.max_initializer_steps - task.initializer_steps)
+            ~max_work:
+              (task.resources.max_initializer_steps
+             - task.resources.initializer_steps)
             progress phase
         in
-        task.initializer_steps <- task.initializer_steps + work;
+        task.resources.initializer_steps <-
+          task.resources.initializer_steps + work;
         (match result with
         | Ok offset -> task.charged_offsets <- offset :: task.charged_offsets
         | Error _ -> ());
@@ -1942,7 +3483,9 @@ let prepare_isolated_aggregate_offset task ~table ~namespace ~queries progress
       phase
 
 let settle_isolated_aggregate_offsets task ~table offsets =
-  if
+  if task.native_storage_authority then
+    Error "native source tasks cannot settle isolated interpreter preparation"
+  else if
     List.exists
       (fun offset ->
         Sema.Compiler_record.aggregate_offset_table offset != table)
@@ -2023,9 +3566,11 @@ let begin_task_offset task authority =
         offset_catalog = task.catalog;
         offset_authority = authority;
         offset_receipt = receipt;
-        offset_preparation_before = task.initializer_steps;
+        offset_preparation_before = task.resources.initializer_steps;
         offset_state = Preparing_initializer;
         offset_result = None;
+        offset_native_program = None;
+        offset_native_work = None;
       }
     in
     task.runtime_offsets <- attempt :: task.runtime_offsets;
@@ -2077,10 +3622,12 @@ let begin_task_dimension task authority =
         dimension_catalog = task.catalog;
         dimension_authority = authority;
         dimension_receipt = receipt;
-        dimension_preparation_before = task.initializer_steps;
+        dimension_preparation_before = task.resources.initializer_steps;
         dimension_state = Preparing_initializer;
         dimension_bits = None;
         dimension_work = None;
+        dimension_native_program = None;
+        dimension_native_work = None;
       }
     in
     task.dimensions <- attempt :: task.dimensions;
@@ -2109,6 +3656,335 @@ let task_dimension_bits task receipt =
       else None)
     task.dimensions
 
+let check_native_task_internal_binding task attempt program =
+  let module Program = Internal_binding_fragment_program in
+  let module Destination = Internal_binding_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.internal_binding_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.internal_bindings))
+    || attempt.internal_binding_state <> Preparing_initializer
+    || (not
+          (Frontend.Parser.internal_binding_is_current
+             attempt.internal_binding_receipt))
+    || Program.source_authority program != attempt.internal_binding_authority
+    || Sema.Internal_binding_fragment.receipt fragment
+       != attempt.internal_binding_receipt
+    || Sema.Internal_binding_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_internal_binding_fragment
+             (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.resources.initializer_steps
+       <> attempt.internal_binding_preparation_before
+  then
+    Error
+      "native internal binding requires its original live task, attempt and \
+       expression"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_internal_binding task attempt program =
+  Result.map
+    (fun () ->
+      attempt.internal_binding_state <- Executing_initializer;
+      attempt.internal_binding_native_program <- Some program;
+      retain_native_provider_sources task
+        (Internal_binding_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Internal_binding_fragment_program.entry program)))
+    (check_native_task_internal_binding task attempt program)
+
+let record_native_internal_binding_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.internal_binding_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.internal_bindings))
+    || attempt.internal_binding_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.internal_binding_native_work
+    || Option.is_none attempt.internal_binding_native_program
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
+  then
+    Error
+      "native internal binding work has another task, attempt or exhausted \
+       allowance"
+  else (
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
+    attempt.internal_binding_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_internal_binding task attempt program capture =
+  let module Program = Internal_binding_fragment_program in
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      (not task.native_storage_authority)
+      || attempt.internal_binding_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.internal_bindings))
+      || attempt.internal_binding_state <> Executing_initializer
+      || Option.is_none attempt.internal_binding_native_work
+      || (not
+            (Option.fold ~none:false ~some:(( == ) program)
+               attempt.internal_binding_native_program))
+      || not
+           (Frontend.Parser.internal_binding_is_current
+              attempt.internal_binding_receipt)
+    then
+      Error
+        "native internal binding completion has another task or expired \
+         original expression"
+    else Ok ()
+  in
+  let* bits =
+    Native_internal_binding_capture.consume
+      ?scope:
+        (match task.resources.native_source_scopes with
+        | [] -> None
+        | scope :: _ -> Some scope)
+      capture ~program
+      ~work:(Option.get attempt.internal_binding_native_work)
+  in
+  let fragment =
+    Program.destination program
+    |> Internal_binding_fragment_destination.fragment
+  in
+  let* prepared =
+    Sema.Prepared_internal_binding.create
+      ~table:(Sema.Internal_binding_fragment.table fragment)
+      ~namespace:(Sema.Internal_binding_fragment.namespace fragment)
+      ~receipt:attempt.internal_binding_receipt ~bits
+      ~work:
+        (task.resources.initializer_steps
+       - attempt.internal_binding_preparation_before)
+  in
+  attempt.internal_binding_prepared <- Some prepared;
+  attempt.internal_binding_state <- Successful_initializer;
+  Ok ()
+
+let check_native_task_dimension task attempt program =
+  let module Program = Dimension_fragment_program in
+  let module Destination = Dimension_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.dimension_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.dimensions))
+    || attempt.dimension_state <> Preparing_initializer
+    || (not
+          (Frontend.Parser.dimension_preparation_is_current
+             attempt.dimension_receipt))
+    || Program.source_authority program != attempt.dimension_authority
+    || Sema.Dimension_fragment.receipt fragment != attempt.dimension_receipt
+    || Sema.Dimension_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_dimension_fragment
+             (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.resources.initializer_steps <> attempt.dimension_preparation_before
+  then
+    Error
+      "native dimension requires its original live task, attempt and expression"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_dimension task attempt program =
+  Result.map
+    (fun () ->
+      attempt.dimension_state <- Executing_initializer;
+      attempt.dimension_native_program <- Some program;
+      retain_native_provider_sources task
+        (Dimension_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Dimension_fragment_program.entry program)))
+    (check_native_task_dimension task attempt program)
+
+let record_native_dimension_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.dimension_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.dimensions))
+    || attempt.dimension_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.dimension_native_work
+    || Option.is_none attempt.dimension_native_program
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
+  then
+    Error
+      "native dimension work has another task, attempt or exhausted allowance"
+  else (
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
+    attempt.dimension_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_dimension task attempt program capture =
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      (not task.native_storage_authority)
+      || attempt.dimension_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.dimensions))
+      || attempt.dimension_state <> Executing_initializer
+      || Option.is_none attempt.dimension_native_work
+      || (not
+            (Option.fold ~none:false ~some:(( == ) program)
+               attempt.dimension_native_program))
+      || not
+           (Frontend.Parser.dimension_preparation_is_current
+              attempt.dimension_receipt)
+    then
+      Error
+        "native dimension completion has another task or expired original \
+         expression"
+    else Ok ()
+  in
+  let* bits =
+    Native_scalar_capture.consume
+      ?scope:
+        (match task.resources.native_source_scopes with
+        | [] -> None
+        | scope :: _ -> Some scope)
+      capture ~program
+      ~work:(Option.get attempt.dimension_native_work)
+  in
+  attempt.dimension_bits <- Some bits;
+  attempt.dimension_work <-
+    Some
+      (task.resources.initializer_steps - attempt.dimension_preparation_before);
+  attempt.dimension_state <- Successful_initializer;
+  Ok ()
+
+let check_native_task_offset task attempt program =
+  let module Program = Offset_fragment_program in
+  let module Destination = Offset_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || attempt.offset_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.runtime_offsets))
+    || attempt.offset_state <> Preparing_initializer
+    || (not (Frontend.Parser.aggregate_phase_is_current attempt.offset_receipt))
+    || (not
+          (Sema.Source_activation.offset_admission task.source_activation
+             attempt.offset_receipt))
+    || (not
+          (Sema.Compiler_record.runtime_aggregate_offset_is_current
+             (Sema.Offset_fragment.preparation attempt.offset_authority)))
+    || Program.source_authority program != attempt.offset_authority
+    || Sema.Offset_fragment.receipt fragment != attempt.offset_receipt
+    || Sema.Offset_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_offset_fragment (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.resources.initializer_steps <> attempt.offset_preparation_before
+  then
+    Error
+      "native offset requires its original live task, attempt and expression"
+  else
+    let ( let* ) = Result.bind in
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Sema.Compiler_record.runtime_aggregate_offset_dimension_dependencies
+           (Sema.Offset_fragment.preparation attempt.offset_authority)
+        @ Dimension_requirements.top_level (Destination.typed destination))
+    in
+    validate_offset_dependencies (Some task)
+      (Sema.Compiler_record.runtime_aggregate_offset_dependencies
+         (Sema.Offset_fragment.preparation attempt.offset_authority)
+      @ Offset_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_offset task attempt program =
+  Result.map
+    (fun () ->
+      attempt.offset_state <- Executing_initializer;
+      attempt.offset_native_program <- Some program;
+      retain_native_provider_sources task
+        (Offset_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Offset_fragment_program.entry program)))
+    (check_native_task_offset task attempt program)
+
+let record_native_offset_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || attempt.offset_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.runtime_offsets))
+    || attempt.offset_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.offset_native_work
+    || Option.is_none attempt.offset_native_program
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
+  then
+    Error "native offset work has another task, attempt or exhausted allowance"
+  else (
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
+    attempt.offset_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_offset task attempt program capture =
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      (not task.native_storage_authority)
+      || attempt.offset_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.runtime_offsets))
+      || attempt.offset_state <> Executing_initializer
+      || Option.is_none attempt.offset_native_work
+      || (not
+            (Option.fold ~none:false ~some:(( == ) program)
+               attempt.offset_native_program))
+      || not (Frontend.Parser.aggregate_phase_is_current attempt.offset_receipt)
+    then
+      Error
+        "native offset completion has another task or expired original \
+         expression"
+    else Ok ()
+  in
+  let* bits =
+    Native_scalar_capture.consume
+      ?scope:
+        (match task.resources.native_source_scopes with
+        | [] -> None
+        | scope :: _ -> Some scope)
+      capture ~program
+      ~work:(Option.get attempt.offset_native_work)
+  in
+  let* offset =
+    Sema.Compiler_record.finish_runtime_aggregate_offset
+      (Sema.Offset_fragment.preparation attempt.offset_authority)
+      ~value:bits
+      ~work:
+        (task.resources.initializer_steps - attempt.offset_preparation_before)
+  in
+  attempt.offset_result <- Some offset;
+  attempt.offset_state <- Successful_initializer;
+  task.charged_offsets <- offset :: task.charged_offsets;
+  Ok ()
+
 let begin_task_internal_binding task authority =
   let ( let* ) = Result.bind in
   let fragment = Sema.Internal_binding_fragment.authorized_fragment authority in
@@ -2136,9 +4012,11 @@ let begin_task_internal_binding task authority =
         internal_binding_catalog = task.catalog;
         internal_binding_authority = authority;
         internal_binding_receipt = receipt;
-        internal_binding_preparation_before = task.initializer_steps;
+        internal_binding_preparation_before = task.resources.initializer_steps;
         internal_binding_state = Preparing_initializer;
         internal_binding_prepared = None;
+        internal_binding_native_program = None;
+        internal_binding_native_work = None;
       }
     in
     task.internal_bindings <- attempt :: task.internal_bindings;
@@ -2195,25 +4073,30 @@ let complete_task_defaults task ~namespace header =
           match
             List.find_opt
               (fun attempt ->
-                attempt.default_receipt.default_function
-                == header.function_publication
-                && attempt.default_receipt.default_parameter_index = index
-                && attempt.default_receipt.default_ast == default)
+                match attempt.default_source with
+                | Sema.Default_fragment.Named (_, r) ->
+                    r.default_function == header.function_publication
+                    && r.default_parameter_index = index
+                    && r.default_ast == default
+                | Callback _ -> false)
               task.defaults
           with
           | Some attempt
             when attempt.default_state = Successful_initializer
-                 && Option.is_some attempt.default_bits -> Ok attempt
+                 && Option.is_some attempt.default_value -> Ok attempt
           | _ ->
               Error
                 "function header requires each successful original default \
                  preparation"
         in
+        let publication, receipt =
+          match attempt.default_source with
+          | Named (p, r) -> (p, r)
+          | Callback _ -> assert false
+        in
         let* value =
-          Prepared_parameter_default.create
-            ~publication:attempt.default_publication ~header
-            ~receipt:attempt.default_receipt
-            ~bits:(Option.get attempt.default_bits)
+          Prepared_parameter_default.create_value ~publication ~header ~receipt
+            ~value:(Option.get attempt.default_value)
         in
         collect (value :: rev) rest
   in
@@ -2336,7 +4219,8 @@ let begin_task_initializer_leaf task ~namespace leaf =
             attempt_receipt = receipt;
             attempt_next;
             attempt_destination;
-            attempt_preparation_before = task.initializer_steps;
+            attempt_preparation_before = task.resources.initializer_steps;
+            attempt_native_preparation = None;
             attempt_state = Preparing_initializer;
           }
         in
@@ -2345,15 +4229,115 @@ let begin_task_initializer_leaf task ~namespace leaf =
 
 let initializer_attempt_destination attempt = attempt.attempt_destination
 
-let fail_task_initializer_attempt task attempt =
+let native_initializer_matches task attempt execution program expected_state =
+  let module Program = Initializer_fragment_program in
+  let module Destination = Initializer_fragment_destination in
+  let destination = Program.execution_destination execution in
+  let state = attempt.attempt_initializer in
+  let code_matches =
+    match Program.execution_code execution with
+    | Program.Scheduled scheduled -> scheduled == program
+    | Program.Prepared _ ->
+        Program.destination program == destination
+        && Program.authority program == Program.execution_authority execution
+  in
+  task.native_storage_authority
+  && state.initializer_catalog == task.catalog
+  && attempt.attempt_state = expected_state
+  && Option.fold ~none:false ~some:(( == ) attempt) state.initializer_attempt
+  && (Frontend.Parser.initializer_leaf_is_current attempt.attempt_receipt
+     || Sema.Source_activation.initializer_leaf task.source_activation
+          attempt.attempt_receipt)
+  && Destination.layout destination == attempt.attempt_destination
+  && Sema.Initializer_fragment.leaf (Destination.fragment destination)
+     == attempt.attempt_leaf
+  && Sema.Initializer_fragment.authorized_fragment
+       (Program.execution_authority execution)
+     == Destination.fragment destination
+  && Program.destination program == destination
+  && Program.authority program == Program.execution_authority execution
+  && code_matches
+  && Integer_globals.same_storage
+       (Destination.storage destination)
+       (Integer_globals.declared_storage state.initializer_slot)
+  && Integer_globals.owns_task_storage task.catalog
+       (Destination.globals destination)
+  && Integer_globals.is_initializer_fragment (Destination.globals destination)
+  && (Program.execution_steps execution
+     =
+     match (expected_state, attempt.attempt_native_preparation) with
+     | Executing_initializer, Some preparation -> preparation
+     | Preparing_initializer, None ->
+         task.resources.initializer_steps - attempt.attempt_preparation_before
+     | _ -> -1)
+  && Integer_globals.byte_size (Destination.globals destination) = 0
+
+let check_native_task_initializer task attempt execution program =
+  let module Destination = Initializer_fragment_destination in
+  let module Program = Initializer_fragment_program in
+  let destination = Program.execution_destination execution in
   if
-    attempt.attempt_initializer.initializer_catalog != task.catalog
-    || attempt.attempt_state = Successful_initializer
+    not
+      (native_initializer_matches task attempt execution program
+         Preparing_initializer)
+  then
+    Error
+      "native initializer entry has another attempt, source, destination or \
+       preparation"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_initializer task attempt execution program =
+  Result.map
+    (fun () ->
+      attempt.attempt_state <- Executing_initializer;
+      attempt.attempt_native_preparation <-
+        Some (Initializer_fragment_program.execution_steps execution);
+      retain_native_provider_sources task
+        (Initializer_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Initializer_fragment_program.entry program)))
+    (check_native_task_initializer task attempt execution program)
+
+let complete_native_task_initializer task attempt execution program =
+  if
+    not
+      (native_initializer_matches task attempt execution program
+         Executing_initializer)
+  then
+    Error
+      "native initializer completion has another attempt, source, destination \
+       or entry"
+  else
+    let state = attempt.attempt_initializer in
+    match
+      Integer_globals.record_declared_initializer state.initializer_slot
+        attempt.attempt_destination
+    with
+    | Error message ->
+        attempt.attempt_state <- Failed_initializer;
+        Integer_globals.fail_declared_initializer state.initializer_slot;
+        Error message
+    | Ok () ->
+        state.initializer_cursor <- attempt.attempt_next;
+        attempt.attempt_state <- Successful_initializer;
+        Ok ()
+
+let fail_task_initializer_attempt task attempt =
+  let state = attempt.attempt_initializer in
+  if
+    state.initializer_catalog != task.catalog
+    || (not (List.exists (( == ) state) task.initializers))
+    || (not
+          (Option.fold ~none:false ~some:(( == ) attempt)
+             state.initializer_attempt))
+    || attempt.attempt_state <> Preparing_initializer
+       && attempt.attempt_state <> Executing_initializer
   then Error "initializer failure does not belong to an unfinished task attempt"
   else (
     attempt.attempt_state <- Failed_initializer;
-    Integer_globals.fail_declared_initializer
-      attempt.attempt_initializer.initializer_slot;
+    Integer_globals.fail_declared_initializer state.initializer_slot;
     Ok ())
 
 let complete_task_initializer task ~namespace start source =
@@ -2383,41 +4367,87 @@ let complete_task_initializer task ~namespace start source =
 
 let task_result task ~sequence =
   if
-    task.streams <> [] || task.source_execution_failed
-    || task.deferred_dimensions <> []
-    || task.deferred_offsets <> []
+    task.resources.streams <> []
+    || (not (child_inputs_complete task))
+    || task.source_execution_failed
+    || List.exists
+         (fun item ->
+           not
+             (child_work_is_excluded task
+                (fun work -> work.work_deferred_dimensions)
+                item))
+         task.deferred_dimensions
+    || List.exists
+         (fun item ->
+           not
+             (child_work_is_excluded task
+                (fun work -> work.work_deferred_offsets)
+                item))
+         task.deferred_offsets
     || List.exists
          (fun preparation ->
-           not
-             (List.exists
-                (fun receipt ->
-                  receipt.Frontend.Parser.dimension_preparation == preparation)
-                task.completed_dimensions))
+           (not
+              (List.exists
+                 (fun receipt ->
+                   receipt.Frontend.Parser.dimension_preparation == preparation)
+                 task.completed_dimensions))
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_seen_dimensions)
+                   preparation))
          task.seen_dimensions
     || List.exists
          (fun attempt ->
-           attempt.internal_binding_state <> Successful_initializer)
+           attempt.internal_binding_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_internal_bindings)
+                   attempt))
          task.internal_bindings
     || List.exists
-         (fun attempt -> attempt.dimension_state <> Successful_initializer)
+         (fun attempt ->
+           attempt.dimension_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_dimensions)
+                   attempt))
          task.dimensions
     || List.exists
-         (fun attempt -> attempt.offset_state <> Successful_initializer)
+         (fun attempt ->
+           attempt.offset_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_offsets)
+                   attempt))
          task.runtime_offsets
     || (not (Sema.Source_activation.finished task.source_activation))
     || (not
           (Sema.Source_activation.owns_context task.source_activation
              sequence.Frontend.Parser.sequence_context))
     || List.exists
-         (fun state -> not state.initializer_complete)
+         (fun state ->
+           (not state.initializer_complete)
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_initializers)
+                   state))
          task.initializers
     || List.exists
          (fun result ->
-           result.constant_state <> Successful_initializer
+           (result.constant_state <> Successful_initializer
            || not result.constant_consumed)
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_default_constants)
+                   result))
          task.default_constants
     || List.exists
-         (fun attempt -> attempt.default_state <> Successful_initializer)
+         (fun attempt ->
+           attempt.default_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_defaults)
+                   attempt))
          task.defaults
   then Error "task result requires completed source execution"
   else
@@ -2441,63 +4471,381 @@ let task_input_result task ~sequence =
     -> result
   | _ -> Error "task input has no original execution completion"
 
-let task_function_source task link =
-  let module Records = Sema.Function_record_classification in
-  let dynamic =
-    link |> Retained_function.metadata
-    |> Sema.Outer_environment.function_classified_declaration
-    |> Records.classified_declaration_record |> Records.call_access
-    |> fun access -> access = Records.Jit_extern_address_slot_call
-  in
-  List.find_opt
-    (fun executable ->
-      Retained_function.same executable.function_link link
-      || dynamic
-         && Retained_function.symbol link
-            == executable.function_callee.callee_symbol
-         && Option.fold ~none:false
-              ~some:(fun later ->
-                Sema.Function_resolution.is_joined_successor
-                  ~earlier:
-                    (link |> Retained_function.metadata
-                   |> Sema.Outer_environment.function_declaration)
-                  ~later)
-              executable.function_callee.callee_definition)
-    task.functions
-  |> Option.map (fun executable -> executable.function_source)
+let task_native_function_source task link =
+  if Integer_globals.task_catalog_contains_function task.catalog link then
+    exact_native_function_source task link
+  else None
 
-let task_output_bytes task = Output.contents task.output
-let task_output_work task = Output.work task.output
-let task_generated_bytes task = Output.committed_bytes task.generated
-let task_executed_steps task = task.steps
-let task_initializer_steps task = task.initializer_steps
-let task_initializer_limit task = task.max_initializer_steps
+type native_slot_binding = {
+  slot_task : task_state;
+  slot_generation : (Retained_function.t * task_function_source) list;
+  slot_root_calls : Runtime.t;
+  slot_calls : Runtime.t;
+  slot_owner : Runtime.owner;
+  slot_call : Runtime.call;
+  slot_globals : Integer_globals.t;
+  slot_source : task_function_source option;
+}
+
+let native_slot_binding_matches binding ~root_runtime_calls ~runtime_calls
+    ~owner ~globals call =
+  binding.slot_root_calls == root_runtime_calls
+  && binding.slot_generation == binding.slot_task.native_function_sources
+  && binding.slot_calls == runtime_calls
+  && binding.slot_call == call
+  && Integer_globals.same_task_storage binding.slot_globals globals
+  &&
+  match (binding.slot_owner, owner) with
+  | Runtime.Entry, Runtime.Entry -> true
+  | Runtime.Function original, Runtime.Function body -> original == body
+  | _ -> false
+
+let native_slot_binding_source binding = binding.slot_source
+
+let task_native_slot_binding task ~root_runtime_calls ~root_globals
+    ~runtime_calls ~owner call =
+  let original_owner =
+    runtime_calls == root_runtime_calls
+    || List.exists
+         (fun (_, source) ->
+           source.source_runtime_calls == runtime_calls
+           &&
+           match owner with
+           | Runtime.Function body -> source.source_definition.body == body
+           | Runtime.Entry -> false)
+         task.native_function_sources
+  in
+  if not original_owner then
+    Error "native extern slot has no original source request or admitted owner"
+  else if
+    (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog root_globals))
+    || not
+         (Option.is_some
+            (Runtime.original_function_addresses runtime_calls ~owner)
+         && Option.fold ~none:false ~some:(( == ) call)
+              (Runtime.find_start runtime_calls ~owner (Runtime.first call)))
+  then Error "native extern slot is not its original sealed call occurrence"
+  else
+    match Runtime.retained_function call with
+    | Some link
+      when Runtime.call_opcode call = Opcode.Ic_call_indirect2
+           && Retained_function.symbol link == Runtime.symbol call
+           && (Integer_globals.task_catalog_contains_function task.catalog link
+              || runtime_calls == root_runtime_calls
+                 && List.exists
+                      (Retained_function.same link)
+                      (Integer_globals.function_publications root_globals)) ->
+        let module Records = Sema.Function_record_classification in
+        let access =
+          link |> Retained_function.metadata
+          |> Sema.Outer_environment.function_classified_declaration
+          |> Records.classified_declaration_record |> Records.call_access
+        in
+        if access <> Records.Jit_extern_address_slot_call then
+          Error
+            "native extern slot lacks its original JIT address-slot declaration"
+        else
+          let source =
+            List.find_map
+              (fun (_, source) ->
+                let body = source.source_definition.body in
+                if
+                  Function.callable_symbol body == Runtime.symbol call
+                  && Option.fold ~none:false
+                       ~some:(fun later ->
+                         Sema.Function_resolution.is_joined_successor
+                           ~earlier:(Runtime.declaration call) ~later)
+                       (Function.definition_declaration body)
+                then Some source
+                else None)
+              task.native_function_sources
+          in
+          Ok
+            {
+              slot_task = task;
+              slot_generation = task.native_function_sources;
+              slot_root_calls = root_runtime_calls;
+              slot_calls = runtime_calls;
+              slot_owner = owner;
+              slot_call = call;
+              slot_globals = root_globals;
+              slot_source = source;
+            }
+    | _ -> Error "native extern slot lacks its original task publication"
+
+type native_slot_address_binding = {
+  address_slot_task : task_state;
+  address_slot_generation : (Retained_function.t * task_function_source) list;
+  address_slot_root_calls : Runtime.t;
+  address_slot_calls : Runtime.t;
+  address_slot_owner : Runtime.owner;
+  address_slot_receipt : Runtime.function_slot_address;
+  address_slot_globals : Integer_globals.t;
+  address_slot_source : (Retained_function.t * task_function_source) option;
+  address_slot_local_owner : Function_body.t option;
+}
+
+let native_slot_address_binding_matches binding ~root_runtime_calls
+    ~runtime_calls ~owner ~globals receipt =
+  binding.address_slot_root_calls == root_runtime_calls
+  && binding.address_slot_generation
+     == binding.address_slot_task.native_function_sources
+  && binding.address_slot_calls == runtime_calls
+  && binding.address_slot_receipt == receipt
+  && Integer_globals.same_task_storage binding.address_slot_globals globals
+  &&
+  match (binding.address_slot_owner, owner) with
+  | Runtime.Entry, Runtime.Entry -> true
+  | Runtime.Function original, Runtime.Function body -> original == body
+  | _ -> false
+
+let native_slot_address_binding_source binding = binding.address_slot_source
+
+let native_slot_address_binding_local_owner binding =
+  binding.address_slot_local_owner
+
+let native_slot_address_binding_receipt binding = binding.address_slot_receipt
+
+let native_slot_address_binding_runtime_calls binding =
+  binding.address_slot_calls
+
+let native_slot_address_binding_owner binding = binding.address_slot_owner
+let native_slot_address_binding_globals binding = binding.address_slot_globals
+
+let native_slot_address_binding_root_runtime_calls binding =
+  binding.address_slot_root_calls
+
+let refresh_native_slot_address_binding task ~root_runtime_calls ~root_globals
+    binding =
+  let module Functions = Sema.Function_resolution in
+  let selected =
+    Runtime.function_slot_address_declaration binding.address_slot_receipt
+  in
+  let symbol = Functions.resolved_declaration_identity_symbol selected in
+  if
+    binding.address_slot_task != task
+    || (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog root_globals))
+    || (not
+          (Integer_globals.same_task_storage binding.address_slot_globals
+             root_globals))
+    || not
+         (Option.fold ~none:false
+            ~some:(( == ) binding.address_slot_receipt)
+            (Option.bind
+               (Runtime.original_function_slot_addresses
+                  binding.address_slot_calls ~owner:binding.address_slot_owner)
+               (fun addresses ->
+                 Runtime.original_function_slot_address addresses
+                   (Runtime.function_slot_address_cursor
+                      binding.address_slot_receipt))))
+  then Error "native function slot refresh belongs to another original task"
+  else
+    let source =
+      List.find_opt
+        (fun (_, source) ->
+          Function.callable_symbol source.source_definition.body == symbol
+          && Option.fold ~none:false
+               ~some:(fun later ->
+                 later == selected
+                 || Functions.is_joined_successor ~earlier:selected ~later)
+               (Function.definition_declaration source.source_definition.body))
+        task.native_function_sources
+    in
+    Ok
+      {
+        binding with
+        address_slot_root_calls = root_runtime_calls;
+        address_slot_generation = task.native_function_sources;
+        address_slot_source = source;
+        address_slot_local_owner = None;
+      }
+
+let task_native_slot_address_binding task ~root_runtime_calls ~root_globals
+    ~runtime_calls ~owner receipt =
+  let module Functions = Sema.Function_resolution in
+  let original_owner =
+    runtime_calls == root_runtime_calls
+    || List.exists
+         (fun (_, source) ->
+           source.source_runtime_calls == runtime_calls
+           &&
+           match owner with
+           | Runtime.Function body -> source.source_definition.body == body
+           | Runtime.Entry -> false)
+         task.native_function_sources
+  in
+  let original_receipt =
+    Option.bind (Runtime.original_function_slot_addresses runtime_calls ~owner)
+      (fun slots ->
+        Runtime.original_function_slot_address slots
+          (Runtime.function_slot_address_cursor receipt))
+  in
+  let selected = Runtime.function_slot_address_declaration receipt in
+  let symbol = Functions.resolved_declaration_identity_symbol selected in
+  let matches_body body =
+    Function.callable_symbol body == symbol
+    && Option.fold ~none:false
+         ~some:(fun later ->
+           later == selected
+           || Functions.is_joined_successor ~earlier:selected ~later)
+         (Function.definition_declaration body)
+  in
+  let local_owner =
+    match owner with
+    | Runtime.Function body
+      when runtime_calls == root_runtime_calls && matches_body body -> Some body
+    | Runtime.Entry | Runtime.Function _ -> None
+  in
+  let publication =
+    Option.fold
+      ~none:(Option.is_some local_owner)
+      ~some:(fun link ->
+        Integer_globals.task_catalog_contains_function task.catalog link
+        || runtime_calls == root_runtime_calls
+           && List.exists
+                (Retained_function.same link)
+                (Integer_globals.function_publications root_globals))
+      (Runtime.function_slot_address_link receipt)
+  in
+  if
+    (not original_owner)
+    || (not task.native_storage_authority)
+    || (not (Integer_globals.owns_task_storage task.catalog root_globals))
+    || (not (Option.fold ~none:false ~some:(( == ) receipt) original_receipt))
+    || not publication
+  then
+    Error
+      "native function slot address has no exact source request or publication"
+  else
+    let source =
+      List.find_opt
+        (fun (_, source) -> matches_body source.source_definition.body)
+        task.native_function_sources
+    in
+    Ok
+      {
+        address_slot_task = task;
+        address_slot_generation = task.native_function_sources;
+        address_slot_root_calls = root_runtime_calls;
+        address_slot_calls = runtime_calls;
+        address_slot_owner = owner;
+        address_slot_receipt = receipt;
+        address_slot_globals = root_globals;
+        address_slot_source = source;
+        address_slot_local_owner =
+          (if Option.is_some source then None else local_owner);
+      }
+
+let task_native_provider_available task ~runtime_calls ~owner call =
+  let original_owner =
+    List.exists
+      (fun (_, source) ->
+        source.source_runtime_calls == runtime_calls
+        &&
+        match owner with
+        | Runtime.Function body -> source.source_definition.body == body
+        | Runtime.Entry -> false)
+      task.native_function_sources
+  in
+  if not original_owner then
+    Error "native provider has no original admitted function context"
+  else if
+    not
+      (Option.is_some (Runtime.original_function_addresses runtime_calls ~owner)
+      && Option.fold ~none:false ~some:(( == ) call)
+           (Runtime.find_start runtime_calls ~owner (Runtime.first call)))
+  then Error "native provider call is not its original sealed occurrence"
+  else
+    match (Runtime.provider call, Runtime.retained_function call) with
+    | ( Some
+          ( Runtime.Print
+          | Runtime.Put_chars
+          | Runtime.Stream_print
+          | Runtime.Stream_exe_print
+          | Runtime.Get_option
+          | Runtime.Set_option ),
+        Some link )
+      when Integer_globals.task_catalog_contains_function task.catalog link ->
+        let replaced =
+          List.exists
+            (fun (_, source) ->
+              let body = source.source_definition.body in
+              Function.callable_symbol body == Runtime.symbol call
+              && Option.fold ~none:false
+                   ~some:(fun later ->
+                     Sema.Function_resolution.is_joined_successor
+                       ~earlier:(Runtime.declaration call) ~later)
+                   (Function.definition_declaration body))
+            task.native_function_sources
+        in
+        Ok (not replaced)
+    | _ -> Error "native provider lacks its original admitted extern link"
+
+let task_function_source task link =
+  match task_native_function_source task link with
+  | Some _ as source -> source
+  | None ->
+      let module Records = Sema.Function_record_classification in
+      let dynamic =
+        link |> Retained_function.metadata
+        |> Sema.Outer_environment.function_classified_declaration
+        |> Records.classified_declaration_record |> Records.call_access
+        |> fun access -> access = Records.Jit_extern_address_slot_call
+      in
+      List.find_opt
+        (fun executable ->
+          Retained_function.same executable.function_link link
+          || dynamic
+             && Retained_function.symbol link
+                == executable.function_callee.callee_symbol
+             && Option.fold ~none:false
+                  ~some:(fun later ->
+                    Sema.Function_resolution.is_joined_successor
+                      ~earlier:
+                        (link |> Retained_function.metadata
+                       |> Sema.Outer_environment.function_declaration)
+                      ~later)
+                  executable.function_callee.callee_definition)
+        task.functions
+      |> Option.map (fun executable -> executable.function_source)
+
+let task_output_bytes task = Output.contents task.resources.output
+let task_output_work task = Output.work task.resources.output
+let task_generated_bytes task = Output.committed_bytes task.resources.generated
+let task_executed_steps task = task.resources.steps
+let task_initializer_steps task = task.resources.initializer_steps
+let task_initializer_limit task = task.resources.max_initializer_steps
 
 let task_progress (task : task_state) =
   {
-    executed_steps = task.steps;
-    initializer_steps = task.initializer_steps;
-    global_bytes = task.global_bytes;
-    literal_bytes = task.literal_bytes;
-    output_bytes = Output.contents task.output;
-    output_work = Output.work task.output;
-    generated_bytes = Output.committed_bytes task.generated;
+    executed_steps = task.resources.steps;
+    initializer_steps = task.resources.initializer_steps;
+    global_bytes = task.resources.global_bytes;
+    literal_bytes = task.resources.literal_bytes;
+    output_bytes = Output.contents task.resources.output;
+    output_work = Output.work task.resources.output;
+    generated_bytes = Output.committed_bytes task.resources.generated;
     final_value = task.outer_value;
   }
 
 let record_task_preparation task ~before ~steps =
   if
     before < 0 || steps < 0
-    || before > task.initializer_steps
-    || steps > task.max_initializer_steps - before
-    || before + steps < task.initializer_steps
+    || before > task.resources.initializer_steps
+    || steps > task.resources.max_initializer_steps - before
+    || before + steps < task.resources.initializer_steps
   then
     invalid_arg
       "task preparation progress is inconsistent with its cumulative budget";
   task.source_promotion_open <- false;
-  task.initializer_steps <- before + steps
+  task.resources.initializer_steps <- before + steps
 
 let begin_isolated_preparation task =
+  if task.native_storage_authority then
+    invalid_arg
+      "native source tasks cannot begin isolated interpreter preparation";
   task.source_promotion_open <- false;
   {
     preparation_catalog = task.catalog;
@@ -2507,14 +4855,15 @@ let begin_isolated_preparation task =
 
 let record_isolated_preparation task preparation ~steps =
   if
-    preparation.preparation_catalog != task.catalog
+    task.native_storage_authority
+    || preparation.preparation_catalog != task.catalog
     || preparation.preparation_closed
     || steps < preparation.preparation_steps
     || steps - preparation.preparation_steps
-       > task.max_initializer_steps - task.initializer_steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
   then invalid_arg "isolated preparation does not match its owning allowance";
-  task.initializer_steps <-
-    task.initializer_steps + steps - preparation.preparation_steps;
+  task.resources.initializer_steps <-
+    task.resources.initializer_steps + steps - preparation.preparation_steps;
   preparation.preparation_steps <- steps
 
 let abort_isolated_preparation task preparation =
@@ -2524,7 +4873,9 @@ let abort_isolated_preparation task preparation =
 
 let finish_isolated_preparation task preparation ~runtime_calls ~globals
     ~initialization ~functions checked =
-  if
+  if task.native_storage_authority then
+    Error "native source tasks cannot publish isolated interpreter programs"
+  else if
     preparation.preparation_catalog != task.catalog
     || preparation.preparation_closed
   then Error "isolated preparation is foreign or already closed"
@@ -2557,11 +4908,16 @@ let finish_isolated_preparation task preparation ~runtime_calls ~globals
       :: task.isolated_programs;
     Ok ())
 
-type call_phase = Collecting of int | Needs_cleanup | Needs_end
+type call_phase =
+  | Collecting of int
+  | Needs_cleanup
+  | Needs_saved_cleanup
+  | Needs_end
 
 type checked_call = {
   callee : callee;
   site : Runtime.call option;
+  callback : Runtime.callback_call option;
   remaining_arguments : Runtime.argument list option;
   phase : call_phase;
 }
@@ -2601,6 +4957,13 @@ type declared_type =
   | Global_address of Integer_globals.storage_slot
   | Index_offset of Type.t * int64 * prepared_operand
   | Indexed_address of Type.t * int64 list
+  | Callback_array_address of
+      storage_location
+      * Sema.Function_type_resolution.function_pointer
+      * Type.t
+      * int64 list
+  | Callback_initializer_address of
+      Integer_globals.storage_slot * Type.t * int64 list
   | Unsupported
 
 let reference_commit = Sequence.reference_commit
@@ -2728,6 +5091,18 @@ let scalar_value_type ~allow_byte ~allow_public type_ =
 let function_return_word_type type_ =
   scalar_value_type ~allow_byte:true ~allow_public:true type_
 
+(* Only a sealed call's original prepared-default producer may materialize a
+   saved word with the callback parameter's physical RT_PTR class. Numeric bits
+   remain Runtime_word values and never become owned executable code. *)
+let prepared_default_word_type type_ =
+  match scalar_value_type ~allow_byte:true ~allow_public:true type_ with
+  | Some _ as word -> word
+  | None -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64), 1 ->
+          Some I64
+      | _ -> None)
+
 let checked_return_kind type_ =
   match function_return_word_type type_ with
   | Some word -> Some (Word_return word)
@@ -2737,13 +5112,24 @@ let checked_return_kind type_ =
       | _ -> None)
   | None -> None
 
+let callback_word_type type_ =
+  Type.pointer_depth type_ = 1
+  && Type.base type_
+     = Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64)
+
 let scalar_element_bytes type_ =
-  Option.map Scalar.byte_size (Scalar.of_type type_)
+  if callback_word_type type_ then Some 8
+  else Option.map Scalar.byte_size (Scalar.of_type type_)
 
 let scalar_pointer_type type_ =
   match Type.dereference type_ with
   | Ok pointee -> Option.is_some (Scalar.of_type pointee)
   | Error _ -> false
+
+let array_pointer_type type_ =
+  scalar_pointer_type type_
+  || Option.fold ~none:false ~some:callback_word_type
+       (Type.dereference type_ |> Result.to_option)
 
 let literal_pointer_type type_ =
   Type.pointer_depth type_ = 1
@@ -2853,13 +5239,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     else argument_count
   in
   let frame_size = Frame.function_frame_size frame in
-  let allowed_flags =
-    Int64.logor
-      (Sema.Function_flag.Stored.to_mask Ret1)
-      (Int64.logor
-         (Sema.Function_flag.Stored.to_mask Argument_pop)
-         (Sema.Function_flag.Stored.to_mask No_argument_pop))
-  in
+  let allowed_flags = Function.ordinary_calling_flag_mask in
   let allowed_flags =
     if variadic && synthetic_match then
       Int64.logor allowed_flags (Sema.Function_flag.Stored.to_mask Variadic)
@@ -2951,8 +5331,27 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     List.iter
       (fun location ->
         let dimensions = Frame.location_dimensions location in
+        let callback =
+          match
+            ( Frame.location_declarator_shape location,
+              Frame.location_callback_pointer location )
+          with
+          | Frame.Function_pointer, Some pointer
+            when List.length
+                   (Sema.Function_type_resolution
+                    .function_pointer_indirection_origins pointer)
+                 = 1
+                 && (dimensions = []
+                    || Frame.location_kind location = Frame.Automatic_local
+                       && Frame.location_source_dimensions_checked location) ->
+              Some pointer
+          | _ -> None
+        in
         let storage_kind =
-          frame_stored_type (Frame.location_checked_type location)
+          if Option.is_some callback then Some (Stored_word I64)
+          else if Frame.location_declarator_shape location = Frame.Object then
+            frame_stored_type (Frame.location_checked_type location)
+          else None
         in
         let allocation_bytes object_bytes =
           if
@@ -2981,7 +5380,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             array_strides dimensions )
         with
         | Some stored_type, Some slot, Some (bytes, strides)
-          when Frame.location_declarator_shape location = Frame.Object
+          when (Frame.location_declarator_shape location = Frame.Object
+               || Option.is_some callback)
                && Frame.location_element_size location
                   = Int64.of_int (stored_bytes stored_type)
                && Frame.location_allocated_size location
@@ -3038,7 +5438,12 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               in
               let entry =
                 {
-                  slot_type = Frame.location_checked_type location;
+                  slot_type =
+                    (match callback with
+                    | Some _ ->
+                        Frame.location_storage_type location |> Result.get_ok
+                    | None -> Frame.location_checked_type location);
+                  slot_callback = callback;
                   stored_type;
                   initial;
                   object_count = Int64.to_int count;
@@ -3063,6 +5468,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             (Int64.to_int !total_cells)
             {
               slot_type = Function.return_type function_;
+              slot_callback = None;
               stored_type = Stored_word I64;
               initial = None;
               object_count = 1;
@@ -3178,7 +5584,7 @@ let global_address frame globals initialization
 
 let index_offset types (description : Sequence.description) =
   match (description.operands, description.target_type) with
-  | [ stride_id; value_id ], Some pointer when scalar_pointer_type pointer -> (
+  | [ stride_id; value_id ], Some pointer when array_pointer_type pointer -> (
       match
         (Value_map.find_opt stride_id types, Value_map.find_opt value_id types)
       with
@@ -3201,7 +5607,38 @@ let index_offset types (description : Sequence.description) =
 
 let indexed_address frame types (description : Sequence.description) =
   match (description.operands, description.target_type) with
-  | [ base; offset ], Some pointer when scalar_pointer_type pointer -> (
+  | [ base; offset ], Some pointer when array_pointer_type pointer -> (
+      let callback_root =
+        match Value_map.find_opt base types with
+        | Some (Frame_address index) ->
+            Option.bind frame (fun context ->
+                let slot = context.slots.(index) in
+                if slot.strides = [] then None
+                else
+                  Option.map
+                    (fun header ->
+                      (Frame_slot (index, slot.object_count), header))
+                    slot.slot_callback)
+        | Some (Global_address slot) ->
+            if Integer_globals.storage_dimensions slot = [] then None
+            else
+              Option.map
+                (fun header -> (Global_slot slot, header))
+                (Integer_globals.storage_callback_pointer slot)
+        | Some (Callback_array_address (root, header, expected, _))
+          when Type.equal expected pointer -> Some (root, header)
+        | _ -> None
+      in
+      let initializer_root =
+        match Value_map.find_opt base types with
+        | Some (Global_address slot)
+          when Integer_globals.storage_is_callback slot
+               && Option.is_none (Integer_globals.storage_callback_pointer slot)
+          -> Some slot
+        | Some (Callback_initializer_address (slot, expected, _))
+          when Type.equal expected pointer -> Some slot
+        | _ -> None
+      in
       let strides =
         match Value_map.find_opt base types with
         | Some (Frame_address index) ->
@@ -3222,6 +5659,9 @@ let indexed_address frame types (description : Sequence.description) =
             | _ -> None)
         | Some (Indexed_address (expected, strides))
           when Type.equal expected pointer -> Some strides
+        | Some (Callback_array_address (_, _, expected, strides))
+        | Some (Callback_initializer_address (_, expected, strides))
+          when Type.equal expected pointer -> Some strides
         | Some (Pointer_value expected) when Type.equal expected pointer ->
             Option.bind
               (Result.to_option (Type.dereference pointer))
@@ -3233,13 +5673,29 @@ let indexed_address frame types (description : Sequence.description) =
       in
       match (strides, Value_map.find_opt offset types) with
       | Some (stride :: remaining), Some (Index_offset (expected, actual, _))
-        when stride = actual && Type.equal expected pointer ->
-          Indexed_address (pointer, remaining)
+        when stride = actual && Type.equal expected pointer -> (
+          match callback_root with
+          | Some (root, header) ->
+              Callback_array_address (root, header, pointer, remaining)
+          | None -> (
+              match initializer_root with
+              | Some slot ->
+                  Callback_initializer_address (slot, pointer, remaining)
+              | None -> Indexed_address (pointer, remaining)))
       | _ -> Unsupported)
   | _ -> Unsupported
 
+let saved_data_payload (description : Sequence.description) =
+  match description.payload with
+  | Some (Sequence.Saved_parameter_default value) ->
+      Saved_parameter_value.data_source (Prepared_parameter_default.value value)
+  | Some (Sequence.Saved_callback_default value) ->
+      Saved_parameter_value.data_source (Prepared_callback_default.value value)
+  | _ -> None
+
 let declared_types ?frame ?globals ?literals ?initialization
-    ?(allow_calls = false) ?(is_default = fun _ -> false) ~types block =
+    ?(allow_calls = false) ?(is_default = fun _ -> false)
+    ?(is_function_slot = fun _ -> false) ~types block =
   let memory_enabled =
     Option.is_some frame || Option.is_some globals || Option.is_some literals
   in
@@ -3248,6 +5704,62 @@ let declared_types ?frame ?globals ?literals ?initialization
   |> List.fold_left
        (fun types instruction ->
          let description = Sequence.description instruction in
+         let callback_value =
+           match (description.operands, description.target_type) with
+           | address :: _, Some type_
+             when description.opcode = Opcode.Ic_deref
+                  || description.opcode = Opcode.Ic_assign
+                  || Option.is_some (update_kind description.opcode) -> (
+               match Value_map.find_opt address types with
+               | Some (Frame_address index) ->
+                   Option.fold ~none:false
+                     ~some:(fun context ->
+                       let slot = context.slots.(index) in
+                       Option.is_some slot.slot_callback
+                       && slot.strides = []
+                       && Type.equal type_ slot.slot_type)
+                     frame
+               | Some (Global_address slot) ->
+                   Integer_globals.storage_is_callback slot
+                   && Integer_globals.storage_dimensions slot = []
+                   && Type.equal type_ (Integer_globals.storage_type slot)
+               | Some (Callback_array_address (_, _, pointer, [])) ->
+                   Option.fold ~none:false ~some:(Type.equal type_)
+                     (Type.dereference pointer |> Result.to_option)
+               | Some (Callback_initializer_address (slot, pointer, [])) ->
+                   Integer_globals.storage_is_callback slot
+                   && Option.fold ~none:false ~some:(Type.equal type_)
+                        (Type.dereference pointer |> Result.to_option)
+               | _ -> false)
+           | _ -> false
+         in
+         let callback_array_pointer =
+           match
+             (description.opcode, description.operands, description.target_type)
+           with
+           | Opcode.Ic_addr, [ address ], Some type_
+             when array_pointer_type type_ -> (
+               match Value_map.find_opt address types with
+               | Some (Frame_address index) ->
+                   Option.fold ~none:false
+                     ~some:(fun context ->
+                       let slot = context.slots.(index) in
+                       slot.strides <> []
+                       && Option.is_some slot.slot_callback
+                       && Option.fold ~none:false ~some:(Type.equal type_)
+                            (Type.pointer_to slot.slot_type |> Result.to_option))
+                     frame
+               | Some (Global_address slot) ->
+                   Integer_globals.storage_dimensions slot <> []
+                   && Integer_globals.storage_is_callback slot
+                   && Option.fold ~none:false ~some:(Type.equal type_)
+                        (Type.pointer_to (Integer_globals.storage_type slot)
+                        |> Result.to_option)
+               | Some (Callback_array_address (_, _, pointer, _)) ->
+                   Type.equal pointer type_
+               | _ -> false)
+           | _ -> false
+         in
          let supported word_type type_ =
            let computation_type =
              match (description.opcode, description.operands) with
@@ -3273,7 +5785,20 @@ let declared_types ?frame ?globals ?literals ?initialization
                | None -> (
                    match description.target_type with
                    | Some type_ -> (
-                       if
+                       if callback_value || is_function_slot description then
+                         Supported
+                           ( I64,
+                             type_,
+                             Type.make_primitive ~form:Type.Internal_storage
+                               ~primitive:Sema.Primitive_type.I64
+                               ~pointer_depth:0
+                             |> Result.get_ok )
+                       else if callback_array_pointer then Pointer_value type_
+                       else if
+                         is_default description
+                         && Option.is_some (saved_data_payload description)
+                       then Pointer_value type_
+                       else if
                          Option.is_some literals
                          && description.opcode = Opcode.Ic_str_const
                          && literal_pointer_type type_
@@ -3282,7 +5807,8 @@ let declared_types ?frame ?globals ?literals ?initialization
                          memory_enabled && scalar_pointer_type type_
                          && (description.opcode = Opcode.Ic_addr
                             || description.opcode = Opcode.Ic_deref
-                            || description.opcode = Opcode.Ic_assign)
+                            || description.opcode = Opcode.Ic_assign
+                            || description.opcode = Opcode.Ic_holyc_typecast)
                        then Pointer_value type_
                        else if
                          allow_calls && description.opcode = Opcode.Ic_call_end
@@ -3294,12 +5820,17 @@ let declared_types ?frame ?globals ?literals ?initialization
                          | None -> Unsupported
                        else
                          match (frame, description.opcode) with
-                         | _, Opcode.Ic_imm_i64
-                           when is_default description.instruction_id -> (
-                             match
-                               scalar_value_type ~allow_byte:true
-                                 ~allow_public:true type_
-                             with
+                         | _, Opcode.Ic_imm_i64 when is_default description -> (
+                             match prepared_default_word_type type_ with
+                             | Some word_type when Type.pointer_depth type_ = 1
+                               ->
+                                 Supported
+                                   ( word_type,
+                                     type_,
+                                     Type.make_primitive ~form:Internal_storage
+                                       ~primitive:Sema.Primitive_type.I64
+                                       ~pointer_depth:0
+                                     |> Result.get_ok )
                              | Some word_type -> supported word_type type_
                              | None -> Unsupported)
                          | _, opcode
@@ -3322,12 +5853,15 @@ let declared_types ?frame ?globals ?literals ?initialization
                                  Frame_offset (type_, offset)
                              | _ -> Unsupported)
                          | _, Opcode.Ic_mul
-                           when scalar_pointer_type type_ && memory_enabled ->
+                           when array_pointer_type type_ && memory_enabled ->
                              index_offset types description
                          | _, (Opcode.Ic_add | Opcode.Ic_sub)
                            when frame_pointer type_ -> (
                              match indexed_address frame types description with
-                             | Indexed_address _ as indexed -> indexed
+                             | ( Indexed_address _
+                               | Callback_array_address _
+                               | Callback_initializer_address _ ) as indexed ->
+                                 indexed
                              | _ -> (
                                  match frame with
                                  | Some context ->
@@ -3380,6 +5914,8 @@ let operand_of_value types value_id =
       | Variadic_address _
       | Index_offset _
       | Indexed_address _
+      | Callback_array_address _
+      | Callback_initializer_address _
       | Global_address _ )
   | None -> None
 
@@ -3422,7 +5958,8 @@ let storage_operand ?(allow_array = false) frame initialization types
       let type_ = Integer_globals.storage_type slot in
       Option.map
         (fun kind -> (Global_slot slot, type_, kind))
-        (stored_type type_)
+        (if Integer_globals.storage_is_callback slot then Some (Stored_word I64)
+         else stored_type type_)
   | _, Some (Indexed_address (pointer_type, remaining))
     when allow_array || remaining = [] -> (
       match Type.dereference pointer_type with
@@ -3434,6 +5971,18 @@ let storage_operand ?(allow_array = false) frame initialization types
                 stored ))
             (stored_type pointee)
       | Error _ -> None)
+  | _, Some (Callback_array_address (_, _, pointer_type, remaining))
+  | _, Some (Callback_initializer_address (_, pointer_type, remaining))
+    when allow_array || remaining = [] ->
+      Option.bind
+        (Type.dereference pointer_type |> Result.to_option)
+        (fun pointee ->
+          if callback_word_type pointee then
+            Some
+              ( Indexed_slot { pointer_value = address; pointer_type },
+                pointee,
+                Stored_word I64 )
+          else None)
   | _, Some (Pointer_value pointer_type) -> (
       match Type.dereference pointer_type with
       | Ok pointee ->
@@ -3665,6 +6214,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
   in
   let kind =
     match (frame, description.opcode) with
+    | _, Opcode.Ic_imm_i64 when is_default -> Some Immediate_kind
     | _, Opcode.Ic_str_const when Option.is_some literals ->
         Some Literal_address_kind
     | _, Opcode.Ic_mul
@@ -3673,7 +6223,10 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
            | _ -> false -> Some Scale_index_kind
     | _, (Opcode.Ic_add | Opcode.Ic_sub)
       when match produced with
-           | Some (Indexed_address _) -> true
+           | Some
+               ( Indexed_address _
+               | Callback_array_address _
+               | Callback_initializer_address _ ) -> true
            | _ -> false -> Some Index_address_kind
     | _, Opcode.Ic_addr when memory_enabled -> Some Pointer_address_kind
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
@@ -3766,7 +6319,10 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               | ( [ base; offset ],
                   Some result,
                   None,
-                  Some (Indexed_address (pointer, _)) ) -> (
+                  Some
+                    ( Indexed_address (pointer, _)
+                    | Callback_array_address (_, _, pointer, _)
+                    | Callback_initializer_address (_, pointer, _) ) ) -> (
                   match
                     ( storage_operand ~allow_array:true frame initialization
                         types description.instruction_id base,
@@ -3793,7 +6349,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   description.payload )
               with
               | [ address ], Some result, Some target_type, None
-                when scalar_pointer_type target_type -> (
+                when array_pointer_type target_type -> (
                   match
                     storage_operand ~allow_array:true frame initialization types
                       description.instruction_id address
@@ -3880,7 +6436,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      Some operand,
                                      false,
                                      result.value_id,
-                                     stored_type ))
+                                     stored_type,
+                                     callback_word_type slot_type ))
                           | None ->
                               Error (invalid_type_matrix block_id description))
                       | Increment_slot_kind (operation, old_result), []
@@ -3894,7 +6451,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  None,
                                  old_result,
                                  result.value_id,
-                                 stored_type ))
+                                 stored_type,
+                                 callback_word_type slot_type ))
                       | _ -> Error (malformed block_id description))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
@@ -3905,11 +6463,21 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   description.target_type,
                   description.payload )
               with
+              | [], Some result, Some type_, _
+                when is_default
+                     && Option.is_some (saved_data_payload description)
+                     && scalar_pointer_type type_
+                     && Type.equal type_
+                          (Saved_parameter_value.data_type
+                             (Option.get (saved_data_payload description))) ->
+                  Ok
+                    (Saved_data_address
+                       ( result.value_id,
+                         Option.get (saved_data_payload description),
+                         type_ ))
               | [], Some result, Some type_, Some (Sequence.Integer bits) -> (
                   match
-                    if is_default then
-                      scalar_value_type ~allow_byte:true ~allow_public:true
-                        type_
+                    if is_default then prepared_default_word_type type_
                     else producer_word_type type_
                   with
                   | Some type_ ->
@@ -3979,6 +6547,30 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  result_type ))
                       | _ -> Error (invalid_type_matrix block_id description)))
               | _ -> Error (malformed block_id description))
+          | Word_view_kind
+            when memory_enabled
+                 && Option.fold ~none:false ~some:scalar_pointer_type
+                      description.target_type -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [ operand_id ],
+                  Some result,
+                  Some target_type,
+                  Some (Sequence.Integer (0L | 1L)) )
+                when description.flags = 0L -> (
+                  match
+                    ( pointer_operand_of_value types operand_id,
+                      Type.dereference target_type )
+                  with
+                  | Some operand, Ok pointee
+                    when scalar_pointer_type operand.pointer_type ->
+                      Ok (Pointer_view (operand, result.value_id, pointee))
+                  | _ -> Error (invalid_type_matrix block_id description))
+              | _ -> Error (malformed block_id description))
           | Word_view_kind -> (
               match
                 ( description.operands,
@@ -4001,8 +6593,11 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       | None -> Error (invalid_type_matrix block_id description)
                       | Some operand
                         when match Value_map.find_opt operand_id types with
-                             | Some (Supported (_, type_, _)) ->
+                             | Some (Supported (_, type_, computation)) ->
                                  Option.is_some (return_word_type type_)
+                                 || callback_word_type type_
+                                    && Option.is_some
+                                         (return_word_type computation)
                              | _ -> false ->
                           Ok (Word_view (operand, result.value_id, result_type))
                       | Some _ ->
@@ -4229,13 +6824,52 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
           operation
 
 let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
-    ?(retained_functions = []) ?(runtime_owner = Runtime.Entry) graph =
+    ?(retained_functions = []) ?(retained_provider_entries = [])
+    ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
-  let is_default id =
-    Option.fold ~none:false
-      ~some:(fun context ->
-        Runtime.is_prepared_default context ~owner:runtime_owner id)
-      runtime_calls
+  let callbacks =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_callback_calls context ~owner:runtime_owner)
+    |> Option.value ~default:[]
+  in
+  let callback_starts, callback_captures, callback_loads =
+    List.fold_left
+      (fun (starts, captures, loads) callback ->
+        ( Instruction_map.add callback.Runtime.callback_first callback starts,
+          Instruction_map.add callback.callback_capture callback captures,
+          Instruction_map.add callback.callback_load.instruction_id callback
+            loads ))
+      (Instruction_map.empty, Instruction_map.empty, Instruction_map.empty)
+      callbacks
+  in
+  let function_addresses =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_function_addresses context ~owner:runtime_owner)
+  in
+  let original_function_address description =
+    Option.bind function_addresses (fun addresses ->
+        Runtime.original_function_address addresses description)
+  in
+  let function_slot_addresses =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_function_slot_addresses context ~owner:runtime_owner)
+  in
+  let original_function_slot_address description =
+    Option.bind function_slot_addresses (fun addresses ->
+        Runtime.original_function_slot_address addresses description)
+  in
+  let defaults =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_prepared_defaults context ~owner:runtime_owner)
+    |> Option.value ~default:[]
+    |> List.fold_left
+         (fun map item ->
+           Instruction_map.add item.Sequence.instruction_id item map)
+         Instruction_map.empty
+  in
+  let is_default description =
+    Option.fold ~none:false ~some:(( == ) description)
+      (Instruction_map.find_opt description.Sequence.instruction_id defaults)
   in
   let* () =
     match literals with
@@ -4261,7 +6895,10 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     List.fold_left
       (fun types block ->
         declared_types ?frame ?globals ?literals ?initialization
-          ~allow_calls:(Option.is_some callees) ~is_default ~types block)
+          ~allow_calls:(Option.is_some callees) ~is_default
+          ~is_function_slot:(fun description ->
+            Option.is_some (original_function_slot_address description))
+          ~types block)
       Value_map.empty
       (Graph.definition_order graph)
   in
@@ -4285,7 +6922,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               capture_discard = true;
             }
         in
-        let prepare_call (description : Sequence.description) =
+        let prepare_call ~original_default (description : Sequence.description)
+            =
           let no_operands =
             description.operands = [] && description.flags = 0L
           in
@@ -4301,15 +6939,41 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               site
           in
           let runtime_callee site =
+            let parameters =
+              Runtime.header site
+              |> Sema.Function_type_resolution.function_signature
+              |> Sema.Function_type_resolution.signature_parameters
+            in
             let argument_type argument =
               let type_ = Runtime.argument_target_type argument in
-              match
-                scalar_value_type ~allow_byte:true ~allow_public:true type_
-              with
-              | Some word -> Some (Stored_word word)
-              | None when scalar_pointer_type type_ ->
-                  Some (Stored_pointer type_)
-              | None -> None
+              let callback =
+                match Runtime.argument_role argument with
+                | Runtime.Fixed index ->
+                    Option.bind (List.nth_opt parameters index)
+                      (fun parameter ->
+                        match
+                          Sema.Function_type_resolution
+                          .parameter_declarator_kind parameter
+                        with
+                        | Sema.Function_type_resolution.Function_pointer pointer
+                          ->
+                            Some
+                              (Sema.Function_type_resolution
+                               .function_pointer_storage_type pointer
+                              |> Result.get_ok)
+                        | _ -> None)
+                | _ -> None
+              in
+              if Option.fold ~none:false ~some:(Type.equal type_) callback then
+                Some (Stored_word I64)
+              else
+                match
+                  scalar_value_type ~allow_byte:true ~allow_public:true type_
+                with
+                | Some word -> Some (Stored_word word)
+                | None when scalar_pointer_type type_ ->
+                    Some (Stored_pointer type_)
+                | None -> None
             in
             let arguments = List.rev (Runtime.arguments site) in
             let types = List.filter_map argument_type arguments in
@@ -4330,7 +6994,185 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   variadic = false;
                 }
           in
+          let callback_start =
+            Instruction_map.find_opt description.instruction_id callback_starts
+          in
+          let callback_capture =
+            if description.opcode = Opcode.Ic_set_rax then
+              Instruction_map.find_opt description.instruction_id
+                callback_captures
+            else None
+          in
+          let callback_balance =
+            if description.opcode = Opcode.Ic_nop2 then
+              match
+                Instruction_id.of_int
+                  (Instruction_id.to_int description.instruction_id + 1)
+              with
+              | Ok next -> Instruction_map.find_opt next callback_starts
+              | Error _ -> None
+            else None
+          in
           match (description.opcode, !calls) with
+          | Opcode.Ic_set_rax, _ when Option.is_some callback_capture ->
+              call_instruction description Frame_address_tick
+          | Opcode.Ic_nop2, _ when Option.is_some callback_balance ->
+              call_instruction description Frame_address_tick
+          | Opcode.Ic_call_start, stack when Option.is_some callback_start -> (
+              let callback = Option.get callback_start in
+              let parameter_types =
+                callback.Runtime.callback_arguments |> List.rev
+                |> List.map (fun argument ->
+                    let type_ = Runtime.argument_target_type argument in
+                    let module Headers = Sema.Function_type_resolution in
+                    let callback_parameter =
+                      match Runtime.argument_role argument with
+                      | Runtime.Fixed index ->
+                          Option.bind
+                            (List.nth_opt
+                               (Headers.signature_parameters
+                                  (Headers.function_pointer_signature
+                                     callback.callback_pointer))
+                               index)
+                            (fun parameter ->
+                              match
+                                Headers.parameter_declarator_kind parameter
+                              with
+                              | Headers.Function_pointer pointer ->
+                                  Some
+                                    (Headers.function_pointer_storage_type
+                                       pointer
+                                    |> Result.get_ok)
+                              | Headers.Object -> None)
+                      | _ -> None
+                    in
+                    if
+                      Option.fold ~none:false ~some:(Type.equal type_)
+                        callback_parameter
+                    then Some (Stored_word I64)
+                    else
+                      match
+                        scalar_value_type ~allow_byte:true ~allow_public:true
+                          type_
+                      with
+                      | Some word -> Some (Stored_word word)
+                      | None when scalar_pointer_type type_ ->
+                          Some (Stored_pointer type_)
+                      | _ -> None)
+              in
+              let symbol =
+                let local =
+                  Option.bind frame (fun frame ->
+                      Frame.function_locations frame.layout
+                      |> List.find_opt (fun location ->
+                          Option.fold ~none:false
+                            ~some:(( == ) callback.callback_pointer)
+                            (Frame.location_callback_pointer location))
+                      |> Option.map Frame.location_symbol)
+                in
+                match local with
+                | Some _ -> local
+                | None ->
+                    Option.bind globals (fun globals ->
+                        Integer_globals.persistent_callback_storage globals
+                          callback.callback_pointer
+                        |> Option.map Integer_globals.storage_symbol)
+              in
+              match
+                ( symbol,
+                  memory_operand_of_value types callback.callback_capture_value
+                )
+              with
+              | Some symbol, Some captured
+                when List.for_all Option.is_some parameter_types
+                     &&
+                     match stack with
+                     | [] | { phase = Collecting _; _ } :: _ -> true
+                     | _ -> false ->
+                  let callee =
+                    {
+                      callee_index = -1;
+                      callee_symbol = symbol;
+                      callee_definition = None;
+                      callee_return_type = callback.callback_return_type;
+                      parameter_types =
+                        Array.of_list (List.map Option.get parameter_types);
+                      cleanup_opcode =
+                        (if callback.callback_callee_pop then Opcode.Ic_add_rsp1
+                         else Opcode.Ic_add_rsp);
+                      frame_bytes = 0;
+                      variadic = false;
+                    }
+                  in
+                  calls :=
+                    {
+                      callee;
+                      site = None;
+                      callback = Some callback;
+                      remaining_arguments = Some callback.callback_arguments;
+                      phase = Collecting 0;
+                    }
+                    :: stack;
+                  call_instruction description (Callback_start captured)
+              | _ ->
+                  Error
+                    (call_error description
+                       "callback scope has no original frame cell or callee \
+                        value"))
+          | ( Opcode.Ic_push_regs,
+              { callback = Some callback; phase = Collecting 0; _ } :: _ )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_save ->
+              call_instruction description Frame_address_tick
+          | ( Opcode.Ic_call_indirect,
+              ({ callback = Some callback; phase = Collecting count; callee; _ }
+               as scope)
+              :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_instruction
+                 && count = Array.length callee.parameter_types ->
+              calls := { scope with phase = Needs_cleanup } :: rest;
+              call_instruction description
+                (Callback_call (callback, callee.parameter_types))
+          | ( (Opcode.Ic_add_rsp | Ic_add_rsp1),
+              ({ callback = Some callback; phase = Needs_cleanup; _ } as scope)
+              :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_cleanup ->
+              calls :=
+                {
+                  scope with
+                  phase =
+                    (if callback.callback_callee_pop then Needs_saved_cleanup
+                     else Needs_end);
+                }
+                :: rest;
+              call_instruction description Call_cleanup
+          | ( Opcode.Ic_add_rsp,
+              ({ callback = Some callback; phase = Needs_saved_cleanup; _ } as
+               scope)
+              :: rest )
+            when Option.fold ~none:false
+                   ~some:(Instruction_id.equal description.instruction_id)
+                   callback.callback_saved_cleanup ->
+              calls := { scope with phase = Needs_end } :: rest;
+              call_instruction description Call_cleanup
+          | ( Opcode.Ic_call_end,
+              { callback = Some callback; phase = Needs_end; _ } :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_last -> (
+              calls := rest;
+              match checked_return_kind callback.callback_return_type with
+              | Some (Word_return word) ->
+                  call_instruction description
+                    (Call_end (callback.callback_result, word))
+              | Some Void_return ->
+                  call_instruction description
+                    (Call_end_void callback.callback_result)
+              | None ->
+                  Error
+                    (call_error description
+                       "callback has no supported return class"))
           | _, _
             when List.exists
                    (fun (intrinsic, _, _) ->
@@ -4848,6 +7690,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                         {
                           callee;
                           site;
+                          callback = None;
                           remaining_arguments =
                             Option.map Runtime.arguments site;
                           phase = Collecting 0;
@@ -4962,15 +7805,16 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 (call_error description
                    "direct call instructions have an invalid order, type or \
                     shape")
-          | _, { phase = Needs_cleanup | Needs_end; _ } :: _ ->
+          | ( _,
+              { phase = Needs_cleanup | Needs_saved_cleanup | Needs_end; _ }
+              :: _ ) ->
               Error
                 (call_error description
                    "direct call cleanup and call end must follow the call")
           | _ ->
               prepare_instruction ?frame ?globals ?literals ?initialization
-                ~allow_public:true
-                ~is_default:(is_default description.instruction_id)
-                block_index types block_id description
+                ~allow_public:true ~is_default:original_default block_index
+                types block_id description
         in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
@@ -4988,10 +7832,243 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               else description
             in
             match
-              if Option.is_some callees then prepare_call checked_description
-              else
-                prepare_instruction ?frame ?globals ?literals ?initialization
-                  block_index types block_id description
+              match
+                Instruction_map.find_opt description.instruction_id
+                  callback_loads
+              with
+              | Some callback -> (
+                  match (frame, description.operands) with
+                  | None, [ address ] -> (
+                      let owns slot =
+                        (match Integer_globals.storage_frame slot with
+                          | None -> true
+                          | Some frame ->
+                              Option.fold ~none:false
+                                ~some:(fun initialization ->
+                                  Global_initialization.storage_regions
+                                    initialization
+                                  |> List.exists (fun region ->
+                                      Option.fold ~none:false
+                                        ~some:(( == ) frame)
+                                        (Global_initialization.storage_frame
+                                           region)
+                                      && Instruction_id.compare
+                                           description.instruction_id
+                                           (Global_initialization.storage_first
+                                              region)
+                                         >= 0
+                                      && Instruction_id.compare
+                                           description.instruction_id
+                                           (Global_initialization.storage_last
+                                              region)
+                                         <= 0))
+                                initialization)
+                        && Option.fold ~none:false
+                             ~some:(( == ) callback.callback_pointer)
+                             (Integer_globals.storage_callback_pointer slot)
+                        && Option.fold ~none:false
+                             ~some:(fun globals ->
+                               Option.fold ~none:false
+                                 ~some:(Integer_globals.same_storage slot)
+                                 (Integer_globals.persistent_callback_storage
+                                    globals callback.callback_pointer))
+                             globals
+                      in
+                      match Value_map.find_opt address types with
+                      | Some (Global_address slot)
+                        when owns slot
+                             && Integer_globals.storage_dimensions slot = [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Global_slot slot,
+                                 callback.callback_capture_value ))
+                      | Some
+                          (Callback_array_address
+                             (Global_slot slot, header, pointer_type, []))
+                        when header == callback.callback_pointer
+                             && owns slot
+                             && Integer_globals.storage_dimensions slot <> [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Indexed_slot
+                                   { pointer_value = address; pointer_type },
+                                 callback.callback_capture_value ))
+                      | _ ->
+                          Error
+                            (call_error description
+                               "entry callback load has no original global \
+                                storage"))
+                  | Some frame, [ address ] -> (
+                      match Value_map.find_opt address types with
+                      | Some (Frame_address index)
+                        when Option.fold ~none:false
+                               ~some:(( == ) callback.callback_pointer)
+                               frame.slots.(index).slot_callback
+                             && frame.slots.(index).strides = [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Frame_slot (index, 1),
+                                 callback.callback_capture_value ))
+                      | Some (Global_address slot)
+                        when Option.fold ~none:false
+                               ~some:(( == ) callback.callback_pointer)
+                               (Integer_globals.storage_callback_pointer slot)
+                             && (match Integer_globals.storage_frame slot with
+                               | Some owner -> owner == frame.layout
+                               | None ->
+                                   Option.fold ~none:false
+                                     ~some:(fun globals ->
+                                       Option.fold ~none:false
+                                         ~some:
+                                           (Integer_globals.same_storage slot)
+                                         (Integer_globals
+                                          .persistent_callback_storage globals
+                                            callback.callback_pointer))
+                                     globals)
+                             && Integer_globals.storage_dimensions slot = [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Global_slot slot,
+                                 callback.callback_capture_value ))
+                      | Some
+                          (Callback_array_address
+                             (root, header, pointer_type, []))
+                        when header == callback.callback_pointer
+                             &&
+                             match root with
+                             | Frame_slot (index, count) ->
+                                 count = frame.slots.(index).object_count
+                                 && Option.fold ~none:false
+                                      ~some:(( == ) header)
+                                      frame.slots.(index).slot_callback
+                                 && frame.slots.(index).strides <> []
+                             | Global_slot slot ->
+                                 Option.fold ~none:false ~some:(( == ) header)
+                                   (Integer_globals.storage_callback_pointer
+                                      slot)
+                                 && (match
+                                       Integer_globals.storage_frame slot
+                                     with
+                                   | Some owner -> owner == frame.layout
+                                   | None ->
+                                       Option.fold ~none:false
+                                         ~some:(fun globals ->
+                                           Option.fold ~none:false
+                                             ~some:
+                                               (Integer_globals.same_storage
+                                                  slot)
+                                             (Integer_globals
+                                              .persistent_callback_storage
+                                                globals header))
+                                         globals)
+                                 && Integer_globals.storage_dimensions slot
+                                    <> []
+                             | _ -> false ->
+                          call_instruction description
+                            (Load_slot
+                               ( Indexed_slot
+                                   { pointer_value = address; pointer_type },
+                                 callback.callback_capture_value ))
+                      | _ ->
+                          Error
+                            (call_error description
+                               "callback load lost its original frame cell"))
+                  | _ ->
+                      Error
+                        (call_error description
+                           "callback load has no original frame address"))
+              | None -> (
+                  match original_function_slot_address description with
+                  | Some receipt
+                    when Runtime.function_slot_address_cursor receipt
+                         == description ->
+                      call_instruction description
+                        (Function_slot_cursor
+                           ((Option.get description.result).value_id, receipt))
+                  | Some receipt ->
+                      call_instruction description
+                        (Function_slot_load
+                           ( (Option.get description.result).value_id,
+                             (Option.get
+                                (Runtime.function_slot_address_cursor receipt)
+                                  .result)
+                               .value_id,
+                             receipt ))
+                  | None
+                    when match description.payload with
+                         | Some (Sequence.Saved_parameter_default prepared) ->
+                             is_default description
+                             && Option.is_some
+                                  (Prepared_parameter_default
+                                   .undefined_callback_source prepared)
+                         | Some (Sequence.Saved_callback_default prepared) ->
+                             is_default description
+                             && Option.is_some
+                                  (Prepared_callback_default
+                                   .undefined_callback_source prepared)
+                         | _ -> false ->
+                      call_instruction description
+                        (Undefined_function_address
+                           (Option.get description.result).value_id)
+                  | None -> (
+                      match original_function_address description with
+                      | Some address ->
+                          let declaration =
+                            Runtime.function_address_declaration address
+                          in
+                          let local =
+                            Option.fold ~none:false
+                              ~some:(fun callees ->
+                                List.exists
+                                  (fun callee ->
+                                    Option.fold ~none:false
+                                      ~some:(fun original ->
+                                        original == declaration)
+                                      callee.callee_definition)
+                                  callees)
+                              callees
+                          in
+                          let retained =
+                            List.exists
+                              (fun executable ->
+                                Retained_function.same executable.function_link
+                                  (Runtime.function_address_link address)
+                                && Option.fold ~none:false
+                                     ~some:(fun original ->
+                                       original == declaration)
+                                     executable.function_callee
+                                       .callee_definition)
+                              retained_functions
+                          in
+                          let provider =
+                            List.exists
+                              (fun (link, receipt) ->
+                                Retained_function.same link
+                                  (Runtime.function_address_link address)
+                                && Runtime.function_slot_address_declaration
+                                     receipt
+                                   == declaration)
+                              retained_provider_entries
+                          in
+                          if local || retained || provider then
+                            call_instruction description
+                              (Function_address
+                                 ( (Option.get description.result).value_id,
+                                   address ))
+                          else
+                            Error
+                              (call_error description
+                                 "function address has no original prepared \
+                                  executable body")
+                      | None ->
+                          if Option.is_some callees then
+                            prepare_call
+                              ~original_default:(is_default description)
+                              checked_description
+                          else
+                            prepare_instruction ?frame ?globals ?literals
+                              ?initialization block_index types block_id
+                              description))
             with
             | Ok prepared ->
                 let control_transfer =
@@ -5172,6 +8249,7 @@ type call_scope = {
   arguments_rev : runtime_value list;
   completion : call_completion;
   publication_item : int option;
+  callback_value : runtime_value option;
 }
 
 type caller = {
@@ -5193,6 +8271,7 @@ let storage_word slot bits =
         (Integer_globals.storage_type slot)
     with
     | Some type_ -> type_
+    | None when Integer_globals.storage_is_callback slot -> I64
     | None -> assert false
   in
   { type_; bits = Scalar.narrow_bits (Integer_globals.storage_type slot) bits }
@@ -5210,16 +8289,22 @@ let publish_array_payload ~slot ~cell_offset payload write =
 
 let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     ?(max_frame_bytes = Int.max_int) ?(max_call_depth = Int.max_int)
-    ?(capture_last = false) ?on_capture ?initialization ?(global_words = [||])
-    ?literal_image ?output ?stream_output ?generation_output ?stream_exe_print
-    ?admit ?(retained_regions = []) ?(retained_functions = []) ~max_steps
-    program =
+    ?(capture_last = false) ?(saved_data = []) ?on_capture ?initialization
+    ?globals ?(global_words = [||]) ?literal_image ?output ?stream_output
+    ?generation_output ?compiler_options ?stream_exe_print ?admit
+    ?(retained_regions = []) ?(retained_functions = [])
+    ?(retained_provider_entries = []) ?on_provider_entry ~max_steps program =
   let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
   let make_storage cells unknown_message =
-    { cells = Array.copy cells; live = true; unknown_message }
+    {
+      cells = Array.copy cells;
+      partial_words = Hashtbl.create 0;
+      live = true;
+      unknown_message;
+    }
   in
   let frame_storage cells =
     make_storage cells "the reached frame slot has not been initialized"
@@ -5312,6 +8397,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     in
     {
       cells;
+      partial_words = Hashtbl.create 0;
       live = true;
       unknown_message =
         "owned string literal byte is unexpectedly uninitialized";
@@ -5330,7 +8416,11 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let depth = ref 0 in
   let live_frame_bytes = ref !program.initial_frame_bytes in
   let final_value = ref None in
+  let final_callback = ref None in
+  let final_pointer = ref None in
   let capture value =
+    final_callback := None;
+    final_pointer := None;
     final_value := value;
     Option.iter (fun observe -> observe value) on_capture
   in
@@ -5349,6 +8439,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         Some
           (if computation then { word with type_ = operand.computation_type }
            else word)
+    | Some (Runtime_code _ | Runtime_undefined_code _) ->
+        failed :=
+          Some
+            (runtime_error ~instruction block !steps "HCIRVM0024"
+               "opaque function address has no numeric word representation");
+        None
     | Some _ | None ->
         failed :=
           Some
@@ -5358,10 +8454,11 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let address_bounds ~one_past block instruction address =
     let offset = address.pointer_offset in
-    let width = Int64.of_int address.pointer_element_bytes in
+    let width =
+      Int64.of_int (Option.get (scalar_element_bytes address.pointer_pointee))
+    in
     if
       offset < 0L
-      || Int64.rem offset width <> 0L
       ||
       if one_past then offset > address.pointer_extent_bytes
       else offset > Int64.sub address.pointer_extent_bytes width
@@ -5379,7 +8476,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         match Type.dereference operand.pointer_type with
         | Ok expected
           when Type.equal expected address.pointer_pointee
-               && scalar_element_bytes expected
+               && Option.is_some (scalar_element_bytes expected)
+               && scalar_element_bytes address.pointer_storage_pointee
                   = Some address.pointer_element_bytes
                && address.pointer_element_bytes > 0
                && Int64.of_int address.pointer_count
@@ -5416,17 +8514,31 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         None
   in
   let require_value block instruction = function
-    | Word_operand operand ->
-        Option.map
-          (fun word -> Runtime_word word)
-          (require_operand block instruction operand)
+    | Word_operand operand -> (
+        match Value_map.find_opt operand.value_id !values with
+        | Some (Runtime_code code) when code.code_type = operand.expected_type
+          -> Some (Runtime_code code)
+        | Some (Runtime_undefined_code type_) when type_ = operand.expected_type
+          -> Some (Runtime_undefined_code type_)
+        | _ ->
+            Option.map
+              (fun word -> Runtime_word word)
+              (require_operand block instruction operand))
     | Pointer_operand operand ->
         Option.map
           (fun address -> Runtime_pointer address)
           (require_pointer block instruction operand)
   in
   let coerce_value expected = function
-    | Runtime_offset _ | Runtime_void -> None
+    | Runtime_offset _ | Runtime_void | Runtime_function_slot_cursor _ -> None
+    | Runtime_undefined_code _ -> (
+        match expected with
+        | Stored_word type_ -> Some (Runtime_undefined_code type_)
+        | Stored_narrow _ | Stored_pointer _ -> None)
+    | Runtime_code code -> (
+        match expected with
+        | Stored_word code_type -> Some (Runtime_code { code with code_type })
+        | Stored_narrow _ | Stored_pointer _ -> None)
     | Runtime_word word -> (
         match expected with
         | Stored_word type_ -> Some (Runtime_word { type_; bits = word.bits })
@@ -5550,6 +8662,50 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                Type.equal (resolved expected) (resolved actual))
              expected actual
   in
+  let callback_signature_matches callback callee =
+    let module H = Sema.Function_type_resolution in
+    match callee.callee_definition with
+    | None -> false
+    | Some declaration ->
+        let header =
+          declaration |> Sema.Function_resolution.resolved_declaration_header
+        in
+        let signature = H.function_signature header in
+        let parameters = H.signature_parameters signature in
+        let expected_parameters =
+          callback.Runtime.callback_pointer |> H.function_pointer_signature
+          |> H.signature_parameters
+        in
+        let actual =
+          parameters
+          |> List.map (fun parameter ->
+              match H.parameter_declarator_kind parameter with
+              | H.Function_pointer pointer ->
+                  H.function_pointer_storage_type pointer |> Result.get_ok
+              | H.Object ->
+                  parameter |> H.parameter_type_reference
+                  |> Sema.Type_reference.resolved_type)
+        in
+        Type.equal callee.callee_return_type
+          callback.Runtime.callback_return_type
+        && callee.variadic = Option.is_some callback.callback_variadic_count
+        && callee.cleanup_opcode = Opcode.Ic_add_rsp1
+           = callback.callback_callee_pop
+        && List.length actual = List.length callback.callback_fixed_types
+        && List.for_all2 Type.equal actual callback.callback_fixed_types
+        && List.length parameters = List.length expected_parameters
+        && List.for_all2
+             (fun actual expected ->
+               match
+                 ( H.parameter_declarator_kind actual,
+                   H.parameter_declarator_kind expected )
+               with
+               | H.Object, H.Object | H.Function_pointer _, H.Function_pointer _
+                 -> true
+               | H.Object, H.Function_pointer _ | H.Function_pointer _, H.Object
+                 -> false)
+             parameters expected_parameters
+  in
   let resolve_address block instruction location pointer_pointee =
     let root pointer_storage pointer_base pointer_count =
       Option.map
@@ -5558,6 +8714,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             pointer_storage;
             pointer_base;
             pointer_count;
+            pointer_storage_pointee = pointer_pointee;
             pointer_element_bytes;
             pointer_extent_bytes =
               Int64.mul
@@ -5583,20 +8740,191 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let resolve_location block instruction = function
     | Variadic_slot -> None
-    | Frame_slot (index, _) -> Some (!slots, index)
-    | Global_slot slot -> Some (global_region slot)
-    | Literal_slot (index, _) -> Some (!owner.owner_literals, index)
+    | Frame_slot (index, _) -> Some (`Cell (!slots, index))
+    | Global_slot slot -> Some (`Cell (global_region slot))
+    | Literal_slot (index, _) -> Some (`Cell (!owner.owner_literals, index))
     | Indirect_slot operand | Indexed_slot operand ->
         Option.bind (require_pointer ~bounded:false block instruction operand)
           (fun address ->
             if address_bounds ~one_past:false block instruction address then
-              Some
-                ( address.pointer_storage,
-                  address.pointer_base
-                  + Int64.to_int
-                      (Int64.div address.pointer_offset
-                         (Int64.of_int address.pointer_element_bytes)) )
+              Some (`View address)
             else None)
+  in
+  let full_byte_mask width = (1 lsl width) - 1 in
+  let original_cell address offset =
+    let width = Int64.of_int address.pointer_element_bytes in
+    ( address.pointer_base + Int64.to_int (Int64.div offset width),
+      Int64.to_int (Int64.rem offset width) )
+  in
+  let read_view_bits address width =
+    let ( let* ) = Result.bind in
+    let storage = address.pointer_storage in
+    let* original =
+      match Scalar.of_type address.pointer_storage_pointee with
+      | Some scalar -> Ok scalar
+      | None -> Error ("HCIRVM0008", "byte view has no original scalar object")
+    in
+    let rec bytes byte bits =
+      if byte = width then Ok bits
+      else
+        let cell, within =
+          original_cell address
+            (Int64.add address.pointer_offset (Int64.of_int byte))
+        in
+        let* stored_bits, known =
+          match storage.cells.(cell) with
+          | Some (Runtime_word word)
+            when word.type_ = scalar_runtime_type original ->
+              Ok (word.bits, full_byte_mask address.pointer_element_bytes)
+          | None ->
+              Ok
+                (Hashtbl.find_opt storage.partial_words cell
+                |> Option.value ~default:(0L, 0))
+          | Some _ ->
+              Error ("HCIRVM0008", "byte view reached an invalid scalar cell")
+        in
+        if known land (1 lsl within) = 0 then
+          Error ("HCIRVM0012", storage.unknown_message)
+        else
+          let octet =
+            Int64.logand
+              (Int64.shift_right_logical stored_bits (within * 8))
+              255L
+          in
+          bytes (byte + 1)
+            (Int64.logor bits (Int64.shift_left octet (byte * 8)))
+    in
+    bytes 0 0L
+  in
+  let write_view_bits address width bits =
+    let ( let* ) = Result.bind in
+    let storage = address.pointer_storage in
+    let* original =
+      match Scalar.of_type address.pointer_storage_pointee with
+      | Some scalar -> Ok scalar
+      | None -> Error ("HCIRVM0008", "byte view has no original scalar object")
+    in
+    (* Validate all affected original cells before changing any byte. *)
+    let first, _ = original_cell address address.pointer_offset in
+    let last, _ =
+      original_cell address
+        (Int64.add address.pointer_offset (Int64.of_int (width - 1)))
+    in
+    let rec validate cell =
+      if cell > last then Ok ()
+      else
+        match storage.cells.(cell) with
+        | None -> validate (cell + 1)
+        | Some (Runtime_word word)
+          when word.type_ = scalar_runtime_type original -> validate (cell + 1)
+        | Some _ ->
+            Error ("HCIRVM0008", "byte view reached an invalid scalar cell")
+    in
+    let* () = validate first in
+    for byte = 0 to width - 1 do
+      let cell, within =
+        original_cell address
+          (Int64.add address.pointer_offset (Int64.of_int byte))
+      in
+      let old_bits, known =
+        match storage.cells.(cell) with
+        | Some (Runtime_word word) ->
+            (word.bits, full_byte_mask address.pointer_element_bytes)
+        | None ->
+            Hashtbl.find_opt storage.partial_words cell
+            |> Option.value ~default:(0L, 0)
+        | Some _ -> assert false
+      in
+      let octet =
+        Int64.logand (Int64.shift_right_logical bits (byte * 8)) 255L
+      in
+      let shift = within * 8 in
+      let updated =
+        Int64.logor
+          (Int64.logand old_bits (Int64.lognot (Int64.shift_left 255L shift)))
+          (Int64.shift_left octet shift)
+      and known = known lor (1 lsl within) in
+      if known = full_byte_mask address.pointer_element_bytes then (
+        storage.cells.(cell) <-
+          Some
+            (Runtime_word
+               {
+                 type_ = scalar_runtime_type original;
+                 bits = Scalar.normalize original updated;
+               });
+        Hashtbl.remove storage.partial_words cell)
+      else Hashtbl.replace storage.partial_words cell (updated, known)
+    done;
+    Ok ()
+  in
+  let location_error block instruction code message =
+    failed := Some (runtime_error ~instruction block !steps code message);
+    None
+  in
+  let original_view_cell address =
+    if
+      Type.equal address.pointer_pointee address.pointer_storage_pointee
+      && Int64.rem address.pointer_offset
+           (Int64.of_int address.pointer_element_bytes)
+         = 0L
+    then Some (fst (original_cell address address.pointer_offset))
+    else None
+  in
+  let read_cell block instruction storage index =
+    match storage.cells.(index) with
+    | Some value -> Some value
+    | None ->
+        location_error block instruction "HCIRVM0012" storage.unknown_message
+  in
+  let read_location block instruction = function
+    | `Cell (storage, index) -> read_cell block instruction storage index
+    | `View address -> (
+        match original_view_cell address with
+        | Some index ->
+            read_cell block instruction address.pointer_storage index
+        | None -> (
+            match Scalar.of_type address.pointer_pointee with
+            | None ->
+                location_error block instruction "HCIRVM0008"
+                  "view does not identify a scalar object"
+            | Some scalar -> (
+                match read_view_bits address (Scalar.byte_size scalar) with
+                | Ok bits ->
+                    Some
+                      (Runtime_word
+                         {
+                           type_ = scalar_runtime_type scalar;
+                           bits = Scalar.normalize scalar bits;
+                         })
+                | Error (code, message) ->
+                    location_error block instruction code message)))
+  in
+  let write_location block instruction location value =
+    let write_cell storage index =
+      storage.cells.(index) <- Some value;
+      Hashtbl.remove storage.partial_words index;
+      true
+    in
+    match location with
+    | `Cell (storage, index) -> write_cell storage index
+    | `View address -> (
+        match original_view_cell address with
+        | Some index -> write_cell address.pointer_storage index
+        | None -> (
+            match (Scalar.of_type address.pointer_pointee, value) with
+            | Some scalar, Runtime_word word -> (
+                match
+                  write_view_bits address (Scalar.byte_size scalar) word.bits
+                with
+                | Ok () -> true
+                | Error (code, message) ->
+                    ignore (location_error block instruction code message);
+                    false)
+            | _ ->
+                ignore
+                  (location_error block instruction "HCIRVM0008"
+                     "byte view requires a scalar word");
+                false))
   in
   let read_owned_byte ~purpose block instruction address relative =
     let error code message =
@@ -5605,13 +8933,17 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     let storage = address.pointer_storage in
     if
       (not storage.live)
-      || address.pointer_element_bytes <> 1
       || scalar_element_bytes address.pointer_pointee <> Some 1
+      || scalar_element_bytes address.pointer_storage_pointee
+         <> Some address.pointer_element_bytes
       || address.pointer_base < 0 || address.pointer_count <= 0
       || address.pointer_count > Array.length storage.cells
       || address.pointer_base
          > Array.length storage.cells - address.pointer_count
-      || address.pointer_extent_bytes <> Int64.of_int address.pointer_count
+      || address.pointer_extent_bytes
+         <> Int64.mul
+              (Int64.of_int address.pointer_count)
+              (Int64.of_int address.pointer_element_bytes)
     then
       error "HCIRVM0018"
         (purpose ^ " pointer does not identify a live owned U8 object")
@@ -5627,21 +8959,24 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         error "HCIRVM0019"
           (purpose ^ " scan is outside its declared object extent")
       else
-        match storage.cells.(address.pointer_base + Int64.to_int offset) with
-        | Some (Runtime_word { type_ = U64; bits })
-          when bits >= 0L && bits <= 255L -> Ok (Char.chr (Int64.to_int bits))
-        | None -> error "HCIRVM0012" storage.unknown_message
-        | Some _ ->
+        match Scalar.of_type address.pointer_pointee with
+        | Some scalar when Scalar.is_unsigned scalar -> (
+            match read_view_bits { address with pointer_offset = offset } 1 with
+            | Ok bits -> Ok (Char.chr (Int64.to_int bits))
+            | Error (code, message) -> error code message)
+        | _ ->
             error "HCIRVM0008" (purpose ^ " scan reached an invalid byte cell")
   in
   let read_output_byte = read_owned_byte ~purpose:"output" in
-  let invoke_output block instruction site parameter_types scope =
+  let invoke_output block instruction provider parameter_types scope =
     let provider_name =
-      match Runtime.provider site with
+      match provider with
       | Some Runtime.Print -> "Print"
       | Some Runtime.Put_chars -> "PutChars"
       | Some Runtime.Stream_print -> "StreamPrint"
       | Some Runtime.Stream_exe_print -> "StreamExePrint"
+      | Some Runtime.Get_option -> "GetOption"
+      | Some Runtime.Set_option -> "Option"
       | None -> "runtime output"
     in
     let provider_message message =
@@ -5684,7 +9019,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
       let ( let* ) = Result.bind in
       let* arguments = arguments 0 [] scope.arguments_rev in
       let selected_output =
-        match Runtime.provider site with
+        match provider with
         | Some Runtime.Stream_print -> (
             match stream_output with
             | Some _ -> stream_output
@@ -5715,11 +9050,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             | Output.Memory error ->
                 { error with message = provider_message error.message }
             | Output.Output_limit ->
-                if Runtime.provider site = Some Runtime.Stream_print then
+                if provider = Some Runtime.Stream_print then
                   make_provider_error "HCIRVM0028"
                     "generated output exceeds the task generated byte limit"
-                else if Runtime.provider site = Some Runtime.Stream_exe_print
-                then
+                else if provider = Some Runtime.Stream_exe_print then
                   make_provider_error "HCIRVM0028"
                     "formatted source exceeds the hosted source byte limit"
                 else
@@ -5736,7 +9070,31 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             | Output.Invalid_argument message ->
                 make_provider_error "HCIRVM0025" message
           in
-          match (Runtime.provider site, arguments) with
+          match (provider, arguments) with
+          | Some Runtime.Get_option, [ Runtime_word index ]
+          | Some Runtime.Set_option, [ Runtime_word index; Runtime_word _ ] -> (
+              let enabled =
+                match arguments with
+                | [ _; Runtime_word value ] ->
+                    Some (not (Int64.equal (Int64.logand value.bits 0xffL) 0L))
+                | _ -> None
+              in
+              match compiler_options with
+              | None ->
+                  error "HCIRVM0027"
+                    "requires its original active compiler control"
+              | Some execute -> (
+                  match execute index.bits enabled with
+                  | Ok previous ->
+                      Ok
+                        (Completed_word
+                           { type_ = U64; bits = (if previous then 1L else 0L) })
+                  | Error [] ->
+                      error "HCIRVM0026" "compiler option execution failed"
+                  | Error ((diagnostic : Common.Diagnostic.t) :: _) ->
+                      Error
+                        (runtime_error ~instruction block !steps diagnostic.code
+                           (provider_message diagnostic.message))))
           | Some Runtime.Put_chars, [ Runtime_word word ] ->
               Output.put_chars output word.bits
               |> Result.map_error provider_error
@@ -5752,12 +9110,17 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     variadic (Output.Word word.bits :: rev) rest
                 | Runtime_pointer address :: rest ->
                     variadic (Output.Pointer address :: rev) rest
-                | (Runtime_offset _ | Runtime_void) :: _ ->
+                | ( Runtime_code _
+                  | Runtime_undefined_code _
+                  | Runtime_function_slot_cursor _
+                  | Runtime_offset _
+                  | Runtime_void )
+                  :: _ ->
                     error "HCIRVM0008"
                       "prepared variadic output argument is invalid"
               in
               let* arguments = variadic [] tail in
-              let provider = Runtime.provider site in
+              let provider = provider in
               let inactive =
                 provider = Some Runtime.Stream_print
                 && Option.is_none stream_output
@@ -5779,8 +9142,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 let formatted = Output.contents output in
                 match stream_exe_print with
                 | None ->
-                    error "HCIRVM0027"
-                      "only allowed in AOT compiled #exe{} mode"
+                    error "HCIRVM0027" "requires an active #exe parser context"
                 | Some execute ->
                     let frame_bytes =
                       !live_frame_bytes + (8 * Array.length parameter_types)
@@ -5850,12 +9212,25 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 {
                   arguments_rev = [];
                   completion = Pending;
+                  callback_value = None;
                   publication_item =
                     (match item with
                     | Some _ -> item
                     | None -> !publication_item);
                 }
                 :: !calls
+          | Callback_start captured -> (
+              match require_value block instruction captured with
+              | Some value ->
+                  calls :=
+                    {
+                      arguments_rev = [];
+                      completion = Pending;
+                      publication_item = !publication_item;
+                      callback_value = Some value;
+                    }
+                    :: !calls
+              | None -> ())
           | Call_cleanup -> ()
           | Internal_integer (operation, operand, type_) -> (
               match (!calls, require_operand block instruction operand) with
@@ -5926,48 +9301,59 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     error "HCIRVM0019"
                       "bit index is outside its declared object extent"
                   else
-                    let offset = Int64.add address.pointer_offset relative in
-                    let width = Int64.of_int address.pointer_element_bytes in
-                    let cell =
-                      address.pointer_base
-                      + Int64.to_int (Int64.div offset width)
-                    in
-                    let bit =
-                      (8 * Int64.to_int (Int64.rem offset width))
-                      + Int64.to_int (Int64.logand index.bits 7L)
-                    in
-                    match
-                      ( Scalar.of_type address.pointer_pointee,
-                        address.pointer_storage.cells.(cell) )
-                    with
-                    | Some scalar, Some (Runtime_word word)
-                      when word.type_ = scalar_runtime_type scalar ->
-                        let previous, updated =
-                          Integer_intrinsic.apply_bit operation ~index:bit
-                            word.bits
-                        in
-                        if operation <> Integer_intrinsic.Test_bit then
-                          address.pointer_storage.cells.(cell) <-
-                            Some
-                              (Runtime_word
-                                 {
-                                   word with
-                                   bits = Scalar.normalize scalar updated;
-                                 });
-                        calls :=
-                          {
-                            scope with
-                            completion =
-                              Completed_word { type_ = I64; bits = previous };
-                          }
-                          :: rest
-                    | _, None ->
-                        error "HCIRVM0012"
-                          address.pointer_storage.unknown_message
-                    | _ ->
+                    match Scalar.of_type address.pointer_pointee with
+                    | None ->
                         error "HCIRVM0008"
-                          "pointed bit operation reached an invalid scalar cell"
-                  )
+                          "pointed bit operation has no scalar view"
+                    | Some scalar -> (
+                        let width = Int64.of_int (Scalar.byte_size scalar) in
+                        let within = Int64.rem relative width in
+                        let address =
+                          {
+                            address with
+                            pointer_offset =
+                              Int64.add address.pointer_offset
+                                (Int64.sub relative within);
+                          }
+                        in
+                        if
+                          address_bounds ~one_past:false block instruction
+                            address
+                        then
+                          let location = `View address in
+                          match read_location block instruction location with
+                          | Some (Runtime_word word)
+                            when word.type_ = scalar_runtime_type scalar ->
+                              let bit =
+                                (8 * Int64.to_int within)
+                                + Int64.to_int (Int64.logand index.bits 7L)
+                              in
+                              let previous, updated =
+                                Integer_intrinsic.apply_bit operation ~index:bit
+                                  word.bits
+                              in
+                              if
+                                operation = Integer_intrinsic.Test_bit
+                                || write_location block instruction location
+                                     (Runtime_word
+                                        {
+                                          word with
+                                          bits = Scalar.normalize scalar updated;
+                                        })
+                              then
+                                calls :=
+                                  {
+                                    scope with
+                                    completion =
+                                      Completed_word
+                                        { type_ = I64; bits = previous };
+                                  }
+                                  :: rest
+                          | None -> ()
+                          | Some _ ->
+                              error "HCIRVM0008"
+                                "pointed bit operation reached an invalid \
+                                 scalar cell"))
               | _, None, _ | _, _, None -> ()
               | _ ->
                   failed :=
@@ -5985,26 +9371,14 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                            address)
                     then None
                     else
-                      let cell =
-                        address.pointer_base
-                        + Int64.to_int
-                            (Int64.div address.pointer_offset
-                               (Int64.of_int address.pointer_element_bytes))
-                      in
                       match
                         ( Scalar.of_type address.pointer_pointee,
-                          address.pointer_storage.cells.(cell) )
+                          read_location block instruction (`View address) )
                       with
                       | Some scalar, Some (Runtime_word word)
                         when word.type_ = scalar_runtime_type scalar ->
-                          Some (address.pointer_storage, cell, scalar, word)
-                      | _, None ->
-                          failed :=
-                            Some
-                              (runtime_error ~instruction block !steps
-                                 "HCIRVM0012"
-                                 address.pointer_storage.unknown_message);
-                          None
+                          Some (address, scalar, word)
+                      | _, None -> None
                       | _ ->
                           failed :=
                             Some
@@ -6018,24 +9392,24 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               match (!calls, left_cell, right_cell) with
               | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
                   :: rest,
-                  Some (left_storage, left_cell, left_scalar, left_word),
-                  Some (right_storage, right_cell, right_scalar, right_word) )
-                ->
-                  right_storage.cells.(right_cell) <-
-                    Some
+                  Some (left_address, left_scalar, left_word),
+                  Some (right_address, right_scalar, right_word) ) ->
+                  if
+                    write_location block instruction (`View right_address)
                       (Runtime_word
                          {
                            right_word with
                            bits = Scalar.normalize right_scalar left_word.bits;
-                         });
-                  left_storage.cells.(left_cell) <-
-                    Some
-                      (Runtime_word
-                         {
-                           left_word with
-                           bits = Scalar.normalize left_scalar right_word.bits;
-                         });
-                  calls := { scope with completion = Completed_void } :: rest
+                         })
+                    && write_location block instruction (`View left_address)
+                         (Runtime_word
+                            {
+                              left_word with
+                              bits =
+                                Scalar.normalize left_scalar right_word.bits;
+                            })
+                  then
+                    calls := { scope with completion = Completed_void } :: rest
               | _, None, _ | _, _, None -> ()
               | _ ->
                   failed :=
@@ -6052,8 +9426,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
                   :: rest,
                   Some right,
-                  Some (storage, index) ) -> (
-                  match storage.cells.(index) with
+                  Some location ) -> (
+                  match read_location block instruction location with
                   | Some (Runtime_word left) -> (
                       match
                         divide_bits ~opcode:"IC_MOD_U64" ~remainder:true U64
@@ -6068,19 +9442,18 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                           let quotient =
                             Int64.unsigned_div left.bits right.bits
                           in
-                          storage.cells.(index) <-
-                            Some (Runtime_word { left with bits = quotient });
-                          calls :=
-                            {
-                              scope with
-                              completion = Completed_word { type_ = U64; bits };
-                            }
-                            :: rest)
-                  | None ->
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0012"
-                             storage.unknown_message)
+                          if
+                            write_location block instruction location
+                              (Runtime_word { left with bits = quotient })
+                          then
+                            calls :=
+                              {
+                                scope with
+                                completion =
+                                  Completed_word { type_ = U64; bits };
+                              }
+                              :: rest)
+                  | None -> ()
                   | Some _ ->
                       failed :=
                         Some
@@ -6133,40 +9506,84 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "internal byte scan has no pending source call scope"))
-          | (Call _ | Retained_call _ | Extern_call _) as operation -> (
+          | (Call _ | Retained_call _ | Extern_call _ | Callback_call _) as
+            operation -> (
               let target =
                 match operation with
                 | Call index
                   when index >= 0 && index < Array.length !owner.owner_callees
                   ->
                     let callee, body = !owner.owner_callees.(index) in
-                    Some (callee, body, !owner)
+                    Some (Source_entry (callee, body, !owner))
                 | Retained_call link ->
                     List.find_opt
                       (fun executable ->
                         Retained_function.same executable.function_link link)
                       retained_functions
                     |> Option.map (fun executable ->
-                        ( executable.function_callee,
-                          executable.function_program,
-                          executable.function_owner ))
+                        Source_entry
+                          ( executable.function_callee,
+                            executable.function_program,
+                            executable.function_owner ))
+                | Callback_call _ -> (
+                    match !calls with
+                    | { callback_value = Some (Runtime_code code); _ } :: _ ->
+                        Some code.code_entry
+                    | _ -> None)
                 | Extern_call (site, _) ->
                     let visible_item =
                       match !calls with
                       | scope :: _ -> scope.publication_item
                       | [] -> None
                     in
-                    extern_target site visible_item
+                    Option.map
+                      (fun (callee, body, owner) ->
+                        Source_entry (callee, body, owner))
+                      (extern_target site visible_item)
                 | _ -> None
               in
               match (!calls, target) with
+              | ( ({ completion = Pending; _ } as scope) :: rest,
+                  Some (Provider_entry receipt) ) -> (
+                  match operation with
+                  | Callback_call (callback, parameter_types)
+                    when Runtime.function_slot_address_matches_callback receipt
+                           callback -> (
+                      match
+                        invoke_output block instruction
+                          (Runtime.function_slot_address_provider receipt)
+                          parameter_types scope
+                      with
+                      | Ok completion ->
+                          calls := { scope with completion } :: rest
+                      | Error error -> failed := Some error)
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0014"
+                             "the captured provider entry disagrees with the \
+                              original callback signature or cleanup policy"))
               | ({ completion = Pending; _ } as scope) :: rest, None -> (
                   match operation with
+                  | Callback_call _ ->
+                      failed :=
+                        Some
+                          (match scope.callback_value with
+                          | Some (Runtime_undefined_code _) ->
+                              runtime_error ~instruction block !steps
+                                "HCIRVM0030"
+                                "the reached captured function address is \
+                                 UndefinedExtern"
+                          | _ ->
+                              runtime_error ~instruction block !steps
+                                "HCIRVM0024"
+                                "the reached callback has no owned executable \
+                                 address")
                   | Extern_call (site, parameter_types) ->
                       if Option.is_some (Runtime.provider site) then
                         match
-                          invoke_output block instruction site parameter_types
-                            scope
+                          invoke_output block instruction
+                            (Runtime.provider site) parameter_types scope
                         with
                         | Ok completion ->
                             calls := { scope with completion } :: rest
@@ -6185,7 +9602,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                              "prepared direct call has no available caller \
                               scope"))
               | ( ({ completion = Pending; _ } as scope) :: _,
-                  Some (callee, body, callee_owner) ) -> (
+                  Some (Source_entry (callee, body, callee_owner)) ) -> (
                   let tail_count =
                     if callee.variadic then
                       List.length scope.arguments_rev
@@ -6195,6 +9612,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   in
                   if
                     match operation with
+                    | Callback_call (callback, _) ->
+                        not (callback_signature_matches callback callee)
                     | Extern_call (site, _) ->
                         not (extern_signature_matches site callee)
                     | _ -> false
@@ -6202,8 +9621,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     failed :=
                       Some
                         (runtime_error ~instruction block !steps "HCIRVM0014"
-                           "published extern definition disagrees with the \
-                            captured call signature")
+                           (match operation with
+                           | Callback_call _ ->
+                               "the reached callback definition disagrees with \
+                                its original signature or cleanup policy"
+                           | _ ->
+                               "published extern definition disagrees with the \
+                                captured call signature"))
                   else if !depth >= max_call_depth then
                     failed :=
                       Some
@@ -6370,16 +9794,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Value_map.add result (Runtime_pointer address) !values
               | _ -> ())
           | Load_slot (location, result) -> (
-              match resolve_location block instruction location with
+              match
+                Option.bind
+                  (resolve_location block instruction location)
+                  (read_location block instruction)
+              with
               | None -> ()
-              | Some (storage, index) -> (
-                  match storage.cells.(index) with
-                  | Some value -> values := Value_map.add result value !values
-                  | None ->
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0012"
-                             storage.unknown_message)))
+              | Some value -> values := Value_map.add result value !values)
           | Store_slot (location, operand, result, type_) -> (
               match require_value block instruction operand with
               | None -> ()
@@ -6388,8 +9809,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     ( coerce_value type_ operand,
                       resolve_location block instruction location )
                   with
-                  | Some value, Some (storage, index) ->
-                      storage.cells.(index) <- Some value;
+                  | Some value, Some location
+                    when write_location block instruction location value ->
                       let expression_value =
                         match (type_, operand) with
                         | Stored_narrow scalar, Runtime_word word ->
@@ -6401,6 +9822,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         | _ -> value
                       in
                       values := Value_map.add result expression_value !values
+                  | Some _, Some _ -> ()
                   | _, None -> ()
                   | None, _ ->
                       failed :=
@@ -6409,7 +9831,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                              "prepared store disagrees with its checked \
                               storage type")))
           | Update_slot
-              (location, operation, operand, old_result, result, stored) -> (
+              ( location,
+                operation,
+                operand,
+                old_result,
+                result,
+                stored,
+                callback ) -> (
               let type_ =
                 match stored with
                 | Stored_word type_ -> type_
@@ -6418,7 +9846,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               in
               let right =
                 match operand with
-                | None -> Some { type_; bits = 1L }
+                | None -> Some { type_; bits = (if callback then 8L else 1L) }
                 | Some operand -> require_operand block instruction operand
               in
               match right with
@@ -6426,16 +9854,24 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               | Some right -> (
                   match resolve_location block instruction location with
                   | None -> ()
-                  | Some (storage, index) -> (
-                      match storage.cells.(index) with
-                      | None ->
+                  | Some location -> (
+                      match read_location block instruction location with
+                      | None -> ()
+                      | Some (Runtime_code _ | Runtime_undefined_code _)
+                        when callback ->
                           failed :=
                             Some
                               (runtime_error ~instruction block !steps
-                                 "HCIRVM0012" storage.unknown_message)
+                                 "HCIRVM0024"
+                                 "opaque function address has no numeric \
+                                  callback update")
                       | Some
-                          (Runtime_pointer _ | Runtime_offset _ | Runtime_void)
-                        ->
+                          ( Runtime_code _
+                          | Runtime_undefined_code _
+                          | Runtime_function_slot_cursor _
+                          | Runtime_pointer _
+                          | Runtime_offset _
+                          | Runtime_void ) ->
                           failed :=
                             Some
                               (runtime_error ~instruction block !steps
@@ -6463,17 +9899,234 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                 | Stored_word _ -> computed
                                 | Stored_pointer _ -> assert false
                               in
-                              storage.cells.(index) <- Some (Runtime_word word);
-                              values :=
-                                Value_map.add result
-                                  (Runtime_word
-                                     (if old_result then old
-                                      else if Option.is_some operand then
-                                        computed
-                                      else word))
-                                  !values))))
+                              if
+                                write_location block instruction location
+                                  (Runtime_word word)
+                              then
+                                values :=
+                                  Value_map.add result
+                                    (Runtime_word
+                                       (if old_result then old
+                                        else if Option.is_some operand then
+                                          computed
+                                        else word))
+                                    !values))))
           | Immediate (result, word) ->
               values := Value_map.add result (Runtime_word word) !values
+          | Undefined_function_address result ->
+              values :=
+                Value_map.add result (Runtime_undefined_code I64) !values
+          | Function_slot_cursor (result, receipt) ->
+              values :=
+                Value_map.add result (Runtime_function_slot_cursor receipt)
+                  !values
+          | Function_slot_load (result, cursor, receipt) -> (
+              match Value_map.find_opt cursor !values with
+              | Some (Runtime_function_slot_cursor original)
+                when original == receipt ->
+                  let selected =
+                    Runtime.function_slot_address_declaration receipt
+                  in
+                  let symbol =
+                    Sema.Function_resolution
+                    .resolved_declaration_identity_symbol selected
+                  in
+                  let matches callee =
+                    callee.callee_symbol == symbol
+                    && Option.fold ~none:false
+                         ~some:(fun declaration ->
+                           declaration == selected
+                           || Sema.Function_resolution.is_joined_successor
+                                ~earlier:selected ~later:declaration)
+                         callee.callee_definition
+                  in
+                  let retained =
+                    List.find_opt
+                      (fun executable -> matches executable.function_callee)
+                      retained_functions
+                  in
+                  let executable =
+                    match retained with
+                    | Some executable ->
+                        Some
+                          ( executable.function_callee,
+                            executable.function_program,
+                            executable.function_owner,
+                            executable.function_link )
+                    | None ->
+                        Option.bind
+                          (Array.to_list entry_owner.owner_callees
+                          |> List.find_opt (fun (callee, candidate) ->
+                              matches callee
+                              && (candidate == !program
+                                 || Option.fold ~none:false
+                                      ~some:(fun item ->
+                                        Option.fold ~none:false
+                                          ~some:(fun declaration ->
+                                            Sema.Function_type_resolution
+                                            .function_item_index
+                                              (Sema.Function_resolution
+                                               .resolved_declaration_header
+                                                 declaration)
+                                            < item)
+                                          callee.callee_definition)
+                                      (match
+                                         Runtime
+                                         .function_slot_address_item_index
+                                           receipt
+                                       with
+                                      | Some _ as item -> item
+                                      | None -> !publication_item))))
+                          (fun (callee, program) ->
+                            Option.map
+                              (fun link -> (callee, program, entry_owner, link))
+                              (Option.bind globals (fun globals ->
+                                   List.find_opt
+                                     (fun link ->
+                                       Option.fold ~none:false
+                                         ~some:(fun declaration ->
+                                           declaration
+                                           == Sema.Outer_environment
+                                              .function_declaration
+                                                (Retained_function.metadata link))
+                                         callee.callee_definition)
+                                     (Integer_globals.function_publications
+                                        globals))))
+                  in
+                  let value =
+                    match executable with
+                    | None
+                      when Option.is_some
+                             (Runtime.function_slot_address_provider receipt)
+                      -> (
+                        match Runtime.function_slot_address_link receipt with
+                        | Some link
+                          when Option.fold ~none:false
+                                 ~some:(fun globals ->
+                                   List.exists
+                                     (Retained_function.same link)
+                                     (Integer_globals.function_publications
+                                        globals)
+                                   || Option.fold ~none:false
+                                        ~some:(Retained_function.same link)
+                                        (Integer_globals
+                                         .retained_function_declaration globals
+                                           selected))
+                                 globals ->
+                            Option.iter
+                              (fun retain -> retain link receipt)
+                              on_provider_entry;
+                            Runtime_code
+                              {
+                                code_type = I64;
+                                code_link = link;
+                                code_entry = Provider_entry receipt;
+                              }
+                        | _ ->
+                            failed :=
+                              Some
+                                (runtime_error ~instruction block !steps
+                                   "HCIRVM0024"
+                                   "provider entry lacks its original task \
+                                    publication");
+                            Runtime_undefined_code I64)
+                    | None ->
+                        if
+                          Option.is_some
+                            (Runtime.function_slot_address_provider receipt)
+                        then
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0024"
+                                 "hosted provider callback address has no \
+                                  original checked executable entry");
+                        Runtime_undefined_code I64
+                    | Some (code_callee, code_program, code_owner, code_link) ->
+                        Runtime_code
+                          {
+                            code_type = I64;
+                            code_link;
+                            code_entry =
+                              Source_entry
+                                (code_callee, code_program, code_owner);
+                          }
+                  in
+                  values := Value_map.add result value !values
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0024"
+                         "function slot dereference lost its original private \
+                          cursor"))
+          | Function_address (result, address) -> (
+              let declaration = Runtime.function_address_declaration address in
+              let local =
+                Array.to_list !owner.owner_callees
+                |> List.find_opt (fun (callee, _) ->
+                    Option.fold ~none:false
+                      ~some:(fun original -> original == declaration)
+                      callee.callee_definition)
+                |> Option.map (fun (callee, program) ->
+                    (callee, program, !owner))
+              in
+              let executable =
+                match local with
+                | Some _ as original -> original
+                | None ->
+                    List.find_opt
+                      (fun executable ->
+                        Retained_function.same executable.function_link
+                          (Runtime.function_address_link address)
+                        && Option.fold ~none:false
+                             ~some:(fun original -> original == declaration)
+                             executable.function_callee.callee_definition)
+                      retained_functions
+                    |> Option.map (fun executable ->
+                        ( executable.function_callee,
+                          executable.function_program,
+                          executable.function_owner ))
+              in
+              match executable with
+              | Some (code_callee, code_program, code_owner) ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_code
+                         {
+                           code_type = I64;
+                           code_link = Runtime.function_address_link address;
+                           code_entry =
+                             Source_entry (code_callee, code_program, code_owner);
+                         })
+                      !values
+              | None
+                when List.exists
+                       (fun (link, _) ->
+                         Retained_function.same link
+                           (Runtime.function_address_link address))
+                       retained_provider_entries ->
+                  let _, receipt =
+                    List.find
+                      (fun (link, _) ->
+                        Retained_function.same link
+                          (Runtime.function_address_link address))
+                      retained_provider_entries
+                  in
+                  values :=
+                    Value_map.add result
+                      (Runtime_code
+                         {
+                           code_type = I64;
+                           code_link = Runtime.function_address_link address;
+                           code_entry = Provider_entry receipt;
+                         })
+                      !values
+              | None ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0024"
+                         "function address has lost its original executable \
+                          owner"))
           | Unary (operation, operand, result, result_type) -> (
               match require_operand block instruction operand with
               | None -> ()
@@ -6507,14 +10160,36 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Value_map.add result
                       (Runtime_word { type_ = result_type; bits })
                       !values)
-          | Word_view (operand, result, result_type) -> (
-              match require_operand block instruction operand with
+          | Pointer_view (operand, result, pointer_pointee) -> (
+              match require_pointer block instruction operand with
               | None -> ()
-              | Some operand ->
+              | Some address ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_pointer { address with pointer_pointee })
+                      !values)
+          | Word_view (operand, result, result_type) -> (
+              match require_value block instruction (Word_operand operand) with
+              | None -> ()
+              | Some (Runtime_word operand) ->
                   values :=
                     Value_map.add result
                       (Runtime_word { type_ = result_type; bits = operand.bits })
-                      !values)
+                      !values
+              | Some (Runtime_code code) ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_code { code with code_type = result_type })
+                      !values
+              | Some (Runtime_undefined_code _) ->
+                  values :=
+                    Value_map.add result (Runtime_undefined_code result_type)
+                      !values
+              | Some
+                  ( Runtime_pointer _
+                  | Runtime_offset _
+                  | Runtime_void
+                  | Runtime_function_slot_cursor _ ) -> assert false)
           | Subtract_pointers (left, right, result) -> (
               match require_pointer block instruction left with
               | None -> ()
@@ -6591,6 +10266,73 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                  bits = (if predicate then 1L else 0L);
                                })
                             !values))
+          | Binary
+              ( (Compare (Equal | Not_equal) as operation),
+                left,
+                right,
+                result,
+                result_type )
+            when match
+                   ( Value_map.find_opt left.value_id !values,
+                     Value_map.find_opt right.value_id !values )
+                 with
+                 | Some (Runtime_code _ | Runtime_undefined_code _), _
+                 | _, Some (Runtime_code _ | Runtime_undefined_code _) -> true
+                 | _ -> false -> (
+              let operands =
+                Option.bind
+                  (require_value block instruction (Word_operand left))
+                  (fun left ->
+                    Option.map
+                      (fun right -> (left, right))
+                      (require_value block instruction (Word_operand right)))
+              in
+              match operands with
+              | None -> ()
+              | Some (left, right) -> (
+                  let equal =
+                    match (left, right) with
+                    | Runtime_code left, Runtime_code right ->
+                        Some
+                          (Retained_function.same left.code_link right.code_link
+                          &&
+                          match (left.code_entry, right.code_entry) with
+                          | Source_entry (lc, lp, lo), Source_entry (rc, rp, ro)
+                            -> lc == rc && lp == rp && lo == ro
+                          | Provider_entry left, Provider_entry right ->
+                              Runtime.function_slot_address_declaration left
+                              == Runtime.function_slot_address_declaration right
+                          | _ -> false)
+                    | Runtime_code _, Runtime_word { bits = 0L; _ }
+                    | Runtime_word { bits = 0L; _ }, Runtime_code _ ->
+                        Some false
+                    | Runtime_undefined_code _, Runtime_undefined_code _ ->
+                        Some true
+                    | ( Runtime_undefined_code _,
+                        (Runtime_code _ | Runtime_word { bits = 0L; _ }) )
+                    | ( (Runtime_code _ | Runtime_word { bits = 0L; _ }),
+                        Runtime_undefined_code _ ) -> Some false
+                    | _ -> None
+                  in
+                  match equal with
+                  | Some equal ->
+                      let predicate =
+                        if operation = Compare Equal then equal else not equal
+                      in
+                      values :=
+                        Value_map.add result
+                          (Runtime_word
+                             {
+                               type_ = result_type;
+                               bits = (if predicate then 1L else 0L);
+                             })
+                          !values
+                  | None ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0024"
+                             "opaque function addresses can compare only with \
+                              owned code or null")))
           | Binary (operation, left, right, result, result_type) -> (
               match
                 require_operand ~computation:true block instruction left
@@ -6613,18 +10355,55 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                             Some
                               (runtime_error ~instruction block !steps code
                                  message))))
+          | Saved_data_address (result, data, type_) -> (
+              match
+                List.find_opt
+                  (fun (original, _) ->
+                    Saved_parameter_value.same_data original data)
+                  saved_data
+              with
+              | Some (_, address) when address.pointer_storage.live -> (
+                  match Type.dereference type_ with
+                  | Ok pointer_pointee ->
+                      values :=
+                        Value_map.add result
+                          (Runtime_pointer { address with pointer_pointee })
+                          !values
+                  | Error _ -> assert false)
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0026"
+                         "saved data default has no live original task-owned \
+                          value"))
           | Discard operand ->
+              let runtime_value = require_value block instruction operand in
               let value =
-                Option.bind (require_value block instruction operand) (function
+                Option.bind runtime_value (function
                   | Runtime_word word -> Some word
-                  | Runtime_pointer _ | Runtime_offset _ | Runtime_void -> None)
+                  | Runtime_code _
+                  | Runtime_undefined_code _
+                  | Runtime_function_slot_cursor _
+                  | Runtime_pointer _
+                  | Runtime_offset _
+                  | Runtime_void -> None)
               in
               if
                 capture_last && instruction.capture_discard
                 && (not !program.is_function)
                 && Option.is_none !active_initializer
                 && Option.is_none !failed
-              then capture value
+              then (
+                capture value;
+                final_callback :=
+                  Option.bind runtime_value (function
+                    | Runtime_code code -> Some (Captured_body code.code_link)
+                    | Runtime_undefined_code _ -> Some Captured_undefined
+                    | _ -> None);
+                final_pointer :=
+                  Option.bind runtime_value (function
+                    | Runtime_pointer address -> Some address
+                    | _ -> None))
           | Discard_void value_id -> (
               match Value_map.find_opt value_id !values with
               | Some Runtime_void ->
@@ -6776,6 +10555,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
           termination_ = termination;
           executed_steps_ = !steps;
           final_value_ = !final_value;
+          final_callback_ = !final_callback;
+          final_pointer_ = !final_pointer;
           compiled_initializer_steps_ =
             Option.fold ~none:0 ~some:Global_initialization.prepared_steps
               initialization;
@@ -6853,10 +10634,10 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
 
 let execute_program_with_output ?task ?isolated_budget
     ?(initializer_mode = false) ?(capture_fragment_value = false)
-    ?(use_active_stream = true) ?stream_exe_print ?runtime_calls ~output
-    ?globals ?initialization ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
-    ~functions checked =
+    ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+    ?runtime_calls ~output ?globals ?initialization
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576) ~max_steps
+    ~max_frame_bytes ~max_call_depth ~functions checked =
   let ( let* ) = Result.bind in
   let* () =
     let dependencies =
@@ -6901,24 +10682,25 @@ let execute_program_with_output ?task ?isolated_budget
             if steps < !accounted_steps then
               invalid_arg
                 "nested source execution moved its step boundary backwards";
-            task.steps <- task.steps + (steps - !accounted_steps);
+            task.resources.steps <-
+              task.resources.steps + (steps - !accounted_steps);
             accounted_steps := steps;
-            let before_nested = task.steps in
-            let saved_frame_bytes = task.nested_frame_bytes in
-            let saved_call_depth = task.nested_call_depth in
-            let saved_source_depth = task.nested_source_depth in
-            task.nested_frame_bytes <- saved_frame_bytes + frame_bytes;
-            task.nested_call_depth <- saved_call_depth + call_depth;
-            task.nested_source_depth <- saved_source_depth + 1;
+            let before_nested = task.resources.steps in
+            let saved_frame_bytes = task.resources.nested_frame_bytes in
+            let saved_call_depth = task.resources.nested_call_depth in
+            let saved_source_depth = task.resources.nested_source_depth in
+            task.resources.nested_frame_bytes <- saved_frame_bytes + frame_bytes;
+            task.resources.nested_call_depth <- saved_call_depth + call_depth;
+            task.resources.nested_source_depth <- saved_source_depth + 1;
             let nested_steps = ref 0 in
             let result =
               Fun.protect
                 ~finally:(fun () ->
-                  nested_steps := task.steps - before_nested;
-                  task.steps <- before_nested;
-                  task.nested_frame_bytes <- saved_frame_bytes;
-                  task.nested_call_depth <- saved_call_depth;
-                  task.nested_source_depth <- saved_source_depth)
+                  nested_steps := task.resources.steps - before_nested;
+                  task.resources.steps <- before_nested;
+                  task.resources.nested_frame_bytes <- saved_frame_bytes;
+                  task.resources.nested_call_depth <- saved_call_depth;
+                  task.resources.nested_source_depth <- saved_source_depth)
                 (fun () -> execute source)
             in
             (result, !nested_steps))
@@ -6975,7 +10757,7 @@ let execute_program_with_output ?task ?isolated_budget
         Integer_globals.byte_size globals
         > max_global_bytes
           - Option.fold ~none:0
-              ~some:(fun task -> task.global_bytes)
+              ~some:(fun task -> task.resources.global_bytes)
               isolated_budget)
       globals
   then
@@ -7029,7 +10811,7 @@ let execute_program_with_output ?task ?isolated_budget
             invalid "HCIRVM0026" "task command has already started"
           else if
             Integer_globals.byte_size globals
-            > max_global_bytes - task.global_bytes
+            > max_global_bytes - task.resources.global_bytes
           then
             invalid "HCIRVM0016"
               "task global storage exceeds the cumulative byte limit"
@@ -7055,6 +10837,10 @@ let execute_program_with_output ?task ?isolated_budget
       | [] -> Ok (List.rev rev)
       | ({ frame; body } : function_definition) :: rest ->
           let symbol = Function.callable_symbol body in
+          let source_symbol = Function.symbol body in
+          (* AOT joins source definitions to one canonical callable record.
+             Original bodies, frames and declarations keep distinct owners;
+             a shared numeric identity alone grants no authority. *)
           let function_id =
             Function.Function_id.to_int (Function.function_id body)
           in
@@ -7063,9 +10849,24 @@ let execute_program_with_output ?task ?isolated_budget
             List.exists
               (fun other ->
                 Sema.Symbol.Id.equal (Sema.Symbol.id other)
-                  (Sema.Symbol.id symbol))
+                  (Sema.Symbol.id source_symbol))
               symbols
             || List.mem function_id ids
+            || List.exists
+                 (fun (callee, _, prior) ->
+                   Sema.Symbol.Id.equal
+                     (Sema.Symbol.id callee.callee_symbol)
+                     (Sema.Symbol.id symbol)
+                   && not
+                        (callee.callee_symbol == symbol
+                        &&
+                        match
+                          ( Function.definition_declaration prior,
+                            Function.definition_declaration body )
+                        with
+                        | Some original, Some current -> original != current
+                        | _ -> false))
+                 rev
           then
             Error
               [
@@ -7108,13 +10909,16 @@ let execute_program_with_output ?task ?isolated_budget
                 variadic = Option.is_some context.variadic_location;
               }
             in
-            summaries (index + 1) (symbol :: symbols) (function_id :: ids)
+            summaries (index + 1) (source_symbol :: symbols) (function_id :: ids)
               ((callee, context, body) :: rev)
               rest
     in
     let* summaries = summaries 0 [] [] [] functions in
     let retained_functions =
       Option.fold ~none:[] ~some:(fun task -> task.functions) task
+    in
+    let retained_provider_entries =
+      Option.fold ~none:[] ~some:(fun task -> task.provider_entries) task
     in
     let calls ?caller graph =
       let runtime_owner =
@@ -7230,7 +11034,9 @@ let execute_program_with_output ?task ?isolated_budget
     let literal_image = fresh_literal_image () in
     let max_literal_bytes =
       max_literal_bytes
-      - Option.fold ~none:0 ~some:(fun task -> task.literal_bytes) accounting
+      - Option.fold ~none:0
+          ~some:(fun task -> task.resources.literal_bytes)
+          accounting
     in
     let rec bodies rev = function
       | [] -> Ok (Array.of_list (List.rev rev))
@@ -7242,8 +11048,8 @@ let execute_program_with_output ?task ?isolated_budget
           in
           let* program =
             prepare ~frame ?globals ~literals ~callees ?runtime_calls
-              ~retained_functions ~runtime_owner:(Runtime.Function body)
-              (Function.body body)
+              ~retained_functions ~retained_provider_entries
+              ~runtime_owner:(Runtime.Function body) (Function.body body)
             |> Result.map_error (List.map (identify body))
           in
           bodies
@@ -7267,7 +11073,7 @@ let execute_program_with_output ?task ?isolated_budget
     in
     let* entry =
       prepare ?globals ~literals ?initialization ~callees ?runtime_calls
-        ~retained_functions (X87.graph checked)
+        ~retained_functions ~retained_provider_entries (X87.graph checked)
       |> Result.map_error (List.map identify_entry)
     in
     let global_words =
@@ -7372,11 +11178,11 @@ let execute_program_with_output ?task ?isolated_budget
           Option.iter (fun retain -> retain storage owner) admit;
           if Option.is_some isolated_budget then
             account.started <- checked :: account.started;
-          account.global_bytes <-
-            account.global_bytes
+          account.resources.global_bytes <-
+            account.resources.global_bytes
             + Option.fold ~none:0 ~some:Integer_globals.byte_size globals;
-          account.literal_bytes <-
-            account.literal_bytes + literal_image.literal_byte_count)
+          account.resources.literal_bytes <-
+            account.resources.literal_bytes + literal_image.literal_byte_count)
         accounting
     in
     let outcome =
@@ -7384,19 +11190,19 @@ let execute_program_with_output ?task ?isolated_budget
         if not use_active_stream then None
         else
           Option.bind task (fun task ->
-              match task.streams with
+              match task.resources.streams with
               | active :: _ -> Some active.stream_output
               | [] -> None)
       in
       let generation_output =
-        Option.map (fun task -> task.generated) accounting
+        Option.map (fun task -> task.resources.generated) accounting
       in
       let on_capture =
         Option.bind accounting (fun task ->
             if not initializer_mode then
               Some
                 (fun value ->
-                  if task.streams = [] then task.outer_value <- value;
+                  if task.resources.streams = [] then task.outer_value <- value;
                   Option.iter
                     (fun globals ->
                       let receipts =
@@ -7416,7 +11222,7 @@ let execute_program_with_output ?task ?isolated_budget
                     globals)
             else None)
       in
-      execute_prepared ~callees:programs
+      execute_prepared ?globals ~callees:programs
         ~aot_linked:
           (Option.fold ~none:false
              ~some:(fun context ->
@@ -7424,10 +11230,26 @@ let execute_program_with_output ?task ?isolated_budget
              runtime_calls)
         ~max_frame_bytes ~max_call_depth ?initialization ~global_words
         ~literal_image ~output ?stream_output ?generation_output
-        ?stream_exe_print:nested_stream_exe_print
+        ?compiler_options ?stream_exe_print:nested_stream_exe_print
         ~capture_last:((not initializer_mode) || capture_fragment_value)
-        ?on_capture ?admit ~retained_regions ~retained_functions ~max_steps
-        entry
+        ~saved_data:
+          (Option.fold ~none:[] ~some:(fun task -> task.saved_data_values) task)
+        ?on_capture ?admit ~retained_regions ~retained_functions
+        ~retained_provider_entries
+        ?on_provider_entry:
+          (Option.map
+             (fun task link receipt ->
+               if
+                 not
+                   (List.exists
+                      (fun (original, _) ->
+                        Retained_function.same original link)
+                      task.provider_entries)
+               then
+                 task.provider_entries <-
+                   (link, receipt) :: task.provider_entries)
+             task)
+        ~max_steps entry
     in
     Option.iter
       (fun task ->
@@ -7441,12 +11263,115 @@ let execute_program_with_output ?task ?isolated_budget
         in
         if steps < !accounted_steps then
           invalid_arg "execution reported fewer steps than its nested boundary";
-        task.steps <- task.steps + (steps - !accounted_steps))
+        task.resources.steps <- task.resources.steps + (steps - !accounted_steps))
       accounting;
     outcome
 
-let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
-    attempt execution =
+let begin_interpreted_static task destination =
+  let ( let* ) = Result.bind in
+  let receipt =
+    Sema.Static_initializer_fragment.receipt
+      (Static_initializer_destination.fragment destination)
+  in
+  let* () =
+    if task.native_storage_authority then
+      Error
+        "interpreted static initialization requires interpreter task storage"
+    else if List.exists (( == ) receipt) task.static_attempts then
+      Error "static initializer has already been attempted"
+    else check_static_destination task destination
+  in
+  task.static_attempts <- receipt :: task.static_attempts;
+  task.source_promotion_open <- false;
+  Ok ()
+
+let record_interpreted_static task destination =
+  let module Destination = Static_initializer_destination in
+  Integer_static_allocation.record_native_leaf
+    ?activation:task.source_activation
+    (Destination.allocation destination)
+    (Sema.Static_initializer_fragment.receipt
+       (Destination.fragment destination))
+    ~cell_offset:(Destination.cell_offset destination)
+    ~byte_offset:(Destination.byte_offset destination)
+    ~operation:(Destination.operation destination)
+
+let execute_task_static_initializer ?(use_active_stream = true)
+    ?compiler_options ?stream_exe_print task program =
+  let module Program = Static_initializer_program in
+  let module Destination = Static_initializer_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.destination program in
+  let span = Destination.span destination in
+  let diagnose result =
+    Result.map_error
+      (fun message ->
+        [
+          make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+            message;
+        ])
+      result
+  in
+  let* () = begin_interpreted_static task destination |> diagnose in
+  let* _ =
+    execute_program_with_output ~task ~initializer_mode:true ~use_active_stream
+      ?compiler_options ?stream_exe_print
+      ~runtime_calls:(Program.runtime_calls program)
+      ~output:task.resources.output
+      ~globals:(Destination.globals destination)
+      ~initialization:(Program.initialization program)
+      ~max_global_bytes:task.resources.max_global_bytes
+      ~max_literal_bytes:task.resources.max_literal_bytes
+      ~max_steps:(task.resources.max_steps - task.resources.steps)
+      ~max_frame_bytes:
+        (task.resources.max_frame_bytes - task.resources.nested_frame_bytes)
+      ~max_call_depth:
+        (task.resources.max_call_depth - task.resources.nested_call_depth)
+      ~functions:[] (Program.entry program)
+  in
+  record_interpreted_static task destination |> diagnose
+
+let execute_task_static_copy task destination =
+  let module Destination = Static_initializer_destination in
+  let ( let* ) = Result.bind in
+  let* () = begin_interpreted_static task destination in
+  let* bytes =
+    match Destination.operation destination with
+    | Integer_initializer_layout.Copy_bytes bytes -> Ok bytes
+    | Scalar_store -> Error "static copy requires an original byte-copy leaf"
+  in
+  if
+    String.length bytes
+    > task.resources.max_initializer_steps - task.resources.initializer_steps
+  then Error "HCIRVM0007: the bounded initializer copy work limit was exhausted"
+  else
+    let slot = Destination.storage destination in
+    let* storage =
+      match
+        List.find_map
+          (fun (owner, storage) ->
+            match
+              Integer_globals.find_allocated_storage owner
+                (Integer_globals.storage_symbol slot)
+            with
+            | Some expected when Integer_globals.same_storage expected slot ->
+                Some storage
+            | _ -> None)
+          task.arenas
+      with
+      | Some storage when storage.live -> Ok storage
+      | _ -> Error "static copy destination has no original live storage"
+    in
+    task.resources.initializer_steps <-
+      task.resources.initializer_steps + String.length bytes;
+    publish_array_payload ~slot
+      ~cell_offset:(Destination.cell_offset destination)
+      (Integer_array_initializers.Bytes bytes) (fun cell word ->
+        storage.cells.(cell) <- Some (Runtime_word word));
+    record_interpreted_static task destination
+
+let execute_task_initializer ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
   let module Program = Initializer_fragment_program in
   let module Destination = Initializer_fragment_destination in
   let ( let* ) = Result.bind in
@@ -7459,7 +11384,8 @@ let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
   in
   let* () =
     if
-      state.initializer_catalog != task.catalog
+      task.native_storage_authority
+      || state.initializer_catalog != task.catalog
       || attempt.attempt_state <> Preparing_initializer
       || (not
             (Option.fold ~none:false ~some:(( == ) attempt)
@@ -7484,7 +11410,8 @@ let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
             (Integer_globals.is_initializer_fragment
                (Destination.globals destination)))
       || Program.execution_steps execution
-         <> task.initializer_steps - attempt.attempt_preparation_before
+         <> task.resources.initializer_steps
+            - attempt.attempt_preparation_before
       || Integer_globals.byte_size (Destination.globals destination) <> 0
     then
       invalid "HCIRVM0026"
@@ -7530,21 +11457,24 @@ let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
             storage.cells.(cell) <- Some (Runtime_word word));
         Ok ()
     | Program.Scheduled program ->
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           invalid "HCIRVM0007"
             "the task cumulative execution step limit was exhausted"
         else
           execute_program_with_output ~task ~initializer_mode:true
-            ~use_active_stream ?stream_exe_print
+            ~use_active_stream ?compiler_options ?stream_exe_print
             ~runtime_calls:(Program.runtime_calls program)
-            ~output:task.output
+            ~output:task.resources.output
             ~globals:(Destination.globals destination)
             ~initialization:(Program.initialization program)
-            ~max_global_bytes:task.max_global_bytes
-            ~max_literal_bytes:task.max_literal_bytes
-            ~max_steps:(task.max_steps - task.steps)
-            ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-            ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+            ~max_global_bytes:task.resources.max_global_bytes
+            ~max_literal_bytes:task.resources.max_literal_bytes
+            ~max_steps:(task.resources.max_steps - task.resources.steps)
+            ~max_frame_bytes:
+              (task.resources.max_frame_bytes
+             - task.resources.nested_frame_bytes)
+            ~max_call_depth:
+              (task.resources.max_call_depth - task.resources.nested_call_depth)
             ~functions:[] (Program.entry program)
           |> Result.map ignore
   in
@@ -7577,7 +11507,7 @@ let consume_default_constant task value =
   let fragment =
     Sema.Default_fragment.authorized_fragment value.constant_authority
   in
-  let receipt = Sema.Default_fragment.receipt fragment in
+  let source = Sema.Default_fragment.source fragment in
   if
     value.constant_catalog != task.catalog
     || (not (List.exists (( == ) value) task.default_constants))
@@ -7591,14 +11521,14 @@ let consume_default_constant task value =
                (Sema.Function_call_expression_result.top_level_root_value
                   (Default_fragment_destination.root value.constant_destination))))
     || (not
-          (Frontend.Parser.parameter_default_is_current receipt
-          || (not
-                (Integer_globals.is_isolated_default
-                   (Default_fragment_destination.globals
-                      value.constant_destination)))
-             && Sema.Source_activation.parameter_default task.source_activation
-                  receipt))
-    || task.initializer_steps
+          (Sema.Default_fragment.current_source
+             ~allow_activation:
+               (not
+                  (Integer_globals.is_isolated_default
+                     (Default_fragment_destination.globals
+                        value.constant_destination)))
+             ~activation:task.source_activation source))
+    || task.resources.initializer_steps
        <> value.constant_preparation_before + value.constant_steps
   then
     Error "constant default requires its original successful owning evaluation"
@@ -7606,8 +11536,166 @@ let consume_default_constant task value =
     value.constant_consumed <- true;
     Ok (default_constant_bits value))
 
-let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
-    attempt evaluation =
+let save_default_data task ~destination ~entry ~executed_steps address =
+  let span = Default_fragment_destination.span destination in
+  let fail code message =
+    Error [ make_error ~stage:Execution ~span ~executed_steps code message ]
+  in
+  let ( let* ) = Result.bind in
+  let type_ = Default_fragment_destination.type_ destination in
+  let* pointee =
+    Type.dereference type_
+    |> Result.map_error (fun message ->
+        [
+          make_error ~stage:Execution ~span ~executed_steps "HCIRVM0026" message;
+        ])
+  in
+  let* () =
+    if
+      address.pointer_storage.live
+      && address.pointer_element_bytes > 0
+      && address.pointer_offset >= 0L
+      && address.pointer_offset <= address.pointer_extent_bytes
+      && Scalar.compatible_pointer type_
+           (Type.pointer_to address.pointer_pointee |> Result.get_ok)
+    then Ok ()
+    else
+      fail "HCIRVM0018"
+        "saved data default requires its original live object and compatible \
+         view"
+  in
+  let has_misc_data =
+    Graph.blocks (X87.graph entry)
+    |> List.exists (fun block ->
+        Graph.instructions block |> Sequence.instructions
+        |> List.exists (fun instruction ->
+            (Sequence.description instruction).opcode = Opcode.Ic_str_const))
+  in
+  let copied_bytes = ref None in
+  let* address =
+    if not has_misc_data then Ok { address with pointer_pointee = pointee }
+    else
+      let bytes = Buffer.create 32 in
+      let rec copy offset =
+        if
+          task.resources.initializer_steps
+          >= task.resources.max_initializer_steps
+        then
+          fail "HCIRVM0007"
+            "saved string default copy exceeds the initializer work limit"
+        else if
+          Buffer.length bytes
+          >= task.resources.max_literal_bytes - task.resources.literal_bytes
+        then
+          fail "HCIRVM0011"
+            "saved string default copy exceeds the cumulative literal byte \
+             limit"
+        else if offset < 0L || offset >= address.pointer_extent_bytes then
+          fail "HCIRVM0019"
+            "saved string default has no terminator in its original object"
+        else (
+          task.resources.initializer_steps <-
+            task.resources.initializer_steps + 1;
+          let width = address.pointer_element_bytes in
+          let cell =
+            address.pointer_base
+            + Int64.to_int (Int64.div offset (Int64.of_int width))
+          in
+          let byte = Int64.to_int (Int64.rem offset (Int64.of_int width)) in
+          let* bits =
+            if cell < 0 || cell >= Array.length address.pointer_storage.cells
+            then
+              fail "HCIRVM0018"
+                "saved string default leaves its original storage"
+            else
+              match address.pointer_storage.cells.(cell) with
+              | Some (Runtime_word word) -> Ok word.bits
+              | None -> (
+                  match
+                    Hashtbl.find_opt address.pointer_storage.partial_words cell
+                  with
+                  | Some (bits, mask) when mask land (1 lsl byte) <> 0 ->
+                      Ok bits
+                  | _ ->
+                      fail "HCIRVM0012"
+                        "saved string default reads an uninitialized original \
+                         byte")
+              | Some _ ->
+                  fail "HCIRVM0018"
+                    "saved string default cannot copy callback or reference \
+                     cells"
+          in
+          let byte =
+            Int64.to_int
+              (Int64.logand 255L (Int64.shift_right_logical bits (8 * byte)))
+          in
+          Buffer.add_char bytes (Char.chr byte);
+          if byte = 0 then Ok () else copy (Int64.succ offset))
+      in
+      let* () = copy address.pointer_offset in
+      let bytes = Buffer.contents bytes in
+      copied_bytes := Some bytes;
+      let count = String.length bytes in
+      let storage =
+        {
+          cells =
+            Array.init count (fun i ->
+                Some
+                  (Runtime_word
+                     { type_ = U64; bits = Int64.of_int (Char.code bytes.[i]) }));
+          partial_words = Hashtbl.create 0;
+          live = true;
+          unknown_message = "saved string default byte is uninitialized";
+        }
+      in
+      task.resources.literal_bytes <- task.resources.literal_bytes + count;
+      task.literal_arenas <- storage :: task.literal_arenas;
+      let storage_pointee =
+        Type.make_primitive ~form:Internal_storage
+          ~primitive:Sema.Primitive_type.U8 ~pointer_depth:0
+        |> Result.get_ok
+      in
+      Ok
+        {
+          pointer_storage = storage;
+          pointer_base = 0;
+          pointer_count = count;
+          pointer_storage_pointee = storage_pointee;
+          pointer_element_bytes = 1;
+          pointer_extent_bytes = Int64.of_int count;
+          pointer_offset = 0L;
+          pointer_pointee = pointee;
+        }
+  in
+  let source =
+    Sema.Function_call_expression_result.top_level_root_value
+      (Default_fragment_destination.root destination)
+  in
+  let* value =
+    Saved_parameter_value.data ~source ~type_
+    |> Result.map_error (fun message ->
+        [
+          make_error ~stage:Execution ~span ~executed_steps "HCIRVM0026" message;
+        ])
+  in
+  let* value =
+    match !copied_bytes with
+    | None -> Ok value
+    | Some bytes ->
+        Saved_parameter_value.with_string_default ~bytes value
+        |> Result.map_error (fun message ->
+            [
+              make_error ~stage:Execution ~span ~executed_steps "HCIRVM0026"
+                message;
+            ])
+  in
+  task.saved_data_values <-
+    (Option.get (Saved_parameter_value.data_source value), address)
+    :: task.saved_data_values;
+  Ok value
+
+let execute_task_default ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt evaluation =
   let module Program = Default_fragment_program in
   let module Destination = Default_fragment_destination in
   let ( let* ) = Result.bind in
@@ -7636,13 +11724,12 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
       || (not (List.exists (( == ) attempt) task.defaults))
       || attempt.default_state <> Preparing_initializer
       || (not
-            (Frontend.Parser.parameter_default_is_current
-               attempt.default_receipt
-            || Sema.Source_activation.parameter_default task.source_activation
-                 attempt.default_receipt))
-      || Sema.Default_fragment.receipt fragment != attempt.default_receipt
-      || Sema.Default_fragment.publication fragment
-         != attempt.default_publication
+            (Sema.Default_fragment.current_source
+               ~activation:task.source_activation attempt.default_source))
+      || (not
+            (Sema.Default_fragment.same_source
+               (Sema.Default_fragment.source fragment)
+               attempt.default_source))
       || Sema.Default_fragment.authorized_fragment authority != fragment
       || (not
             (Integer_globals.owns_task_storage task.catalog
@@ -7651,7 +11738,9 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
             (Integer_globals.is_default_fragment
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
-      || steps <> task.initializer_steps - attempt.default_preparation_before
+      || steps
+         <> task.resources.initializer_steps
+            - attempt.default_preparation_before
     then
       invalid
         "default execution has another task, source attempt or preparation"
@@ -7671,6 +11760,7 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
     match evaluation with
     | Prepared_default result ->
         consume_default_constant task result
+        |> Result.map Saved_parameter_value.word
         |> Result.map_error (fun message ->
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
@@ -7678,7 +11768,7 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
             ])
     | Scheduled_default execution -> (
         let (Program.Scheduled program) = Program.code execution in
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           Error
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
@@ -7687,34 +11777,71 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
         else
           let* result =
             execute_program_with_output ~task ~initializer_mode:true
-              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~capture_fragment_value:true ~use_active_stream ?compiler_options
+              ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
-              ~output:task.output
+              ~output:task.resources.output
               ~globals:(Destination.globals destination)
               ~initialization:(Program.initialization program)
-              ~max_global_bytes:task.max_global_bytes
-              ~max_literal_bytes:task.max_literal_bytes
-              ~max_steps:(task.max_steps - task.steps)
-              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:(task.resources.max_steps - task.resources.steps)
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
-          match result.final_value_ with
-          | Some word -> Ok word.bits
-          | None ->
+          match
+            (result.final_value_, result.final_callback_, result.final_pointer_)
+          with
+          | Some word, None, None -> Ok (Saved_parameter_value.word word.bits)
+          | None, None, Some address
+            when not (Destination.is_callback destination) ->
+              save_default_data task ~destination ~entry:(Program.entry program)
+                ~executed_steps:result.executed_steps_ address
+          | None, Some (Captured_body link), None
+            when Destination.is_callback destination ->
+              Saved_parameter_value.callback
+                ~source:
+                  (Sema.Function_call_expression_result.top_level_root_value
+                     (Destination.root destination))
+                ~link
+              |> Result.map_error (fun message ->
+                  [
+                    make_error ~stage:Execution ~span
+                      ~executed_steps:result.executed_steps_ "HCIRVM0026"
+                      message;
+                  ])
+          | None, Some Captured_undefined, None
+            when Destination.is_callback destination ->
+              Saved_parameter_value.undefined_callback
+                ~source:
+                  (Sema.Function_call_expression_result.top_level_root_value
+                     (Destination.root destination))
+              |> Result.map_error (fun message ->
+                  [
+                    make_error ~stage:Execution ~span
+                      ~executed_steps:result.executed_steps_ "HCIRVM0026"
+                      message;
+                  ])
+          | _ ->
               invalid "default evaluation produced no checked parameter value")
   in
   match outcome with
   | Error errors ->
       ignore (fail_task_default task attempt);
       Error errors
-  | Ok bits ->
-      attempt.default_bits <- Some bits;
+  | Ok value ->
+      attempt.default_value <- Some value;
+      attempt.default_bits <- Saved_parameter_value.word_bits value;
       attempt.default_state <- Successful_initializer;
       Ok ()
 
-let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
-    attempt execution =
+let execute_task_dimension ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
   let module Program = Dimension_fragment_program in
   let module Destination = Dimension_fragment_destination in
   let ( let* ) = Result.bind in
@@ -7748,7 +11875,8 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
       || Program.steps execution
-         <> task.initializer_steps - attempt.dimension_preparation_before
+         <> task.resources.initializer_steps
+            - attempt.dimension_preparation_before
     then
       invalid
         "dimension execution has another task, source attempt or preparation"
@@ -7767,7 +11895,7 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
     in
     match Program.code execution with
     | Program.Scheduled program -> (
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           Error
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
@@ -7776,16 +11904,21 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
         else
           let* result =
             execute_program_with_output ~task ~initializer_mode:true
-              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~capture_fragment_value:true ~use_active_stream ?compiler_options
+              ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
-              ~output:task.output
+              ~output:task.resources.output
               ~globals:(Destination.globals destination)
               ~initialization:(Program.initialization program)
-              ~max_global_bytes:task.max_global_bytes
-              ~max_literal_bytes:task.max_literal_bytes
-              ~max_steps:(task.max_steps - task.steps)
-              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:(task.resources.max_steps - task.resources.steps)
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
           match result.final_value_ with
@@ -7801,12 +11934,14 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
   | Ok bits ->
       attempt.dimension_bits <- Some bits;
       attempt.dimension_work <-
-        Some (task.initializer_steps - attempt.dimension_preparation_before);
+        Some
+          (task.resources.initializer_steps
+         - attempt.dimension_preparation_before);
       attempt.dimension_state <- Successful_initializer;
       Ok ()
 
-let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
-    task attempt execution =
+let execute_task_internal_binding ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
   let module Program = Internal_binding_fragment_program in
   let module Destination = Internal_binding_fragment_destination in
   let ( let* ) = Result.bind in
@@ -7841,7 +11976,8 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
       || Program.steps execution
-         <> task.initializer_steps - attempt.internal_binding_preparation_before
+         <> task.resources.initializer_steps
+            - attempt.internal_binding_preparation_before
     then
       invalid
         "internal binding execution has another task, source attempt or \
@@ -7861,7 +11997,7 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
     in
     match Program.code execution with
     | Program.Scheduled program -> (
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           Error
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
@@ -7870,16 +12006,21 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
         else
           let* result =
             execute_program_with_output ~task ~initializer_mode:true
-              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~capture_fragment_value:true ~use_active_stream ?compiler_options
+              ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
-              ~output:task.output
+              ~output:task.resources.output
               ~globals:(Destination.globals destination)
               ~initialization:(Program.initialization program)
-              ~max_global_bytes:task.max_global_bytes
-              ~max_literal_bytes:task.max_literal_bytes
-              ~max_steps:(task.max_steps - task.steps)
-              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:(task.resources.max_steps - task.resources.steps)
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
           match result.final_value_ with
@@ -7895,7 +12036,8 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
       Error errors
   | Ok bits ->
       let work =
-        task.initializer_steps - attempt.internal_binding_preparation_before
+        task.resources.initializer_steps
+        - attempt.internal_binding_preparation_before
       in
       let namespace = Sema.Internal_binding_fragment.namespace fragment in
       let table = Sema.Internal_binding_fragment.table fragment in
@@ -7916,8 +12058,8 @@ let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
       attempt.internal_binding_state <- Successful_initializer;
       Ok ()
 
-let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
-    attempt execution =
+let execute_task_offset ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
   let module Program = Offset_fragment_program in
   let module Destination = Offset_fragment_destination in
   let ( let* ) = Result.bind in
@@ -7955,7 +12097,7 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
       || Program.steps execution
-         <> task.initializer_steps - attempt.offset_preparation_before
+         <> task.resources.initializer_steps - attempt.offset_preparation_before
     then
       invalid "offset execution has another task, source attempt or preparation"
     else Ok ()
@@ -7986,7 +12128,7 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
     in
     match Program.code execution with
     | Program.Scheduled program -> (
-        if task.steps >= task.max_steps then
+        if task.resources.steps >= task.resources.max_steps then
           Error
             [
               make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
@@ -7995,16 +12137,21 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
         else
           let* result =
             execute_program_with_output ~task ~initializer_mode:true
-              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~capture_fragment_value:true ~use_active_stream ?compiler_options
+              ?stream_exe_print
               ~runtime_calls:(Program.runtime_calls program)
-              ~output:task.output
+              ~output:task.resources.output
               ~globals:(Destination.globals destination)
               ~initialization:(Program.initialization program)
-              ~max_global_bytes:task.max_global_bytes
-              ~max_literal_bytes:task.max_literal_bytes
-              ~max_steps:(task.max_steps - task.steps)
-              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
-              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~max_global_bytes:task.resources.max_global_bytes
+              ~max_literal_bytes:task.resources.max_literal_bytes
+              ~max_steps:(task.resources.max_steps - task.resources.steps)
+              ~max_frame_bytes:
+                (task.resources.max_frame_bytes
+               - task.resources.nested_frame_bytes)
+              ~max_call_depth:
+                (task.resources.max_call_depth
+               - task.resources.nested_call_depth)
               ~functions:[] (Program.entry program)
           in
           match result.final_value_ with
@@ -8021,7 +12168,9 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
         Sema.Compiler_record.finish_runtime_aggregate_offset
           (Sema.Offset_fragment.preparation attempt.offset_authority)
           ~value:bits
-          ~work:(task.initializer_steps - attempt.offset_preparation_before)
+          ~work:
+            (task.resources.initializer_steps
+           - attempt.offset_preparation_before)
       in
       match result with
       | Error message ->
@@ -8033,23 +12182,39 @@ let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
           task.charged_offsets <- offset :: task.charged_offsets;
           Ok ())
 
-let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
-    ~runtime_calls ~globals ~initialization ~functions checked =
+let execute_task_program ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task ~runtime_calls ~globals ~initialization ~functions
+    checked =
   task.source_promotion_open <- false;
-  let available_frame_bytes = task.max_frame_bytes - task.nested_frame_bytes in
-  let available_call_depth = task.max_call_depth - task.nested_call_depth in
+  (* The synchronous stream callback alone reserves nested source depth.
+     Original child parser receipts still govern admission while the caller's
+     declaration-time evaluation remains suspended. *)
+  let available_frame_bytes =
+    task.resources.max_frame_bytes - task.resources.nested_frame_bytes
+  in
+  let available_call_depth =
+    task.resources.max_call_depth - task.resources.nested_call_depth
+  in
   let result =
-    if
+    if task.native_storage_authority then
+      Error
+        [
+          make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
+            "native-authoritative task commands require synchronous native \
+             dispatch";
+        ]
+    else if
       (not (source_dimensions_ready task))
       || (not
             (List.for_all
                (Sema.Source_activation.command_admission task.source_activation)
                (Integer_globals.source_command_receipts globals)))
-      || List.exists
-           (fun attempt ->
-             attempt.offset_state = Preparing_initializer
-             || attempt.offset_state = Executing_initializer)
-           task.runtime_offsets
+      || task.resources.nested_source_depth = 0
+         && List.exists
+              (fun attempt ->
+                attempt.offset_state = Preparing_initializer
+                || attempt.offset_state = Executing_initializer)
+              task.runtime_offsets
     then
       Error
         [
@@ -8057,36 +12222,36 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
             "deferred source command is outside its original activation event";
         ]
     else if
-      task.nested_source_depth = 0
-      && List.exists
-           (fun state ->
-             (not (initializer_is_idle state))
-             && not
-                  (Integer_globals.declared_initializer_failed
-                     state.initializer_slot))
-           task.initializers
-      || List.exists
-           (fun attempt ->
-             attempt.default_state = Preparing_initializer
-             || attempt.default_state = Executing_initializer)
-           task.defaults
-      || List.exists
-           (fun attempt ->
-             attempt.dimension_state = Preparing_initializer
-             || attempt.dimension_state = Executing_initializer)
-           task.dimensions
-      || List.exists
-           (fun attempt ->
-             attempt.internal_binding_state = Preparing_initializer
-             || attempt.internal_binding_state = Executing_initializer)
-           task.internal_bindings
+      task.resources.nested_source_depth = 0
+      && (List.exists
+            (fun state ->
+              (not (initializer_is_idle state))
+              && not
+                   (Integer_globals.declared_initializer_failed
+                      state.initializer_slot))
+            task.initializers
+         || List.exists
+              (fun attempt ->
+                attempt.default_state = Preparing_initializer
+                || attempt.default_state = Executing_initializer)
+              task.defaults
+         || List.exists
+              (fun attempt ->
+                attempt.dimension_state = Preparing_initializer
+                || attempt.dimension_state = Executing_initializer)
+              task.dimensions
+         || List.exists
+              (fun attempt ->
+                attempt.internal_binding_state = Preparing_initializer
+                || attempt.internal_binding_state = Executing_initializer)
+              task.internal_bindings)
     then
       Error
         [
           make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
             "ordinary command cannot interleave an active initializer attempt";
         ]
-    else if task.steps >= task.max_steps then
+    else if task.resources.steps >= task.resources.max_steps then
       Error
         [
           make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0007"
@@ -8105,11 +12270,11 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
             "nested source has no remaining runtime call depth allowance";
         ]
     else
-      execute_program_with_output ~task ~use_active_stream ?stream_exe_print
-        ~runtime_calls ~output:task.output ~globals ~initialization
-        ~max_global_bytes:task.max_global_bytes
-        ~max_literal_bytes:task.max_literal_bytes
-        ~max_steps:(task.max_steps - task.steps)
+      execute_program_with_output ~task ~use_active_stream ?compiler_options
+        ?stream_exe_print ~runtime_calls ~output:task.resources.output ~globals
+        ~initialization ~max_global_bytes:task.resources.max_global_bytes
+        ~max_literal_bytes:task.resources.max_literal_bytes
+        ~max_steps:(task.resources.max_steps - task.resources.steps)
         ~max_frame_bytes:available_frame_bytes
         ~max_call_depth:available_call_depth ~functions checked
   in
@@ -8123,10 +12288,16 @@ let execute_isolated_program_in_task task ~runtime_calls ~globals
   task.source_promotion_open <- false;
   let invalid code message =
     Error
-      [ make_error ~stage:Preflight ~executed_steps:task.steps code message ]
+      [
+        make_error ~stage:Preflight ~executed_steps:task.resources.steps code
+          message;
+      ]
   in
   let result =
-    if
+    if task.native_storage_authority then
+      invalid "HCIRVM0026"
+        "native source tasks cannot execute isolated interpreter programs"
+    else if
       not
         (List.exists
            (fun program ->
@@ -8136,28 +12307,28 @@ let execute_isolated_program_in_task task ~runtime_calls ~globals
     then
       invalid "HCIRVM0026"
         "isolated output lacks its owning preparation and compiled bundle"
-    else if task.streams <> [] then
+    else if task.resources.streams <> [] then
       invalid "HCIRVM0027"
         "isolated output cannot execute inside an active stream"
     else if List.exists (fun entry -> entry == checked) task.started then
       invalid "HCIRVM0026"
         "isolated output has already started in this invocation"
-    else if task.steps >= task.max_steps then
+    else if task.resources.steps >= task.resources.max_steps then
       invalid "HCIRVM0007" "the invocation execution step limit was exhausted"
     else
-      let before = task.steps in
+      let before = task.resources.steps in
       execute_program_with_output ~isolated_budget:task ~runtime_calls
-        ~output:task.output ~globals ~initialization
-        ~max_global_bytes:task.max_global_bytes
-        ~max_literal_bytes:task.max_literal_bytes
-        ~max_steps:(task.max_steps - before)
-        ~max_frame_bytes:task.max_frame_bytes
-        ~max_call_depth:task.max_call_depth ~functions checked
+        ~output:task.resources.output ~globals ~initialization
+        ~max_global_bytes:task.resources.max_global_bytes
+        ~max_literal_bytes:task.resources.max_literal_bytes
+        ~max_steps:(task.resources.max_steps - before)
+        ~max_frame_bytes:task.resources.max_frame_bytes
+        ~max_call_depth:task.resources.max_call_depth ~functions checked
       |> Result.map (fun result ->
           {
             result with
-            executed_steps_ = task.steps;
-            compiled_initializer_steps_ = task.initializer_steps;
+            executed_steps_ = task.resources.steps;
+            compiled_initializer_steps_ = task.resources.initializer_steps;
           })
       |> Result.map_error
            (List.map (fun (error : error) ->
@@ -8237,7 +12408,7 @@ let check_task_suspended_completion task ~suspension receipt =
 let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   let module Destination = Default_fragment_destination in
   let fragment = Destination.fragment destination in
-  let receipt = Sema.Default_fragment.receipt fragment in
+  let source = Sema.Default_fragment.source fragment in
   let span = Destination.span destination in
   let invalid code message =
     Error [ make_error ~stage:Preflight ~span ~executed_steps:0 code message ]
@@ -8245,10 +12416,9 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   let globals = Destination.globals destination in
   let graph = Integer_program_lowering.graph lowered in
   let current =
-    Frontend.Parser.parameter_default_is_current receipt
-    || (not (Integer_globals.is_isolated_default globals))
-       && Sema.Source_activation.parameter_default task.source_activation
-            receipt
+    Sema.Default_fragment.current_source
+      ~allow_activation:(not (Integer_globals.is_isolated_default globals))
+      ~activation:task.source_activation source
   in
   let pure =
     Block_graph.blocks (X87.graph graph)
@@ -8285,9 +12455,11 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   else if
     List.exists
       (fun result ->
-        Sema.Default_fragment.receipt
-          (Sema.Default_fragment.authorized_fragment result.constant_authority)
-        == receipt)
+        Sema.Default_fragment.same_source
+          (Sema.Default_fragment.source
+             (Sema.Default_fragment.authorized_fragment
+                result.constant_authority))
+          source)
       task.default_constants
   then invalid "HCIRVM0026" "constant default evaluation cannot replay"
   else
@@ -8297,7 +12469,7 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
         constant_authority = authority;
         constant_destination = destination;
         constant_lowered = lowered;
-        constant_preparation_before = task.initializer_steps;
+        constant_preparation_before = task.resources.initializer_steps;
         constant_state = Executing_initializer;
         constant_bits = None;
         constant_steps = 0;
@@ -8306,7 +12478,8 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
     in
     task.default_constants <- proof :: task.default_constants;
     let remaining =
-      min max_steps (task.max_initializer_steps - task.initializer_steps)
+      min max_steps
+        (task.resources.max_initializer_steps - task.resources.initializer_steps)
     in
     let outcome =
       if remaining <= 0 then
@@ -8325,13 +12498,15 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
             0 errors
         in
         proof.constant_steps <- work;
-        task.initializer_steps <- proof.constant_preparation_before + work;
+        task.resources.initializer_steps <-
+          proof.constant_preparation_before + work;
         proof.constant_state <- Failed_initializer;
         Error errors
     | Ok result -> (
         let work = executed_steps result in
         proof.constant_steps <- work;
-        task.initializer_steps <- proof.constant_preparation_before + work;
+        task.resources.initializer_steps <-
+          proof.constant_preparation_before + work;
         match final_value result with
         | None ->
             proof.constant_state <- Failed_initializer;
@@ -8344,3 +12519,95 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
             proof.constant_bits <- Some word.bits;
             proof.constant_state <- Successful_initializer;
             Ok proof)
+
+let begin_task_callback_default task ~namespace receipt =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let source = Sema.Default_fragment.Callback (namespace, receipt) in
+  let rec predecessor = function
+    | None -> true
+    | Some prior -> (
+        match prior.Frontend.Parser.callback_default_ast.value with
+        | Frontend.Ast.Lastclass_default _ ->
+            predecessor prior.callback_default_predecessor
+        | Expression_default _ ->
+            List.exists
+              (fun a ->
+                Sema.Default_fragment.same_source a.default_source
+                  (Callback (namespace, prior))
+                && a.default_state = Successful_initializer)
+              task.defaults)
+  in
+  if
+    (not (source_dimensions_ready task))
+    || (not
+          (Sema.Default_fragment.current_source
+             ~activation:task.source_activation source))
+    || (not (predecessor receipt.callback_default_predecessor))
+    || List.exists
+         (fun a -> Sema.Default_fragment.same_source a.default_source source)
+         task.defaults
+  then
+    Error
+      "anonymous default requires its original active source and successful \
+       predecessor"
+  else
+    let attempt =
+      {
+        default_catalog = task.catalog;
+        default_source = source;
+        default_preparation_before = task.resources.initializer_steps;
+        default_state = Preparing_initializer;
+        default_bits = None;
+        default_value = None;
+        default_native = false;
+        default_native_program = None;
+        default_native_work = None;
+      }
+    in
+    task.defaults <- attempt :: task.defaults;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let complete_task_callback_defaults task ~namespace header =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  if
+    not
+      (Frontend.Parser.callback_signature_completion_is_current header
+      || Sema.Source_activation.callback_default_completion
+           task.source_activation header)
+  then
+    Error "anonymous default completion requires its original source boundary"
+  else
+    let rec collect rev = function
+      | [] ->
+          Integer_globals.publish_callback_defaults task.catalog ~namespace
+            (List.rev rev)
+      | receipt :: rest -> (
+          match receipt.Frontend.Parser.callback_default_ast.value with
+          | Frontend.Ast.Lastclass_default _ -> collect rev rest
+          | Expression_default _ ->
+              let* saved =
+                match
+                  List.find_opt
+                    (fun a ->
+                      Sema.Default_fragment.same_source a.default_source
+                        (Callback (namespace, receipt))
+                      && a.default_state = Successful_initializer)
+                    task.defaults
+                with
+                | Some a when Option.is_some a.default_value ->
+                    Ok (Option.get a.default_value)
+                | _ ->
+                    Error
+                      "anonymous signature requires every successful original \
+                       default"
+              in
+              let* value =
+                Prepared_callback_default.create_value ~namespace ~header
+                  ~receipt ~value:saved
+              in
+              collect (value :: rev) rest)
+    in
+    collect [] header.callback_defaults

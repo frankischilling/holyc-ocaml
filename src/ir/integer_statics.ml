@@ -10,6 +10,7 @@ module Shape = Integer_storage_shape
 module Arrays = Integer_array_initializers
 
 type slot = {
+  source_allocation : Integer_static_allocation.t option;
   index : int;
   frame : Frame.function_layout;
   location : Frame.location;
@@ -26,8 +27,10 @@ let index slot = slot.index
 let frame slot = slot.frame
 let location slot = slot.location
 let shape slot = slot.shape
+let source_allocation slot = slot.source_allocation
 let symbol slot = Frame.location_symbol slot.location
-let type_ slot = Frame.location_checked_type slot.location
+let type_ slot = Frame.location_storage_type slot.location |> Result.get_ok
+let callback_pointer slot = Frame.location_callback_pointer slot.location
 let compiler_options slot = slot.compiler_options
 let opcode slot = slot.opcode
 let initial slot = slot.initial
@@ -40,6 +43,13 @@ let initializers slot =
 
 let initial_bits slot = slot.initial_bits
 
+let root_executed slot root =
+  List.exists (( == ) root) (initializers slot)
+  && Option.fold ~none:false
+       ~some:(fun allocation ->
+         Integer_static_allocation.native_leaf_executed allocation root)
+       slot.source_allocation
+
 let preparation_steps slot =
   slot.preparation_steps
   + Option.fold ~none:0 ~some:Arrays.steps slot.array_initializers
@@ -49,6 +59,36 @@ let materialized slot =
   && not
        (Option.fold ~none:false ~some:Arrays.has_unprepared
           slot.array_initializers)
+
+let with_source_allocation ~allocation ~source slot =
+  let ( let* ) = Result.bind in
+  let* () = Integer_static_allocation.check_completed allocation source in
+  if
+    Sema.Static_local_source.frame source != slot.frame
+    || Sema.Static_local_source.location source != slot.location
+    || Option.is_some slot.source_allocation
+    || Integer_storage_shape.dimensions slot.shape
+       <> Integer_storage_shape.dimensions
+            (Integer_static_allocation.shape allocation)
+    || Integer_storage_shape.byte_size slot.shape
+       <> Integer_storage_shape.byte_size
+            (Integer_static_allocation.shape allocation)
+  then Error "static slot requires its original completed source and shape"
+  else
+    let* () =
+      Integer_static_allocation.check_native_layout allocation
+        (match slot.array_initializers with
+        | None ->
+            List.map (fun root -> (root, 0, 0)) (Option.to_list slot.initial)
+        | Some arrays ->
+            Arrays.entries arrays
+            |> List.map (fun entry ->
+                let destination = Arrays.destination entry in
+                ( Arrays.root entry,
+                  Integer_initializer_layout.cell_offset destination,
+                  Integer_initializer_layout.byte_offset destination )))
+    in
+    Ok { slot with source_allocation = Some allocation }
 
 let ( let* ) = Result.bind
 
@@ -143,18 +183,33 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     | Symbol.Source_location source -> source.span
                     | _ -> span
                   in
+                  let callback =
+                    match Frame.location_callback_pointer location with
+                    | Some pointer
+                      when Frame.location_declarator_shape location
+                           = Frame.Function_pointer
+                           && List.length
+                                (Sema.Function_type_resolution
+                                 .function_pointer_indirection_origins pointer)
+                              = 1 -> Some pointer
+                    | _ -> None
+                  in
+                  let shape_type =
+                    if Option.is_some callback then
+                      Type.make_primitive ~form:Type.Public_spelling
+                        ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+                      |> Result.get_ok
+                    else Frame.location_checked_type location
+                  in
                   let scalar_bytes =
-                    Integer_scalar_storage.public_byte_size
-                      (Frame.location_checked_type location)
+                    Integer_scalar_storage.public_byte_size shape_type
                   in
                   let dimensions =
                     Frame.location_dimensions location
                     |> List.map Frame.dimension_value
                   in
                   let checked_shape =
-                    Shape.create
-                      ~type_:(Frame.location_checked_type location)
-                      ~dimensions
+                    Shape.create ~type_:shape_type ~dimensions
                   in
                   let* shape =
                     match checked_shape with
@@ -174,6 +229,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                        && not
                             (Frame.location_source_dimensions_checked location)
                     || Frame.location_declarator_shape location <> Frame.Object
+                       && Option.is_none callback
                     || (Frame.location_value_shape location
                        <> if dimensions = [] then Frame.Scalar else Frame.Array
                        )
@@ -295,6 +351,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     locals
                       (index + Shape.element_count shape)
                       ({
+                         source_allocation = None;
                          index;
                          frame;
                          location;

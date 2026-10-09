@@ -87,14 +87,19 @@ let check_output report hex bytes work =
   require (report |> member "output_work" |> to_int = work) "output work"
 
 let maintained_example ~target ~mode =
+  let steps = if target = "ir" && mode = "jit" then 38 else 32 in
   let exact =
     json_path ~target ~mode
       ~options:
-        [ "--step-limit=32"; "--output-byte-limit=1"; "--output-work-limit=1" ]
+        [
+          "--step-limit=" ^ string_of_int steps;
+          "--output-byte-limit=1";
+          "--output-work-limit=1";
+        ]
       maintained_fixture
   in
   require (member "outcome" exact = `String "success") "maintained outcome";
-  require (member "executed_steps" exact = `Int 32) "maintained runtime work";
+  require (member "executed_steps" exact = `Int steps) "maintained runtime work";
   require
     (exact |> member "final_value" |> member "bits" |> to_string
    = "0x000000000000002a")
@@ -108,11 +113,14 @@ let maintained_example ~target ~mode =
     "execution engine marker";
   check_output exact "" 0 0;
   let below =
-    json_path ~status:1 ~target ~mode ~options:[ "--step-limit=31" ]
+    json_path ~status:1 ~target ~mode
+      ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
       maintained_fixture
   in
   check_error "HCIRVM0007" below;
-  require (member "executed_steps" below = `Int 31) "one-below runtime work";
+  require
+    (member "executed_steps" below = `Int (steps - 1))
+    "one-below runtime work";
   check_output below "" 0 0
 
 let fault_prefix ~target ~mode =

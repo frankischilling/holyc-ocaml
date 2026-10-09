@@ -321,6 +321,7 @@ let vm_live_phase_authority () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->
@@ -410,6 +411,7 @@ let vm_replayed_phase_authority revoke () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint = Some checkpoint;
     }
   in
@@ -514,6 +516,7 @@ let vm_replayed_header_authority revoke () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint = Some checkpoint;
     }
   in
@@ -661,6 +664,7 @@ let vm_reused_native_cannot_become_another_root () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->
@@ -820,6 +824,7 @@ let vm_tracked_native_cannot_use_legacy_header () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->
@@ -861,7 +866,7 @@ let vm_call_authority replay_failure () =
   if not replay then VM.bind_task_namespace runtime namespace |> checked;
   let admit event snapshot =
     match event with
-    | Parser.Function_position_written _ -> ()
+    | Parser.Function_position_written _ | Parser.Function_return_phase _ -> ()
     | _ ->
         let records, _ = vm_phase_records ~table ~namespace runtime snapshot in
         VM.admit_function_phase runtime ~namespace ~event ~snapshot ~records
@@ -946,6 +951,7 @@ let vm_call_authority replay_failure () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->
@@ -1089,7 +1095,7 @@ let vm_implicit_authority ?(malformed = false) replay_failure () =
   let published = ref None and active = ref None in
   let admit event snapshot =
     match event with
-    | Parser.Function_position_written _ -> ()
+    | Parser.Function_position_written _ | Parser.Function_return_phase _ -> ()
     | Parser.Function_header_completed header ->
         let source =
           CR.declare_function ?activation:!active ~table ~namespace
@@ -1219,6 +1225,7 @@ let vm_implicit_authority ?(malformed = false) replay_failure () =
   let commands =
     {
       (Test_provisional_function_parser.sink declaration) with
+      lexical_lookup = None;
       Parser.checkpoint =
         Some
           (fun event ->

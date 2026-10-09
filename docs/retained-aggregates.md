@@ -6,6 +6,11 @@ parser read, including in a later `#exe` block or a retained function body.
 Replacing the type does not change a size already consumed by an expression.
 This supports metadata queries, not aggregate object execution.
 
+[Runtime member bounds and offsets](runtime-layout-expressions.md) now use their
+original integer JIT expressions in both IR and native tasks. Each intermediate
+size, completed layout and derived bound retains its owning task's successful
+execution dependencies.
+
 `examples/stateful-exe-aggregates.hc` defines a sixteen-byte class and uses its
 size as a member array bound. A retained function returns that array's size.
 A second stream replaces the first class with a one-byte definition; the saved
@@ -98,7 +103,7 @@ ledgers share these writes while keeping their namespaces separate.
 semicolon lookahead. Empty semicolons and consecutive offset directives remain
 inside the current iteration. Anonymous-union return resets it to the enclosing
 layout; final negative padding does not write the cell. Global declarations do
-not change it. Unavailable frame layouts and unnamed callback writes produce
+not change it. Unavailable frame layouts and callback writes without original completed-member receipts produce
 `HCRUN0004` for a later offset read, preserving already reached output. Ordinary `$$` in a called
 function still means an instruction pointer and remains outside VM execution.
 
@@ -140,7 +145,7 @@ execution and source activation cannot import those runtime results as closed
 preparation. Aggregate-valued locals still leave the position unavailable.
 Local member counts are retained without granting callable
 parameter metadata. A resumed header that treats body members as arguments
-remains rejected. Unnamed callback and ordinary AOT record positions remain
+remains rejected. Ordinary instruction-address defaults and ordinary AOT record positions remain
 outside this path.
 
 `holyc run examples/stateful-exe-frame-positions.hc` returns I64 42 in both
@@ -213,21 +218,34 @@ Failed preparation and execution consume their original attempt; later layout
 completion never reevaluates the expression. The authority tests also reject
 substituted typed roots, preparation counts, snapshots and replay.
 
-StreamExePrint nested source uses the same retained task and exact suspended
-parser authority. It can publish declarations into that task, but it does not
-create independent aggregate-layout authority. Existing size, position and
-runtime-offset dependencies still require their original parser and execution
-receipts before a later nested source can consume them.
+StreamExePrint nested source selects the original saved compiler namespace at
+its exact directive suspension. JIT source uses the retained task; AOT source
+reuses the enclosing declaration ledger and original completed type metadata.
+A child can derive from an enclosing class and publish a type visible to later
+child calls and outer parsing. Same-name directive-only types cannot substitute
+for that selection. Existing size, position and runtime-offset dependencies
+still require their original parser and execution receipts. This bridge grants
+no aggregate object storage, original AOT runtime relocation or compiler-local
+frame metadata.
 
 ## Remaining work
 
 Runtime offsets before ordinary JIT source activation, ordinary AOT runtime
 offset relocation, shared position writes before a later `$$` read and runtime F64
 values still require separate support. Inheritance, aggregate-valued members,
-callbacks, member metadata, attached storage and general runtime-dependent member bounds remain outside
+stored callback invocation, member metadata, attached storage and general runtime-dependent member bounds remain outside
 retained layout execution. Native extern-record reuse still needs its own
 phase-aware admission. The supported partial sizes do not establish those
 dependent layouts, member lookup or aggregate object storage.
 
 The source gates and receipt tests are hosted observations. No new native
 TempleOS capture was made; native/BIN/loader execution and bootstrap remain open.
+
+Class callback members now retain their exact completed anonymous header for
+eight-byte layout, independently of return class. Their original defaults run
+once during declaration. A default $$ node captures the class-offset selector
+along with its lexical write; outside class/union bodies, PrsExp selects an
+instruction address instead. Nested signatures leave their last class position
+write current. Retained JIT calls and effects can consume that integer during
+default evaluation; AOT supports closed constants. This metadata and declaration
+consumer does not authorize calls through stored class callback members.

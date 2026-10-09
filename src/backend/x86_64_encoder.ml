@@ -21,6 +21,7 @@ type instruction =
   | Load_stack of register * stack_slot
   | Store_stack of stack_slot * register
   | Address_stack of register * stack_slot
+  | Address_code_relative of register * int64
   | Alloc_stack of stack_frame
   | Free_stack of stack_frame
   | Push_rbp
@@ -46,6 +47,7 @@ type instruction =
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
   | Call of int64
+  | Call_stack of stack_slot
   | Pop_rbp
   | Unary of unary * register
   | Binary of binary * register * register
@@ -55,6 +57,8 @@ type instruction =
   | Shift_cl of shift * register
   | Shift_immediate of shift * register * int64
   | Capture_status of status_abi
+  | Source_arguments of status_abi
+  | Compiler_option_arguments of status_abi
   | Zero_edx
   | Cqo
   | Div_rcx
@@ -174,6 +178,7 @@ let movzx_load16 = source_form "MOVZX" 895
 let push_register = source_form "PUSH" 227
 let pop_register = source_form "POP" 243
 let call_relative = source_form "CALL" 571
+let call_indirect = source_form "CALL" 573
 let add_immediate = source_form "ADD" 322
 let subtract_immediate = source_form "SUB" 437
 let negate = source_form "NEG" 680
@@ -272,7 +277,7 @@ let form = function
   | Mov _ -> mov_register
   | Load_stack _ -> mov_load
   | Store_stack _ -> mov_store
-  | Address_stack _ -> load_address
+  | Address_stack _ | Address_code_relative _ -> load_address
   | Alloc_stack _ -> subtract_immediate
   | Free_stack _ -> add_immediate
   | Push_rbp -> push_register
@@ -296,6 +301,7 @@ let form = function
   | Alloc_call_frame _ -> subtract_immediate
   | Free_call_frame _ -> add_immediate
   | Call _ -> call_relative
+  | Call_stack _ -> call_indirect
   | Pop_rbp -> pop_register
   | Unary (Neg, _) -> negate
   | Unary (Not, _) -> complement
@@ -313,7 +319,8 @@ let form = function
   | Binary (Xor, _, _) -> bitwise_xor
   | Shift_cl (shift, _) -> shift_form shift
   | Shift_immediate (shift, _, count) -> immediate_shift_form shift count
-  | Capture_status _ -> mov_register
+  | Capture_status _ | Source_arguments _ | Compiler_option_arguments _ ->
+      mov_register
   | Zero_edx -> zero_register32
   | Cqo -> sign_extend_rax
   | Div_rcx -> divide
@@ -346,11 +353,12 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_read_offset offset =
-  offset >= 0 && offset <= 104 && offset mod 8 = 0
+  offset >= 0 && offset <= 184 && offset mod 8 = 0
 
 let valid_context_write_offset offset =
   (offset >= 0 && offset <= 64 && offset mod 8 = 0)
-  || offset = 88 || offset = 96 || offset = 104
+  || offset = 88 || offset = 96 || offset = 104 || offset = 120 || offset = 128
+  || offset = 160
 
 let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24
@@ -377,6 +385,7 @@ let validate = function
   | Jump_less displacement
   | Jump_overflow displacement
   | Call displacement
+  | Address_code_relative (_, displacement)
     when not (signed_rel32 displacement) ->
       invalid_arg "relative branch displacement must fit signed 32 bits"
   | Store_status_kind kind when kind < 1 || kind > 2 ->
@@ -385,16 +394,16 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | Load_context (_, offset) when not (valid_context_read_offset offset) ->
       invalid_arg
-        "private context read offset must be aligned from 0 through 104"
+        "private context read offset must be aligned from 0 through 184"
   | Store_context (offset, _) when not (valid_context_write_offset offset) ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96 or 104"
+         88, 96, 104, 120, 128 or 160"
   | Store_context_imm (offset, _) when not (valid_context_write_offset offset)
     ->
       invalid_arg
         "private context write offset must be aligned from 0 through 64, or \
-         88, 96 or 104"
+         88, 96, 104, 120, 128 or 160"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
@@ -405,6 +414,7 @@ let size instruction =
   match instruction with
   | Mov_imm64 _ -> opcode_bytes + 1 + 8
   | Load_stack _ | Store_stack _ | Address_stack _ -> 8
+  | Address_code_relative _ | Call_stack _ -> 7
   | Alloc_stack _ | Free_stack _ -> 7
   | Push_rbp | Pop_rbp -> 1
   | Mov_rbp_rsp -> 3
@@ -429,7 +439,9 @@ let size instruction =
   | Store_arena_narrow (_, (Frame8 | Frame32), _) -> 7
   | Alloc_call_frame _ | Free_call_frame _ -> 7
   | Call _ -> 5
-  | Capture_status _ | Div_rcx | Idiv_rcx -> 3
+  | Capture_status _ | Source_arguments _ | Div_rcx | Idiv_rcx -> 3
+  | Compiler_option_arguments Windows_x64 -> 3
+  | Compiler_option_arguments System_v_x64 -> 9
   | Zero_edx | Cqo -> 2
   | Cmp_imm8 _ -> 4
   | Jump _ -> 5
@@ -439,8 +451,9 @@ let size instruction =
   | Jump_less _
   | Jump_overflow _ -> 6
   | Store_status_kind _ | Store_status_site _ -> 8
-  | Load_context _ | Store_context _ -> 4
-  | Store_context_imm _ -> 8
+  | Load_context (_, offset) | Store_context (offset, _) ->
+      if offset <= 127 then 4 else 7
+  | Store_context_imm (offset, _) -> if offset <= 127 then 8 else 11
   | Dec _ -> 3
   | Shift_immediate (_, _, count) ->
       opcode_bytes + 2 + if count = 1L then 0 else 1
@@ -503,6 +516,12 @@ let write buffer position instruction =
       done
   | Mov (destination, source) ->
       modrm ~reg:(register_number source) ~rm:(register_number destination)
+  | Address_code_relative (destination, displacement) ->
+      let destination = register_number destination in
+      byte (0x48 lor ((destination land 8) lsr 1));
+      opcodes ();
+      byte (0x05 lor ((destination land 7) lsl 3));
+      imm32_int64 displacement
   | Load_stack (destination, slot) | Address_stack (destination, slot) ->
       let destination = register_number destination in
       (* Fixed disp32 SIB form: RSP cannot be the ModR/M base without a SIB.
@@ -651,6 +670,12 @@ let write buffer position instruction =
   | Call displacement ->
       opcodes ();
       imm32_int64 displacement
+  | Call_stack slot ->
+      (* CALL RM64 is implicitly a qword; no REX.W prefix is needed. *)
+      opcodes ();
+      byte (0x84 lor (selected.slash_value lsl 3));
+      byte 0x24;
+      imm32 slot.offset
   | Pop_rbp ->
       List.iter (fun opcode -> byte (opcode lor 5)) selected.opcode_bytes
   | Unary (_, destination) ->
@@ -683,6 +708,33 @@ let write buffer position instruction =
         (match abi with
         | Windows_x64 -> 0xcb
         | System_v_x64 -> 0xfb)
+  | Source_arguments abi ->
+      (* Reverse the context capture into the host's first pointer argument.
+         RDI remains outside the allocator and is only written for System V. *)
+      byte 0x4c;
+      opcodes ();
+      byte
+        (match abi with
+        | Windows_x64 -> 0xd9
+        | System_v_x64 -> 0xdf)
+  | Compiler_option_arguments abi ->
+      (* Index and operation are staged in RDX and R8. System V also needs
+         RSI, which is outside the allocator, for its second argument. *)
+      (match abi with
+      | Windows_x64 -> ()
+      | System_v_x64 ->
+          byte 0x48;
+          opcodes ();
+          byte 0xd6;
+          byte 0x4c;
+          opcodes ();
+          byte 0xc2);
+      byte 0x4c;
+      opcodes ();
+      byte
+        (match abi with
+        | Windows_x64 -> 0xd9
+        | System_v_x64 -> 0xdf)
   | Zero_edx ->
       (* BackLib.HC:404-411 uses XOR r32,r32 to zero the complete register. *)
       opcodes ();
@@ -725,26 +777,30 @@ let write buffer position instruction =
       imm32 immediate
   | Load_context (destination, displacement) ->
       let destination = register_number destination in
-      (* MOV r64,[R11+disp8]. R11 requires REX.B; REX.R carries the high
-         destination bit. Every admitted context field fits signed disp8. *)
+      (* R11 requires REX.B; REX.R carries the high destination bit. Generation
+         fields beyond signed disp8 use the ordinary disp32 memory form. *)
       byte (0x49 lor ((destination land 8) lsr 1));
       opcodes ();
-      byte (0x43 lor ((destination land 7) lsl 3));
-      byte displacement
+      byte
+        ((if displacement <= 127 then 0x43 else 0x83)
+        lor ((destination land 7) lsl 3));
+      if displacement <= 127 then byte displacement else imm32 displacement
   | Store_context (displacement, source) ->
       let source = register_number source in
       (* MOV [R11+disp8],r64. R11 requires REX.B; REX.R carries the high source
          bit. *)
       byte (0x49 lor ((source land 8) lsr 1));
       opcodes ();
-      byte (0x43 lor ((source land 7) lsl 3));
-      byte displacement
+      byte
+        ((if displacement <= 127 then 0x43 else 0x83)
+        lor ((source land 7) lsl 3));
+      if displacement <= 127 then byte displacement else imm32 displacement
   | Store_context_imm (displacement, immediate) ->
       (* MOV qword ptr [R11+disp8],imm32. *)
       byte 0x49;
       opcodes ();
-      byte 0x43;
-      byte displacement;
+      byte (if displacement <= 127 then 0x43 else 0x83);
+      if displacement <= 127 then byte displacement else imm32 displacement;
       imm32 immediate
   | Dec register ->
       let register = register_number register in

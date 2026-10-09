@@ -1,5 +1,176 @@
 # Reference source map
 
+Owned expression cleanup follows `Compiler/PrsExp.HC:264-303`: push two
+terminators, catch Compiler, then issue another `LexExcept` if the owned stack
+is still nonempty. The missing-operand producer is at line 957. Original type
+selection after `(` and the grouped close check are at `729-744`; lexer local
+shadows suppress hash lookup at `Lex.HC:493-513`. These producers retain the
+current token and original argument phase before owned cleanup. Ordinary nested
+calls borrow the outer stack; implicit calls pass NULL at `PrsStmt.HC:1202`,
+so each required argument owns its stack. `PrsExp.HC:430-536` determines required
+and saved-default traversal. Original selected named headers at `862-866`
+supply AOT grammar without replacing native argument captures. Parser receipts
+retain the exact cause and current token; saved-input catch preflight checks
+the original argument phase and abort chain. See
+[compiler exceptions](compiler-exceptions.md) for source tests and the remaining
+type-check, exception and terminal boundaries. These are hosted observations,
+with no new TempleOS runtime capture.
+
+Native AOT orchestration follows `Compiler/PrsStmt.HC:805-840`: switch `#exe`
+to task tables and JIT flags, hide surrounding locals, restore the original
+context, then inject the committed stream. `Compiler/Lex.HC:1031-1035` selects
+that path and `Compiler/CMisc.HC:68-81` supplies formatting and append order.
+Separate synchronous StreamExePrint execution remains grounded in
+`Compiler/CMain.HC:673-690`. See [native AOT sessions](native-aot-source-sessions.md).
+
+Inherited size metadata follows `Compiler/PrsStmt.HC:46-57`: select the original
+base entry before following lookahead, then attach it and copy its reached size
+before opening-brace validation. `Compiler/PrsVar.HC:408,660-721` keeps the root
+union base at zero and applies original member sizes, offsets and padding.
+Opaque source proofs retain canonical forward identity and runtime dependencies.
+See [inherited layouts](source-inherited-layouts.md).
+
+Runtime layout expressions follow `Compiler/PrsVar.HC:247-283` bound execution before bracket validation, `PrsVar.HC:408-449` offset execution before semicolon validation, and `PrsVar.HC:660-721` member placement and completed layout. IR and native tasks retain original receipts, counts and dependencies. Their ownership and resource guards are hosted policy; this connection adds no TempleOS runtime capture. See [runtime layout expressions](runtime-layout-expressions.md).
+
+Live internal bindings follow `Compiler/PrsStmt.HC:1055-1061`: evaluate the
+target through LexExpressionI64 before validating the type. The original header
+then installs `exe_addr`, sets `Ff_INTERNAL` and clears `Cf_EXTERN` at
+`PrsStmt.HC:244-249`. `Compiler/PrsExp.HC:1116-1154` compiles and calls that
+expression; its floating-to-integer branch remains open here. The IR and native
+JIT task paths preserve these phases and require their original source result.
+See [live internal bindings](native-internal-bindings.md).
+
+Saved data-pointer defaults follow `Compiler/PrsVar.HC:629-656`: clear the
+miscellaneous-data flag, compile/call the original expression, copy its resulting
+string with `StrNew` when that flag was set, and retain the member's saved
+default. `PrsExp.HC:457-469` consumes that original member during omitted
+arguments and keeps AOT string emission separate. The checked default
+destination, saved value, task interpreter, append-only native descriptor and
+runtime capture connect this behavior to primitive owned objects and views.
+Bounds, byte initialization and work limits are hosted policy. See
+[saved data defaults](data-pointer-defaults.md); no new TempleOS runtime capture
+is claimed.
+
+Native scalar and array source tasks follow `Compiler/PrsVar.HC:53-107`, which
+compiles and calls each initializer expression before storing its declared-width result.
+`PrsVar.HC:123-212` follows original dimensions and visits fixed-count array
+leaves in order. `PrsExp.HC:1068-1100` scales subscripts by the remaining stride
+and original element width. The checked hosted layout retains these dimensions
+and the exact original storage identity, with independent flags for each element.
+`Compiler/CMain.HC:1-32` compiles the original statement and returns its final
+expression. The hosted driver admits each original live request, and separate
+native fragments share one append-only arena. Retained references, destination
+storage and initialization flags keep their original identities. Arena ownership
+and cumulative resource limits are hosted policy; no new TempleOS capture is
+claimed. See [native source tasks](native-source-tasks.md).
+
+Native task function statics follow `Compiler/PrsVar.HC:534-589` for the original
+private allocation and `PrsVar.HC:215-244` for `PrsStaticInit`'s call into the
+shared leaf traversal. The source driver retains the original partial-header
+symbol, local token selection, dimensions and static-specific destination.
+The backend appends padded data and per-element flags to the existing arena,
+then executes each original initializer leaf before body completion. Completed
+frame joins preserve that allocation for historical calls. Hosted source tests
+and `examples/native-source-statics.hc` cover this connection; they add no new
+TempleOS capture.
+
+Native static literal copies follow `Compiler/PrsVar.HC:123-145` and
+`Kernel/KUtils.HC:54-68`. That parser branch directly copies the fixed byte
+count and advances the destination. Its original live receipt authorizes the
+hosted native storage write, without adding an expression opcode. Literal
+length, accessible bounds, flags, single-use ownership and work limits are
+checked before writing. `examples/native-source-static-copies.hc` exercises this
+path across retained calls and later storage growth.
+
+Retained direct native calls follow `Compiler/PrsStmt.HC:62-137` for original
+function records and `PrsStmt.HC:140-207` for body compilation and publication.
+The hosted task admits the exact checked definition, physical frame and call
+context at its original declaration request. Later callers compile those
+retained bodies with their original global references. A same-name replacement
+does not retarget an already selected direct call. This hosted code-lifetime
+policy supplies no persistent function address or new TempleOS capture.
+
+Retained native source output connects the original `PrsExp.HC:544-586` call
+occurrence to the admitted body's runtime context and extern link.
+`Kernel/KeyDev.HC:20-27` supplies packed PutChars iteration;
+`Kernel/StrPrint.HC:890-896` publishes Print's completed buffer. The existing
+hosted providers supply checked array reads and output limits. A joined native
+source body disables earlier provider fallback. See
+`examples/native-source-output.hc` and the native source-function tests.
+
+Task literals follow `Compiler/PrsExp.HC:692-697`, which creates an original
+`CMT_STR_CONST` object, emits internal U8-pointer `IC_STR_CONST`, and retains the
+combined bytes from `LexExtStr`. `OptPass789A.HC:296-304` addresses that original
+object within the generated image. The hosted task layout retains the original
+sealed producer, graph and runtime context while appending stable byte and
+reference-table regions to its shared arena. Initial payloads are copied only
+when the new suffix is admitted; later fragments keep any mutation. These
+memory and quota checks are hosted policy. No new TempleOS oracle was captured.
+
+Explicit indexed callback dereferences follow the pending-operator stack in
+`Compiler/PrsExp.HC:609-676`, callback selection at lines 761-770 and 867-904,
+and `PrsLib.HC:21-29`. The callback selection removes one pending star before
+the brackets at `PrsExp.HC:1071-1100` evaluate their indices and restore
+`CCF_FUN_EXP`; the call then enters `PrsFunCall` at lines 1016-1020. Grouped
+`PrsExpression` calls push terminators at lines 264-280. One structural view
+retains the original prefix/index tree for binding and typing; the checked
+operand must still be the original fully indexed callback cell. Lowering reuses
+its existing load/address and adds no instruction for the canceled star. This
+is compiler-source evidence with no new oracle capture. See
+[native callback cells](native-local-callbacks.md).
+
+Arithmetic consuming a numeric callback update preserves two classes.
+`PrsExp.HC:15-48,223-240` uses the original pointer class for eight-byte scaling
+across addition and subtraction. `OptLib.HC:96-179` and
+`OptPass012.HC:485-486,619-620` select the resulting raw integer class, including
+U64 promotion. The semantic result retains the original update operand and
+source type while exposing that computation class to lowering and later
+comparisons and shifts. Bare callback reads do not acquire numeric ownership
+through this view.
+
+Numeric callback updates follow the separate RT_PTR storage selected in
+`Compiler/PrsVar.HC:350-357`, its signed RT_I64 identity in
+`Kernel/KernelA.HH:1572-1574`, `PrsExp.HC:15-63` for scaled compound addition
+and subtraction, and `BackB.HC:304-380` for prefix/postfix pointee-size steps.
+`OptPass012.HC:824-895` retains the left storage class for compound operations.
+IR and native execution preserve the original cell, evaluate the right operand
+before reading its old contents, and distinguish numeric words from executable
+owners. The hosted owned-address fault is a remaining execution boundary; this
+change adds no TempleOS capture. See [numeric callback updates](callback-updates.md).
+
+Native callback storage follows `Compiler/PrsVar.HC:350-357`: `PrsFunJoin`
+keeps the declared return type in the anonymous header, then the declarator
+switches to internal RT_PTR storage. Return-pointer layers therefore do not
+count as additional callback indirections. Native local/static source admission
+uses that distinction before checked eight-byte storage and owner transfer.
+See [native callback storage](native-local-callbacks.md).
+
+Native retained-image lifetime work uses `Compiler/PrsStmt.HC:150-194` as the
+source-owned function-code context and `Kernel/KTask.HC:251-264` for task-owned
+code/data heaps. The hosted API keeps the original sealed image and private
+arena across activations, with OS mappings and unwind registration owned by the
+host bridge. The source-task path adds original JIT parser-time scheduling,
+shared data and direct calls compiled from retained source. Persistent function
+addresses and broader source-task admission remain open. See
+[retained native images](native-retained-images.md).
+Closed entries retain their original frameless or RSP spill convention alongside
+callable saved-RBP frames, with separate exact stack and unwind checks.
+The retained API also charges shared host instruction and output allowances
+across activations. Those resource bounds are hosted policy. They preserve
+original generated guards and fault sites without claiming TempleOS scheduling
+or linkage between images.
+
+Issue #801 follows `Compiler/PrsStmt.HC:67-143` for AOT function-record reuse
+and stored cleanup flags, `PrsStmt.HC:140-207` for separate body emission, and
+`PrsExp.HC:621-654` for the function address selected at each source occurrence.
+Public IR keeps each original checked body, frame and declaration while allowing
+their shared physical canonical callable record. Native and CLI comparisons
+cover earlier and later calls, defaults, parameter counts, recursion and static
+storage. Reused AOT records retain their earlier cleanup flags; disagreeing
+callback headers still fault after reached argument effects. These checks add
+no TempleOS AOT capture, exported ABI or live native linking proof. See
+[global callback initializers](global-callback-initializers.md).
+
 Issue #797 follows `PrsExp.HC:49-52,225-230` for shared comparison operands and
 `OptPass012.HC:141-150,809-822` for their cumulative computation classes.
 `OptPass4.HC:516-527` marks comparison branch destinations for stack cleanup;
@@ -322,13 +493,29 @@ the same retained task. Journaling, single-use authority, quota checks and
 separate compiled-unit inspection are hosted implementation controls. They do
 not establish native execution equivalence beyond the audited source behavior.
 
-`Compiler/CMain.HC:673-688` defines StreamExePrint as formatted source execution
+`Compiler/CMain.HC:673-690` defines StreamExePrint as formatted source execution
 through `ExePutS` with `cc->htc.next`, and `Compiler/CompilerB.HH:21` publishes
-its variadic I64 signature. The hosted AOT service executes a separately tracked
-`<StreamExePrint>` source through the retained outer task context with function
-locals hidden. The nested parser keeps the existing suspension and command-order
-ownership checks. JIT retains the source ordering in which formatting happens
-before the compiled-`#exe` requirement is rejected.
+its variadic I64 signature. `Compiler/PrsStmt.HC:805-840` sets `CCF_EXE_BLK`
+unconditionally for both outer modes. The service checks that bit after
+formatting, despite the AOT wording in its diagnostic. `ExePutS` at
+`Compiler/CMain.HC:572-604` copies the saved tables but inherits only the assembly
+flag, so ordinary child source has no active-block permission.
+
+`Kernel/KTask.HC:302-357` supplies the child command loop: it compiles and
+executes reached commands in order, retaining earlier effects when a later
+command fails. The IR service tracks `<StreamExePrint>` separately and uses the
+saved enclosing compiler's original namespace, declaration ledger and completed
+metadata in both modes. Reached child declarations publish there. The exact
+live suspension, unchanged ancestor position, source manager, symbol environment
+and domain authorize child parsing; copied or expired evidence cannot do so.
+The saved compiler's lexical local shadows survive the directive's switch to
+task tables. Unsupported compiler-local metadata and original pending AOT
+runtime imports remain checked boundaries. Distinct storage catalogs share one
+resource owner, including the suspended caller's live frame and call depth.
+Native synchronous execution uses the exact physical C scope and original
+cumulative budget to enter child requests while the caller is suspended.
+Actual child usage is joined before the caller resumes; ordinary entry and
+release guards remain active. See [native streams](native-stream-generation.md).
 
 [Partial task storage](integer-task.md) follows the pinned
 `Compiler/PrsStmt.HC:334-435` allocation and publication path. Global storage
@@ -792,7 +979,7 @@ When `cc->htc.fun` is active, `Compiler/PrsStmt.HC:PrsStmt` routes a known `HTT_
 
 `Compiler/PrsVar.HC:215-240` defines `PrsStaticInit`; lines 534-589 call it for static locals, while lines 590-618 call `PrsExpression` for automatic locals. Direct pinned examples are `Adam/WinMgr.HC:38`, `Demo/GlblVars.HC:21-25`, and `Demo/GlblVars.HC:62-66`. A line-start scan found exactly those three braced forms among 21 static declarations in the intended Compiler, Kernel, Adam, and Demo `.HC` and `.HH` set. That scan records direct evidence rather than a complete grammar census. The parser shares the recursive initial-value node with globals, preserves the existing scalar dump schema, and uses `HCPARSE0138` through `HCPARSE0141` for malformed static trees. The fixed hosted nesting limit is 256. Brace-aware recovery leaves the following declaration available. No native oracle is needed for this syntax boundary because the two source branches name their parser routines directly.
 
-`Compiler/PrsVar.HC:408-524` passes the callback metadata returned by the shared `PrsType` path into the local member, then sets `MLF_FUN`. Its automatic-storage and initializer work is at lines 590-618, and its comma restart and termination are at lines 691-714. The OCaml local declarator therefore reuses `Frontend.Ast.function_pointer_declarator`, including outer return pointers, one through four callback indirections, recursive parameters, defaults, varargs, arrays, register requests on automatic declarations, and source provenance. The accepted name is published as a function-local variable before the next token is requested. That local shadows class and direct-function syntax without becoming a directly callable function entry. The two directly audited automatic declarations are `Demo/Games/Stadium/StadiumGen.HC:5` and `Demo/Graphics/Grid.HC:13`; this is evidence for those lines, not an exhaustive grammar census. No static callback local was found in the pinned corpus, so static syntax is covered through the shared source path without a corpus claim. `HCPARSE0135` reports malformed punctuation, `HCPARSE0136` reports a missing name, and `HCPARSE0137` rejects direct callback initialization at the boundary documented by the `Grid.HC` comment. Both pinned examples assign their callbacks later. Semantic function-pointer construction and typed indirect-call checking are implemented for parameter, automatic, and static callback values. Storage, callback value reads, lowering, and execution remain pending.
+`Compiler/PrsVar.HC:408-524` passes the callback metadata returned by the shared `PrsType` path into the local member, then sets `MLF_FUN`. Its automatic-storage and initializer work is at lines 590-618, and its comma restart and termination are at lines 691-714. The OCaml local declarator therefore reuses `Frontend.Ast.function_pointer_declarator`, including outer return pointers, one through four callback indirections, recursive parameters, defaults, varargs, arrays, register requests on automatic declarations, and source provenance. The accepted name is published as a function-local variable before the next token is requested. That local shadows class and direct-function syntax without becoming a directly callable function entry. The two directly audited automatic declarations are `Demo/Games/Stadium/StadiumGen.HC:5` and `Demo/Graphics/Grid.HC:13`; this is evidence for those lines, not an exhaustive grammar census. No static callback local was found in the pinned corpus, so static syntax is covered through the shared source path without a corpus claim. `HCPARSE0135` reports malformed punctuation, `HCPARSE0136` reports a missing name, and `HCPARSE0137` rejects direct callback initialization at the boundary documented by the `Grid.HC` comment. Both pinned examples assign their callbacks later. The automatic initializer branch restores the lexer state saved before the declarator at `PrsVar.HC:488-489`, then parses the declarator and assignment as an expression at lines 607-612. It does not parse a separate callback initializer. `PrsExp.HC:728-748` handles the parenthesized expression and lines 1016-1029 handle its following parentheses as a callback call or postfix typecast. The permissive ordinary-local branch therefore does not contradict the explicit restriction in `Grid.HC:13`. Semantic function-pointer construction and typed indirect-call checking are implemented for parameter, automatic, and static callback values. Storage, callback value reads, lowering, and execution remain pending.
 
 `Compiler/PrsVar.HC:PrsType` first consumes zero through four return pointer stars. Its function-pointer branch then requires `(`, one through four more stars, an optional identifier in function-argument mode, `)`, and a signature opening parenthesis. It calls `PrsFunJoin` with a null name and stores the resulting metadata through `CMemberLst.fun_ptr`; `PrsVarLst` marks that member with `MLF_FUN`. Since `PrsFunJoin` calls `PrsVarLst` again, function-pointer parameters may nest. Pinned examples include `Kernel/QSort.HC:1`, `Kernel/KernelB.HH:49-53`, and `Kernel/KernelC.HH:17-22, 517, and 603-605`. `Frontend.Ast.function_pointer_declarator` keeps the two pointer depths distinct and recursively records signature parameters. A hosted depth limit of 32 rejects deliberately nested denial-of-service input with `HCPARSE0017`; this limit is not a TempleOS language rule.
 
@@ -868,9 +1055,9 @@ The `KW_BREAK` branch in `Compiler/PrsStmt.HC:PrsStmt` consumes the keyword, rej
 
 The OCaml AST implements the syntax boundary as a distinct `Break_statement` with the keyword, an optional semicolon, and a combined location. Comma-linked breaks and `for` updates keep the semicolon absent. The parser accepts the node in all current statement contexts and defers the source `lb_break` requirement to semantic control-flow validation. `HCPARSE0072` reports an invalid active terminator, and recovery preserves an enclosing block close. Unit tests cover both compile modes, loops, conditionals, boundary variants, includes, definitions, deterministic dumps, and invalid input. Target resolution and checked jump creation are implemented separately; block placement, complete control-flow lowering, and execution remain pending.
 
-The `KW_RETURN` branch in `Compiler/PrsStmt.HC:PrsStmt` rejects a missing `cc->htc.fun`, emits a `SysUntry` call for each active `try`, and uses an immediate semicolon to distinguish a valueless return from one that must parse an expression. A value produces `IC_RETURN_VAL` using the function return class. Both forms set `CCF_HAS_RETURN`, jump to `cc->lb_leave`, and enter `sm_semicolon`. That shared boundary accepts `;` or a comma when semicolon checking is enabled and accepts the caller boundary unchanged when it is disabled. `Compiler/CompilerA.HH` assigns `KW_RETURN` value 12. `Compiler/BackC.HC` contains valueless returns, `Kernel/FunSeg.HC` contains early returned values, and `Doc/HolyC.DD` documents `return res;`.
+The `KW_RETURN` branch in `Compiler/PrsStmt.HC:PrsStmt` rejects a missing `cc->htc.fun`, emits a `SysUntry` call for each active `try`, and uses an immediate semicolon to distinguish a valueless return from one that must parse an expression. A value in a zero-size return function warns before expression parsing. A successfully parsed value produces `IC_RETURN_VAL` using the current function return class and sets `CCF_HAS_RETURN`. A bare return in a nonzero-size function warns but does not set that flag. Both forms jump to `cc->lb_leave` and enter `sm_semicolon`. That shared boundary accepts `;` or a comma when semicolon checking is enabled and accepts the caller boundary unchanged when it is disabled. `PrsFun` clears the flag before its body, then warns for a nonzero-size return class with the flag clear after `PrsStmt`, before leave emission and compilation. `Compiler/CompilerA.HH` assigns `KW_RETURN` value 12. `Compiler/BackC.HC` contains valueless returns, `Kernel/FunSeg.HC` contains early returned values, and `Doc/HolyC.DD` documents `return res;`.
 
-The OCaml AST represents this syntax with a `Return_statement` containing the keyword, optional expression, optional semicolon, and combined location. An immediate semicolon is the only valueless form. A value may end at a semicolon, statement comma, or semicolon-free `for` update boundary. `HCPARSE0073` reports a bad boundary after a value, and `HCPARSE0074` reports a missing value without consuming an enclosing block close. Tests cover JIT and AOT parsing, each current recursive statement context, comma and update boundaries, expression precedence and postfix forms, include and definition provenance, deterministic dumps, and malformed input. Function-context and return-type checks, try unwinding, function flags, leave-label resolution, IR lowering, and execution remain pending.
+The OCaml AST represents this syntax with a `Return_statement` containing the keyword, optional expression, optional semicolon, and combined location. An immediate semicolon is the only valueless form. A value may end at a semicolon, statement comma, or semicolon-free `for` update boundary. `HCPARSE0073` reports a bad boundary after a value, and `HCPARSE0074` reports a missing value without consuming an enclosing block close. Tests cover JIT and AOT parsing, each current recursive statement context, comma and update boundaries, expression precedence and postfix forms, include and definition provenance, deterministic dumps, and malformed input. The AST syntax boundary supplies no executable authority. The bounded source pipeline now retains the original return-warning phases and shared native flag, as described in [compiler warnings](compiler-warnings.md#return-warnings). Checked return IR and supported integer/U0 execution are separate downstream paths. Full native function pointers, error interruption and selected SysUntry calls remain required.
 
 The `KW_GOTO` branch in `Compiler/PrsStmt.HC:PrsStmt` requires `TK_IDENT`, finds or creates a `CMT_GOTO_LABEL`, increments its use count, emits `IC_JMP`, and enters `sm_semicolon`. The unresolved-identifier path leaves a local variable on the expression route; otherwise it finds or creates the same record, rejects `CMF_DEFINED`, marks the record defined, emits `IC_LABEL`, and requires a colon. It also rejects a missing current function. `Compiler/PrsLib.HC:COCGoToLabelFind` searches language and assembly labels in the current code-control list, while `COCDel` reports unresolved records and warns about unused definitions. `Compiler/CompilerA.HH` assigns `KW_GOTO` value 17. `Compiler/UAsm.HC` and `Kernel/Job.HC` supply representative forward jumps and shared completion labels. `Doc/HolyC.DD` recommends `goto` because the language has no `continue`, and `Doc/ScopingLinkage.DD` records function scope plus global-object collision behavior.
 
@@ -1652,3 +1839,145 @@ fields twice and three function listings through their first return. Source
 shift planning preserves the checked public form until the operation's own
 class rule applies. The maintained example returns 42 in both source modes and
 execution targets.
+
+## Top-level callback execution
+
+`Compiler/PrsExp.HC:383-588` applies `PrsFunCall` to indirect calls before it
+pushes the argument compilation streams. Lines 420-425 load and capture the
+callee as internal `RT_PTR`; the remaining loop retains saved defaults, reverse
+arguments, hidden argc and the anonymous header's cleanup. The scalar and
+indexed global paths use the header selected by `PrsType` and `PrsGlblVarLst`
+(`PrsVar.HC:285-369`, `PrsStmt.HC:403-407`). `OptPass789A.HC:723-732` emits
+`CALL disp[RSP]` for the retained indirect-call argument-byte displacement.
+
+The IR source runner now consumes original typed top-level callback records
+through `Ir.Callback_source` and the shared call composer. The runtime context
+checks exact batch membership and the executable expression subtree, then seals
+the callee load, arguments, cleanup and complete graph. Invocation-signature
+metadata is distinct from storage and result types and provides no execution
+authority on its own. `test_global_callback_cli.ml` compares global and indexed
+call words with the existing fixture's two native JIT repeats. The global
+projection substitutes an explicit store for its native initializer. Hosted
+AOT replay, resource limits and graph rejection remain separate from native
+AOT or callback emission. See [global callbacks](global-callbacks.md).
+
+`Compiler/PrsVar.HC:50-115` separates nonconstant AOT initialization from
+closed preparation. It zeroes the destination and emits a load-time assignment;
+`PrsVarInit2` at lines 132-205 traverses each array destination. The native
+consumer now retains original AOT leaf and destination receipts and joins them
+to the exact existing load regions and callable bundle. Generated code executes
+checked addresses, copies and supported direct or indirect calls against that
+storage. Calls, output and faults use runtime work; closed leaves and saved
+defaults retain preparation work. Private parser start, leaf and delimiter
+identity also requires the top active source context. Cloned or suspended
+receipts cannot authorize preparation. The maintained AOT example returns 42,
+prints A and uses 86 runtime steps, three preparation steps and 24 global bytes.
+Both ABI images compile; native execution uses the host ABI. Native JIT
+reference-bearing initialization still needs execution at the original parser
+callback. This source audit and hosted test add no TempleOS AOT capture or
+exported ABI/loader proof. See [global callback initializers](global-callback-initializers.md).
+
+## Canceled callback identifier dereferences
+
+`Compiler/PrsLib.HC:21-29` removes exactly one pending `IC_DEREF` when
+`PrsExp.HC:761-770,899-903` selects a local or global callback identifier.
+`PrsExp.HC:264-277,728-747` starts a separate expression stack inside parentheses.
+`Kernel/QSort.HC:16,18` and `Kernel/KTask.HC:295,497` consume this rule through
+explicit `(*callback)(...)` calls.
+
+The semantic result retains the exact identifier operand and anonymous header.
+The existing expression lowerer aliases that result to the original cell load;
+runtime call validation follows the same producer origin. Function, top-level
+and retained-outer calls keep the original signature, callee snapshot and
+argument order. Ordinary and native tests cover storage, default selection,
+fault effects, foreign frames and exact runtime limits. Grouping around the
+complete canceled expression is supported; a grouped operand or a remaining
+second star still needs a real dereference. These source and hosted execution
+checks add no TempleOS oracle capture or exported ABI proof.
+
+Native task named integer defaults follow `Compiler/PrsVar.HC:629-656`:
+`LexExpression2Bin` and `Call` run during parsing, then retain the full word in
+`dft_val` and set `MLF_DFT_AVAILABLE`. `PrsExp.HC:455-469` emits that saved word
+for an omitted argument. The hosted source driver carries the original receipt
+through a native expression image to the same saved header. Source tests cover
+live storage, retained calls and historical omissions; hosted quotas and
+single-use checks add no new TempleOS runtime capture.
+
+Live native static callback allocation follows `Compiler/PrsVar.HC:350-357`
+and `534-589`. `PrsType` keeps the anonymous function metadata while selecting
+physical `RT_PTR` storage. The static branch allocates and pads that storage
+during body parsing, independently of callback return metadata. The hosted
+allocator retains the original anonymous header, partial-function symbol and
+checked dimensions; completion joins its exact frame and static location.
+`Compiler/PrsExp.HC:776-784` supplies the function-owned static address.
+Assignments and calls use the existing native callback owner lanes and saved
+anonymous defaults. Fixed-array data, flags and owner lanes have separate
+quota checks. `PrsVar.HC:215-244` passes that physical class and the original
+dimensions into static initialization; `PrsVar.HC:53-107,123-212` executes each
+scalar leaf and traverses fixed arrays. The original static callback connection
+retains the anonymous header, source allocation, leaf and selected occurrence.
+Later leaves can copy or call earlier initialized elements. IR and native tasks
+consume the original live JIT leaves in their own storage, then join successful
+receipts to completed function roots without replay.
+
+`PrsExp.HC:621-654` reads an unresolved function's `exe_addr` slot.
+`PrsStmt.HC:95-114,181-191` installs UndefinedExtern before the header and the
+compiled body after parsing. A static self-address therefore captures the
+placeholder before its own body is installed. The automatic declarator replay
+at `PrsVar.HC:607-612` and `Demo/Graphics/Grid.HC:13` retain their separate
+restriction. These source and hosted execution checks add no TempleOS runtime
+capture or exported ABI proof.
+
+Named callback class selection follows the pinned `Compiler/Lex.HC:492-513`
+identifier lookup and retained `hash_entry`. `Compiler/PrsVar.HC:285-308` reads
+that selected class and advances its original return-pointer stars.
+`PrsVar.HC:350-356` passes the return class into an anonymous PrsFunJoin, then
+selects physical RT_PTR storage independently. `Compiler/PrsStmt.HC:62-115`
+keeps the selected return_class and parses the original parameter list; an
+anonymous header does not perform a later function-name lookup.
+`PrsStmt.HC:14-35` completes a compatible extern class in place and creates a
+fresh class for a later resolved shadow.
+
+The hosted source ledger retains these original class selections at synchronous
+callback, parameter, local-allocation and global publication events. Proofs can
+join original comma-declarator pointer children only when their type occurrence,
+class entry, parser environment and canonical semantic symbol agree. Selected
+callback return metadata admits a direct class annotation without admitting
+aggregate storage or execution. Frame positions and callback `sizeof` remain
+pointer-sized; the IR query adapter requests aggregate layout only for object
+values. Source-identity controls reject copied children, foreign tables and
+namespaces, expired minting and same-name publication substitution. This audit
+and actual private host execution add no TempleOS runtime capture.
+
+Numeric callback expressions follow `Compiler/PrsExp.HC:15-63,174-181,203-253` for the
+parser's retained left class, eight-byte callback scaling, signed difference
+division and comparison-chain completion. `Compiler/OptLib.HC:96-177,195-228`
+selects raw computation classes independently. `OptPass012.HC:458-485,866-895`
+uses those classes for bitwise operators and retains assignment destinations.
+`OptLib.HC:484-505` and `OptPass012.HC:1259-1266` resolve each size placeholder
+from the opposite operand's optimized class. `PrsLib.HC:249-263` runs the
+optimizer passes in order; later class changes do not restore removed scaling.
+The original typed AST supplies parser and computation provenance; physical cells and dynamic
+executable owners remain intact through numeric views. Hosted owner guards add
+no TempleOS runtime capture. See [callback expressions](callback-expressions.md).
+
+Provider callbacks retain the original JIT extern IMM-slot/DEREF capture from
+`Compiler/PrsExp.HC:624-652`. `PrsStmt.HC:95-114,181-191` keeps capture before
+later body installation distinct from a new lookup. `Kernel/KeyDev.HC:20-28`
+defines the U0/U64 packed-byte loop and `Kernel/KExts.HC:84` declares its extern.
+The hosted PutChars callback uses a checked entry with its own immutable owner,
+separate from the mutable source slot. Native compilation emits the private
+entry and bounds its output work; original task admission retains the source
+contract separately from machine mapping and reached saved-default capture.
+See [provider callback entries](provider-callback-entries.md) for execution and
+remaining compiler boundaries. This audit adds no TempleOS runtime capture.
+
+Print provider callbacks use `Kernel/StrPrint.HC:890-895` for complete draft
+formatting before publication. StreamPrint follows `Compiler/CMisc.HC:68-81`'s
+format-before-context check and active stream block; StreamExePrint follows
+`Compiler/CMain.HC:673-690`'s enclosing AOT context and source execution.
+`Compiler/CompilerB.HH:21-22` supplies their public signatures. Callback entry
+selection still comes from the original sealed IMM-slot/DEREF receipt and
+current publication. Native Print emits the shared formatter as a separate
+fixed-scratch entry with bounded runtime argument tables; IR streams use the
+original task contexts. These hosted checks add no TempleOS runtime capture.

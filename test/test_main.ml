@@ -28,6 +28,7 @@ let () =
       ("prepared pointer difference", Test_prepared_pointer_difference.tests);
       ("prepared integer shifts", Test_prepared_integer_shifts.tests);
       ("retained internal headers", Test_retained_internal.tests);
+      ("live internal bindings", Test_live_internal_bindings.tests);
       ("internal call authority", Test_internal_strlen_authority.tests);
       ("internal source ownership", Test_internal_strlen_source.tests);
       ("integer goto execution", Test_integer_goto_execution.tests);
@@ -38,6 +39,11 @@ let () =
       ("IR switch dispatch", Test_ir_switch_dispatch.tests);
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
+      ("hash lookup observations", Test_hash_lookup_observations.tests);
+      ("definition selection", Test_definition_selection.tests);
+      ("lexical consumers", Test_lexical_consumers.tests);
+      ("owned function counts", Test_owned_function_counts.tests);
+      ("native hash tables", Test_native_hash_tables.tests);
       ("conditional recovery", Test_conditional_recovery.tests);
       ("parser", Test_parser.tests);
       ("primitive type shadowing", Test_primitive_type_shadowing.tests);
@@ -107,6 +113,11 @@ let () =
         Test_function_call_conversion_policy.tests );
       ( "semantic function call expression results",
         Test_function_call_expression_result.tests );
+      ("callback storage", Test_callback_storage.tests);
+      ("callback dereference", Test_callback_dereference.tests);
+      ("callback updates", Test_callback_updates.tests);
+      ("callback expressions", Test_callback_expressions.tests);
+      ("provider callbacks", Test_provider_callbacks.tests);
       ( "semantic implicit output target resolution",
         Test_implicit_output_target_resolution.tests );
       ( "semantic top-level implicit output target resolution",
@@ -138,6 +149,11 @@ let () =
       ("operator table", Test_operator_table.tests);
       ("compiler option source", Test_compiler_option_source.tests);
       ("compiler option", Test_compiler_option.tests);
+      ("native compiler control", Test_native_compiler_control.tests);
+      ("compiler exceptions", Test_compiler_exceptions.tests);
+      ("duplicate local types", Test_duplicate_local_types.tests);
+      ("parenthesis warnings", Test_parenthesis_warnings.tests);
+      ("return warnings", Test_return_warnings.tests);
       ("intermediate code source", Test_intermediate_code_source.tests);
       ("intermediate code", Test_intermediate_code.tests);
       ("IR instruction sequence", Test_ir_instruction_sequence.tests);
@@ -165,6 +181,7 @@ let () =
       ("AOT source execution", Test_aot_source_execution.tests);
       ("task declarations", Test_task_declarations.tests);
       ("retained aggregates", Test_retained_aggregates.tests);
+      ("runtime layout expressions", Test_runtime_layout_expressions.tests);
       ("retained named aggregate", Test_retained_named_aggregate.tests);
       ("runtime frame positions", Test_runtime_frame_positions.tests);
       ("source promotion", Test_source_promotion.tests);
@@ -192,10 +209,12 @@ let () =
       ("function alias", Test_function_alias.tests);
       ("task function alias", Test_task_function_alias.tests);
       ("parameter default execution", Test_parameter_default_execution.tests);
+      ("data pointer defaults", Test_data_pointer_defaults.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);
       ("source integer pointers", Test_integer_pointers.tests);
+      ("primitive pointer views", Test_primitive_pointer_views.tests);
       ("source integer arrays", Test_integer_arrays.tests);
       ("source integer variadic", Test_integer_variadic.tests);
       ("source extern calls", Test_integer_extern_calls.tests);

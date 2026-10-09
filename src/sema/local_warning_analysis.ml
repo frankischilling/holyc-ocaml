@@ -9,6 +9,7 @@ type function_input = {
   item_index : int;
   is_definition : bool;
   bindings : binding_input list;
+  compiler_option_mask : int64 option;
 }
 
 type warning_kind = Unused_variable | Unneeded_no_warn
@@ -39,6 +40,7 @@ type analyzed_function = {
   is_definition : bool;
   bindings : binding_analysis list;
   warnings : warning list;
+  compiler_option_mask : int64;
 }
 
 module Int_map = Map.Make (Int)
@@ -58,10 +60,20 @@ type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 let make_binding_input ~binding ~initial_flag_mask =
   { binding; initial_flag_mask }
 
-let make_function_input ~symbol ~scope ~item_index ~is_definition bindings =
+let make_function_input ?compiler_option_mask ~symbol ~scope ~item_index
+    ~is_definition bindings =
   if item_index < 0 then
     Error "local warning function position cannot be negative"
-  else Ok { symbol; scope; item_index; is_definition; bindings }
+  else
+    Ok
+      {
+        symbol;
+        scope;
+        item_index;
+        is_definition;
+        bindings;
+        compiler_option_mask;
+      }
 
 let compiler_option_mask (result : t) = result.compiler_option_mask
 let functions (result : t) = result.functions
@@ -75,6 +87,10 @@ let function_is_definition (function_ : analyzed_function) =
 
 let function_bindings (function_ : analyzed_function) = function_.bindings
 let function_warnings (function_ : analyzed_function) = function_.warnings
+
+let function_compiler_option_mask (function_ : analyzed_function) =
+  function_.compiler_option_mask
+
 let binding_source (binding : binding_analysis) = binding.source
 
 let binding_initial_flag_mask (binding : binding_analysis) =
@@ -218,7 +234,13 @@ let validate_function table parent indexed expressions previous_item
   let expression_item =
     Function_expression_binding.function_item_index expressions
   in
-  if input.item_index <= previous_item then
+  if
+    Option.fold ~none:false
+      ~some:(fun mask -> has_unknown_bits mask known_compiler_option_mask)
+      input.compiler_option_mask
+  then
+    Error (invalid_input "local warning function received unknown option bits")
+  else if input.item_index <= previous_item then
     Error
       (invalid_input "local warning functions do not follow module source order")
   else if
@@ -466,6 +488,9 @@ let warning_for compiler_option_mask function_symbol analysis =
   else None
 
 let analyze_function compiler_option_mask expressions (input : function_input) =
+  let compiler_option_mask =
+    Option.value input.compiler_option_mask ~default:compiler_option_mask
+  in
   let states =
     List.fold_left
       (fun states binding ->
@@ -503,6 +528,7 @@ let analyze_function compiler_option_mask expressions (input : function_input) =
                 scope = input.scope;
                 item_index = input.item_index;
                 is_definition = input.is_definition;
+                compiler_option_mask;
                 bindings;
                 warnings;
               }

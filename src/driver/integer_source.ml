@@ -12,6 +12,7 @@ type prepared = {
   function_outputs_ : Sema.Implicit_output_argument_binding.t;
   top_level_outputs_ : Sema.Top_level_implicit_output_argument_binding.t;
   labels_ : Label_resolution.indexed;
+  compiler_warnings_ : Common.Diagnostic.t list;
 }
 
 let top_level prepared = prepared.top_level_
@@ -24,6 +25,7 @@ let initializers prepared = prepared.initializers_
 let function_outputs prepared = prepared.function_outputs_
 let top_level_outputs prepared = prepared.top_level_outputs_
 let labels prepared = prepared.labels_
+let compiler_warnings prepared = prepared.compiler_warnings_
 let ( let* ) = Result.bind
 
 let diagnostic ~span code message =
@@ -147,21 +149,32 @@ let prepare_unit ?environment:task_environment ?declaration_command
   let* aggregates =
     Aggregate_resolution.resolve ~table ~declarations ast |> checked
   in
+  let* inherited_metadata =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.inherited_metadata ~table ~ast command
+    | None, Some command ->
+        Task_declarations.source_inherited_metadata ~table ~ast command
+    | None, None -> Ok []
+    | Some _, Some _ -> assert false
+  in
   let* headers =
-    Aggregate_header_resolution.resolve ~table ~declarations ~aggregates ast
+    Aggregate_header_resolution.resolve ~inherited_metadata ~table ~declarations
+      ~aggregates ast
     |> checked
   in
   let* collected_members =
-    Member_collection.collect ~table ~declarations ast |> checked
+    Member_collection.collect ~inherited_metadata ~table ~declarations ast
+    |> checked
   in
   let* members =
-    Member_type_resolution.resolve ~table ~declarations ~aggregates ~headers
-      ~members:collected_members ast
+    Member_type_resolution.resolve ~inherited_metadata ~table ~declarations
+      ~aggregates ~headers ~members:collected_members ast
     |> checked
   in
   let* layouts =
-    Aggregate_layout.layout ?offsets ?prepared ~table ~declarations ~aggregates
-      ~headers ~members ast
+    Aggregate_layout.layout ~inherited_metadata ?offsets ?prepared ~table
+      ~declarations ~aggregates ~headers ~members ast
     |> checked
   in
   let* members =
@@ -196,26 +209,26 @@ let prepare_unit ?environment:task_environment ?declaration_command
             (Label_resolution.error_message error);
         ])
   in
+  let* selected_types =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.selected_type_resolver ~table ~ast command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_selected_type_resolver ~table ~ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
   let* function_types =
-    let* selected_types =
-      match (declaration_command, source_command) with
-      | Some command, None ->
-          Task_declarations.selected_type_resolver ~table ~ast command
-          |> Result.map Option.some
-      | None, Some command ->
-          Task_declarations.source_selected_type_resolver ~table ~ast command
-          |> Result.map Option.some
-      | None, None -> Ok None
-      | Some _, Some _ -> assert false
-    in
     Function_type_resolution.resolve ?selected_types
       ~retained_headers:(List.map (fun (_, _, typed) -> typed) retained_headers)
       ~table ~declarations ~aggregates ~functions:collected_functions ast
     |> checked
   in
   let* local_types =
-    Local_type_resolution.resolve ~table ~declarations ~aggregates
-      ~functions:collected_functions ast
+    Local_type_resolution.resolve ?selected_types ~table ~declarations
+      ~aggregates ~functions:collected_functions ast
     |> checked
   in
   let* bindings =
@@ -229,6 +242,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
       ast
     |> checked
   in
+  let function_expressions = expressions in
   let* global_types =
     let initializers =
       match (declaration_command, source_command) with
@@ -253,8 +267,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
             (resolve name initial))
         initializers
     in
-    Global_type_resolution.resolve ?initializers ~table ~declarations
-      ~aggregates ast
+    Global_type_resolution.resolve ?initializers ?selected_types ~table
+      ~declarations ~aggregates ast
     |> checked
   in
   let* previous_function_records, function_record_heads =
@@ -481,6 +495,36 @@ let prepare_unit ?environment:task_environment ?declaration_command
       ~local_types ~aggregate_layouts:layouts ?prepared ast
     |> checked
   in
+  let* compiler_options =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.function_compiler_options ~table ~ast command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_function_compiler_options ~table ~ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
+  let* local_warnings =
+    Local_warning_analysis.analyze ?compiler_options ~table ~declarations
+      ~function_types ~local_types ~bindings ~expressions:function_expressions
+      ast
+    |> checked
+  in
+  let compiler_warnings_ =
+    Sema.Local_warning_analysis.warnings local_warnings
+    |> List.map (fun warning ->
+        let primary =
+          match Sema.Local_warning_analysis.warning_origin warning with
+          | Sema.Symbol.Source_location { span; _ } -> span
+          | _ -> span
+        in
+        Common.Diagnostic.make ~severity:Common.Diagnostic.Warning
+          ~code:(Sema.Local_warning_analysis.warning_code warning)
+          ~message:(Sema.Local_warning_analysis.warning_message warning)
+          ~primary ())
+  in
   let* records =
     Function_record_classification.classify ~previous:function_record_heads
       ~resolution:functions ast
@@ -501,6 +545,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
       function_outputs_;
       top_level_outputs_;
       labels_;
+      compiler_warnings_;
     }
 
 let prepare session ~config ~span ast =

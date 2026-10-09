@@ -61,16 +61,24 @@ let batch_success ?(max_steps = 10_000) ~mode contents =
   in
   (fixture, execution)
 
+let first_error label diagnostics =
+  match
+    List.find_opt
+      (fun (diagnostic : Diagnostic.t) ->
+        diagnostic.severity = Diagnostic.Error)
+      diagnostics
+  with
+  | Some first -> first
+  | None -> Alcotest.fail (label ^ " returned no error diagnostic")
+
 let first_public_error = function
   | Ok _ -> Alcotest.fail "public goto execution unexpectedly succeeded"
-  | Error [] -> Alcotest.fail "public goto execution returned no diagnostic"
-  | Error (first :: _) -> first
+  | Error diagnostics -> first_error "public goto execution" diagnostics
 
 let first_native_diagnostic report =
   match Native_program.outcome report with
   | Ok _ -> Alcotest.fail "native goto execution unexpectedly succeeded"
-  | Error [] -> Alcotest.fail "native goto execution returned no diagnostic"
-  | Error (first :: _) -> first
+  | Error diagnostics -> first_error "native goto execution" diagnostics
 
 let vm_type_name = function
   | VM.I64 -> "I64"
@@ -403,9 +411,24 @@ let goto_word_return_completeness () =
   let missing = "I64 Bad(){goto tail;tail:}Bad();" in
   let returning = "I64 Good(){goto tail;return 7;tail:return 42;}Good();" in
   let void = "U0 V(){goto tail;return;tail:}V();42;" in
+  let check_return_warning label = function
+    | Error [ warning; error ] ->
+        Alcotest.(check bool)
+          (label ^ " original body warning precedes the unchanged error")
+          true
+          (warning.Diagnostic.severity = Diagnostic.Warning
+          && warning.code = "HCSEMA0078"
+          && warning.message = "Function should return val"
+          && error.Diagnostic.severity = Diagnostic.Error)
+    | _ ->
+        Alcotest.fail
+          (label ^ " requires one body warning before the goto error")
+  in
   List.iter
     (fun mode ->
-      let public_error = first_public_error (public_run ~mode missing) in
+      let public_result = public_run ~mode missing in
+      check_return_warning "public goto" public_result;
+      let public_error = first_public_error public_result in
       Alcotest.(check string)
         "public goto word fallthrough fault" "HCIRVM0013" public_error.code;
       Alcotest.(check bool)
@@ -423,6 +446,7 @@ let goto_word_return_completeness () =
         "isolated checked goto word fallthrough fault" "HCIRVM0013"
         batch_error.code;
       let report = native_report ~mode missing in
+      check_return_warning "native goto" (Native_program.outcome report);
       let native_error = first_native_diagnostic report in
       Alcotest.(check string)
         "native goto word fallthrough preflight" "HCBACK0002" native_error.code;
@@ -448,7 +472,8 @@ let unsupported_regions_reject_before_native_entry () =
       ("assembly block", "U0 F(){goto done;asm {} done:return;}F();", "asm {}");
       ("lock region", "U0 F(){done:lock goto done;}F();", "lock goto done;");
       ( "try/catch region",
-        "U0 F(){done:try goto done;catch return;}F();",
+        "U0 SysTry(){}U0 SysUntry(){}U0 F(){done:try goto done;catch \
+         return;}F();",
         "try goto done;catch return;" );
       ( "no-bound switch region",
         "U0 F(I64 n){switch[n]{case 0:goto done;}done:return;}F(0);",

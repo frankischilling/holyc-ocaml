@@ -141,16 +141,10 @@ let unsupported_storage () =
         (O.run ~mode
            {|#exe {I64 N=3;class Span {$$=74+ #exe {I64 Marker(){U8 head;I64 *data[N];U8 last;return 0;};} $$;};StreamPrint("%d;",sizeof(Span)+Marker());}|}
         |> O.fault "HCIRVM0011");
-      let diagnostic =
-        O.run ~mode
-          {|#exe {I64 N=2;class Span {$$=58+ #exe {I64 Marker(){I64 data[N];U8 last;return 0;};} $$;};class B {U8 data[sizeof(Span)];};StreamPrint("42;");}|}
-        |> O.fault "HCRUN0001"
-      in
-      Alcotest.(check string)
-        "runtime-dependent members still need original layout admission"
-        "retained aggregate runtime bounds require original runtime layout \
-         admission"
-        diagnostic.message)
+      ignore
+        (O.run ~mode
+           {|#exe {I64 N=2;class Span {$$=58+ #exe {I64 Marker(){I64 data[N];U8 last;return 0;};} $$;};class B {U8 data[sizeof(Span)];};StreamPrint("%d;",sizeof(B));}|}
+        |> O.expect ""))
     Test_integer_globals.modes
 
 let bounded_dependency_chain () =

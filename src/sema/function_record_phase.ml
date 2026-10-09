@@ -3,6 +3,7 @@ module Ast = Frontend.Ast
 module Visibility = Frontend.Symbol_visibility
 module P = Provisional_function
 module C = Declaration_collection
+module H = Common.Native_hash_record
 
 type native_identity = unit ref
 type revision = { previous_revision : revision option }
@@ -16,6 +17,12 @@ type slot =
   | Argc of Parser.function_variadic_publication
   | Argv of Parser.function_variadic_publication
 
+type header_member =
+  | Fixed_header_member of P.member
+  | Argc_header_member of Parser.function_variadic_publication
+  | Argv_header_member of Parser.function_variadic_publication
+  | Local_header_member of Parser.function_local_allocation
+
 type size =
   | Size_value of int64 option
   | Size_add of size * int64
@@ -25,6 +32,7 @@ type native_state = {
   owner : Parser.function_publication;
   header_size : size;
   slots : slot list;
+  header_slots : header_member list;
   body_names : string list;
   members : int option;
   arguments : int option;
@@ -39,12 +47,20 @@ type native = {
   identity : native_identity;
   mutable state : native_state;
   mutable revision : revision;
+  hash_prefix : H.t option;
+  mutable count_known : bool;
 }
 
 type registry = {
   table : Symbol_table.t;
   namespace : C.namespace;
   mutable records : t list;
+  domain : Domain.id;
+  mutable count_environment : Visibility.Environment.t option;
+  mutable count_sources : Common.Source_manager.t option;
+  mutable count_frontier : Visibility.lexical_generation option;
+  mutable count_table : H.Table.t option;
+  mutable implicit_finds : Parser.implicit_output_selection list;
 }
 
 and t = {
@@ -53,6 +69,7 @@ and t = {
   native : native;
   prepared_target : Prepared_internal_binding.t option;
   saved_arguments : int option;
+  saved_header : snapshot option;
   mutable aliases : Visibility.entry list;
   mutable body : Ast.function_definition option;
   mutable locals : Parser.function_local_allocation list;
@@ -67,6 +84,7 @@ and snapshot = {
   identity : native_identity;
   snapshot_prepared_target : Prepared_internal_binding.t option;
   snapshot_saved_arguments : int option;
+  snapshot_saved_header : snapshot option;
   revision : revision;
   phase_event : phase_event option;
 }
@@ -75,6 +93,94 @@ type transition = { earlier : snapshot; later : snapshot }
 
 let transition_earlier proof = proof.earlier
 let transition_later proof = proof.later
+
+let count_frontier_is_current registry =
+  match (registry.count_environment, registry.count_frontier) with
+  | Some environment, Some frontier ->
+      frontier == Visibility.Environment.lexical_generation environment
+  | _ -> false
+
+let invalidate_counts registry =
+  List.iter (fun record -> record.native.count_known <- false) registry.records
+
+let owned_hash record =
+  if
+    record.registry.domain = Domain.self ()
+    && record.native.count_known
+    && count_frontier_is_current record.registry
+  then record.native.hash_prefix
+  else None
+
+let use_count record = Option.map H.use_count (owned_hash record)
+
+(* This table contains only the original function allocations admitted by this
+   registry. It is not a reconstruction of Fs, cmp.asm_hash or an AOT chain. A
+   source receipt remains mandatory, and disagreement invalidates knowledge. *)
+let table_selects registry record name =
+  match (registry.count_table, record.native.hash_prefix) with
+  | Some table, Some prefix ->
+      H.Table.selects table ~expected:prefix ~name ~mask:0x40l
+  | _ -> false
+
+let count_selected registry record name =
+  match (registry.count_table, record.native.hash_prefix) with
+  | Some table, Some prefix ->
+      if not (H.Table.find table ~expected:prefix ~name ~mask:0x40l) then
+        invalidate_counts registry
+  | _ -> ()
+
+let record_for_entry registry entry =
+  let rec original entries entry =
+    List.exists (( == ) entry) entries
+    || Option.fold ~none:false ~some:(original entries)
+         (Visibility.function_alias_original entry)
+  in
+  List.find_opt (fun record -> original record.aliases entry) registry.records
+
+let observe_lexical_lookup registry context lookup =
+  let generation = Frontend.Preprocessor.lexical_lookup_generation lookup in
+  if
+    registry.domain <> Domain.self ()
+    || (not (Parser.lexical_lookup_is_current context lookup))
+    || Parser.context_mode context <> Frontend.Preprocessor.Jit
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) (Parser.context_environment context))
+             registry.count_environment))
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) (Parser.context_sources context))
+             registry.count_sources))
+    || generation
+       != Visibility.Environment.lexical_generation
+            (Parser.context_environment context)
+  then Error "hash count requires its original current source table and read"
+  else if
+    Option.fold ~none:false ~some:(( == ) generation) registry.count_frontier
+  then Error "hash lookup was already consumed"
+  else (
+    if
+      not
+        (Option.fold ~none:false
+           ~some:(fun earlier ->
+             Visibility.lexical_generation_follows ~earlier ~later:generation)
+           registry.count_frontier)
+    then invalidate_counts registry;
+    (match
+       (Frontend.Preprocessor.lexical_lookup_token lookup).Frontend.Token.kind
+     with
+    | Frontend.Token_kind.Keyword
+        (Frontend.Keyword.Try | Frontend.Keyword.Catch | Frontend.Keyword.Asm)
+      -> invalidate_counts registry
+    | _ -> ());
+    (match Frontend.Preprocessor.lexical_lookup_selection lookup with
+    | Visibility.Present entry ->
+        Option.iter
+          (fun record -> count_selected registry record (Visibility.name entry))
+          (record_for_entry registry entry)
+    | Visibility.Absent | Visibility.Shadowed_by_local -> ());
+    registry.count_frontier <- Some generation;
+    Ok ())
 
 let transition ~earlier ~later =
   let rec follows revision =
@@ -151,6 +257,38 @@ let native_members snapshot =
       | Argc _ | Argv _ -> None)
     snapshot.native_state.slots
 
+let header_members snapshot = snapshot.native_state.header_slots
+
+let checked_header_members snapshot =
+  let state = snapshot.native_state in
+  match (state.unavailable, state.members) with
+  | Some reason, _ -> Error reason
+  | None, None -> Error "native header member count is unavailable"
+  | None, Some count ->
+      let recorded =
+        List.fold_left
+          (fun count -> function
+            | Fixed_header_member _ | Local_header_member _ -> count + 1
+            | Argc_header_member _ | Argv_header_member _ -> count)
+          0 state.header_slots
+      in
+      if count = recorded then Ok state.header_slots
+      else Error "native header member count differs from its original cursor"
+
+let same_header_member left right =
+  match (left, right) with
+  | Fixed_header_member left, Fixed_header_member right -> left == right
+  | Argc_header_member left, Argc_header_member right
+  | Argv_header_member left, Argv_header_member right -> left == right
+  | Local_header_member left, Local_header_member right -> left == right
+  | _ -> false
+
+let header_member_has_class_base = function
+  | Local_header_member receipt
+    when receipt.allocation_storage = Ast.Automatic_local ->
+      receipt.allocation_first_in_declaration
+  | _ -> false
+
 let argument_count snapshot = snapshot.native_state.arguments
 let member_count snapshot = snapshot.native_state.members
 
@@ -202,6 +340,7 @@ let add_header_bytes size count =
   | _ -> Size_add (size, count)
 
 let saved_previous_argument_count snapshot = snapshot.snapshot_saved_arguments
+let saved_previous_header snapshot = snapshot.snapshot_saved_header
 let ellipsis_flag snapshot = snapshot.native_state.ellipsis
 let is_extern snapshot = snapshot.native_state.extern
 
@@ -233,6 +372,7 @@ let snapshot record =
           identity = record.native.identity;
           snapshot_prepared_target = record.prepared_target;
           snapshot_saved_arguments = record.saved_arguments;
+          snapshot_saved_header = record.saved_header;
           revision = record.native.revision;
           phase_event =
             (if record.phase_revision == record.native.revision then
@@ -339,12 +479,40 @@ let capture_implicit_arguments record receipt =
     Error
       "implicit arguments require their original live selected native record"
   else
-    Ok
-      {
-        implicit_record = record;
-        implicit_receipt = receipt;
-        implicit_snapshot = captured;
-      }
+    let registry = record.registry in
+    if
+      Option.is_some record.native.hash_prefix
+      && registry.domain <> Domain.self ()
+    then Error "implicit hash lookup has another original record domain"
+    else (
+      if not (List.exists (( == ) receipt) registry.implicit_finds) then (
+        let context = (Parser.implicit_command receipt).command_context in
+        let owns_source =
+          Parser.context_mode context = Frontend.Preprocessor.Jit
+          && Option.fold ~none:false
+               ~some:(( == ) (Parser.implicit_environment receipt))
+               registry.count_environment
+          && Option.fold ~none:false
+               ~some:(( == ) (Parser.context_sources context))
+               registry.count_sources
+        in
+        if owns_source then (
+          if not (count_frontier_is_current registry) then
+            invalidate_counts registry;
+          count_selected registry record
+            (source captured).function_name.spelling;
+          registry.count_frontier <-
+            Some
+              (Visibility.Environment.lexical_generation
+                 (Parser.implicit_environment receipt)))
+        else invalidate_counts registry;
+        registry.implicit_finds <- receipt :: registry.implicit_finds);
+      Ok
+        {
+          implicit_record = record;
+          implicit_receipt = receipt;
+          implicit_snapshot = captured;
+        })
 
 let capture_implicit_emission arguments receipt =
   if
@@ -364,7 +532,19 @@ let create_registry ~mode ~table ~namespace =
     Error "native function record phases require JIT compilation"
   else if not (C.namespace_owns_table namespace table) then
     Error "native function registry requires its exact namespace table"
-  else Ok { table; namespace; records = [] }
+  else
+    Ok
+      {
+        table;
+        namespace;
+        records = [];
+        domain = Domain.self ();
+        count_environment = None;
+        count_sources = None;
+        count_frontier = None;
+        count_table = None;
+        implicit_finds = [];
+      }
 
 let same_source_owner left right =
   left.Parser.function_environment == right.Parser.function_environment
@@ -429,15 +609,84 @@ let begin_header ?activation ?internal_target registry publication source =
         with
         | Error message -> Error message
         | Ok transcript ->
-            let native, saved_arguments =
+            let context =
+              source.function_header.declaration_command.command_context
+            in
+            let count_owner =
+              if
+                registry.domain <> Domain.self ()
+                || (not (Parser.function_publication_is_current source))
+                || not
+                     (Parser.join_lookup_is_current source.function_join_lookup)
+              then false
+              else
+                let environment = source.function_environment in
+                let sources = Parser.context_sources context in
+                match (registry.count_environment, registry.count_sources) with
+                | None, None ->
+                    registry.count_environment <- Some environment;
+                    registry.count_sources <- Some sources;
+                    registry.count_table <- Some (H.Table.create ~size:1024);
+                    registry.count_frontier <-
+                      Some
+                        (Visibility.Environment.lexical_generation environment);
+                    true
+                | Some original, Some original_sources
+                  when original == environment && original_sources == sources ->
+                    if not (count_frontier_is_current registry) then
+                      invalidate_counts registry;
+                    registry.count_frontier <-
+                      Some
+                        (Visibility.Environment.lexical_generation environment);
+                    true
+                | _ -> false
+            in
+            let joined =
+              if count_owner then
+                Option.bind
+                  (Parser.join_lookup_selection source.function_join_lookup)
+                  (record_for_entry registry)
+              else None
+            in
+            Option.iter
+              (fun record ->
+                count_selected registry record source.function_name.spelling)
+              joined;
+            (match (previous, joined) with
+            | Some prior, Some selected
+              when prior.native == selected.native
+                   && prior.native.state.extern = Some true -> (
+                match use_count prior with
+                | Some count when count < 3L -> (
+                    Common.Diagnostic.make ~code:"HCSEMA0075"
+                      ~severity:Common.Diagnostic.Warning
+                      ~primary:source.function_name.location.span
+                      ~message:
+                        (Printf.sprintf "Unused extern '%s'"
+                           source.function_name.spelling)
+                      ()
+                    |> Parser.context_emit_counted_compiler_warning context
+                    |> function
+                    | Ok () -> ()
+                    | Error message -> invalid_arg message)
+                | _ -> ())
+            | _ -> ());
+            let native, saved_arguments, saved_header =
               match previous with
               | Some prior when prior.native.state.extern = Some true ->
+                  let saved = snapshot prior in
+                  if count_owner then (
+                    Option.iter H.reset prior.native.hash_prefix;
+                    prior.native.count_known <-
+                      table_selects registry prior source.function_name.spelling)
+                  else prior.native.count_known <- false;
                   let old = prior.native.state in
                   let state =
                     {
                       old with
                       owner = source;
                       slots = [];
+                      header_slots = [];
                       body_names = [];
                       members = Some 0;
                       arguments = Some 0;
@@ -445,7 +694,7 @@ let begin_header ?activation ?internal_target registry publication source =
                     }
                   in
                   advance_native prior.native state;
-                  (prior.native, old.arguments)
+                  (prior.native, old.arguments, Some saved)
               | previous ->
                   let unknown =
                     match (previous, source.function_previous) with
@@ -459,6 +708,7 @@ let begin_header ?activation ?internal_target registry publication source =
                       header_size =
                         Size_value (if unknown then None else Some 0L);
                       slots = [];
+                      header_slots = [];
                       body_names = [];
                       members = (if unknown then None else Some 0);
                       arguments = (if unknown then None else Some 0);
@@ -476,9 +726,24 @@ let begin_header ?activation ?internal_target registry publication source =
                       identity = ref ();
                       state;
                       revision = { previous_revision = None };
+                      hash_prefix =
+                        (if count_owner && not unknown then
+                           Some
+                             (H.create_function
+                                ~name:source.function_name.spelling)
+                         else None);
+                      count_known = count_owner && not unknown;
                     },
+                    None,
                     None )
             in
+            (match (registry.count_table, native.hash_prefix) with
+            | Some table, Some prefix
+              when not
+                     (Option.fold ~none:false
+                        ~some:(fun prior -> prior.native == native)
+                        previous) -> H.Table.add table prefix
+            | _ -> ());
             let record =
               {
                 registry;
@@ -486,6 +751,7 @@ let begin_header ?activation ?internal_target registry publication source =
                 native;
                 prepared_target = internal_target;
                 saved_arguments;
+                saved_header;
                 aliases = [ source.function_entry ];
                 body = None;
                 locals = [];
@@ -548,6 +814,7 @@ let rec body_preserves_members locals = function
   | Ast.Implicit_output_statement _
   | Ast.Label_statement _
   | Ast.No_warn_statement _
+  | Ast.Aggregate_declaration_statement _
   | Ast.Return_statement _ -> true
   | Ast.Assembly_block_statement _
   | Ast.Inline_assembly_statement _
@@ -636,6 +903,7 @@ let observe_local_allocation record receipt =
         {
           state with
           body_names = spelling :: state.body_names;
+          header_slots = state.header_slots @ [ Local_header_member receipt ];
           members = Option.map (( + ) 1) state.members;
           header_size = Size_local (state.header_size, receipt);
         }
@@ -710,6 +978,14 @@ let observe ?activation record event =
                 | slot -> slot)
               state.slots
           in
+          let update_header_member source =
+            List.map
+              (function
+                | Fixed_header_member prior when P.member_source prior == source
+                  -> Fixed_header_member (member source)
+                | slot -> slot)
+              state.header_slots
+          in
           let next =
             match event with
             | Parser.Function_parameter_declared source ->
@@ -720,6 +996,9 @@ let observe ?activation record event =
                   {
                     state with
                     slots = state.slots @ [ inserted ];
+                    header_slots =
+                      state.header_slots
+                      @ [ Fixed_header_member (member source) ];
                     members = Option.map succ state.members;
                     header_size = add_header_bytes state.header_size 8L;
                   }
@@ -732,7 +1011,12 @@ let observe ?activation record event =
                       | _ -> false)
                     state.slots
                 then
-                  { state with slots = update_member receipt.default_parameter }
+                  {
+                    state with
+                    slots = update_member receipt.default_parameter;
+                    header_slots =
+                      update_header_member receipt.default_parameter;
+                  }
                 else
                   {
                     state with
@@ -747,6 +1031,8 @@ let observe ?activation record event =
                 {
                   state with
                   slots = update_member complete.parameter_publication;
+                  header_slots =
+                    update_header_member complete.parameter_publication;
                 }
             | Parser.Function_variadic_started _ ->
                 { state with ellipsis = true }
@@ -755,7 +1041,12 @@ let observe ?activation record event =
                   invalid_insertion state
                 else
                   let with_argc =
-                    { state with slots = state.slots @ [ Argc source ] }
+                    {
+                      state with
+                      slots = state.slots @ [ Argc source ];
+                      header_slots =
+                        state.header_slots @ [ Argc_header_member source ];
+                    }
                   in
                   if native_member_collides with_argc (Some "argv") then
                     invalid_insertion with_argc
@@ -763,6 +1054,8 @@ let observe ?activation record event =
                     {
                       with_argc with
                       slots = with_argc.slots @ [ Argv source ];
+                      header_slots =
+                        with_argc.header_slots @ [ Argv_header_member source ];
                       header_size = add_header_bytes state.header_size 16L;
                     }
             | Parser.Function_header_completed header ->

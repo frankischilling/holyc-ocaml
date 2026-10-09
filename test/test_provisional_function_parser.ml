@@ -5,6 +5,7 @@ open Holyc_lib
    and the real parser, independently of the semantic ledger. *)
 let sink declaration : Parser.command_sink =
   {
+    lexical_lookup = None;
     checkpoint = None;
     reference = None;
     call = None;
@@ -65,7 +66,9 @@ let phase_order source expected () =
   let seen = ref [] in
   let record name = seen := name :: !seen in
   let declaration event =
-    record (event_name event);
+    (match event with
+    | Parser.Function_return_phase _ -> ()
+    | _ -> record (event_name event));
     Ok ()
   in
   let parsed = parse ~on_enter:(fun () -> record "exe") declaration source in

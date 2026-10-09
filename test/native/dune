@@ -1,5 +1,149 @@
 (rule
  (alias native-tests)
+ (deps ../../examples/compiler-unused-extern.hc)
+ (action
+  (run
+   %{exe:../test_unused_extern_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/compiler-unused-extern.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/compiler-definition-selection.hc)
+ (action
+  (run
+   %{exe:../test_definition_selection_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/compiler-definition-selection.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/compiler-warning-options.hc
+  ../../examples/compiler-duplicate-types.hc
+  ../../examples/compiler-parenthesis-warnings.hc)
+ (action
+  (run
+   %{exe:../test_compiler_warnings_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/compiler-warning-options.hc}
+   --native)))
+
+(copy_files ../data_pointer_default_cases.ml)
+
+(copy_files ../compiler_exception_cases.ml)
+
+(copy_files ../test_compiler_exceptions.ml)
+
+(executable
+ (name test_native_compiler_exceptions)
+ (modules
+  test_native_compiler_exceptions
+  test_compiler_exceptions
+  compiler_exception_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_compiler_exceptions.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:../test_compiler_exceptions_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   --native)))
+
+(copy_files ../internal_binding_cases.ml)
+
+(copy_files ../runtime_layout_cases.ml)
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/runtime-layout-expressions.hc)
+ (action
+  (run
+   %{exe:../test_runtime_layout_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/runtime-layout-expressions.hc}
+   --native)))
+
+(library
+ (name runtime_layout_fixture)
+ (wrapped false)
+ (modules runtime_layout_cases))
+
+(executable
+ (name test_native_runtime_layout)
+ (modules test_native_runtime_layout)
+ (libraries holyc_lib runtime_layout_fixture alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_runtime_layout.exe})))
+
+(library
+ (name internal_binding_fixture)
+ (wrapped false)
+ (modules internal_binding_cases))
+
+(executable
+ (name test_native_internal_bindings)
+ (modules test_native_internal_bindings)
+ (libraries holyc_lib internal_binding_fixture alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_internal_bindings.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/data-pointer-defaults.hc)
+ (action
+  (run
+   %{exe:../test_data_pointer_defaults_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/data-pointer-defaults.hc}
+   --native)))
+
+(executable
+ (name test_native_data_pointer_defaults)
+ (modules test_native_data_pointer_defaults data_pointer_default_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_data_pointer_defaults.exe})))
+
+(executable
+ (name test_primitive_pointer_views_execution)
+ (modules test_primitive_pointer_views_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_primitive_pointer_views_execution.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/primitive-pointer-views.hc)
+ (action
+  (run
+   %{exe:../test_primitive_pointer_views_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/primitive-pointer-views.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
  (deps
   ../oracle/conditional-comparison-chains.json
   ../../examples/conditional-comparison-chains.hc)
@@ -123,7 +267,11 @@
   test_pointer_equality
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -140,7 +288,11 @@
   test_pointer_equality
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -156,7 +308,11 @@
   test_pointer_equality
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -172,7 +328,11 @@
   test_pointer_subtraction
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -201,7 +361,11 @@
   test_pointer_addition
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -230,7 +394,11 @@
   test_swap_internals
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -258,7 +426,11 @@
   test_pointer_bit_execution
   test_pointer_bit_internals
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -286,7 +458,11 @@
   test_canonical_bool_execution
   test_canonical_bool
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -314,7 +490,11 @@
   test_internal_mod_u64_execution
   test_internal_mod_u64
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -329,7 +509,11 @@
   test_internal_bitscan_execution
   test_internal_bitscan
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -357,7 +541,11 @@
   test_internal_minmax_execution
   test_internal_minmax
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -385,7 +573,11 @@
   test_internal_integers_execution
   test_internal_integers
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -419,7 +611,11 @@
   test_internal_toupper_execution
   test_internal_toupper
   test_internal_strlen_authority)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries
+  holyc_lib
+  native_scalar_support
+  internal_binding_fixture
+  alcotest))
 
 (rule
  (alias native-tests)
@@ -587,6 +783,30 @@
   (run %{exe:test_native_scalar_function_execution.exe})))
 
 (executable
+ (name test_callback_return_storage)
+ (modules test_callback_return_storage)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_callback_return_storage.exe})))
+
+(executable
+ (name test_native_load_initializer_cli)
+ (modules test_native_load_initializer_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-aot-callback-initializers.hc)
+ (action
+  (run
+   %{exe:test_native_load_initializer_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-aot-callback-initializers.hc})))
+
+(executable
  (name test_internal_strlen_execution)
  (modules test_internal_strlen_execution)
  (libraries holyc_lib native_scalar_support alcotest))
@@ -619,13 +839,33 @@
  (alias native-tests)
  (deps
   ../../examples/native-scalar-functions.hc
-  ../../examples/native-u0-functions.hc)
+  ../../examples/native-u0-functions.hc
+  ../../examples/native-calling-flags.hc
+  ../../examples/native-local-callbacks.hc
+  ../../examples/native-callback-parameters.hc
+  ../../examples/native-callback-storage.hc
+  ../../examples/native-callback-defaults.hc
+  ../../examples/native-word-tails.hc
+  ../../examples/native-callback-arguments.hc
+  ../../examples/native-callback-word-defaults.hc
+  ../../examples/native-callback-initializers.hc
+  ../../examples/native-callback-return-storage.hc)
  (action
   (run
    %{exe:test_native_scalar_function_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-scalar-functions.hc}
-   %{dep:../../examples/native-u0-functions.hc})))
+   %{dep:../../examples/native-u0-functions.hc}
+   %{dep:../../examples/native-calling-flags.hc}
+   %{dep:../../examples/native-local-callbacks.hc}
+   %{dep:../../examples/native-callback-parameters.hc}
+   %{dep:../../examples/native-callback-storage.hc}
+   %{dep:../../examples/native-callback-defaults.hc}
+   %{dep:../../examples/native-word-tails.hc}
+   %{dep:../../examples/native-callback-arguments.hc}
+   %{dep:../../examples/native-callback-word-defaults.hc}
+   %{dep:../../examples/native-callback-initializers.hc}
+   %{dep:../../examples/native-callback-return-storage.hc})))
 
 (executable
  (name test_native_goto_execution)
@@ -860,3 +1100,385 @@
    %{dep:../../examples/quoted-formatting.hc}
    %{dep:../../examples/auxiliary-formatting.hc}
    %{dep:../../examples/list-formatting.hc})))
+
+(executable
+ (name test_native_retained_execution)
+ (modules test_native_retained_execution)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_retained_execution.exe})))
+
+(executable
+ (name test_native_retained_budget)
+ (modules test_native_retained_budget)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_retained_budget.exe})))
+
+(executable
+ (name test_native_callback_dereference)
+ (modules test_native_callback_dereference)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_callback_dereference.exe})))
+
+(executable
+ (name test_native_callback_updates)
+ (modules test_native_callback_updates)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_callback_updates.exe})))
+
+(executable
+ (name test_native_source_execution)
+ (modules test_native_source_execution)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_execution.exe})))
+
+(executable
+ (name test_native_source_authority)
+ (modules test_native_source_authority)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_authority.exe})))
+
+(executable
+ (name test_native_source_cli)
+ (modules test_native_source_cli)
+ (libraries holyc_lib yojson unix))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/native-source-initializers.hc
+  ../../examples/native-source-arrays.hc)
+ (action
+  (run
+   %{exe:test_native_source_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-source-initializers.hc}
+   %{dep:../../examples/native-source-arrays.hc})))
+
+(executable
+ (name test_native_source_functions)
+ (modules test_native_source_functions)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_functions.exe})))
+
+(executable
+ (name test_native_source_function_cli)
+ (modules test_native_source_function_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/native-source-functions.hc
+  ../../examples/native-source-output.hc
+  ../../examples/native-source-literals.hc
+  ../../examples/native-source-static-copies.hc
+  ../../examples/native-source-defaults.hc
+  ../../examples/native-source-extern-slots.hc
+  ../../examples/native-source-callback-words.hc
+  ../../examples/native-source-slot-addresses.hc
+  ../../examples/native-source-callback-updates.hc
+  ../../examples/native-source-anonymous-defaults.hc
+  ../../examples/native-source-static-callbacks.hc
+  ../../examples/native-source-static-callback-initializers.hc
+  ../../examples/native-source-named-callback-types.hc
+  ../../examples/callback-expressions.hc)
+ (action
+  (run
+   %{exe:test_native_source_function_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-source-functions.hc}
+   %{dep:../../examples/native-source-output.hc}
+   %{dep:../../examples/native-source-literals.hc}
+   %{dep:../../examples/native-source-static-copies.hc}
+   %{dep:../../examples/native-source-defaults.hc}
+   %{dep:../../examples/native-source-extern-slots.hc}
+   %{dep:../../examples/native-source-callback-words.hc}
+   %{dep:../../examples/native-source-slot-addresses.hc}
+   %{dep:../../examples/native-source-callback-updates.hc}
+   %{dep:../../examples/native-source-anonymous-defaults.hc}
+   %{dep:../../examples/native-source-static-callbacks.hc}
+   %{dep:../../examples/native-source-static-callback-initializers.hc}
+   %{dep:../../examples/native-source-named-callback-types.hc}
+   %{dep:../../examples/callback-expressions.hc})))
+
+(executable
+ (name test_native_source_literals)
+ (modules test_native_source_literals)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_literals.exe})))
+
+(executable
+ (name test_native_source_callback_words)
+ (modules test_native_source_callback_words)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_callback_words.exe})))
+
+(executable
+ (name test_native_source_callbacks)
+ (modules test_native_source_callbacks)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_callbacks.exe})))
+
+(executable
+ (name test_native_source_owned_defaults)
+ (modules test_native_source_owned_defaults)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_source_anonymous_defaults)
+ (modules test_native_source_anonymous_defaults)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_anonymous_defaults.exe})))
+
+(executable
+ (name test_native_source_static_callbacks)
+ (modules test_native_source_static_callbacks)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_source_static_callback_initializers)
+ (modules test_native_source_static_callback_initializers)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_source_named_callback_types)
+ (modules test_native_source_named_callback_types)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_named_callback_types.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_static_callback_initializers.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_static_callbacks.exe})))
+
+(executable
+ (name test_native_source_slot_addresses)
+ (modules test_native_source_slot_addresses)
+ (libraries holyc_lib alcotest))
+
+(executable
+ (name test_native_source_callback_updates)
+ (modules test_native_source_callback_updates)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_callback_updates.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_slot_addresses.exe})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_owned_defaults.exe})))
+
+(copy_files ../callback_expression_cases.ml)
+
+(copy_files ../provider_callback_cases.ml)
+
+(copy_files ../integer_format_fixture.ml)
+
+(executable
+ (name test_provider_callback_cli)
+ (modules test_provider_callback_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/provider-callback-entries.hc
+  ../../examples/print-callback-entries.hc)
+ (action
+  (run
+   %{exe:test_provider_callback_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/provider-callback-entries.hc}
+   %{dep:../../examples/print-callback-entries.hc})))
+
+(executable
+ (name test_native_provider_callbacks)
+ (modules
+  test_native_provider_callbacks
+  provider_callback_cases
+  integer_format_fixture)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_provider_callbacks.exe})))
+
+(executable
+ (name test_native_source_callback_expressions)
+ (modules test_native_source_callback_expressions callback_expression_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_callback_expressions.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-internal-bindings.hc)
+ (action
+  (run
+   %{exe:../test_native_internal_bindings_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-internal-bindings.hc}
+   --native)))
+
+(copy_files ../stream_generation_cases.ml)
+
+(copy_files ../aot_source_cases.ml)
+
+(executable
+ (name test_native_aot_source)
+ (modules test_native_aot_source aot_source_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_aot_source.exe})))
+
+(executable
+ (name test_native_aot_source_cli)
+ (modules test_native_aot_source_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-aot-streams.hc)
+ (action
+  (run
+   %{exe:test_native_aot_source_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-aot-streams.hc})))
+
+(copy_files ../local_aggregate_cases.ml)
+
+(copy_files ../source_inherited_layout_cases.ml)
+
+(executable
+ (name test_native_source_inherited_layouts)
+ (modules test_native_source_inherited_layouts source_inherited_layout_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_source_inherited_layouts.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/source-inherited-layouts.hc)
+ (action
+  (run
+   %{exe:../test_source_inherited_layouts_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/source-inherited-layouts.hc}
+   --native)))
+
+(executable
+ (name test_native_local_aggregates)
+ (modules test_native_local_aggregates local_aggregate_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_local_aggregates.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/local-aggregate-declarations.hc)
+ (action
+  (run
+   %{exe:../test_local_aggregates_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/local-aggregate-declarations.hc}
+   --native)))
+
+(executable
+ (name test_native_stream_generation)
+ (modules test_native_stream_generation stream_generation_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_stream_generation.exe})))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/native-stream-generation.hc
+  ../../examples/native-stream-saved-inputs.hc
+  ../../examples/native-stream-declarations.hc
+  ../../examples/native-compiler-options.hc)
+ (action
+  (run
+   %{exe:../test_stream_generation_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-stream-generation.hc}
+   %{dep:../../examples/native-stream-declarations.hc}
+   %{dep:../../examples/native-compiler-options.hc}
+   --native)))

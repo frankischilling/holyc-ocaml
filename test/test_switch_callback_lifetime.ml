@@ -17,6 +17,7 @@ let parse ~mode ~declaration contents =
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (fun _ -> Ok ());
       reference = None;
       call = None;

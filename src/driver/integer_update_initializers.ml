@@ -316,8 +316,16 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
         in
         let produced_address =
           match (item.target_type, item.payload) with
-          | Some type_, Some (Seq.Symbol symbol) -> (
-              match Globals.find_storage globals symbol with
+          | Some type_, Some ((Seq.Symbol _ | Seq.Retained_global _) as payload)
+            -> (
+              let storage =
+                match payload with
+                | Seq.Symbol symbol -> Globals.find_storage globals symbol
+                | Seq.Retained_global reference ->
+                    Globals.retained_slot globals reference
+                | _ -> None
+              in
+              match storage with
               | Some slot
                 when item.opcode = Globals.storage_opcode slot
                      &&

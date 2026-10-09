@@ -97,8 +97,17 @@ let values () =
               String.starts_with ~prefix:"folded default" label
               || label = "nested folded default"
             in
-            VM.executed_steps interpreted
-            - if declared_default && mode = Preprocessor.Jit then 1 else 0
+            if String.starts_with ~prefix:"intrinsic argument" label then
+              let _, batch =
+                Native_scalar_fixture.execute_source ~mode ~contents ()
+                |> function
+                | Ok value -> value
+                | Error message -> Alcotest.fail message
+              in
+              VM.executed_steps batch
+            else
+              VM.executed_steps interpreted
+              - if declared_default && mode = Preprocessor.Jit then 1 else 0
           in
           Alcotest.(check int)
             (label ^ " runtime instructions")
@@ -114,6 +123,7 @@ let values () =
               Alcotest.(check int)
                 "interpreted static preparation" 4 interpreted_preparation;
               3)
+            else if String.starts_with ~prefix:"intrinsic argument" label then 0
             else interpreted_preparation
           in
           Alcotest.(check int)

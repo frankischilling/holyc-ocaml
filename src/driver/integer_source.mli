@@ -49,3 +49,4 @@ val top_level_outputs :
   prepared -> Sema.Top_level_implicit_output_argument_binding.t
 
 val labels : prepared -> Label_resolution.indexed
+val compiler_warnings : prepared -> Common.Diagnostic.t list

@@ -75,6 +75,7 @@ val make_global_initializer :
     includes the exact owning global publication and earlier declarators. *)
 
 type resolution =
+  | Static_binding of Static_reference.t
   | Module_binding of Module_expression_binding.publication
   | Outer_candidate
 

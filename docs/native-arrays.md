@@ -53,25 +53,25 @@ instruction and exact reached step count after an execution fault.
 
 ## Saved references and initialization
 
-Every materialized reference selects a canonical record for one original
-object element or its one-past address. The record carries the root data
+Every materialized reference has a descriptor snapshot for an offset within
+its original object or its one-past address. The record carries the root data
 address, root initialization-flag address, logical byte offset and full object
-extent. It never changes to identify another element. Repeating `&a[i]` in a
-loop therefore cannot retarget a previously saved alias when `i` changes.
+extent. Saving a pointer copies those fields. Repeating `&a[i]` in a loop
+therefore cannot retarget a previously saved alias when `i` changes.
 
 Pointer loads, assignment results and call arguments preserve the selected
 record. Arguments evaluate right to left: in `Use(p=&a[1],p)`, the right
 argument retains the earlier value of `p` after the left argument rebinds it.
 An indexed base similarly survives a pointer rebind in its index or RHS.
-Array reference tables belong to the activation that materializes the object
-reference. Recursive activations have separate tables; the accepted pointer
+Reference snapshots belong to the activation that materializes the object
+reference. Recursive activations have separate homes; the accepted pointer
 flow cannot return or persist a pointer to an expired activation. See
 [native pointers](native-pointers.md) for the lifetime restriction.
 
-Taking an address does not read the element. Each automatic array element has
+Taking an address does not read the element. Each automatic array byte has
 its own initialization flag, initially clear in both source modes. A successful
-write initializes only that element. Reads and compound updates require it to
-be initialized and otherwise report `HCIRVM0012`. Every invocation gets fresh
+write initializes its covered bytes. Reads and compound updates require the
+complete view window to be initialized and otherwise report `HCIRVM0012`. Every invocation gets fresh
 automatic storage and flags, including repeated execution of the same image.
 
 Global and static arrays share a separate arena across calls. Uninitialized
@@ -97,11 +97,12 @@ later expression, delimiter, layout or compilation check fails.
 The native frame validator requires the original function/body/frame join,
 closed source dimensions, scalar integer elements, the complete object size,
 source alignment and nonoverlapping frame ranges. It reserves one eight-byte
-initialization flag per element. A materialized reference table reserves one
-32-byte record per element plus one record for one-past. Both allocations are
-checked against the physical-frame quota before metadata expansion. The number
-of records depends on the compiled objects and address sites, never the number
-of loop iterations.
+initialization region per original element and packs byte flags within the
+object's complete region. A materialized reference reserves one 32-byte
+snapshot. Pointer cells and captured arguments have separate snapshot homes.
+All allocations count against the physical-frame quota before expansion. The
+number of snapshots depends on compiled producers, cells and argument sites,
+never the object extent or the number of loop iterations.
 
 Private flags, reference records, spills and call staging count toward native
 frame and active-stack limits. Semantic-frame accounting still charges the

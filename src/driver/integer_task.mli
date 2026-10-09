@@ -1,6 +1,155 @@
 type t
+
+val compiler_exceptions : t -> Frontend.Parser.compiler_exception list
+
 type command
 type stream
+type saved_compiler
+
+type native_source_callback =
+  Ir.Native_source_suspension.t ->
+  Ir.Native_source_suspension.request ->
+  ((int64, Common.Diagnostic.t list) result, string) result
+(** Original parser handler of an entered native request. The outer error is a
+    request or physical suspension rejection; the inner result retains child
+    source diagnostics. The C scope reserves the caller's frame and depth but
+    does not grant machine, arena or budget entry. *)
+
+module Native_dispatch : sig
+  type word = I64 of int64 | U64 of int64
+  type capture = Unchanged | Captured of word option
+  type initializer_request
+  type command_request
+
+  type t = {
+    execute_initializer :
+      initializer_request -> (unit, Common.Diagnostic.t list) result;
+    execute_command :
+      command_request -> (capture, Common.Diagnostic.t list) result;
+  }
+
+  val initializer_generation :
+    initializer_request -> Ir.Integer_interpreter.native_generation
+
+  val command_generation :
+    command_request -> Ir.Integer_interpreter.native_generation
+
+  val initializer_source_callback :
+    initializer_request -> native_source_callback option
+
+  val command_source_callback : command_request -> native_source_callback option
+
+  val initializer_program :
+    initializer_request -> Ir.Initializer_fragment_program.t
+
+  val command_program : command_request -> Integer_unit.compiled
+  val check_initializer_request : initializer_request -> (unit, string) result
+  val claim_initializer_request : initializer_request -> (unit, string) result
+
+  val initializer_function_source :
+    initializer_request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val check_command_request : command_request -> (unit, string) result
+
+  val initializer_slot_binding :
+    initializer_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val initializer_slot_address_binding :
+    initializer_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val initializer_slot_address_refresh :
+    initializer_request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val initializer_provider_available :
+    initializer_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val command_slot_binding :
+    command_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val command_slot_address_binding :
+    command_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val command_slot_address_refresh :
+    command_request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val command_provider_available :
+    command_request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+  (** Inspect an original admitted Print/PutChars call while its source request
+      is still offered. Foreign contexts, domains and entered or expired
+      requests reject. A joined source body disables provider fallback. *)
+
+  val initializer_parameter_default :
+    initializer_request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val command_parameter_default :
+    command_request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val initializer_callback_default :
+    initializer_request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+
+  val command_callback_default :
+    command_request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+
+  val claim_command_request : command_request -> (unit, string) result
+
+  val command_function_source :
+    command_request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+  (** Requests exist only during their original parser callback. Checking is
+      pure; claiming consumes the one native-entry capability. Saved, expired,
+      foreign or already-entered requests fail. *)
+end
 
 val observe_source_offset :
   t ->
@@ -23,6 +172,366 @@ val result :
   sequence:Frontend.Parser.completed_sequence ->
   (Ir.Integer_interpreter.t, Common.Diagnostic.t list) result
 
+module Native_static_allocation : sig
+  type request
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  val allocation : request -> Ir.Integer_static_allocation.t
+  val context : request -> Ir.Integer_globals.t
+  val check : request -> (unit, string) result
+
+  val claim : request -> (unit, string) result
+  (** Check or claim the original live allocation in its originating domain.
+      Claims are single-use. No initializer values or arena addresses are
+      supplied by the caller. *)
+end
+
+module Native_static_initializer : sig
+  type request
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  val program : request -> Ir.Static_initializer_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+end
+
+module Native_default : sig
+  type request
+
+  type t =
+    request -> (Ir.Saved_parameter_value.t, Common.Diagnostic.t list) result
+
+  val program : request -> Ir.Default_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val initializer_remaining : request -> int
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+  (** Inspect original saved objects only while offered. Entry claims once in
+      the originating domain; native work can be recorded once after entry. The
+      request expires when its synchronous source callback returns. *)
+
+  val record_steps : request -> int -> (unit, string) result
+end
+
+module Native_internal_binding : sig
+  type request
+
+  type t =
+    request ->
+    (Ir.Native_internal_binding_capture.t, Common.Diagnostic.t list) result
+
+  val program : request -> Ir.Internal_binding_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val initializer_remaining : request -> int
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+  (** Inspect original saved objects only while offered. Entry claims once in
+      the originating domain; native work can be recorded once after entry. The
+      request expires when its synchronous source callback returns. *)
+
+  val record_steps : request -> int -> (unit, string) result
+end
+
+module Native_dimension : sig
+  type request
+
+  type t =
+    request ->
+    ( Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  val program : request -> Ir.Dimension_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val initializer_remaining : request -> int
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+  (** Inspect original saved objects only while offered. Entry claims once in
+      the originating domain; native work can be recorded once after entry. The
+      request expires when its synchronous source callback returns. *)
+
+  val record_steps : request -> int -> (unit, string) result
+end
+
+module Native_offset : sig
+  type request
+
+  type t =
+    request ->
+    ( Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  val program : request -> Ir.Offset_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val initializer_remaining : request -> int
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+  (** Inspect original saved objects only while offered. Entry claims once in
+      the originating domain; native work can be recorded once after entry. The
+      request expires when its synchronous source callback returns. *)
+
+  val record_steps : request -> int -> (unit, string) result
+end
+
+module Native_static_copy : sig
+  type request
+  type t = request -> (unit, Common.Diagnostic.t list) result
+
+  val destination : request -> Ir.Static_initializer_destination.t
+  val check : request -> (unit, string) result
+
+  val claim : request -> (unit, string) result
+  (** Single-use original live byte-copy receipt. Claim charges its exact byte
+      count against the originating task's initializer allowance. Source bytes
+      and destination ownership cannot be supplied by the consumer. *)
+end
+
 type progress = private {
   runtime : Ir.Integer_interpreter.task_progress;
   dimension_work : int;
@@ -36,7 +545,8 @@ val progress : t -> progress
 
 val compiled_units : t -> Integer_unit.compiled list
 (** Immutable collection in compilation order, including checked units whose
-    later execution failed. The collection is not one isolated program. *)
+    later execution failed and separate saved-compiler child units. The
+    collection is not one isolated program. *)
 
 val compile_isolated :
   t ->
@@ -73,6 +583,14 @@ val create :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
+  ?native_dispatch:Native_dispatch.t ->
+  ?native_static_allocation:Native_static_allocation.t ->
+  ?native_static_initializer:Native_static_initializer.t ->
+  ?native_static_copy:Native_static_copy.t ->
+  ?native_default:Native_default.t ->
+  ?native_dimension:Native_dimension.t ->
+  ?native_offset:Native_offset.t ->
+  ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   (t, string) result
 (** Limits belong to the task. Preparation is charged during compilation,
@@ -84,6 +602,20 @@ val frontend : t -> Session.t
 (** The task's persistent frontend view, also usable for callback-free parsing.
     Sources and semantic table are shared with the caller session; declarations,
     definitions and local contexts have this task's visibility owner. *)
+
+val compiler_diagnostics : t -> Common.Diagnostic.t list
+(** Local warnings from successfully compiled commands, in reached order.
+    Reading the list grants no parser or execution authority. *)
+
+val saved_compiler : Session.t -> ledger:Task_declarations.t -> saved_compiler
+(** Retain the original enclosing namespace for a directive adapter. Each use
+    still requires its exact live parser suspension and observed source ledger;
+    constructing this handle grants no execution authority. *)
+
+val provider_source : t -> Common.Source_file.t option
+(** Register source headers for missing hosted providers in this exact frontend.
+    The caller must parse and execute those headers at its original source
+    boundary; this function does not publish runtime provider entries. *)
 
 val admit_global :
   t ->
@@ -148,6 +680,14 @@ val adopt_source :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
+  ?native_dispatch:Native_dispatch.t ->
+  ?native_static_allocation:Native_static_allocation.t ->
+  ?native_static_initializer:Native_static_initializer.t ->
+  ?native_static_copy:Native_static_copy.t ->
+  ?native_default:Native_default.t ->
+  ?native_dimension:Native_dimension.t ->
+  ?native_offset:Native_offset.t ->
+  ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->
@@ -168,6 +708,14 @@ val adopt_source_for_activation :
   ?max_output_work:int ->
   ?max_generated_bytes:int ->
   ?max_stream_depth:int ->
+  ?native_dispatch:Native_dispatch.t ->
+  ?native_static_allocation:Native_static_allocation.t ->
+  ?native_static_initializer:Native_static_initializer.t ->
+  ?native_static_copy:Native_static_copy.t ->
+  ?native_default:Native_default.t ->
+  ?native_dimension:Native_dimension.t ->
+  ?native_offset:Native_offset.t ->
+  ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
   source:Common.Source_file.t ->
   ledger:Task_declarations.t ->
@@ -189,6 +737,10 @@ val switch_work : t -> int
 
 val initializer_steps : t -> int
 (** Cumulative task preparation, including numeric dimension visits. *)
+
+val synchronize_preparation_work : t -> work:int -> (unit, string) result
+(** Charge other source contexts without granting execution or preparation
+    authority. The task's existing allowance cannot grow or reset. *)
 
 val dimension_work : t -> int
 (** Numeric dimension visits, also included in the shared task preparation
@@ -219,6 +771,21 @@ val execute :
     reached faults consume it; earlier writes survive a reached fault. Foreign
     commands and replay report HCIRVM0026 without effects. *)
 
+val execute_source :
+  ?use_active_stream:bool ->
+  ?stream_exe_print:Ir.Integer_interpreter.stream_exe_print ->
+  t ->
+  command ->
+  (Native_dispatch.word option, Common.Diagnostic.t list) result
+(** Execute one exact parser-resume command through the task's configured source
+    path. Native dispatch claims its opaque live request immediately before
+    entry and settles only task metadata; ordinary tasks retain interpreter
+    execution. *)
+
+val native_final_value : t -> Native_dispatch.word option
+(** Final word metadata from a successfully reached native source command. This
+    is not an interpreter execution receipt or native runtime counter. *)
+
 val run :
   t ->
   source:Common.Source_file.t ->
@@ -236,6 +803,7 @@ val run :
     [compile_ast] retains its separate callback-free collection path. *)
 
 val stream_executor :
+  ?saved_compiler:saved_compiler ->
   ?allow_stream_exe_print:bool ->
   t ->
   Common.Span.t ->
@@ -245,12 +813,25 @@ val stream_executor :
     block's generated buffer. Earlier ordinary effects and resource charges
     survive faults; abort injects no partial buffer.
 
-    The task must already own checked provider declarations. Its ledger observes
-    only stream commands; an unobserved outer parser must use a distinct
-    frontend environment. Within the stream, original initializer leaves finish
-    before later leaves and reuse their retained storage at command completion.
-    This does not execute the outer unit or provide a whole-invocation report.
-*)
+    The task must already own checked provider declarations. Synchronous child
+    input uses this task when its original ledger completely observes the active
+    directive and its immediate parent. Otherwise, [saved_compiler] must retain
+    that parent's original ledger and namespace. The source driver supplies this
+    adapter when the enclosing namespace differs from the directive task.
+    Environment equality cannot reconstruct an unobserved ledger. Within the
+    stream, original initializer leaves finish before later leaves and reuse
+    their retained storage at command completion. [allow_stream_exe_print]
+    defaults to [true] for this active [#exe] block in both outer compilation
+    modes. Ordinary nested source does not inherit that permission; a nested
+    [#exe] establishes its own active context. This does not execute the outer
+    unit or provide a whole-invocation report. *)
 
 val run_suspended :
   t -> source:Common.Source_file.t -> (unit, Common.Diagnostic.t list) result
+
+val prepare_source_callback_default :
+  t ->
+  session:Session.t ->
+  ledger:Task_declarations.t ->
+  Frontend.Parser.completed_callback_default ->
+  (unit, Common.Diagnostic.t list) result

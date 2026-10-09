@@ -5,7 +5,7 @@ module Span = Common.Span
 module Diagnostic = Common.Diagnostic
 module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
-module Integer_task = Driver.Integer_task
+module Integer_task = Driver.Public_integer_task
 module Task_declarations = Driver.Task_declarations
 module Semantic_compiler_record = Sema.Compiler_record
 module Semantic_provisional_function = Sema.Provisional_function
@@ -30,8 +30,10 @@ module Ir_integer_globals = Ir.Integer_globals
 module Ir_global_address_lowering = Ir.Global_address_lowering
 module Ir_initializer_fragment_destination = Ir.Initializer_fragment_destination
 module Ir_initializer_fragment_program = Ir.Initializer_fragment_program
-module Ir_integer_interpreter = Ir.Integer_interpreter
+module Ir_integer_interpreter = Ir.Public_integer_interpreter
+module Ir_prepared_callback_default = Ir.Prepared_callback_default
 module Ir_runtime_call_context = Ir.Runtime_call_context
+module Ir_callback_source = Ir.Callback_source
 module Native_parameter_defaults = Driver.Native_parameter_defaults
 module Native_global_initializers = Driver.Native_global_initializers
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
@@ -59,6 +61,7 @@ module Native_execution = Runtime.Native_execution
 module Native_program_execution = Runtime.Native_program_execution
 module Native_expression = Hosted.Native_expression
 module Native_program = Hosted.Native_program
+module Native_source_execution = Hosted.Native_source_execution
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode
 module Asm_register = Asm.Register
@@ -510,6 +513,9 @@ type integer_program_compilation_report =
 
 let compile_integer_program_report = Driver.Integer_program.compile_report
 
+let integer_program_compilation_compiler_exceptions =
+  Driver.Integer_program.compilation_compiler_exceptions
+
 let integer_program_compilation_result =
   Driver.Integer_program.compilation_result
 
@@ -569,3 +575,6 @@ let integer_program_report_output_work =
 let integer_program_report_progress = Driver.Integer_program_report.progress
 let integer_program_report_program = Driver.Integer_program_report.program
 let integer_program_report_task_units = Driver.Integer_program_report.task_units
+
+let integer_program_report_compiler_exceptions =
+  Driver.Integer_program_report.compiler_exceptions

@@ -453,9 +453,9 @@ let source_order_boundaries () =
     |> Output.expect "");
   ignore
     (Output.run ~mode:Preprocessor.Aot
-       "extern I64 Id(I64 value);I64 Id(I64 n){return n;}I64 Id(I64 n){return \
-        n;}Id(42);"
-    |> Output.fault "HCIRVM0014")
+       "extern I64 Id(I64 value);I64 Id(I64 n){return n+1;}I64 Id(I64 \
+        n){return n;}Id(42);"
+    |> Output.expect "")
 
 let resources () =
   List.iter

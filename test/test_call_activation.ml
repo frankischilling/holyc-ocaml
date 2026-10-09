@@ -54,6 +54,7 @@ let parse ?(on_start = fun _ _ -> ()) ?(on_emit = fun _ _ -> ())
     source =
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->

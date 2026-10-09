@@ -16,10 +16,12 @@ let root value = value.root_
 let globals value = value.globals_
 let type_ value = value.type_
 let span value = value.span_
+let symbol_opt value = Fragment.symbol_opt value.fragment_
+let symbol value = Option.get (symbol_opt value)
 
-let symbol value =
-  Fragment.publication value.fragment_
-  |> Sema.Declaration_collection.publication_symbol
+let is_callback value =
+  let _, _, pointer = Fragment.parameter_parts value.fragment_ in
+  Option.is_some pointer
 
 let create_with_globals globals typed =
   let ( let* ) = Result.bind in
@@ -39,21 +41,30 @@ let create_with_globals globals typed =
     | Sema.Top_level_expression_tree.Default_fragment fragment -> Ok fragment
     | _ -> Error "default destination requires its original default root"
   in
-  let receipt = Fragment.receipt fragment_ in
-  let* () =
-    if Option.is_some receipt.default_function_pointer then
-      Error
-        "HCRUN0001: function-pointer defaults require callable value storage"
-    else Ok ()
+  let type_specifier, pointer_layers, function_pointer =
+    Fragment.parameter_parts fragment_
   in
-  let* reference =
-    Sema.Source_type_reference.builtin receipt.default_type_specifier
-      receipt.default_pointer_layers
+  let* type_ =
+    match function_pointer with
+    | Some pointer when List.length pointer.indirection_layers = 1 ->
+        (* LexExpression2Bin returns a word; PrsFunCall later materializes that
+           saved word with the original member's RT_PTR storage class. *)
+        Sema.Type.make_primitive ~form:Internal_storage ~primitive:I64
+          ~pointer_depth:0
+    | Some _ ->
+        Error "HCRUN0001: callback defaults require one original pointer star"
+    | None ->
+        Sema.Source_type_reference.builtin type_specifier pointer_layers
+        |> Result.map Sema.Type_reference.resolved_type
   in
-  let type_ = Sema.Type_reference.resolved_type reference in
   let value = Typed.top_level_root_value root_ in
   let* () =
     if
+      Option.is_some function_pointer
+      && (Saved_parameter_value.accepts_callback_expression value
+         || Typed.result_is_numeric_callback value)
+    then Ok ()
+    else if
       Option.is_some (Integer_scalar_storage.of_type type_)
       && Typed.result_array_rank value = 0
       && (match Typed.result_category value with
@@ -64,9 +75,24 @@ let create_with_globals globals typed =
              Option.is_some (Integer_scalar_storage.of_type type_))
            (Typed.result_type value)
     then Ok ()
+    else if
+      Option.is_none function_pointer
+      && Sema.Type.pointer_depth type_ = 1
+      && Option.is_some
+           (Option.bind
+              (Result.to_option (Sema.Type.dereference type_))
+              Integer_scalar_storage.of_type)
+      && Option.fold ~none:false
+           ~some:(Integer_scalar_storage.compatible_pointer type_)
+           (Option.bind (Typed.result_type value) (fun source ->
+                if Typed.result_is_array_address value then
+                  Result.to_option (Sema.Type.pointer_to source)
+                else Some source))
+    then Ok ()
     else
       Error
-        "HCRUN0001: default preparation requires a checked scalar integer value"
+        "HCRUN0001: default preparation requires a checked scalar integer or \
+         owned data-pointer value"
   in
   let* globals_ = globals fragment_ in
   Ok
@@ -76,7 +102,7 @@ let create_with_globals globals typed =
       root_;
       globals_;
       type_;
-      span_ = receipt.default_ast.location.span;
+      span_ = (Fragment.ast fragment_).location.span;
     }
 
 let create ~task_view =

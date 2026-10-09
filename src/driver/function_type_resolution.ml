@@ -54,7 +54,8 @@ let resolve_type visible type_specifier pointer_layers =
                    identifier.spelling)
           | Some symbol -> Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
-let make_type_reference ?selected_aggregate ?selected_owner visible
+let make_type_reference ?selected_aggregate ?selected_owner
+    ?(callback_metadata = false) ?(header_metadata = false) visible
     type_specifier pointer_layers =
   let ( let* ) = Result.bind in
   match (type_specifier, selected_aggregate) with
@@ -68,8 +69,12 @@ let make_type_reference ?selected_aggregate ?selected_owner visible
                 Sema.Source_type_reference.validate_selected_aggregate ~table
                   ~namespace proof
           in
-          Sema.Source_type_reference.selected proof type_specifier
-            pointer_layers
+          (if header_metadata then
+             Sema.Source_type_reference.selected_header_class
+           else if callback_metadata then
+             Sema.Source_type_reference.selected_callback_return
+           else Sema.Source_type_reference.selected)
+            proof type_specifier pointer_layers
       | None ->
           Error "named function type lacks its retained selected aggregate")
   | _ -> (
@@ -101,8 +106,7 @@ let aggregate_kind = function
   | Frontend.Ast.Union_aggregate -> Sema.Aggregate_resolution.Union
 
 let aggregate_ast (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Aggregate_forward_declaration forward ->
         Some
@@ -259,8 +263,7 @@ type function_event = {
 }
 
 let function_ast (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
+  Frontend.Ast.declaration_items module_
   |> List.filter_map (function
     | item_index, Frontend.Ast.Function_prototype prototype ->
         Some
@@ -504,8 +507,9 @@ and parameter_fact ?selected_aggregate ?selected_owner visible index
   Result.bind (Register_request.of_list parameter.register_qualifiers)
     (fun register_requests ->
       match
-        make_type_reference ?selected_aggregate ?selected_owner visible
-          parameter.type_specifier parameter.pointer_layers
+        make_type_reference ?selected_aggregate ?selected_owner
+          ~callback_metadata:(Option.is_some parameter.function_pointer)
+          visible parameter.type_specifier parameter.pointer_layers
       with
       | Error _ as error -> error
       | Ok type_reference -> (
@@ -528,7 +532,8 @@ and parameter_fact ?selected_aggregate ?selected_owner visible index
                           (fun pointer ->
                             Sema.Function_type_resolution.Function_pointer
                               pointer)
-                          (Sema.Function_type_resolution.make_function_pointer
+                          (Sema.Function_type_resolution
+                           .make_source_function_pointer ~source:pointer
                              ~origin:(origin pointer.function_pointer_location)
                              ~opening_origin:
                                (origin pointer.declarator_opening_parenthesis)
@@ -562,6 +567,33 @@ and parameter_fact ?selected_aggregate ?selected_owner visible index
                        origin delimiter.location)
                      parameter.delimiter)
                 ()))
+
+let resolve_completed_callback
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace
+    (header : Frontend.Parser.completed_callback_signature) =
+  let source = header.callback_pointer in
+  let ( let* ) = Result.bind in
+  let* signature =
+    signature_fact ~selected_aggregate ~selected_owner:(table, namespace)
+      String_map.empty ~opening:source.signature_opening_parenthesis
+      source.signature_parameters source.signature_variadic
+      ~closing:source.signature_closing_parenthesis
+  in
+  let* pointer =
+    Sema.Function_type_resolution.make_source_function_pointer ~source
+      ~origin:(origin source.function_pointer_location)
+      ~opening_origin:(origin source.declarator_opening_parenthesis)
+      ~indirection_origins:(pointer_origins source.indirection_layers)
+      ~closing_origin:(origin source.declarator_closing_parenthesis)
+      ~signature
+  in
+  let* () =
+    Sema.Function_type_resolution.validate_source_callback_types ~table
+      ~namespace ~selected_aggregate pointer
+  in
+  Ok pointer
 
 let parameter_entries entries =
   List.filter
@@ -912,3 +944,97 @@ let resolve_provisional_call ?scope
   Sema.Function_type_resolution.make_provisional_function_with_selection ~table
     ~namespace ~selected_aggregate ~shape ~scope ~return_type ~parameters
     ~variadic_register_requests
+
+let resolve_publication_return_type
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace
+    (publication : Frontend.Parser.function_publication) =
+  make_type_reference ~selected_aggregate ~selected_owner:(table, namespace)
+    ~header_metadata:true String_map.empty
+    publication.function_header.type_specifier
+    publication.function_pointer_layers
+
+let resolve_native_header_return_type
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace snapshot =
+  let module N = Sema.Function_record_phase in
+  let ( let* ) = Result.bind in
+  let* () =
+    if N.owns_table snapshot table && N.owns_namespace snapshot namespace then
+      Ok ()
+    else Error "native header types belong to another table or namespace"
+  in
+  let visible = String_map.empty in
+  let native = N.native_source snapshot in
+  make_type_reference ~selected_aggregate ~selected_owner:(table, namespace)
+    ~header_metadata:true visible native.function_header.type_specifier
+    native.function_pointer_layers
+
+let resolve_native_header_member_type
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace snapshot slot =
+  let module N = Sema.Function_record_phase in
+  let module P = Sema.Provisional_function in
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      N.owns_table snapshot table
+      && N.owns_namespace snapshot namespace
+      && List.exists (N.same_header_member slot) (N.header_members snapshot)
+    then Ok ()
+    else Error "native header member lacks its original snapshot and ownership"
+  in
+  match slot with
+  | N.Argc_header_member _ | N.Argv_header_member _ ->
+      Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
+        ~primitive:Common.Primitive_type.I64 ~pointer_depth:0
+  | N.Local_header_member receipt -> (
+      match receipt.allocation_local.local_source with
+      | Frontend.Parser.Local_variable source -> (
+          let* type_reference =
+            make_type_reference ~selected_aggregate
+              ~selected_owner:(table, namespace) ~header_metadata:true
+              String_map.empty source.local_type_specifier
+              source.local_pointer_layers
+          in
+          match source.local_function_pointer with
+          | None -> Ok (Sema.Type_reference.resolved_type type_reference)
+          | Some pointer ->
+              Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
+                ~primitive:Common.Primitive_type.I64
+                ~pointer_depth:(List.length pointer.indirection_layers))
+      | _ -> Error "header local comparison lost its original variable source")
+  | N.Fixed_header_member member -> (
+      let source = P.member_source member in
+      let* type_reference =
+        make_type_reference ~selected_aggregate
+          ~selected_owner:(table, namespace) ~header_metadata:true
+          String_map.empty source.parameter_type_specifier
+          source.parameter_pointer_layers
+      in
+      match source.parameter_function_pointer with
+      | None -> Ok (Sema.Type_reference.resolved_type type_reference)
+      | Some pointer ->
+          Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
+            ~primitive:Common.Primitive_type.I64
+            ~pointer_depth:(List.length pointer.indirection_layers))
+
+let resolve_native_header_types ?selected_aggregate ~table ~namespace snapshot =
+  let ( let* ) = Result.bind in
+  let* return_type =
+    resolve_native_header_return_type ?selected_aggregate ~table ~namespace
+      snapshot
+  in
+  let rec members rev = function
+    | [] -> Ok (return_type, List.rev rev)
+    | slot :: rest ->
+        let* type_ =
+          resolve_native_header_member_type ?selected_aggregate ~table
+            ~namespace snapshot slot
+        in
+        members ((slot, type_) :: rev) rest
+  in
+  members [] (Sema.Function_record_phase.header_members snapshot)

@@ -8,6 +8,7 @@ type statement =
   | Initialize_global of
       Sema.Function_call_expression_result.top_level_root_result
   | Initialize_fragment of Initializer_fragment_destination.t
+  | Initialize_static_fragment of Static_initializer_destination.t
   | Initialize_static of Integer_globals.static_slot
   | Initialize_static_leaf of
       Integer_globals.static_slot
@@ -49,6 +50,8 @@ val lower_complete :
   ?labels:Sema.Label_resolution.resolved_function ->
   ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
+  ?callback_calls:Sema.Function_call_expression_result.indirect_call list ->
+  ?top_callback_calls:Callback_source.t list ->
   span:Common.Span.t ->
   statement list ->
   (t, Common.Diagnostic.t list) result
@@ -111,6 +114,6 @@ val lower :
 (** Lower integer statements with block-local values and conditional
     short-circuit branches. A checked frame enables initializer stores and
     returns through a shared leave block; top-level graphs end the stream.
-    Classified direct calls compose through the shared expression planner. The
-    graph passes graph and x87 verification; integer VM preflight belongs to
-    execution. *)
+    Classified direct calls and original scalar frame callback calls compose
+    through the shared expression planner. The graph passes graph and x87
+    verification; integer VM preflight belongs to execution. *)

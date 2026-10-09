@@ -5,6 +5,7 @@ module Initializers = Holyc_lib__Driver.Integer_initializers
 module Unit = Holyc_lib__Driver.Integer_unit
 module Proof = Native_global_initializers
 module Image = X86_64_program
+module VM = Ir_integer_interpreter
 
 let checked = function
   | Ok value -> value
@@ -21,6 +22,79 @@ let diagnostics = function
 
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
+
+let initializer_failure_settles_once () =
+  let session = Session.task_frontend (Session.create ()) in
+  let source =
+    Session.add_source session ~path:"initializer-failure.hc"
+      ~contents:"I64 A=41;"
+  in
+  let ledger = D.create_source session ~source |> checked in
+  let runtime =
+    VM.create_task_state ~table:(Session.semantic_symbols session) () |> checked
+  in
+  let foreign =
+    VM.create_task_state ~table:(Session.semantic_symbols session) () |> checked
+  in
+  let reached = ref false in
+  let checkpoint event =
+    Result.bind (D.observe_command ledger event) (fun () ->
+        match event with
+        | Parser.Sequence_started _ ->
+            D.promote_source ledger ~runtime session ~source |> checked;
+            Ok ()
+        | _ -> Ok ())
+  in
+  let declaration event =
+    Result.bind (D.observe ledger event) (fun () ->
+        match event with
+        | Parser.Global_declared publication ->
+            D.admit_global ledger ~runtime publication
+        | Parser.Global_initializer_started start ->
+            D.begin_initializer_runtime ledger ~runtime start
+        | Parser.Global_initializer_leaf_completed receipt ->
+            Result.bind (D.begin_initializer_attempt ledger ~runtime receipt)
+              (fun attempt ->
+                reached := true;
+                Alcotest.(check bool)
+                  "first failure settles original live attempt" true
+                  (Result.is_ok
+                     (VM.fail_task_initializer_attempt runtime attempt));
+                reject "failed initializer attempt cannot settle twice"
+                  (VM.fail_task_initializer_attempt runtime attempt);
+                reject "foreign task cannot settle original initializer attempt"
+                  (VM.fail_task_initializer_attempt foreign attempt);
+                Ok ())
+        | _ -> Ok ())
+  in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = Some checkpoint;
+      call = None;
+      implicit_output = None;
+      reference = Some (D.observe_reference ledger);
+      declaration = Some declaration;
+      query = Some (D.observe_query ledger);
+      dimension_count = Some (D.grammar_dimension_count ledger);
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:Preprocessor.Jit () |> checked
+  in
+  let parsed =
+    Parser.parse ~commands ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session) ~config source
+  in
+  if Parser.has_errors parsed then
+    ignore (diagnostics (Error parsed.diagnostics));
+  Alcotest.(check bool)
+    "original parser source completes" true
+    (Option.is_some parsed.ast);
+  Alcotest.(check bool) "original initializer leaf was reached" true !reached
 
 let fixture ?contents ?(statics = false) mode =
   let session = Session.create () in
@@ -39,18 +113,20 @@ let fixture ?contents ?(statics = false) mode =
     Preparation.create ~compilation_mode:mode ~max_initializer_steps:100 session
     |> checked
   in
-  let check_suspended context current =
+  let check_suspended ?(during = fun () -> ()) context current =
     let token = Parser.suspend_context context |> checked in
     let child =
       Session.add_source session ~path:"empty-static-child.hc" ~contents:""
     in
     let commands : Parser.command_sink =
       {
+        lexical_lookup = None;
         checkpoint =
           Some
             (fun _ ->
               Alcotest.(check bool)
-                "suspended static receipt" false (current ());
+                "suspended initializer receipt" false (current ());
+              during ();
               Ok ());
         query = None;
         reference = None;
@@ -79,6 +155,7 @@ let fixture ?contents ?(statics = false) mode =
   let static_receipts = ref [] in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = Some (D.observe_command ledger);
       query = Some (D.observe_query ledger);
       reference = Some (D.observe_reference ledger);
@@ -89,7 +166,41 @@ let fixture ?contents ?(statics = false) mode =
           (fun event ->
             Result.bind (D.observe ledger event) (fun () ->
                 match event with
+                | Parser.Global_initializer_started receipt ->
+                    Alcotest.(check bool)
+                      "original initializer start" true
+                      (Parser.initializer_start_is_current receipt);
+                    let clone = Obj.obj (Obj.dup (Obj.repr receipt)) in
+                    Alcotest.(check bool)
+                      "cloned initializer start" false
+                      (Parser.initializer_start_is_current clone);
+                    Ok ()
+                | Parser.Global_initializer_delimiter_completed receipt ->
+                    Alcotest.(check bool)
+                      "original initializer delimiter" true
+                      (Parser.initializer_delimiter_is_current receipt);
+                    let clone = Obj.obj (Obj.dup (Obj.repr receipt)) in
+                    Alcotest.(check bool)
+                      "cloned initializer delimiter" false
+                      (Parser.initializer_delimiter_is_current clone);
+                    Ok ()
                 | Parser.Global_initializer_leaf_completed receipt ->
+                    check_suspended
+                      ~during:(fun () ->
+                        reject "suspended parent cannot prepare its leaf"
+                          (Preparation.prepare_initializer preparation ~session
+                             ~ledger receipt))
+                      receipt.leaf_initializer.initializer_owner.global_header
+                        .declaration_command
+                        .command_context
+                      (fun () -> Parser.initializer_leaf_is_current receipt);
+                    let clone = Obj.obj (Obj.dup (Obj.repr receipt)) in
+                    Alcotest.(check bool)
+                      "cloned global receipt" false
+                      (Parser.initializer_leaf_is_current clone);
+                    reject "cloned global receipt cannot prepare"
+                      (Preparation.prepare_initializer preparation ~session
+                         ~ledger clone);
                     (if !receipts <> [] then
                        let other =
                          Preparation.create ~compilation_mode:mode
@@ -202,7 +313,9 @@ let fixture ?contents ?(statics = false) mode =
   List.iter
     (fun receipt ->
       reject "expired source callback"
-        (D.native_initializer_fragment ledger ~runtime receipt))
+        (D.native_initializer_fragment ledger ~runtime receipt);
+      reject "expired source load callback"
+        (D.native_load_initializer_source ledger ~runtime receipt))
     !receipts;
   let compile ?native_initializers ?native_static_initializers
       ?(max_initializer_steps = 100) () =
@@ -226,7 +339,7 @@ let emit ?global_initializers ?status_abi unit_ =
     ~initialization:(Unit.initialization unit_)
     ~entry:(Unit.entry unit_) ~functions:(Unit.functions unit_) ()
 
-let ownership ?contents () =
+let ownership ?contents ?(modes = [ Preprocessor.Jit; Preprocessor.Aot ]) () =
   List.iter
     (fun mode ->
       let span, prepared, compile = fixture ?contents mode in
@@ -289,7 +402,7 @@ let ownership ?contents () =
         (compile
            ~native_initializers:(Preparation.initializers prepared)
            ~max_initializer_steps:(steps - 1) ()))
-    [ Preprocessor.Jit; Preprocessor.Aot ]
+    modes
 
 let static_ownership ?contents () =
   List.iter
@@ -525,27 +638,30 @@ let failed_preparation () =
           Alcotest.(check bool)
             "earlier declaration work survives" true
             (Native_program.preparation_steps report > 0))
-        [
-          ("I64 A=40;I64 B=1/0;42;", "HCIRVM0009");
-          ("I64 F(I64 n=40){return n;}I64 B=1/0;42;", "HCIRVM0009");
-          ("I64 A=40;I64 F(I64 n=1/0){return n;}42;", "HCIRVM0009");
-          ("I64 A=40;I64 B=0&&(1/0);42;", "HCIRVM0009");
-          ("I64 A=40;I64 B=1/0;I64 C=1<<2;42;", "HCIRVM0009");
-          ("I64 A=40;I64 B=A;42;", "HCRUN0006");
-          ("I64 A=40;I64 B=A<<2;42;", "HCRUN0006");
-          ("I64 A=40;42;I64 B=2;", "HCRUN0001");
-          ("I64 A=40;I64 F(){static I8 n=1/0;return n;}42;", "HCIRVM0009");
-          ("I64 F(){static I8 n=40;return n;}I64 B=1/0;42;", "HCIRVM0009");
-          ("I64 F(){return 1;static I8 n=1/0;}42;", "HCIRVM0009");
-          ("I64 F(){static I8 n=40 junk;return n;}42;", "HCPARSE0102");
-          ("I64 A=40;I64 F(){static I8 n=A;return n;}42;", "HCRUN0006");
-          ( "I64 A=40;I64 H(){return 2;}I64 F(){static I8 n=H();return n;}42;",
-            "HCRUN0006" );
-          ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
-          ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
-          ("I64 A=40;I64 F(){static I8 n=A<<2;return n;}42;", "HCRUN0006");
-          ("I64 A=40;42;I64 F(){static I8 n=2;return n;}", "HCRUN0001");
-        ])
+        ([
+           ("I64 A=40;I64 B=1/0;42;", "HCIRVM0009");
+           ("I64 F(I64 n=40){return n;}I64 B=1/0;42;", "HCIRVM0009");
+           ("I64 A=40;I64 F(I64 n=1/0){return n;}42;", "HCIRVM0009");
+           ("I64 A=40;I64 B=0&&(1/0);42;", "HCIRVM0009");
+           ("I64 A=40;I64 B=1/0;I64 C=1<<2;42;", "HCIRVM0009");
+           ("I64 A=40;I64 B=A<<2;42;", "HCRUN0006");
+           ("I64 A=40;42;I64 B=2;", "HCRUN0001");
+           ("I64 A=40;I64 F(){static I8 n=1/0;return n;}42;", "HCIRVM0009");
+           ("I64 F(){static I8 n=40;return n;}I64 B=1/0;42;", "HCIRVM0009");
+           ("I64 F(){return 1;static I8 n=1/0;}42;", "HCIRVM0009");
+           ("I64 F(){static I8 n=40 junk;return n;}42;", "HCPARSE0102");
+           ("I64 A=40;I64 F(){static I8 n=A;return n;}42;", "HCRUN0006");
+           ( "I64 A=40;I64 H(){return 2;}I64 F(){static I8 n=H();return n;}42;",
+             "HCRUN0006" );
+           ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
+           ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
+           ("I64 A=40;I64 F(){static I8 n=A<<2;return n;}42;", "HCRUN0006");
+           ("I64 A=40;42;I64 F(){static I8 n=2;return n;}", "HCRUN0001");
+         ]
+        @
+        if mode = Preprocessor.Jit then
+          [ ("I64 A=40;I64 B=A;42;", "HCRUN0006") ]
+        else []))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let array_failure_work () =
@@ -616,6 +732,32 @@ let () =
         [
           Alcotest.test_case "original preparation and bundle ownership" `Quick
             (fun () -> ownership ());
+          Alcotest.test_case "AOT load leaves retain original bundle ownership"
+            `Quick (fun () ->
+              List.iter
+                (fun contents ->
+                  ownership ~modes:[ Preprocessor.Aot ] ~contents ())
+                [
+                  "I64 A=40;I64 Add(I64 n){return n+2;}I64 (*P)(I64 \
+                   n)=&Add;I64 (*Q)(I64 n)[2]={P,Q[0]};Q[1](A);";
+                  "I64 A=40;I64 Add(I64 n){return n+2;}I64 B=Add(A);B;";
+                  "I64 A=40;I64 Add(I64 n){return n+2;}I64 (*P)(I64 \
+                   n)[3]={17,&Add,P[1]};P[2](A);";
+                  "I64 A=40;I64 B=A;I64 C=B+2;C;";
+                ]);
+          Alcotest.test_case
+            "callback words require original charged completions" `Quick
+            (fun () ->
+              List.iter
+                (fun return_type ->
+                  ownership
+                    ~contents:
+                      (return_type
+                     ^ " (*P)()[2]={0xFFFFFFFFFFFFFFFF,0x8000000000000000};I64 \
+                        Check(){if(P[0]==-1&&P[1]==0x8000000000000000)return \
+                        42;return 0;}Check();")
+                    ())
+                [ "U8"; "F64"; "U0"; "I64 ****" ]);
           Alcotest.test_case "static original preparation and bundle ownership"
             `Quick (fun () -> static_ownership ());
           Alcotest.test_case
@@ -637,6 +779,8 @@ let () =
             `Quick array_publication_prefix;
           Alcotest.test_case "preparation failures precede entry" `Quick
             failed_preparation;
+          Alcotest.test_case "initializer failure settles exactly once" `Quick
+            initializer_failure_settles_once;
           Alcotest.test_case "static leaf and copy failures retain exact work"
             `Quick array_failure_work;
         ] );

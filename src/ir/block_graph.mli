@@ -26,6 +26,11 @@ val create :
     seeded in source order and checked as additional entries. *)
 
 val entry : t -> block
+
+val storage_identity : t -> int
+(** Process-local lookup key allocated for this immutable graph. Storage
+    authority still requires the physical graph and sealed producer records. *)
+
 val blocks : t -> block list
 
 val definition_order : t -> block list

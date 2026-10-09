@@ -245,9 +245,10 @@ let make_local ~symbol ~declaration_index ~declarator_index ~declaration_origin
     | Automatic, None | Automatic, Some _ | Static, _ -> false
   then Error "semantic automatic local cannot use a braced initializer"
   else if
-    match (declarator_kind, initial_value) with
-    | Function_pointer _, Some _ -> true
-    | Object, _ | Function_pointer _, None -> false
+    match (storage, declarator_kind, initial_value) with
+    | Automatic, Function_pointer _, Some _ -> true
+    | Static, _, _ | Automatic, Object, _ | Automatic, Function_pointer _, None
+      -> false
   then Error "semantic function-pointer local cannot have an initializer"
   else
     Ok

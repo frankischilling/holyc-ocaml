@@ -67,7 +67,7 @@ let ast_declarations (module_ : Frontend.Ast.module_) =
           rest
     | _ :: rest -> collect (item_index + 1) declarations_rev rest
   in
-  collect 0 [] module_.items
+  collect 0 [] (List.map snd (Frontend.Ast.declaration_items module_))
 
 let function_entries declarations =
   Sema.Declaration_collection.entries declarations

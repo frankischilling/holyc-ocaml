@@ -216,9 +216,22 @@ type live = {
 }
 
 let begin_live declaration =
+  let* physical_type =
+    Sema.Compiler_record.declared_global_storage_type declaration
+    |> Result.map_error (fun _ ->
+        "HCRUN0006: persistent array initializer has no checked physical \
+         storage type")
+  in
   let type_ =
-    declaration |> Sema.Compiler_record.declared_global_type
-    |> Sema.Type_reference.resolved_type
+    if
+      Option.is_some
+        (Sema.Compiler_record.declared_global_source declaration)
+          .global_function_pointer
+    then
+      Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
+        ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+      |> Result.get_ok
+    else physical_type
   in
   let dimensions =
     Sema.Compiler_record.declared_global_dimensions declaration

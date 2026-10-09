@@ -52,6 +52,7 @@ type expression_result = {
   execution_class : result_class option;
   array_rank : int;
   array_address : bool;
+  callback_pointer : Function_type_resolution.function_pointer option;
   intrinsic_conversion : intrinsic_conversion;
   member_lookup : Aggregate_member_index.lookup option;
   aggregate_offset_path : aggregate_offset_path option;
@@ -63,6 +64,7 @@ type expression_result = {
   function_declaration : Function_resolution.resolved_declaration option;
   function_address_path :
     Function_call_resolution.direct_function_address_path option;
+  callback_call_pointer : Function_type_resolution.function_pointer option;
 }
 
 type declared_default_kind = Expression_default_kind | Lastclass_default_kind
@@ -129,11 +131,23 @@ type top_level_global_callback_call = {
   top_level_global_callback_source : Top_level_expression_tree.call;
   top_level_global_callback_global : Global_type_resolution.global;
   top_level_global_callback_value : Function_call_resolution.identifier_value;
+  top_level_global_callback_callee_result : expression_result;
   top_level_global_callback_callable : Function_call_resolution.callable;
   top_level_global_callback_fixed_results : top_level_fixed_result list;
   top_level_global_callback_variadic_results : expression_result list;
   top_level_global_callback_variadic_count : int64;
   top_level_global_callback_result_id : Id.t;
+}
+
+type top_level_static_callback_call = {
+  top_level_static_callback_source : Top_level_expression_tree.call;
+  top_level_static_callback_reference : Static_reference.t;
+  top_level_static_callback_callee_result : expression_result;
+  top_level_static_callback_callable : Function_call_resolution.callable;
+  top_level_static_callback_fixed_results : top_level_fixed_result list;
+  top_level_static_callback_variadic_results : expression_result list;
+  top_level_static_callback_variadic_count : int64;
+  top_level_static_callback_result_id : Id.t;
 }
 
 type top_level_outer_callback_call = {
@@ -270,6 +284,7 @@ type resolved_function = {
   switch_cases : switch_case_result list;
   returns : return_result list;
   initializers : initializer_result list;
+  expression_results : expression_result list;
 }
 
 and initializer_result = {
@@ -311,6 +326,7 @@ type top_level_t = {
   top_level_direct_calls : top_level_direct_call list;
   top_level_global_callback_calls : top_level_global_callback_call list;
   top_level_outer_callback_calls : top_level_outer_callback_call list;
+  top_level_static_callback_calls : top_level_static_callback_call list;
   top_level_indexed_global_callback_calls :
     top_level_indexed_global_callback_call list;
   top_level_member_callback_calls : top_level_member_callback_call list;
@@ -330,6 +346,7 @@ type build_state = {
   top_level_direct_calls_rev : top_level_direct_call list;
   top_level_global_callback_calls_rev : top_level_global_callback_call list;
   top_level_outer_callback_calls_rev : top_level_outer_callback_call list;
+  top_level_static_callback_calls_rev : top_level_static_callback_call list;
   top_level_indexed_global_callback_calls_rev :
     top_level_indexed_global_callback_call list;
   top_level_member_callback_calls_rev : top_level_member_callback_call list;
@@ -350,6 +367,7 @@ let owns_outer result outer =
 let compilation_mode result = result.compilation_mode
 let functions result = result.functions
 let all_results result = result.all_results
+let function_all_results result = result.expression_results
 let top_level_owns_table result table = result.top_level_table == table
 let top_level_owns_members result members = result.top_level_members == members
 
@@ -369,6 +387,33 @@ let top_level_global_callback_calls result =
 
 let top_level_outer_callback_calls result =
   result.top_level_outer_callback_calls
+
+let top_level_static_callback_calls result =
+  result.top_level_static_callback_calls
+
+let top_level_static_callback_source call =
+  call.top_level_static_callback_source
+
+let top_level_static_callback_reference call =
+  call.top_level_static_callback_reference
+
+let top_level_static_callback_callee_result call =
+  call.top_level_static_callback_callee_result
+
+let top_level_static_callback_callable call =
+  call.top_level_static_callback_callable
+
+let top_level_static_callback_fixed_results call =
+  call.top_level_static_callback_fixed_results
+
+let top_level_static_callback_variadic_results call =
+  call.top_level_static_callback_variadic_results
+
+let top_level_static_callback_variadic_count call =
+  call.top_level_static_callback_variadic_count
+
+let top_level_static_callback_result_id call =
+  call.top_level_static_callback_result_id
 
 let top_level_indexed_global_callback_calls result =
   result.top_level_indexed_global_callback_calls
@@ -481,6 +526,16 @@ let fixed_path (fixed : fixed_result) = fixed.path
 let declared_default_source result = result.default_source
 let declared_default_parameter result = result.default_parameter
 let declared_default_type result = result.default_type
+
+let declared_default_storage_type result =
+  match
+    Function_type_resolution.parameter_declarator_kind result.default_parameter
+  with
+  | Function_type_resolution.Object -> Some result.default_type
+  | Function_type_resolution.Function_pointer pointer ->
+      Function_type_resolution.function_pointer_storage_type pointer
+      |> Result.to_option
+
 let declared_default_class result = result.default_class
 let declared_default_kind result = result.default_kind
 let declared_default_materialization result = result.default_materialization
@@ -579,6 +634,10 @@ let top_level_global_callback_global (call : top_level_global_callback_call) =
 
 let top_level_global_callback_value (call : top_level_global_callback_call) =
   call.top_level_global_callback_value
+
+let top_level_global_callback_callee_result
+    (call : top_level_global_callback_call) =
+  call.top_level_global_callback_callee_result
 
 let top_level_global_callback_callable (call : top_level_global_callback_call) =
   call.top_level_global_callback_callable
@@ -715,32 +774,665 @@ let result_binary_operands (result : expression_result) = result.binary_operands
 let result_index_operands (result : expression_result) = result.index_operands
 let result_type (result : expression_result) = result.source_type
 
-let rec result_computation_type (result : expression_result) =
+let result_callback_pointer (result : expression_result) =
+  result.callback_pointer
+
+let result_storage_type (result : expression_result) =
+  match result.callback_pointer with
+  | None -> result.source_type
+  | Some pointer ->
+      Function_type_resolution.function_pointer_storage_type pointer
+      |> Result.to_option
+
+let result_is_callback_storage (result : expression_result) =
+  result.category = Callback_value
+  && result.array_rank = 0
+  && Option.is_some result.callback_pointer
+
+let canceled_callback_callee_operand =
+  Function_call_resolution.callback_cancellation_operand
+
+let canceled_callback_storage source (operand : expression_result) =
+  result_is_callback_storage operand
+  && Option.fold ~none:false ~some:(( == ) operand.source)
+       (canceled_callback_callee_operand source)
+
+let result_canceled_callback_operand (result : expression_result) =
+  match
+    ( Function_call_resolution.argument_expression_kind result.source,
+      result.operand_result,
+      result.callback_pointer )
+  with
+  | ( Function_call_resolution.Prefix_expression prefix,
+      Some operand,
+      Some pointer )
+    when Function_call_resolution.prefix_operator prefix
+         = Function_call_resolution.Dereference
+         && Function_call_resolution.prefix_operand prefix == operand.source
+         && canceled_callback_storage result.source operand
+         && result_is_callback_storage result
+         && Option.fold ~none:false ~some:(( == ) pointer)
+              operand.callback_pointer -> Some operand
+  | _ -> None
+
+let rec result_callback_update_operand (result : expression_result) =
+  let checked (operand : expression_result) source =
+    if
+      operand.source == source
+      && result_is_callback_storage operand
+      && result.category = Object_value
+      && Option.fold ~none:false
+           ~some:(fun storage ->
+             Option.fold ~none:false ~some:(Type.equal storage)
+               result.source_type)
+           (result_storage_type operand)
+    then Some operand
+    else None
+  in
+  match Function_call_resolution.argument_expression_kind result.source with
+  | Function_call_resolution.Parenthesized_expression source ->
+      Option.bind result.operand_result (fun operand ->
+          if operand.source == source then
+            result_callback_update_operand operand
+          else None)
+  | Function_call_resolution.Prefix_expression prefix
+    when List.mem
+           (Function_call_resolution.prefix_operator prefix)
+           [ Function_call_resolution.Pre_increment; Pre_decrement ] ->
+      Option.bind result.operand_result (fun operand ->
+          checked operand (Function_call_resolution.prefix_operand prefix))
+  | Function_call_resolution.Postfix_expression postfix ->
+      Option.bind result.operand_result (fun operand ->
+          checked operand (Function_call_resolution.postfix_operand postfix))
+  | Function_call_resolution.Binary_expression binary
+    when List.mem
+           (Function_call_resolution.binary_operator binary)
+           Generated.Intermediate_codes.
+             [
+               Ic_assign;
+               Ic_add_equ;
+               Ic_sub_equ;
+               Ic_mul_equ;
+               Ic_div_equ;
+               Ic_mod_equ;
+               Ic_and_equ;
+               Ic_or_equ;
+               Ic_xor_equ;
+               Ic_shl_equ;
+               Ic_shr_equ;
+             ] ->
+      Option.bind result.binary_operands (fun (left, right) ->
+          if right.source == Function_call_resolution.binary_right binary then
+            checked left (Function_call_resolution.binary_left binary)
+          else None)
+  | _ -> None
+
+let callback_word_pointer type_ =
+  Type.pointer_depth type_ = 1
+  && Type.base type_ = Type.Primitive (Type.Internal_storage, Primitive_type.I64)
+
+let rec result_callback_parser_pointer (result : expression_result) =
+  let original_operand source =
+    Option.bind result.operand_result (fun operand ->
+        if operand.source == source then result_callback_parser_pointer operand
+        else None)
+  in
+  if result.result_class <> Integer_result || result.array_rank <> 0 then None
+  else if result_is_callback_storage result then
+    Option.bind (result_storage_type result) (fun type_ ->
+        if callback_word_pointer type_ then Some type_ else None)
+  else if Option.is_some (result_callback_update_operand result) then
+    Option.bind result.source_type (fun type_ ->
+        if callback_word_pointer type_ then Some type_ else None)
+  else
+    match Function_call_resolution.argument_expression_kind result.source with
+    | Function_call_resolution.Parenthesized_expression source ->
+        original_operand source
+    | Function_call_resolution.Prefix_expression prefix
+      when List.mem
+             (Function_call_resolution.prefix_operator prefix)
+             Function_call_resolution.
+               [ Unary_plus; Unary_minus; Logical_not; Bitwise_not ] ->
+        original_operand (Function_call_resolution.prefix_operand prefix)
+    | Function_call_resolution.Binary_expression binary
+      when List.mem
+             (Function_call_resolution.binary_operator binary)
+             Generated.Intermediate_codes.
+               [
+                 Ic_add;
+                 Ic_sub;
+                 Ic_mul;
+                 Ic_div;
+                 Ic_mod;
+                 Ic_shl;
+                 Ic_shr;
+                 Ic_and;
+                 Ic_or;
+                 Ic_xor;
+                 Ic_equ_equ;
+                 Ic_not_equ;
+                 Ic_less;
+                 Ic_less_equ;
+                 Ic_greater;
+                 Ic_greater_equ;
+                 Ic_and_and;
+                 Ic_or_or;
+                 Ic_xor_xor;
+               ] ->
+        Option.bind result.binary_operands (fun (left, right) ->
+            if
+              left.source != Function_call_resolution.binary_left binary
+              || right.source != Function_call_resolution.binary_right binary
+            then None
+            else
+              Option.bind (result_callback_parser_pointer left) (fun type_ ->
+                  (* PrsAddOp emits a scalar DIV after pointer subtraction.
+                     Other binary operations retain the parser's left class;
+                     the optimizer selects their raw computation class later. *)
+                  let comparison opcode =
+                    List.mem opcode
+                      Generated.Intermediate_codes.
+                        [
+                          Ic_equ_equ;
+                          Ic_not_equ;
+                          Ic_less;
+                          Ic_less_equ;
+                          Ic_greater;
+                          Ic_greater_equ;
+                        ]
+                  in
+                  let completes_chain =
+                    comparison (Function_call_resolution.binary_operator binary)
+                    &&
+                    match
+                      Function_call_resolution.argument_expression_kind
+                        left.source
+                    with
+                    | Function_call_resolution.Binary_expression previous ->
+                        comparison
+                          (Function_call_resolution.binary_operator previous)
+                    | _ -> false
+                  in
+                  if completes_chain then None
+                  else if
+                    Function_call_resolution.binary_operator binary
+                    = Generated.Intermediate_codes.Ic_sub
+                    && (Option.is_some (result_callback_parser_pointer right)
+                       || Option.fold ~none:false
+                            ~some:(fun type_ -> Type.pointer_depth type_ > 0)
+                            (result_storage_type right))
+                  then None
+                  else Some type_))
+    | _ -> None
+
+type callback_numeric_classes = {
+  parser_class : Type.t;
+  first_class : Type.t;
+  final_class : Type.t;
+  scale_left : bool;
+  scale_right : bool;
+  unsigned_comparison : bool;
+}
+
+let callback_integer_class =
+  Type.make_primitive ~form:Type.Internal_storage ~primitive:Primitive_type.I64
+    ~pointer_depth:0
+  |> Result.get_ok
+
+let callback_raw_class type_ =
+  if Type.pointer_depth type_ > 0 then
+    (Primitive_type.info Primitive_type.I64).raw_id
+  else
+    match Type.base type_ with
+    | Type.Primitive (_, primitive) -> (Primitive_type.info primitive).raw_id
+    | Type.Aggregate _ -> -1
+
+let callback_common_class left right =
+  (* OptFixupBinaryOp1 forwards both classes and selects the RHS on a tie. *)
+  let left = Integer_computation_class.forward left
+  and right = Integer_computation_class.forward right in
+  if callback_raw_class left > callback_raw_class right then left else right
+
+let callback_unsigned_class type_ =
+  Type.pointer_depth type_ = 0
+  &&
+  match Type.base type_ with
+  | Type.Primitive (_, primitive) ->
+      (Primitive_type.info primitive).raw_is_unsigned
+  | Type.Aggregate _ -> false
+
+let callback_scalar_class type_ =
+  if callback_word_pointer type_ then callback_integer_class else type_
+
+let callback_comparison_opcode opcode =
+  List.mem opcode
+    Generated.Intermediate_codes.
+      [
+        Ic_equ_equ; Ic_not_equ; Ic_less; Ic_less_equ; Ic_greater; Ic_greater_equ;
+      ]
+
+let rec callback_constant_word (result : expression_result) =
+  let original_operand source =
+    Option.bind result.operand_result (fun operand ->
+        if operand.source == source then callback_constant_word operand
+        else None)
+  in
+  match Function_call_resolution.argument_expression_kind result.source with
+  | Function_call_resolution.Integer_literal bits
+  | Function_call_resolution.Character_literal bits -> Some bits
+  | Function_call_resolution.Sizeof_expression query ->
+      Function_call_resolution.sizeof_known_value query
+  | Function_call_resolution.Defined_expression query ->
+      Option.map
+        (fun value -> if value then 1L else 0L)
+        (Function_call_resolution.defined_known_value query)
+  | Function_call_resolution.Parenthesized_expression source ->
+      original_operand source
+  | Function_call_resolution.Postfix_cast_expression (source, _) ->
+      original_operand source
+  | Function_call_resolution.Prefix_expression prefix -> (
+      let bits =
+        original_operand (Function_call_resolution.prefix_operand prefix)
+      in
+      match Function_call_resolution.prefix_operator prefix with
+      | Function_call_resolution.Unary_plus -> bits
+      | Function_call_resolution.Unary_minus -> Option.map Int64.neg bits
+      | Function_call_resolution.Bitwise_not -> Option.map Int64.lognot bits
+      | Function_call_resolution.Logical_not ->
+          Option.map (fun bits -> if bits = 0L then 1L else 0L) bits
+      | _ -> None)
+  | Function_call_resolution.Binary_expression binary ->
+      Option.bind result.binary_operands (fun (left, right) ->
+          if
+            left.source != Function_call_resolution.binary_left binary
+            || right.source != Function_call_resolution.binary_right binary
+          then None
+          else
+            Option.bind (callback_constant_word left) (fun l ->
+                Option.bind (callback_constant_word right) (fun r ->
+                    let open Generated.Intermediate_codes in
+                    let unsigned =
+                      Option.fold ~none:false ~some:callback_unsigned_class
+                        (result_computation_type left)
+                      || Option.fold ~none:false ~some:callback_unsigned_class
+                           (result_computation_type right)
+                    in
+                    let opcode =
+                      Function_call_resolution.binary_operator binary
+                    in
+                    let boolean value = Some (if value then 1L else 0L) in
+                    match opcode with
+                    | Ic_add -> Some (Int64.add l r)
+                    | Ic_sub -> Some (Int64.sub l r)
+                    | Ic_mul -> Some (Int64.mul l r)
+                    | Ic_and -> Some (Int64.logand l r)
+                    | Ic_or -> Some (Int64.logor l r)
+                    | Ic_xor -> Some (Int64.logxor l r)
+                    | Ic_and_and -> boolean (l <> 0L && r <> 0L)
+                    | Ic_or_or -> boolean (l <> 0L || r <> 0L)
+                    | Ic_xor_xor -> boolean (l <> 0L <> (r <> 0L))
+                    | opcode when callback_comparison_opcode opcode -> (
+                        let comparison left_bits unsigned =
+                          let order =
+                            (if unsigned then Int64.unsigned_compare
+                             else Int64.compare)
+                              left_bits r
+                          in
+                          match opcode with
+                          | Ic_equ_equ -> left_bits = r
+                          | Ic_not_equ -> left_bits <> r
+                          | Ic_less -> order < 0
+                          | Ic_less_equ -> order <= 0
+                          | Ic_greater -> order > 0
+                          | _ -> order >= 0
+                        in
+                        match
+                          ( Function_call_resolution.argument_expression_kind
+                              left.source,
+                            left.binary_operands )
+                        with
+                        | ( Function_call_resolution.Binary_expression previous,
+                            Some (_, middle) )
+                          when callback_comparison_opcode
+                                 (Function_call_resolution.binary_operator
+                                    previous) ->
+                            Option.map
+                              (fun bits ->
+                                if
+                                  l <> 0L
+                                  && comparison bits
+                                       (unsigned
+                                       || callback_constant_comparison_unsigned
+                                            left)
+                                then 1L
+                                else 0L)
+                              (callback_constant_word middle)
+                        | _ -> boolean (comparison l unsigned))
+                    | Ic_shl ->
+                        Some
+                          (Int64.shift_left l
+                             (Int64.to_int (Int64.logand r 63L)))
+                    | Ic_shr ->
+                        Some
+                          ((if unsigned then Int64.shift_right_logical
+                            else Int64.shift_right)
+                             l
+                             (Int64.to_int (Int64.logand r 63L)))
+                    | (Ic_div | Ic_mod) as opcode
+                      when r <> 0L
+                           && (unsigned || l <> Int64.min_int || r <> -1L) ->
+                        let operation =
+                          if opcode = Ic_div then
+                            if unsigned then Int64.unsigned_div else Int64.div
+                          else if unsigned then Int64.unsigned_rem
+                          else Int64.rem
+                        in
+                        Some (operation l r)
+                    | _ -> None)))
+  | _ -> None
+
+and callback_constant_comparison_unsigned (result : expression_result) =
+  match
+    ( Function_call_resolution.argument_expression_kind result.source,
+      result.binary_operands )
+  with
+  | Function_call_resolution.Binary_expression binary, Some (left, right)
+    when callback_comparison_opcode
+           (Function_call_resolution.binary_operator binary) ->
+      callback_constant_comparison_unsigned left
+      || Option.fold ~none:false ~some:callback_unsigned_class
+           (result_computation_type left)
+      || Option.fold ~none:false ~some:callback_unsigned_class
+           (result_computation_type right)
+  | _ -> false
+
+and result_callback_numeric_classes (result : expression_result) =
+  let classes parser_class first_class final_class =
+    {
+      parser_class;
+      first_class;
+      final_class;
+      scale_left = false;
+      scale_right = false;
+      unsigned_comparison = false;
+    }
+  in
+  let original_operand source =
+    Option.bind result.operand_result (fun operand ->
+        if operand.source == source then result_callback_numeric_classes operand
+        else None)
+  in
+  let operand_classes operand numeric =
+    match numeric with
+    | Some value -> Some value
+    | None ->
+        Option.bind (result_storage_type operand) (fun parser ->
+            Option.map
+              (fun computation -> classes parser computation computation)
+              (result_computation_type operand))
+  in
+  if result.result_class <> Integer_result || result.array_rank <> 0 then None
+  else if
+    result_is_callback_storage result
+    || Option.is_some (result_callback_update_operand result)
+  then
+    Option.bind (result_storage_type result) (fun type_ ->
+        if callback_word_pointer type_ then Some (classes type_ type_ type_)
+        else None)
+  else
+    match Function_call_resolution.argument_expression_kind result.source with
+    | Function_call_resolution.Parenthesized_expression source ->
+        original_operand source
+    | Function_call_resolution.Prefix_expression prefix ->
+        Option.bind
+          (original_operand (Function_call_resolution.prefix_operand prefix))
+          (fun operand ->
+            match Function_call_resolution.prefix_operator prefix with
+            | Function_call_resolution.Unary_plus -> Some operand
+            | Function_call_resolution.Unary_minus ->
+                Some
+                  (classes operand.parser_class
+                     (Integer_computation_class.negate operand.first_class)
+                     (Integer_computation_class.negate operand.final_class))
+            | Function_call_resolution.Bitwise_not
+            | Function_call_resolution.Logical_not ->
+                (* COM/NOT retain the original node class; COM has a separate
+                 I64 stack class. Ordinary parentheses emit no cast. *)
+                let type_ =
+                  Integer_computation_class.forward operand.parser_class
+                in
+                Some (classes type_ type_ type_)
+            | _ -> None)
+    | Function_call_resolution.Binary_expression binary ->
+        let opcode = Function_call_resolution.binary_operator binary in
+        if
+          not
+            (List.mem opcode
+               Generated.Intermediate_codes.
+                 [
+                   Ic_add;
+                   Ic_sub;
+                   Ic_mul;
+                   Ic_div;
+                   Ic_mod;
+                   Ic_shl;
+                   Ic_shr;
+                   Ic_and;
+                   Ic_or;
+                   Ic_xor;
+                   Ic_equ_equ;
+                   Ic_not_equ;
+                   Ic_less;
+                   Ic_less_equ;
+                   Ic_greater;
+                   Ic_greater_equ;
+                   Ic_and_and;
+                   Ic_or_or;
+                   Ic_xor_xor;
+                 ])
+        then None
+        else
+          Option.bind result.binary_operands (fun (left, right) ->
+              let left_numeric = result_callback_numeric_classes left
+              and right_numeric = result_callback_numeric_classes right in
+              if
+                left.source != Function_call_resolution.binary_left binary
+                || right.source != Function_call_resolution.binary_right binary
+                || (Option.is_none left_numeric && Option.is_none right_numeric)
+              then None
+              else
+                Option.bind (operand_classes left left_numeric) (fun l ->
+                    Option.map
+                      (fun r ->
+                        let open Generated.Intermediate_codes in
+                        let additive = opcode = Ic_add || opcode = Ic_sub in
+                        let parser_integer type_ =
+                          Type.pointer_depth type_ = 0
+                          && callback_raw_class type_
+                             <> (Primitive_type.info Primitive_type.F64).raw_id
+                        in
+                        let placeholder_left =
+                          additive && parser_integer l.parser_class
+                        in
+                        let placeholder_right =
+                          additive
+                          && Type.pointer_depth l.parser_class > 0
+                          && parser_integer r.parser_class
+                        in
+                        let first_left =
+                          if placeholder_left then
+                            callback_common_class l.first_class
+                              callback_integer_class
+                          else l.first_class
+                        in
+                        let first_right =
+                          if placeholder_right then
+                            callback_common_class r.first_class
+                              callback_integer_class
+                          else r.first_class
+                        in
+                        (* Pass 1 resolves SIZEOF after the binary raw-class selection.
+               Later passes see IMM/removed multipliers, never a fresh SIZEOF. *)
+                        let scale_left =
+                          placeholder_left && callback_word_pointer first_right
+                        in
+                        let scale_right =
+                          placeholder_right && callback_word_pointer first_left
+                        in
+                        let first_class =
+                          callback_common_class first_left first_right
+                        in
+                        let first_class =
+                          if placeholder_left then first_right else first_class
+                        in
+                        let first_class =
+                          if placeholder_right then first_left else first_class
+                        in
+                        let final_left =
+                          if scale_left then
+                            callback_common_class l.final_class first_right
+                          else l.final_class
+                        in
+                        let final_right =
+                          if scale_right then
+                            callback_common_class r.final_class first_left
+                          else r.final_class
+                        in
+                        let final_class =
+                          callback_common_class final_left final_right
+                        in
+                        let constant = callback_constant_word right in
+                        let one_bit bits =
+                          bits <> 0L
+                          && Int64.logand bits (Int64.sub bits 1L) = 0L
+                        in
+                        let rewritten_unary =
+                          (opcode = Ic_shl || opcode = Ic_shr)
+                          && Option.is_some constant
+                          || (opcode = Ic_div || opcode = Ic_mul)
+                             && Option.fold ~none:false ~some:one_bit constant
+                        in
+                        let final_class =
+                          if rewritten_unary then l.final_class else final_class
+                        in
+                        let first_class =
+                          if
+                            (opcode = Ic_div || opcode = Ic_mul)
+                            && constant = Some 1L
+                          then l.first_class
+                          else first_class
+                        in
+                        let comparison =
+                          List.mem opcode
+                            [
+                              Ic_equ_equ;
+                              Ic_not_equ;
+                              Ic_less;
+                              Ic_less_equ;
+                              Ic_greater;
+                              Ic_greater_equ;
+                            ]
+                        in
+                        let logical =
+                          List.mem opcode [ Ic_and_and; Ic_or_or; Ic_xor_xor ]
+                        in
+                        let difference =
+                          opcode = Ic_sub
+                          && Type.pointer_depth l.parser_class > 0
+                          && Type.pointer_depth r.parser_class > 0
+                        in
+                        let first_class, final_class =
+                          if comparison || logical || difference then
+                            (callback_integer_class, callback_integer_class)
+                          else (first_class, final_class)
+                        in
+                        let completes_chain =
+                          comparison
+                          &&
+                          match
+                            Function_call_resolution.argument_expression_kind
+                              left.source
+                          with
+                          | Function_call_resolution.Binary_expression previous
+                            ->
+                              List.mem
+                                (Function_call_resolution.binary_operator
+                                   previous)
+                                [
+                                  Ic_equ_equ;
+                                  Ic_not_equ;
+                                  Ic_less;
+                                  Ic_less_equ;
+                                  Ic_greater;
+                                  Ic_greater_equ;
+                                ]
+                          | _ -> false
+                        in
+                        let parser_class =
+                          if difference || completes_chain then
+                            callback_integer_class
+                          else l.parser_class
+                        in
+                        {
+                          parser_class;
+                          first_class;
+                          final_class;
+                          scale_left;
+                          scale_right;
+                          unsigned_comparison =
+                            comparison
+                            && (callback_unsigned_class first_left
+                               || callback_unsigned_class first_right
+                               || callback_unsigned_class final_left
+                               || callback_unsigned_class final_right);
+                        })
+                      (operand_classes right right_numeric)))
+    | _ -> None
+
+and result_computation_type (result : expression_result) =
   let module C = Integer_computation_class in
-  let declared () = Option.map C.declared result.source_type in
-  let forwarded () = Option.map C.forward result.source_type in
-  match result.call_resolution with
-  | Some _ -> declared ()
+  let declared () = Option.map C.declared (result_storage_type result) in
+  let forwarded () = Option.map C.forward (result_storage_type result) in
+  match result_callback_numeric_classes result with
+  | Some classes -> Some (callback_scalar_class classes.final_class)
   | None -> (
-      match Function_call_resolution.argument_expression_kind result.source with
-      | Function_call_resolution.Parenthesized_expression _ -> (
-          match result.operand_result with
-          | Some operand when not operand.array_address ->
-              result_computation_type operand
-          | _ -> forwarded ())
-      | Function_call_resolution.Prefix_expression prefix
-        when Function_call_resolution.prefix_operator prefix
-             = Function_call_resolution.Unary_plus ->
-          Option.bind result.operand_result result_computation_type
-      | Function_call_resolution.Prefix_expression prefix
-        when Function_call_resolution.prefix_operator prefix
-             = Function_call_resolution.Bitwise_not ->
-          Option.map C.forward
-            (Option.bind result.operand_result result_computation_type)
-      | Function_call_resolution.Postfix_cast_expression _
-      | Function_call_resolution.Unresolved_expression
-          Function_call_resolution.Call_expression -> declared ()
-      | _ -> forwarded ())
+      match result.call_resolution with
+      | Some _ -> declared ()
+      | None -> (
+          match
+            Function_call_resolution.argument_expression_kind result.source
+          with
+          | Function_call_resolution.Parenthesized_expression _ -> (
+              match result.operand_result with
+              | Some operand when not operand.array_address ->
+                  result_computation_type operand
+              | _ -> forwarded ())
+          | Function_call_resolution.Prefix_expression prefix
+            when Function_call_resolution.prefix_operator prefix
+                 = Function_call_resolution.Unary_plus ->
+              Option.bind result.operand_result result_computation_type
+          | Function_call_resolution.Prefix_expression prefix
+            when Function_call_resolution.prefix_operator prefix
+                 = Function_call_resolution.Bitwise_not ->
+              Option.map C.forward
+                (Option.bind result.operand_result result_computation_type)
+          | Function_call_resolution.Postfix_cast_expression _
+          | Function_call_resolution.Unresolved_expression
+              Function_call_resolution.Call_expression -> declared ()
+          | _ -> forwarded ()))
+
+let result_is_numeric_callback result =
+  Option.is_some (result_callback_numeric_classes result)
+
+let result_callback_numeric_scales result =
+  Option.map
+    (fun classes -> (classes.scale_left, classes.scale_right))
+    (result_callback_numeric_classes result)
+
+let result_callback_unsigned_comparison result =
+  Option.fold ~none:false
+    ~some:(fun classes -> classes.unsigned_comparison)
+    (result_callback_numeric_classes result)
 
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
@@ -769,6 +1461,15 @@ let aggregate_offset_segment_cumulative_offset segment =
   segment.offset_cumulative
 
 let result_call_resolution (result : expression_result) = result.call_resolution
+
+let result_callback_call_pointer (result : expression_result) =
+  match result.call_resolution with
+  | Some (Function_call_resolution.Indirect_call call) ->
+      Some
+        (Function_call_resolution.callable_pointer
+           (Function_call_resolution.indirect_callable call))
+  | _ -> result.callback_call_pointer
+
 let result_function_declaration result = result.function_declaration
 let result_function_address_path result = result.function_address_path
 
@@ -779,6 +1480,11 @@ let result_is_direct_function (result : expression_result) =
       = Function_call_resolution.Direct_function_value
   | Function_call_resolution.Top_level_bound_identifier_expression _ ->
       result.category = Function_value
+      && Option.is_some result.function_declaration
+  | Function_call_resolution.Unresolved_expression
+      Function_call_resolution.Identifier_expression ->
+      result.category = Function_value
+      && Option.is_some result.outer_occurrence
       && Option.is_some result.function_declaration
   | _ -> false
 
@@ -791,6 +1497,10 @@ let result_direct_function_name (result : expression_result) =
       identifier
       |> Function_call_resolution.top_level_bound_identifier_occurrence
       |> Top_level_outer_expression_binding.occurrence_name
+  | Function_call_resolution.Unresolved_expression
+      Function_call_resolution.Identifier_expression ->
+      Option.fold ~none:"<function>"
+        ~some:Outer_expression_binding.occurrence_name result.outer_occurrence
   | _ -> "<function>"
 
 let value_category_name = function
@@ -891,8 +1601,9 @@ let record state result =
 
 let make_result ?operand_result ?binary_operands ?index_operands
     ?(array_rank = 0) ?(array_address = false) ?execution_class ?member_lookup
-    ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
-    ?outer_binding ?call_resolution ?function_declaration ?function_address_path
+    ?callback_pointer ?aggregate_offset_path ?outer_occurrence
+    ?top_level_outer_occurrence ?outer_binding ?call_resolution
+    ?function_declaration ?function_address_path ?callback_call_pointer
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
     ~source_type ~category ~result_class =
   record state
@@ -909,6 +1620,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
       execution_class;
       array_rank;
       array_address;
+      callback_pointer;
       intrinsic_conversion;
       member_lookup;
       aggregate_offset_path;
@@ -918,11 +1630,39 @@ let make_result ?operand_result ?binary_operands ?index_operands
       call_resolution;
       function_declaration;
       function_address_path;
+      callback_call_pointer;
     }
 
 let known_type table type_ =
   if type_is_owned table type_ then Ok type_
   else Error (invalid_input "expression type belongs to another symbol table")
+
+let rec known_callback_pointer table pointer =
+  let parameters =
+    pointer |> Function_type_resolution.function_pointer_signature
+    |> Function_type_resolution.signature_parameters
+  in
+  let rec check = function
+    | [] -> Ok ()
+    | parameter :: rest -> (
+        match
+          parameter |> Function_type_resolution.parameter_type_reference
+          |> Type_reference.resolved_type |> known_type table
+        with
+        | Error _ as error -> error
+        | Ok _ -> (
+            match
+              match
+                Function_type_resolution.parameter_declarator_kind parameter
+              with
+              | Function_type_resolution.Object -> Ok ()
+              | Function_type_resolution.Function_pointer pointer ->
+                  known_callback_pointer table pointer
+            with
+            | Error _ as error -> error
+            | Ok () -> check rest))
+  in
+  check parameters
 
 let replace_result state replacement =
   let replaced = ref false in
@@ -970,7 +1710,9 @@ let select_known_binary_type left right result_class =
               | Some original, Type.Primitive (_, primitive) -> (
                   match Type.base original with
                   | Type.Primitive (_, actual)
-                    when Primitive_type.equal actual primitive -> Some original
+                    when Type.pointer_depth original = 0
+                         && Primitive_type.equal actual primitive ->
+                      Some original
                   | _ -> Some computation)
               | _ -> Some computation)
           | _ -> None)
@@ -978,13 +1720,13 @@ let select_known_binary_type left right result_class =
 
 let scalar_pointer_integer_arithmetic_type left right =
   let pointer =
-    match left.source_type with
+    match result_storage_type left with
     | Some type_ when left.array_address && left.array_rank = 1 ->
         Result.to_option (Type.pointer_to type_)
     | type_ when left.array_rank = 0 -> type_
     | _ -> None
   in
-  match (pointer, right.source_type) with
+  match (pointer, result_storage_type right) with
   | Some pointer, Some integer
     when left.result_class = Integer_result
          && right.result_class = Integer_result
@@ -1004,7 +1746,7 @@ let scalar_pointer_integer_arithmetic_type left right =
 
 let scalar_pointer_difference left right =
   let pointer result =
-    match result.source_type with
+    match result_storage_type result with
     | Some type_ when result.array_address && result.array_rank = 1 ->
         Result.to_option (Type.pointer_to type_)
     | type_ when result.array_rank = 0 -> type_
@@ -1036,6 +1778,7 @@ let is_writable_storage_type = function
 let validate_update_operand operand ~operator_origin ~operator_name =
   let invalid message = Error (invalid_input ~origin:operator_origin message) in
   match (operand.category, operand.source_type) with
+  | Callback_value, Some _ when result_is_callback_storage operand -> Ok ()
   | Lvalue, Some _ when is_writable_storage_type operand.source_type -> Ok ()
   | Unavailable, _ -> invalid (operator_name ^ " operand is unavailable")
   | Lvalue, None -> invalid (operator_name ^ " operand has no checked type")
@@ -1178,7 +1921,11 @@ let declared_default_result policies ~before_item_index fixed default =
     default_source = default;
     default_parameter = parameter;
     default_type = type_;
-    default_class = forwarded_class policies ~before_item_index type_;
+    default_class =
+      (match Function_type_resolution.parameter_declarator_kind parameter with
+      | Function_type_resolution.Function_pointer _ -> Integer_result
+      | Function_type_resolution.Object ->
+          forwarded_class policies ~before_item_index type_);
     default_kind = kind;
     default_materialization = materialization;
   }
@@ -1229,71 +1976,76 @@ let resolve_member_lookup members ~before_item_index ~aggregate_symbol
                   member_name))
       | Ok (Some lookup) -> Ok lookup)
 
-let rec callback_array_index_depth ~callee expression =
-  match Function_call_resolution.argument_expression_kind expression with
-  | Function_call_resolution.Parenthesized_expression grouped ->
-      callback_array_index_depth ~callee grouped
-  | Function_call_resolution.Index_expression index ->
-      Option.map Int.succ
-        (callback_array_index_depth ~callee
-           (Function_call_resolution.index_base index))
-  | Function_call_resolution.Top_level_bound_identifier_expression identifier ->
-      let occurrence =
-        Function_call_resolution.top_level_bound_identifier_occurrence
-          identifier
-      in
-      if occurrence == callee then Some 0 else None
-  | Function_call_resolution.Integer_literal _
-  | Function_call_resolution.Float_literal _
-  | Function_call_resolution.Character_literal _
-  | Function_call_resolution.String_literal _
-  | Function_call_resolution.Prefix_expression _
-  | Function_call_resolution.Postfix_expression _
-  | Function_call_resolution.Postfix_cast_expression _
-  | Function_call_resolution.Binary_expression _
-  | Function_call_resolution.Member_access_expression _
-  | Function_call_resolution.Bound_identifier_expression _
-  | Function_call_resolution.Aggregate_offset_base_expression _
-  | Function_call_resolution.Sizeof_expression _
-  | Function_call_resolution.Standalone_offset_expression _
-  | Function_call_resolution.Defined_expression _
-  | Function_call_resolution.Unresolved_expression _ -> None
+let callback_array_index_depth ~callee expression =
+  let rec peel expression =
+    match Function_call_resolution.argument_expression_kind expression with
+    | Function_call_resolution.Parenthesized_expression grouped -> peel grouped
+    | Function_call_resolution.Index_expression index ->
+        Option.map Int.succ (peel (Function_call_resolution.index_base index))
+    | Function_call_resolution.Top_level_bound_identifier_expression identifier
+      ->
+        let occurrence =
+          Function_call_resolution.top_level_bound_identifier_occurrence
+            identifier
+        in
+        if occurrence == callee then Some 0 else None
+    | Function_call_resolution.Integer_literal _
+    | Function_call_resolution.Float_literal _
+    | Function_call_resolution.Character_literal _
+    | Function_call_resolution.String_literal _
+    | Function_call_resolution.Prefix_expression _
+    | Function_call_resolution.Postfix_expression _
+    | Function_call_resolution.Postfix_cast_expression _
+    | Function_call_resolution.Binary_expression _
+    | Function_call_resolution.Member_access_expression _
+    | Function_call_resolution.Bound_identifier_expression _
+    | Function_call_resolution.Aggregate_offset_base_expression _
+    | Function_call_resolution.Sizeof_expression _
+    | Function_call_resolution.Standalone_offset_expression _
+    | Function_call_resolution.Defined_expression _
+    | Function_call_resolution.Unresolved_expression _ -> None
+  in
+  peel
+    (Option.value ~default:expression
+       (canceled_callback_callee_operand expression))
 
-let rec function_callback_array_index_depth ~callee expression =
-  match Function_call_resolution.argument_expression_kind expression with
-  | Function_call_resolution.Parenthesized_expression grouped ->
-      function_callback_array_index_depth ~callee grouped
-  | Function_call_resolution.Index_expression index ->
-      Option.map Int.succ
-        (function_callback_array_index_depth ~callee
-           (Function_call_resolution.index_base index))
-  | Function_call_resolution.Bound_identifier_expression identifier ->
-      let occurrence =
-        Function_call_resolution.bound_identifier_occurrence identifier
-      in
-      if occurrence == callee then Some 0 else None
-  | Function_call_resolution.Unresolved_expression
-      Function_call_resolution.Identifier_expression ->
-      if
-        Function_call_resolution.argument_expression_origin expression
-        = Module_expression_binding.occurrence_origin callee
-      then Some 0
-      else None
-  | Function_call_resolution.Integer_literal _
-  | Function_call_resolution.Float_literal _
-  | Function_call_resolution.Character_literal _
-  | Function_call_resolution.String_literal _
-  | Function_call_resolution.Prefix_expression _
-  | Function_call_resolution.Postfix_expression _
-  | Function_call_resolution.Postfix_cast_expression _
-  | Function_call_resolution.Binary_expression _
-  | Function_call_resolution.Member_access_expression _
-  | Function_call_resolution.Aggregate_offset_base_expression _
-  | Function_call_resolution.Top_level_bound_identifier_expression _
-  | Function_call_resolution.Sizeof_expression _
-  | Function_call_resolution.Standalone_offset_expression _
-  | Function_call_resolution.Defined_expression _
-  | Function_call_resolution.Unresolved_expression _ -> None
+let function_callback_array_index_depth ~callee expression =
+  let rec peel expression =
+    match Function_call_resolution.argument_expression_kind expression with
+    | Function_call_resolution.Parenthesized_expression grouped -> peel grouped
+    | Function_call_resolution.Index_expression index ->
+        Option.map Int.succ (peel (Function_call_resolution.index_base index))
+    | Function_call_resolution.Bound_identifier_expression identifier ->
+        let occurrence =
+          Function_call_resolution.bound_identifier_occurrence identifier
+        in
+        if occurrence == callee then Some 0 else None
+    | Function_call_resolution.Unresolved_expression
+        Function_call_resolution.Identifier_expression ->
+        if
+          Function_call_resolution.argument_expression_origin expression
+          = Module_expression_binding.occurrence_origin callee
+        then Some 0
+        else None
+    | Function_call_resolution.Integer_literal _
+    | Function_call_resolution.Float_literal _
+    | Function_call_resolution.Character_literal _
+    | Function_call_resolution.String_literal _
+    | Function_call_resolution.Prefix_expression _
+    | Function_call_resolution.Postfix_expression _
+    | Function_call_resolution.Postfix_cast_expression _
+    | Function_call_resolution.Binary_expression _
+    | Function_call_resolution.Member_access_expression _
+    | Function_call_resolution.Aggregate_offset_base_expression _
+    | Function_call_resolution.Top_level_bound_identifier_expression _
+    | Function_call_resolution.Sizeof_expression _
+    | Function_call_resolution.Standalone_offset_expression _
+    | Function_call_resolution.Defined_expression _
+    | Function_call_resolution.Unresolved_expression _ -> None
+  in
+  peel
+    (Option.value ~default:expression
+       (canceled_callback_callee_operand expression))
 
 let outer_binding_for_expression state source =
   match state.outer_function with
@@ -1537,6 +2289,10 @@ let bind_top_level_offset state ~before_item_index offset =
           | Top_level_outer_expression_binding.Query_undefined ->
               invalid "top-level offset target is not source-visible"
           | Top_level_outer_expression_binding.Query_binding
+              (Top_level_outer_expression_binding.Static_binding _) ->
+              invalid
+                "top-level offset target cannot use private static storage"
+          | Top_level_outer_expression_binding.Query_binding
               (Top_level_outer_expression_binding.Outer_binding _) ->
               invalid "top-level offset target is not a module global"
           | Top_level_outer_expression_binding.Query_binding
@@ -1633,15 +2389,23 @@ let rec type_expression table members policies ~before_item_index ~context
   | Ok (id, state) -> (
       let finish ?operand_result ?(source_type = None) ?(array_rank = 0)
           ?array_address ?member_lookup ?aggregate_offset_path ?outer_occurrence
-          ?top_level_outer_occurrence ?outer_binding ?call_resolution
-          ?function_declaration ?function_address_path category result_class
-          state =
-        Ok
-          (make_result ?operand_result ~array_rank ?array_address ?member_lookup
-             ?aggregate_offset_path ?outer_occurrence
-             ?top_level_outer_occurrence ?outer_binding ?call_resolution
-             ?function_declaration ?function_address_path ~intrinsic_conversion
-             state ~id ~source ~source_type ~category ~result_class)
+          ?callback_pointer ?top_level_outer_occurrence ?outer_binding
+          ?call_resolution ?function_declaration ?function_address_path category
+          result_class state =
+        let checked_pointer =
+          match callback_pointer with
+          | None -> Ok ()
+          | Some pointer -> known_callback_pointer table pointer
+        in
+        Result.map
+          (fun () ->
+            make_result ?operand_result ~array_rank ?array_address
+              ?member_lookup ?callback_pointer ?aggregate_offset_path
+              ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
+              ?call_resolution ?function_declaration ?function_address_path
+              ~intrinsic_conversion state ~id ~source ~source_type ~category
+              ~result_class)
+          checked_pointer
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal value
@@ -1678,6 +2442,7 @@ let rec type_expression table members policies ~before_item_index ~context
                        "ordinary array grouping has no element pointer type"))
           | Ok (grouped_result, state) ->
               finish ~operand_result:grouped_result
+                ?callback_pointer:grouped_result.callback_pointer
                 ~source_type:grouped_result.source_type
                 ~array_rank:grouped_result.array_rank
                 ?member_lookup:grouped_result.member_lookup
@@ -1858,6 +2623,9 @@ let rec type_expression table members policies ~before_item_index ~context
                 Function_call_resolution.bound_identifier_array_rank identifier
               in
               finish ~source_type:(Some source_type) ~array_rank
+                ?callback_pointer:
+                  (Function_call_resolution.bound_identifier_function_pointer
+                     identifier)
                 ~array_address:
                   (Function_call_resolution.bound_identifier_is_ordinary_array
                      identifier)
@@ -1892,8 +2660,67 @@ let rec type_expression table members policies ~before_item_index ~context
                   match
                     Top_level_identifier_resolution.leaf_resolution leaf
                   with
-                  | Top_level_id.Outer_type_required binding
-                  | Top_level_id.Outer_function_value { binding; _ } ->
+                  | Top_level_id.Static_value reference ->
+                      let ( let* ) = Result.bind in
+                      let* source_type =
+                        known_type table (Static_reference.type_ reference)
+                      in
+                      let array_rank =
+                        List.length (Static_reference.dimensions reference)
+                      in
+                      let category =
+                        if array_rank > 0 then Array_value
+                        else if
+                          Option.is_some
+                            (Static_reference.callback_pointer reference)
+                        then
+                          match context with
+                          | Value_context -> Callback_value
+                          | Lvalue_context -> Lvalue
+                        else
+                          match context with
+                          | Value_context -> Object_value
+                          | Lvalue_context -> Lvalue
+                      in
+                      finish ~source_type:(Some source_type) ~array_rank
+                        ?callback_pointer:
+                          (Static_reference.callback_pointer reference)
+                        ~array_address:(array_rank > 0)
+                        ~top_level_outer_occurrence:occurrence category
+                        (if
+                           array_rank > 0
+                           || Option.is_some
+                                (Static_reference.callback_pointer reference)
+                         then Integer_result
+                         else
+                           forwarded_class policies ~before_item_index
+                             source_type)
+                        state
+                  | Top_level_id.Outer_function_value { binding; metadata } -> (
+                      let declaration =
+                        Outer_environment.function_declaration metadata
+                      in
+                      match
+                        Function_call_resolution.direct_function_address_path
+                          (Function_call_conversion_policy.compilation_mode
+                             policies)
+                          declaration
+                      with
+                      | Error message ->
+                          Error
+                            (invalid_top_level_input
+                               ~origin:
+                                 (Top_level_outer_expression_binding
+                                  .occurrence_origin occurrence)
+                               message)
+                      | Ok path ->
+                          finish ~source_type:integer_type
+                            ~top_level_outer_occurrence:occurrence
+                            ~outer_binding:binding
+                            ~function_declaration:declaration
+                            ~function_address_path:path Function_value
+                            Integer_result state)
+                  | Top_level_id.Outer_type_required binding ->
                       finish ~top_level_outer_occurrence:occurrence
                         ~outer_binding:binding Unavailable
                         Unresolved_actual_class state
@@ -1938,6 +2765,14 @@ let rec type_expression table members policies ~before_item_index ~context
                                           ~before_item_index source_type )
                               in
                               finish ~source_type:(Some source_type) ~array_rank
+                                ?callback_pointer:
+                                  (match
+                                     Outer_environment.global_declarator_kind
+                                       metadata
+                                   with
+                                  | Outer_environment.Function_pointer_global
+                                      pointer -> Some pointer
+                                  | Outer_environment.Object_global -> None)
                                 ~array_address:
                                   (array_rank > 0
                                   && Outer_environment.global_declarator_kind
@@ -2010,6 +2845,9 @@ let rec type_expression table members policies ~before_item_index ~context
                                     source_type )
                           in
                           finish ~source_type:(Some source_type)
+                            ?callback_pointer:
+                              (Function_call_resolution
+                               .identifier_value_function_pointer value)
                             ~array_address:
                               (Function_call_resolution
                                .identifier_value_is_ordinary_array value)
@@ -2032,6 +2870,7 @@ let rec type_expression table members policies ~before_item_index ~context
           | Function_call_resolution.Current_position_expression ->
               finish ~source_type:rip_address_type Address_value Integer_result
                 state
+          | Function_call_resolution.Default_position_expression _
           | Function_call_resolution.Aggregate_position_expression _ ->
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Offset_expression ->
@@ -2055,7 +2894,32 @@ let rec type_expression table members policies ~before_item_index ~context
                       Unresolved_actual_class state
                   in
                   match Outer_environment.entry_global_metadata entry with
-                  | None -> unavailable ()
+                  | None -> (
+                      match Outer_environment.entry_function_metadata entry with
+                      | None -> unavailable ()
+                      | Some metadata -> (
+                          let declaration =
+                            Outer_environment.function_declaration metadata
+                          in
+                          match
+                            Function_call_resolution
+                            .direct_function_address_path
+                              (Function_call_conversion_policy.compilation_mode
+                                 policies)
+                              declaration
+                          with
+                          | Error message ->
+                              Error
+                                (invalid_input
+                                   ~origin:
+                                     (Outer_expression_binding.occurrence_origin
+                                        outer_occurrence)
+                                   message)
+                          | Ok path ->
+                              finish ~source_type:integer_type ~outer_occurrence
+                                ~outer_binding ~function_declaration:declaration
+                                ~function_address_path:path Function_value
+                                Integer_result state))
                   | Some metadata -> (
                       match
                         metadata |> Outer_environment.global_type_reference
@@ -2083,6 +2947,14 @@ let rec type_expression table members policies ~before_item_index ~context
                                       source_type )
                           in
                           finish ~source_type:(Some source_type) ~array_rank
+                            ?callback_pointer:
+                              (match
+                                 Outer_environment.global_declarator_kind
+                                   metadata
+                               with
+                              | Outer_environment.Function_pointer_global
+                                  pointer -> Some pointer
+                              | Outer_environment.Object_global -> None)
                             ~array_address:
                               (array_rank > 0
                               && Outer_environment.global_declarator_kind
@@ -2128,22 +3000,49 @@ let rec type_expression table members policies ~before_item_index ~context
                   (Some
                      (Function_call_resolution.Indirect_call indirect as call))
                 -> (
-                  let source_type =
-                    indirect |> Function_call_resolution.indirect_callable
-                    |> Function_call_resolution.callable_return_type
-                    |> Type_reference.resolved_type
+                  let selected =
+                    Option.bind state.outer_function (fun function_ ->
+                        Outer_expression_binding.function_occurrences function_
+                        |> List.find_opt (fun selected ->
+                            Outer_expression_binding.occurrence_source selected
+                            == Function_call_resolution.indirect_occurrence
+                                 indirect))
                   in
-                  match known_type table source_type with
-                  | Error _ as error -> error
-                  | Ok source_type ->
-                      let category =
-                        if Type.pointer_depth source_type > 0 then Address_value
-                        else Object_value
+                  match
+                    Option.bind selected (fun occurrence ->
+                        match
+                          Outer_expression_binding.occurrence_resolution
+                            occurrence
+                        with
+                        | Outer_expression_binding.Outer_binding binding ->
+                            Some (occurrence, binding)
+                        | _ -> None)
+                  with
+                  | Some (occurrence, binding) ->
+                      type_outer_callback_call table members policies
+                        ~before_item_index ~intrinsic_conversion state id source
+                        call
+                        (Function_call_resolution.indirect_source indirect)
+                        occurrence binding
+                  | None -> (
+                      let source_type =
+                        indirect |> Function_call_resolution.indirect_callable
+                        |> Function_call_resolution.callable_return_type
+                        |> Type_reference.resolved_type
                       in
-                      finish ~source_type:(Some source_type)
-                        ~call_resolution:call category
-                        (forwarded_class policies ~before_item_index source_type)
-                        state)
+                      match known_type table source_type with
+                      | Error _ as error -> error
+                      | Ok source_type ->
+                          let category =
+                            if Type.pointer_depth source_type > 0 then
+                              Address_value
+                            else Object_value
+                          in
+                          finish ~source_type:(Some source_type)
+                            ~call_resolution:call category
+                            (forwarded_class policies ~before_item_index
+                               source_type)
+                            state))
               | Ok (Some (Function_call_resolution.Direct_call direct as call))
                 -> (
                   let source_type =
@@ -2187,11 +3086,11 @@ and type_prefix table members policies ~before_item_index ~context
   | Error _ as error -> error
   | Ok (operand, state) -> (
       let finish ?(source_type = None) ?(array_rank = 0) ?function_declaration
-          ?function_address_path category result_class =
+          ?function_address_path ?callback_pointer category result_class =
         Ok
           (make_result ~operand_result:operand ~array_rank ?function_declaration
-             ?function_address_path ~intrinsic_conversion state ~id ~source
-             ~source_type ~category ~result_class)
+             ?function_address_path ?callback_pointer ~intrinsic_conversion
+             state ~id ~source ~source_type ~category ~result_class)
       in
       match operator with
       | Function_call_resolution.Unary_minus ->
@@ -2214,7 +3113,7 @@ and type_prefix table members policies ~before_item_index ~context
       | Function_call_resolution.Address_of -> (
           match
             ( operand.category,
-              operand.source_type,
+              result_storage_type operand,
               result_is_direct_function operand )
           with
           | Offset_value, _, _ ->
@@ -2293,8 +3192,17 @@ and type_prefix table members policies ~before_item_index ~context
           with
           | Error _ as error -> error
           | Ok () ->
-              finish ~source_type:operand.source_type Object_value
-                operand.result_class)
+              finish
+                ~source_type:(result_storage_type operand)
+                Object_value operand.result_class)
+      | Function_call_resolution.Dereference
+        when canceled_callback_storage source operand ->
+          (* PrsPopDeref removes the pending star at callback selection before
+             any following indices run. A group under that star starts another
+             expression stack; a second star remains an ordinary dereference. *)
+          finish ~source_type:operand.source_type
+            ?callback_pointer:operand.callback_pointer Callback_value
+            Integer_result
       | Function_call_resolution.Dereference -> (
           let value_category =
             match context with
@@ -2361,6 +3269,7 @@ and type_index table members policies ~before_item_index ~context
         | Ok (index_value, state) ->
             Ok
               (make_result ~index_operands:(base, index_value)
+                 ?callback_pointer:base.callback_pointer
                  ~array_address:(base.array_address && array_rank > 0)
                  ~array_rank ?member_lookup ~intrinsic_conversion state ~id
                  ~source ~source_type ~category ~result_class)
@@ -2379,10 +3288,13 @@ and type_index table members policies ~before_item_index ~context
           else
             let array_rank = base.array_rank - 1 in
             let category =
-              if array_rank = 0 then value_category else Array_value
+              if array_rank = 0 then
+                if Option.is_some base.callback_pointer then Callback_value
+                else value_category
+              else Array_value
             in
             let result_class =
-              if array_rank = 0 then
+              if array_rank = 0 && Option.is_none base.callback_pointer then
                 forwarded_class policies ~before_item_index source_type
               else Integer_result
             in
@@ -2423,11 +3335,12 @@ and type_member table members policies ~before_item_index ~context
   | Error _ as error -> error
   | Ok (base, state) -> (
       let finish ?(source_type = None) ?(array_rank = 0) ?array_address
-          ?member_lookup ?aggregate_offset_path category result_class =
+          ?callback_pointer ?member_lookup ?aggregate_offset_path category
+          result_class =
         Ok
-          (make_result ~array_rank ?array_address ~intrinsic_conversion
-             ?member_lookup ?aggregate_offset_path state ~id ~source
-             ~source_type ~category ~result_class)
+          (make_result ~array_rank ?array_address ?callback_pointer
+             ~intrinsic_conversion ?member_lookup ?aggregate_offset_path state
+             ~id ~source ~source_type ~category ~result_class)
       in
       let operator_origin =
         Function_call_resolution.member_operator_origin member
@@ -2544,6 +3457,9 @@ and type_member table members policies ~before_item_index ~context
                               member_type )
                       in
                       finish ~source_type:(Some member_type) ~array_rank
+                        ?callback_pointer:
+                          (Aggregate_member_index.member_function_pointer
+                             indexed_member)
                         ~array_address:
                           (array_rank > 0
                           && not
@@ -2574,8 +3490,9 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
       | Ok () ->
           Ok
             (make_result ~operand_result:operand ~intrinsic_conversion state ~id
-               ~source ~source_type:operand.source_type ~category:Object_value
-               ~result_class:operand.result_class))
+               ~source
+               ~source_type:(result_storage_type operand)
+               ~category:Object_value ~result_class:operand.result_class))
 
 and type_assignment table members policies ~before_item_index
     ~intrinsic_conversion state id source binary assignment_kind =
@@ -2592,9 +3509,12 @@ and type_assignment table members policies ~before_item_index
   with
   | Error _ as error -> error
   | Ok (left, state) -> (
-      let destination_type = left.source_type in
+      let destination_type = result_storage_type left in
       let valid_storage_type = is_writable_storage_type destination_type in
-      match (left.category, destination_type, valid_storage_type) with
+      let category =
+        if result_is_callback_storage left then Lvalue else left.category
+      in
+      match (category, destination_type, valid_storage_type) with
       | Lvalue, Some destination_type, true -> (
           match
             type_expression table members policies ~before_item_index
@@ -2702,6 +3622,10 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
           | Ok (right, state) ->
               let result_class, source_type =
                 match Function_call_resolution.binary_operator binary with
+                | Generated.Intermediate_codes.Ic_sub
+                  when Option.is_some (result_callback_parser_pointer left)
+                       && Option.is_some (result_callback_parser_pointer right)
+                  -> (Integer_result, integer_type)
                 | Generated.Intermediate_codes.(Ic_add | Ic_sub)
                   when Option.is_some
                          (scalar_pointer_integer_arithmetic_type left right) ->
@@ -2779,10 +3703,21 @@ and type_outer_callback_call table members policies ~before_item_index
         | Outer_environment.Object_global -> unavailable state
         | Outer_environment.Function_pointer_global function_pointer -> (
             let expected_rank = Outer_environment.global_array_rank metadata in
-            let computed = Function_call_resolution.call_computed_callee call in
+            let computed = Function_call_resolution.call_callee_value call in
             let actual_rank =
               match computed with
               | None -> Some 0
+              | Some expression
+                when expected_rank = 0
+                     && Function_call_resolution.call_callee_form call
+                        = Function_call_resolution
+                          .Dereferenced_identifier_callee
+                            1 ->
+                  Option.bind
+                    (canceled_callback_callee_operand expression)
+                    (function_callback_array_index_depth
+                       ~callee:
+                         (Outer_expression_binding.occurrence_source occurrence))
               | Some expression ->
                   function_callback_array_index_depth
                     ~callee:
@@ -2917,6 +3852,10 @@ and type_top_level_call table members policies ~before_item_index
                "top-level call callee is absent from its identifier batch")
       | Some leaf -> (
           match Top_level_identifier_resolution.leaf_resolution leaf with
+          | Top_level_identifier_resolution.Static_value reference ->
+              type_top_level_static_callback_call table members policies
+                ~before_item_index ~intrinsic_conversion state id source call
+                reference
           | Top_level_identifier_resolution.Module_value
               (Top_level_identifier_resolution.Direct_function_value
                  { declaration; _ }) ->
@@ -2933,9 +3872,19 @@ and type_top_level_call table members policies ~before_item_index
               (Top_level_identifier_resolution.Global_value { global; value })
             when Function_call_resolution.identifier_value_shape value
                  = Function_call_resolution.Function_pointer_value
-                 && Function_call_resolution.call_callee_form
-                      (Top_level_expression_tree.call_source call)
-                    = Function_call_resolution.Identifier_callee ->
+                 && (Function_call_resolution.call_callee_form
+                       (Top_level_expression_tree.call_source call)
+                     = Function_call_resolution.Identifier_callee
+                    || Function_call_resolution.call_callee_form
+                         (Top_level_expression_tree.call_source call)
+                       = Function_call_resolution.Dereferenced_identifier_callee
+                           1
+                       && Option.bind
+                            (canceled_callback_callee_operand
+                               (Top_level_expression_tree.call_callee_expression
+                                  call))
+                            (callback_array_index_depth ~callee)
+                          = Some 0) ->
               type_top_level_global_callback_call table members policies
                 ~before_item_index ~intrinsic_conversion state id source call
                 global value
@@ -3098,6 +4047,12 @@ and type_top_level_global_callback_call table members policies
     | Global_type_resolution.Object ->
         invalid "top-level callback global has no function-pointer signature"
     | Global_type_resolution.Function_pointer function_pointer -> (
+        let ( let* ) = Result.bind in
+        let* callee_result, state =
+          type_expression table members policies ~before_item_index
+            ~context:Value_context state
+            (Top_level_expression_tree.call_callee_expression call)
+        in
         let callable =
           Function_call_resolution.make_callable
             ~return_type:(Global_type_resolution.global_type_reference global)
@@ -3135,6 +4090,7 @@ and type_top_level_global_callback_call table members policies
                         top_level_global_callback_source = call;
                         top_level_global_callback_global = global;
                         top_level_global_callback_value = value;
+                        top_level_global_callback_callee_result = callee_result;
                         top_level_global_callback_callable = callable;
                         top_level_global_callback_fixed_results = fixed_results;
                         top_level_global_callback_variadic_results =
@@ -3153,11 +4109,87 @@ and type_top_level_global_callback_call table members policies
                       }
                     in
                     Ok
-                      (make_result ~intrinsic_conversion state ~id ~source
+                      (make_result
+                         ~callback_call_pointer:
+                           (Function_call_resolution.callable_pointer callable)
+                         ~intrinsic_conversion state ~id ~source
                          ~source_type:(Some source_type) ~category
                          ~result_class:
                            (forwarded_class policies ~before_item_index
                               source_type)))))
+
+and type_top_level_static_callback_call table members policies
+    ~before_item_index ~intrinsic_conversion state id source call reference =
+  let ( let* ) = Result.bind in
+  let source_call = Top_level_expression_tree.call_source call in
+  let origin = Function_call_resolution.call_origin source_call in
+  let invalid message = Error (invalid_top_level_input ~origin message) in
+  let* pointer, return_type =
+    match
+      ( Static_reference.callback_pointer reference,
+        Static_reference.return_reference reference )
+    with
+    | Some pointer, Some return_type -> Ok (pointer, return_type)
+    | _ ->
+        invalid
+          "static call lacks its original callback return class and header"
+  in
+  let* callee_result, state =
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
+      (Top_level_expression_tree.call_callee_expression call)
+  in
+  let* () =
+    if
+      callee_result.array_rank = 0
+      && result_is_callback_storage callee_result
+      && Option.fold ~none:false ~some:(( == ) pointer)
+           callee_result.callback_pointer
+    then Ok ()
+    else invalid "static callback call lost its original fully indexed callee"
+  in
+  let callable =
+    Function_call_resolution.make_callable ~return_type
+      ~function_pointer:pointer
+  in
+  let* fixed_arguments, variadic_arguments, variadic_count =
+    Function_call_resolution.bind_indirect_arguments source_call callable
+    |> Result.map_error (fun error ->
+        invalid_top_level_input ~origin
+          (Function_call_resolution.error_message error))
+  in
+  let* fixed_results, variadic_results, state =
+    type_top_level_bound_arguments table members policies ~before_item_index
+      ~origin state fixed_arguments variadic_arguments
+  in
+  let source_type = Type_reference.resolved_type return_type in
+  let* source_type = known_type table source_type in
+  let category =
+    if Type.pointer_depth source_type > 0 then Address_value else Object_value
+  in
+  let callback_call =
+    {
+      top_level_static_callback_source = call;
+      top_level_static_callback_reference = reference;
+      top_level_static_callback_callee_result = callee_result;
+      top_level_static_callback_callable = callable;
+      top_level_static_callback_fixed_results = fixed_results;
+      top_level_static_callback_variadic_results = variadic_results;
+      top_level_static_callback_variadic_count = variadic_count;
+      top_level_static_callback_result_id = id;
+    }
+  in
+  let state =
+    {
+      state with
+      top_level_static_callback_calls_rev =
+        callback_call :: state.top_level_static_callback_calls_rev;
+    }
+  in
+  Ok
+    (make_result ~intrinsic_conversion ~callback_call_pointer:pointer state ~id
+       ~source ~source_type:(Some source_type) ~category
+       ~result_class:(forwarded_class policies ~before_item_index source_type))
 
 and type_top_level_outer_callback_call table members policies =
  fun ~before_item_index ~intrinsic_conversion state id source call occurrence
@@ -3171,7 +4203,8 @@ and type_top_level_outer_callback_call table members policies =
     with
     | Top_level_outer_expression_binding.Outer_binding selected ->
         selected != binding
-    | Top_level_outer_expression_binding.Module_binding _ -> true
+    | Top_level_outer_expression_binding.Module_binding _
+    | Top_level_outer_expression_binding.Static_binding _ -> true
   then invalid "top-level outer callback does not retain its selected binding"
   else
     let entry = Outer_environment.binding_entry binding in
@@ -3205,12 +4238,28 @@ and type_top_level_outer_callback_metadata table members policies =
         if
           Function_call_resolution.call_callee_form source_call
           <> Function_call_resolution.Identifier_callee
+          && not
+               (Function_call_resolution.call_callee_form source_call
+                = Function_call_resolution.Dereferenced_identifier_callee 1
+               && Option.bind
+                    (canceled_callback_callee_operand
+                       (Top_level_expression_tree.call_callee_expression call))
+                    (callback_array_index_depth
+                       ~callee:(Top_level_expression_tree.call_callee call))
+                  = Some 0)
         then
           invalid "top-level outer callback does not use an identifier callee"
         else
+          let ( let* ) = Result.bind in
+          let* callee_result, state =
+            type_expression table members policies ~before_item_index
+              ~context:Value_context state
+              (Top_level_expression_tree.call_callee_expression call)
+          in
           type_top_level_outer_callback_arguments table members policies
             ~before_item_index ~intrinsic_conversion state id source call
-            occurrence binding source_call origin callable ~callee_result:None
+            occurrence binding source_call origin callable
+            ~callee_result:(Some callee_result)
       else
         type_top_level_indexed_outer_callback_callee table members policies
           ~before_item_index ~intrinsic_conversion state id source call
@@ -3334,7 +4383,10 @@ and type_top_level_outer_callback_result table policies =
         forwarded_class policies ~before_item_index source_type
       in
       Ok
-        (make_result ~intrinsic_conversion state ~id ~source
+        (make_result
+           ~callback_call_pointer:
+             (Function_call_resolution.callable_pointer callable)
+           ~intrinsic_conversion state ~id ~source
            ~source_type:(Some source_type) ~category
            ~top_level_outer_occurrence:occurrence ~outer_binding:binding
            ~result_class)
@@ -3450,9 +4502,12 @@ and type_top_level_indexed_global_callback_call table members policies
                                   }
                                 in
                                 Ok
-                                  (make_result ~intrinsic_conversion state ~id
-                                     ~source ~source_type:(Some source_type)
-                                     ~category
+                                  (make_result
+                                     ~callback_call_pointer:
+                                       (Function_call_resolution
+                                        .callable_pointer callable)
+                                     ~intrinsic_conversion state ~id ~source
+                                     ~source_type:(Some source_type) ~category
                                      ~result_class:
                                        (forwarded_class policies
                                           ~before_item_index source_type)))))))
@@ -3573,7 +4628,11 @@ and type_top_level_member_callback_call table members policies
                             }
                           in
                           Ok
-                            (make_result ~intrinsic_conversion state ~id ~source
+                            (make_result
+                               ~callback_call_pointer:
+                                 (Function_call_resolution.callable_pointer
+                                    callable)
+                               ~intrinsic_conversion state ~id ~source
                                ~source_type:(Some source_type) ~category
                                ~result_class:
                                  (forwarded_class policies ~before_item_index
@@ -3767,15 +4826,12 @@ let type_call table members policies ~before_item_index state = function
       let resolution = Function_call_conversion_policy.indirect_source source in
       let source_call = Function_call_resolution.indirect_source resolution in
       let callee_result =
-        match
-          ( Function_call_resolution.indirect_member_lookup resolution,
-            Function_call_resolution.call_computed_callee source_call )
-        with
-        | None, Some computed ->
+        match Function_call_resolution.call_callee_value source_call with
+        | Some computed ->
             type_expression table members policies ~before_item_index
               ~context:Value_context state computed
             |> Result.map (fun (result, state) -> (Some result, state))
-        | Some _, _ | None, None -> Ok (None, state)
+        | None -> Ok (None, state)
       in
       match callee_result with
       | Error _ as error -> error
@@ -4031,12 +5087,21 @@ let type_return table members policies ~before_item_index ~declared_type state
                       state ))))
 
 let type_initializer table members policies ~before_item_index state source =
+  let local = Function_call_resolution.initializer_local source in
   let target_type =
-    source |> Function_call_resolution.initializer_local
-    |> Local_type_resolution.local_type_reference
-    |> Type_reference.resolved_type
+    match Local_type_resolution.local_declarator_kind local with
+    | Local_type_resolution.Object ->
+        Ok
+          (local |> Local_type_resolution.local_type_reference
+         |> Type_reference.resolved_type)
+    | Local_type_resolution.Function_pointer pointer ->
+        Function_type_resolution.function_pointer_storage_type pointer
   in
-  match known_type table target_type with
+  match
+    Result.bind
+      (Result.map_error (fun message -> invalid_input message) target_type)
+      (known_type table)
+  with
   | Error _ as error -> error
   | Ok initializer_target_type -> (
       match
@@ -4065,6 +5130,7 @@ let type_initializer table members policies ~before_item_index state source =
                   state )))
 
 let type_function table members policies outer state source =
+  let first_result = state.next_id in
   let outer_function =
     Option.bind outer (fun outer ->
         Outer_expression_binding.find_function outer
@@ -4182,6 +5248,14 @@ let type_function table members policies outer state source =
                                         switch_cases;
                                         returns;
                                         initializers;
+                                        expression_results =
+                                          List.filter
+                                            (fun result ->
+                                              Id.to_int result.id
+                                              >= first_result)
+                                            state.results_rev
+                                          |> List.sort (fun left right ->
+                                              Id.compare left.id right.id);
                                       },
                                       state ))))))))
 
@@ -4269,6 +5343,7 @@ let analyze ~table ~members ?outer policies =
                  top_level_direct_calls_rev = [];
                  top_level_global_callback_calls_rev = [];
                  top_level_outer_callback_calls_rev = [];
+                 top_level_static_callback_calls_rev = [];
                  top_level_indexed_global_callback_calls_rev = [];
                  top_level_member_callback_calls_rev = [];
                }
@@ -4419,6 +5494,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
              top_level_direct_calls_rev = [];
              top_level_global_callback_calls_rev = [];
              top_level_outer_callback_calls_rev = [];
+             top_level_static_callback_calls_rev = [];
              top_level_indexed_global_callback_calls_rev = [];
              top_level_member_callback_calls_rev = [];
            }
@@ -4463,6 +5539,8 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
                     (top_level_outer_callback_call_index left)
                     (top_level_outer_callback_call_index right))
                 state.top_level_outer_callback_calls_rev;
+            top_level_static_callback_calls =
+              List.rev state.top_level_static_callback_calls_rev;
             top_level_indexed_global_callback_calls =
               List.sort
                 (fun left right ->

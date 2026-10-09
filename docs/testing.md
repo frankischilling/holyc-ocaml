@@ -1,5 +1,248 @@
 # Testing holyc-ocaml
 
+Call Compiler tests compare twenty-nine original header, delimiter and unread-marker
+failures in JIT source. Twenty-nine caught child cases and six successful default
+or comma-sequence fixtures run in both outer modes through IR and native tasks.
+Each backend's CLI runs 99 call cases. Phase tests distinguish argument delimiter
+failures from statement failures after emission, retain unread default lookahead,
+and prevent later string joining or lexer reads. Native cases also exercise joined
+source bodies with retained variadic flags, fixed members, defaults, recursion and
+both caller and callee cleanup. They run in each CI host's native ABI and preserve
+foreign-ABI and unsupported-flag rejection. Legacy AST input keeps the semantic
+arity rejection tests independent of captured source traversal.
+Receipt tests retain the exact supplied argument shape after abort and collection,
+reject copied call starts and implicit selections during their live callbacks,
+and reject copied shapes before authorizing a catch. Unshaped calls and underlying
+operand failures retain their separate diagnostics. Ordinary AOT calls without
+owned native argument metadata remain unfinished.
+
+The [compiler exception tests](compiler-exceptions.md) check the original return
+guard before expression lookahead in both outer modes and backends. They retain
+one original counted receipt, earlier output and actual native work. Child,
+domain, replay and diagnostic-forgery cases guard its ownership. Other faults
+remain separate. Each CLI runs twelve uncaught return cases and twenty-four
+caught child cases per backend, across both outer modes.
+Suspended-input cases retain the exact consumed token and complete nested
+directive abort chain. They reject copied sources before consumption, earlier
+tokens after child entry, stale and foreign claims, replay, matching callback
+diagnostics, unexpected observer/cleanup exceptions and rejected abort
+checkpoints. Runtime cases also require the original session, semantic table,
+resource owner and complete physical lifecycle journals before claiming a catch.
+Copied parent and descendant contexts and copied or missing events reject.
+Saved-function cases distinguish ordinary children from inherited function
+contexts in both outer modes. Unsupported inherited returns issue no counted
+Compiler receipt, while a nested directive or completed new function restores
+the actual missing-function check.
+
+Caught child cases preserve earlier output and declarations, return zero and
+resume the parent. They cover complete nested aborts, interrupted child
+initializers and callback bindings, parent initializers, dimensions and defaults,
+successive catches and later child inputs. Reached declarations remain usable
+in their original saved namespace. Incomplete scalar storage and callback
+bindings remain unavailable. Later runtime and output quota faults still fail;
+an earlier quota fault cannot reach the Compiler producer. A later independent
+input can proceed after an unhandled child invalidates its original input.
+
+Native cases require reached machine work and zero interpreted task instructions.
+The CLI compares exact cumulative instruction, output byte and formatting work
+allowances and checks each one-below limit. It runs eight quota edges per backend
+through built, staged and installed consumers. Direct string storage in IR
+defaults, ordinary AOT outer-table joins, Break and other original Compiler
+producers remain open.
+
+Statement Compiler cases cover 33 literal source fixtures in both outer modes.
+They compare the original current token and native error count for audited
+control-flow delimiters, statement terminators, invalid break targets and try
+header/catch checks. Parser tests check target resets in for headers, lock and
+try/catch bodies, restoration afterward, kind-filtered SysTry/SysUntry lookup,
+headers reached during lexer directives and lexer faults that prevent later
+throws. Matching synthetic diagnostics retain zero receipt authority.
+
+Both IR and native run every fixture uncaught and as a caught saved input.
+Earlier directive effects remain and the parent resumes with zero. The native
+cases require completed machine fragments and zero interpreted task steps.
+Each CLI backend runs 134 additional statement cases across both outer modes;
+built, staged and installed consumers use the same source fixtures. Native
+SysTry/SysUntry calls, runtime Break and direct Compiler throws remain open.
+
+The return-warning cases check the three original producers, native counts
+with options 16-19 disabled, the flag's source timing, replay and expiration,
+exact aggregate sizes, pointer returns, macros, shared directives and fresh
+ordinary children. Failed value parsing and terminators retain reached warnings;
+successful expression parsing sets the bit before a bad terminator. The native
+field oracle uses literal byte 24 and bit 22 with guarded neighboring fields.
+IR and native CLI cases run in both outer modes and keep missing-return
+functions uncalled. Full native error interruption and `SysUntry` remain
+separate acceptance work.
+
+Native AOT tests share seventeen source-derived fixtures with the IR suite.
+They check separate task/module tables, retained functions and defaults,
+callbacks, statics, nested generation, inherited task layouts, load-time calls
+and output order. Every native fragment must complete in machine code; source
+task runtime counters remain zero. Exact and one-below instruction, declaration,
+default, generation, output, code, IR and combined storage limits retain reached
+effects. The maintained AOT example also runs through the CLI with resource
+reports. Native StreamExePrint checks actual synchronous child machine outcomes against
+independent IR effects in both modes. Captured calls, defaults, statics, internal
+bindings, runtime dimensions and offsets retain their original captures. Nested
+streams, suspended code rebinding, cumulative quotas and physical caller limits
+run through C-checked scopes. Class publication and caller output survive a
+later child arithmetic fault. Ordinary, foreign, copied, replayed and expired
+authority remains excluded, and actual children run under collection pressure.
+
+Inherited layout fixtures run in both IR modes and native JIT. They cover
+original selected entries, partial and forward bases, lookahead replacement,
+unions, offsets, padding, saved queries/defaults and derived frames. Native
+checks require actual completed fragments with zero interpreted instructions.
+Authority controls reject copied definitions, foreign namespaces, stale records,
+expiration, replay and unexecuted transitive dimensions or offsets. API and CLI
+tests exercise exact and one-below preparation, execution, output, code and IR
+limits. See [inherited layouts](source-inherited-layouts.md).
+
+Runtime layout tests share original integer bounds and offsets between fresh IR
+and native source tasks. They cover strides, automatic and static timing, unused
+declarations, callbacks, saved arguments, primitive member layouts, historical
+classes, nested unions, compiler positions and derived frames. Native tests also
+check actual capture identity, equal metadata, wrong work, foreign domains and
+arenas, collection, expiration and replay. The maintained
+`runtime-layout-expressions.hc` CLI test checks exact and one-below instruction,
+initializer, global and output limits; API tests check cumulative code and IR
+limits too. Class declarations inside functions publish during parsing, even
+when their functions are never called.
+
+Live internal bindings share fixtures in `test/internal_binding_cases.ml`.
+Three IR groups and four native groups exercise every supported integer
+operation, effectful and function-pointer targets, unused declarations,
+historical headers, saved string defaults, reached faults and quotas. Native
+controls require zero interpreted instructions, compile both private ABIs and
+reject equal programs, substituted images, foreign domains/arenas, wrong work,
+expiration and replay. The CLI example verifies once-only output, pre-header
+effects and exact/one-below execution, preparation and output limits. See
+[live internal bindings](native-internal-bindings.md).
+
+Ordinary IR JIT reports include original binding and declaration work. Closed
+native-image tests retain independent source value/output checks and execute a
+fresh checked closed IR fixture for instruction-work comparisons. Their exact
+image limits therefore measure the executable they run. Task tests separately
+verify cumulative target work and once-only declaration effects.
+
+Saved data defaults have shared source fixtures in
+`test/data_pointer_default_cases.ml`, six interpreter groups and seven native
+groups. Both paths exercise 81 original/view read pairs and 81 write pairs,
+once-only header effects, explicit/unused defaults, anonymous signatures,
+recursive frames, historical objects, one-past values, copied string suffixes,
+embedded NULs, unknown bytes and reached bounds faults. Native tests compile
+both private ABIs and reject metadata-only, foreign-arena, substituted and
+replayed captures before accepting the authentic completion. Exact and
+one-below work, literal, saved-byte, code and IR limits remain checked. The
+maintained CLI example exercises a saved array alias and copied string together.
+See [saved data defaults](data-pointer-defaults.md) for remaining domains.
+
+`test/native/test_native_source_static_callbacks.ml` checks live function-owned
+callback allocation, scalar and fixed-array copies, saved anonymous defaults,
+declaration effects, historical bodies, recursion and reached faults against
+independent IR execution. Private arena controls compile both host ABIs and
+execute the host ABI with exactly seventeen bytes for a scalar or 48 for a
+two-element array. One fewer byte rejects allocation before entry. Logical
+storage, saved payload, code, IR and execution limits have separate controls.
+The source-authority suite checks callback allocations across collection,
+foreign and released arenas, cross-domain requests, replay and expiration.
+The source-function CLI suite also runs
+`examples/native-source-static-callbacks.hc`.
+
+`test/native/test_native_source_functions.ml` checks original native function
+declarations and direct calls, including initializer calls, argument order,
+automatic frames, recursion, integer widths, historical definitions and globals.
+Integer word tails retain their original count despite writes to `argc`.
+Reached faults retain their original function and source location. Cumulative
+code, IR and runtime limits include each compiled caller closure. The dedicated
+function CLI suite runs `examples/native-source-functions.hc` and checks native
+fragment reports, original source effects, historical bindings and faults.
+The source-authority suite also checks original initializer and command domains,
+rejection before admission, retry during the same live request, and retained
+source after an actual native fault.
+An independent installed-library consumer exercises the same public API outside
+the compiler checkout.
+
+The native source-function suites also check retained Print and PutChars calls,
+array format ownership, reverse arguments, initializer output and recursion.
+Exact output/work and compile limits preserve reached effects. Faulting Print
+drafts publish no partial bytes; PutChars keeps its prefix. Source and request
+controls reject foreign contexts, call occurrences, domains and expired entries,
+and compile both providers for both status ABIs. A newly joined source body
+cannot run through the older provider fallback. The output CLI fixture is
+`examples/native-source-output.hc`.
+
+`test/native/test_native_source_literals.ml` executes original entry and retained
+function strings. It compares native results and bytes with independent IR runs,
+including mutation across fragments, later globals and arrays, distinct
+producers, historical bodies, recursion and initializer calls. Exact and
+one-below literal, runtime, output, code and IR limits preserve reached effects.
+The source-authority suite checks copied graphs, foreign contexts and domains,
+both status ABIs, pre-entry retries and expired requests through real native
+entry. `examples/native-source-literals.hc` also runs through the function CLI
+suite, which checks detached logical literal and private metadata counts.
+
+`test/native/test_native_source_execution.ml` checks original live scalar and array
+initializers, stable cross-fragment writes, declared widths, unsigned words,
+reached faults and exact cumulative native limits. It distinguishes native
+runtime work from closed preparation and interpreter runtime counters. Arena
+ownership, garbage collection, independent tasks, raw admission shapes and
+capacity bounds have separate controls. The CLI suite runs the maintained
+`native-source-initializers.hc` and `native-source-arrays.hc` fixtures through
+`host-jit-task`, checks individual fragment reports and compares the result with independent IR and isolated AOT
+native runs. See [native source tasks](native-source-tasks.md).
+
+Array controls cover references to earlier initialized elements, exact leaf
+order, multidimensional offsets, once-only index and RHS effects, per-element
+unknown reads, bounds faults and narrow stores. A U8 array at its exact logical
+byte limit checks the separate private flag capacity. Later allocation and parse
+failures retain earlier native completions and work.
+
+`test/native/test_native_source_authority.ml` checks the original live requests
+through the runtime entry API. Foreign domains, budgets, arenas, expired leaves
+and repeated entries cannot consume another request. A rejected first entry
+must leave an unbound arena available to its original budget. Layout limits
+retain the visits and native effects of earlier admitted initializers. Code and
+IR limits also cover exhaustion exactly between two fragments.
+
+The callback dereference suites cover explicit stars on fully indexed callback
+arrays in function bodies and top-level expressions. Public IR and native runs
+check calls, reads, stores and numeric updates, one evaluation of each index,
+callee capture before reverse arguments, selected defaults, reached faults and
+the same work as the ordinary indexed form. Typed checks retain the original
+operand, signature and index objects. Grouped bracket bases, remaining stars
+and ordinary pointer dereferences are separate controls. The CLI runs
+`examples/indexed-callback-dereference.hc` in both source modes and targets.
+Numeric consumers check high-bit signed and unsigned comparisons and shifts,
+promotion retained across mixed-signedness chains, and prefix, postfix and
+compound update results. Each case also checks the selected cell and index
+effect, so a correct final word alone cannot hide a repeated index or store.
+
+`test/test_callback_updates.ml` and
+`test/native/test_native_callback_updates.ml` check numeric callback updates in
+both source modes. Cases cover eight-byte scaling, signed compound operations,
+return metadata, scalar and array storage, canceled scalar dereferences,
+initializer and argument results, aliasing effects, reached faults and exact
+runtime limits. Native checks also exercise retained storage across collection
+and authenticate the owned-address fault against its original update site.
+The CLI runs `examples/callback-updates.hc` through both targets. See
+[numeric callback updates](callback-updates.md).
+
+`test/native/test_callback_return_storage.ml` checks callback storage whose
+return metadata is independent of its eight-byte cell. Native and fresh public
+IR runs cover automatic/static cells, arrays and fixed-parameter transfers;
+checked-batch IR supplies the native work comparison. Both image ABIs compile.
+The maintained CLI example `native-callback-return-storage.hc` returns 42 and
+prints `A` in both source modes, including exact and one-below runtime limits.
+
+`test/native/test_native_retained_budget.ml` checks cumulative native steps,
+output bytes and output work across original retained images. Coverage includes
+zero remaining allowances, partial writes, output faults, concurrent admission,
+separate arenas, immutable output snapshots, preflight recovery, bounded capture
+chunks and malformed consumed-counter tuples at the C boundary. Both source
+modes execute the host ABI; public IR checks independent values and output.
+
 `test/test_primitive_type_shadowing.ml` checks all twelve primitive spellings,
 original call syntax, storage, parameters, replacement input, restored types,
 aggregate identity and unshadowed casts. The CLI suite consumes the repeated
@@ -1228,7 +1471,7 @@ The bounded integer-interpreter group contains ten ordinary cases and two 500-ca
 dune exec test/test_main.exe -- test "IR bounded integer interpreter"
 ```
 
-The named-function IR group checks stable nonnegative function IDs, distinct declaration and body scopes, return types, source-ordered parameters and locals, independent member positions, stored function flags, compiler-option snapshots, source spans, and byte-stable `holyc-ir-function-v1` output. Negative cases cover wrong symbol kinds and scopes, duplicate positions and symbols, unknown mask bits, incompatible calling flags, malformed spans, and x87 verifier failures with function context. Run only this group with:
+The named-function IR group checks stable nonnegative function IDs, distinct declaration and body scopes, return types, source-ordered parameters and locals, independent member positions, stored function flags, compiler-option snapshots, source spans, and byte-stable `holyc-ir-function-v1` output. It accepts source-valid `ARGPOP`/`NOARGPOP` combinations and standalone `HASERRCODE` metadata. Negative cases cover wrong symbol kinds and scopes, duplicate positions and symbols, unknown mask bits, malformed spans, and x87 verifier failures with function context. Run only this group with:
 
 ```text
 dune exec test/test_main.exe -- test "IR function body"
@@ -1326,3 +1569,276 @@ The native CLI suite exercises maintained array examples in both modes and
 checks human/JSON reports. `test_native_index_faults.ml` separately fixes fault
 precedence, exact instruction sites, decoder validation, repeated images and
 exact/one-below step budgets. See [native arrays](native-arrays.md).
+
+The `callback storage` group covers original one-star global cells and fully
+indexed arrays alongside automatic/static storage. It checks saved defaults,
+callee capture, reverse arguments, word variadics, original global calling flags,
+retained JIT bodies, source ownership, fault effects and resource limits.
+`test_global_callback_cli.ml` runs the maintained global example in both IR modes
+with exact and one-below quotas, JSON counters, reached output and retained
+replacement. It also runs the top-level example, nested calls and reached entry
+faults, and compares global/array value projections with both existing native
+JIT observations. The global projection replaces an unsupported initializer
+with an explicit store. Entry tests check missing and foreign source contexts,
+copied load/whole-graph records, return/signature separation, defaults, tails,
+U0 output, callee snapshots, argument order, recursion and exact resource limits.
+These checks do not establish native callback emission or native AOT behavior.
+See [global callbacks](global-callbacks.md) for the remaining scope.
+
+Native callback-default tests cover all integer widths, global/static/automatic
+arrays, parameter transfers, independent declaration values, sparse omissions,
+explicit overrides, repeated images, reverse effects and U0 output in both source
+modes. Anonymous and named defaults share exact and one-below preparation and
+saved-byte quotas. The native default authority suite rejects reconstructed saved
+objects, foreign namespaces/bundles, missing and duplicate completions, including
+unused declarations, and compiles both image ABIs. Maintained CLI coverage runs
+the callback-default example with exact runtime/preparation counters. These
+checks add no TempleOS capture or exported HolyC ABI proof.
+
+Native word-tail tests compare values and exact checked-batch work for direct
+variadic bodies and matching callback calls in both source modes. They exercise
+all integer widths, empty tails, mutable `argc`, indexed and aliased updates,
+fixed callback owner lanes after variable arguments, saved defaults, cleanup
+flags, reverse effects, reached faults and recursive quota recovery. Compile
+tests check both ABIs and foreign-frame rejection. The maintained word-tail CLI
+fixture returns 42 with sixteen saved bytes and six native preparation steps.
+
+Native indirect callback-argument tests cover original nested signatures,
+forwarding closure, multiple owner lanes, all integer widths, U0, arrays and
+static/global cells, variadic parents, destination defaults and capture mutation
+in both source modes. Fault comparisons check outer and inner effects and exact
+checked-batch work, including a physically equal object-pointer signature.
+Compilation checks both ABIs, unselected same-signature bodies, copied/foreign
+receipts and frames, and exact/one-below code, frame, instruction and block
+budgets. Recursive runtime limits recover on the same image. The maintained
+callback-argument CLI example returns 42 with nine preparation steps and 24
+saved bytes. See [native callback arguments](native-callback-arguments.md).
+
+Ordinary calling-flag tests check both `argpop noargpop` orders, standalone
+`haserrcode`, original cleanup opcodes and slot counts, and foreign call-context
+rejection. Parser tests retain local modifier tokens and source-order storage.
+The native scalar API executes all widths, defaults, U0 and mixed policies in
+both modes. Exact recursive frame, depth, physical-stack and step limits fail
+one below and recover on the same image. The scalar CLI also runs
+`examples/native-calling-flags.hc` and checks values and work against fresh public
+and checked-batch interpreter executions. Windows and Linux run these through
+`@native-tests`; compiling both image ABIs locally does not execute a foreign ABI.
+
+Native automatic/static/global callback cells, fully indexed arrays and fixed
+callback parameters are checked in the native scalar suites and
+`examples/native-local-callbacks.hc`, `examples/native-callback-parameters.hc`
+and `examples/native-callback-storage.hc`. Encoder tests cover all allocator registers
+for signed RIP-relative LEA and saved-slot CALL forms. Source tests reject copied
+producers, foreign contexts, code escapes and callback faults naming direct-call
+sites. Native API/CLI cases compare independent values and fresh public IR in
+JIT/AOT, exact checked-batch meters, reached output on numeric/null/signature
+faults, address/owner snapshots, fixed-parameter forwarding, numeric overwrites,
+nested calls, all integer widths, U0, cross-activation static state, per-element
+initialization and bounds, private metadata allocation caps and recursive quota
+failures followed by same-image recovery. Both image ABIs compile locally; the
+Windows and Linux CI jobs execute their host ABI through `@native-tests`.
+
+Native callback-word default tests cover full 64-bit values, narrow/F64/U0 and
+pointer callback return classes, named and indirect selection, unused/explicit
+proof requirements, multiple lanes, sparse omission, owned overrides, copies,
+word tails, effective `noreg`, scalar comparisons, reached faults and exact quota
+recovery. The authority suite rejects missing, duplicate, reconstructed and
+foreign saved/charged evidence and compiles both ABIs. The maintained CLI example
+returns 42 with six preparation steps and sixteen saved bytes. See
+[callback-word defaults](native-callback-word-defaults.md).
+
+Global callback initializer tests cover original code and numeric words, multidimensional leaf order, copies, selected defaults and flags, indirect initializer calls, output, reached null/numeric/signature faults, original JIT bodies after replacement, source-task inputs, return-type-independent word width and exact resource limits. Entry graphs reject copied instructions and foreign contexts. Native tests compare public IR values, isolated checked-batch meters and host execution for closed words in both modes and original AOT load regions. Authority tests reject cloned, suspended or expired parser receipts and missing, repeated, reordered or foreign load evidence; both image ABIs compile. Load-time calls cover reverse arguments, saved callees, callback parameters, word tails, U0, multidimensional copies, reached faults and exact runtime limits with recovery. The maintained AOT CLI example returns 42, prints A and uses 86 runtime steps, three preparation steps, 24 global bytes and eight saved default bytes. It checks exact and one-below code, IR, block, global, frame, depth, runtime, preparation and saved-byte limits. The existing TempleOS fixture replays its initialized global directly; no new capture is claimed. See [global callback initializers](global-callback-initializers.md).
+
+AOT function-version tests distinguish the shared canonical callable record
+from each original body, frame and declaration. Fresh public IR, isolated batch
+IR and native execution compare old/new callback and direct calls, changed
+parameter counts, anonymous defaults, recursion and persistent static storage.
+The maintained AOT load CLI repeats those cases at exact runtime limits,
+one below, and after quota failure. A later cleanup modifier does not replace
+flags stored by AOT record reuse; an incompatible callback preserves reached
+argument output before faulting. Source tests retain preflight rejection of
+repeated bodies, reordered or foreign bundles and substituted frames.
+
+Retained native image tests exercise original code and data across activations,
+including globals, statics, narrow arrays, mutable literals and saved callback
+owners across GC/compaction. Checked arithmetic and step faults preserve reached
+writes. Recursive frame/depth/stack failures recover with retained state and
+fresh status/output quotas. Separate owners, release/expiry, unreachable owner
+collection, original allocation bounds and foreign ABI rejection are covered.
+Concurrent domain entries accept distinct native writes or reject overlap.
+Original AOT load code also runs against retained state and recovers after
+reached load faults. Closed entries exercise their original frameless or spilled
+RSP frames, small and large unwind allocations, repeated execution across GC,
+exact stack/work quotas, division/remainder faults and recovery. Bridge controls
+reject changed ranges, allocations, unwind headers, status prologues and data
+arenas before mapping. The suite runs through `@native-tests` on Windows and
+Linux. Native JIT parser-callback scheduling and linking separate images remain
+open.
+
+Static allocation tests retain successful live JIT receipts through callback
+expiry and reject foreign tables and fresh registries. Sealed source tests join
+scalar and array allocations to their completed frames, distinguish same-name
+locals in different functions, and reject foreign frames, locations and source
+views. Parser tests retain the original static or automatic publication selected
+by each identifier, including same-named locals in separate functions. A native
+dispatch metadata probe follows live private declarations through function
+completion, checks pending/completed storage identity and snapshot retention,
+and rejects foreign-task admission. It charges padded extents once and retains
+earlier charges after quota failure. The probe creates no native arena or
+initializer values and executes no interpreter instructions. These checks cover
+source and storage ownership without substituting for native execution.
+
+Native source-function tests execute persistent scalar and fixed-array statics,
+declared narrow widths, separate same-name owners and historical direct-call
+closures. Live initializer tests check direct calls and captured provider effects
+once, source-order references to earlier private statics, faults after reached
+effects, malformed later declarations, uninitialized reads and declared bounds.
+The source-progress counters prove that these initializer values did not execute
+in the interpreter or closed preparation. The native authority tests allocate
+and execute in the original arena, preserve preceding global writes, and retain
+static state across collection. They reject released arenas, foreign layouts and
+sources, other domains, replay and expired requests. An initializer cannot
+substitute another identifier occurrence that selects the same static;
+the original occurrence remains a valid control. Both private ABI images
+compile; actual execution uses the host ABI. The function CLI tests check the
+counter against public IR, exact and one-below cumulative native limits, and
+once-only output. `examples/native-source-statics.hc` returns 43 and captures `I`.
+No new TempleOS runtime capture is claimed. Unsupported automatic or parameter
+references, partial array leaves and noninteger statics remain
+explicit boundaries.
+
+Native static-copy cases compare byte values with independent IR execution for
+truncation, included terminating zeros, empty and embedded-zero strings,
+nested and mixed scalar/copy rows, historical bodies and later arena growth.
+Exact and one-below allowances verify that each original copied byte is charged
+once and that a later rejected copy leaves earlier effects reached. Source
+authority controls reject foreign layouts, released arenas, other domains,
+replay and expired receipts. Deliberate mutation of observed payloads leaves
+the retained bytes intact. Raw host controls reject malformed descriptors,
+invalid extents, overlapping flags and malformed flag representations before
+writing. A later copy may overwrite earlier original element writes; its live
+request enforces single use. Public CLI reports list the direct
+copy separately from the two expression-code fragments for a definition and
+call. These controls add no TempleOS runtime capture.
+
+Native task defaults compare saved values with independent IR execution for
+once-only effects, unused functions, explicit arguments, multiple defaults,
+recursive calls, narrow values and historical headers. Defaults called from
+original global and static initializer leaves use the same completion proof.
+Provider and arithmetic faults retain reached output and stop later default
+publication. Exact and one-below step, initializer, code, IR and saved-word
+allowances exercise real native guards. Authority tests compile both private
+ABIs and execute the host ABI; they reject cross-domain claims, expired or
+replayed requests, repeated work receipts and copied saved objects with equal
+source and bits. Public CLI reports distinguish native default images and
+saved payload bytes. These tests add no TempleOS runtime capture.
+
+`test/native/test_native_source_callback_updates.ml` exercises numeric callback
+right operands through five native test groups. Independent IR comparisons cover
+all ten compound operators on integer locals, globals, indexed elements,
+references and callback destinations, including callback scaling, narrow signed
+and unsigned conversions, fixed parameters and callback arrays. Actual native
+outcomes cover owned right operands, left initialization and bounds priority,
+owned callback left cells, index effects, division and remainder faults, skipped
+updates and collection. Exact and one-below code, IR, runtime, frame and recursive
+call limits include the new guards. Each successful fragment executes natively,
+with zero interpreter instructions recorded by source admission. The CLI suite
+also preserves `HCPARSE0137` for direct automatic callback initializers on all
+three JIT targets, following the pinned `Grid.HC` restriction.
+
+
+Static callback initializer tests consume original scalar and fixed-array leaves
+in independent IR and native executions. They cover full physical words across
+return metadata, owner copies, earlier-element calls, anonymous defaults,
+unused declarations and historical bodies. Self-address and extern captures
+retain the placeholder visible before body installation. Reached uninitialized,
+unowned and cleared-owner calls preserve their actual faults. Exact and one-below
+logical storage, default payload, code, IR, preparation and runtime allowances
+exercise cumulative bounds. Source authority tests compile both private ABIs
+and reject a missing anonymous header, foreign arenas and domains, replay and
+expired requests. The maintained CLI example also runs through the independent
+IR target; closed numeric static callback leaves run through isolated native
+JIT and AOT execution. These checks add no TempleOS runtime capture.
+
+Named callback type tests exercise independent IR and actual native source
+execution for local, global and static words, fixed arrays, comma declarators,
+full-width bits and pointer-sized `sizeof`. They cover nested saved defaults,
+original header effects, forward completion, `#exe` lookahead and later class or
+function shadows. Proof tests reject copied types and pointer children, sibling
+pointer substitution, foreign tables and namespaces, and expired minting.
+Selected-class static authority tests compile both private ABIs and execute the
+host ABI across arena growth and collection, with the existing foreign-owner,
+cross-domain, replay and lifetime controls. Reached numeric and uninitialized
+callback faults retain their actual native outcomes. Exact and one-below data,
+default, code, IR, preparation and runtime limits cover cumulative accounting.
+The maintained example runs through built, staged and freshly installed CLIs;
+the standalone native suite also consumes the installed public library.
+
+Numeric callback expression tests share source-derived expected values across
+the IR and actual native consumers. They cover unary, bitwise, arithmetic,
+shift, logical and comparison operations in automatic, static, global, indexed
+and parameter cells; opposite-operand scaling, optimizer pass order, folded
+identity constants, signed differences, assignment
+results, comparison chains, unsigned computation and selected return metadata.
+Native owner guards preserve earlier operand output. Exact and one-below code,
+IR, frame and execution limits use measured work. The original source authority
+suite compiles these consumers for both private ABIs and executes the host ABI.
+
+Provider callback tests run the same original Print and PutChars captures through the IR
+and actual native task consumers. Fixtures cover globals, automatic and static
+cells, indexed copies, fixed parameters, recursive forwarding, saved defaults,
+callee capture before argument effects and a later joined source definition.
+Packed-byte values include zero and high bytes. Reached signature, output and
+owned-word faults preserve prior effects. Measured native and IR work and exact
+and one-below output, frame, code and IR allowances check cumulative limits.
+Source authority tests compile both private ABIs and reject copied receipts,
+malformed host mapping tables, released owners and expired requests. These
+checks add no TempleOS runtime capture or exported ABI proof.
+
+Print callback tests cover runtime argument counts and kinds, owned pointer
+tails, mutable formats, shared numeric/string grammar and exact format work.
+Faults retain prior output and discard the current draft. Measured minimum
+physical stack and one-below code, IR, frame, depth, output and work bounds
+execute real native entries. The saved Print example uses an explicit 256 KiB
+cumulative code allowance because fragments currently re-emit the provider.
+The provider CLI harness runs 24 executions across both task targets and the
+isolated boundary.
+
+IR stream callback tests cover active generation, installed internal/public
+primitive signatures, inactive formatting order, saved captures and defaults,
+indexed copies, replacement bodies and task-owned nested buffers. StreamExePrint
+callbacks execute nested source in active blocks of either outer mode. Ordinary
+children start inactive; their own directives establish separate permission.
+Native synchronous children now use the original C scope and budget; actual
+machine outcomes and quotas are checked as described above. Full compiler
+acceptance remains required.
+
+Saved compiler namespace tests cover original enclosing types and replacements,
+directive-only name exclusion, child publication, successive calls, inherited
+metadata, retained child cells/functions/defaults/statics and nested switches
+back to the directive task. Parser controls reject foreign tables, managers,
+contexts and domains, wrong child modes, advanced ancestors, expired or replayed
+tokens, and reconstructed completion evidence. Saved local shadows survive
+child parse failures and exceptions. Original pending AOT runtime imports and
+compiler-local `sizeof` retain explicit unsupported diagnostics.
+
+Nested directive cases check repeated child publications in the task's original
+namespace, separate task/module globals in AOT, and a directive inside ordinary
+child input that returns to that child's saved namespace. Saved parameter
+shadows retain their reached diagnostic; a child runtime fault preserves only
+reached output. Ledger tests reject unobserved or foreign ledgers, missing child
+checkpoints, foreign domains and expired suspensions. The
+`examples/native-stream-saved-inputs.hc` CLI fixture runs in both modes through
+each task target and checks exact and one-below instruction, output and
+formatting-work limits. Native child execution checks zero interpreted
+instructions and successful machine outcomes for every entered fragment.
+
+The shared-resource case keeps the caller live across child execution. Its
+minimum frame allowance is 40 bytes and its minimum call depth is three; each
+one-below failure preserves only the reached `before;` output. Instruction,
+preparation, global storage, literal storage and formatting-work tests measure
+their exact success limits and check each one-below failure. Ordinary output
+succeeds at 19 bytes; at 18 it preserves `before;child;` and rejects the final
+draft. The CLI harness runs
+`examples/stream-exe-compiler-context.hc` in both modes, checks its value and
+`before;child;after;` output, and repeats the measured resource edges.

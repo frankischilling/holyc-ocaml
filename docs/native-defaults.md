@@ -17,22 +17,41 @@ opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --mode=ao
 Both preprocessing modes use their original source identities and produce a
 hosted native image. AOT mode here does not write an object or TempleOS BIN.
 
+The separate JIT [native source-task path](native-source-tasks.md) executes
+named and anonymous integer defaults containing live storage reads, updates and
+retained calls. One-star callback parameters can also save original owned values.
+It uses original native expression fragments and saved-header receipts. See
+[live anonymous defaults](native-anonymous-defaults.md).
+One-level primitive [data-pointer defaults](data-pointer-defaults.md) retain
+original task objects and views; string-producing expressions copy their
+terminated result into fresh mutable storage.
+The closed-default rules below describe the isolated `host-jit` target.
+
 ## Supported domain
 
-Defaults belong to fixed, named I8/U8/I16/U16/I32/U32/I64/U64 parameters on the source-defined
-functions admitted by [native programs](native-programs.md). The existing
+Defaults belong to fixed I8/U8/I16/U16/I32/U32/I64/U64 parameters on the source-defined
+functions admitted by [native programs](native-programs.md) and original
+[callback declarations](native-local-callbacks.md). Callback calls use the
+selected anonymous declaration's saved value even when the reached target
+function declares a different default. The existing
 checked constant-preparation engine handles the original expression. Closed
 integer arithmetic such as `84/2` prepares the word 42. Source-selected queries
 are usable only when their original evidence and the preparation engine support
 them. References to values or functions, storage effects, string ownership,
-`lastclass`, pointer/function-pointer parameters and non-integer parameter types
+`lastclass`, ordinary object-pointer parameters and non-integer value parameters
 remain unsupported. Prototypes remain outside the native function gate.
 
-Default expressions use the preparation engine's supported arithmetic domain,
-which is narrower than runtime-native arithmetic. In particular, shift defaults
-reject with `HCRUN0006` until the relevant optimizer behavior is established.
+[Callback-word defaults](native-callback-word-defaults.md) admit original
+one-star callback-valued parameters. Their defaults retain full integer words
+independently of the callback return class and receive zero executable ownership.
+Selected original headers own omission; an effective `noreg` uses the existing
+stack parameter path. Explicit register allocation remains outside this adapter.
+
+Default expressions use the preparation engine's supported integer arithmetic.
+Source-owned shift cases retain full-word saved bits; this does not establish
+general optimizer parity.
 A default containing `1/0` reaches `HCIRVM0009` during preparation, including
-when its function is never called. Neither case enters native code.
+when its function is never called. Failed preparation does not enter native code.
 
 Default-bearing definitions must precede executable top-level statements.
 Interleaving a default declaration after an entry statement rejects explicitly:

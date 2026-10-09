@@ -82,6 +82,10 @@ val switch_preparation_work : compiled -> int
 *)
 
 type compilation_report
+
+val compilation_compiler_exceptions :
+  compilation_report -> Frontend.Parser.compiler_exception list
+
 type compilation = Isolated of compiled | Stateful of Ir.Integer_interpreter.t
 
 val compilation_result :

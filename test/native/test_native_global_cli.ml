@@ -165,7 +165,7 @@ let () =
         (static_image |> member "global_bytes" |> to_int = 9)
         "static padded bytes";
       require
-        (static_image |> member "global_arena_bytes" |> to_int = 11)
+        (static_image |> member "global_arena_bytes" |> to_int = 25)
         "static arena flags";
       check_success
         (host_json ~mode ~options:[ "--global-byte-limit=9" ] Sys.argv.(4));
@@ -216,7 +216,7 @@ let () =
       let image = native |> member "native" |> member "image" in
       require (image |> member "global_bytes" |> to_int = 9) "declared widths";
       require
-        (image |> member "global_arena_bytes" |> to_int = 11)
+        (image |> member "global_arena_bytes" |> to_int = 25)
         "flags charged separately";
       ignore
         (host_json ~mode ~options:[ "--global-byte-limit=9" ] global_fixture);
@@ -235,6 +235,16 @@ let () =
               (first_diagnostic report |> member "code" |> to_string
              = "HCIRVM0012")
               "unknown read code");
+      if mode = "aot" then
+        with_file ".hc" "I64 F(){return 42;}I64 G=F();G;" (fun source ->
+            let native = host_json ~mode source in
+            let ir = ir_json ~mode source in
+            check_success native;
+            check_success ir;
+            check_word native "i64" "42" "0x000000000000002a";
+            require
+              (member "executed_steps" native = member "executed_steps" ir)
+              "AOT load initializer runtime work");
       List.iter
         (fun contents ->
           with_file ".hc" contents (fun source ->
@@ -245,13 +255,13 @@ let () =
               require
                 (diagnostics report <> [])
                 "unsupported storage has no diagnostics"))
-        [
-          "I64 F(){return 42;}I64 G=F();G;";
-          "I64 *G[1];42;";
-          "I64 *G;42;";
-          "extern I64 G;42;";
-          "I64 N=1;I64 F(){static I64 G=N<<2;return 42;}F();";
-          "F64 G;42;";
-          "I64 G;I64 F(I64 x=G){return x;}F();";
-        ])
+        ([
+           "I64 *G[1];42;";
+           "I64 *G;42;";
+           "extern I64 G;42;";
+           "I64 N=1;I64 F(){static I64 G=N<<2;return 42;}F();";
+           "F64 G;42;";
+           "I64 G;I64 F(I64 x=G){return x;}F();";
+         ]
+        @ if mode = "jit" then [ "I64 F(){return 42;}I64 G=F();G;" ] else []))
     [ "jit"; "aot" ]

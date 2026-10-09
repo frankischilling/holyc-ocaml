@@ -112,18 +112,27 @@ let ir_json_path ?status ?options ~mode source =
 let diagnostics report = report |> member "diagnostics" |> to_list
 
 let first_code report =
-  match diagnostics report with
-  | first :: _ -> first |> member "code" |> to_string
-  | [] -> (
+  match
+    List.find_opt
+      (fun diagnostic -> diagnostic |> member "severity" |> to_string = "error")
+      (diagnostics report)
+  with
+  | Some first -> first |> member "code" |> to_string
+  | None -> (
       match member "command_error" report with
       | `Assoc _ as error -> error |> member "code" |> to_string
       | _ -> failwith "expected a diagnostic or command error")
 
-let check_success label report =
+let diagnostic_signature diagnostic =
+  ( diagnostic |> member "code" |> to_string,
+    diagnostic |> member "severity" |> to_string,
+    diagnostic |> member "message" |> to_string )
+
+let check_success ?(expected_warnings = []) label report =
   require
     (report |> member "outcome" |> to_string = "success"
     && report |> member "termination" |> to_string = "stream-end"
-    && diagnostics report = []
+    && List.map diagnostic_signature (diagnostics report) = expected_warnings
     && member "command_error" report = `Null)
     (label ^ " success report")
 
@@ -339,7 +348,15 @@ let implicit_and_source_defined_paths () =
       let source =
         host_json ~mode "I64 Print(U8 *fmt){return 42;}Print(\"x\");"
       in
-      check_success (mode ^ " source-defined Print") source;
+      check_success
+        ~expected_warnings:
+          [
+            ( "HCSEMA0034",
+              "warning",
+              "unused variable \"fmt\" in function \"Print\"" );
+          ]
+        (mode ^ " source-defined Print")
+        source;
       check_word (mode ^ " source-defined Print") source;
       check_output
         (mode ^ " source-defined Print")

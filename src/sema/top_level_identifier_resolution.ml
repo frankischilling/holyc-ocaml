@@ -12,6 +12,7 @@ type module_value =
   | Aggregate_offset_base of Module_expression_binding.publication
 
 type resolution =
+  | Static_value of Static_reference.t
   | Module_value of module_value
   | Outer_value of Outer_environment.binding
   | Outer_function_value of {
@@ -92,11 +93,13 @@ let occurrence_publication occurrence =
   match Top_level_outer_expression_binding.occurrence_resolution occurrence with
   | Top_level_outer_expression_binding.Module_binding publication ->
       Some publication
-  | Top_level_outer_expression_binding.Outer_binding _ -> None
+  | Top_level_outer_expression_binding.Outer_binding _
+  | Top_level_outer_expression_binding.Static_binding _ -> None
 
 let occurrence_outer_binding occurrence =
   match Top_level_outer_expression_binding.occurrence_resolution occurrence with
-  | Top_level_outer_expression_binding.Module_binding _ -> None
+  | Top_level_outer_expression_binding.Module_binding _
+  | Top_level_outer_expression_binding.Static_binding _ -> None
   | Top_level_outer_expression_binding.Outer_binding binding -> Some binding
 
 let same_publication left right =
@@ -157,6 +160,13 @@ let module_resolution_is_valid publication = function
       && same_publication selected publication
 
 let resolution_is_valid occurrence = function
+  | Static_value reference -> (
+      match
+        Top_level_outer_expression_binding.occurrence_resolution occurrence
+      with
+      | Top_level_outer_expression_binding.Static_binding original ->
+          original == reference
+      | _ -> false)
   | Module_value value -> (
       match occurrence_publication occurrence with
       | None -> false
@@ -250,6 +260,9 @@ let leaf_symbols_are_owned table leaves =
     (fun leaf ->
       let occurrence_symbol_owned =
         match leaf.resolution with
+        | Static_value reference ->
+            Symbol_table.owns_symbol table (Static_reference.symbol reference)
+            && type_is_owned table (Static_reference.type_ reference)
         | Module_value (Global_value { global; value }) ->
             Symbol_table.owns_symbol table
               (Global_type_resolution.global_symbol global)

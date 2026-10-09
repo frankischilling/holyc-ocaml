@@ -84,6 +84,14 @@ let trailing_dimension_preparation t =
       Some preparation
   | _ -> None
 
+let trailing_aggregate_offset t =
+  match List.rev t.events with
+  | Declaration
+      (Parser.Aggregate_advanced
+         ({ phase_step = Parser.Aggregate_offset_reached _; _ } as phase))
+    :: _ -> Some phase
+  | _ -> None
+
 let before_event t matches =
   if not (current t) then false
   else
@@ -175,8 +183,23 @@ let event_context = function
         | Parser.Function_variadic_started p
         | Parser.Function_variadic_completed p ->
             p.variadic_function.function_header.declaration_command
+        | Parser.Callback_position_written p ->
+            p.callback_position_signature.callback_command
+        | Parser.Callback_signature_started p -> p.callback_command
+        | Parser.Callback_parameter_declared p ->
+            p.callback_parameter_signature.callback_command
+        | Parser.Callback_parameter_completed p ->
+            p.callback_parameter_publication.callback_parameter_signature
+              .callback_command
+        | Parser.Callback_default_completed p ->
+            p.callback_default_signature.callback_command
+        | Parser.Callback_signature_completed p ->
+            p.callback_signature_publication.callback_command
         | Parser.Parameter_default_completed p ->
             p.default_function.function_header.declaration_command
+        | Parser.Function_return_phase p ->
+            p.return_header.function_publication.function_header
+              .declaration_command
         | Parser.Function_header_completed p
         | Parser.Function_body_completed (p, _) ->
             p.function_publication.function_header.declaration_command
@@ -446,9 +469,27 @@ let parameter_default activation receipt =
         original == receipt
     | _ -> false)
 
+let callback_default activation receipt =
+  allows activation (function
+    | Declaration (Parser.Callback_default_completed original) ->
+        original == receipt
+    | _ -> false)
+
 let declaration activation receipt =
   allows activation (function
     | Declaration original -> original == receipt
+    | _ -> false)
+
+let static_allocation activation receipt =
+  allows activation (function
+    | Declaration (Parser.Function_local_allocated original) ->
+        original == receipt
+    | _ -> false)
+
+let static_initializer activation receipt =
+  allows activation (function
+    | Declaration (Parser.Static_initializer_preparing original) ->
+        original == receipt
     | _ -> false)
 
 let dimension_preparing activation receipt =
@@ -547,6 +588,12 @@ let function_phase_admission activation event =
 let command_admission activation receipt =
   admission activation (function
     | Command (Parser.Command_resumed original) -> original == receipt
+    | _ -> false)
+
+let callback_default_completion activation receipt =
+  admission activation (function
+    | Declaration (Parser.Callback_signature_completed original) ->
+        original == receipt
     | _ -> false)
 
 let default_completion activation header =

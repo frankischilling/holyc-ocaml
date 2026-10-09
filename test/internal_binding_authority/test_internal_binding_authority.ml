@@ -207,6 +207,7 @@ let original_execution ?(contents = "_intern (0x10+0xe) I64 Convert(U8 ch);")
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint =
         Some
           (fun event ->

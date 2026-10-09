@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+- Fixed native resource collection deadlocks exposed by the stable output
+  buffers on OCaml 5.3. Custom finalizers detach owners into a lock-free queue;
+  native mutator entries remove their roots and release mappings afterward.
+  Closed source callbacks release their roots after checked capture. Tests also
+  verify that discarded callbacks become collectible after normal, rejected and
+  exceptional returns, including cleanup from another domain. CI streams native
+  test output as each case runs.
+
+- Added the native source callback boundary and C-owned output buffers. An
+  active formatted-source site can suspend its physical caller, preserve live
+  buffers across collection, and resume with the callback's integer result.
+  Scopes retain their original generation and cumulative budget owners and
+  expire before the caller resumes. Callback exceptions propagate after native
+  cleanup and checked accounting. Parser child execution and scoped native
+  arena/budget admission remain unfinished; ordinary entry and release guards
+  still reject overlap.
+
+- Fixed IR StreamExePrint lookup and publication through the original saved
+  compiler namespace in both outer modes. Child declarations, completed type
+  metadata and replacements persist there while directive-only names stay in
+  their task. Distinct storage catalogs share cumulative resources and the live
+  caller's frame. Pending AOT runtime imports, compiler-local metadata and
+  synchronous native reentry retain their existing execution boundaries.
+
+- Connected explicit indexed callback dereferences to their original storage
+  and callee. Calls, reads, stores and numeric updates evaluate each index once;
+  calls capture the selected value before reverse argument effects. The
+  canceled star adds no runtime work. Grouping under the star, member storage
+  and remaining indirections retain their existing boundaries.
+  Arithmetic following numeric updates preserves pointer scaling and the
+  resulting signed or unsigned word class.
+
+- Added numeric callback prefix, postfix and compound updates to IR and native
+  execution. One-star cells and fully indexed arrays preserve return metadata,
+  eight-byte scaling, signed compound computation and right-operand effects.
+  Reached faults preserve earlier writes and output; numeric results can flow
+  into integer consumers without acquiring executable ownership. Arithmetic on
+  owned function addresses remains unfinished.
+
 - Added integer comparison chains in conditions. Original middle values survive
   branches and calls, and a false link skips later operands. Both execution
   targets preserve cumulative unsigned classes, grouping and eager value

@@ -20,8 +20,10 @@ type compiled = {
   dimension_work_ : int;
   switch_work_ : int;
   functions_ : Ir.Integer_interpreter.function_definition list;
+  static_sources_ : Sema.Static_local_source.t list;
   runtime_calls_ : Ir.Runtime_call_context.t;
   entry_has_calls_ : bool;
+  compiler_warnings_ : Common.Diagnostic.t list;
 }
 
 let entry compiled = compiled.entry_
@@ -31,8 +33,10 @@ let initializer_preparation compiled = compiled.preparation_
 let dimension_preparation_work compiled = compiled.dimension_work_
 let switch_preparation_work compiled = compiled.switch_work_
 let functions compiled = compiled.functions_
+let static_sources compiled = compiled.static_sources_
 let runtime_calls compiled = compiled.runtime_calls_
 let has_entry_calls compiled = compiled.entry_has_calls_
+let compiler_warnings compiled = compiled.compiler_warnings_
 
 let human compiled =
   let entry =
@@ -89,7 +93,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             | Ast.Implicit_output_statement _
             | Ast.Break_statement _
             | Ast.Goto_statement _
-            | Ast.Label_statement _ -> ()
+            | Ast.Label_statement _
+            | Ast.Aggregate_declaration_statement _ -> ()
             | Ast.Block_statement block ->
                 List.iter (validate ~in_function) block.block_statements
             | Ast.Sequence_statement sequence ->
@@ -122,7 +127,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                         fail subswitch.subswitch_location.span "HCRUN0001"
                           "integer execution does not admit sub-switch regions")
                   switch.switch_elements
-            | (Ast.Local_declaration_statement _ | Ast.Return_statement _)
+            | Ast.Local_declaration_statement _
+            | Ast.Return_statement _
+            | Ast.No_warn_statement _
               when in_function -> ()
             | other ->
                 fail (Ast.statement_location other).span "HCRUN0001"
@@ -244,6 +251,44 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       ])
           in
           let* globals_ =
+            match source_command with
+            | None -> Ok globals_
+            | Some command ->
+                let* defaults =
+                  Task_declarations.source_callback_defaults
+                    ~table:(Session.semantic_symbols session)
+                    ~ast command
+                in
+                if defaults = [] then Ok globals_
+                else
+                  let* native_defaults =
+                    Task_declarations.native_source_callback_defaults
+                      ~table:(Session.semantic_symbols session)
+                      ~ast command
+                  in
+                  (if native_defaults = [] then
+                     Ir.Integer_globals.with_source_callback_defaults globals_
+                       defaults
+                   else if
+                     List.length native_defaults = List.length defaults
+                     && List.for_all
+                          (fun value ->
+                            List.exists (( == ) value) native_defaults)
+                          defaults
+                   then
+                     Ir.Integer_globals.with_native_source_callback_defaults
+                       globals_ defaults
+                   else
+                     Error
+                       "anonymous defaults mix native and ordinary preparation \
+                        owners")
+                  |> Result.map_error (fun message ->
+                      [
+                        Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                          message;
+                      ])
+          in
+          let* globals_ =
             Option.fold ~none:(Ok globals_)
               ~some:(fun view ->
                 Ir.Integer_globals.join_declared view globals_
@@ -267,16 +312,97 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 Ir.Integer_globals.with_task_view view globals_)
               task_view
           in
-          let* globals_ =
-            if Option.is_none task_view then Ok globals_
-            else
-              Ir.Integer_globals.with_function_publications
-                ~records:(Integer_source.records prepared)
-                globals_
-              |> Result.map_error (fun message ->
+          let* static_sources_ =
+            let* allocations =
+              let table = Session.semantic_symbols session in
+              match (declaration_command, source_command) with
+              | Some command, None ->
+                  Task_declarations.static_allocations ~table ~ast command
+              | None, Some command ->
+                  Task_declarations.source_static_allocations ~table ~ast
+                    command
+              | _ -> Ok []
+            in
+            let slots = Ir.Integer_globals.statics globals_ in
+            let* selected_aggregate =
+              let table = Session.semantic_symbols session in
+              match (declaration_command, source_command) with
+              | Some command, None ->
+                  Task_declarations.selected_type_resolver ~table ~ast command
+                  |> Result.map snd
+              | None, Some command ->
+                  Task_declarations.source_selected_type_resolver ~table ~ast
+                    command
+                  |> Result.map snd
+              | _ -> Ok (fun _ -> None)
+            in
+            let* () =
+              if
+                Ir.Integer_globals.compilation_mode globals_
+                = Sema.Global_resolution.Jit
+                && (Option.is_some declaration_command
+                   || Option.is_some source_command)
+                && List.length allocations <> List.length slots
+              then
+                Error
                   [
-                    Integer_source.diagnostic ~span:ast.span "HCRUN0004" message;
-                  ])
+                    Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                      "static locations lack their original live allocations";
+                  ]
+              else Ok ()
+            in
+            List.fold_left
+              (fun checked allocation ->
+                let* sources = checked in
+                match
+                  List.find_map
+                    (fun slot ->
+                      Sema.Static_local_source.bind_selected ~selected_aggregate
+                        ~allocation
+                        ~frame:(Ir.Integer_globals.static_frame slot)
+                        ~location:(Ir.Integer_globals.static_location slot)
+                      |> Result.to_option)
+                    slots
+                with
+                | Some source -> Ok (source :: sources)
+                | None ->
+                    let reasons =
+                      List.filter_map
+                        (fun slot ->
+                          match
+                            Sema.Static_local_source.bind_selected
+                              ~selected_aggregate ~allocation
+                              ~frame:(Ir.Integer_globals.static_frame slot)
+                              ~location:
+                                (Ir.Integer_globals.static_location slot)
+                          with
+                          | Ok _ -> None
+                          | Error message -> Some message)
+                        slots
+                      |> String.concat "; "
+                    in
+                    Error
+                      [
+                        Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                          ("static allocation has no exact completed frame and \
+                            local source: " ^ reasons);
+                      ])
+              (Ok []) allocations
+            |> Result.map List.rev
+          in
+          let* globals_ =
+            Ir.Integer_globals.join_static_allocations ~sources:static_sources_
+              globals_
+            |> Result.map_error (fun message ->
+                [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
+          in
+          let* globals_ =
+            Ir.Integer_globals.with_function_publications
+              ~retain_replaced:(Option.is_none task_view)
+              ~records:(Integer_source.records prepared)
+              globals_
+            |> Result.map_error (fun message ->
+                [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
           in
           let root_map values =
             List.fold_left
@@ -533,6 +659,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       "implicit output does not own its checked fixed and \
                        trailing roots";
                   lowered
+              | Ast.Aggregate_declaration_statement _ -> Lower.Block []
+              | Ast.No_warn_statement _ when Option.is_some function_symbol ->
+                  Lower.Block []
               | Ast.Local_declaration_statement declaration ->
                   Lower.Block
                     (List.filter_map
@@ -750,10 +879,17 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                      .error_to_string)
           in
           let all_function_calls = ref [] in
+          let callback_calls =
+            Integer_source.functions prepared
+            |> Typed.functions
+            |> List.concat_map Typed.function_calls
+            |> List.filter_map (function
+              | Typed.Indirect_call_result call -> Some call
+              | _ -> None)
+          in
           let function_contexts = ref [] in
           let* definitions =
-            ast.items
-            |> List.mapi (fun index item -> (index, item))
+            Ast.declaration_items ast
             |> List.filter_map (function
               | index, Ast.Function_definition definition ->
                   Some (index, definition)
@@ -894,6 +1030,11 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                    in
                    let* lowered =
                      Lower.lower_complete ~frame ~globals:globals_ ~records
+                       ~callback_calls:
+                         (Typed.function_calls function_
+                         |> List.filter_map (function
+                           | Typed.Indirect_call_result call -> Some call
+                           | _ -> None))
                        ~labels ~function_calls ~span:definition.location.span
                        statements
                    in
@@ -967,6 +1108,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 (allow_zero_initializer_budget || Option.is_some task_view)
               ?on_progress:initializer_progress
               ~function_calls:(List.rev !all_function_calls)
+              ~callback_calls
+              ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
               ~span:ast.span ~globals:globals_ ~top_calls ~functions:definitions
               ()
           in
@@ -1039,7 +1182,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             |> List.concat_map (fun slot ->
                 Ir.Integer_globals.static_initializers slot
                 |> List.filter_map (fun root ->
-                    if
+                    if Ir.Integer_globals.static_root_executed slot root then
+                      None
+                    else if
                       not
                         (Ir.Integer_globals.static_root_materialized slot root)
                     then Some (slot, Lower.Initialize_static_leaf (slot, root))
@@ -1058,8 +1203,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     else None))
           in
           let statements =
-            ast.items
-            |> List.mapi (fun item_index item ->
+            Ast.declaration_items ast
+            |> List.map (fun (item_index, item) ->
                 match item with
                 | Ast.Top_level_statement _ -> (
                     match !ordinary with
@@ -1095,8 +1240,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           in
           let* lowered_entry =
             Lower.lower_complete ~globals:globals_ ~records ~top_calls
+              ~top_callback_calls:(Ir.Callback_source.top_level_calls typed)
               ~function_calls:(List.rev !all_function_calls)
-              ~span:ast.span statements
+              ~callback_calls ~span:ast.span statements
           in
           let entry_ = Lower.graph lowered_entry in
           let regions = Lower.initializer_regions lowered_entry in
@@ -1139,13 +1285,20 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     Task_declarations.source_switch_work command
                 | _ -> 0);
               functions_ = definitions;
+              static_sources_;
               runtime_calls_;
               entry_has_calls_ = entry_calls <> [];
+              compiler_warnings_ = Integer_source.compiler_warnings prepared;
             }
         with Invalid diagnostics -> Error diagnostics
       in
       match lowered with
-      | Ok value -> Ok { value; diagnostics = parsed.diagnostics }
+      | Ok value ->
+          Ok
+            {
+              value;
+              diagnostics = parsed.diagnostics @ value.compiler_warnings_;
+            }
       | Error diagnostics -> Error (parsed.diagnostics @ diagnostics))
 
 let compile_ast_internal ?task_view ?initializer_progress ?declaration_command

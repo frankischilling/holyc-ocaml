@@ -152,8 +152,8 @@ let declarator_ast ~item_index declarator_index
   }
 
 let ast_globals (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item ->
+  Frontend.Ast.declaration_items module_
+  |> List.map (fun (item_index, item) ->
       match item with
       | Frontend.Ast.Global_variable variable ->
           [

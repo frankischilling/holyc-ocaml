@@ -32,8 +32,9 @@ let boundaries () =
   List.iter
     (fun mode ->
       ignore
-        (O.run ~mode {|#exe {class Base {I64 a;};class Child : Base {U8 b;};}|}
-        |> O.fault "HCRUN0001");
+        (O.run ~mode
+           {|#exe {class Base {I64 a;};class Child : Base {U8 b;};StreamPrint("%d;",sizeof(Child)+33);}|}
+        |> O.expect "");
       ignore
         (O.run ~mode {|#exe {class A {I64 x;};class B {A a;};}|}
         |> O.fault "HCRUN0001");
@@ -657,7 +658,7 @@ let runtime_offset_positions () =
           Alcotest.(check (option int))
             "position fixture exact preparation" (Some max_initializer_steps)
             (integer_program_report_preparation_work report))
-        [ (47, 4, true, 47); (46, 4, false, 46); (47, 3, false, 11) ])
+        [ (49, 4, true, 49); (48, 4, false, 48); (49, 3, false, 13) ])
     Test_integer_globals.modes;
   ignore
     (O.run {|I64 N=7;#exe {}class A {U8 h;$$=$$+N;I64 x;};sizeof(A)+26;|}

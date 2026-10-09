@@ -36,3 +36,55 @@ join the newest retained unresolved extern. See [incremental task inputs](task-i
 
 Native extern address-slot updates, parent-table joins, general default values,
 alternate bindings and native linkage remain unfinished.
+
+Callback cells now retain their original recursive declarator and physical
+storage class separately from the callback return type. Their symbolic frame
+addresses and scalar frame loads check the exact frame binding and declarator.
+Calls retain their original callee value before arguments, and the callee
+fragment loads and captures a supported frame callback in RAX. Resolved function addresses now retain their original registered publication,
+prepared body and executable owner in the IR runner. Scalar automatic callback
+locals, scalar static locals and named callback parameters can store, copy, clear and compare those
+values in JIT and AOT mode. An isolated JIT source bundle retains earlier
+function-address values across same-name replacement. Scalar frame callbacks
+now invoke the captured original prepared body, including an earlier executable
+after a later same-name publication. The callee is captured before right-to-left
+arguments. Reached target mismatches preserve earlier argument effects.
+Scalar static callback cells use the original local binding, declaring frame and
+anonymous header. Their eight-byte storage belongs to the persistent arena and
+survives calls in the same execution. Invocation uses the captured executable
+owner, the callback's saved defaults and its original cleanup flags. Static
+callback initializers remain rejected; JIT uninitialized cells remain unknown,
+while the AOT initial image contains a numeric zero with no executable authority.
+
+Fully indexed automatic/static callback arrays preserve the same executable
+owners. Each subscript carries the original storage root, anonymous header and
+remaining strides. Copies into another element or scalar callback parameter do
+not change the executable owner; invocation uses the selected callback header's
+saved defaults. Static elements persist across calls and JIT replacement, while
+automatic elements belong to their activation. The hosted arena checks the
+declared object extent and offset overflow.
+
+Live task address linking, callback globals/members, callback initializers, owned-code defaults and native
+invocation remain under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). The broader callback and mixed-value ABI requirements remain in
+[issue #688](https://github.com/frankischilling/holyc-ocaml/issues/688).
+
+Named-function callback parameters can now reuse their original saved integer
+default. Declaration-time effects occur once; omitted arguments materialize the
+saved word using the callback parameter's physical pointer class. That word
+does not become executable code. Function addresses encountered after a default
+activates the JIT task retain their original outer occurrence, declaration and
+registered code owner, including an earlier body after same-name replacement.
+Anonymous signatures now have their own original declaration scope, ordered
+member/default receipts and successful saved-word preparations. The source
+ledger evaluates each integer default once and publishes it with that signature,
+including defaults inside unused function bodies. Indirect invocation consumes
+the original callback default rather than the executable target's default.
+Closed expressions work in both IR modes; JIT references and effects retain the
+original task snapshot. Numeric callback-member defaults have no executable
+authority. Equal signatures, copied producers and raw graphs cannot adopt the
+saved value. Class/union callback defaults retain each original lexical write,
+exact `$$` node and class-offset selector. Nested headers leave their last write
+current, and the evaluator saves that checked integer once. Ordinary function
+defaults retain instruction-address semantics and require their original
+executable/address owner before admission. Defaults containing owned
+executable values still need their own preparation and value receipts.

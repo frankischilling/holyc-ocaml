@@ -119,6 +119,13 @@ val publish_aggregate :
 val publication_source_aggregate :
   publication -> Frontend.Parser.aggregate_publication option
 
+val current_aggregate_publication :
+  namespace -> publication -> publication option
+(** The newest original publication of this exact canonical class identity.
+    Completing its original forward may change the publication; a fresh
+    same-name definition cannot. Foreign and fabricated publications return
+    [None]. *)
+
 val namespace_owns_publication : namespace -> publication -> bool
 val namespace_owns_table : namespace -> Symbol_table.t -> bool
 

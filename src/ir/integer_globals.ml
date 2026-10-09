@@ -41,6 +41,7 @@ type storage_slot =
   | Global of slot
   | Static of static_slot
   | Declared of declared_slot
+  | Declared_static of Integer_static_allocation.t
 
 type task_publication =
   | Global_publication of Retained_global.t * slot
@@ -48,15 +49,18 @@ type task_publication =
   | Function_publication of Retained_function.t
 
 type task_catalog = {
+  mutable callback_defaults : Prepared_callback_default.t list;
   mutable defaults : Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
   mutable namespace : Sema.Declaration_collection.namespace option;
   mutable published : task_publication list;
+  mutable private_statics : Integer_static_allocation.t list;
   source_order : Sema.Task_command_order.t;
   mutable admitted_commands : Sema.Task_command_order.command list;
 }
 
 type task_view = {
+  callback_defaults : Prepared_callback_default.t list;
   defaults : Prepared_parameter_default.t list;
   catalog : task_catalog;
   environment : Sema.Outer_environment.t;
@@ -64,6 +68,7 @@ type task_view = {
   entries :
     (Sema.Outer_environment.entry * Retained_global.t * storage_slot) list;
   function_entries : (Sema.Outer_environment.entry * Retained_function.t) list;
+  private_statics : Integer_static_allocation.t list;
   source_command : Sema.Task_command_order.command option;
 }
 
@@ -73,8 +78,11 @@ type fragment_kind =
   | Internal_binding_context
   | Dimension_context
   | Offset_context
+  | Static_allocation_context of Integer_static_allocation.t
+  | Static_initializer_context of Sema.Static_initializer_fragment.t
 
 type t = {
+  source_callback_defaults : Prepared_callback_default.t list;
   source_defaults : Prepared_parameter_default.t list;
   fragment_kind_ : fragment_kind option;
   declared_slots_ : declared_slot list;
@@ -98,6 +106,7 @@ let fragment_context view fragment =
     Ok
       {
         fragment_kind_ = Some Initializer_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -118,6 +127,7 @@ let default_context view fragment =
     Ok
       {
         fragment_kind_ = Some Default_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -138,6 +148,7 @@ let dimension_context view fragment =
     Ok
       {
         fragment_kind_ = Some Dimension_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -158,6 +169,7 @@ let internal_binding_context view fragment =
     Ok
       {
         fragment_kind_ = Some Internal_binding_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -184,6 +196,7 @@ let offset_context view fragment =
     Ok
       {
         fragment_kind_ = Some Offset_context;
+        source_callback_defaults = [];
         source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
@@ -205,6 +218,7 @@ let is_initializer_fragment globals =
 let isolated_default_context mode =
   Ok
     {
+      source_callback_defaults = [];
       source_defaults = [];
       fragment_kind_ = Some Default_context;
       declared_slots_ = [];
@@ -328,6 +342,7 @@ let is_isolated_default globals =
   is_default_fragment globals && Option.is_none globals.task_view
 
 let byte_size globals = globals.byte_size_
+let compilation_mode globals = globals.mode
 let slot_index slot = slot.index
 let slot_symbol slot = slot.symbol
 let slot_type slot = slot.type_
@@ -378,6 +393,7 @@ let static_frame = Integer_statics.frame
 let static_location = Integer_statics.location
 let static_initializer = Integer_statics.initial
 let static_initializers = Integer_statics.initializers
+let static_root_executed = Integer_statics.root_executed
 let static_array_initializers = Integer_statics.array_initializers
 
 let static_root_materialized slot root =
@@ -394,8 +410,10 @@ let static_root_materialized slot root =
 
 let static_compiler_options = Integer_statics.compiler_options
 let static_storage slot = Static slot
+let static_source_allocation = Integer_statics.source_allocation
 let global_storage slot = Global slot
 let declared_storage slot = Declared slot
+let declared_static_storage allocation = Declared_static allocation
 let declared_record slot = slot.declaration
 
 let begin_declared_initializer slot =
@@ -439,6 +457,11 @@ let same_storage left right =
   | Global left, Global right -> left == right
   | Static left, Static right -> left == right
   | Declared left, Declared right -> left == right
+  | Declared_static left, Declared_static right -> left == right
+  | Static complete, Declared_static pending
+  | Declared_static pending, Static complete ->
+      Option.fold ~none:false ~some:(( == ) pending)
+        (Integer_statics.source_allocation complete)
   | Global complete, Declared pending | Declared pending, Global complete ->
       Option.fold ~none:false ~some:(( == ) pending) complete.declared_owner
   | _ -> false
@@ -449,12 +472,17 @@ let storage_slots globals =
   @ List.map static_storage globals.statics_
 
 let allocated_storage_slots globals =
-  storage_slots globals
+  (match globals.fragment_kind_ with
+    | Some (Static_allocation_context allocation) ->
+        [ Declared_static allocation ]
+    | _ -> storage_slots globals)
   |> List.filter (function
     | Global slot -> Option.is_none slot.declared_owner
+    | Static slot -> Option.is_none (Integer_statics.source_allocation slot)
     | _ -> true)
 
 let storage_shape = function
+  | Declared_static allocation -> Integer_static_allocation.shape allocation
   | Declared slot -> slot.declared_shape
   | Global slot -> slot.shape
   | Static slot -> Integer_statics.shape slot
@@ -464,47 +492,128 @@ let storage_strides slot = Shape.strides (storage_shape slot)
 let storage_dimensions slot = Shape.dimensions (storage_shape slot)
 
 let cell_count globals =
-  globals.global_cell_count_
+  (match globals.fragment_kind_ with
+    | Some (Static_allocation_context allocation) ->
+        Shape.element_count (Integer_static_allocation.shape allocation)
+    | _ -> globals.global_cell_count_)
   + List.fold_left
       (fun total slot ->
         total + Shape.element_count (Integer_statics.shape slot))
       0 globals.statics_
 
 let storage_index = function
+  | Declared_static _ -> 0
   | Declared _ -> 0
   | Global slot -> slot.index
   | Static slot -> Integer_statics.index slot
 
 let storage_symbol = function
+  | Declared_static allocation -> Integer_static_allocation.symbol allocation
   | Declared slot ->
       Sema.Compiler_record.declared_global_symbol slot.declaration
   | Global slot -> slot.symbol
   | Static slot -> Integer_statics.symbol slot
 
 let storage_type = function
+  | Declared_static allocation -> Integer_static_allocation.type_ allocation
   | Declared slot ->
-      Sema.Compiler_record.declared_global_type slot.declaration
-      |> Sema.Type_reference.resolved_type
+      Sema.Compiler_record.declared_global_storage_type slot.declaration
+      |> Result.get_ok
   | Global slot -> slot.type_
   | Static slot -> Integer_statics.type_ slot
 
+let storage_callback_pointer = function
+  | Declared_static allocation ->
+      Integer_static_allocation.callback_pointer allocation
+  | Global slot -> (
+      let global =
+        Records.classified_record_source slot.record
+        |> Resolution.global_record_global
+      in
+      match Global.global_declarator_kind global with
+      | Global.Function_pointer pointer -> Some pointer
+      | Global.Object -> None)
+  | Declared slot ->
+      Sema.Compiler_record.declared_global_callback_pointer slot.declaration
+  | Static slot -> Integer_statics.callback_pointer slot
+
+let storage_is_callback = function
+  | Declared slot ->
+      (Sema.Compiler_record.declared_global_source slot.declaration)
+        .Frontend.Parser.global_function_pointer
+      |> Option.fold ~none:false ~some:(fun pointer ->
+          List.length pointer.Frontend.Ast.indirection_layers = 1)
+  | (Global _ | Static _ | Declared_static _) as storage ->
+      Option.is_some (storage_callback_pointer storage)
+
+let global_callback_storage globals pointer =
+  let slots =
+    List.map global_storage globals.slots_
+    @ Option.fold ~none:[]
+        ~some:(fun view -> List.map (fun (_, _, slot) -> slot) view.entries)
+        globals.task_view
+  in
+  List.find_opt
+    (fun slot ->
+      Option.fold ~none:false ~some:(( == ) pointer)
+        (storage_callback_pointer slot))
+    slots
+
+let persistent_callback_storage globals pointer =
+  match global_callback_storage globals pointer with
+  | Some _ as storage -> storage
+  | None ->
+      List.map static_storage globals.statics_
+      @ Option.fold ~none:[]
+          ~some:(fun view ->
+            List.map declared_static_storage view.private_statics)
+          globals.task_view
+      |> List.find_opt (fun storage ->
+          Option.fold ~none:false ~some:(( == ) pointer)
+            (storage_callback_pointer storage))
+
+let callback_callee_pop globals pointer =
+  let module H = Sema.Function_type_resolution in
+  let signature = H.function_pointer_signature pointer in
+  let variadic = Option.is_some (H.signature_variadic_origin signature) in
+  let argument_count =
+    List.length (H.signature_parameters signature) |> Int64.of_int
+  in
+  let staging =
+    match global_callback_storage globals pointer with
+    | Some (Global slot) ->
+        Records.classified_record_state slot.record
+        |> Records.record_state_staging_mask
+    | _ -> 0L
+  in
+  let flags = Sema.Function_flag.stored_mask_of_staging staging in
+  let flags =
+    if Sema.Function_flag.derives_ret1 ~argument_count ~variadic then
+      Sema.Function_flag.Stored.set ~mask:flags Sema.Function_flag.Stored.Ret1
+    else flags
+  in
+  Sema.Function_flag.caller_expects_callee_pop ~stored_mask:flags
+
 let storage_opcode = function
+  | Declared_static _ -> Opcode.Ic_imm_i64
   | Declared _ -> Opcode.Ic_imm_i64
   | Global slot -> slot.opcode
   | Static slot -> Integer_statics.opcode slot
 
 let storage_initial_bits = function
+  | Declared_static _ -> None
   | Declared _ -> None
   | Global slot -> slot.initial_bits
   | Static slot -> Integer_statics.initial_bits slot
 
 let storage_preparation_steps = function
+  | Declared_static _ -> 0
   | Declared _ -> 0
   | Global slot -> slot_initializer_preparation_steps slot
   | Static slot -> Integer_statics.preparation_steps slot
 
 let storage_frame = function
-  | Global _ | Declared _ -> None
+  | Global _ | Declared _ | Declared_static _ -> None
   | Static slot -> Some (static_frame slot)
 
 let find_static globals symbol =
@@ -590,12 +699,22 @@ let find_storage globals symbol =
           globals.declared_slots_
       with
       | Some slot -> Some (Declared slot)
-      | None -> Option.map static_storage (find_static globals symbol))
+      | None -> (
+          match find_static globals symbol with
+          | Some slot -> Some (static_storage slot)
+          | None ->
+              Option.bind globals.task_view (fun view ->
+                  List.find_opt
+                    (fun allocation ->
+                      Integer_static_allocation.symbol allocation == symbol)
+                    view.private_statics
+                  |> Option.map (fun allocation -> Declared_static allocation)))
+      )
 
 let find_allocated_storage globals symbol =
-  match find_storage globals symbol with
-  | Some (Global slot) when Option.is_some slot.declared_owner -> None
-  | result -> result
+  List.find_opt
+    (fun slot -> storage_symbol slot == symbol)
+    (allocated_storage_slots globals)
 
 let create_impl ?layout ?initializers ~span:unit_span records =
   let ( let* ) = Result.bind in
@@ -640,6 +759,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           Ok
             {
               fragment_kind_ = None;
+              source_callback_defaults = [];
               source_defaults = [];
               declared_slots_ = [];
               slots_ = List.rev reversed;
@@ -672,9 +792,39 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                 ();
             ]
         in
-        let type_ =
+        let declared_type =
           Global.global_type_reference global
           |> Sema.Type_reference.resolved_type
+        in
+        let callback =
+          match Global.global_declarator_kind global with
+          | Global.Function_pointer pointer
+            when List.length
+                   (Sema.Function_type_resolution
+                    .function_pointer_indirection_origins pointer)
+                 = 1 -> Some pointer
+          | _ -> None
+        in
+        let* type_ =
+          match callback with
+          | None -> Ok declared_type
+          | Some pointer ->
+              Sema.Function_type_resolution.function_pointer_storage_type
+                pointer
+              |> Result.map_error (fun message ->
+                  [
+                    Common.Diagnostic.make ~code:"HCIRL0004"
+                      ~severity:Common.Diagnostic.Error ~message
+                      ~primary:(Option.value span ~default:unit_span)
+                      ();
+                  ])
+        in
+        let shape_type =
+          if Option.is_some callback then
+            Type.make_primitive ~form:Type.Public_spelling
+              ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+            |> Result.get_ok
+          else type_
         in
         if symbol != Global.global_symbol global || Option.is_none span then
           fail "HCIRL0004"
@@ -698,8 +848,9 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           fail "HCRUN0001"
             "global declaration initializer execution is not implemented"
         else if
-          Option.is_none (Scalar.public_byte_size type_)
+          Option.is_none (Scalar.public_byte_size shape_type)
           || Global.global_declarator_kind global <> Global.Object
+             && Option.is_none callback
         then
           fail "HCRUN0001"
             "global execution requires public nonzero integer objects"
@@ -729,7 +880,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                        extents")
           in
           let* shape =
-            match Shape.create ~type_ ~dimensions with
+            match Shape.create ~type_:shape_type ~dimensions with
             | Ok shape -> Ok shape
             | Error Shape.Overflow ->
                 fail "HCIRL0005"
@@ -817,12 +968,24 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                     || (not
                           (match Typed.result_category value with
                           | Typed.Object_value | Typed.Lvalue -> true
+                          | Typed.Address_value ->
+                              Option.is_some callback
+                              && Option.is_some
+                                   (Typed.result_function_declaration value)
+                              && Option.is_some
+                                   (Typed.result_function_address_path value)
+                          | Typed.Callback_value ->
+                              Option.is_some callback
+                              && Typed.result_is_callback_storage value
                           | _ -> false))
                     || not
                          (match Typed.result_type value with
                          | Some type_ ->
                              Option.is_some
                                (Integer_scalar_storage.of_type type_)
+                             || Option.is_some callback
+                                && (Typed.result_is_callback_storage value
+                                   || Typed.result_is_numeric_callback value)
                          | _ -> false)
                   then
                     fail "HCRUN0001"
@@ -883,10 +1046,12 @@ let create_with_layout ~layout ?initializers ~span records =
 
 let create_task_catalog ~table =
   {
+    callback_defaults = [];
     defaults = [];
     table;
     namespace = None;
     published = [];
+    private_statics = [];
     source_order = Sema.Task_command_order.create ~table;
     admitted_commands = [];
   }
@@ -911,6 +1076,53 @@ let call_command_is_admitted catalog start =
 
 let task_catalog_owns_namespace catalog namespace =
   Option.fold ~none:false ~some:(( == ) namespace) catalog.namespace
+
+let check_static_allocation ?activation (catalog : task_catalog) allocation =
+  let module Allocation = Integer_static_allocation in
+  let module Record = Sema.Compiler_record in
+  let source = Allocation.source allocation in
+  let receipt = Record.static_allocation_receipt source in
+  let original_function =
+    List.exists
+      (function
+        | Function_publication reference ->
+            Retained_function.metadata reference
+            |> Sema.Outer_environment.function_declaration
+            |> Sema.Function_resolution.resolved_declaration_site
+            |> Sema.Function_resolution.declaration_site_function
+            |> Sema.Function_type_resolution.function_completed_header
+            |> Option.fold ~none:false ~some:(fun header ->
+                header.Frontend.Parser.function_publication
+                == receipt.allocation_function)
+        | _ -> false)
+      catalog.published
+  in
+  if
+    (not
+       (Frontend.Parser.function_local_allocation_is_current receipt
+       || Sema.Source_activation.static_allocation activation receipt))
+    || (not (Allocation.owns_table allocation catalog.table))
+    || (not
+          (task_catalog_owns_namespace catalog
+             (Record.static_allocation_namespace source)))
+    || (not original_function)
+    || List.exists
+         (fun prior ->
+           Allocation.source prior == source
+           || Allocation.symbol prior == Allocation.symbol allocation)
+         catalog.private_statics
+  then
+    Error
+      "private static requires its original current task header and allocation"
+  else
+    Sema.Task_command_order.check_function_publication catalog.source_order
+      ~admitted:catalog.admitted_commands receipt.allocation_function
+
+let publish_static_allocation ?activation (catalog : task_catalog) allocation =
+  Result.map
+    (fun () ->
+      catalog.private_statics <- catalog.private_statics @ [ allocation ])
+    (check_static_allocation ?activation catalog allocation)
 
 let publish_parameter_defaults catalog ~namespace defaults =
   if
@@ -945,6 +1157,12 @@ let prepared_parameter_default globals ~header ~parameter =
             (fun value ->
               Prepared_parameter_default.matches value ~header ~parameter)
             view.defaults)
+
+let task_catalog_contains_parameter_default (catalog : task_catalog) prepared =
+  List.exists (( == ) prepared) catalog.defaults
+
+let task_catalog_contains_callback_default (catalog : task_catalog) prepared =
+  List.exists (( == ) prepared) catalog.callback_defaults
 
 let check_task_namespace catalog namespace =
   if Option.is_some catalog.namespace then
@@ -1058,7 +1276,7 @@ let newest_publications publications =
 
 let function_publications globals = globals.function_publications_
 
-let with_function_publications ~records globals =
+let with_function_publications ?(retain_replaced = false) ~records globals =
   let module Outer = Sema.Outer_environment in
   let ( let* ) = Result.bind in
   let* publications =
@@ -1080,7 +1298,8 @@ let with_function_publications ~records globals =
       (Sema.Function_record_classification.declarations records)
   in
   let function_publications_ =
-    newest_publications (List.rev publications)
+    (if retain_replaced then List.rev publications
+     else newest_publications (List.rev publications))
     |> List.filter_map (function
       | Function_publication reference -> Some reference
       | Global_publication _ | Declared_publication _ -> None)
@@ -1106,10 +1325,18 @@ let snapshot_task catalog =
         let reference, slot, type_reference, declarator_kind =
           match publication with
           | Declared_publication (reference, slot) ->
+              let kind =
+                match
+                  Sema.Compiler_record.declared_global_callback_pointer
+                    slot.declaration
+                with
+                | None -> Outer.Object_global
+                | Some pointer -> Outer.Function_pointer_global pointer
+              in
               ( reference,
                 Declared slot,
                 Sema.Compiler_record.declared_global_type slot.declaration,
-                Outer.Object_global )
+                kind )
           | Global_publication (reference, slot) ->
               let source =
                 Records.classified_record_source slot.record
@@ -1178,7 +1405,9 @@ let snapshot_task catalog =
       task_table;
       entries;
       function_entries;
+      private_statics = catalog.private_statics;
       source_command = None;
+      callback_defaults = catalog.callback_defaults;
       defaults = catalog.defaults;
     }
 
@@ -1202,6 +1431,118 @@ let task_function_binding view reference =
     view.function_entries
 
 let with_task_view view globals = { globals with task_view = Some view }
+let private_static_allocations view = view.private_statics
+
+let static_allocation_context view allocation =
+  if not (List.exists (( == ) allocation) view.private_statics) then
+    Error "static allocation context has another original task snapshot"
+  else
+    Ok
+      {
+        source_callback_defaults = [];
+        source_defaults = [];
+        fragment_kind_ = Some (Static_allocation_context allocation);
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let static_fragment_context view allocation fragment =
+  let ( let* ) = Result.bind in
+  if view.environment != Sema.Static_initializer_fragment.environment fragment
+  then Error "static initializer has another original task snapshot"
+  else
+    let* context = static_allocation_context view allocation in
+    Ok
+      {
+        context with
+        fragment_kind_ = Some (Static_initializer_context fragment);
+      }
+
+let static_fragment globals =
+  match globals.fragment_kind_ with
+  | Some (Static_initializer_context fragment) -> Some fragment
+  | _ -> None
+
+let private_static_bindings globals =
+  Option.fold ~none:[]
+    ~some:(fun view ->
+      List.map
+        (fun allocation ->
+          let storage =
+            List.find_map
+              (fun slot ->
+                if
+                  Option.fold ~none:false ~some:(( == ) allocation)
+                    (Integer_statics.source_allocation slot)
+                then Some (Static slot)
+                else None)
+              globals.statics_
+            |> Option.value ~default:(Declared_static allocation)
+          in
+          (allocation, storage))
+        view.private_statics)
+    globals.task_view
+
+let join_static_allocations ~sources globals =
+  let ( let* ) = Result.bind in
+  match globals.task_view with
+  | None -> Ok globals
+  | Some view ->
+      let* statics_, reused_bytes =
+        List.fold_left
+          (fun checked slot ->
+            let* reversed, reused_bytes = checked in
+            let symbol = Integer_statics.symbol slot in
+            match
+              List.find_opt
+                (fun allocation ->
+                  Integer_static_allocation.symbol allocation == symbol)
+                view.private_statics
+            with
+            | None -> Ok (slot :: reversed, reused_bytes)
+            | Some allocation ->
+                let* source =
+                  match
+                    List.find_opt
+                      (fun source ->
+                        Sema.Static_local_source.allocation source
+                        == Integer_static_allocation.source allocation)
+                      sources
+                  with
+                  | Some source -> Ok source
+                  | None ->
+                      Error "private static lacks its original completed source"
+                in
+                let* slot =
+                  Integer_statics.with_source_allocation ~allocation ~source
+                    slot
+                in
+                let* bytes =
+                  match Shape.padded_byte_size (Integer_statics.shape slot) with
+                  | Some bytes -> Ok bytes
+                  | None -> Error "private static padded extent overflows"
+                in
+                if bytes > globals.byte_size_ - reused_bytes then
+                  Error
+                    "private static quota disagrees with its completed storage"
+                else Ok (slot :: reversed, reused_bytes + bytes))
+          (Ok ([], 0))
+          globals.statics_
+      in
+      Ok
+        {
+          globals with
+          statics_ = List.rev statics_;
+          byte_size_ = globals.byte_size_ - reused_bytes;
+        }
 
 let retained_binding globals binding =
   let module Outer = Sema.Outer_environment in
@@ -1220,6 +1561,17 @@ let retained_slot globals reference =
         (fun (_, candidate, slot) ->
           if Retained_global.same candidate reference then Some slot else None)
         view.entries)
+
+let retained_storage_bindings globals =
+  Option.fold ~none:[]
+    ~some:(fun view ->
+      List.map (fun (_, reference, slot) -> (reference, slot)) view.entries)
+    globals.task_view
+
+let same_task_storage left right =
+  match (left.task_view, right.task_view) with
+  | Some left, Some right -> left.catalog == right.catalog
+  | _ -> false
 
 let retained_function_binding globals binding =
   let module Outer = Sema.Outer_environment in
@@ -1308,9 +1660,16 @@ let prepare_declared catalog declaration =
         ~publication:(Declared.declared_global_source declaration)
         ~predecessor:(Declared.declared_global_predecessor declaration)
     in
+    let* physical_type = Declared.declared_global_storage_type declaration in
     let type_ =
-      Declared.declared_global_type declaration
-      |> Sema.Type_reference.resolved_type
+      if
+        Option.is_some
+          (Declared.declared_global_source declaration).global_function_pointer
+      then
+        Type.make_primitive ~form:Type.Public_spelling
+          ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+        |> Result.get_ok
+      else physical_type
     in
     let* declared_shape =
       match
@@ -1336,6 +1695,7 @@ let prepare_declared catalog declaration =
     Ok
       ( {
           fragment_kind_ = None;
+          source_callback_defaults = [];
           source_defaults = [];
           declared_slots_ = [ slot ];
           slots_ = [];
@@ -1832,6 +2192,33 @@ let check_task_command catalog globals =
                     view.entries))
 
 let publish_task catalog globals =
+  let completed_callbacks =
+    List.filter_map
+      (fun slot ->
+        match (slot.declared_owner, storage_callback_pointer (Global slot)) with
+        | Some owner, Some _ ->
+            List.find_map
+              (function
+                | Declared_publication (reference, pending)
+                  when pending == owner ->
+                    Some (Global_publication (reference, slot))
+                | _ -> None)
+              catalog.published
+        | _ -> None)
+      globals.slots_
+  in
+  catalog.published <-
+    List.map
+      (fun prior ->
+        match
+          List.find_opt
+            (fun completed ->
+              publication_symbol completed == publication_symbol prior)
+            completed_callbacks
+        with
+        | Some completed -> completed
+        | None -> prior)
+      catalog.published;
   Option.iter
     (fun view ->
       Option.iter
@@ -1870,7 +2257,7 @@ let publish_task catalog globals =
     |> List.stable_sort (fun left right -> compare (order left) (order right))
   in
   catalog.published <- catalog.published @ publications;
-  publications
+  completed_callbacks @ publications
 
 let with_initial_values ~span globals values =
   let invalid message =
@@ -2007,7 +2394,7 @@ let storage_array_image slot =
               (Arrays.prepared entry))
   in
   match slot with
-  | Declared _ -> []
+  | Declared _ | Declared_static _ -> []
   | Global slot -> image slot.array_initializers
   | Static slot -> image (Integer_statics.array_initializers slot)
 
@@ -2108,6 +2495,7 @@ let array_human globals =
             let owner, values =
               match slot with
               | Declared _ -> ("declared-global", "")
+              | Declared_static _ -> ("declared-static", "")
               | Global slot -> ("global", initializers slot.array_initializers)
               | Static slot ->
                   ( "static:"
@@ -2174,3 +2562,83 @@ let offset_dependencies globals =
 let check_suspended_completion catalog ~suspension receipt =
   Sema.Task_command_order.check_suspended_completion catalog.source_order
     ~admitted:catalog.admitted_commands ~suspension receipt
+
+let with_source_callback_defaults globals defaults =
+  if
+    globals.mode <> Resolution.Aot
+    || Option.is_some globals.task_view
+    || globals.source_callback_defaults <> []
+  then
+    Error
+      "anonymous source defaults require their original isolated AOT context"
+  else Ok { globals with source_callback_defaults = defaults }
+
+let with_native_source_callback_defaults globals defaults =
+  if
+    Option.is_some globals.task_view
+    || globals.source_callback_defaults <> []
+    || Option.is_some globals.fragment_kind_
+    || List.exists
+         (fun slot ->
+           Option.is_some slot.declared_owner
+           || slot.initializer_preparation_steps <> 0
+           || Option.fold ~none:false
+                ~some:(fun arrays ->
+                  List.exists
+                    (fun entry -> Option.is_some (Arrays.prepared entry))
+                    (Arrays.entries arrays))
+                slot.array_initializers)
+         globals.slots_
+    || List.exists
+         (fun slot -> Integer_statics.preparation_steps slot <> 0)
+         globals.statics_
+    || globals.declared_slots_ <> []
+  then
+    Error
+      "anonymous native defaults require an isolated ordinary source context"
+  else if
+    List.exists
+      (fun value ->
+        let receipt = Prepared_callback_default.receipt value in
+        match
+          ( globals.mode,
+            Frontend.Parser.context_mode
+              receipt.callback_default_signature.callback_command
+                .command_context )
+        with
+        | Resolution.Jit, Frontend.Preprocessor.Jit
+        | Resolution.Aot, Frontend.Preprocessor.Aot -> false
+        | _ -> true)
+      defaults
+  then Error "anonymous native defaults have another original compilation mode"
+  else Ok { globals with source_callback_defaults = defaults }
+
+let publish_callback_defaults catalog ~namespace defaults =
+  if
+    (not (task_catalog_owns_namespace catalog namespace))
+    || List.exists
+         (fun value ->
+           Prepared_callback_default.namespace value != namespace
+           || List.exists
+                (fun prior ->
+                  Prepared_callback_default.receipt prior
+                  == Prepared_callback_default.receipt value)
+                catalog.callback_defaults)
+         defaults
+  then
+    Error
+      "anonymous defaults have another namespace or already published original \
+       receipt"
+  else (
+    catalog.callback_defaults <- defaults @ catalog.callback_defaults;
+    Ok ())
+
+let prepared_callback_default globals ~pointer ~parameter =
+  let find =
+    List.find_opt (fun value ->
+        Prepared_callback_default.matches value ~pointer ~parameter)
+  in
+  match find globals.source_callback_defaults with
+  | Some _ as found -> found
+  | None ->
+      Option.bind globals.task_view (fun view -> find view.callback_defaults)

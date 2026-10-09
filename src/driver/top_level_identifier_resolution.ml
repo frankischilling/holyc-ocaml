@@ -95,6 +95,8 @@ let leaf globals functions compilation_mode node occurrence =
     match
       Sema.Top_level_outer_expression_binding.occurrence_resolution occurrence
     with
+    | Sema.Top_level_outer_expression_binding.Static_binding reference ->
+        Ok (Sema.Top_level_identifier_resolution.Static_value reference)
     | Sema.Top_level_outer_expression_binding.Module_binding publication ->
         module_resolution globals functions compilation_mode publication
     | Sema.Top_level_outer_expression_binding.Outer_binding binding -> (
@@ -164,7 +166,8 @@ let publication_values globals functions compilation_mode expressions =
              | Ok (Sema.Top_level_identifier_resolution.Module_value value) ->
                  Ok ((publication, value) :: reversed)
              | Ok
-                 ( Sema.Top_level_identifier_resolution.Outer_value _
+                 ( Sema.Top_level_identifier_resolution.Static_value _
+                 | Sema.Top_level_identifier_resolution.Outer_value _
                  | Sema.Top_level_identifier_resolution.Outer_function_value _
                  | Sema.Top_level_identifier_resolution.Outer_type_required _ )
                -> Error "module publication resolved as an outer binding"))

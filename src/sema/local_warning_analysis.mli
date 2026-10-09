@@ -14,6 +14,7 @@ val make_binding_input :
   binding_input
 
 val make_function_input :
+  ?compiler_option_mask:int64 ->
   symbol:Symbol.t ->
   scope:Symbol_table.scope ->
   item_index:int ->
@@ -31,7 +32,7 @@ val analyze :
   (t, error) result
 (** Reproduce the represented [CMemberLst.use_cnt] and [MLF_NO_UNUSED_WARN]
     rules without changing the symbol table. The compiler option mask applies to
-    the complete function batch. *)
+    complete function batch unless a function supplies its own reached mask. *)
 
 val compiler_option_mask : t -> int64
 val functions : t -> analyzed_function list
@@ -43,6 +44,7 @@ val function_item_index : analyzed_function -> int
 val function_is_definition : analyzed_function -> bool
 val function_bindings : analyzed_function -> binding_analysis list
 val function_warnings : analyzed_function -> warning list
+val function_compiler_option_mask : analyzed_function -> int64
 val binding_source : binding_analysis -> Function_binding_index.binding
 val binding_initial_flag_mask : binding_analysis -> int64
 val binding_effective_flag_mask : binding_analysis -> int64

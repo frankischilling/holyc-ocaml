@@ -84,6 +84,13 @@ val create_fragment :
 val find_storage :
   t -> Instruction_sequence.Instruction_id.t -> storage_region option
 
+val create_static_fragment :
+  destination:Static_initializer_destination.t ->
+  entry:X87_stack.t ->
+  region_description ->
+  (t, Common.Diagnostic.t list) result
+
+val has_static_fragment : t -> Static_initializer_destination.t -> bool
 val storage_symbol : storage_region -> Sema.Symbol.t
 val storage_phase : storage_region -> phase
 

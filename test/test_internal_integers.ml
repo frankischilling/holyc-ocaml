@@ -138,7 +138,12 @@ let signatures () =
           match integer_program_report_outcome (run mode source) with
           | Error (_ :: _) -> ()
           | _ -> Alcotest.fail ("unsupported signature executed: " ^ source))
-        rejected)
+        (if mode = Preprocessor.Jit then
+           List.filter
+             (fun source ->
+               not (Internal_binding_cases.is_parenthesized source))
+             rejected
+         else rejected))
     modes
 
 let fault_source =
@@ -225,7 +230,7 @@ let retained_values () =
         "original preparation work" 18
         (Option.get (integer_program_report_preparation_work report));
       Alcotest.(check int)
-        "original runtime work" 113
+        "original runtime work" 115
         (VM.executed_steps execution);
       Alcotest.(check string)
         "default ran once" ""

@@ -31,26 +31,27 @@ let declarator_ast item_index declarator_index
   }
 
 let ast_globals (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index -> function
-    | Frontend.Ast.Global_variable variable ->
-        [
-          {
-            name = variable.name;
-            item_index;
-            declarator_index = None;
-            declarator_origin = origin variable.location;
-            dimensions = variable.array_dimensions;
-          };
-        ]
-    | Frontend.Ast.Global_declaration declaration ->
-        List.mapi (declarator_ast item_index) declaration.declarators
-    | Frontend.Ast.Aggregate_definition definition ->
-        List.mapi (declarator_ast item_index) definition.attached_declarators
-    | Frontend.Ast.Aggregate_forward_declaration _
-    | Frontend.Ast.Function_prototype _
-    | Frontend.Ast.Function_definition _
-    | Frontend.Ast.Top_level_statement _ -> [])
+  Frontend.Ast.declaration_items module_
+  |> List.map (fun (item_index, item) ->
+      match item with
+      | Frontend.Ast.Global_variable variable ->
+          [
+            {
+              name = variable.name;
+              item_index;
+              declarator_index = None;
+              declarator_origin = origin variable.location;
+              dimensions = variable.array_dimensions;
+            };
+          ]
+      | Frontend.Ast.Global_declaration declaration ->
+          List.mapi (declarator_ast item_index) declaration.declarators
+      | Frontend.Ast.Aggregate_definition definition ->
+          List.mapi (declarator_ast item_index) definition.attached_declarators
+      | Frontend.Ast.Aggregate_forward_declaration _
+      | Frontend.Ast.Function_prototype _
+      | Frontend.Ast.Function_definition _
+      | Frontend.Ast.Top_level_statement _ -> [])
   |> List.concat
 
 let dimension_inputs original ast =

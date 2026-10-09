@@ -6,16 +6,23 @@ type t = {
   receipt : Frontend.Parser.completed_parameter_default;
   source : Frontend.Ast.function_parameter;
   type_ : Sema.Type.t;
-  bits : int64;
+  value : Saved_parameter_value.t;
 }
 
-let bits value = value.bits
+let value value = value.value
+let bits value = Option.get (Saved_parameter_value.word_bits value.value)
+let word_bits value = Saved_parameter_value.word_bits value.value
+let callback_source value = Saved_parameter_value.callback_source value.value
+
+let undefined_callback_source value =
+  Saved_parameter_value.undefined_callback_source value.value
+
 let type_ value = value.type_
 let receipt value = value.receipt
 let publication value = value.publication
 let header value = value.header
 
-let create ~publication ~header ~receipt ~bits =
+let create_value ~publication ~header ~receipt ~value =
   let ( let* ) = Result.bind in
   let* source =
     match
@@ -34,15 +41,51 @@ let create ~publication ~header ~receipt ~bits =
            && source.type_specifier == receipt.default_type_specifier
            && source.pointer_layers == receipt.default_pointer_layers
            && source.register_qualifiers == receipt.default_register_qualifiers
-      -> Ok source
+           &&
+           match
+             (source.function_pointer, receipt.default_function_pointer)
+           with
+           | None, None -> true
+           | Some source, Some original -> source == original
+           | _ -> false -> Ok source
     | _ -> Error "prepared default has another original completed parameter"
   in
-  let* reference =
-    Sema.Source_type_reference.builtin source.type_specifier
-      source.pointer_layers
+  let* type_ =
+    match source.function_pointer with
+    | Some pointer when List.length pointer.indirection_layers = 1 ->
+        Sema.Type.make_primitive ~form:Internal_storage ~primitive:I64
+          ~pointer_depth:1
+    | Some _ ->
+        Error "prepared callback default requires one original pointer star"
+    | None ->
+        Sema.Source_type_reference.builtin source.type_specifier
+          source.pointer_layers
+        |> Result.map Sema.Type_reference.resolved_type
   in
-  let type_ = Sema.Type_reference.resolved_type reference in
-  Ok { publication; header; receipt; source; type_; bits }
+  let* () =
+    if
+      Option.fold ~none:false
+        ~some:(fun data ->
+          Option.is_some source.function_pointer
+          || not (Sema.Type.equal type_ (Saved_parameter_value.data_type data)))
+        (Saved_parameter_value.data_source value)
+    then Error "saved data default requires its original data-pointer parameter"
+    else if
+      Option.is_none (Saved_parameter_value.word_bits value)
+      && Option.is_none source.function_pointer
+      && not
+           (Option.fold ~none:false
+              ~some:(fun data ->
+                Sema.Type.equal type_ (Saved_parameter_value.data_type data))
+              (Saved_parameter_value.data_source value))
+    then Error "owned saved default requires its original callback parameter"
+    else Ok ()
+  in
+  Ok { publication; header; receipt; source; type_; value }
+
+let create ~publication ~header ~receipt ~bits =
+  create_value ~publication ~header ~receipt
+    ~value:(Saved_parameter_value.word bits)
 
 let matches value ~header ~parameter =
   (match Headers.function_provisional_call header with
@@ -68,12 +111,17 @@ let matches value ~header ~parameter =
   && Headers.parameter_index parameter = value.receipt.default_parameter_index
   && Option.fold ~none:false ~some:(( == ) value.source)
        (Headers.parameter_source parameter)
-  && Sema.Type.equal value.type_
-       (Sema.Type_reference.resolved_type
-          (Headers.parameter_type_reference parameter))
   && (match Headers.parameter_declarator_kind parameter with
-    | Headers.Object -> true
-    | _ -> false)
+    | Headers.Object ->
+        Option.is_none value.source.function_pointer
+        && Sema.Type.equal value.type_
+             (Sema.Type_reference.resolved_type
+                (Headers.parameter_type_reference parameter))
+    | Headers.Function_pointer pointer ->
+        Option.is_some value.source.function_pointer
+        && Option.fold ~none:false
+             ~some:(Sema.Type.equal value.type_)
+             (Result.to_option (Headers.function_pointer_storage_type pointer)))
   &&
   match Headers.parameter_default parameter with
   | Some (Headers.Expression_default _) -> true

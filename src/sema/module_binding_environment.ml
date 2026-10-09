@@ -177,7 +177,7 @@ let resolve_selected cursor name selection =
     (fun () ->
       match Reference_selection.kind selection with
       | Reference_selection.Absent | Reference_selection.Unavailable -> Ok None
-      | Reference_selection.Local ->
+      | Reference_selection.Local | Reference_selection.Static_local _ ->
           Error "selected local has no global-declarator binding"
       | Reference_selection.Source (_, Reference_selection.Function_declared) ->
           Error "selected function header was still provisional"

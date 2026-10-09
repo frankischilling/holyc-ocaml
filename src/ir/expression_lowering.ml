@@ -295,28 +295,56 @@ let lowering_error ?span code message =
   { Sequence.code; message; instruction_id = None; span }
 
 let metadata_error ?span message = lowering_error ?span "HCIRL0004" message
+let callback_update_operand = Semantic_result.result_callback_update_operand
+let numeric_callback_result = Semantic_result.result_is_numeric_callback
+let callback_parser_pointer = Semantic_result.result_callback_parser_pointer
+
+let callback_pointer_difference opcode left right =
+  opcode = Opcode.Ic_sub
+  && Option.is_some (callback_parser_pointer left)
+  && Option.is_some (callback_parser_pointer right)
 
 let checked_integer_type result =
-  match Semantic_result.result_type result with
-  | None ->
-      Error
-        (metadata_error ?span:(result_span result)
-           "typed semantic expression does not have a checked result type")
-  | Some type_ -> (
-      match
-        ( Semantic_result.result_class result,
-          Type.pointer_depth type_,
-          Type.base type_ )
-      with
-      | Semantic_result.Integer_result, 0, Type.Primitive (_, primitive)
-        when (Sema.Primitive_type.info primitive).category
-             <> Sema.Primitive_type.Floating
-             && not (Sema.Primitive_type.is_zero_sized primitive) ->
-          Ok (Checked_type type_)
-      | Semantic_result.Integer_result, _, (Type.Primitive _ | Type.Aggregate _)
-      | ( (Semantic_result.F64_result | Semantic_result.Unresolved_actual_class),
-          _,
-          (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
+  if numeric_callback_result result then
+    match Semantic_result.result_computation_type result with
+    | Some type_ -> Ok (Checked_type type_)
+    | None ->
+        Error
+          (metadata_error ?span:(result_span result)
+             "numeric callback result lost its original computation class")
+  else if
+    Semantic_result.result_is_callback_storage result
+    && Semantic_result.result_class result = Semantic_result.Integer_result
+  then
+    Ok
+      (Checked_type
+         (Type.make_primitive ~form:Type.Internal_storage
+            ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+         |> Result.get_ok))
+  else
+    match Semantic_result.result_type result with
+    | None ->
+        Error
+          (metadata_error ?span:(result_span result)
+             "typed semantic expression does not have a checked result type")
+    | Some type_ -> (
+        match
+          ( Semantic_result.result_class result,
+            Type.pointer_depth type_,
+            Type.base type_ )
+        with
+        | Semantic_result.Integer_result, 0, Type.Primitive (_, primitive)
+          when (Sema.Primitive_type.info primitive).category
+               <> Sema.Primitive_type.Floating
+               && not (Sema.Primitive_type.is_zero_sized primitive) ->
+            Ok (Checked_type type_)
+        | ( Semantic_result.Integer_result,
+            _,
+            (Type.Primitive _ | Type.Aggregate _) )
+        | ( ( Semantic_result.F64_result
+            | Semantic_result.Unresolved_actual_class ),
+            _,
+            (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
 
 let checked_frame_integer result =
   match checked_integer_type result with
@@ -341,31 +369,62 @@ let scalar_pointer_type type_ =
   | Ok pointee -> Option.is_some (Integer_scalar_storage.of_type pointee)
   | Error _ -> false
 
+let callback_word_type type_ =
+  Type.pointer_depth type_ = 1
+  && Type.base type_
+     = Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64)
+
+let array_pointer_type type_ =
+  scalar_pointer_type type_
+  || Option.fold ~none:false ~some:callback_word_type
+       (Type.dereference type_ |> Result.to_option)
+
 let storage_element_size type_ =
-  Option.map
-    (fun scalar -> Int64.of_int (Integer_scalar_storage.byte_size scalar))
-    (Integer_scalar_storage.of_type type_)
+  if callback_word_type type_ then Some 8L
+  else
+    Option.map
+      (fun scalar -> Int64.of_int (Integer_scalar_storage.byte_size scalar))
+      (Integer_scalar_storage.of_type type_)
 
 let pointer_element_size type_ =
   match Type.dereference type_ with
   | Ok pointee -> storage_element_size pointee
   | Error _ -> None
 
+let array_storage_address result =
+  Semantic_result.result_is_array_address result
+  || Semantic_result.result_category result = Semantic_result.Array_value
+     && Semantic_result.result_array_rank result > 0
+     && Option.is_some (Semantic_result.result_callback_pointer result)
+
 let checked_frame_value result =
-  match Semantic_result.result_type result with
-  | Some type_ when Semantic_result.result_is_array_address result -> (
-      match Type.pointer_to type_ with
-      | Ok pointer when scalar_pointer_type pointer -> Ok (Checked_type pointer)
-      | _ -> Ok Unsupported_type)
-  | Some type_
-    when scalar_pointer_type type_
-         && Semantic_result.result_array_rank result = 0
-         && Semantic_result.result_class result = Semantic_result.Integer_result
-    -> Ok (Checked_type type_)
-  | _ -> checked_frame_integer result
+  if numeric_callback_result result then checked_frame_integer result
+  else
+    match Semantic_result.result_storage_type result with
+    | Some type_ when array_storage_address result -> (
+        match Type.pointer_to type_ with
+        | Ok pointer when array_pointer_type pointer ->
+            Ok (Checked_type pointer)
+        | _ -> Ok Unsupported_type)
+    | Some type_
+      when scalar_pointer_type type_
+           && Semantic_result.result_array_rank result = 0
+           && Semantic_result.result_class result
+              = Semantic_result.Integer_result -> Ok (Checked_type type_)
+    | _ -> checked_frame_integer result
 
 let checked_frame_scalar result =
   match Semantic_result.result_category result with
+  | Semantic_result.Callback_value
+    when Semantic_result.result_is_callback_storage result
+         && Semantic_result.result_class result = Semantic_result.Integer_result
+    -> (
+      match Semantic_result.result_storage_type result with
+      | Some storage_type -> Ok (Checked_type storage_type)
+      | None ->
+          Error
+            (metadata_error ?span:(result_span result)
+               "callback cell has no checked physical storage type"))
   | Semantic_result.Object_value | Semantic_result.Lvalue ->
       checked_frame_value result
   | _ -> Ok Unsupported_type
@@ -1021,6 +1080,71 @@ let checked_bound_direct_function_source operand operand_type identifier
         else Ok ()
     | _ -> invalid "direct function operand has inconsistent retained metadata"
 
+let checked_outer_direct_function_source operand declaration =
+  let invalid message =
+    Error (metadata_error ?span:(result_span operand) message)
+  in
+  match Semantic_result.result_outer_binding operand with
+  | None -> invalid "retained function address has no original outer binding"
+  | Some binding ->
+      let owns_occurrence =
+        match
+          ( Semantic_result.result_outer_occurrence operand,
+            Semantic_result.result_top_level_outer_occurrence operand )
+        with
+        | Some occurrence, None ->
+            Sema.Outer_expression_binding.occurrence_origin occurrence
+            = Semantic_result.result_origin operand
+            && (match
+                  Sema.Outer_expression_binding.occurrence_resolution occurrence
+                with
+              | Sema.Outer_expression_binding.Outer_binding original ->
+                  original == binding
+              | _ -> false)
+            && Option.fold ~none:false
+                 ~some:(fun source ->
+                   source
+                   == Sema.Outer_expression_binding.occurrence_source occurrence)
+                 (Semantic_source.argument_expression_source_identifier
+                    (Semantic_result.result_source operand))
+        | None, Some occurrence -> (
+            Sema.Top_level_outer_expression_binding.occurrence_origin occurrence
+            = Semantic_result.result_origin operand
+            && (match
+                  Sema.Top_level_outer_expression_binding.occurrence_resolution
+                    occurrence
+                with
+              | Sema.Top_level_outer_expression_binding.Outer_binding original
+                -> original == binding
+              | _ -> false)
+            &&
+            match
+              Semantic_source.argument_expression_kind
+                (Semantic_result.result_source operand)
+            with
+            | Semantic_source.Top_level_bound_identifier_expression source ->
+                Semantic_source.top_level_bound_identifier_occurrence source
+                == occurrence
+            | _ -> false)
+        | _ -> false
+      in
+      let original =
+        Sema.Outer_environment.binding_entry binding
+        |> Sema.Outer_environment.entry_function_metadata
+      in
+      if
+        owns_occurrence
+        && Option.fold ~none:false
+             ~some:(fun metadata ->
+               Sema.Outer_environment.function_declaration metadata
+               == declaration)
+             original
+      then Ok ()
+      else
+        invalid
+          "retained function address differs from its original occurrence or \
+           declaration"
+
 let checked_top_level_direct_function_source operand identifier declaration =
   let invalid message =
     Error (metadata_error ?span:(result_span operand) message)
@@ -1044,8 +1168,6 @@ let checked_top_level_direct_function_source operand identifier declaration =
              (Sema.Top_level_outer_expression_binding.occurrence_name occurrence)
              (Sema.Symbol.name source_symbol)))
     || Sema.Symbol.kind source_symbol <> Sema.Symbol.Function
-    || Option.is_some
-         (Semantic_result.result_top_level_outer_occurrence operand)
   in
   if invalid_metadata then
     invalid "top-level direct function operand metadata disagrees"
@@ -1055,9 +1177,12 @@ let checked_top_level_direct_function_source operand identifier declaration =
     with
     | Sema.Top_level_outer_expression_binding.Module_binding publication
       when function_publication_matches declaration publication -> Ok ()
-    | Sema.Top_level_outer_expression_binding.Module_binding _
     | Sema.Top_level_outer_expression_binding.Outer_binding _ ->
+        checked_outer_direct_function_source operand declaration
+    | Sema.Top_level_outer_expression_binding.Module_binding _ ->
         invalid "top-level direct function publication disagrees"
+    | Sema.Top_level_outer_expression_binding.Static_binding _ ->
+        invalid "private static storage cannot select a direct function"
 
 let checked_direct_function_address result prefix operand =
   let invalid message =
@@ -1072,6 +1197,14 @@ let checked_direct_function_address result prefix operand =
     | Semantic_source.Top_level_bound_identifier_expression identifier
       when Semantic_result.result_category operand
            = Semantic_result.Function_value -> Some (`Top_level identifier)
+    | Semantic_source.Unresolved_expression
+        Semantic_source.Identifier_expression
+      when Semantic_result.result_category operand
+           = Semantic_result.Function_value
+           && Option.is_some (Semantic_result.result_outer_occurrence operand)
+           && Option.is_some
+                (Semantic_result.result_function_declaration operand) ->
+        Some `Outer
     | _ -> None
   in
   match direct_source with
@@ -1120,6 +1253,24 @@ let checked_direct_function_address result prefix operand =
               "direct function address path disagrees with its declaration"
           else
             match source_kind with
+            | `Outer -> (
+                match
+                  checked_outer_direct_function_source operand declaration
+                with
+                | Error _ as error -> error
+                | Ok () -> (
+                    match
+                      unary_span result "retained function address" prefix
+                    with
+                    | Error _ as error -> error
+                    | Ok span ->
+                        Ok
+                          (Some
+                             ( span,
+                               result_type,
+                               Function_resolution
+                               .resolved_declaration_identity_symbol declaration,
+                               path ))))
             | `Bound identifier -> (
                 match
                   checked_bound_direct_function_source operand operand_type
@@ -1193,9 +1344,11 @@ let checked_numeric_unary_types result opcode operand =
               operator rule")
 
 let checked_pointer_unary_types result opcode operand =
-  match
-    (Semantic_result.result_type result, Semantic_result.result_type operand)
-  with
+  let operand_type =
+    if opcode = Opcode.Ic_addr then Semantic_result.result_storage_type operand
+    else Semantic_result.result_type operand
+  in
+  match (Semantic_result.result_type result, operand_type) with
   | None, _ | _, None ->
       Error
         (metadata_error ?span:(result_span result)
@@ -1254,6 +1407,16 @@ let checked_cast_types result operand target =
         Error
           (metadata_error ?span:(result_span result)
              "postfix cast result type does not match its checked target")
+      else if
+        scalar_pointer_type result_type
+        && (match checked_frame_value operand with
+          | Ok (Checked_type type_) -> scalar_pointer_type type_
+          | _ -> false)
+        && (not (Semantic_result.result_is_callback_storage operand))
+        && (not (Semantic_result.result_is_callback_storage result))
+        && Option.is_none (Semantic_result.result_callback_pointer operand)
+        && Option.is_none (Semantic_result.result_callback_pointer result)
+      then Ok true
       else
         match (checked_numeric_type operand, checked_numeric_type result) with
         | Error item, _ | _, Error item -> Error item
@@ -1496,8 +1659,7 @@ let rec prepare_index_address ?frame ?globals result =
       | Semantic_source.Top_level_bound_identifier_expression _
       | Semantic_source.Unresolved_expression
           Semantic_source.Identifier_expression
-        when Semantic_result.result_is_array_address result
-             && Option.is_some globals -> (
+        when array_storage_address result && Option.is_some globals -> (
           let* prepared =
             Global_address_lowering.prepare ?frame ~globals:(Option.get globals)
               result
@@ -1510,7 +1672,7 @@ let rec prepare_index_address ?frame ?globals result =
                      Global_address_lowering.strides address ))
           | None -> prepare_index_address ?frame result)
       | Semantic_source.Bound_identifier_expression identifier
-        when Semantic_result.result_is_array_address result -> (
+        when array_storage_address result -> (
           match frame with
           | None -> Ok None
           | Some frame -> (
@@ -1533,8 +1695,24 @@ let rec prepare_index_address ?frame ?globals result =
                             F.location_kind location <> F.Automatic_local
                             && F.location_kind location <> F.Variadic_argv
                             || F.location_declarator_shape location <> F.Object
+                               && not
+                                    (Option.fold ~none:false
+                                       ~some:(fun pointer ->
+                                         List.length
+                                           (Sema.Function_type_resolution
+                                            .function_pointer_indirection_origins
+                                              pointer)
+                                         = 1
+                                         && Option.fold ~none:false
+                                              ~some:(( == ) pointer)
+                                              (Semantic_result
+                                               .result_callback_pointer result)
+                                         && F.location_source_dimensions_checked
+                                              location)
+                                       (F.location_callback_pointer location))
                             || storage_element_size
-                                 (F.location_checked_type location)
+                                 (F.location_storage_type location
+                                 |> Result.get_ok)
                                <> Some (F.location_element_size location)
                           then Ok None
                           else
@@ -1603,7 +1781,7 @@ let rec prepare_index_address ?frame ?globals result =
                       invalid "index operand lost its integer conversion intent"
                     else
                       let* base_address =
-                        if Semantic_result.result_is_array_address base then
+                        if array_storage_address base then
                           prepare_index_address ?frame ?globals base
                         else
                           match checked_frame_value base with
@@ -1629,11 +1807,11 @@ let rec prepare_index_address ?frame ?globals result =
                           invalid "index base has no checked remaining stride"
                       | Some (address, stride :: remaining) ->
                           let base_type =
-                            Option.get (Semantic_result.result_type base)
+                            Option.get
+                              (Semantic_result.result_storage_type base)
                           in
                           let* element =
-                            (if Semantic_result.result_is_array_address base
-                             then Ok base_type
+                            (if array_storage_address base then Ok base_type
                              else Type.dereference base_type)
                             |> Result.map_error (fun message ->
                                 [
@@ -1646,10 +1824,18 @@ let rec prepare_index_address ?frame ?globals result =
                             (not
                                (Option.fold ~none:false
                                   ~some:(Type.equal element)
-                                  (Semantic_result.result_type result)))
+                                  (Semantic_result.result_storage_type result)))
+                            || (match
+                                  ( Semantic_result.result_callback_pointer base,
+                                    Semantic_result.result_callback_pointer
+                                      result )
+                                with
+                              | None, None -> false
+                              | Some left, Some right -> left != right
+                              | _ -> true)
                             || Semantic_result.result_array_rank result
                                <> expected_rank
-                            || Semantic_result.result_is_array_address result
+                            || array_storage_address result
                                <> (expected_rank > 0)
                             ||
                             if expected_rank > 0 then
@@ -1660,6 +1846,9 @@ let rec prepare_index_address ?frame ?globals result =
                               <> Semantic_result.Object_value
                               && Semantic_result.result_category result
                                  <> Semantic_result.Lvalue
+                              && not
+                                   (Semantic_result.result_is_callback_storage
+                                      result)
                           then
                             invalid
                               "index result disagrees with its element type \
@@ -1694,6 +1883,11 @@ let rec prepare_assignment_address ?frame ?globals result =
     Semantic_source.argument_expression_kind
       (Semantic_result.result_source result)
   with
+  | Semantic_source.Prefix_expression _
+    when Option.is_some
+           (Semantic_result.result_canceled_callback_operand result) ->
+      prepare_assignment_address ?frame ?globals
+        (Option.get (Semantic_result.result_canceled_callback_operand result))
   | Semantic_source.Index_expression _ ->
       prepare_index_address ?frame ?globals result
       |> Result.map (Option.map fst)
@@ -1728,22 +1922,36 @@ let rec prepare_assignment_address ?frame ?globals result =
 
 let validate_frame_assignment result left right =
   let ( let* ) = Result.bind in
-  let* valid = validate_binary_with checked_frame_value result left right in
-  if not valid then Ok false
-  else
-    let r = Option.get (Semantic_result.result_type result)
-    and l = Option.get (Semantic_result.result_type left)
-    and v =
-      match checked_frame_value right with
-      | Ok (Checked_type v) -> v
-      | _ -> assert false
-    in
+  if Semantic_result.result_is_callback_storage left then
+    let* right_type = checked_integer_type right in
     Ok
-      (Type.pointer_depth r = 0
-       && Type.pointer_depth l = 0
-       && Type.pointer_depth v = 0
-      || scalar_pointer_type r && Type.equal r l
-         && Integer_scalar_storage.compatible_pointer l v)
+      (match
+         ( right_type,
+           Semantic_result.result_storage_type left,
+           Semantic_result.result_type result )
+       with
+      | Checked_type _, Some storage, Some type_ ->
+          Type.equal storage type_
+          && Semantic_result.result_class result
+             = Semantic_result.Integer_result
+      | _ -> false)
+  else
+    let* valid = validate_binary_with checked_frame_value result left right in
+    if not valid then Ok false
+    else
+      let r = Option.get (Semantic_result.result_type result)
+      and l = Option.get (Semantic_result.result_type left)
+      and v =
+        match checked_frame_value right with
+        | Ok (Checked_type v) -> v
+        | _ -> assert false
+      in
+      Ok
+        (Type.pointer_depth r = 0
+         && Type.pointer_depth l = 0
+         && Type.pointer_depth v = 0
+        || scalar_pointer_type r && Type.equal r l
+           && Integer_scalar_storage.compatible_pointer l v)
 
 let compound_assignment = function
   | Opcode.Ic_add_equ
@@ -1759,23 +1967,35 @@ let compound_assignment = function
   | _ -> false
 
 let prepare_update_address ?frame ?globals result operand =
-  match (checked_frame_integer result, checked_frame_integer operand) with
-  | Error item, _ | _, Error item -> Error [ item ]
-  | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok None
-  | Ok (Checked_type result_type), Ok (Checked_type operand_type) ->
-      if
-        Semantic_result.result_category operand <> Semantic_result.Lvalue
-        || Semantic_result.result_category result
-           <> Semantic_result.Object_value
-        || not (Type.equal result_type operand_type)
-      then
-        Error
-          [
-            metadata_error ?span:(result_span result)
-              "scalar update does not retain its lvalue and destination result \
-               type";
-          ]
-      else prepare_assignment_address ?frame ?globals operand
+  if Semantic_result.result_is_callback_storage operand then
+    if
+      Option.fold ~none:false ~some:(( == ) operand)
+        (callback_update_operand result)
+    then prepare_assignment_address ?frame ?globals operand
+    else
+      Error
+        [
+          metadata_error ?span:(result_span result)
+            "callback update lost its original storage operand or result type";
+        ]
+  else
+    match (checked_frame_integer result, checked_frame_integer operand) with
+    | Error item, _ | _, Error item -> Error [ item ]
+    | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok None
+    | Ok (Checked_type result_type), Ok (Checked_type operand_type) ->
+        if
+          Semantic_result.result_category operand <> Semantic_result.Lvalue
+          || Semantic_result.result_category result
+             <> Semantic_result.Object_value
+          || not (Type.equal result_type operand_type)
+        then
+          Error
+            [
+              metadata_error ?span:(result_span result)
+                "scalar update does not retain its lvalue and destination \
+                 result type";
+            ]
+        else prepare_assignment_address ?frame ?globals operand
 
 let plan ?frame ?globals ~allow_calls root =
   let root_conversion = requested_conversion root in
@@ -1819,7 +2039,7 @@ let plan ?frame ?globals ~allow_calls root =
     match (checked_frame_value operand, result_span result) with
     | Error item, _ -> error := Some item
     | Ok (Checked_type pointer_type), Some span
-      when scalar_pointer_type pointer_type && conversion = Keep_result -> (
+      when array_pointer_type pointer_type && conversion = Keep_result -> (
         match prepare_index_address ?frame ?globals operand with
         | Error (item :: _) -> error := Some item
         | Ok (Some (address, _)) ->
@@ -1864,7 +2084,7 @@ let plan ?frame ?globals ~allow_calls root =
               Semantic_result.result_source result
               |> Semantic_source.argument_expression_kind
             with
-            | _ when Semantic_result.result_is_array_address result ->
+            | _ when array_storage_address result ->
                 array_value result result conversion
             | Semantic_source.Index_expression _ -> (
                 match
@@ -1951,6 +2171,20 @@ let plan ?frame ?globals ~allow_calls root =
                       Integer_constant
                         { result; span; result_type; value; conversion }
                       :: !reversed)
+            | Semantic_source.Unresolved_expression
+                (Semantic_source.Default_position_expression position) -> (
+                match
+                  checked_internal_i64_constant result
+                    ~description:"default position expression"
+                    (Some (Sema.Default_fragment.position_value position))
+                with
+                | Error item -> error := Some item
+                | Ok Deferred_constant -> unsupported := true
+                | Ok (Checked_constant (span, result_type, value)) ->
+                    reversed :=
+                      Integer_constant
+                        { result; span; result_type; value; conversion }
+                      :: !reversed)
             | Semantic_source.Defined_expression defined -> (
                 match checked_defined result defined with
                 | Error item -> error := Some item
@@ -2013,6 +2247,18 @@ let plan ?frame ?globals ~allow_calls root =
                       Visit { result = operand; conversion }
                       :: Finish_alias { result; operand }
                       :: !pending)
+            | Semantic_source.Prefix_expression _
+              when Option.is_some
+                     (Semantic_result.result_canceled_callback_operand result)
+              ->
+                let operand =
+                  Option.get
+                    (Semantic_result.result_canceled_callback_operand result)
+                in
+                pending :=
+                  Visit { result = operand; conversion }
+                  :: Finish_alias { result; operand }
+                  :: !pending
             | Semantic_source.Prefix_expression prefix -> (
                 let source_operand = Semantic_source.prefix_operand prefix in
                 match Semantic_source.prefix_operator prefix with
@@ -2241,6 +2487,26 @@ let plan ?frame ?globals ~allow_calls root =
                   | Error item, _ | _, Error item -> error := Some item
                   | Ok (left, right), Ok span -> (
                       if
+                        callback_pointer_difference opcode left right
+                        && conversion = Keep_result
+                      then
+                        pending :=
+                          Visit { result = left; conversion = Keep_result }
+                          :: Visit { result = right; conversion = Keep_result }
+                          :: Finish_pointer_difference
+                               {
+                                 difference_result = result;
+                                 difference_left = left;
+                                 difference_right = right;
+                                 difference_stride = 8L;
+                                 difference_type =
+                                   Option.get
+                                     (Semantic_result.result_computation_type
+                                        result);
+                                 difference_span = span;
+                               }
+                          :: !pending
+                      else if
                         (opcode = Opcode.Ic_add || opcode = Opcode.Ic_sub)
                         && conversion = Keep_result
                         && (Option.is_some frame || Option.is_some globals)
@@ -2360,6 +2626,9 @@ let plan ?frame ?globals ~allow_calls root =
                         match
                           if opcode = Opcode.Ic_assign then
                             validate_frame_assignment result left right
+                          else if
+                            Semantic_result.result_is_callback_storage left
+                          then validate_frame_assignment result left right
                           else
                             validate_binary_with checked_frame_integer result
                               left right
@@ -2773,6 +3042,30 @@ let checked_call_fragment allocator result conversion sequence =
                 ( List.rev (last :: rest),
                   { lowered_value = produced.value_id; lowered_type = actual }
                 )
+          | _, Some (Sequence.Callback pointer), Some produced, Some actual
+            when last.opcode = Opcode.Ic_call_end
+                 && Type.equal actual expected && last.span = span
+                 && last.flags = 0L
+                 && Option.fold ~none:false ~some:(( == ) pointer)
+                      (Semantic_result.result_callback_call_pointer result)
+                 && List.exists
+                      (fun (item : Sequence.description) ->
+                        item.opcode = Opcode.Ic_call_start
+                        &&
+                        match item.payload with
+                        | Some (Sequence.Callback original) ->
+                            original == pointer
+                        | _ -> false)
+                      descriptions ->
+              allocator.instruction <- !instruction;
+              allocator.value <- !value;
+              let last =
+                { last with Sequence.flags = conversion_flags conversion }
+              in
+              Ok
+                ( List.rev (last :: rest),
+                  { lowered_value = produced.value_id; lowered_type = actual }
+                )
           | _ ->
               Error
                 (invalid
@@ -2900,7 +3193,12 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
       else internal_u64_type
     in
     let original result =
-      Option.bind (Semantic_result.result_type result) (fun declared ->
+      let declared =
+        if numeric_callback_result result then
+          Semantic_result.result_computation_type result
+        else Semantic_result.result_type result
+      in
+      Option.bind declared (fun declared ->
           if full_integer_word declared then
             Some
               {
@@ -3047,11 +3345,17 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
                         {
                           value with
                           computation =
-                            Sema.Integer_computation_class.forward
-                              input.computation;
+                            (if numeric_callback_result result then
+                               value.computation
+                             else
+                               Sema.Integer_computation_class.forward
+                                 input.computation);
                           early_computation =
-                            Sema.Integer_computation_class.forward
-                              input.early_computation;
+                            (if numeric_callback_result result then
+                               value.early_computation
+                             else
+                               Sema.Integer_computation_class.forward
+                                 input.early_computation);
                           bits =
                             (if has_division then
                                Option.map Int64.lognot input.bits
@@ -3142,13 +3446,18 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
                        && full_integer_word r.declared
                        && full_integer_word l.computation
                        && full_integer_word r.computation ->
-                    let computation = common l.computation r.computation in
+                    let computation =
+                      if numeric_callback_result result then
+                        (Option.get default).computation
+                      else common l.computation r.computation
+                    in
                     let early_computation =
                       common l.early_computation r.early_computation
                     in
                     if accepted_f64_comparison_opcode opcode then (
                       if
-                        (not (internal_i64 early_computation))
+                        (not (numeric_callback_result result))
+                        && (not (internal_i64 early_computation))
                         && internal_i64 computation
                       then
                         unsigned_comparisons :=
@@ -3199,7 +3508,9 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
                               else Int64.unsigned_rem dividend divisor
                             in
                             constant result span computation computation bits
-                      | None, Some 1L when opcode = Opcode.Ic_div ->
+                      | None, Some 1L
+                        when opcode = Opcode.Ic_div
+                             && not (numeric_callback_result left) ->
                           ( Eliminated_division { result; operand = left },
                             Some l )
                       | None, Some divisor
@@ -3333,9 +3644,18 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
     else (nodes, Int_map.empty, Int_map.empty, None)
   in
   let result_type result =
-    match Int_map.find_opt (result_key result) optimized_types with
-    | Some type_ -> Some type_
-    | None -> Semantic_result.result_type result
+    if Semantic_result.result_is_callback_storage result then
+      Semantic_result.result_storage_type result
+    else if Option.is_some (callback_update_operand result) then
+      Semantic_result.result_type result
+    else if numeric_callback_result result then
+      (* The update instruction itself retains the physical destination type.
+         Only its subsequent arithmetic uses the projected numeric class. *)
+      Semantic_result.result_computation_type result
+    else
+      match Int_map.find_opt (result_key result) optimized_types with
+      | Some type_ -> Some type_
+      | None -> Semantic_result.result_type result
   in
   let allocator =
     {
@@ -3421,6 +3741,19 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
         in
         descriptions_rev := description :: !descriptions_rev;
         Ok { lowered_value = value_id; lowered_type = target_type }
+  in
+  let find_numeric_lowered result description span =
+    Result.bind (find_lowered !lowered result description) (fun node ->
+        if
+          numeric_callback_result result && callback_word_type node.lowered_type
+        then
+          (* Keep the physical producer and its dynamic code owner intact. A
+             numeric consumer sees signed RT_PTR bits through a full-word view;
+             the runtime still rejects an owned executable at that consumer. *)
+          emit_index_value ~opcode:Opcode.Ic_holyc_typecast
+            ~operands:[ node.lowered_value ] ~target_type:internal_i64_type
+            ~payload:(Some (Sequence.Integer 0L)) ~span
+        else Ok node)
   in
   let storage_address address =
     match
@@ -3518,12 +3851,12 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
             let ( let* ) = Result.bind in
             let emitted =
               let* left =
-                find_lowered !lowered step.difference_left
-                  "left pointer difference operand"
+                find_numeric_lowered step.difference_left
+                  "left pointer difference operand" step.difference_span
               in
               let* right =
-                find_lowered !lowered step.difference_right
-                  "right pointer difference operand"
+                find_numeric_lowered step.difference_right
+                  "right pointer difference operand" step.difference_span
               in
               let emit opcode operands payload =
                 emit_index_value ~opcode ~operands ~payload
@@ -3745,9 +4078,24 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                         Int_map.add (result_key result) lowered_operand !lowered
                 ))
         | Unary { result; opcode; span; operand; conversion } -> (
-            match
-              (find_lowered !lowered operand "unary operand", result_type result)
-            with
+            let input =
+              Result.bind (find_numeric_lowered operand "unary operand" span)
+                (fun node ->
+                  if
+                    numeric_callback_result result
+                    && (opcode = Opcode.Ic_com || opcode = Opcode.Ic_not)
+                    && Semantic_result.result_computation_type result
+                       <> Semantic_result.result_computation_type operand
+                  then
+                    emit_index_value ~opcode:Opcode.Ic_holyc_typecast
+                      ~operands:[ node.lowered_value ]
+                      ~target_type:
+                        (Option.get
+                           (Semantic_result.result_computation_type result))
+                      ~payload:(Some (Sequence.Integer 0L)) ~span
+                  else Ok node)
+            in
+            match (input, result_type result) with
             | Error item, _ -> error := Some item
             | _, None ->
                 error :=
@@ -3813,11 +4161,15 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
         | Constant_shift { result; opcode; span; operand; count; result_type }
           -> (
             match
-              ( find_lowered !lowered operand "constant shift operand",
-                take_identity allocator (Some span) )
+              Result.bind
+                (find_numeric_lowered operand "constant shift operand" span)
+                (fun input ->
+                  Result.map
+                    (fun identities -> (input, identities))
+                    (take_identity allocator (Some span)))
             with
-            | Error item, _ | _, Error item -> error := Some item
-            | Ok input, Ok (instruction_id, value_id) ->
+            | Error item -> error := Some item
+            | Ok (input, (instruction_id, value_id)) ->
                 let description : Sequence.description =
                   {
                     instruction_id;
@@ -3854,11 +4206,15 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
               result_type;
             } -> (
             match
-              ( find_lowered !lowered left "constant binary operand",
-                take_identity allocator (Some constant_span) )
+              Result.bind
+                (find_numeric_lowered left "constant binary operand" span)
+                (fun input ->
+                  Result.map
+                    (fun identities -> (input, identities))
+                    (take_identity allocator (Some constant_span)))
             with
-            | Error item, _ | _, Error item -> error := Some item
-            | Ok left_node, Ok (constant_instruction, constant_value) -> (
+            | Error item -> error := Some item
+            | Ok (left_node, (constant_instruction, constant_value)) -> (
                 let immediate : Sequence.description =
                   {
                     instruction_id = constant_instruction;
@@ -3895,9 +4251,16 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
         | Binary
             { result; opcode; span; left; right; conversion; operation_flags }
           -> (
+            let find_operand operand description =
+              if
+                opcode = Opcode.Ic_assign || compound_assignment opcode
+                || opcode = Opcode.Ic_equ_equ || opcode = Opcode.Ic_not_equ
+              then find_lowered !lowered operand description
+              else find_numeric_lowered operand description span
+            in
             match
-              ( find_lowered !lowered left "left binary operand",
-                find_lowered !lowered right "right binary operand",
+              ( find_operand left "left binary operand",
+                find_operand right "right binary operand",
                 result_type result )
             with
             | Error item, _, _ | _, Error item, _ -> error := Some item
@@ -3907,8 +4270,77 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                     (metadata_error ~span
                        "binary expression does not have a checked result type")
             | Ok left_node, Ok right_node, Some result_type -> (
+                let scale_left, scale_right =
+                  Option.value ~default:(false, false)
+                    (Semantic_result.result_callback_numeric_scales result)
+                in
+                let scale node =
+                  match
+                    emit_index_value ~opcode:Opcode.Ic_imm_i64 ~operands:[]
+                      ~target_type:internal_i64_type
+                      ~payload:(Some (Sequence.Integer 8L)) ~span
+                  with
+                  | Error item ->
+                      error := Some item;
+                      node
+                  | Ok stride -> (
+                      let scaled_type =
+                        match Type.base node.lowered_type with
+                        | Type.Primitive (_, Sema.Primitive_type.U64) ->
+                            internal_u64_type
+                        | _ -> internal_i64_type
+                      in
+                      match
+                        emit_index_value ~opcode:Opcode.Ic_mul
+                          ~operands:[ node.lowered_value; stride.lowered_value ]
+                          ~target_type:scaled_type ~payload:None ~span
+                      with
+                      | Error item ->
+                          error := Some item;
+                          node
+                      | Ok value -> value)
+                in
                 let left_node =
-                  if not (Int_map.mem (result_key result) unsigned_comparisons)
+                  if scale_left then scale left_node else left_node
+                in
+                let right_node =
+                  if
+                    scale_right
+                    || (opcode = Opcode.Ic_add_equ || opcode = Opcode.Ic_sub_equ)
+                       && Semantic_result.result_is_callback_storage left
+                  then scale right_node
+                  else right_node
+                in
+                let computation_view operand node =
+                  if
+                    numeric_callback_result result
+                    && opcode <> Opcode.Ic_assign
+                    && (not (compound_assignment opcode))
+                    && (not (accepted_f64_comparison_opcode opcode))
+                    && (not (accepted_f64_logical_opcode opcode))
+                    && internal_i64 result_type
+                    && unsigned_integer_computation operand
+                  then (
+                    match
+                      emit_index_value ~opcode:Opcode.Ic_holyc_typecast
+                        ~operands:[ node.lowered_value ]
+                        ~target_type:internal_i64_type
+                        ~payload:(Some (Sequence.Integer 0L)) ~span
+                    with
+                    | Ok node -> node
+                    | Error item ->
+                        error := Some item;
+                        node)
+                  else node
+                in
+                let left_node = computation_view left left_node in
+                let right_node = computation_view right right_node in
+                let left_node =
+                  if
+                    not
+                      (Int_map.mem (result_key result) unsigned_comparisons
+                      || Semantic_result.result_callback_unsigned_comparison
+                           result)
                   then left_node
                   else
                     match take_identity allocator (Some span) with
@@ -3954,7 +4386,9 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                       comparison_domains :=
                         Int_map.add (result_key result)
                           (unsigned_integer_computation left
-                          || unsigned_integer_computation right)
+                          || unsigned_integer_computation right
+                          || Semantic_result.result_callback_unsigned_comparison
+                               result)
                           !comparison_domains;
                     descriptions_rev := description :: !descriptions_rev;
                     lowered :=
@@ -3966,8 +4400,8 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
             { result; previous; middle; right; opcode; span; conversion } -> (
             match
               ( find_lowered !lowered previous "previous comparison",
-                find_lowered !lowered middle "shared comparison operand",
-                find_lowered !lowered right "right comparison operand",
+                find_numeric_lowered middle "shared comparison operand" span,
+                find_numeric_lowered right "right comparison operand" span,
                 Semantic_result.result_type result,
                 Int_map.find_opt (result_key previous) !comparison_domains )
             with
@@ -4161,6 +4595,112 @@ let lower_typed_result ?frame ?globals ?lower_call ?(optimize_shifts = false)
 
 let sequence lowered = lowered.sequence_
 
+let lower_callback_callee ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id call =
+  match (Callback_source.callee call, Callback_source.callee_source call) with
+  | None, _ | _, None -> Ok Unsupported_expression
+  | Some callee, Some original -> (
+      let span = result_span callee in
+      if Semantic_result.result_source callee != original then
+        Error
+          [
+            metadata_error ?span
+              "indirect callee does not retain its original value tree";
+          ]
+      else if not (Semantic_result.result_is_callback_storage callee) then
+        Ok Unsupported_expression
+      else if
+        not
+          (Option.fold ~none:false
+             ~some:
+               (( == )
+                  (Semantic_source.callable_pointer
+                     (Callback_source.callable call)))
+             (Semantic_result.result_callback_pointer callee))
+      then
+        Error
+          [
+            metadata_error ?span
+              "indirect callee does not retain its selected callback declarator";
+          ]
+      else
+        match
+          lower_typed_result ?frame ?globals ?lower_call ?optimize_shifts
+            ?optimize_division ~instruction_id ~value_id callee
+        with
+        | Error _ as error -> error
+        | Ok Unsupported_expression -> Ok Unsupported_expression
+        | Ok (Lowered lowered) ->
+            let instruction =
+              Sequence.Instruction_id.to_int lowered.next_instruction_id_
+            in
+            if instruction > max_int - 2 then
+              Error
+                [
+                  lowering_error ?span "HCIRL0005"
+                    "cannot allocate an indirect callee snapshot because the \
+                     host integer range is exhausted";
+                ]
+            else
+              let ( let* ) = Result.bind in
+              let checked result =
+                Result.map_error (fun error -> [ error ]) result
+              in
+              let* set_rax =
+                checked (Sequence.Instruction_id.of_int instruction)
+              in
+              let* nop =
+                checked (Sequence.Instruction_id.of_int (instruction + 1))
+              in
+              let* next_instruction_id_ =
+                checked (Sequence.Instruction_id.of_int (instruction + 2))
+              in
+              let pointer_word = internal_i64_type in
+              let make instruction_id opcode operands result payload :
+                  Sequence.description =
+                {
+                  instruction_id;
+                  opcode;
+                  operands;
+                  result;
+                  payload;
+                  target_type = Some pointer_word;
+                  flags = 0L;
+                  span;
+                }
+              in
+              (* PrsFunCall retags the loaded address to RT_PTR, sets RAX and
+                 balances the expression bookkeeping before CALL_START and
+                 the saved-callee register push. Keep that boundary explicit. *)
+              let items =
+                List.map
+                  (fun instruction ->
+                    let description = Sequence.description instruction in
+                    if
+                      Option.fold ~none:false
+                        ~some:(fun result ->
+                          Sequence.Value_id.equal result.Sequence.value_id
+                            lowered.result_value_)
+                        description.result
+                    then { description with target_type = Some pointer_word }
+                    else description)
+                  (Sequence.instructions lowered.sequence_)
+                @ [
+                    make set_rax Opcode.Ic_set_rax [ lowered.result_value_ ]
+                      None None;
+                    make nop Opcode.Ic_nop2 [] None (Some (Sequence.Integer 1L));
+                  ]
+              in
+              let* sequence_ = Sequence.create items in
+              Ok
+                (Lowered
+                   {
+                     lowered with
+                     sequence_;
+                     result_type_ = pointer_word;
+                     next_instruction_id_;
+                   }))
+
 let lower_condition_chain ?frame ?globals ?lower_call ?(optimize_shifts = false)
     ?(optimize_division = false) ~instruction_id ~value_id ~block_id
     ~false_target result =
@@ -4235,18 +4775,23 @@ let condition_chain_continuations lowered = lowered.continuations_
 let condition_chain_next_block_id lowered = lowered.next_block_id_
 
 let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
-    ?optimize_division ~lower_address ~target_type ~span ~instruction_id
-    ~value_id value =
+    ?optimize_division ?(callback = false) ~lower_address ~target_type ~span
+    ~instruction_id ~value_id value =
   let ( let* ) = Result.bind in
   let target_is_word =
     Option.is_some (Integer_scalar_storage.of_type target_type)
   in
+  let target_is_callback = callback && callback_word_type target_type in
   let* value_type =
     checked_frame_value value |> Result.map_error (fun error -> [ error ])
   in
   match value_type with
   | Checked_type value_type
     when (target_is_word && Type.pointer_depth value_type = 0)
+         || target_is_callback
+            && (Type.pointer_depth value_type = 0
+               || Semantic_result.result_is_callback_storage value
+                  && callback_word_type value_type)
          || Option.is_some frame
             && scalar_pointer_type target_type
             && Integer_scalar_storage.compatible_pointer target_type value_type
@@ -4356,10 +4901,8 @@ let lower_global_initializer ~globals ?lower_call ?optimize_shifts
     with
     | Sema.Top_level_expression_tree.Global_initializer owner ->
         let type_ =
-          owner |> Sema.Global_initializer_binding.global_record
-          |> Sema.Global_resolution.global_record_global
-          |> Sema.Global_type_resolution.global_type_reference
-          |> Sema.Type_reference.resolved_type
+          Global_address_lowering.storage prepared
+          |> Integer_globals.storage_type
         in
         let span =
           match
@@ -4383,8 +4926,11 @@ let lower_global_initializer ~globals ?lower_call ?optimize_shifts
         Global_address_lowering.next_value_id address )
   in
   lower_store_initializer ~globals ?lower_call ?optimize_shifts
-    ?optimize_division ~lower_address ~target_type ~span ~instruction_id
-    ~value_id
+    ?optimize_division
+    ~callback:
+      (Global_address_lowering.storage prepared
+      |> Integer_globals.storage_is_callback)
+    ~lower_address ~target_type ~span ~instruction_id ~value_id
     (Semantic_result.top_level_root_value root)
 
 let lower_fragment_initializer ?lower_call ?optimize_shifts ?optimize_division
@@ -4407,6 +4953,8 @@ let lower_fragment_initializer ?lower_call ?optimize_shifts ?optimize_division
   lower_store_initializer
     ~globals:(Destination.globals destination)
     ?lower_call ?optimize_shifts ?optimize_division ~lower_address
+    ~callback:
+      (Integer_globals.storage_is_callback (Destination.storage destination))
     ~target_type:
       (Integer_globals.storage_type (Destination.storage destination))
     ~span:(Some (Destination.span destination))
@@ -4451,9 +4999,45 @@ let lower_static_initializer ~globals ?root ?lower_call ?optimize_shifts
       lower_store_initializer
         ~frame:(Integer_globals.static_frame slot)
         ~globals ?lower_call ?optimize_shifts ?optimize_division ~lower_address
+        ~callback:
+          (Integer_globals.storage_is_callback
+             (Integer_globals.static_storage slot))
         ~target_type:(Semantic_result.initializer_target_type root)
         ~span ~instruction_id ~value_id
         (Semantic_result.initializer_value root)
+
+let lower_static_fragment_initializer ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id destination =
+  let ( let* ) = Result.bind in
+  let module Destination = Static_initializer_destination in
+  let* prepared =
+    Global_address_lowering.prepare_static_fragment_initializer destination
+  in
+  let lower_address ~instruction_id ~value_id =
+    let* address =
+      Global_address_lowering.lower_prepared ~instruction_id ~value_id prepared
+    in
+    Ok
+      ( Global_address_lowering.sequence address,
+        Global_address_lowering.result_value address,
+        Global_address_lowering.next_instruction_id address,
+        Global_address_lowering.next_value_id address )
+  in
+  lower_store_initializer
+    ~globals:(Destination.globals destination)
+    ?lower_call ?optimize_shifts ?optimize_division ~lower_address
+    ~callback:
+      (Integer_globals.storage_is_callback (Destination.storage destination))
+    ~target_type:
+      (Integer_globals.storage_type (Destination.storage destination))
+    ~span:(Some (Destination.span destination))
+    ~instruction_id ~value_id
+    (Semantic_result.top_level_root_value (Destination.root destination))
+
+let lower_indirect_callee ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id call =
+  lower_callback_callee ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id (Callback_source.Function call)
 
 let result_value lowered = lowered.result_value_
 let result_type lowered = lowered.result_type_

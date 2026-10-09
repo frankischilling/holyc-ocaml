@@ -31,19 +31,22 @@ let source_inputs ~mode ~path contents =
   in
   (session, config, source)
 
-let compile_source ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
-    ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode contents =
+let compile_source ?max_global_bytes ?max_ir_instructions ?max_code_bytes
+    ?max_stack_bytes ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode
+    contents =
   let session, config, source =
     source_inputs ~mode ~path:"native-scalar-functions-test.hc" contents
   in
-  Native_program.compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
-    ?max_blocks ?max_initializer_steps ?max_default_bytes session ~config
-    ~source
+  Native_program.compile ?max_global_bytes ?max_ir_instructions ?max_code_bytes
+    ?max_stack_bytes ?max_blocks ?max_initializer_steps ?max_default_bytes
+    session ~config ~source
 
-let image ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
-    ?max_initializer_steps ?max_default_bytes ~mode contents =
-  compile_source ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
-    ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode contents
+let image ?max_global_bytes ?max_ir_instructions ?max_code_bytes
+    ?max_stack_bytes ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode
+    contents =
+  compile_source ?max_global_bytes ?max_ir_instructions ?max_code_bytes
+    ?max_stack_bytes ?max_blocks ?max_initializer_steps ?max_default_bytes ~mode
+    contents
   |> require_ok diagnostics_text
   |> fun checked -> checked.value
 
@@ -286,7 +289,8 @@ let unsupported_neighbors_stay_outside_native_gate () =
       "I64 F(I64 **p){return **p;} 42;";
       "I64 n=1;I8 G=n<<2; I64 F(){return G;} F();";
       "I64 F(){static I8 n={42};return n;} F();";
-      "I64 F(I64 n,...){return n;} F(42);";
+      "I64 F(I64 n,...){return n;} F(42,1.0);";
+      "I64 F(I64 n,...){return n;} F(42,&F);";
       "extern I64 F(I64 n); 42;";
       "U0 V(){return 42;} V();";
     ]
@@ -599,8 +603,513 @@ let automatic_array_layout () =
         ])
     modes
 
+let ordinary_calling_flags_keep_original_cleanup () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (flags, callee_pop) ->
+          let contents =
+            flags ^ " I64 Add(I64 n,I64 m){return n+m;}Add(40,2);"
+          in
+          let unit = integer_unit ~mode contents in
+          let context = integer_program_runtime_calls unit in
+          let start =
+            integer_program_entry unit |> Ir_x87_stack.graph |> Graph.blocks
+            |> List.concat_map (fun b ->
+                Graph.instructions b |> Sequence.instructions)
+            |> List.map Sequence.description
+            |> List.find (fun (d : Sequence.description) ->
+                d.opcode = Opcode.Ic_call_start)
+          in
+          let call =
+            Runtime_calls.find_start context ~owner:Runtime_calls.Entry
+              start.instruction_id
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            (flags ^ " original cleanup policy")
+            true
+            (Runtime_calls.cleanup_opcode call
+            = if callee_pop then Opcode.Ic_add_rsp1 else Opcode.Ic_add_rsp);
+          Alcotest.(check int64)
+            (flags ^ " two eight-byte argument slots")
+            16L
+            (Runtime_calls.cleanup_bytes call);
+          List.iter
+            (fun status_abi ->
+              List.iter
+                (fun (type_name, high) ->
+                  let session, config, source =
+                    source_inputs ~mode ~path:"ordinary-calling-flags.hc"
+                      (Printf.sprintf "%s %s Echo(%s n){return n;}Echo(%s);"
+                         flags type_name type_name high)
+                  in
+                  ignore
+                    (Native_program.compile ~status_abi session ~config ~source
+                    |> require_ok diagnostics_text))
+                scalar_rows;
+              let session, config, source =
+                source_inputs ~mode ~path:"ordinary-void-flags.hc"
+                  (flags ^ " U0 Done(){return;}Done();42;")
+              in
+              ignore
+                (Native_program.compile ~status_abi session ~config ~source
+                |> require_ok diagnostics_text))
+            [ Program.Windows_x64; Program.System_v_x64 ];
+          let other = integer_unit ~mode contents in
+          Program.compile_callable ~max_ir_instructions:4096
+            ~max_code_bytes:65536
+            ~runtime_calls:(integer_program_runtime_calls other)
+            ~initialization:(integer_program_initialization unit)
+            ~entry:(integer_program_entry unit)
+            ~functions:(integer_program_functions unit)
+            ()
+          |> reject_backend "ordinary flags cannot join foreign call authority")
+        [
+          ("argpop", true);
+          ("noargpop", false);
+          ("argpop noargpop", false);
+          ("noargpop argpop", false);
+          ("haserrcode", true);
+          ("haserrcode argpop", true);
+          ("haserrcode noargpop", false);
+          ("haserrcode argpop noargpop", false);
+        ];
+      List.iter
+        (fun flags ->
+          compile_source ~mode (flags ^ " I64 Add(I64 n){return n+2;}Add(40);")
+          |> reject_gate "nonordinary entry modifier remains unsupported")
+        [ "interrupt"; "interrupt haserrcode"; "public"; "static" ])
+    modes
+
+let local_callback_source_and_authority () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n);p=&Add;return \
+     p(40);}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source in
+      let other = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let compile ?(calls = integer_program_runtime_calls unit) () =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4088
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~runtime_calls:calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry:(integer_program_entry unit)
+              ~functions:(integer_program_functions unit)
+              ()
+          in
+          let baseline = compile () |> require_ok program_errors in
+          Alcotest.(check bool)
+            "native image contains a captured indirect call" true
+            (let bytes = Program.code baseline in
+             let rec find i =
+               i + 3 <= String.length bytes
+               && (String.sub bytes i 3 = "\xff\x94\x24" || find (i + 1))
+             in
+             find 0);
+          compile ~calls:(integer_program_runtime_calls other) ()
+          |> reject_backend "callback cannot borrow a foreign source graph";
+          List.iter
+            (fun kind ->
+              Alcotest.(check bool)
+                "callback fault cannot name an ordinary entry call" true
+                (Result.is_error
+                   (Program.decode_runtime_status baseline ~max_steps:100 ~kind
+                      ~site:1L ~executed_steps:1L ~value_site:0L ~bits:0L));
+              let callback_sites = ref 0 in
+              for site = 1 to Program.ir_instructions baseline do
+                match
+                  Program.decode_runtime_status baseline ~max_steps:100 ~kind
+                    ~site:(Int64.of_int site) ~executed_steps:1L ~value_site:0L
+                    ~bits:0L
+                with
+                | Ok (Program.Fault _) -> incr callback_sites
+                | _ -> ()
+              done;
+              Alcotest.(check int)
+                "only the original indirect invocation accepts callback fault \
+                 status"
+                1 !callback_sites)
+            [ 19L; 20L ])
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      List.iter
+        (fun select ->
+          let fresh = integer_unit ~mode source in
+          let cell =
+            integer_program_functions fresh
+            |> List.find_map (fun definition ->
+                let graph =
+                  Ir_function_body.x87 definition.VM.body |> Ir_x87_stack.graph
+                in
+                Graph.blocks graph
+                |> List.find_map (fun block ->
+                    let rec find = function
+                      | [] -> None
+                      | instruction :: rest as cell ->
+                          if select (Sequence.description instruction) then
+                            Some cell
+                          else find rest
+                    in
+                    find (Graph.instructions block |> Sequence.instructions)))
+            |> Option.get
+          in
+          let original = Sequence.description (List.hd cell) in
+          Obj.set_field (Obj.repr cell) 0
+            (Obj.repr { original with flags = original.flags });
+          compile_callable fresh
+          |> reject_backend
+               "physically copied callback producer has no source authority")
+        [
+          (fun d ->
+            match d.Sequence.payload with
+            | Some (Sequence.Symbol _) ->
+                d.opcode = Opcode.Ic_imm_i64 || d.opcode = Opcode.Ic_abs_addr
+            | _ -> false);
+          (fun d ->
+            d.Sequence.opcode = Opcode.Ic_deref
+            && Option.fold ~none:false
+                 ~some:(fun t ->
+                   Type.base t
+                   = Type.Primitive (Type.Internal_storage, Primitive_type.I64))
+                 d.target_type);
+          (fun d -> d.Sequence.opcode = Opcode.Ic_call_indirect);
+        ];
+      List.iter
+        (fun source ->
+          compile_source ~mode source
+          |> reject_gate "native callback ownership boundary")
+        [
+          "I64 A(){return 1;}I64 Run(){I64 (*p)();I64 n;p=&A;n=p;return \
+           n;}Run();";
+          "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)();return \
+           Read(p=123);}Run();";
+          "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)();return \
+           Read(p=0);}Run();";
+          "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p(I32);}Run();";
+          "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;I64 \
+           *q=(&p)(I64*);return 42;}Run();";
+        ];
+      ignore
+        (image ~mode
+           "I64 A(){return 1;}I64 Run(){I64 (*p)();p=&A;return p+1;}Run();");
+      ignore
+        (image ~mode
+           "I64 A(I64 n){return n;}I64 Run(){I64 (*p)(I64 n=42);p=&A;return \
+            p();}Run();");
+      let baseline = image ~mode source in
+      let ir = Program.ir_instructions baseline
+      and code = String.length (Program.code baseline)
+      and stack = Program.frame_bytes baseline
+      and blocks = Program.block_count baseline in
+      ignore
+        (image ~mode ~max_ir_instructions:ir ~max_code_bytes:code
+           ~max_stack_bytes:stack ~max_blocks:blocks source);
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "callback code one below";
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004" "callback private frame one below")
+    modes
+
+let callback_parameter_source_and_authority () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*p)(I64 n),I64 \
+     n){if(p==0)return 0;return p(n);}I64 Forward(I64 (*p)(I64 n),I64 \
+     n){return Apply(p,n);}Forward(&Add,40);"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source in
+      let other = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let compile runtime_calls =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4080
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~runtime_calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry:(integer_program_entry unit)
+              ~functions:(integer_program_functions unit)
+              ()
+          in
+          let compiled =
+            compile (integer_program_runtime_calls unit)
+            |> require_ok program_errors
+          in
+          compile (integer_program_runtime_calls other)
+          |> reject_backend
+               "callback parameters cannot borrow a foreign runtime context";
+          let comparison_sites = ref 0 in
+          for site = 1 to Program.ir_instructions compiled do
+            match
+              Program.decode_runtime_status compiled ~max_steps:100 ~kind:21L
+                ~site:(Int64.of_int site) ~executed_steps:1L ~value_site:0L
+                ~bits:0L
+            with
+            | Ok
+                (Program.Fault
+                   { kind = Program.Code_comparison_invalid_word; _ }) ->
+                incr comparison_sites
+            | Ok _ ->
+                Alcotest.fail "code comparison status decoded as another fault"
+            | Error _ -> ()
+          done;
+          Alcotest.(check int)
+            "comparison faults require the original comparison site" 1
+            !comparison_sites)
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let compiled = image ~mode source in
+      let code = String.length (Program.code compiled)
+      and stack = Program.frame_bytes compiled in
+      ignore (image ~mode ~max_code_bytes:code ~max_stack_bytes:stack source);
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "parameter code one below";
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004" "parameter owner frame one below";
+      ignore (image ~mode "I64 Run(){I64 (*p)();p=123;return p();}Run();"))
+    modes
+
+let callback_storage_source_and_authority () =
+  let source =
+    "I64 (*G)(I64 n)[2][3];I64 Add(I64 n){return n+2;}I64 Run(){static I64 \
+     (*s)(I64 n)[2];I64 (*a)(I64 \
+     n)[2];G[1][2]=&Add;s[1]=G[1][2];a[0]=s[1];return a[0](40);}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source
+      and foreign = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let compile runtime_calls functions =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4080
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~max_global_bytes:64 ~runtime_calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry:(integer_program_entry unit)
+              ~functions ()
+          in
+          let functions = integer_program_functions unit in
+          ignore
+            (compile (integer_program_runtime_calls unit) functions
+            |> require_ok program_errors);
+          compile (integer_program_runtime_calls foreign) functions
+          |> reject_backend "persistent callbacks reject a foreign call context";
+          let add = List.hd functions and run = List.nth functions 1 in
+          compile
+            (integer_program_runtime_calls unit)
+            [ add; { run with frame = Obj.obj (Obj.dup (Obj.repr run.frame)) } ]
+          |> reject_backend "static callback requires its exact original frame")
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let compiled = image ~max_global_bytes:64 ~mode source in
+      Alcotest.(check int)
+        "callback arrays charge eight logical bytes per element" 64
+        (Program.global_bytes compiled);
+      Alcotest.(check int)
+        "packed image charges object bytes, slot flags, element flags and \
+         owners"
+        208
+        (String.length (Program.global_image compiled));
+      let exported = Program.global_image compiled in
+      Bytes.set (Bytes.unsafe_of_string exported) 0 '\255';
+      Alcotest.(check int)
+        "exported callback image does not mutate sealed storage" 0
+        (Char.code (Program.global_image compiled).[0]);
+      compile_source ~max_global_bytes:63 ~mode source
+      |> reject_compile ~code:"HCBACK0001" "callback logical bytes one below";
+      compile_source
+        ~max_global_bytes:(16 * 1024 * 1024)
+        ~mode "I64 (*G)()[2097152];42;"
+      |> reject_compile ~code:"HCBACK0001"
+           "private callback metadata is bounded before allocation";
+      let code = String.length (Program.code compiled)
+      and stack = Program.frame_bytes compiled in
+      ignore (image ~mode ~max_stack_bytes:stack ~max_code_bytes:code source);
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004" "array ownership frame one below";
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "array callback code one below";
+      List.iter
+        (fun source ->
+          compile_source ~mode source
+          |> reject_gate "callback arrays retain storage authority")
+        [
+          "I64 (*G)()[2];I64 A(){return 42;}I64 Run(){I64 \
+           n;G[1]=&A;n=G[1];return n;}Run();";
+          "I64 (*G)()[2];I64 A(){return 42;}I64 Run(){G[1]=&A;return \
+           G[1];}Run();";
+          "I64 A(){return 42;}I64 Run(){I64 (*p)()[2];p[1]=&A;return \
+           p[1];}Run();";
+          "I64 Read(I64 *p){return *p;}I64 (*G)()[2];I64 Run(){return \
+           Read(G[1]=123);}Run();";
+          "I64 Read(I64 *p){return *p;}I64 (*G)()[2];I64 Run(){return \
+           Read(G[1]=0);}Run();";
+          "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)()[2];return \
+           Read(p[1]=0);}Run();";
+          "I64 Read(I64 *p){return *p;}I64 (*G)()[2];I64 Run(){return \
+           Read((&G[1])(I64*));}Run();";
+          "I64 Read(I64 *p){return *p;}I64 Run(){I64 (*p)()[2];return \
+           Read((&p[1])(I64*));}Run();";
+        ])
+    modes
+
+let indirect_callback_argument_authority () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*cb)(I64 n)){return cb(40);}I64 \
+     Unused(I64 (*cb)(I64 n)){return cb(40);}I64 Forward(I64 (*cb)(I64 n)){I64 \
+     (*p)(I64 (*x)(I64 n));p=&Apply;return p(cb);}I64 Run(){I64 (*p)(I64 \
+     (*x)(I64 n));p=&Forward;return p(&Add);}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source
+      and foreign = integer_unit ~mode source in
+      let functions = integer_program_functions unit in
+      List.iter
+        (fun abi ->
+          let compile ~runtime_calls ~entry ~functions =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4080
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~runtime_calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry ~functions ()
+          in
+          let runtime_calls = integer_program_runtime_calls unit
+          and entry = integer_program_entry unit in
+          let compiled =
+            compile ~runtime_calls ~entry ~functions
+            |> require_ok program_errors
+          in
+          Alcotest.(check int)
+            "original nested callback bodies" 5
+            (Program.function_count compiled);
+          (if abi = Program.Windows_x64 then
+             let ranges = Program.windows_unwind_functions compiled in
+             let size index =
+               let start, stop, _ = List.nth ranges index in
+               stop - start
+             in
+             Alcotest.(check bool)
+               "an unselected same-signature body receives no callback target"
+               true
+               (size 3 < size 2));
+          compile
+            ~runtime_calls:(integer_program_runtime_calls foreign)
+            ~entry ~functions
+          |> reject_backend "nested argument edges reject a foreign receipt";
+          compile ~runtime_calls
+            ~entry:(Obj.obj (Obj.dup (Obj.repr entry)))
+            ~functions
+          |> reject_backend "nested argument edges reject a copied entry";
+          let apply = List.nth functions 1 in
+          let copied =
+            { apply with frame = Obj.obj (Obj.dup (Obj.repr apply.frame)) }
+          in
+          compile ~runtime_calls ~entry
+            ~functions:
+              (List.hd functions :: copied :: List.tl (List.tl functions))
+          |> reject_backend
+               "nested argument edges reject copied parameter ownership")
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let compiled = image ~mode source in
+      let stack = Program.frame_bytes compiled
+      and code = Program.code_bytes compiled
+      and ir = Program.ir_instructions compiled
+      and blocks = Program.block_count compiled in
+      ignore
+        (image ~mode ~max_stack_bytes:stack ~max_code_bytes:code
+           ~max_ir_instructions:ir ~max_blocks:blocks source);
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004"
+           "nested private owner staging one below";
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "nested dispatch code one below";
+      compile_source ~mode ~max_ir_instructions:(ir - 1) source
+      |> reject_compile "nested original instruction budget one below";
+      compile_source ~mode ~max_blocks:(blocks - 1) source
+      |> reject_compile "nested original block budget one below";
+      List.iter
+        (fun rejected ->
+          compile_source ~mode rejected
+          |> reject_gate
+               "nested callback ownership cannot become an object reference")
+        [
+          "I64 Apply(I64 (*cb)(I64 n)){return cb(40);}I64 Run(){I64 n=42;I64 \
+           (*p)(I64 (*cb)(I64 n));p=&Apply;return p(&n);}Run();";
+          "I64 Apply(I64 (**cb)(I64 n)){return 42;}I64 Run(){I64 (*p)(I64 \
+           (**cb)(I64 n));p=&Apply;return p(0);}Run();";
+          "I64 Add(I64 n){return n+2;}I64 Apply(I64 (*cb)(I64 n),...){return \
+           42;}I64 Run(){I64 (*p)(I64 (*cb)(I64 n),...);p=&Apply;return \
+           p(&Add,&Add);}Run();";
+        ])
+    modes
+
+let callback_word_default_source_limits () =
+  let source =
+    "I64 Walk(noreg I64 (*cb)(I64 n)=17,I64 depth=2){if(depth)return \
+     Walk(,depth-1);if(cb==17)return 42;return 0;}Walk();"
+  in
+  List.iter
+    (fun mode ->
+      let compiled = image ~mode source in
+      let code = Program.code_bytes compiled
+      and stack = Program.frame_bytes compiled
+      and ir = Program.ir_instructions compiled
+      and blocks = Program.block_count compiled in
+      ignore
+        (image ~mode ~max_code_bytes:code ~max_stack_bytes:stack
+           ~max_ir_instructions:ir ~max_blocks:blocks ~max_initializer_steps:6
+           ~max_default_bytes:16 source);
+      compile_source ~mode ~max_code_bytes:(code - 1) source
+      |> reject_compile ~code:"HCBACK0005" "saved callback word code one below";
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004"
+           "saved callback word private staging one below";
+      compile_source ~mode ~max_ir_instructions:(ir - 1) source
+      |> reject_compile ~code:"HCBACK0001"
+           "saved callback word original IR one below";
+      compile_source ~mode ~max_blocks:(blocks - 1) source
+      |> reject_compile ~code:"HCBACK0001"
+           "saved callback word original blocks one below";
+      List.iter
+        (fun contents ->
+          compile_source ~mode contents
+          |> reject_gate
+               "callback word defaults retain source declarator and closed \
+                expression authority")
+        [
+          "I64 F(I64 *p=17){return 42;}F();";
+          "I64 F(I64 (**p)(I64 n)=17){return 42;}F();";
+          "I64 F(reg RAX I64 (*p)(I64 n)=17){return 42;}F();";
+          "I64 A(I64 n){return n;}I64 F(I64 (*p)(I64 n)=&A){return 42;}F();";
+          "I64 A(){return 17;}I64 F(I64 (*p)(I64 n)=A()){return 42;}F();";
+          "I64 F(I64 (*p)(I64 n)=\"A\"){return 42;}F();";
+          "I64 F(I64 (*p)(I64 n)=lastclass){return 42;}F();";
+          "I64 F(I64 (*p)(I64 n)=1.5){return 42;}F();";
+          "42;I64 F(I64 (*p)(I64 n)=17){return 42;}F();";
+        ])
+    modes
+
 let tests =
   [
+    Alcotest.test_case "callback word defaults retain source and exact budgets"
+      `Quick callback_word_default_source_limits;
+    Alcotest.test_case "indirect callback arguments retain original authority"
+      `Quick indirect_callback_argument_authority;
+    Alcotest.test_case
+      "callback storage preserves original roots and bounded metadata" `Quick
+      callback_storage_source_and_authority;
+    Alcotest.test_case
+      "callback parameters retain source, fault and budget authority" `Quick
+      callback_parameter_source_and_authority;
+    Alcotest.test_case "owned local callback source, graph and budget authority"
+      `Quick local_callback_source_and_authority;
+    Alcotest.test_case
+      "ordinary calling flags retain original cleanup authority" `Quick
+      ordinary_calling_flags_keep_original_cleanup;
     Alcotest.test_case "original automatic array dimensions and bounded layout"
       `Quick automatic_array_layout;
     Alcotest.test_case

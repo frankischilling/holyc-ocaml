@@ -119,31 +119,45 @@ type proof_fixture = {
   rejected_table : bool;
 }
 
-let selection_entry = function
-  | S.Function_return source ->
-      Option.map
-        (fun selection -> selection.Parser.entry)
-        source.function_return_selection
-  | S.Function_parameter source ->
-      Option.map
-        (fun selection -> selection.Parser.entry)
-        source.parameter_type_selection
-
 let selection_type = function
   | S.Function_return source ->
-      ( source.function_header.type_specifier,
+      ( source.Parser.function_header.type_specifier,
         source.function_pointer_layers,
         source.function_return_selection )
   | S.Function_parameter source ->
-      ( source.parameter_type_specifier,
+      ( source.Parser.parameter_type_specifier,
         source.parameter_pointer_layers,
         source.parameter_type_selection )
+  | S.Callback_return source ->
+      ( source.Parser.callback_return_type_specifier,
+        source.callback_return_pointer_layers,
+        source.callback_return_selection )
+  | S.Callback_parameter source ->
+      ( source.Parser.callback_parameter_type_specifier,
+        source.callback_parameter_pointer_layers,
+        source.callback_parameter_type_selection )
+  | S.Function_local source -> (
+      match source.Parser.allocation_local.local_source with
+      | Parser.Local_variable local ->
+          ( local.local_type_specifier,
+            local.local_pointer_layers,
+            local.local_type_selection )
+      | _ -> Alcotest.fail "expected original local type")
+  | S.Global_type source ->
+      ( source.Parser.global_header.type_specifier,
+        source.global_pointer_layers,
+        source.global_header.declaration_type_selection )
+
+let selection_entry source =
+  let _, _, selection = selection_type source in
+  Option.map (fun selection -> selection.Parser.entry) selection
 
 let publish_foreign_aggregate session ~namespace ~symbols ~path =
   let source = Session.add_source session ~path ~contents:"class C {};" in
   let publication = ref None in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = None;
@@ -173,7 +187,7 @@ let publish_foreign_aggregate session ~namespace ~symbols ~path =
   ignore (Test_parser.expect_ast parsed);
   Option.get !publication
 
-let parse_proofs ?(duplicate_before = false) source =
+let parse_proofs ?(duplicate_before = false) ?(callbacks = false) source =
   let session = Session.create () in
   let table = Session.semantic_symbols session in
   let namespace = C.create_namespace ~table () |> checked in
@@ -246,11 +260,20 @@ let parse_proofs ?(duplicate_before = false) source =
     | Parser.Function_declared source -> mint (S.Function_return source)
     | Parser.Function_parameter_declared source ->
         mint (S.Function_parameter source)
+    | Parser.Callback_signature_started source when callbacks ->
+        mint (S.Callback_return source)
+    | Parser.Callback_parameter_declared source when callbacks ->
+        mint (S.Callback_parameter source)
+    | Parser.Function_local_allocated source when callbacks ->
+        mint (S.Function_local source)
+    | Parser.Global_declared source when callbacks ->
+        mint (S.Global_type source)
     | _ -> ());
     Ok ()
   in
   let commands : Parser.command_sink =
     {
+      lexical_lookup = None;
       checkpoint = None;
       reference = None;
       call = None;
@@ -483,8 +506,185 @@ let activation_replay_reuses_retained_proof () =
           (D.selected_aggregate_for ledger parameter.parameter_type_specifier)
     | None -> false)
 
+let callback_selection_survives_shadow () =
+  let fixture =
+    parse_proofs ~callbacks:true
+      {|class C {};C (*g)();I64 Run(){C (*p)(),*(*q)();I64 (*s)(C (*n)(),C *x);return 42;}class C {I64 n;};42;|}
+  in
+  let original, shadow =
+    match fixture.aggregates with
+    | [ original; shadow ] -> (original, shadow)
+    | _ -> Alcotest.fail "expected original and shadow class"
+  in
+  Alcotest.(check bool)
+    "callback receipts captured" true
+    (List.length fixture.occurrences >= 8);
+  List.iter
+    (fun selected ->
+      let callback_metadata =
+        match selected.source with
+        | S.Callback_return _ -> true
+        | S.Callback_parameter p ->
+            Option.is_some p.callback_parameter_function_pointer
+        | S.Function_parameter p -> Option.is_some p.parameter_function_pointer
+        | S.Function_local p -> (
+            match p.allocation_local.local_source with
+            | Parser.Local_variable local ->
+                Option.is_some local.local_function_pointer
+            | _ -> false)
+        | S.Global_type p -> Option.is_some p.global_function_pointer
+        | S.Function_return _ -> false
+      in
+      let reference =
+        (if callback_metadata then S.selected_callback_return else S.selected)
+          selected.proof selected.type_specifier selected.pointer_layers
+        |> checked
+      in
+      let symbol = aggregate_symbol reference in
+      Alcotest.(check bool)
+        "metadata keeps original canonical class" true
+        (symbol == publication_aggregate_symbol original);
+      Alcotest.(check bool)
+        "shadow cannot replace callback metadata" true
+        (symbol != publication_aggregate_symbol shadow);
+      Alcotest.(check bool)
+        "expired receipt cannot mint again" true
+        (Result.is_error
+           (S.select_aggregate ~table:fixture.table ~namespace:fixture.namespace
+              ~source:selected.source selected.semantic));
+      if callback_metadata && selected.pointer_layers = [] then
+        Alcotest.(check bool)
+          "return metadata grants no aggregate layout" true
+          (Result.is_error
+             (S.selected selected.proof selected.type_specifier [])))
+    fixture.occurrences;
+  Alcotest.(check bool)
+    "foreign namespace rejected at mint" true fixture.rejected_namespace;
+  Alcotest.(check bool)
+    "foreign table rejected at mint" true fixture.rejected_table
+
+let comma_callback_pointer_children () =
+  let fixture =
+    parse_proofs ~callbacks:true
+      {|class C {};I64 Run(){C (*p)(),*(*q)();return 42;}|}
+  in
+  let pointers =
+    List.filter
+      (fun o ->
+        match o.source with
+        | S.Callback_return _ -> true
+        | _ -> false)
+      fixture.occurrences
+  in
+  let first, second =
+    match pointers with
+    | [ first; second ] -> (first, second)
+    | _ -> Alcotest.fail "expected two original callback returns"
+  in
+  Alcotest.(check bool)
+    "comma declarators share the original base type" true
+    (first.type_specifier == second.type_specifier);
+  Alcotest.(check bool)
+    "one receipt cannot borrow sibling pointer children" true
+    (Result.is_error
+       (S.selected_callback_return first.proof second.type_specifier
+          second.pointer_layers));
+  let joined = S.merge_selections first.proof second.proof |> checked in
+  List.iter
+    (fun original ->
+      ignore
+        (S.selected_callback_return joined original.type_specifier
+           original.pointer_layers
+        |> checked))
+    pointers;
+  let copied =
+    List.map
+      (fun (layer : Ast.pointer_layer) ->
+        Ast.make_pointer_layer ~depth:layer.depth ~spelling:layer.spelling
+          ~location:layer.location)
+      second.pointer_layers
+  in
+  Alcotest.(check bool)
+    "equal-looking pointer children cannot replace originals" true
+    (Result.is_error
+       (S.selected_callback_return joined second.type_specifier copied));
+  let other =
+    parse_proofs ~callbacks:true {|class C {};I64 Run(){C (*p)();return 42;}|}
+  in
+  let other =
+    List.find
+      (fun o ->
+        match o.source with
+        | S.Callback_return _ -> true
+        | _ -> false)
+      other.occurrences
+  in
+  Alcotest.(check bool)
+    "foreign source occurrence cannot join" true
+    (Result.is_error (S.merge_selections joined other.proof));
+  Alcotest.(check bool)
+    "foreign table cannot consume retained metadata" true
+    (Result.is_error
+       (S.validate_selected_aggregate ~table:fixture.table
+          ~namespace:fixture.namespace other.proof))
+
+let callback_forward_and_lookahead_identity () =
+  List.iter
+    (fun text ->
+      let fixture = parse_proofs ~callbacks:true text in
+      let original, completed, shadow =
+        match fixture.aggregates with
+        | [ original; completed; shadow ] -> (original, completed, shadow)
+        | _ -> Alcotest.fail "expected original forward, completion and shadow"
+      in
+      let original_symbol = publication_aggregate_symbol original in
+      Alcotest.(check bool)
+        "forward completion keeps its canonical class" true
+        (original_symbol == publication_aggregate_symbol completed);
+      List.iter
+        (fun occurrence ->
+          match occurrence.source with
+          | S.Callback_return _ ->
+              let symbol =
+                S.selected_callback_return occurrence.proof
+                  occurrence.type_specifier occurrence.pointer_layers
+                |> checked |> aggregate_symbol
+              in
+              Alcotest.(check bool)
+                "callback retains the token-selected class" true
+                (symbol == original_symbol);
+              Alcotest.(check bool)
+                "later shadow cannot replace callback class" true
+                (symbol != publication_aggregate_symbol shadow);
+              let copied_type =
+                match occurrence.type_specifier with
+                | Ast.Named_type_specifier identifier ->
+                    Ast.Named_type_specifier
+                      (Ast.make_identifier ~spelling:identifier.spelling
+                         ~location:identifier.location)
+                | _ -> Alcotest.fail "expected callback class"
+              in
+              Alcotest.(check bool)
+                "copied callback type cannot consume proof" true
+                (Result.is_error
+                   (S.selected_callback_return occurrence.proof copied_type
+                      occurrence.pointer_layers))
+          | _ -> ())
+        fixture.occurrences)
+    [
+      {|extern class C;C (*g)();class C {};class C {U8 x;};42;|};
+      {|extern class C;class C {};I64 Run(C (*p)()=42)#exe {class C {U8 x;};}{return p;}42;|};
+    ]
+
 let tests =
   [
+    Alcotest.test_case "callback metadata retains original class selection"
+      `Quick callback_selection_survives_shadow;
+    Alcotest.test_case "comma callback returns retain original pointer children"
+      `Quick comma_callback_pointer_children;
+    Alcotest.test_case
+      "callback forward and lookahead selections retain identity" `Quick
+      callback_forward_and_lookahead_identity;
     Alcotest.test_case "public source aggregate pointer frames" `Quick
       source_execution;
     Alcotest.test_case "word argument cannot become aggregate pointer" `Quick

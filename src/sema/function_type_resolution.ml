@@ -14,6 +14,7 @@ type parameter_default =
 type declarator_kind = Object | Function_pointer of function_pointer
 
 and function_pointer = {
+  pointer_source : Frontend.Ast.function_pointer_declarator option;
   pointer_origin : Symbol.origin;
   pointer_opening_origin : Symbol.origin;
   pointer_indirection_origins : Symbol.origin list;
@@ -143,6 +144,10 @@ let function_pointer_opening_origin pointer = pointer.pointer_opening_origin
 
 let function_pointer_indirection_origins pointer =
   pointer.pointer_indirection_origins
+
+let function_pointer_storage_type pointer =
+  Type.make_primitive ~form:Type.Internal_storage ~primitive:Primitive_type.I64
+    ~pointer_depth:(List.length pointer.pointer_indirection_origins)
 
 let function_pointer_closing_origin pointer = pointer.pointer_closing_origin
 let function_pointer_signature pointer = pointer.pointer_signature
@@ -309,12 +314,34 @@ let make_function_pointer ~origin ~opening_origin ~indirection_origins
   else
     Ok
       {
+        pointer_source = None;
         pointer_origin = origin;
         pointer_opening_origin = opening_origin;
         pointer_indirection_origins = indirection_origins;
         pointer_closing_origin = closing_origin;
         pointer_signature = signature;
       }
+
+let function_pointer_source pointer = pointer.pointer_source
+
+let make_source_function_pointer ~source ~origin ~opening_origin
+    ~indirection_origins ~closing_origin ~signature =
+  let parameters = signature.signature_parameters_ in
+  if
+    List.length parameters
+    <> List.length source.Frontend.Ast.signature_parameters
+    || not
+         (List.for_all2
+            (fun parameter ast ->
+              Option.fold ~none:false ~some:(( == ) ast)
+                parameter.parameter_source_)
+            parameters source.signature_parameters)
+  then Error "callback source signature has another original parameter list"
+  else
+    Result.map
+      (fun pointer -> { pointer with pointer_source = Some source })
+      (make_function_pointer ~origin ~opening_origin ~indirection_origins
+         ~closing_origin ~signature)
 
 let make_signature ~opening_origin ~parameters ?variadic_origin
     ?(variadic_register_requests = []) ?closing_origin () =
@@ -896,8 +923,8 @@ let source_registers_match sources requests =
          | _ -> false)
        sources requests
 
-let source_type_reference ?owner ~selected_aggregate type_specifier
-    pointer_layers =
+let source_type_reference ?owner ?(callback_metadata = false)
+    ~selected_aggregate type_specifier pointer_layers =
   let ( let* ) = Result.bind in
   match type_specifier with
   | Frontend.Ast.Primitive_type_specifier _
@@ -913,15 +940,18 @@ let source_type_reference ?owner ~selected_aggregate type_specifier
                 Source_type_reference.validate_selected_aggregate ~table
                   ~namespace proof
           in
-          Source_type_reference.selected proof type_specifier pointer_layers
+          (if callback_metadata then
+             Source_type_reference.selected_callback_return
+           else Source_type_reference.selected)
+            proof type_specifier pointer_layers
       | None -> Error "named source type lacks its retained aggregate selection"
       )
 
-let source_type_matches ?owner ~selected_aggregate type_specifier pointer_layers
-    reference =
+let source_type_matches ?owner ?callback_metadata ~selected_aggregate
+    type_specifier pointer_layers reference =
   match
-    source_type_reference ?owner ~selected_aggregate type_specifier
-      pointer_layers
+    source_type_reference ?owner ?callback_metadata ~selected_aggregate
+      type_specifier pointer_layers
   with
   | Error _ -> false
   | Ok expected -> same_type_reference expected reference
@@ -946,8 +976,9 @@ let rec source_signature_matches ?owner ~selected_aggregate ~opening ~parameters
        (fun (source : Frontend.Ast.function_parameter) parameter ->
          Option.fold ~none:false ~some:(( == ) source)
            (parameter_source parameter)
-         && source_type_matches ?owner ~selected_aggregate source.type_specifier
-              source.pointer_layers
+         && source_type_matches ?owner
+              ~callback_metadata:(Option.is_some source.function_pointer)
+              ~selected_aggregate source.type_specifier source.pointer_layers
               (parameter_type_reference parameter)
          && source_registers_match source.register_qualifiers
               (parameter_register_requests parameter)
@@ -962,8 +993,10 @@ let rec source_signature_matches ?owner ~selected_aggregate ~opening ~parameters
          with
          | None, Object -> true
          | Some source, Function_pointer pointer ->
-             function_pointer_origin pointer
-             = source_location source.function_pointer_location
+             Option.fold ~none:false ~some:(( == ) source)
+               (function_pointer_source pointer)
+             && function_pointer_origin pointer
+                = source_location source.function_pointer_location
              && function_pointer_opening_origin pointer
                 = source_location source.declarator_opening_parenthesis
              && function_pointer_closing_origin pointer
@@ -983,6 +1016,37 @@ let rec source_signature_matches ?owner ~selected_aggregate ~opening ~parameters
        parameters
        (signature_parameters signature)
 
+let validate_source_callback_types ~table ~namespace
+    ?(selected_aggregate : selected_aggregate_resolver = fun _ -> None) pointer
+    =
+  match function_pointer_source pointer with
+  | None -> Error "retained callback typing requires its original source child"
+  | Some source ->
+      if
+        (not (Declaration_collection.namespace_owns_table namespace table))
+        || function_pointer_origin pointer
+           <> source_location source.function_pointer_location
+        || function_pointer_opening_origin pointer
+           <> source_location source.declarator_opening_parenthesis
+        || function_pointer_closing_origin pointer
+           <> source_location source.declarator_closing_parenthesis
+        || function_pointer_indirection_origins pointer
+           <> List.map
+                (fun (layer : Frontend.Ast.pointer_layer) ->
+                  source_location layer.location)
+                source.indirection_layers
+        || not
+             (source_signature_matches ~owner:(table, namespace)
+                ~selected_aggregate
+                ~opening:source.signature_opening_parenthesis
+                ~parameters:source.signature_parameters
+                ~variadic:source.signature_variadic
+                ~closing:source.signature_closing_parenthesis
+                (function_pointer_signature pointer))
+      then
+        Error "retained callback metadata differs from its original signature"
+      else Ok ()
+
 let validate_provisional_source_types ?table ?namespace
     ?(selected_aggregate : selected_aggregate_resolver = fun _ -> None) shape =
   let module A = Frontend.Ast in
@@ -995,10 +1059,11 @@ let validate_provisional_source_types ?table ?namespace
         Error
           "provisional source type ownership requires both table and namespace"
   in
-  let type_source type_specifier pointers =
+  let type_source ?callback_metadata type_specifier pointers =
     Result.map
       (fun _ -> ())
-      (source_type_reference ?owner ~selected_aggregate type_specifier pointers)
+      (source_type_reference ?owner ?callback_metadata ~selected_aggregate
+         type_specifier pointers)
   in
   let rec callback = function
     | None -> Ok ()
@@ -1007,7 +1072,9 @@ let validate_provisional_source_types ?table ?namespace
           (fun result (parameter : A.function_parameter) ->
             let* () = result in
             let* () =
-              type_source parameter.type_specifier parameter.pointer_layers
+              type_source
+                ~callback_metadata:(Option.is_some parameter.function_pointer)
+                parameter.type_specifier parameter.pointer_layers
             in
             callback parameter.function_pointer)
           (Ok ()) pointer.signature_parameters
@@ -1023,8 +1090,9 @@ let validate_provisional_source_types ?table ?namespace
       let* () = result in
       let source = Provisional_function.member_source member in
       let* () =
-        type_source source.parameter_type_specifier
-          source.parameter_pointer_layers
+        type_source
+          ~callback_metadata:(Option.is_some source.parameter_function_pointer)
+          source.parameter_type_specifier source.parameter_pointer_layers
       in
       callback source.parameter_function_pointer)
     (Ok ())

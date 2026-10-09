@@ -1,0 +1,387 @@
+open Yojson.Safe.Util
+module Cases = Compiler_exception_cases
+
+let read path =
+  let channel = open_in_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr channel)
+    (fun () -> really_input_string channel (in_channel_length channel))
+
+let temporary suffix contents action =
+  let path = Filename.temp_file "holyc-compiler-exceptions-" suffix in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      let channel = open_out_bin path in
+      output_string channel contents;
+      close_out channel;
+      action path)
+
+let hex text =
+  String.to_seq text |> List.of_seq
+  |> List.map (fun c -> Printf.sprintf "%02x" (Char.code c))
+  |> String.concat ""
+
+let invoke compiler target mode ?(with_headers = true) ?(options = []) ~status
+    label contents =
+  temporary ".HC"
+    ((if with_headers && mode = "jit" then Cases.headers else "") ^ contents)
+    (fun source ->
+      temporary ".out" "" (fun stdout ->
+          temporary ".err" "" (fun stderr ->
+              let out_fd =
+                Unix.openfile stdout [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600
+              in
+              let err_fd =
+                Unix.openfile stderr [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600
+              in
+              let args =
+                Array.of_list
+                  ([
+                     compiler;
+                     "run";
+                     "--format=json";
+                     "--mode=" ^ mode;
+                     "--target=" ^ target;
+                     "--code-byte-limit=1048576";
+                   ]
+                  @ options @ [ source ])
+              in
+              let pid =
+                Fun.protect
+                  ~finally:(fun () ->
+                    Unix.close out_fd;
+                    Unix.close err_fd)
+                  (fun () ->
+                    Unix.create_process compiler args Unix.stdin out_fd err_fd)
+              in
+              let _, actual = Unix.waitpid [] pid in
+              let text = read stdout in
+              if actual <> Unix.WEXITED status || read stderr <> "" then
+                failwith (label ^ text ^ read stderr);
+              Yojson.Safe.from_string text)))
+
+let errors report =
+  report |> member "diagnostics" |> to_list
+  |> List.filter (fun d -> d |> member "severity" |> to_string = "error")
+
+let caught_value target label output report =
+  if
+    report |> member "outcome" |> to_string <> "success"
+    || report |> member "final_value" |> member "value" |> to_string <> "42"
+    || report |> member "output_hex" |> to_string <> hex output
+    || errors report <> []
+  then failwith (label ^ ": " ^ Yojson.Safe.to_string report);
+  if
+    target = "host-jit-task"
+    && (report |> member "arithmetic" |> to_string <> "runtime-native"
+       || not
+            (List.for_all
+               (fun fragment ->
+                 fragment |> member "outcome" |> to_string = "success")
+               (report |> member "native" |> member "fragments" |> to_list)))
+  then failwith (label ^ " did not complete its original native fragments")
+
+let () =
+  let compiler = Sys.argv.(1) in
+  let target =
+    if Array.exists (( = ) "--native") Sys.argv then "host-jit-task" else "ir"
+  in
+  let uncaught = ref 0 and caught = ref 0 and quota_edges = ref 0 in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, output) ->
+          let report = invoke compiler target mode ~status:1 label text in
+          if
+            List.filter_map
+              (fun d ->
+                let code = d |> member "code" |> to_string in
+                if code = "HCRUN0004" then None else Some code)
+              (errors report)
+            <> [ "HCPARSE0168" ]
+          then
+            failwith
+              (label ^ " original return error changed: "
+              ^ Yojson.Safe.to_string report);
+          if report |> member "output_hex" |> to_string <> hex output then
+            failwith (label ^ " reached output changed");
+          incr uncaught)
+        Cases.failures;
+      List.iter
+        (fun (label, text, output, _) ->
+          let report = invoke compiler target mode ~status:0 label text in
+          caught_value target label output report;
+          incr caught;
+          if label = "parent initializer" then (
+            let steps = report |> member "executed_steps" |> to_int in
+            let work = report |> member "output_work" |> to_int in
+            let bytes = report |> member "output_byte_length" |> to_int in
+            let exact =
+              invoke compiler target mode ~status:0 label text
+                ~options:
+                  [
+                    "--step-limit=" ^ string_of_int steps;
+                    "--output-work-limit=" ^ string_of_int work;
+                    "--output-byte-limit=" ^ string_of_int bytes;
+                  ]
+            in
+            caught_value target label output exact;
+            if
+              member "executed_steps" exact <> member "executed_steps" report
+              || member "output_work" exact <> member "output_work" report
+            then
+              failwith
+                "caught child changed its cumulative charges at exact limits";
+            incr quota_edges;
+            List.iter
+              (fun (option, code) ->
+                let rejected =
+                  invoke compiler target mode ~status:1 label text
+                    ~options:[ option ]
+                in
+                if
+                  not
+                    (List.exists
+                       (fun d -> d |> member "code" |> to_string = code)
+                       (errors rejected))
+                then
+                  failwith
+                    ("caught child quota disappeared: "
+                    ^ Yojson.Safe.to_string rejected);
+                incr quota_edges)
+              [
+                ("--step-limit=" ^ string_of_int (steps - 1), "HCIRVM0007");
+                ("--output-work-limit=" ^ string_of_int (work - 1), "HCIRVM0023");
+                ( "--output-byte-limit=" ^ string_of_int (bytes - 1),
+                  "HCIRVM0022" );
+              ]))
+        Cases.caught_children)
+    [ "jit"; "aot" ];
+  Printf.printf "%d uncaught Compiler return CLI cases passed (%s).\n" !uncaught
+    target;
+  Printf.printf "%d caught Compiler child CLI cases passed (%s).\n" !caught
+    target;
+  Printf.printf "%d caught child quota edges passed (%s).\n" !quota_edges target;
+  let statement_cases = ref 0 in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, code, _, output) ->
+          let report = invoke compiler target mode ~status:1 label text in
+          let codes =
+            List.filter_map
+              (fun diagnostic ->
+                let code = diagnostic |> member "code" |> to_string in
+                if code = "HCRUN0004" then None else Some code)
+              (errors report)
+          in
+          if
+            codes <> [ code ]
+            || report |> member "output_hex" |> to_string <> hex output
+          then failwith (label ^ ": " ^ Yojson.Safe.to_string report);
+          incr statement_cases)
+        Cases.statement_failures;
+      List.iter
+        (fun (label, text, _, _, output) ->
+          let report = invoke compiler target mode ~status:0 label text in
+          caught_value target label output report;
+          incr statement_cases)
+        Cases.statement_caught_children)
+    [ "jit"; "aot" ];
+  Printf.printf "%d original statement Compiler CLI cases passed (%s).\n"
+    !statement_cases target;
+  let call_cases = ref 0 in
+  List.iter
+    (fun (label, text, code, _) ->
+      let report =
+        invoke compiler target "jit" ~with_headers:false ~status:1 label text
+      in
+      let codes =
+        List.filter_map
+          (fun diagnostic ->
+            let code = diagnostic |> member "code" |> to_string in
+            if code = "HCRUN0004" then None else Some code)
+          (errors report)
+      in
+      if
+        codes
+        <>
+        if Cases.call_error_count code = 2 then [ code; "HCPARSE0173" ]
+        else [ code ]
+      then failwith (label ^ ": " ^ Yojson.Safe.to_string report);
+      incr call_cases)
+    Cases.call_failures;
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, with_headers, text, _, _, output) ->
+          let report =
+            invoke compiler target mode ~with_headers ~status:0 label text
+          in
+          caught_value target label output report;
+          incr call_cases)
+        Cases.call_caught_children)
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, output) ->
+          let report =
+            invoke compiler target mode ~with_headers:false ~status:0 label text
+          in
+          caught_value target label output report;
+          incr call_cases)
+        Cases.call_successes)
+    [ "jit"; "aot" ];
+  Printf.printf "%d original call Compiler CLI cases passed (%s).\n" !call_cases
+    target;
+  let expression_cases = ref 0 in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, code, _) ->
+          let report = invoke compiler target mode ~status:1 label text in
+          let codes =
+            List.filter_map
+              (fun diagnostic ->
+                let code = diagnostic |> member "code" |> to_string in
+                if code = "HCRUN0004" then None else Some code)
+              (errors report)
+          in
+          let expected =
+            match
+              if target = "host-jit-task" && mode = "aot" then
+                Cases.expression_native_aot_earlier_error label
+              else None
+            with
+            | None -> [ code; "HCPARSE0173" ]
+            | Some earlier_code -> [ earlier_code ]
+          in
+          if codes <> expected then
+            failwith (label ^ ": " ^ Yojson.Safe.to_string report);
+          incr expression_cases)
+        Cases.expression_failures;
+      List.iter
+        (fun (label, text, _, _, output) ->
+          let report = invoke compiler target mode ~status:0 label text in
+          caught_value target label output report;
+          incr expression_cases)
+        Cases.expression_caught_children;
+      List.iter
+        (fun (label, text, _) ->
+          let report = invoke compiler target mode ~status:0 label text in
+          caught_value target label "" report;
+          incr expression_cases)
+        Cases.expression_successes;
+      let public_cast =
+        invoke compiler target mode
+          ~status:(if target = "ir" then 0 else 1)
+          "public postfix cast" Cases.expression_public_postfix_cast
+      in
+      if target = "ir" then
+        caught_value target "public postfix cast" "" public_cast
+      else if
+        (not
+           (List.exists
+              (fun d -> d |> member "code" |> to_string = "HCBACK0002")
+              (errors public_cast)))
+        || List.exists
+             (fun d -> d |> member "code" |> to_string = "HCPARSE0173")
+             (errors public_cast)
+      then
+        failwith
+          ("public postfix cast boundary: " ^ Yojson.Safe.to_string public_cast);
+      incr expression_cases;
+      List.iter
+        (fun (label, text) ->
+          let report = invoke compiler target mode ~status:1 label text in
+          if
+            List.exists
+              (fun diagnostic ->
+                diagnostic |> member "code" |> to_string = "HCPARSE0173")
+              (errors report)
+          then failwith (label ^ " forged expression cleanup");
+          incr expression_cases)
+        (Cases.expression_noncompiler_failures
+        @ if mode = "aot" then Cases.expression_aot_noncompiler_failures else []
+        );
+      List.iter
+        (fun (label, text) ->
+          let report = invoke compiler target mode ~status:1 label text in
+          if
+            report |> member "output_hex" |> to_string <> hex "kept"
+            || List.exists
+                 (fun d ->
+                   let code = d |> member "code" |> to_string in
+                   code = "HCPARSE0173")
+                 (errors report)
+          then failwith (label ^ " unaudited child was caught");
+          incr expression_cases)
+        Cases.expression_uncaught_children;
+      let nested =
+        invoke compiler target mode ~status:1 "nested directive cleanup"
+          Cases.expression_nested_directive
+      in
+      let codes =
+        List.filter_map
+          (fun d ->
+            let code = d |> member "code" |> to_string in
+            if code = "HCRUN0004" then None else Some code)
+          (errors nested)
+      in
+      if codes <> [ "HCPARSE0018"; "HCPARSE0173"; "HCPARSE0173" ] then
+        failwith ("nested cleanup: " ^ Yojson.Safe.to_string nested);
+      let reached =
+        invoke compiler target mode ~status:1 "group close after directive"
+          Cases.expression_reached_group_directive
+      in
+      if
+        reached |> member "output_hex" |> to_string <> hex "reached"
+        || List.filter_map
+             (fun d ->
+               let code = d |> member "code" |> to_string in
+               if code = "HCRUN0004" then None else Some code)
+             (errors reached)
+           <> [ "HCPARSE0019"; "HCPARSE0173" ]
+      then failwith ("reached group directive: " ^ Yojson.Safe.to_string reached);
+      let caught =
+        invoke compiler target mode ~status:0 "caught nested directive cleanup"
+          Cases.expression_caught_nested_directive
+      in
+      caught_value target "caught nested directive cleanup" "keptafter" caught;
+      expression_cases := !expression_cases + 3;
+      let report =
+        invoke compiler target mode ~status:0 "successive expression catches"
+          Cases.expression_successive_catches
+      in
+      caught_value target "successive expression catches" "abafter" report;
+      let report =
+        invoke compiler target mode ~status:1 "runtime after expression catch"
+          Cases.expression_fault_after_catch
+      in
+      if
+        report |> member "output_hex" |> to_string <> hex "kept"
+        || List.exists
+             (fun d -> d |> member "code" |> to_string = "HCPARSE0173")
+             (errors report)
+      then
+        failwith ("later runtime fault changed: " ^ Yojson.Safe.to_string report);
+      List.iter
+        (fun (limit, output) ->
+          let report =
+            invoke compiler target mode ~status:1 "expression catch quota"
+              ~options:[ "--output-byte-limit=" ^ string_of_int limit ]
+              Cases.expression_quota_after_catch
+          in
+          if
+            report |> member "output_hex" |> to_string <> hex output
+            || List.exists
+                 (fun d -> d |> member "code" |> to_string = "HCPARSE0173")
+                 (errors report)
+          then failwith ("quota forged cleanup: " ^ Yojson.Safe.to_string report))
+        [ (3, ""); (4, "kept") ];
+      expression_cases := !expression_cases + 4)
+    [ "jit"; "aot" ];
+  Printf.printf "%d expression cleanup CLI cases passed (%s).\n"
+    !expression_cases target

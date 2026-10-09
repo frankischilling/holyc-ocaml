@@ -36,6 +36,10 @@ type instruction =
       (** Materialize an address in the bounded fixed RSP-relative private
           frame. This uses the same checked slot and disp32 SIB shape as stack
           loads. *)
+  | Address_code_relative of register * int64
+      (** Materialize RIP plus a signed disp32 from the instruction end. Image
+          layout must resolve the displacement from an owned code label. The
+          encoder validates shape and range, not executable target authority. *)
   | Alloc_stack of stack_frame
   | Free_stack of stack_frame
   | Push_rbp
@@ -89,6 +93,11 @@ type instruction =
   | Call of int64
       (** Direct CALL with a signed rel32 displacement from the instruction end.
       *)
+  | Call_stack of stack_slot
+      (** Indirect CALL through a checked fixed RSP-relative slot. The target
+          uses the pinned CALL RM64 form without REX.W. This shape alone grants
+          no executable authority; the caller must validate its captured owner.
+      *)
   | Pop_rbp  (** Restore the caller's RBP immediately before returning. *)
   | Unary of unary * register
   | Binary of binary * register * register
@@ -107,6 +116,10 @@ type instruction =
       (** Copy the ABI's first pointer argument into private R11. Windows x64
           reads RCX; System V x86-64 reads RDI. RDI is not a general allocator
           register. *)
+  | Source_arguments of status_abi
+  | Compiler_option_arguments of status_abi
+      (** Copy the private R11 context into the host's first pointer argument
+          for the authenticated synchronous source callback. *)
   | Zero_edx
       (** Clear EDX with XOR EDX,EDX, which also clears the full RDX value. *)
   | Cqo  (** Sign-extend RAX into RDX:RAX before signed division. *)
@@ -135,14 +148,18 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 104. Offsets 72 and 80 are immutable arena and
-          output pointers. Output counters occupy offsets 88, 96 and 104. *)
+          from zero through 176. Arena, output, generation, temporary-buffer and
+          source callback pointers and generation activity are immutable. Output
+          counters occupy offsets 88, 96 and 104; generation counters occupy 120
+          and 128. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
-          from zero through 64, or at output counter offsets 88, 96 and 104. *)
+          from zero through 64, or at counter offsets 88, 96, 104, 120, 128 and
+          the formatted-source length at 160. *)
   | Store_context_imm of int * int
       (** Store a sign-extended imm32 qword to the private R11 context at an
-          aligned byte offset from zero through 64, or 88, 96 and 104. *)
+          aligned byte offset from zero through 64, or 88, 96, 104, 120, 128 and
+          160. *)
   | Dec of register
       (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register
@@ -211,12 +228,12 @@ val size : instruction -> int
     use a seven-byte RBP+disp32 form. Narrow frame loads/stores are seven or
     eight bytes depending on width/prefix requirements. Callable allocation/free
     uses a seven-byte imm32 RSP form. Direct CALL and branches use fixed rel32
-    forms; status/context immediate stores are always eight bytes. Private
-    context register loads/stores use fixed disp8 forms. Context loads admit the
-    immutable pointer words at offsets 72 and 80; stores admit the original
-    offsets through 64 and output counters at 88, 96 and 104. Arena qword/narrow
-    accesses use fixed R9+disp32 forms. Invalid immediate, branch or
-    private-context operands raise [Invalid_argument]. *)
+    forms. Private context accesses use disp8 through offset 120 and disp32 for
+    later generation fields; immediate stores have the corresponding eight or
+    eleven-byte size. Context pointer and activity words are immutable; stores
+    admit the original offsets through 64 and counters at 88, 96, 104, 120, 128
+    and 160. Arena qword/narrow accesses use fixed R9+disp32 forms. Invalid
+    immediate, branch or private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)

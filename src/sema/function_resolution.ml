@@ -332,7 +332,9 @@ let make_source_declaration_with_options ~table ~declarations ~module_
   let scope = H.function_scope function_ in
   let parent = Declaration_collection.scope declarations in
   let return_type = H.function_return_type function_ in
-  let source_item = List.nth_opt module_.Frontend.Ast.items item_index in
+  let source_item =
+    List.assoc_opt item_index (Frontend.Ast.declaration_items module_)
+  in
   let matching_entries =
     Declaration_collection.entries declarations
     |> List.filter (fun entry ->
@@ -574,10 +576,25 @@ let make_provisional_advance ?pending ~compiler_option_mask ~table ~namespace
       match pending with
       | Some pending ->
           let* () = validate_phase_source ~pending ~current snapshot in
+          let* () =
+            if pending.site.compiler_option_mask = compiler_option_mask then
+              Ok ()
+            else
+              let context =
+                (Function_record_phase.source snapshot).function_header
+                  .declaration_command
+                  .command_context
+              in
+              match Frontend.Parser.context_compiler_options context with
+              | Ok actual when actual = compiler_option_mask -> Ok ()
+              | _ ->
+                  Error
+                    "changed function options require the original live \
+                     compiler control"
+          in
           if
-            pending.site.compiler_option_mask <> compiler_option_mask
-            || Function_type_resolution.function_scope function_
-               != Function_type_resolution.function_scope pending.site.function_
+            Function_type_resolution.function_scope function_
+            != Function_type_resolution.function_scope pending.site.function_
           then
             Error "function phase must retain original options and source scope"
           else Ok ()
@@ -627,8 +644,7 @@ let make_header_advance ~table ~namespace ~pending ~current ~transition ~source
   else
     let* declaration =
       make_pending_declaration ~table ~namespace
-        ~compiler_option_mask:pending.site.compiler_option_mask ~source
-        ~function_
+        ~compiler_option_mask:header.header_compiler_options ~source ~function_
     in
     Ok
       {

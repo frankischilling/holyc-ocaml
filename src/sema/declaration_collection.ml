@@ -320,6 +320,16 @@ let publish_aggregate namespace (source : Frontend.Parser.aggregate_publication)
           publication :: namespace.source_aggregates;
         publication)
 
+let current_aggregate_publication namespace publication =
+  if not (namespace_owns_publication namespace publication) then None
+  else
+    Option.bind publication.aggregate_identity (fun identity ->
+        List.find_opt
+          (fun candidate ->
+            Option.fold ~none:false ~some:(( == ) identity)
+              candidate.aggregate_identity)
+          namespace.source_aggregates)
+
 let view (namespace : namespace) publications =
   let rec validate previous seen entries_rev = function
     | [] -> Ok { scope = namespace.scope; entries = List.rev entries_rev }

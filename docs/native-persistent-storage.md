@@ -72,10 +72,10 @@ extent; the following address is one-past and cannot be read or written. Pointer
 returns, persistent pointer variables, unrelated pointee conversions and general
 pointer arithmetic remain separate compiler work.
 
-Literal reference records live in the arena. They do not consume one automatic
-frame record per literal byte. An element or one-past offset selects a stable
-32-byte record, so reusing a literal producer cannot retarget an earlier alias.
-Literal bytes are fully initialized and do not need per-element unknown flags.
+Each literal has one stable 32-byte arena descriptor for its first byte.
+Derived offsets use private snapshots, and storing an alias copies the fields.
+Reusing a producer cannot retarget a saved alias. Literal bytes are fully
+initialized and do not need unknown-byte flags.
 
 ## Limits and reports
 
@@ -86,11 +86,12 @@ to 1,048,576 and accepts positive values through 16,777,216. Unused declarations
 and unreachable original literal producers still consume their storage quota.
 
 Private metadata is separate from both data counts. Scalar objects retain their
-one-byte initialization flags. Arrays retain the object-prefix position and add
-one eight-byte initialization slot per element. Literal regions add one 32-byte
-reference record per byte plus one for one-past. The complete arena is capped at
+eight-byte initialization regions. Arrays retain the object-prefix position and add
+one eight-byte slot per original element; each object's byte flags are packed
+within its complete region. Literal regions add one 32-byte
+descriptor per producer. The complete arena is capped at
 33,554,432 bytes; layouts check this bound before expanding flags or records.
-Array references materialized by a function still count their canonical tables
+Array references materialized by a function still count their snapshot homes
 against that function's physical-frame quota.
 
 The public executor checks the logical data limits and the exact sum of global,
@@ -122,8 +123,14 @@ bridge inputs before native entry. These are hosted tests; they do not add a
 TempleOS execution capture.
 
 Automatic array initializers, runtime-dependent extents, pointer or aggregate
-elements, effectful initializer scheduling and retained task storage remain
-outside this native path. A native `Print` provider is separate runtime work,
+elements, effectful JIT initializer execution and source-task storage/linking remain
+outside this native path. AOT integer and callback load regions are covered by
+[global initializers](global-callback-initializers.md). A native `Print` provider is separate runtime work,
 so the interpreter's broader `integer-persistent-arrays.hc` example is not a
 native acceptance claim. Full ABI behavior, object/BIN emission, actual loader
 acceptance and bootstrap remain open compiler requirements.
+
+[Retained native images](native-retained-images.md) keep one original image's
+arena and executable owners across activations, including reached writes before
+faults. This host lifetime API is a foundation for the remaining source-task
+consumer; the ordinary single-program executor keeps its fresh-image behavior.
