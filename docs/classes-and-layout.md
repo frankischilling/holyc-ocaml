@@ -3,8 +3,11 @@
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) now connect
 nonempty, completed earlier class and union layouts to isolated IR and native
 frame storage. Explicit integer views share packed bytes, union overlap,
-padding, initialization and bounds. Ordinary member projection, inherited
-storage, retained JIT imports, aggregate arrays and copies remain unfinished.
+padding, initialization and bounds. [Owned aggregate members](aggregate-members.md)
+add direct and pointer integer fields, nested fields, member arrays and class
+pointer locals and parameters. Inherited storage, retained JIT imports,
+standalone aggregate arrays, persistent objects, whole-object values and copies,
+pointer fields and pointer returns remain unfinished.
 
 All compatibility findings in this document use TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
@@ -98,6 +101,6 @@ The command does not print a partial report. A parser failure uses the ordinary 
 
 `test/test_aggregate_layout.ml` covers packed fields, base prefixes, named and nested union overlap, multidimensional arrays, pointer and callback storage, zero-sized fields, empty first dimensions, explicit alignment, negative offsets, the complete closed operator set, eager Boolean values, stable typed failures, JIT/AOT agreement, and deterministic repeat evaluation. These are source-level calculations against the pinned parser routines. They do not yet constitute a native metadata or generated-code oracle.
 
-`test/test_aggregate_member_index.ml` covers direct and missing lookups, anonymous-union paths, one-level and chained inheritance, absolute inherited offsets, direct and inherited duplicate rejection, the three exact duplicate exceptions, first-in-source selection, stable type and layout facts, invalid and cross-session inputs, pure failures, both compilation modes, and deterministic repeated indexing. `test/test_function_call_expression_result.ml` and `test/test_top_level_expression_result.ml` consume that index for function and executable-module member paths, including inheritance, arrays, callbacks, backing classes, lvalues, invalid access shapes, generated provenance, and JIT/AOT agreement. Expression use counting, runtime address calculation, and native field access still need later fixtures.
+`test/test_aggregate_member_index.ml` covers direct and missing lookups, anonymous-union paths, one-level and chained inheritance, absolute inherited offsets, direct and inherited duplicate rejection, the three exact duplicate exceptions, first-in-source selection, stable type and layout facts, invalid and cross-session inputs, pure failures, both compilation modes, and deterministic repeated indexing. `test/test_function_call_expression_result.ml` and `test/test_top_level_expression_result.ml` consume that index for function and executable-module member paths, including inheritance, arrays, callbacks, backing classes, lvalues, invalid access shapes, generated provenance, and JIT/AOT agreement. The separate [owned member fixtures](aggregate-members.md) check runtime address calculation and native integer field access over completed earlier automatic layouts. Original expression use counting and the broader aggregate execution domains remain unfinished.
 
 `test/test_aggregate_layout_dump.ml` checks source-order human and JSON rendering, bases, anonymous unions, multidimensional arrays, callbacks, named unions, negative offsets, values larger than 32 bits, generated-source ancestry, empty input, repeated rendering, and JIT/AOT agreement. CLI goldens cover both output formats plus parser and semantic failures, including the requirement that failed commands leave stdout empty.

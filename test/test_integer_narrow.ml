@@ -568,8 +568,11 @@ let unsupported_domains () =
           "F64 N=42;N;";
           "I64 F(){I8 *p=\"42\";return p[0];}F();";
           "I64 F(){I16 n=42;U16 *p=&n;return *p;}F();";
-          "class C{I8 n;};I64 F(){C c;c.n=42;return c.n;}F();";
+          "class C{I8 n;};I64 F(){C a,b=a;return 42;}F();";
         ];
+      ignore
+        (G.run ~mode "class C{I8 n;};I64 F(){C c;c.n=42;return c.n;}F();"
+        |> F.expect 42L);
       List.iter
         (fun (name, type_, _, _, _) ->
           List.iter

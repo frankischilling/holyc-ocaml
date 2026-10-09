@@ -522,6 +522,11 @@ val result_operand : expression_result -> expression_result option
 (** Return the exact checked operand for a parenthesized, prefix, postfix, or
     postfix-cast result. Other expression forms currently return [None]. *)
 
+val result_member_base : expression_result -> expression_result option
+(** The exact checked base of a direct or pointer member expression, including
+    its selected aggregate identity and source value category. Other forms
+    return [None]. *)
+
 val result_binary_operands :
   expression_result -> (expression_result * expression_result) option
 (** Return the exact checked left and right children of a binary result in

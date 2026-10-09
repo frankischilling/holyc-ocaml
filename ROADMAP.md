@@ -1,10 +1,13 @@
 # holyc-ocaml roadmap
 
-Issue #686 now has automatic class and union storage through explicit integer
-pointer views in isolated IR and native programs. This connects completed
-earlier layouts to byte initialization, overlap and extent checks. Inherited
-storage, retained JIT imports, aggregate arrays, direct members and copies
-remain open. See [automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
+Issue #686 now has direct and pointer integer member execution, nested fields,
+multidimensional member arrays and owned class pointer locals and parameters in
+isolated IR and native programs. Exact field proofs retain the completed
+earlier layout over the existing automatic byte storage. Inherited storage,
+retained JIT imports, standalone aggregate arrays, persistent objects,
+whole-object values and copies, pointer fields and pointer returns remain open.
+See [owned aggregate members](docs/aggregate-members.md) and
+[automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
 
 Issue #47 now matches the original absent identifier check for expression
 operands. IR and native saved inputs retain its counted cause, owned cleanup

@@ -241,6 +241,11 @@ type reference_origin =
   | Literal_reference of Literal_storage.region
 
 type reference_table = Frame_table of int | Arena_table of int
+
+type member_reference_source =
+  | Member_object of reference_origin
+  | Member_reference of reference_access
+
 type indexed_object_access = { origin : reference_origin; offset : value }
 
 let reference_scalar = function
@@ -318,6 +323,7 @@ type operation =
   | Materialize_reference of
       reference_origin * reference_table * value option * value
   | Materialize_existing_reference of reference_access * value
+  | Project_reference of member_reference_source * int64 * scalar_value * value
   | Load_reference_value of reference_access * value
   | Store_reference_value of reference_access * value * value
   | Update_reference_value of
@@ -2315,6 +2321,58 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx));
           emit_reference_extent instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 24, Encoder.Rax));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position rdx result
+      | Project_reference (source, delta, scalar, result) ->
+          spill_all_registers instruction.span;
+          let site = Option.get instruction.site in
+          (match source with
+          | Member_object origin ->
+              emit (Encoder.Mov_imm64 (Encoder.Rcx, delta));
+              emit_reference_extent instruction.span Encoder.R8 origin;
+              emit_bounds instruction.span site ~one_past:true ~scalar
+                ~offset:Encoder.Rcx ~extent:Encoder.R8;
+              emit
+                (Encoder.Address_frame
+                   ( Encoder.Rdx,
+                     encoder_frame_slot instruction.span
+                       (Option.get result.reference_descriptor_offset) ));
+              emit_reference_data instruction.span Encoder.Rax origin;
+              emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
+              emit_reference_flag instruction.span Encoder.Rax origin;
+              emit (Encoder.Store_indirect_offset (Encoder.Rdx, 8, Encoder.Rax));
+              emit_reference_extent instruction.span Encoder.Rax origin;
+              emit
+                (Encoder.Store_indirect_offset (Encoder.Rdx, 24, Encoder.Rax));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx))
+          | Member_reference access ->
+              copy_value_to instruction.span access.reference rdx;
+              (match access.offset with
+              | None ->
+                  emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
+              | Some offset -> copy_value_to instruction.span offset rcx);
+              emit (Encoder.Mov_imm64 (Encoder.Rax, delta));
+              emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rax));
+              emit_branch Overflow (fault_label 9 site);
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+              emit_bounds instruction.span site ~one_past:true ~scalar
+                ~offset:Encoder.Rcx ~extent:Encoder.R8;
+              emit
+                (Encoder.Address_frame
+                   ( Encoder.R8,
+                     encoder_frame_slot instruction.span
+                       (Option.get result.reference_descriptor_offset) ));
+              List.iter
+                (fun offset ->
+                  emit
+                    (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+                  emit
+                    (Encoder.Store_indirect_offset
+                       (Encoder.R8, offset, Encoder.Rax)))
+                [ 0; 8; 24 ];
+              emit (Encoder.Store_indirect_offset (Encoder.R8, 16, Encoder.Rcx));
+              emit (Encoder.Mov (Encoder.Rdx, Encoder.R8)));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rdx result
       | Materialize_existing_reference (access, result) ->
@@ -4430,6 +4488,7 @@ type frame_term =
   | Variadic_address of variadic_reference_origin * Type.t
   | Global_address of Global_storage.slot
   | Reference_address of reference_access * Type.t
+  | Member_array_address of reference_access * Type.t * int64 list
   | Index_offset of index_offset_term
   | Indexed_address of indexed_address_term
 
@@ -4687,6 +4746,8 @@ let source_slot_scalar ?span label type_ =
   if Type.pointer_depth type_ = 0 then source_scalar ?span label type_
   else if Type.pointer_depth type_ = 1 then
     match Type.dereference type_ with
+    | Ok _ when Ir.Automatic_aggregate_storage.aggregate_pointer type_ ->
+        { word_type = U64; byte_size = 8 }
     | Ok pointee ->
         ignore (source_scalar ?span label pointee);
         { word_type = U64; byte_size = 8 }
@@ -5529,6 +5590,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     | Some (Reference_address (access, _) as value) ->
         touch_reference position access;
         value
+    | Some (Member_array_address (access, pointer, _)) ->
+        touch_reference position access;
+        let pointee, _ = checked_reference description pointer in
+        Reference_address (access, pointee)
     | Some value -> value
     | None ->
         let reference = operand values description position id in
@@ -7547,12 +7612,6 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               with
               | [ stride_id; index_id ], Some result, Some target_type ->
                   if
-                    Ir.Automatic_aggregate_storage.aggregate_pointer target_type
-                  then
-                    unsupported description
-                      "native aggregate indexing requires a checked element \
-                       layout";
-                  if
                     not
                       (Type.pointer_depth target_type = 2
                       && Type.base target_type
@@ -7589,6 +7648,106 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   ( Scale_index (index_word, Int64.of_int stride, index, scaled),
                     None )
               | _ -> malformed description "invalid native index scaling")
+          | Opcode.Ic_add
+            when match description.payload with
+                 | Some (Sequence.Member_projection _) -> true
+                 | _ -> false -> (
+              if description.flags <> 0L then
+                malformed description "invalid member projection flags";
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [ base_id; offset_id ],
+                  Some result,
+                  Some target_type,
+                  Some (Sequence.Member_projection proof) ) ->
+                  let _, scalar = checked_reference description target_type in
+                  let offset_type, delta =
+                    match frame_operand frame_values description offset_id with
+                    | Frame_offset (type_, offset) ->
+                        (type_, Int64.of_int offset)
+                    | _ ->
+                        malformed description
+                          "member projection requires its checked constant \
+                           offset"
+                  in
+                  if not (Type.equal offset_type target_type) then
+                    malformed description
+                      "member offset changes its checked pointer type";
+                  let base_pointer, source =
+                    match Value_map.find_opt base_id !frame_values with
+                    | Some (Frame_address slot) ->
+                        let pointer =
+                          match Type.pointer_to slot.slot_type with
+                          | Ok pointer -> pointer
+                          | Error message -> malformed description message
+                        in
+                        ( pointer,
+                          Member_object
+                            (Frame_reference (frame_reference_origin slot)) )
+                    | Some (Indexed_address indexed) -> (
+                        touch_indexed position indexed;
+                        match indexed.indexed_root with
+                        | Indexed_reference_root access ->
+                            ( indexed.indexed_pointer_type,
+                              Member_reference
+                                {
+                                  access with
+                                  offset = Some indexed.indexed_offset;
+                                } )
+                        | Indexed_object_root _ ->
+                            malformed description
+                              "aggregate member requires its owned byte \
+                               reference")
+                    | _ ->
+                        let base =
+                          operand values description position base_id
+                        in
+                        if
+                          Option.is_none base.reference_descriptor_offset
+                          || Option.is_some base.code_owner_offset
+                        then
+                          malformed description
+                            "member projection requires an owned aggregate \
+                             reference";
+                        let _, source_scalar =
+                          checked_reference description base.declared_type
+                        in
+                        ( base.declared_type,
+                          Member_reference
+                            {
+                              reference = base;
+                              scalar = source_scalar;
+                              offset = None;
+                            } )
+                  in
+                  if
+                    not
+                      (Ir.Aggregate_member_projection.matches proof
+                         ~base_pointer ~pointer_type:target_type ~offset:delta)
+                  then
+                    malformed description
+                      "member projection disagrees with its selected aggregate \
+                       and field";
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  mark_reference description value;
+                  let strides = Ir.Aggregate_member_projection.strides proof in
+                  if strides <> [] then
+                    frame_values :=
+                      Value_map.add result.value_id
+                        (Member_array_address
+                           ( { reference = value; scalar; offset = None },
+                             target_type,
+                             strides ))
+                        !frame_values;
+                  (Project_reference (source, delta, scalar, value), None)
+              | _ -> malformed description "invalid native member projection")
           | (Opcode.Ic_add | Opcode.Ic_sub)
             when Option.fold ~none:false
                    ~some:(fun type_ ->
@@ -7751,6 +7910,15 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             ( indexed.indexed_root,
                               Index_value indexed.indexed_offset,
                               indexed.indexed_remaining_strides )
+                        | Some (Member_array_address (access, pointer, strides))
+                          ->
+                            if not (Type.equal pointer target_type) then
+                              malformed description
+                                "member array changes its selected element type";
+                            touch_reference position access;
+                            ( Indexed_reference_root access,
+                              Index_reference access.reference,
+                              strides )
                         | Some _ ->
                             malformed description
                               "indexed base is not a checked array address"
@@ -7758,6 +7926,13 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             let reference =
                               operand values description position base_id
                             in
+                            if
+                              Ir.Automatic_aggregate_storage.aggregate_pointer
+                                reference.declared_type
+                            then
+                              unsupported description
+                                "aggregate indexing requires a selected array \
+                                 shape";
                             if
                               not
                                 (Type.equal reference.declared_type target_type)
@@ -9168,7 +9343,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> false);
             index_addition_site =
               (match operation with
-              | Apply_index_offset _ | Internal_bit _ | Print_output _ -> true
+              | Apply_index_offset _
+              | Project_reference _
+              | Internal_bit _
+              | Print_output _ -> true
               | Indirect_call _ when provider_print_site -> true
               | _ -> false);
             address_bounds_site =
@@ -9176,6 +9354,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Update_callback_value (Callback_indexed _, _, _, _, _, _) ->
                   true
               | Materialize_reference (_, _, Some _, _)
+              | Project_reference _
               | Materialize_existing_reference ({ offset = Some _; _ }, _)
               | Load_reference_value _
               | Store_reference_value _
@@ -9321,7 +9500,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     Value_set.fold
       (fun id map ->
         match Value_map.find_opt id !frame_values with
-        | Some (Reference_address (reference, _)) -> add_reference reference map
+        | Some
+            ( Reference_address (reference, _)
+            | Member_array_address (reference, _, _) ) ->
+            add_reference reference map
         | Some (Index_offset offset) -> add offset.index_offset map
         | Some (Indexed_address indexed) -> (
             let map = add indexed.indexed_offset map in

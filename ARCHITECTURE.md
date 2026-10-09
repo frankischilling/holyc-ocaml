@@ -1,5 +1,15 @@
 # holyc-ocaml architecture
 
+`Ir.Aggregate_member_projection` retains the immutable selected member lookup,
+exact base and target pointer types, offset and checked array strides. Semantic
+member results retain their typed base; lowering emits the original immediate
+offset and `IC_ADD` with this opaque proof. IR preparation checks the proof;
+native compilation also requires the original sealed graph. Projection keeps
+the containing object's bytes, extent and lifetime, including through nested
+member arrays and owned class pointer parameters. Integer fields use their
+selected width and signedness. Whole class values and pointer fields remain
+outside this execution domain. See [owned aggregate members](docs/aggregate-members.md).
+
 `Ir.Automatic_aggregate_storage` admits nonempty automatic objects from an
 immutable frame location with a completed earlier aggregate layout. The
 original class identity and frame size remain intact. The interpreter uses

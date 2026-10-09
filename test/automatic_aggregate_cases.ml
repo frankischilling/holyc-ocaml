@@ -130,8 +130,8 @@ I64 F(){Child object;return 42;}F();|}
     ("zero-sized object", {|class Box{};I64 F(){Box object;return 42;}F();|});
     ( "aggregate array",
       {|class Box{U8 byte;};I64 F(){Box objects[2];return 42;}F();|} );
-    ( "direct member projection",
-      {|class Box{U8 byte;};I64 F(){Box object;object.byte=42;return object.byte;}F();|}
+    ( "aggregate pointer return",
+      {|class Box{U8 byte;};Box *Get(Box *p){return p;}I64 F(){Box object;return Get(&object)->byte;}F();|}
     );
     ( "whole-object copy",
       {|class Box{U8 byte;};I64 F(){Box a,b=a;return 42;}F();|} );

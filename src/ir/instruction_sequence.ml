@@ -45,6 +45,7 @@ type payload =
   | Bytes of string
   | Symbol of Sema.Symbol.t
   | Callback of Sema.Function_type_resolution.function_pointer
+  | Member_projection of Aggregate_member_projection.t
   | Retained_global of Retained_global.t
   | Saved_parameter_default of Prepared_parameter_default.t
   | Saved_callback_default of Prepared_callback_default.t
@@ -279,6 +280,13 @@ let add_escaped_bytes buffer bytes =
   Buffer.add_char buffer '"'
 
 let add_payload buffer = function
+  | Member_projection projection ->
+      Buffer.add_string buffer " member-projection:";
+      add_escaped_bytes buffer
+        (Sema.Symbol.name
+           (Aggregate_member_projection.member_symbol projection));
+      Printf.bprintf buffer ":offset=%Ld"
+        (Aggregate_member_projection.offset projection)
   | Integer value -> Printf.bprintf buffer " i64:%Ld" value
   | Float_bits bits -> Printf.bprintf buffer " f64:0x%016Lx" bits
   | Bytes bytes ->

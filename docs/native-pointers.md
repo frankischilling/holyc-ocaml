@@ -1,5 +1,12 @@
 # Native scalar pointer aliases
 
+[Owned aggregate members](aggregate-members.md) also admit one-level class
+pointer locals and fixed parameters in isolated programs. Exact field proofs
+select integer member windows and member-array strides over the caller's
+original automatic object. The same descriptors retain its initialization,
+extent and lifetime. Whole aggregate values, pointer fields, class pointer
+arithmetic and pointer returns remain unsupported.
+
 Native [owned scalar pointer difference](pointer-difference.md) checks original
 data-base, initialization-region and extent fields, then subtracts offsets.
 Original size division returns a signed I64 element count. Mismatch status 18
