@@ -2578,6 +2578,9 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
           p.callback_signature_publication.callback_command
       | Parameter_default_completed receipt ->
           receipt.default_function.function_header.declaration_command
+      | Function_return_phase p ->
+          p.return_header.function_publication.function_header
+            .declaration_command
       | Function_header_completed header | Function_body_completed (header, _)
         -> header.function_publication.function_header.declaration_command
     in

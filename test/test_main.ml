@@ -152,6 +152,7 @@ let () =
       ("native compiler control", Test_native_compiler_control.tests);
       ("duplicate local types", Test_duplicate_local_types.tests);
       ("parenthesis warnings", Test_parenthesis_warnings.tests);
+      ("return warnings", Test_return_warnings.tests);
       ("intermediate code source", Test_intermediate_code_source.tests);
       ("intermediate code", Test_intermediate_code.tests);
       ("IR instruction sequence", Test_ir_instruction_sequence.tests);

@@ -16,6 +16,12 @@ external increment_warning_raw : allocation -> unit
 
 external verify_storage : unit -> bool = "holyc_compiler_control_verify_storage"
 
+external has_return_raw : allocation -> bool
+  = "holyc_compiler_control_has_return"
+
+external set_has_return_raw : allocation -> bool -> unit
+  = "holyc_compiler_control_set_has_return"
+
 type t = { allocation : allocation; domain : Domain.id }
 
 let original control =
@@ -35,3 +41,7 @@ let set_option control ~bit_index enabled =
 
 let warning_count control = warnings_raw (original control)
 let increment_warning control = increment_warning_raw (original control)
+let has_return control = has_return_raw (original control)
+
+let set_has_return control enabled =
+  set_has_return_raw (original control) enabled

@@ -70,6 +70,15 @@ val resolve_native_header_types :
     allocating a call scope. Incomplete members retain their original published
     type source; argc/argv retain the pinned internal I64 member class. *)
 
+val resolve_publication_return_type :
+  ?selected_aggregate:Sema.Function_type_resolution.selected_aggregate_resolver ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.function_publication ->
+  (Sema.Type_reference.t, string) result
+(** Resolve the retained return occurrence without constructing a body or call.
+*)
+
 val resolve_native_header_return_type :
   ?selected_aggregate:Sema.Function_type_resolution.selected_aggregate_resolver ->
   table:Sema.Symbol_table.t ->

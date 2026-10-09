@@ -957,6 +957,58 @@ let function_body_compiler_options receipt definition =
     | Some (original, mask) when original == definition -> Ok mask
     | _ -> Error "function body options require the original completed body"
 
+type function_return_step =
+  | Enter_function_body
+  | Check_bare_return
+  | Check_value_return
+  | Value_return_parsed
+  | Check_function_body_return
+
+type function_return_activity = {
+  mutable return_active : bool;
+  mutable return_consumed : bool;
+}
+
+type function_return_phase = {
+  return_header : completed_function_header;
+  return_step : function_return_step;
+  return_location : Ast.location;
+  return_activity : function_return_activity;
+}
+
+let function_return_phase_is_current receipt =
+  let header = receipt.return_header in
+  receipt.return_activity.return_active
+  && Option.fold ~none:false ~some:(( == ) header)
+       header.header_activity.original_header
+  && context_has_focus
+       header.function_publication.function_header.declaration_command
+         .command_context
+
+let consume_function_return_phase receipt =
+  if
+    (not (function_return_phase_is_current receipt))
+    || receipt.return_activity.return_consumed
+  then
+    Error
+      "return phase requires its original focused, unconsumed parser callback"
+  else
+    let control =
+      receipt.return_header.function_publication.function_header
+        .declaration_command
+        .command_context
+        .context_compiler_control
+    in
+    let previous = Common.Native_compiler_control.has_return control in
+    receipt.return_activity.return_consumed <- true;
+    (match receipt.return_step with
+    | Enter_function_body ->
+        Common.Native_compiler_control.set_has_return control false
+    | Value_return_parsed ->
+        Common.Native_compiler_control.set_has_return control true
+    | Check_bare_return | Check_value_return | Check_function_body_return -> ());
+    Ok previous
+
 type array_dimensions_owner = {
   dimensions_command : command_start;
   dimensions_environment : Symbol_visibility.Environment.t;
@@ -1166,6 +1218,7 @@ type declaration_event =
   | Function_variadic_started of function_variadic_publication
   | Function_variadic_completed of function_variadic_publication
   | Function_header_completed of completed_function_header
+  | Function_return_phase of function_return_phase
   | Function_body_completed of
       completed_function_header * Ast.function_definition
 
@@ -1329,6 +1382,7 @@ type cursor = {
   diagnostics_rev : Common.Diagnostic.t list ref;
   mutable local_context : Symbol_visibility.Environment.local_context option;
   mutable local_function : function_publication option;
+  mutable local_function_header : completed_function_header option;
   mutable local_allocations : function_local_allocation list;
   mutable local_publications : local_publication list;
 }
@@ -1858,6 +1912,23 @@ let publish_declaration cursor at event =
               ~message:"declaration consumer failed without an error diagnostic";
           raise Stop_command)
     cursor.declaration
+
+let publish_function_return_phase cursor at step =
+  Option.iter
+    (fun header ->
+      let receipt =
+        {
+          return_header = header;
+          return_step = step;
+          return_location = token_location at.token;
+          return_activity = { return_active = true; return_consumed = false };
+        }
+      in
+      Fun.protect
+        ~finally:(fun () -> receipt.return_activity.return_active <- false)
+        (fun () ->
+          publish_declaration cursor at (Function_return_phase receipt)))
+    cursor.local_function_header
 
 let cache_dimension_count cursor at receipt =
   Option.iter
@@ -2716,6 +2787,7 @@ let with_function_local_context cursor function_ parameters variadic run =
   Fun.protect run ~finally:(fun () ->
       cursor.local_context <- None;
       cursor.local_function <- None;
+      cursor.local_function_header <- None;
       cursor.local_allocations <- [];
       cursor.local_publications <- [];
       match
@@ -7984,6 +8056,10 @@ let parse_return_statement cursor ~boundary : parsed_statement option =
     Some { node = Ast.Return_statement statement; tokens }
   in
   let first_item = peek cursor in
+  publish_function_return_phase cursor first_item
+    (if first_item.token.kind = Token_kind.Punctuation ';' then
+       Check_bare_return
+     else Check_value_return);
   match (boundary, first_item.token.kind) with
   | For_update_boundary _, Token_kind.Punctuation ';' ->
       report cursor first_item ~code:"HCPARSE0070"
@@ -8011,6 +8087,7 @@ let parse_return_statement cursor ~boundary : parsed_statement option =
           recover_statement cursor ~boundary;
           None
       | Some (value : parsed_expression) -> (
+          publish_function_return_phase cursor (peek cursor) Value_return_parsed;
           let terminator_item = peek cursor in
           let terminator =
             match (boundary, terminator_item.token.kind) with
@@ -10641,14 +10718,24 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
             completed_header :=
               complete_function_header cursor body_item provisional
                 parsed_parameters;
-            match body_item.token.kind with
-            | Token_kind.Eof -> Some (None, [])
-            | _ ->
-                parse_statement_sequence cursor ~boundary:Top_level_boundary
-                  ~block_depth:0 ~conditional_depth:0 ~loop_depth:0
-                  ~lock_depth:0 ~try_depth:0 ~switch_depth:0
-                |> Option.map (fun (body : parsed_statement) ->
-                    (Some body.node, body.tokens)))
+            cursor.local_function_header <- !completed_header;
+            publish_function_return_phase cursor body_item Enter_function_body;
+            let parsed =
+              match body_item.token.kind with
+              | Token_kind.Eof -> Some (None, [])
+              | _ ->
+                  parse_statement_sequence cursor ~boundary:Top_level_boundary
+                    ~block_depth:0 ~conditional_depth:0 ~loop_depth:0
+                    ~lock_depth:0 ~try_depth:0 ~switch_depth:0
+                  |> Option.map (fun (body : parsed_statement) ->
+                      (Some body.node, body.tokens))
+            in
+            Option.iter
+              (fun _ ->
+                publish_function_return_phase cursor (peek cursor)
+                  Check_function_body_return)
+              parsed;
+            parsed)
       in
       Option.map
         (fun (body, body_tokens) ->
@@ -10937,6 +11024,7 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     diagnostics_rev = ref [];
     local_context = None;
     local_function = None;
+    local_function_header = None;
     local_allocations = [];
     local_publications = [];
   }

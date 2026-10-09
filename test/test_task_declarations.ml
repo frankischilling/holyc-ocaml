@@ -284,7 +284,25 @@ let phase_order_and_replay () =
   in
   let ast = Test_parser.expect_ast output in
   match events with
-  | [ declared; position; header; body ] ->
+  | [ declared; position; header; entry; value; parsed; ending; body ] ->
+      let phases = [ entry; value; parsed; ending ] in
+      List.iter2
+        (fun event step ->
+          match event with
+          | Parser.Function_return_phase receipt ->
+              Alcotest.(check bool)
+                "original return phase order" true
+                (receipt.return_step = step);
+              reject "expired return receipt cannot mutate native flags"
+                (Parser.consume_function_return_phase receipt)
+          | _ -> Alcotest.fail "expected original return phase")
+        phases
+        [
+          Parser.Enter_function_body;
+          Parser.Check_value_return;
+          Parser.Value_return_parsed;
+          Parser.Check_function_body_return;
+        ];
       let initial, completion =
         match List.rev !checkpoints with
         | first :: second :: rest -> ([ first; second ], rest)
@@ -309,6 +327,11 @@ let phase_order_and_replay () =
       | _ -> Alcotest.fail "expected completed header");
       reject "header cannot complete twice" (D.observe ledger header);
       reject "unfinished function cannot seal" (D.seal ledger ast);
+      List.iter
+        (fun phase ->
+          ignore (D.observe ledger phase |> expect);
+          reject "metadata return phase cannot replay" (D.observe ledger phase))
+        phases;
       ignore (D.observe ledger body |> expect);
       reject "body cannot complete twice" (D.observe ledger body);
       List.iter

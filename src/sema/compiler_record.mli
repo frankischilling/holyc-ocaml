@@ -293,6 +293,16 @@ val bind_retained_scalar :
     checked global. Call at publication, never recover an association by name.
 *)
 
+val return_class_size :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  type_:Type.t ->
+  aggregate:t option ->
+  (int64, string) result
+(** Read the checked return class size. Aggregate identity, table, namespace,
+    current canonical publication and layout stamp must match. An unavailable
+    layout is not size zero. Pointers use the audited pointer size. *)
+
 val read_sizeof :
   table:Symbol_table.t ->
   root:Frontend.Parser.query_root ->

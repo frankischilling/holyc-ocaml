@@ -104,9 +104,13 @@ let ir_json ?(status = 0) ?(options = []) ~mode source =
 let diagnostics report = report |> member "diagnostics" |> to_list
 
 let first_diagnostic report =
-  match diagnostics report with
-  | first :: _ -> first
-  | [] -> failwith "expected a goto diagnostic"
+  match
+    List.find_opt
+      (fun diagnostic -> diagnostic |> member "severity" |> to_string = "error")
+      (diagnostics report)
+  with
+  | Some first -> first
+  | None -> failwith "expected a goto error diagnostic"
 
 let first_code report = first_diagnostic report |> member "code" |> to_string
 
@@ -450,16 +454,31 @@ let invalid_label_gates () =
 
 let goto_return_completeness () =
   let contents = "I64 Bad(){goto tail;tail:}Bad();" in
+  let check_return_warning report =
+    match diagnostics report with
+    | [ warning; error ] ->
+        require
+          (warning |> member "severity" |> to_string = "warning"
+          && warning |> member "code" |> to_string = "HCSEMA0078"
+          && warning |> member "message" |> to_string
+             = "Function should return val"
+          && error |> member "severity" |> to_string = "error")
+          "original body return warning precedes the unchanged goto error"
+    | _ ->
+        failwith "expected one body return warning followed by the goto error"
+  in
   with_file ".hc" contents (fun source ->
       List.iter
         (fun mode ->
           let interpreted = ir_json ~status:1 ~mode source in
+          check_return_warning interpreted;
           require
             (first_code interpreted = "HCIRVM0013"
             && executed_steps interpreted > 0
             && member "final_value" interpreted = `Null)
             "interpreted goto must fault when a word return is missing";
           let native = host_json ~status:1 ~mode source in
+          check_return_warning native;
           require
             (first_code native = "HCBACK0002"
             && contains (first_message native)

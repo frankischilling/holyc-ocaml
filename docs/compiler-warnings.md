@@ -1,5 +1,50 @@
 # Compiler warnings
 
+## Return warnings
+
+`HCSEMA0078` follows the return warnings in `PrsStmt.HC:145-167` and
+`1094-1121`. A value in a zero-size return function emits
+"Function should NOT return val" before parsing the expression. A bare return
+in a nonzero-size function emits "Function should return val" at its semicolon.
+Successful expression parsing sets the native `CCF_HAS_RETURN` bit before
+later terminator validation. A bare return leaves it clear.
+
+Body entry clears the shared bit after header completion. Successful body
+parsing checks the current return class size and the bit before body publication
+or code generation. A nonzero-size function with no parsed value return warns.
+This follows the source flag: `if(0)return 42;` sets it, and a body containing
+only `return;` can warn twice. The checks run independently of options 16-19
+and definition-input suppression. Each reached warning increments the original
+input's native warning count and remains present after a later failure.
+
+Private receipts retain the exact original header, phase and lookahead location.
+They expire after their callbacks, reject replay before mutation, and require
+the active original context. JIT checks use the current shared function record's
+return occurrence; AOT checks retain the original source selection. Primitive
+and pointer sizes come from the audited type metadata. Aggregate reads require
+the exact selected symbol, table, namespace and current layout stamp. Missing
+layout evidence supplies no assumed zero size.
+
+The bit uses `flags` at byte 24, bit 22, in the private native compiler-control
+prefix. Directives share it; ordinary children start with fresh flags while
+copying live options. Independent literal-offset BT/BTS/BTR instructions compare
+reads and changes with all neighboring bytes guarded.
+
+[The return example](../examples/compiler-return-warnings.hc) emits one warning
+with all four warning options disabled, prints `42;` and returns 42. Its bare
+return follows its value return and is unreachable at execution. Reachable
+missing-value returns retain native preflight rejection with HCBACK0002; the
+source warnings reached before that rejection remain present. The IR evaluator
+also retains its existing missing-value execution restrictions.
+
+These phases still use structured diagnostics and retained class metadata.
+They do not provide complete native `htc.fun` or `return_class` pointers,
+LexWarn terminal formatting, native IC type-check interruption, LexExcept
+error counting or typed catches. Parsing can reach a flag change or warning
+before a semantic error that the native compiler would interrupt earlier.
+Return-from-try compatibility also requires the original selected `SysUntry`
+owner and one call per active try level before return expression parsing.
+
 JIT extern-header joins emit return-class mismatch HCSEMA0037 followed by
 argument-list mismatch HCSEMA0038 when the completed header's option 19 is
 enabled. The check follows closing-parenthesis lookahead and precedes body
@@ -165,7 +210,8 @@ copies the caller's live options into a fresh allocation with zero counts.
 Uncounted PrintWarn diagnostics leave the native warning field unchanged.
 Current-context, source-manager and domain checks still precede mutation.
 
-The private allocation ends at byte 360. Its other fields remain zero; it
+The private allocation ends at byte 360. Besides options, counts and the return
+flag described above, its fields remain zero. It
 provides no full CCmpCtrl, CmpCtrlNew task queue, native table context, lexical
 buffer setup or exported ABI. Error-count producers, remaining LexWarn paths
 and TempleOS terminal formatting remain open. An independent x86-64 oracle
@@ -178,8 +224,8 @@ Full warning timing remains unfinished. TempleOS tests unused locals after
 code generation. An ordinary isolated module emits its warnings after the
 whole module compiles, so an earlier function's warning is not retained when
 later source prevents module compilation. Ordinary AOT joins, broader default
-and miscellaneous-data behavior and return-warning
-consumers still need their original phase integration. Callback owner equality
+and miscellaneous-data behavior still need their original phase integration.
+Return-from-try also needs the original `SysUntry` calls. Callback owner equality
 does not establish original executable-PC or exported-ABI parity. The remaining
 compiler options, typed compiler exceptions, wider
 execution, exported ABI, object/BIN loader, bootstrap and release requirements

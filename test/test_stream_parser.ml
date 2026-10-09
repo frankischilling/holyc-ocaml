@@ -589,6 +589,10 @@ let function_publication_timing () =
         Parser.Parameter_default_completed default;
         Parser.Function_parameter_completed completed;
         Parser.Function_header_completed header;
+        Parser.Function_return_phase entry;
+        Parser.Function_return_phase value;
+        Parser.Function_return_phase parsed;
+        Parser.Function_return_phase ending;
         Parser.Function_body_completed (same_header, same_definition);
       ] ) ->
       Alcotest.(check bool)
@@ -609,6 +613,22 @@ let function_publication_timing () =
       Alcotest.(check bool)
         "body completion retains exact header and definition" true
         (same_header == header && same_definition == definition);
+      List.iter2
+        (fun receipt step ->
+          Alcotest.(check bool)
+            "original return phase and header" true
+            (receipt.Parser.return_header == header
+            && receipt.return_step = step);
+          Alcotest.(check bool)
+            "return phase expired" false
+            (Parser.function_return_phase_is_current receipt))
+        [ entry; value; parsed; ending ]
+        [
+          Parser.Enter_function_body;
+          Parser.Check_value_return;
+          Parser.Value_return_parsed;
+          Parser.Check_function_body_return;
+        ];
       Alcotest.(check bool)
         "parenthesis and parameter source nodes are shared" true
         (provisional.function_opening_parenthesis

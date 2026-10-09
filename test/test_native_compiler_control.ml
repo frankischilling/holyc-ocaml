@@ -38,9 +38,15 @@ let option_bits_and_old_values () =
 let child_and_shared_storage () =
   let parent = C.create ~options:0x90000L in
   let directive = parent in
+  check "new input has no value return" false (C.has_return parent);
+  C.set_has_return directive true;
+  check "directive shares HAS_RETURN" true (C.has_return parent);
   C.increment_warning directive;
   ignore (C.set_option directive ~bit_index:37 true);
   let child = C.child parent in
+  check "child starts with fresh flags" false (C.has_return child);
+  C.set_has_return child true;
+  C.set_has_return parent false;
   Alcotest.(check int64)
     "child copies current native opts" 0x2000090000L (C.options child);
   count "child starts a fresh warning count" 0L child;
@@ -51,6 +57,8 @@ let child_and_shared_storage () =
   Gc.compact ();
   count "directive still shares the parent allocation" 1L directive;
   count "child counter is separate" 1L child;
+  check "child return flag survives collection" true (C.has_return child);
+  check "child flag does not change parent" false (C.has_return directive);
   check "child mutation does not clear parent bit" true
     (C.get_option parent ~bit_index:19);
   check "parent mutation does not clear child bit" true
@@ -96,6 +104,8 @@ let original_domain () =
             (fun () -> ignore (C.set_option control ~bit_index:16 false));
             (fun () -> ignore (C.warning_count control));
             (fun () -> C.increment_warning control);
+            (fun () -> ignore (C.has_return control));
+            (fun () -> C.set_has_return control true);
           ])
     |> Domain.join
   in

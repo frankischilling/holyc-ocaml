@@ -43,6 +43,8 @@ _Static_assert(sizeof(struct compiler_lex_hash_context) == 72,
                "CLexHashTableContext size differs");
 _Static_assert(sizeof(struct compiler_abs_counts) == 8,
                "CAbsCntsI64 size differs");
+_Static_assert(offsetof(struct compiler_control_prefix, flags) == 24,
+               "CCmpCtrl flags offset differs");
 _Static_assert(offsetof(struct compiler_control_prefix, htc) == 144,
                "CCmpCtrl htc offset differs");
 _Static_assert(offsetof(struct compiler_control_prefix, hash_entry) == 216,
@@ -106,6 +108,26 @@ static int compiler_control_set(struct compiler_control_prefix *control,
   if (enabled) control->opts |= mask;
   else control->opts &= ~mask;
   return previous;
+}
+
+/* PrsStmt.HC:159,166,1114; KernelA.HH:2156. */
+static int compiler_control_has_return(struct compiler_control_prefix *control) {
+  return (control->flags & UINT64_C(0x400000)) != 0;
+}
+static void compiler_control_set_has_return(
+    struct compiler_control_prefix *control, int enabled) {
+  if (enabled) control->flags |= UINT64_C(0x400000);
+  else control->flags &= ~UINT64_C(0x400000);
+}
+
+CAMLprim value holyc_compiler_control_has_return(value handle) {
+  CAMLparam1(handle);
+  CAMLreturn(Val_bool(compiler_control_has_return(compiler_control_original(handle))));
+}
+CAMLprim value holyc_compiler_control_set_has_return(value handle, value enabled) {
+  CAMLparam2(handle, enabled);
+  compiler_control_set_has_return(compiler_control_original(handle), Bool_val(enabled));
+  CAMLreturn(Val_unit);
 }
 
 static void compiler_control_increment_warning(
@@ -213,6 +235,27 @@ CAMLprim value holyc_compiler_control_verify_storage(value unit) {
         }
         compiler_control_increment_warning(&production);
         __asm__ volatile("incq 352(%0)" : : "r"(reference) : "cc", "memory");
+        if (memcmp(&production, reference, 360) != 0) CAMLreturn(Val_false);
+      }
+    }
+  }
+  for (size_t seed = 0; seed < sizeof(seeds) / sizeof(seeds[0]); seed++) {
+    for (int enabled = 0; enabled <= 1; enabled++) {
+      struct compiler_control_prefix production;
+      unsigned char reference[360], previous;
+      memset(&production, 0x5a, 360);
+      memset(reference, 0x5a, 360);
+      production.flags = seeds[seed];
+      memcpy(reference + 24, &seeds[seed], 8);
+      __asm__ volatile("btq $22,24(%1); setc %0"
+                       : "=q"(previous) : "r"(reference) : "cc", "memory");
+      if (compiler_control_has_return(&production) != previous) CAMLreturn(Val_false);
+      for (int repeat = 0; repeat < 2; repeat++) {
+        compiler_control_set_has_return(&production, enabled);
+        if (enabled)
+          __asm__ volatile("btsq $22,24(%0)" : : "r"(reference) : "cc", "memory");
+        else
+          __asm__ volatile("btrq $22,24(%0)" : : "r"(reference) : "cc", "memory");
         if (memcmp(&production, reference, 360) != 0) CAMLreturn(Val_false);
       }
     }

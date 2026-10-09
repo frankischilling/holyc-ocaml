@@ -24,6 +24,11 @@ the first automatic declarator of each declaration and compares exact class
 bases, including the original intrinsic base for callbacks. The
 [duplicate-type example](examples/compiler-duplicate-types.hc) runs through IR
 and native tasks in both outer modes.
+Return statements and body completion now emit unconditional warnings from
+the original parser phases. They read the current return class size and native
+`CCF_HAS_RETURN` bit; a bare return leaves that bit clear. The
+[return example](examples/compiler-return-warnings.hc) emits one warning
+and prints `42;` through IR and native tasks in both outer modes.
 [The warning notes](docs/compiler-warnings.md)
 describe counting, child contexts, retained diagnostics and the remaining
 warning phase boundaries.

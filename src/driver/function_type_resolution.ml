@@ -945,6 +945,16 @@ let resolve_provisional_call ?scope
     ~namespace ~selected_aggregate ~shape ~scope ~return_type ~parameters
     ~variadic_register_requests
 
+let resolve_publication_return_type
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace
+    (publication : Frontend.Parser.function_publication) =
+  make_type_reference ~selected_aggregate ~selected_owner:(table, namespace)
+    ~header_metadata:true String_map.empty
+    publication.function_header.type_specifier
+    publication.function_pointer_layers
+
 let resolve_native_header_return_type
     ?(selected_aggregate :
         Sema.Function_type_resolution.selected_aggregate_resolver =

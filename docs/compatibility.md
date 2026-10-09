@@ -402,7 +402,10 @@ execute ordinary source procedures with explicit no-value completion, checked
 discard, early return and fallthrough. They preserve caller effects and existing
 frame/depth/instruction limits. U0 value-return and missing word-return forms
 retain explicit hosted restrictions; native HolyC warns about those forms.
-Full return warning compatibility remains unfinished.
+The [return warning phases](compiler-warnings.md#return-warnings) now retain
+the current class size, shared native `CCF_HAS_RETURN` bit and counted warnings
+before later failures. Native type-check interruption, full terminal behavior,
+`SysUntry` ownership and typed catches remain unfinished.
 
 [Owned string storage](integer-strings.md) in
 [#617](https://github.com/frankischilling/holyc-ocaml/issues/617) connects #490's

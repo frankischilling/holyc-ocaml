@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+The return-warning cases check the three original producers, native counts
+with options 16-19 disabled, the flag's source timing, replay and expiration,
+exact aggregate sizes, pointer returns, macros, shared directives and fresh
+ordinary children. Failed value parsing and terminators retain reached warnings;
+successful expression parsing sets the bit before a bad terminator. The native
+field oracle uses literal byte 24 and bit 22 with guarded neighboring fields.
+IR and native CLI cases run in both outer modes and keep missing-return
+functions uncalled. Full native error interruption and `SysUntry` remain
+separate acceptance work.
+
 Native AOT tests share seventeen source-derived fixtures with the IR suite.
 They check separate task/module tables, retained functions and defaults,
 callbacks, statics, nested generation, inherited task layouts, load-time calls

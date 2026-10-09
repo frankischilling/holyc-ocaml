@@ -98,6 +98,7 @@ type source =
       mutable body : Ast.function_definition option;
       mutable body_compiler_options : int64 option;
       mutable header_warnings_emitted : bool;
+      mutable return_phases_seen : Parser.function_return_phase list;
       mutable local_allocations_seen : Parser.function_local_allocation list;
     }
 
@@ -2818,6 +2819,7 @@ let observe ?offset_runtime ledger event =
                  body = None;
                  body_compiler_options = None;
                  header_warnings_emitted = false;
+                 return_phases_seen = [];
                  local_allocations_seen = [];
                })
             publication.function_entry;
@@ -3189,6 +3191,108 @@ let observe ?offset_runtime ledger event =
               fail publication.function_name.location.span
                 "function header completion is foreign, repeated or out of \
                  order")
+      | Parser.Function_return_phase receipt -> (
+          let header = receipt.return_header in
+          let publication = header.function_publication in
+          let span = receipt.return_location.span in
+          validate_command ledger publication.function_header;
+          let assigned = find ledger publication.function_name in
+          match assigned.source with
+          | Function state
+            when state.publication == publication
+                 && Option.fold ~none:false ~some:(( == ) header) state.header
+                 && Option.is_none state.body
+                 && not (List.exists (( == ) receipt) state.return_phases_seen)
+            ->
+              (match ledger.authority with
+              | Semantic_analysis -> ()
+              | Source_compilation _ | Task_runtime _ ->
+                  if not (Parser.function_return_phase_is_current receipt) then
+                    fail span
+                      "return warning requires its original parser phase";
+                  let size () =
+                    let selected_aggregate type_specifier =
+                      Type_specifiers.find_opt ledger.selected_aggregate_types
+                        type_specifier
+                    in
+                    let reference =
+                      match state.native_record with
+                      | Some record ->
+                          Function_type_resolution
+                          .resolve_native_header_return_type ~selected_aggregate
+                            ~table:ledger.table ~namespace:ledger.namespace
+                            (Sema.Function_record_phase.snapshot record)
+                      | None ->
+                          Function_type_resolution
+                          .resolve_publication_return_type ~selected_aggregate
+                            ~table:ledger.table ~namespace:ledger.namespace
+                            publication
+                    in
+                    let type_ =
+                      reference |> checked span
+                      |> Sema.Type_reference.resolved_type
+                    in
+                    let aggregate =
+                      match
+                        (Sema.Type.pointer_depth type_, Sema.Type.base type_)
+                      with
+                      | depth, _ when depth > 0 -> None
+                      | _, Sema.Type.Primitive _ -> None
+                      | _, Sema.Type.Aggregate symbol ->
+                          Entries.fold
+                            (fun _ assigned found ->
+                              match assigned.source with
+                              | Aggregate state
+                                when Option.fold ~none:false
+                                       ~some:(( == ) symbol)
+                                       (Collection
+                                        .publication_aggregate_identity
+                                          assigned.publication)
+                                     && Option.fold ~none:false
+                                          ~some:(( == ) assigned.publication)
+                                          (Collection
+                                           .current_aggregate_publication
+                                             ledger.namespace
+                                             assigned.publication) ->
+                                  Option.map (checked span) state.record
+                              | _ -> found)
+                            ledger.entries None
+                    in
+                    Sema.Compiler_record.return_class_size ~table:ledger.table
+                      ~namespace:ledger.namespace ~type_ ~aggregate
+                    |> checked span
+                  in
+                  let class_size =
+                    match receipt.return_step with
+                    | Parser.Enter_function_body | Parser.Value_return_parsed ->
+                        None
+                    | _ -> Some (size ())
+                  in
+                  let has_return =
+                    Parser.consume_function_return_phase receipt |> checked span
+                  in
+                  let message =
+                    match (receipt.return_step, class_size) with
+                    | Parser.Check_value_return, Some 0L ->
+                        Some "Function should NOT return val"
+                    | Parser.Check_bare_return, Some n when n <> 0L ->
+                        Some "Function should return val"
+                    | Parser.Check_function_body_return, Some n
+                      when n <> 0L && not has_return ->
+                        Some "Function should return val"
+                    | _ -> None
+                  in
+                  Option.iter
+                    (fun message ->
+                      Common.Diagnostic.make ~severity:Common.Diagnostic.Warning
+                        ~code:"HCSEMA0078" ~message ~primary:span ()
+                      |> Parser.context_emit_counted_compiler_warning
+                           publication.function_header.declaration_command
+                             .command_context
+                      |> checked span)
+                    message);
+              state.return_phases_seen <- receipt :: state.return_phases_seen
+          | _ -> fail span "return phase is foreign, repeated or out of order")
       | Parser.Function_body_completed (header, body) -> (
           let publication = header.function_publication in
           validate_command ledger publication.function_header;

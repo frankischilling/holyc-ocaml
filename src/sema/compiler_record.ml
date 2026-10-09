@@ -1392,6 +1392,44 @@ let bind_retained_scalar ~table ~entry global =
             aggregate_stamp = None;
           }
 
+let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
+  if not (Declaration_collection.namespace_owns_table namespace table) then
+    Error "return class belongs to another semantic namespace"
+  else if Type.pointer_depth type_ > 0 then
+    Ok (Int64.of_int Primitive_type.pointer_byte_size)
+  else
+    match Type.base type_ with
+    | Type.Primitive (_, primitive) ->
+        Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
+    | Type.Aggregate symbol -> (
+        match aggregate with
+        | Some record
+          when record.table == table
+               && Symbol_table.owns_symbol table symbol
+               && Option.fold ~none:true
+                    ~some:(fun (stamp, version) ->
+                      stamp.current_stamp == version)
+                    record.aggregate_stamp
+               && Option.fold ~none:false
+                    ~some:(fun (owner, publication, _) ->
+                      owner == namespace
+                      && Declaration_collection.namespace_owns_publication
+                           namespace publication
+                      && record.symbol
+                         == Declaration_collection.publication_symbol
+                              publication
+                      && Option.fold ~none:false ~some:(( == ) publication)
+                           (Declaration_collection.current_aggregate_publication
+                              namespace publication)
+                      && Option.fold ~none:false ~some:(( == ) symbol)
+                           (Declaration_collection
+                            .publication_aggregate_identity publication))
+                    record.aggregate_owner -> Ok record.byte_size
+        | _ ->
+            Error
+              "return class size lacks its exact current retained aggregate \
+               layout")
+
 let read_sizeof ~table ~(root : Parser.query_root) (record : t) =
   if record.table != table || not (Symbol_table.owns_symbol table record.symbol)
   then Error "sizeof compiler record belongs to another semantic table"

@@ -197,6 +197,9 @@ let event_context = function
             p.callback_signature_publication.callback_command
         | Parser.Parameter_default_completed p ->
             p.default_function.function_header.declaration_command
+        | Parser.Function_return_phase p ->
+            p.return_header.function_publication.function_header
+              .declaration_command
         | Parser.Function_header_completed p
         | Parser.Function_body_completed (p, _) ->
             p.function_publication.function_header.declaration_command

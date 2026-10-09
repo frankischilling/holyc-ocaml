@@ -84,6 +84,64 @@ let header_warnings =
   ]
 
 let unused_extern = ("HCSEMA0075", "Unused extern 'F'")
+let return_warning = ("HCSEMA0078", "Function should return val")
+let unexpected_return = ("HCSEMA0078", "Function should NOT return val")
+
+let return_cases =
+  [
+    ( "unreachable bare return warns",
+      "#exe {I64 F(){return 42;return;}Print(\"%d;\",F());}42;",
+      [ return_warning ],
+      0 );
+    ("missing value", "#exe {Option(16,0);I64 F(){}}42;", [ return_warning ], 0);
+    ( "bare return and body",
+      "#exe {Option(16,0);I64 F(){return;}}42;",
+      [ return_warning; return_warning ],
+      0 );
+    ("void bare", "#exe {U0 F(){return;}}42;", [], 0);
+    ("unreachable value sets flag", "#exe {I64 F(){if(0)return 42;}}42;", [], 0);
+    ( "later function clears flag",
+      "#exe {I64 F(){return 42;}I64 G(){}}42;",
+      [ return_warning ],
+      0 );
+    ( "warning before bad expression",
+      "#exe {U0 F(){return 1+;}}42;",
+      [ unexpected_return ],
+      1 );
+    ( "warning before invalid first token",
+      "#exe {U0 F(){return );}}42;",
+      [ unexpected_return ],
+      1 );
+    ( "warning before bad terminator",
+      "#exe {U0 F(){return 42 43;}}42;",
+      [ unexpected_return ],
+      1 );
+    ( "warning before semantic failure",
+      "#exe {U0 F(){return missing;}}42;",
+      [ unexpected_return ],
+      1 );
+    ( "macro warning unconditional",
+      "#exe {\n#define BAD return );\nU0 F(){BAD}}42;",
+      [ unexpected_return ],
+      1 );
+    ( "warning before runtime failure",
+      "#exe {I64 F(){}I64 zero=0;42/zero;}42;",
+      [ return_warning ],
+      1 );
+    ( "all warning options disabled",
+      "#exe {Option(16,0);Option(17,0);Option(18,0);Option(19,0);I64 \
+       F(){return;}}42;",
+      [ return_warning; return_warning ],
+      0 );
+    ( "ordinary source warning",
+      "#exe {Option(16,0);}I64 F(){}42;",
+      [ return_warning ],
+      0 );
+    ( "shared return bit reset",
+      "#exe {Option(16,0);I64 Outer(){return 42;#exe {I64 Inner(){}}}}42;",
+      [ return_warning; return_warning ],
+      0 );
+  ]
 
 let duplicate name function_name =
   ( "HCSEMA0076",
@@ -503,5 +561,49 @@ let () =
                  = "42")
                   (label ^ ": header warnings changed execution")))
         header_cases)
+    targets;
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          let path =
+            Filename.concat (Filename.dirname example)
+              "compiler-return-warnings.hc"
+          in
+          let report = invoke mode target path in
+          require
+            (warnings report = [ return_warning ])
+            "return example lost the original producers";
+          require
+            (report |> member "output_hex" |> to_string = "34323b"
+            && report |> member "final_value" |> member "value" |> to_string
+               = "42")
+            "return warnings changed defined execution";
+          List.iter
+            (fun (label, text, expected, status) ->
+              temporary ".hc" text (fun path ->
+                  let status, expected =
+                    if target = "host-jit-task" then
+                      match label with
+                      | "missing value"
+                      | "bare return and body"
+                      | "unreachable value sets flag"
+                      | "later function clears flag"
+                      | "all warning options disabled"
+                      | "ordinary source warning" -> (1, expected)
+                      | "shared return bit reset" -> (1, [ return_warning ])
+                      | _ -> (status, expected)
+                    else (status, expected)
+                  in
+                  let report = invoke ~status mode target path in
+                  require
+                    (warnings report = expected)
+                    (label ^ ": expected ["
+                    ^ String.concat "; " (List.map snd expected)
+                    ^ "], received ["
+                    ^ String.concat "; " (List.map snd (warnings report))
+                    ^ "]")))
+            return_cases)
+        [ "jit"; "aot" ])
     targets;
   Printf.printf "%d compiler warning CLI executions passed\n%!" !count

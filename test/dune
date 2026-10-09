@@ -27,6 +27,7 @@
  (deps
   ../examples/compiler-warning-options.hc
   ../examples/compiler-duplicate-types.hc
+  ../examples/compiler-return-warnings.hc
   ../examples/compiler-parenthesis-warnings.hc)
  (action
   (run
@@ -542,6 +543,7 @@
   test_native_compiler_control
   test_duplicate_local_types
   test_parenthesis_warnings
+  test_return_warnings
   test_parser
   test_conditional_expression
   test_assert_directive

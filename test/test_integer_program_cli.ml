@@ -961,8 +961,20 @@ let () =
               require
                 (status = Unix.WEXITED 1 && stdout = "")
                 "failed U0 or word callee supplies no successful report";
+              let diagnostics = Yojson.Safe.from_string stderr |> to_list in
+              require
+                (diagnostics
+                |> List.filter (fun d ->
+                    d |> member "severity" |> to_string = "warning")
+                |> List.map (fun d -> d |> member "code" |> to_string)
+                =
+                if code = "HCIRVM0013" then [ "HCSEMA0078"; "HCSEMA0078" ]
+                else [])
+                "reached return warnings precede the callee fault";
               let diagnostic =
-                Yojson.Safe.from_string stderr |> to_list |> List.hd
+                List.find
+                  (fun d -> d |> member "severity" |> to_string = "error")
+                  diagnostics
               in
               let notes =
                 diagnostic |> member "notes" |> to_list |> List.map to_string

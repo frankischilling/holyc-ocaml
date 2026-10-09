@@ -1,8 +1,9 @@
 type t
 (** Private native storage for the option and warning fields of an original
     parser input. The allocation has the pinned [CCmpCtrl] prefix through
-    [warning_cnt]; other fields remain zero. It does not provide the complete
-    record, task queue, table context, lexical buffers or an exported ABI.
+    [warning_cnt]; only [opts], [warning_cnt] and [CCF_HAS_RETURN] are used. It
+    does not provide the complete record, task queue, table context, lexical
+    buffers or an exported ABI.
 
     Parser contexts retain their focus, source and domain checks. Sharing this
     storage does not grant permission to act through another context. *)
@@ -24,6 +25,12 @@ val set_option : t -> bit_index:int -> bool -> bool
 
 val warning_count : t -> int64
 val increment_warning : t -> unit
+val has_return : t -> bool
+
+val set_has_return : t -> bool -> unit
+(** The pinned bit 22 in [flags] at byte 24. Child inputs start clear;
+    directives share the original field. Foreign domains reject before access.
+*)
 
 val verify_storage : unit -> bool
 (** Compare production fields and operations with literal-offset x86-64

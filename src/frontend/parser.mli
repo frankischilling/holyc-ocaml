@@ -713,6 +713,31 @@ val function_body_compiler_options :
     receipt survives callback expiry; copies and substituted bodies reject. This
     source evidence grants no execution authority. *)
 
+type function_return_step =
+  | Enter_function_body
+  | Check_bare_return
+  | Check_value_return
+  | Value_return_parsed
+  | Check_function_body_return
+
+type function_return_activity
+
+type function_return_phase = private {
+  return_header : completed_function_header;
+  return_step : function_return_step;
+  return_location : Ast.location;
+  return_activity : function_return_activity;
+}
+
+val function_return_phase_is_current : function_return_phase -> bool
+
+val consume_function_return_phase :
+  function_return_phase -> (bool, string) result
+(** Consume once during the original callback, returning the previous native
+    [CCF_HAS_RETURN]. Entry clears it; a parsed value sets it. Other phases read
+    it without changing it. This supplies no return type or executable
+    authority. *)
+
 type array_dimensions_owner = private {
   dimensions_command : command_start;
   dimensions_environment : Symbol_visibility.Environment.t;
@@ -893,6 +918,7 @@ type declaration_event = private
   | Function_variadic_started of function_variadic_publication
   | Function_variadic_completed of function_variadic_publication
   | Function_header_completed of completed_function_header
+  | Function_return_phase of function_return_phase
   | Function_body_completed of
       completed_function_header * Ast.function_definition
       (** Parser-owned source witnesses. Array preparation follows expression
