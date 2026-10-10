@@ -57,12 +57,12 @@ Ownership checks reject raw bodies before execution; native checks cover both
 host ABIs and fresh images. Expected words follow the pinned source audit.
 These tests contain no TempleOS runtime capture or machine-byte comparison.
 
-[Closed class default words](class-default-words.md) now prepare in AOT IR and
-native JIT/AOT source compilation. Calls to class-returning functions during
-default preparation still need callable authority. Reference-bearing and
-retained-task class defaults, callback class signatures, F64/pointer/callback
-backings, zero-size class pointer operations, persistent class objects, native
-task classes, retained aggregate imports and general aggregate copies remain
+[Class default words](class-default-words.md) prepare in both IR modes and
+native JIT/AOT source compilation. [Retained JIT contexts](retained-class-context.md)
+also prepare checked class-returning calls through IR or native task execution.
+AOT IR and ordinary native defaults containing references, callback class signatures,
+F64/pointer/callback backings, zero-size class pointer operations, persistent
+class objects, retained nested class members and general aggregate copies remain
 open. Complete class and ABI acceptance remain under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and
 [#702](https://github.com/frankischilling/holyc-ocaml/issues/702); full compiler

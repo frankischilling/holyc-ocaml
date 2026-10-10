@@ -403,6 +403,44 @@ let contains_global command ~(publication : Parser.global_publication)
       && completed.delimiter.location.span == variable.semicolon
   | _ -> false
 
+let aggregate_import_prefix ~scope ~imports command =
+  let earlier =
+    let rec before rev = function
+      | [] -> None
+      | Parser.Command_started start :: _
+        when List.exists
+               (fun node -> node.receipt.command_start == start)
+               command.nodes -> Some rev
+      | Parser.Command_started start :: rest -> before (start :: rev) rest
+      | _ :: rest -> before rev rest
+    in
+    before [] (List.rev command.owner.events)
+  in
+  let rec validate seen = function
+    | [] -> Ok (List.length imports)
+    | proof :: rest -> (
+        match
+          Compiler_record.aggregate_import_source ~table:command.owner.table
+            ~scope proof
+        with
+        | Some (_, publication, _) -> (
+            match
+              Declaration_collection.publication_source_aggregate publication
+            with
+            | Some source
+              when Option.fold ~none:false
+                     ~some:
+                       (List.memq source.aggregate_header.declaration_command)
+                     earlier
+                   && not (List.memq publication seen) ->
+                validate (publication :: seen) rest
+            | _ ->
+                Error
+                  "class metadata prefix lacks an earlier original publication")
+        | None -> Error "class metadata prefix has another namespace or table")
+  in
+  validate [] imports
+
 let check order ~admitted command =
   if command.owner != order then Error "source order belongs to another task"
   else if

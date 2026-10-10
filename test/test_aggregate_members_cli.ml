@@ -82,12 +82,25 @@ let hex bytes =
   |> Seq.map (fun c -> Printf.sprintf "%02x" (Char.code c))
   |> List.of_seq |> String.concat ""
 
-let value ?(unused_array = false) ?(return_warning = false) expected output
-    report =
+let value ?(warnings = []) ?(unused_array = false) ?(return_warning = false)
+    expected output report =
   require
     (member "outcome" report = `String "success")
     (Yojson.Safe.to_string report);
-  if return_warning then (
+  if warnings <> [] then (
+    let actual = member "diagnostics" report |> to_list in
+    require
+      (List.length actual = List.length warnings)
+      "prototype warning count";
+    List.iter2
+      (fun (code, message) warning ->
+        require
+          (member "code" warning = `String code
+          && member "severity" warning = `String "warning"
+          && member "message" warning = `String message)
+          "prototype keeps its original header warning")
+      warnings actual)
+  else if return_warning then (
     let diagnostics = member "diagnostics" report |> to_list in
     require (List.length diagnostics = 1) "empty class return warning count";
     let warning = List.hd diagnostics in
@@ -168,45 +181,57 @@ let () =
           value 42L "" (invoke target mode (read Sys.argv.(7)));
           value 42L "" (invoke target mode (read Sys.argv.(8)));
           value 42L "" (invoke target mode (read Sys.argv.(9)));
-          if target = "host-jit" || mode = "aot" then (
-            value 42L "" (invoke target mode (read Sys.argv.(10)));
+          value 42L "" (invoke target mode (read Sys.argv.(10)));
+          List.iter
+            (fun (_, source, expected, output) ->
+              value expected output (invoke target mode source))
+            Defaults.native_values;
+          List.iter
+            (fun (_, source) -> error "" (invoke ~status:1 target mode source))
+            (if target = "host-jit" then Defaults.native_unsupported
+             else if mode = "jit" then Defaults.jit_unsupported
+             else Defaults.unsupported);
+          if target = "ir" then
+            List.iteri
+              (fun index (_, source, expected, output) ->
+                let warnings =
+                  if mode <> "jit" then []
+                  else
+                    (if index = 0 then
+                       [ ("HCSEMA0075", "Unused extern 'Take'") ]
+                     else [])
+                    @ [
+                        ( "HCSEMA0038",
+                          "function \"Take\" argument list does not match the \
+                           replaced header" );
+                      ]
+                in
+                value ~warnings expected output (invoke target mode source))
+              Defaults.prototype_values
+          else
             List.iter
-              (fun (_, source, expected, output) ->
-                value expected output (invoke target mode source))
-              Defaults.native_values;
-            List.iter
-              (fun (_, source) ->
+              (fun (_, source, _, _) ->
                 error "" (invoke ~status:1 target mode source))
-              (if target = "host-jit" then Defaults.native_unsupported
-               else Defaults.unsupported);
-            if target = "ir" then
-              List.iter
-                (fun (_, source, expected, output) ->
-                  value expected output (invoke target mode source))
-                Defaults.prototype_values
-            else
-              List.iter
-                (fun (_, source, _, _) ->
-                  error "" (invoke ~status:1 target mode source))
-                Defaults.prototype_values;
-            error ~code:"HCIRVM0019" ""
-              (invoke ~status:1 target mode Defaults.extent_source);
-            value 42L ""
-              (invoke
-                 ~options:[ "--initializer-step-limit=5" ]
-                 target mode Defaults.quota_source);
-            error ~code:"HCIRVM0007" ""
-              (invoke ~status:1
-                 ~options:[ "--initializer-step-limit=4" ]
-                 target mode Defaults.quota_source))
-          else error "" (invoke ~status:1 target mode (read Sys.argv.(10)));
+              Defaults.prototype_values;
+          error ~code:"HCIRVM0019" ""
+            (invoke ~status:1 target mode Defaults.extent_source);
+          value 42L ""
+            (invoke
+               ~options:[ "--initializer-step-limit=5" ]
+               target mode Defaults.quota_source);
+          error ~code:"HCIRVM0007" ""
+            (invoke ~status:1
+               ~options:[ "--initializer-step-limit=4" ]
+               target mode Defaults.quota_source);
           if target = "host-jit" then
             error ~code:"HCPP0008" ""
               (invoke ~status:1 target mode Inherited.lookahead_source)
-          else if mode = "jit" then
-            error ~code:"HCSEMA0046" ""
-              (invoke ~status:1 target mode Inherited.lookahead_source)
           else value 42L "" (invoke target mode Inherited.lookahead_source);
+          if target = "ir" && mode = "jit" then
+            List.iter
+              (fun (_, source, expected, output) ->
+                value expected output (invoke target mode source))
+              (Defaults.jit_values @ Inherited.retained_values);
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
@@ -265,10 +290,59 @@ let () =
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
             (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-           @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
-           @ Parameters.unsupported @ Returns.unsupported))
+            @ (if target = "ir" && mode = "jit" then Inherited.unsupported
+               else Inherited.source_unsupported)
+            @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
+            @ Returns.unsupported))
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
-  if native then
-    error "" (invoke ~status:1 "host-jit-task" "jit" Cases.quota_source);
+  if native then (
+    let invoke_task ?(status = 0) ?(options = []) source =
+      invoke ~status
+        ~options:("--code-byte-limit=524288" :: options)
+        "host-jit-task" "jit" source
+    in
+    let task_values =
+      Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
+      @ Pointers.values @ Pointers.view_matrix @ Inherited.values
+      @ Inherited.view_matrix @ Inherited.retained_values @ Backed.values
+      @ Default.values @ Parameters.values @ Parameters.view_matrix
+      @ Returns.values @ Returns.view_matrix @ Returns.warning_values
+      @ Defaults.native_values @ Defaults.jit_values
+    in
+    List.iter
+      (fun (name, source, expected, output) ->
+        if List.mem name Cases.retained_nested_class_boundaries then
+          error ~code:"HCRUN0001" "" (invoke_task ~status:1 source)
+        else
+          value
+            ~unused_array:(name = "unused automatic aggregate array")
+            ~return_warning:
+              (List.exists
+                 (fun (n, _, _, _) -> n = name)
+                 Returns.warning_values)
+            expected output (invoke_task source))
+      task_values;
+    let _, prototype, expected, output = List.hd Defaults.prototype_values in
+    value
+      ~warnings:
+        [
+          ("HCSEMA0075", "Unused extern 'Take'");
+          ( "HCSEMA0038",
+            "function \"Take\" argument list does not match the replaced header"
+          );
+        ]
+      expected output (invoke_task prototype);
+    let _, earlier, _, _ = List.nth Defaults.prototype_values 1 in
+    error ~code:"HCBACK0002" "" (invoke_task ~status:1 earlier);
+    value 42L "" (invoke_task Cases.quota_source);
+    error ~code:"HCIRVM0019" "" (invoke_task ~status:1 Defaults.extent_source);
+    value 42L ""
+      (invoke_task
+         ~options:[ "--initializer-step-limit=5" ]
+         Defaults.quota_source);
+    error ~code:"HCIRVM0007" ""
+      (invoke_task ~status:1
+         ~options:[ "--initializer-step-limit=4" ]
+         Defaults.quota_source));
   Printf.printf "Aggregate member CLI checks passed (%d reports).\n" !reports

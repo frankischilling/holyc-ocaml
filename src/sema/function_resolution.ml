@@ -420,7 +420,7 @@ let validate_header_source ~table ~namespace ~source ~function_ =
           (Option.fold ~none:false ~some:(( == ) parent)
              (Symbol_table.parent scope)))
     || Symbol_table.scope_kind scope <> Symbol_table.Function
-    || H.function_item_index function_ <> 0
+    || H.function_original_item_index function_ <> 0
   then
     Error
       "pending function header requires its original symbol, namespace and \

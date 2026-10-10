@@ -859,8 +859,8 @@ let () =
     "class Pair{I64 a;I64 b;};I64 Run(){Pair (*p)();p=42;return p();}Run();"
     (fun path ->
       require
-        (has_diagnostic "HCBACK0002" (json_path ~status:1 path))
-        "aggregate return metadata requires separate native execution authority");
+        (has_diagnostic "HCIRL0004" (json_path ~status:1 path))
+        "aggregate callback returns remain outside checked call lowering");
   let callback_expression_checks path =
     List.iter
       (fun (target, mode) ->

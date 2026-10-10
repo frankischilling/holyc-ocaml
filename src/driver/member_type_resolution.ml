@@ -634,8 +634,8 @@ let resolve_events ~metadata_only ~table ~scope events headers collected =
   in
   resolve String_map.empty [] events headers collected
 
-let resolve ?(inherited_metadata = []) ~table ~declarations ~aggregates ~headers
-    ~members module_ =
+let resolve ?(original_definitions = []) ?(inherited_metadata = []) ~table
+    ~declarations ~aggregates ~headers ~members module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic member declarations belong to a different symbol table"
@@ -647,7 +647,8 @@ let resolve ?(inherited_metadata = []) ~table ~declarations ~aggregates ~headers
     | Ok events ->
         resolve_events
           ~metadata_only:
-            (Inherited_metadata.contains ~table ~scope inherited_metadata)
+            (Inherited_metadata.contains ~original_definitions ~table ~scope
+               inherited_metadata)
           ~table ~scope events
           (Sema.Aggregate_header_resolution.headers headers)
           (Sema.Member_collection.aggregates members)

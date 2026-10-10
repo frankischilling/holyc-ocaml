@@ -155,7 +155,16 @@ let faults =
       "" );
   ]
 
-let unsupported =
+let retained_values =
+  [
+    ("original base survives retained lookahead", lookahead_source, 42L, "");
+    ( "retained runtime base keeps its saved dimension",
+      {|I64 Count=0;I64 Next(){Count++;return 2;}class B{U16 words[Next()];};class Box:B{U8 tag;};I64 F(){Box o;o.words[1]=41;return o.words[1]+Count;}F();|},
+      42L,
+      "" );
+  ]
+
+let source_unsupported =
   [
     ( "runtime-prepared base outside the current object compilation",
       {|I64 Count=0;I64 Next(){Count++;return 2;}class B{U16 words[Next()];};class Box:B{U8 tag;};I64 F(){Box o;o.words[1]=41;return o.words[1]+Count;}F();|}
@@ -177,3 +186,5 @@ let unsupported =
     ( "persistent inherited object",
       {|class B{U8 tag;};class Box:B{U16 value;};Box o;42;|} );
   ]
+
+let unsupported = List.filteri (fun index _ -> index > 0) source_unsupported

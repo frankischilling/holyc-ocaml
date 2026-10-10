@@ -10,7 +10,7 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-class defaults, callback class parameters and persistent objects still need
+AOT IR and ordinary native defaults containing references, callback class parameters and persistent objects still need
 their own implementation.
 
 Completed earlier class and union definitions can supply inherited automatic
@@ -39,18 +39,19 @@ run with `--target=ir` and `--target=host-jit` in JIT and AOT mode.
 
 Each inherited definition retains its original completed base snapshot. The
 driver requires that exact base definition and canonical identity to appear
-earlier in the current object compilation. Every ancestor must have object
+earlier in the object compilation or arrive through authenticated retained JIT
+imports. Every ancestor must have object
 layout admission. Before publishing the member index, it compares the computed
 child size, base size, base identity and zero base offset with that snapshot.
 A later same-name declaration cannot replace the selected ancestor, even when
 its byte size is equal.
 
 A replacement inside base-name lookahead in IR uses the directive's parser
-environment. In JIT mode that can leave the captured base outside the current
-object compilation, so member execution fails explicitly. In AOT mode the
-directive uses a separate environment and the completed outer base remains
-available. Tests check both outcomes instead of borrowing the replacement's
-same-size layout.
+environment. Retained JIT imports preserve the captured base's original
+identity and layout. In AOT mode the directive uses a separate environment
+and the completed outer base remains available. Both paths execute the
+original base members. Tests also check that runtime dimensions keep their
+saved values and declaration-time effects across commands.
 The isolated native executor rejects `#exe` in either mode; native source tasks
 keep their separate metadata path and still lack aggregate object execution.
 
@@ -92,7 +93,7 @@ Partial, self-referential and forward-only bases retain their separate
 [captured size metadata](source-inherited-layouts.md); they do not supply
 owned members. A declaration-time call can move a base outside the current
 object compilation, so its captured size still does not authorize storage.
-Retained JIT imports, native task object execution, function-local layouts,
+Retained nested class members, function-local layouts,
 persistent objects, aggregate initializers, whole-value postfix casts, class
 defaults and callback parameters and general aggregate copies, pointer or
 callback fields, general derived/base pointer conversions and pointer returns

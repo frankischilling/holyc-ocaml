@@ -161,3 +161,20 @@ let extents =
 let extent_source definition index =
   Printf.sprintf "%s I64 F(){Box o;o.bytes[%d]=42;return o.bytes[%d];}F();"
     definition index index
+
+(* Retained parser records have no original named member-selection receipt yet.
+   Closed whole-source compilation still supports these layouts. *)
+let retained_nested_class_boundaries =
+  [
+    "nested aggregate fields";
+    "two-dimensional aggregate member array";
+    "address and dereference of aggregate array element";
+    "indexed aggregate address passed to a class pointer parameter";
+    "nested member arrays inside root arrays";
+    "nested array stride is independent of containing object size";
+    "nested inherited objects and aggregate arrays";
+    "nested backed members retain absolute addresses";
+    "whole scalar may cross a nested class extent inside its root";
+    "nested default array elements retain their root";
+    "default value may reach adjacent bytes within a nested root";
+  ]

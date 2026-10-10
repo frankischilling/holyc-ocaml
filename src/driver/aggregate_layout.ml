@@ -389,8 +389,8 @@ let inputs ~metadata_only ~offset ~dimension ~table ~scope events headers
   in
   loop [] events headers aggregates
 
-let layout ?(inherited_metadata = []) ?offsets ?prepared ~table ~declarations
-    ~aggregates ~headers ~members module_ =
+let layout ?(original_definitions = []) ?(inherited_metadata = []) ?offsets
+    ?prepared ~table ~declarations ~aggregates ~headers ~members module_ =
   let dimension = dimension ~table ?prepared in
   let offset ast =
     match offsets with
@@ -421,7 +421,8 @@ let layout ?(inherited_metadata = []) ?offsets ?prepared ~table ~declarations
           Result.bind
             (inputs
                ~metadata_only:
-                 (Inherited_metadata.contains ~table ~scope inherited_metadata)
+                 (Inherited_metadata.contains ~original_definitions ~table
+                    ~scope inherited_metadata)
                ~offset ~dimension ~table ~scope events
                (Sema.Aggregate_header_resolution.headers headers)
                (Sema.Member_type_resolution.aggregates members))

@@ -10,7 +10,7 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-class defaults, callback class parameters and persistent objects still need
+AOT IR and ordinary native defaults containing references, callback class parameters and persistent objects still need
 their own implementation.
 
 The interpreter and native executor read, assign and update integer members of
@@ -112,7 +112,7 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 296 IR and 292 native test groups. Independent expected
+The shared fixtures have 309 IR and 583 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
@@ -124,13 +124,12 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 872 reports for IR and 1785 when native execution is included,
+actual CLI runs 920 reports for IR and 2137 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
-Partial and out-of-compilation inherited bases, retained JIT aggregate
-imports, function-local layouts, zero-sized automatic objects, pointer arrays,
+Partial and out-of-compilation inherited bases, function-local layouts, zero-sized automatic objects, pointer arrays,
 aggregate array initializers, persistent aggregate objects, whole-value
-postfix casts, class defaults and callback parameters and general aggregate
+postfix casts, AOT IR and ordinary native defaults containing references, callback parameters and general aggregate
 copies, pointer and callback fields, general casts to class pointers, pointer
 returns and original named-local size/position consumers remain unfinished
 under [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).

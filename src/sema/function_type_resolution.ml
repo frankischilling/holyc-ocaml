@@ -76,6 +76,7 @@ type function_declaration = {
   function_symbol_ : Symbol.t;
   function_scope_ : Symbol_table.scope;
   function_item_index_ : int;
+  mutable function_context_item_index_ : int;
   function_return_type_ : Type_reference.t;
   function_signature_ : signature;
   function_parameter_bindings_ : parameter_binding list;
@@ -93,7 +94,8 @@ type selected_aggregate_resolver =
 let functions resolution = resolution.functions
 let function_symbol function_ = function_.function_symbol_
 let function_scope function_ = function_.function_scope_
-let function_item_index function_ = function_.function_item_index_
+let function_item_index function_ = function_.function_context_item_index_
+let function_original_item_index function_ = function_.function_item_index_
 let function_return_type function_ = function_.function_return_type_
 let function_signature function_ = function_.function_signature_
 
@@ -524,6 +526,7 @@ let make_function_record completed_header ~symbol ~scope ~item_index
                 function_symbol_ = symbol;
                 function_scope_ = scope;
                 function_item_index_ = item_index;
+                function_context_item_index_ = item_index;
                 function_return_type_ = return_type;
                 function_signature_ = signature;
                 function_parameter_bindings_ = parameter_bindings;
@@ -790,7 +793,8 @@ let same_completed_header left right =
   | None, None -> true
   | Some _, None | None, Some _ -> false
 
-let validate_retained_header ~table ~parent retained function_ =
+let validate_retained_header ~retained_item_index_offset ~table ~parent retained
+    function_ =
   if retained.function_header_reused_ then
     Error "semantic retained function type was already completed"
   else if Option.is_none retained.function_completed_header_ then
@@ -804,8 +808,12 @@ let validate_retained_header ~table ~parent retained function_ =
     Error "semantic retained function type has the wrong function symbol"
   else if retained.function_scope_ != function_.function_scope_ then
     Error "semantic retained function type has the wrong function scope"
-  else if retained.function_item_index_ <> function_.function_item_index_ then
-    Error "semantic retained function type has the wrong item order"
+  else if
+    retained_item_index_offset < 0
+    || retained_item_index_offset > max_int - retained.function_item_index_
+    || retained.function_item_index_ + retained_item_index_offset
+       <> function_.function_item_index_
+  then Error "semantic retained function type has the wrong item order"
   else if
     not
       (same_type_reference retained.function_return_type_
@@ -841,7 +849,8 @@ let find_retained retained_headers function_ =
   | [ retained ] -> Ok (Some retained)
   | _ -> Error "semantic retained function type repeats a function symbol"
 
-let substitute_retained ~table ~parent retained_headers function_declarations =
+let substitute_retained ~retained_item_index_offset ~table ~parent
+    retained_headers function_declarations =
   let rec substitute functions_rev used_rev = function
     | [] ->
         if
@@ -857,7 +866,8 @@ let substitute_retained ~table ~parent retained_headers function_declarations =
         | Ok None -> substitute (function_ :: functions_rev) used_rev rest
         | Ok (Some retained) -> (
             match
-              validate_retained_header ~table ~parent retained function_
+              validate_retained_header ~retained_item_index_offset ~table
+                ~parent retained function_
             with
             | Error _ as error -> error
             | Ok () ->
@@ -867,7 +877,8 @@ let substitute_retained ~table ~parent retained_headers function_declarations =
   in
   substitute [] [] function_declarations
 
-let resolve ?(retained_headers = []) ~table ~parent function_declarations =
+let resolve ?(retained_headers = []) ?(retained_item_index_offset = 0) ~table
+    ~parent function_declarations =
   if not (Symbol_table.owns_scope table parent) then
     Error "semantic function type parent belongs to a different symbol table"
   else if Symbol_table.scope_kind parent <> Symbol_table.Module then
@@ -876,13 +887,22 @@ let resolve ?(retained_headers = []) ~table ~parent function_declarations =
     let rec validate previous_item seen_symbols seen_scopes = function
       | [] -> (
           match
-            substitute_retained ~table ~parent retained_headers
-              function_declarations
+            substitute_retained ~retained_item_index_offset ~table ~parent
+              retained_headers function_declarations
           with
           | Error _ as error -> error
           | Ok (functions, reused) ->
               List.iter
-                (fun function_ -> function_.function_header_reused_ <- true)
+                (fun function_ ->
+                  let source =
+                    List.find
+                      (fun current ->
+                        current.function_symbol_ == function_.function_symbol_)
+                      function_declarations
+                  in
+                  function_.function_context_item_index_ <-
+                    source.function_item_index_;
+                  function_.function_header_reused_ <- true)
                 reused;
               Ok { functions })
       | function_ :: rest -> (
@@ -1199,6 +1219,7 @@ let make_provisional_function_with_selection
       function_symbol_ = symbol;
       function_scope_ = scope;
       function_item_index_ = 0;
+      function_context_item_index_ = 0;
       function_return_type_ = return_type;
       function_signature_ = signature;
       function_parameter_bindings_ = [];

@@ -71,12 +71,12 @@ instruction, frame, stack and image limits, both native ABIs and proof
 ownership. The checks use expected words and hosted execution; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
-[Closed class default words](class-default-words.md) now prepare in AOT IR and
+[Closed class default words](class-default-words.md) prepare in both IR modes and
 native JIT/AOT source compilation. Whole-value postfix casts, aggregate
-initializers, reference-bearing and retained-task class defaults and
+initializers, AOT IR and ordinary native defaults containing references and
 callback parameter ABI paths, persistent objects, function-local layouts and
 zero-sized automatic objects, pointer and callback backings, F64 execution,
-native task objects, retained JIT imports and general aggregate copies remain
+retained nested class members, general aggregate copies remain
 open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)
 and related value and ABI issues. Full compiler and release acceptance remain
 under [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).

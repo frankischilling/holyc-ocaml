@@ -157,7 +157,7 @@ let reached_faults_and_type_boundaries () =
     (fun (code, text) -> diagnostic code (run (pair ^ text)))
     [
       ("HCBACK0002", "Pair *F(){return 0;}Pair *(*p)()=&F;p();");
-      ("HCBACK0002", "I64 Run(){Pair (*p)();p=42;return p();}Run();");
+      ("HCIRL0004", "I64 Run(){Pair (*p)();p=42;return p();}Run();");
       ("HCRUN0003", "I64 F(Pair *p){if(p==0)return 42;return 0;}F(0);");
     ]
 

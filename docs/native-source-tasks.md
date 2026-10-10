@@ -18,6 +18,14 @@ completed headers install their once-evaluated operation. Supported internal
 calls also execute in later commands, functions and saved-default expressions.
 See [live internal bindings](native-internal-bindings.md).
 
+[Retained class contexts](retained-class-context.md) import earlier completed
+class definitions into later native commands. Original class parameter and
+return words, automatic member storage and integer-backed defaults retain
+separate source, frame and ABI proofs. Saved dimensions and offsets are reused
+without executing their preparation again. Checked class-returning defaults
+run at their original declaration and retain their effects. Nested named class
+members and calls through an earlier extern class prototype remain restricted.
+
 [Saved data-pointer defaults](data-pointer-defaults.md) execute at their original
 JIT headers. Native calls reuse the original object/view capture or the copied
 terminated string. The maintained `examples/data-pointer-defaults.hc` prints

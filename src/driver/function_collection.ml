@@ -361,11 +361,13 @@ let function_facts retained_headers declarations module_ =
   in
   pair [] 0 entries functions
 
-let collect ?(retained_headers = []) ~table ~declarations module_ =
+let collect ?(retained_headers = []) ?(retained_item_index_offset = 0) ~table
+    ~declarations module_ =
   match function_facts retained_headers declarations module_ with
   | Error _ as error -> error
   | Ok facts ->
-      Sema.Function_collection.collect ~retained_headers ~table
+      Sema.Function_collection.collect ~retained_headers
+        ~retained_item_index_offset ~table
         ~parent:(Sema.Declaration_collection.scope declarations)
         facts
 

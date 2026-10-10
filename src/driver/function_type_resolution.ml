@@ -713,8 +713,8 @@ let function_fact ?selected_aggregate ?selected_owner visible event =
       | Error _ as error -> error
       | Ok signature -> function_fact_with_types event ~return_type ~signature)
 
-let resolve_events ?selected_types ~retained_headers ~table ~scope aggregates
-    functions =
+let resolve_events ?selected_types ~retained_item_index_offset ~retained_headers
+    ~table ~scope aggregates functions =
   let selected_aggregate = Option.map snd selected_types in
   let selected_owner =
     Option.map (fun (namespace, _) -> (table, namespace)) selected_types
@@ -722,8 +722,8 @@ let resolve_events ?selected_types ~retained_headers ~table ~scope aggregates
   let rec resolve visible facts_rev aggregates functions =
     match (aggregates, functions) with
     | [], [] ->
-        Sema.Function_type_resolution.resolve ~retained_headers ~table
-          ~parent:scope (List.rev facts_rev)
+        Sema.Function_type_resolution.resolve ~retained_headers
+          ~retained_item_index_offset ~table ~parent:scope (List.rev facts_rev)
     | aggregate :: aggregate_rest, [] ->
         let visible =
           String_map.add aggregate.aggregate_name aggregate.aggregate_identity
@@ -760,8 +760,8 @@ let resolve_events ?selected_types ~retained_headers ~table ~scope aggregates
   in
   resolve String_map.empty [] aggregates functions
 
-let resolve ?(retained_headers = []) ?selected_types ~table ~declarations
-    ~aggregates ~functions module_ =
+let resolve ?(retained_headers = []) ?(retained_item_index_offset = 0)
+    ?selected_types ~table ~declarations ~aggregates ~functions module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic function type module belongs to a different symbol table"
@@ -784,8 +784,8 @@ let resolve ?(retained_headers = []) ?selected_types ~table ~declarations
         with
         | Error _ as error -> error
         | Ok functions ->
-            resolve_events ?selected_types ~retained_headers ~table ~scope
-              aggregates functions)
+            resolve_events ?selected_types ~retained_item_index_offset
+              ~retained_headers ~table ~scope aggregates functions)
 
 let resolve_completed_header_with_collection
     ?(selected_aggregate :

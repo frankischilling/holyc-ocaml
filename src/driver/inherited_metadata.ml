@@ -1,4 +1,12 @@
-let contains ~table ~scope metadata definition =
+let original_definition original_definitions definition =
+  match
+    List.find_opt (fun (_, view) -> view == definition) original_definitions
+  with
+  | Some (original, _) -> original
+  | None -> definition
+
+let contains ?(original_definitions = []) ~table ~scope metadata definition =
+  let definition = original_definition original_definitions definition in
   List.exists
     (Sema.Compiler_record.inherited_metadata_owns_definition ~table ~scope
        definition)
@@ -16,7 +24,8 @@ type storage = {
   selections : storage_selection list;
 }
 
-let prepare_storage ~table ~scope ~aggregates ~ast metadata =
+let prepare_storage ?(original_definitions = []) ~table ~scope ~aggregates ~ast
+    metadata =
   let identities =
     Sema.Aggregate_resolution.declarations aggregates
     |> List.map (fun declaration ->
@@ -30,7 +39,8 @@ let prepare_storage ~table ~scope ~aggregates ~ast metadata =
     |> List.filter_map (function
       | index, Frontend.Ast.Aggregate_definition definition ->
           Option.map
-            (fun symbol -> (definition, symbol))
+            (fun symbol ->
+              (original_definition original_definitions definition, symbol))
             (List.assoc_opt index identities)
       | _ -> None)
   in

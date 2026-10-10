@@ -246,6 +246,37 @@ val complete_initializer_runtime :
 
 type command
 
+val semantic_view :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.module_
+    * Sema.Declaration_collection.t
+    * int
+    * (Frontend.Ast.aggregate_definition * Frontend.Ast.aggregate_definition)
+      list,
+    Common.Diagnostic.t list )
+  result
+(** Import only completed classes reached before this original task command.
+    Metadata wrappers omit attached global declarations. The original command,
+    executable syntax and declaration-time preparations retain their owners. *)
+
+val validate_aggregate_imports :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  layouts:Sema.Aggregate_layout.t ->
+  metadata_only:Sema.Compiler_record.inherited_metadata list ->
+  command ->
+  (unit, Common.Diagnostic.t list) result
+(** Validate recomputed imported layouts against their original completed class
+    records before publishing member or parameter storage. *)
+
+val aggregate_imports :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  (Sema.Compiler_record.aggregate_import list, Common.Diagnostic.t list) result
+
 val inherited_metadata :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->

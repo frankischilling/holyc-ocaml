@@ -339,7 +339,7 @@ let class_return_ownership () =
     modes
 
 let boundaries () =
-  failure "HCSEMA0046" "" (run Preprocessor.Jit Inherited.lookahead_source);
+  ignore (value 42L "" (run Preprocessor.Jit Inherited.lookahead_source));
   ignore (value 42L "" (run Preprocessor.Aot Inherited.lookahead_source));
   List.iter
     (fun mode ->
@@ -351,11 +351,13 @@ let boundaries () =
                (integer_program_report_outcome (run mode contents))))
         (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
        @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
-       @ Parameters.unsupported @ Returns.unsupported))
+        @ (if mode = Preprocessor.Aot then
+             [ List.hd Inherited.source_unsupported ]
+           else [])
+        @ Parameters.unsupported @ Returns.unsupported))
     modes
 
 let class_default_boundaries () =
-  let _, ordinary, _, _ = List.hd Defaults.values in
   List.iter
     (fun (_, source) ->
       Alcotest.(check bool)
@@ -363,14 +365,9 @@ let class_default_boundaries () =
         (Result.is_error
            (integer_program_report_outcome (run Preprocessor.Aot source))))
     Defaults.unsupported;
-  failure "HCIRVM0019" "" (run Preprocessor.Aot Defaults.extent_source);
   List.iter
-    (fun source ->
-      Alcotest.(check bool)
-        "retained JIT class storage needs separate admission" true
-        (Result.is_error
-           (integer_program_report_outcome (run Preprocessor.Jit source))))
-    [ ordinary; Defaults.quota_source ]
+    (fun mode -> failure "HCIRVM0019" "" (run mode Defaults.extent_source))
+    modes
 
 let () =
   Alcotest.run "aggregate members"
@@ -379,8 +376,16 @@ let () =
         List.map
           (fun (name, source, expected, output) ->
             Alcotest.test_case name `Quick (fun () ->
-                ignore (value expected output (run Preprocessor.Aot source))))
+                List.iter
+                  (fun mode -> ignore (value expected output (run mode source)))
+                  modes))
           Defaults.all_values );
+      ( "retained class context",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                ignore (value expected output (run Preprocessor.Jit source))))
+          (Defaults.jit_values @ Inherited.retained_values) );
       ( "values",
         List.map
           (fun (name, source, expected, output) ->

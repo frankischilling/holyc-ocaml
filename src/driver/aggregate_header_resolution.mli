@@ -1,4 +1,6 @@
 val resolve :
+  ?original_definitions:
+    (Frontend.Ast.aggregate_definition * Frontend.Ast.aggregate_definition) list ->
   ?inherited_metadata:Sema.Compiler_record.inherited_metadata list ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->

@@ -51,6 +51,15 @@ val contains_global :
   declarator_index:int option ->
   bool
 
+val aggregate_import_prefix :
+  scope:Symbol_table.scope ->
+  imports:Compiler_record.aggregate_import list ->
+  command ->
+  (int, string) result
+(** Count only distinct completed class imports from this namespace whose
+    original publications precede the command in the task lifecycle journal.
+    Executable syntax and command admission remain unchanged. *)
+
 val create : table:Symbol_table.t -> t
 
 val observe : t -> Frontend.Parser.command_event -> (unit, string) result

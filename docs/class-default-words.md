@@ -1,9 +1,10 @@
 # Class default words in source compilation
 
-AOT IR and native JIT/AOT source compilation prepare closed class and union
+IR and native JIT/AOT source compilation prepare closed class and union
 defaults at their original declaration callbacks. Integer backings and the
-ordinary signed `RT_PTR` class view use a full saved word. JIT IR defaults that
-activate the retained task compiler still need separate class storage support.
+ordinary signed `RT_PTR` class view use a full saved word. Retained JIT IR and
+native tasks also import the original class storage metadata and prepare defaults that call
+checked class-returning functions. See [retained class contexts](retained-class-context.md).
 
 ```c
 U16 class Packet { U16 low; U8 guard; };
@@ -24,6 +25,7 @@ copy the original class object.
 The example is in `examples/class-default-words.hc`:
 
 ```text
+holyc run --mode=jit examples/class-default-words.hc
 holyc run --mode=aot examples/class-default-words.hc
 holyc run --target=host-jit examples/class-default-words.hc
 holyc run --mode=aot --target=host-jit examples/class-default-words.hc
@@ -64,9 +66,9 @@ original parameter member. The hosted tests derive their expected values from
 these source paths. They contain no TempleOS runtime capture or machine-byte
 comparison.
 
-Reference-bearing defaults, including calls to class-returning functions,
-remain outside this source preparation path. Retained JIT class parameter
-storage, native task classes, ordinary native prototypes, owned strings,
+AOT IR and native source defaults containing value or function references
+remain outside their source preparation path. Retained nested class members, ordinary
+native prototypes, owned strings,
 `lastclass`, class callback signatures, F64/pointer backings, general aggregate
 copies and complete HolyC ABI/compiler parity remain open under #686/#702/#682.
 

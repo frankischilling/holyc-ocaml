@@ -163,6 +163,7 @@ val function_variadic_count_type : resolved_function -> Type.t option
 
 val resolve :
   ?retained_headers:resolved_function list ->
+  ?retained_item_index_offset:int ->
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   function_declaration list ->
@@ -174,6 +175,11 @@ val functions : t -> resolved_function list
 val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
+
+val function_original_item_index : resolved_function -> int
+(** The original header index remains unchanged when a completed header is
+    consumed in a context with earlier class metadata items. *)
+
 val function_return_type : resolved_function -> Type_reference.t
 val function_signature : resolved_function -> signature
 

@@ -94,10 +94,12 @@ let aggregate_facts ~metadata_only declarations module_ =
   in
   pair [] entries definitions
 
-let collect ?(inherited_metadata = []) ~table ~declarations module_ =
+let collect ?(original_definitions = []) ?(inherited_metadata = []) ~table
+    ~declarations module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   let metadata_only =
-    Inherited_metadata.contains ~table ~scope inherited_metadata
+    Inherited_metadata.contains ~original_definitions ~table ~scope
+      inherited_metadata
   in
   match aggregate_facts ~metadata_only declarations module_ with
   | Error _ as error -> error

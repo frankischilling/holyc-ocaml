@@ -26,6 +26,7 @@ val prepare_unit :
   Frontend.Ast.module_ ->
   (prepared, Common.Diagnostic.t list) result
 
+val semantic_ast : prepared -> Frontend.Ast.module_
 val top_level : prepared -> Sema.Function_call_expression_result.top_level_t
 val functions : prepared -> Sema.Function_call_expression_result.t
 val frames : prepared -> Sema.Function_frame_layout.t

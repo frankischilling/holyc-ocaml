@@ -8,9 +8,10 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
-member identities and pointer strides remain separate. General casts, class
-returns and defaults, callback class parameters and persistent objects still
-need their own implementation.
+member identities and pointer strides remain separate. [Class returns](class-value-returns.md)
+and [default words](class-default-words.md) retain their own source and ABI
+proofs. General casts, AOT IR and ordinary native defaults containing references, callback class
+parameters and persistent objects remain unfinished.
 
 Classes and unions with primitive members publish size metadata as their
 original members are parsed. `sizeof` uses the entry selected by the original
@@ -23,7 +24,8 @@ Isolated IR and native programs have a separate
 completed earlier layouts, with [owned member execution](aggregate-members.md)
 for integer fields, nested members, member arrays and automatic root arrays.
 [Inherited storage](inherited-aggregates.md) also admits completed earlier bases
-present in that object compilation. Retained JIT publication and partial or
+present in that object compilation or imported through an original completed
+[retained JIT class context](retained-class-context.md). Partial or
 out-of-compilation inherited metadata still cannot authorize those objects.
 
 [Runtime member bounds and offsets](runtime-layout-expressions.md) now use their

@@ -1649,9 +1649,14 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
-let integer_aggregate_return_type table members policies header =
+let integer_aggregate_return_type ?before_item_index table members policies
+    header =
+  let before_item_index =
+    Option.value before_item_index
+      ~default:(Function_type_resolution.function_item_index header)
+  in
   Aggregate_backing_storage.integer_value_type ~table ~members ~policies
-    ~before_item_index:(Function_type_resolution.function_item_index header)
+    ~before_item_index
     ~source_type:
       (header |> Function_type_resolution.function_return_type
      |> Type_reference.resolved_type)
@@ -1669,9 +1674,10 @@ let make_result ?aggregate_return_value_type ?operand_result ?binary_operands
     | Some _ as type_ -> type_
     | None -> (
         match (state.backing_context, call_resolution) with
-        | ( Some (table, members, policies, _),
+        | ( Some (table, members, policies, before_item_index),
             Some (Function_call_resolution.Direct_call direct) ) ->
-            integer_aggregate_return_type table members policies
+            integer_aggregate_return_type ~before_item_index table members
+              policies
               (Function_call_resolution.emission_header
                  (Function_call_resolution.direct_source direct)
                  (Function_call_resolution.direct_active_header direct))
@@ -4175,7 +4181,8 @@ and type_top_level_direct_call table members policies ~before_item_index
                 Ok
                   (make_result
                      ?aggregate_return_value_type:
-                       (integer_aggregate_return_type table members policies
+                       (integer_aggregate_return_type ~before_item_index table
+                          members policies
                           (Function_call_resolution.emission_header source_call
                              header))
                      ~intrinsic_conversion state ~id ~source
@@ -5578,7 +5585,14 @@ let type_top_level_statement table members policies state source =
   match
     source |> Top_level_expression_tree.statement_roots
     |> map_state
-         (type_top_level_root table members policies ~before_item_index)
+         (fun state root ->
+           let before_item_index =
+             match Top_level_expression_tree.root_role root with
+             | Top_level_expression_tree.Default_fragment _ -> max_int
+             | _ -> before_item_index
+           in
+           type_top_level_root table members policies ~before_item_index state
+             root)
          state
   with
   | Error _ as error -> error

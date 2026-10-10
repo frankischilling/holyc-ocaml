@@ -3468,8 +3468,87 @@ let original_saved_compiler_contexts () =
         (D.saved_compiler_context ledger ~session ~suspension:token))
     !tokens
 
+let retained_aggregate_context () =
+  let session, runtime, ledger = runtime_setup () in
+  let table = Session.semantic_symbols session in
+  let output, _ = parse session ledger "class Box{I64 word;};" in
+  let original_ast = Test_parser.expect_ast output in
+  let original =
+    match original_ast.items with
+    | [ Ast.Aggregate_definition definition ] -> definition
+    | _ -> Alcotest.fail "expected original class definition"
+  in
+  let original_command = D.seal ledger original_ast |> expect in
+  let output, _ = parse session ledger "I64 F(Box o){return 42;}" in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal ledger ast |> expect in
+  let context, declarations, prefix, originals =
+    D.semantic_view ~table ~ast command |> expect
+  in
+  Alcotest.(check int) "one earlier class" 1 prefix;
+  Alcotest.(check int)
+    "original command keeps one item" 1 (List.length ast.items);
+  Alcotest.(check int)
+    "context has class and function only" 2
+    (List.length context.items);
+  (match (context.items, originals) with
+  | ( [ Ast.Aggregate_definition view; Ast.Function_definition definition ],
+      [ (owner, saved_view) ] ) ->
+      Alcotest.(check bool)
+        "original class owns the metadata wrapper" true
+        (owner == original && saved_view == view
+        && view.members == original.members);
+      Alcotest.(check bool)
+        "function syntax remains original" true
+        (match ast.items with
+        | [ Ast.Function_definition source ] -> source == definition
+        | _ -> false)
+  | _ -> Alcotest.fail "retained class context differs");
+  Alcotest.(check (list int))
+    "context indices preserve original order" [ 0; 1 ]
+    (C.entries declarations |> List.map C.entry_item_index);
+  reject "rebuilt command cannot borrow class imports"
+    (D.semantic_view ~table ~ast:(copy_module ast ast.items) command);
+  reject "another table cannot borrow class imports"
+    (D.semantic_view
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~ast command);
+  let empty =
+    Holyc_lib__Sema.Aggregate_layout.layout ~table
+      ~parent:(C.scope declarations) []
+    |> Result.map_error Holyc_lib__Sema.Aggregate_layout.error_to_string
+    |> checked
+  in
+  reject "metadata alone cannot supply a computed imported layout"
+    (D.validate_aggregate_imports ~table ~ast ~layouts:empty ~metadata_only:[]
+       command);
+  let imports = D.aggregate_imports ~table ~ast command |> expect in
+  let source_order = D.command_order ~runtime ~table ~ast command |> expect in
+  Alcotest.(check int)
+    "original journal authenticates the class prefix" 1
+    (Holyc_lib__Sema.Task_command_order.aggregate_import_prefix
+       ~scope:(C.scope declarations) ~imports source_order
+    |> checked);
+  reject "duplicated class proofs cannot enlarge the source prefix"
+    (Holyc_lib__Sema.Task_command_order.aggregate_import_prefix
+       ~scope:(C.scope declarations) ~imports:(imports @ imports) source_order);
+  let earlier =
+    D.command_order ~runtime ~table ~ast:original_ast original_command |> expect
+  in
+  reject "a class cannot import its own later completion"
+    (Holyc_lib__Sema.Task_command_order.aggregate_import_prefix
+       ~scope:(C.scope declarations) ~imports earlier);
+  let session, _, ledger = runtime_setup () in
+  let output, _ = parse session ledger "class Box{I64 word;} attached;" in
+  let attached = Test_parser.expect_ast output in
+  reject "metadata imports cannot admit attached aggregate storage"
+    (D.seal ledger attached)
+
 let tests =
   [
+    Alcotest.test_case
+      "retained classes import exact metadata and preserve command ownership"
+      `Quick retained_aggregate_context;
     Alcotest.test_case
       "nested saved compiler tables require complete original ledger events"
       `Quick original_saved_compiler_contexts;
