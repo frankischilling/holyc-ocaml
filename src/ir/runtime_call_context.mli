@@ -257,6 +257,11 @@ val original_prepared_defaults :
 val provider : call -> provider option
 val symbol : call -> Sema.Symbol.t
 val return_type : call -> Sema.Type.t
+
+val return_value_type : call -> Sema.Type.t
+(** Scalar return view of the original selected header; nominal declaration
+    matching continues to use [return_type]. *)
+
 val call_opcode : call -> Opcode.t
 val cleanup_opcode : call -> Opcode.t
 val cleanup_bytes : call -> int64

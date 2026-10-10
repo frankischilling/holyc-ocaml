@@ -3658,7 +3658,9 @@ let checked_call_fragment allocator result conversion sequence =
   | Some error -> Error error
   | None -> (
       match
-        (descriptions, List.rev descriptions, Semantic_result.result_type result)
+        ( descriptions,
+          List.rev descriptions,
+          Semantic_result.result_value_type result )
       with
       | first :: _, last :: rest, Some expected -> (
           match

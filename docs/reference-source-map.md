@@ -1,5 +1,9 @@
 # Reference source map
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 [Class value parameters](class-value-parameters.md) use owned eight-byte slots
 while retaining nominal member layouts, scalar views and pointer strides.
 
@@ -8,8 +12,7 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
-member identities and pointer strides remain separate. General casts, class
-returns and defaults, callback class parameters and persistent objects still
+member identities and pointer strides remain separate. General casts, class defaults, callback class parameters and persistent objects still
 need their own implementation.
 
 Owned inherited storage follows complete `PrsClass` at `PrsStmt.HC:1-60`,

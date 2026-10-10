@@ -74,6 +74,7 @@ type call = {
   provider_ : provider option;
   symbol_ : Sema.Symbol.t;
   return_type_ : Type.t;
+  return_value_type_ : Type.t;
   call_opcode_ : Opcode.t;
   cleanup_opcode_ : Opcode.t;
   cleanup_bytes_ : int64;
@@ -167,6 +168,7 @@ type t = {
 let provider (call : call) = call.provider_
 let symbol (call : call) = call.symbol_
 let return_type (call : call) = call.return_type_
+let return_value_type (call : call) = call.return_value_type_
 let call_opcode (call : call) = call.call_opcode_
 let cleanup_opcode (call : call) = call.cleanup_opcode_
 let cleanup_bytes (call : call) = call.cleanup_bytes_
@@ -1427,8 +1429,10 @@ let rec producer_type ~globals result =
   let span = origin_span (Typed.result_origin result) in
   let type_ =
     match
-      if Option.is_some (Typed.result_aggregate_backing_storage result) then
-        Typed.result_value_type result
+      if
+        Option.is_some (Typed.result_aggregate_backing_storage result)
+        || Option.is_some (Typed.result_aggregate_return_value_type result)
+      then Typed.result_value_type result
       else Typed.result_storage_type result
     with
     | Some type_ -> type_
@@ -1828,6 +1832,17 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
         |> Result.get_ok
     | None -> type_
   in
+  let return_value_type shape =
+    let header =
+      match original_phase shape.source_description.source with
+      | None -> shape.selected_header
+      | Some phase -> Sema.Function_call_phase.emission_header phase
+    in
+    Typed.aggregate_integer_value_type function_sources
+      ~before_item_index:(Headers.function_item_index header)
+      shape.result_type
+    |> Option.value ~default:shape.result_type
+  in
   let callbacks, descriptions =
     List.partition
       (fun description ->
@@ -1912,7 +1927,11 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
               "runtime call instruction has unexpected operands or flags";
             require ?span
               (Option.fold ~none:false
-                 ~some:(Type.equal shape.result_type)
+                 ~some:
+                   (Type.equal
+                      (if item.opcode = Opcode.Ic_call_end then
+                         return_value_type shape
+                       else shape.result_type))
                  item.target_type)
               "runtime call instruction has a different declared return type"
           in
@@ -2367,6 +2386,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                     provider_ = approved_provider pending.shape;
                     symbol_ = pending.shape.selected_symbol;
                     return_type_ = pending.shape.result_type;
+                    return_value_type_ = return_value_type pending.shape;
                     call_opcode_ =
                       selected_opcode ?span pending.shape.selected_record;
                     cleanup_opcode_ =

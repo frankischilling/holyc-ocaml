@@ -1,13 +1,17 @@
 # Owned class pointer operations
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 [Default class and union values](default-aggregate-values.md) use the signed
 eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
-forwarded scalar width for whole reads, assignments and updates. Class extents,
-member identities and pointer strides remain separate. General casts, class
-returns and defaults, callback class parameters and persistent objects still
-need their own implementation.
+forwarded scalar width for whole reads, assignments and updates. Class
+extents, member identities and pointer strides remain separate. General casts,
+class defaults, callback class parameters and persistent objects still need
+their own implementation.
 
 One-level pointers to completed earlier, nonempty class and union layouts
 support indexing, addition, subtraction, difference, comparisons, `++`, `--`,
@@ -100,21 +104,22 @@ integer widths. Raw IR controls reject missing, foreign, altered and
 other-function pointee proofs before storage. Exact and one-below controls
 cover frame bytes, executed instructions and both native ABIs' stack and
 encoded image bytes. Fresh native image executions retain the same results.
-The maintained CLI checks run 712 IR reports and 1425 including native execution.
+The maintained CLI checks run 834 IR reports and 1669 including native execution.
 
 Completed earlier [inherited layouts](inherited-aggregates.md) also use these
 selected strides. Partial or out-of-compilation bases, function-local layouts,
-retained JIT aggregate imports,
-zero-sized objects, persistent aggregate storage, pointer arrays, aggregate
-initializers, whole-value postfix casts, class returns/defaults/callback parameters and general aggregate copies, pointer and callback fields,
-general class pointer casts, pointer returns and deeper indirection remain
-separate work under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686),
+retained JIT aggregate imports, zero-sized objects, persistent aggregate
+storage, pointer arrays, aggregate initializers, whole-value postfix casts,
+class defaults and callback parameters and general aggregate copies, pointer
+and callback fields, general class pointer casts, pointer returns and deeper
+indirection remain separate work under
+[#686](https://github.com/frankischilling/holyc-ocaml/issues/686),
 [#687](https://github.com/frankischilling/holyc-ocaml/issues/687),
 [#699](https://github.com/frankischilling/holyc-ocaml/issues/699) and
-[#700](https://github.com/frankischilling/holyc-ocaml/issues/700).
-Functions here return supported integers or U0. These source-derived hosted
-checks include no TempleOS runtime capture. Full compiler parity remains open
-under [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
+[#700](https://github.com/frankischilling/holyc-ocaml/issues/700). Functions
+here return supported integers or U0. These source-derived hosted checks
+include no TempleOS runtime capture. Full compiler parity remains open under
+[#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
 
 ## TempleOS source evidence
 

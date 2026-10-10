@@ -272,6 +272,7 @@ and callee = {
   callee_symbol : Sema.Symbol.t;
   callee_definition : Sema.Function_resolution.resolved_declaration option;
   callee_return_type : Type.t;
+  callee_return_value_type : Type.t;
   parameter_types : stored_type array;
   callee_parameter_slots : (int * int * stored_type) array;
   cleanup_opcode : Opcode.t;
@@ -5304,7 +5305,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     invalid
       "execution requires ordinary parameters, automatic scalar locals and \
        exact function-owned persistent statics"
-  else if Option.is_none (checked_return_kind (Function.return_type function_))
+  else if
+    Option.is_none (checked_return_kind (Function.return_value_type function_))
   then
     invalid "the function return type is outside nonzero integer/U0 execution"
   else if
@@ -5565,7 +5567,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                 slots;
                 parameter_slots = Array.of_list (List.rev !parameter_slots_rev);
                 offsets = !offsets;
-                return_type = Function.return_type function_;
+                return_type = Function.return_value_type function_;
                 allocated_bytes;
                 variadic_location =
                   (match argv with
@@ -7122,7 +7124,11 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
           in
           let target_matches callee =
             Option.fold ~none:false
-              ~some:(Type.equal callee.callee_return_type)
+              ~some:
+                (Type.equal
+                   (if description.opcode = Opcode.Ic_call_end then
+                      callee.callee_return_value_type
+                    else callee.callee_return_type))
               description.target_type
           in
           let site_id site select =
@@ -7181,6 +7187,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   callee_symbol = Runtime.symbol site;
                   callee_definition = None;
                   callee_return_type = Runtime.return_type site;
+                  callee_return_value_type = Runtime.return_value_type site;
                   parameter_types = Array.of_list types;
                   callee_parameter_slots = [||];
                   cleanup_opcode = Runtime.cleanup_opcode site;
@@ -7289,6 +7296,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                       callee_symbol = symbol;
                       callee_definition = None;
                       callee_return_type = callback.callback_return_type;
+                      callee_return_value_type = callback.callback_return_type;
                       parameter_types =
                         Array.of_list (List.map Option.get parameter_types);
                       callee_parameter_slots = [||];
@@ -7970,7 +7978,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               match
                 ( description.payload,
                   description.result,
-                  checked_return_kind callee.callee_return_type )
+                  checked_return_kind callee.callee_return_value_type )
               with
               | ( Some (Sequence.Symbol symbol),
                   Some result,
@@ -11157,6 +11165,7 @@ let execute_program_with_output ?task ?isolated_budget
                 callee_symbol = symbol;
                 callee_definition = Function.definition_declaration body;
                 callee_return_type = Function.return_type body;
+                callee_return_value_type = Function.return_value_type body;
                 parameter_types =
                   Array.init parameter_count (fun position ->
                       let _, _, kind = context.parameter_slots.(position) in

@@ -300,6 +300,11 @@ val initializer_target_type : initializer_result -> Type.t
 val initializer_conversion : initializer_result -> intrinsic_conversion
 val return_source : return_result -> Function_call_resolution.return_input
 val return_declared_type : return_result -> Type.t
+
+val return_execution_type : return_result -> Type.t
+(** Original qualified integer class view, or the nominal return type when no
+    such view exists. Register words are not narrowed to this storage width. *)
+
 val return_declared_class : return_result -> result_class
 val return_value : return_result -> expression_result option
 val return_conversion : return_result -> intrinsic_conversion
@@ -551,6 +556,10 @@ val result_index_operands :
 
 val result_type : expression_result -> Type.t option
 val result_value_type : expression_result -> Type.t option
+
+val result_aggregate_return_value_type : expression_result -> Type.t option
+(** Scalar view retained by an original direct class call and transparent
+    grouping. This value grants no addressable aggregate storage. *)
 
 val result_aggregate_backing_storage :
   expression_result -> Aggregate_backing_storage.t option

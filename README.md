@@ -555,8 +555,11 @@ them. `examples/default-aggregate-values.hc` returns 42.
 [Class value parameters](docs/class-value-parameters.md) receive full integer
 words in owned eight-byte slots, retaining nominal layouts and scalar views.
 `examples/class-value-parameters.hc` returns 42 in both modes and targets.
-Retained JIT imports, persistent objects, whole-value postfix casts and class
-returns, defaults and callback parameters remain open under issue #686. General
+[Class value returns](docs/class-value-returns.md) retain full register words
+and use the selected scalar prefix for object reads.
+`examples/class-value-returns.hc` returns 42 in both modes and targets.
+Retained JIT imports, persistent objects, whole-value postfix casts, class
+defaults and callback parameters remain open under issue #686. General
 aggregate copies, pointer fields and pointer returns also need their own implementation.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a

@@ -49,6 +49,7 @@ type expression_result = {
   member_base_result : expression_result option;
   aggregate_pointee_layout : Aggregate_pointee_layout.t option;
   aggregate_backing_storage : Aggregate_backing_storage.t option;
+  aggregate_return_value_type : Type.t option;
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
@@ -268,6 +269,7 @@ type switch_case_result = {
 type return_result = {
   return_source : Function_call_resolution.return_input;
   return_declared_type : Type.t;
+  return_execution_type : Type.t;
   return_declared_class : result_class;
   return_value : expression_result option;
   return_conversion : intrinsic_conversion;
@@ -510,6 +512,7 @@ let initializer_conversion (initial : initializer_result) =
 
 let return_source result = result.return_source
 let return_declared_type result = result.return_declared_type
+let return_execution_type result = result.return_execution_type
 let return_declared_class result = result.return_declared_class
 let return_value result = result.return_value
 let return_conversion result = result.return_conversion
@@ -794,11 +797,17 @@ let result_aggregate_pointee_layout (result : expression_result) =
 let result_aggregate_backing_storage (result : expression_result) =
   result.aggregate_backing_storage
 
+let result_aggregate_return_value_type (result : expression_result) =
+  result.aggregate_return_value_type
+
 let result_value_type (result : expression_result) =
-  match result.aggregate_backing_storage with
-  | Some storage when result.array_rank = 0 ->
-      Some (Aggregate_backing_storage.value_type storage)
-  | _ -> result.source_type
+  match result.aggregate_return_value_type with
+  | Some _ as type_ -> type_
+  | None -> (
+      match result.aggregate_backing_storage with
+      | Some storage when result.array_rank = 0 ->
+          Some (Aggregate_backing_storage.value_type storage)
+      | _ -> result.source_type)
 
 let result_type (result : expression_result) = result.source_type
 
@@ -1422,6 +1431,8 @@ and result_computation_type (result : expression_result) =
   let storage =
     match result.aggregate_backing_storage with
     | Some _ -> result_value_type result
+    | None when Option.is_some result.aggregate_return_value_type ->
+        result_value_type result
     | None -> result_storage_type result
   in
   let declared () = Option.map C.declared storage in
@@ -1632,13 +1643,44 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
-let make_result ?operand_result ?binary_operands ?index_operands
-    ?member_base_result ?aggregate_pointee_layout ?(array_rank = 0)
-    ?(array_address = false) ?execution_class ?member_lookup ?callback_pointer
-    ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
-    ?outer_binding ?call_resolution ?function_declaration ?function_address_path
-    ?callback_call_pointer ?(intrinsic_conversion = No_intrinsic_conversion)
-    state ~id ~source ~source_type ~category ~result_class =
+let integer_aggregate_return_type table members policies header =
+  Aggregate_backing_storage.integer_value_type ~table ~members ~policies
+    ~before_item_index:(Function_type_resolution.function_item_index header)
+    ~source_type:
+      (header |> Function_type_resolution.function_return_type
+     |> Type_reference.resolved_type)
+
+let make_result ?aggregate_return_value_type ?operand_result ?binary_operands
+    ?index_operands ?member_base_result ?aggregate_pointee_layout
+    ?(array_rank = 0) ?(array_address = false) ?execution_class ?member_lookup
+    ?callback_pointer ?aggregate_offset_path ?outer_occurrence
+    ?top_level_outer_occurrence ?outer_binding ?call_resolution
+    ?function_declaration ?function_address_path ?callback_call_pointer
+    ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
+    ~source_type ~category ~result_class =
+  let aggregate_return_value_type =
+    match aggregate_return_value_type with
+    | Some _ as type_ -> type_
+    | None -> (
+        match (state.backing_context, call_resolution) with
+        | ( Some (table, members, policies, _),
+            Some (Function_call_resolution.Direct_call direct) ) ->
+            integer_aggregate_return_type table members policies
+              (Function_call_resolution.emission_header
+                 (Function_call_resolution.direct_source direct)
+                 (Function_call_resolution.direct_active_header direct))
+        | _ -> (
+            match Function_call_resolution.argument_expression_kind source with
+            | Function_call_resolution.Parenthesized_expression _ ->
+                Option.bind operand_result (fun operand ->
+                    operand.aggregate_return_value_type)
+            | Function_call_resolution.Prefix_expression prefix
+              when Function_call_resolution.prefix_operator prefix
+                   = Function_call_resolution.Unary_plus ->
+                Option.bind operand_result (fun operand ->
+                    operand.aggregate_return_value_type)
+            | _ -> None))
+  in
   let result =
     {
       id;
@@ -1650,6 +1692,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
       member_base_result;
       aggregate_pointee_layout;
       aggregate_backing_storage = None;
+      aggregate_return_value_type;
       source_type;
       category;
       result_class;
@@ -1673,7 +1716,11 @@ let make_result ?operand_result ?binary_operands ?index_operands
     Option.bind state.backing_context
       (fun (table, members, policies, before_item_index) ->
         Option.bind source_type (fun source_type ->
-            if array_rank <> 0 || Option.is_some callback_pointer then None
+            if
+              array_rank <> 0
+              || Option.is_some callback_pointer
+              || Option.is_some aggregate_return_value_type
+            then None
             else
               match Type.base source_type with
               | Type.Aggregate _
@@ -4120,7 +4167,12 @@ and type_top_level_direct_call table members policies ~before_item_index
                   }
                 in
                 Ok
-                  (make_result ~intrinsic_conversion state ~id ~source
+                  (make_result
+                     ?aggregate_return_value_type:
+                       (integer_aggregate_return_type table members policies
+                          (Function_call_resolution.emission_header source_call
+                             header))
+                     ~intrinsic_conversion state ~id ~source
                      ~source_type:(Some source_type) ~category
                      ~result_class:
                        (forwarded_class policies ~before_item_index source_type))
@@ -5132,6 +5184,11 @@ let type_return table members policies ~before_item_index ~declared_type state
   match known_type table declared_type with
   | Error _ as error -> error
   | Ok declared_type -> (
+      let return_execution_type =
+        Aggregate_backing_storage.integer_value_type ~table ~members ~policies
+          ~before_item_index ~source_type:declared_type
+        |> Option.value ~default:declared_type
+      in
       let declared_class =
         forwarded_class policies ~before_item_index declared_type
       in
@@ -5144,6 +5201,7 @@ let type_return table members policies ~before_item_index ~declared_type state
             ( {
                 return_source = source;
                 return_declared_type = declared_type;
+                return_execution_type;
                 return_declared_class = declared_class;
                 return_value = None;
                 return_conversion = No_intrinsic_conversion;
@@ -5168,6 +5226,7 @@ let type_return table members policies ~before_item_index ~declared_type state
                     ( {
                         return_source = source;
                         return_declared_type = declared_type;
+                        return_execution_type;
                         return_declared_class = declared_class;
                         return_value = Some value;
                         return_conversion = conversion;

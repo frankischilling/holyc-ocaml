@@ -226,7 +226,11 @@ let function_source_error (definition : Ast.function_definition) =
   if
     not
       (scalar_word_type definition.return_type
-      || void_return_type definition.return_type)
+      || void_return_type definition.return_type
+      ||
+      match definition.return_type with
+      | Ast.Named_type_specifier _ -> true
+      | _ -> false)
   then reject "native functions require a scalar integer or U0 return type"
   else if definition.return_pointer_layers <> [] then
     reject "native functions do not admit pointer returns"

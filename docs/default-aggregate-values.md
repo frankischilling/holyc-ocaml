@@ -1,5 +1,9 @@
 # Default class and union values
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 Completed earlier classes and unions without an explicit backing use a signed
 eight-byte whole value in automatic storage. TempleOS initializes their raw
 type to `RT_PTR`, which aliases `RT_I64`. The value reads or writes the first
@@ -46,7 +50,7 @@ the RHS, write the word, then advance by the original class size. Scalar
 results can supply supported primitive integer parameters and variadic
 output arguments. Provided integer words also supply
 [class value parameters](class-value-parameters.md).
-Class returns, prepared defaults and callback signatures need separate ABI work.
+Prepared defaults and callback signatures need separate ABI work.
 
 The root's actual byte extent bounds every access. A one-byte standalone
 class cannot hold its default whole value. An eight-byte window beginning at
@@ -67,14 +71,13 @@ instruction, frame, stack and image limits, both native ABIs and proof
 ownership. The checks use expected words and hosted execution; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
-Whole-value postfix casts, aggregate initializers, class returns, prepared class
-defaults and callback parameter ABI paths, persistent objects, function-local
-layouts and zero-sized automatic objects,
-pointer and callback backings, F64 execution, native task objects, retained
-JIT imports and general aggregate copies remain open under
-[#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and related
-value and ABI issues. Full compiler and release acceptance remain under
-[#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
+Whole-value postfix casts, aggregate initializers, prepared class defaults and
+callback parameter ABI paths, persistent objects, function-local layouts and
+zero-sized automatic objects, pointer and callback backings, F64 execution,
+native task objects, retained JIT imports and general aggregate copies remain
+open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)
+and related value and ABI issues. Full compiler and release acceptance remain
+under [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
 
 The audit uses TempleOS commit
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`. Complete `PrsClassNew` at

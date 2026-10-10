@@ -160,7 +160,8 @@
   ../../examples/inherited-aggregates.hc
   ../../examples/backed-aggregate-values.hc
   ../../examples/default-aggregate-values.hc
-  ../../examples/class-value-parameters.hc)
+  ../../examples/class-value-parameters.hc
+  ../../examples/class-value-returns.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
@@ -172,6 +173,7 @@
    %{dep:../../examples/backed-aggregate-values.hc}
    %{dep:../../examples/default-aggregate-values.hc}
    %{dep:../../examples/class-value-parameters.hc}
+   %{dep:../../examples/class-value-returns.hc}
    --native)))
 
 (rule

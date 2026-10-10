@@ -523,10 +523,11 @@ let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
               next_instruction_id,
               next_value_id ))
 
-let lower_supported ?frame ?globals ?lower_call ?optimize_shifts
-    ?optimize_division ~span ~instruction_id ~value_id ~source ~symbol ~record
-    ~arguments ~variadic_count_type ~variadic_count ~variadic_arguments
-    ~call_opcode result_type =
+let lower_supported ?result_value_type ?frame ?globals ?lower_call
+    ?optimize_shifts ?optimize_division ~span ~instruction_id ~value_id ~source
+    ~symbol ~record ~arguments ~variadic_count_type ~variadic_count
+    ~variadic_arguments ~call_opcode result_type =
+  let result_value_type = Option.value ~default:result_type result_value_type in
   let start_id = instruction_id in
   match next_instruction_id ~span instruction_id with
   | Error error -> Error [ error ]
@@ -600,7 +601,7 @@ let lower_supported ?frame ?globals ?lower_call ?optimize_shifts
                               ~span ();
                             description ~instruction_id:end_id
                               ~opcode:Opcode.Ic_call_end
-                              ~target_type:(Some result_type)
+                              ~target_type:(Some result_value_type)
                               ~payload:symbol_payload ~span
                               ~result:{ Sequence.value_id = call_result_value }
                               ();
@@ -614,7 +615,7 @@ let lower_supported ?frame ?globals ?lower_call ?optimize_shifts
                                {
                                  sequence_;
                                  result_value_ = call_result_value;
-                                 result_type_ = result_type;
+                                 result_type_ = result_value_type;
                                  next_instruction_id_;
                                  next_value_id_;
                                  runtime_call_ =
@@ -680,9 +681,11 @@ let lower ?frame ?globals ?lower_call ?optimize_shifts ?optimize_division
                     match call_opcode access with
                     | None -> Ok Unsupported_call
                     | Some call_opcode ->
-                        lower_supported ?frame ?globals ?lower_call
-                          ?optimize_shifts ?optimize_division ~span
-                          ~instruction_id ~value_id ~source
+                        lower_supported
+                          ?result_value_type:(Result.result_value_type result)
+                          ?frame ?globals ?lower_call ?optimize_shifts
+                          ?optimize_division ~span ~instruction_id ~value_id
+                          ~source
                           ~symbol:(Resolution.direct_target_symbol direct)
                           ~record:(Target.record target) ~arguments
                           ~variadic_count_type ~variadic_count
@@ -742,9 +745,11 @@ let lower_top_level ?frame ?globals ?lower_call ?optimize_shifts
                     match call_opcode access with
                     | None -> Ok Unsupported_call
                     | Some call_opcode ->
-                        lower_supported ?frame ?globals ?lower_call
-                          ?optimize_shifts ?optimize_division ~span
-                          ~instruction_id ~value_id ~source
+                        lower_supported
+                          ?result_value_type:(Result.result_value_type result)
+                          ?frame ?globals ?lower_call ?optimize_shifts
+                          ?optimize_division ~span ~instruction_id ~value_id
+                          ~source
                           ~symbol:(Result.top_level_direct_target_symbol typed)
                           ~record:(Top_target.record target) ~arguments
                           ~variadic_count_type ~variadic_count

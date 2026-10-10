@@ -1,5 +1,9 @@
 # Class value parameters
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 Source-defined functions accept provided integer words in fixed parameters of
 completed earlier classes and unions in JIT and AOT, through isolated IR and
 native execution. Each parameter owns
@@ -59,13 +63,13 @@ the same eight-byte slot and owned reference extent. Numeric words do not grant
 callback or executable ownership.
 
 The shared fixtures add 36 value groups and four fault sources. The full
-aggregate suites have 215 IR and 214 native groups, including ABI ownership,
+aggregate suites have 266 IR and 264 native groups, including ABI ownership,
 foreign frames, both native host ABIs, fresh images and exact quota controls.
-The actual CLI runs 712 IR reports and 1425 including native execution. Expected
+The actual CLI runs 834 IR reports and 1669 including native execution. Expected
 words come from the pinned source audit; these checks contain no TempleOS
 runtime capture or machine-byte comparison.
 
-Class returns, prepared class defaults, callback class parameter signatures,
+Prepared class defaults, callback class parameter signatures,
 F64/pointer/callback backings, zero-size class pointer operations, persistent
 class objects, native task classes, retained aggregate imports and general
 aggregate copies remain open. Complete class and ABI acceptance remain under
