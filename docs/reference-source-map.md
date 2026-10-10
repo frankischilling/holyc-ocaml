@@ -1,5 +1,13 @@
 # Reference source map
 
+[Local aggregate `sizeof`](local-aggregate-sizeof.md) follows
+`Compiler/PrsExp.HC:303-350`: the original local supplies its selected class,
+the query reads its current size times the original dimension count before
+lookahead, and pointer suffixes produce eight. `Compiler/PrsVar.HC:285-371`
+retains type and dimension selections; lines 521-532 and 590-628 distinguish
+object allocation from argument slots. `Compiler/PrsStmt.HC:1-60` supplies
+forward completion and fresh same-name class identities.
+
 [Function-local aggregate objects](function-local-aggregate-objects.md) follow
 `Compiler/PrsStmt.HC:1-60,1143-1164` for global class publication and local
 declaration dispatch. `Compiler/PrsVar.HC:286-370,521-532,590-617` retains the

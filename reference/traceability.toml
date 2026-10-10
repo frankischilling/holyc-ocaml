@@ -2,6 +2,20 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-LOCAL-AGGREGATE-SIZEOF"
+description = "Named class and union local sizeof queries read the original selected class at query time and retain checked array extents."
+sources = ["Compiler/PrsExp.HC:303-350 complete PrsSizeOf", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsVar.HC:521-532,590-628 object size, automatic placement and fixed parameter slots", "Compiler/PrsStmt.HC:1-60 complete PrsClass"]
+implementation = ["src/sema/compiler_record.ml", "src/sema/compiler_record.mli", "src/driver/task_declarations.ml"]
+tests = ["test/local_aggregate_sizeof_cases.ml", "test/test_local_aggregate_sizeof.ml", "test/test_local_aggregate_sizeof_authority.ml", "test/native/test_native_local_aggregate_sizeof.ml", "test/test_local_aggregate_sizeof_cli.ml", "examples/local-aggregate-sizeof.hc"]
+documentation = ["docs/local-aggregate-sizeof.md", "docs/classes-and-layout.md", "docs/retained-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "README.md"]
+status = "implemented"
+issue = 820
+source_identity = "The original local and function publication retain their exact selected type occurrence. Named value queries authenticate the semantic table, namespace, canonical class identity and current layout at the live query callback. Same-name replacement cannot substitute another class. Earlier query results remain immutable after a selected forward completes."
+execution = "Whole-local sizeof supports named scalar class and union objects, fixed multidimensional arrays and class value parameters. Full class extent is independent of scalar backing width, argument slot width and earlier automatic allocation. Pointer and callback element sizes use pointer width; local arrays retain their dimension count. A trailing pointer suffix yields pointer width. Runtime layout dependencies survive the query without repeating original preparation."
+verification = "Nineteen shared source fixtures cover packed and inherited layouts, unions, backings, parameter sizes, arrays, pointer forms, retained functions and declaration lookahead. Runtime effects and exact or one-below limits are checked in IR and actual native execution. Two parser authority groups each check seven queries, reject foreign or stale evidence and preserve zero-then-two forward query snapshots. CLI tests exercise independent expected output and value in both IR modes and native JIT targets."
+verification_boundary = "Expected results are source-derived hosted tests without a TempleOS runtime capture or machine-byte comparison. This query evidence grants no new object storage. Member-suffix queries, offset queries, zero-sized automatic objects, persistent aggregates, general copies, runtime AOT relocation and full compiler acceptance remain separate work under #686/#684/#682."
+
+[[feature]]
 id = "HC-OWNED-INHERITED-AGGREGATES"
 description = "Completed earlier selected base chains supply automatic inherited class and union storage, members, arrays and pointer operations."
 sources = ["Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/PrsVar.HC:407-721 complete PrsVarLst", "Compiler/LexLib.HC:67-86 complete MemberFind", "Compiler/LexLib.HC:103-148 complete MemberAdd", "Compiler/PrsExp.HC:960-1115 complete member and index producers", "Compiler/BackLib.HC:693-707 complete ICDeref", "Compiler/BackC.HC:159-204 complete ICAssign"]

@@ -1945,6 +1945,35 @@ let automatic_aggregate_allocation ledger function_publication selected
         record
   | _ -> None
 
+let local_sizeof_aggregate ledger (root : Parser.query_root) =
+  let selected =
+    match root.query_local with
+    | Some { local_source = Parser.Local_variable local; _ }
+      when local.local_pointer_layers = []
+           && Option.is_none local.local_function_pointer ->
+        selected_aggregate_for ledger local.local_type_specifier
+    | Some { local_source = Parser.Local_parameter parameter; _ }
+      when parameter.pointer_layers = []
+           && Option.is_none parameter.function_pointer ->
+        selected_aggregate_for ledger parameter.type_specifier
+    | _ -> None
+  in
+  Option.bind selected (fun selected ->
+      let symbol = Sema.Source_type_reference.selected_base_symbol selected in
+      Entries.fold
+        (fun _ assigned found ->
+          match assigned.source with
+          | Aggregate { record = Some (Ok record); _ }
+            when Option.fold ~none:false ~some:(( == ) symbol)
+                   (Collection.publication_aggregate_identity
+                      assigned.publication)
+                 && Option.fold ~none:false
+                      ~some:(( == ) assigned.publication)
+                      (Collection.current_aggregate_publication ledger.namespace
+                         assigned.publication) -> Some (selected, record)
+          | _ -> found)
+        ledger.entries None)
+
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
   | Parser.Defined_target _ | Parser.Offset_target _ -> None
@@ -1964,6 +1993,7 @@ let read_sizeof ledger (root : Parser.query_root) target =
           match
             Sema.Compiler_record.read_local_sizeof ~table:ledger.table
               ~namespace:ledger.namespace ~function_publication ~root
+              ~aggregate:(local_sizeof_aggregate ledger root)
               ~dimensions:
                 (match root.query_local with
                 | Some { local_source = Parser.Local_variable local; _ } ->

@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+[Local aggregate size tests](local-aggregate-sizeof.md) provide 19 shared source
+fixtures: 16 closed cases in both IR modes, two JIT declaration-lookahead cases
+and one runtime layout case. Native tests require actual completed fragments
+and zero interpreted runtime instructions. Exact and one-below limits cover
+preparation, execution, generated code and output. Two parser authority groups
+check seven queries each, including forward completion from zero to two,
+immutable saved results and rejection of borrowed source evidence. The CLI
+example runs through both IR modes and native JIT targets.
+
 [Function-local object tests](function-local-aggregate-objects.md) extend the
 shared local aggregate cases with automatic storage, nested and inherited
 members, arrays, class pointer strides, recursion and retained replacements.

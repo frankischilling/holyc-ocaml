@@ -1528,6 +1528,28 @@
    %{dep:../../examples/function-local-aggregate-objects.hc}
    --native)))
 
+(copy_files ../local_aggregate_sizeof_cases.ml)
+
+(executable
+ (name test_native_local_aggregate_sizeof)
+ (modules test_native_local_aggregate_sizeof local_aggregate_sizeof_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_local_aggregate_sizeof.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/local-aggregate-sizeof.hc)
+ (action
+  (run
+   %{exe:../test_local_aggregate_sizeof_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/local-aggregate-sizeof.hc}
+   --native)))
+
 (executable
  (name test_native_stream_generation)
  (modules test_native_stream_generation stream_generation_cases)
