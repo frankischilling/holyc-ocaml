@@ -28,6 +28,8 @@ type selected_source =
   | Callback_parameter of Frontend.Parser.callback_parameter_publication
   | Function_local of Frontend.Parser.function_local_allocation
   | Global_type of Frontend.Parser.global_publication
+  | Aggregate_member of Frontend.Parser.aggregate_phase
+  | Aggregate_backing of Frontend.Parser.aggregate_publication
 
 let same_physical_list left right =
   List.length left = List.length right && List.for_all2 ( == ) left right
@@ -70,6 +72,34 @@ let builtin type_specifier pointer_layers =
 let source_parts ?(require_current = true) source =
   let module Parser = Frontend.Parser in
   match source with
+  | Aggregate_backing aggregate -> (
+      if
+        require_current
+        && not (Parser.aggregate_publication_is_current aggregate)
+      then Error "selected backing is outside its original class publication"
+      else
+        match aggregate.aggregate_backing with
+        | Some backing ->
+            Ok
+              ( aggregate.aggregate_backing_selection,
+                backing.backing_type_specifier,
+                backing.backing_pointer_layers,
+                aggregate.aggregate_environment,
+                false )
+        | None -> Error "selected backing has no original backing occurrence")
+  | Aggregate_member phase -> (
+      if require_current && not (Parser.aggregate_phase_is_current phase) then
+        Error "selected member type is outside its original placement callback"
+      else
+        match phase.phase_step with
+        | Parser.Aggregate_member_prepared member ->
+            Ok
+              ( member.member_selection,
+                member.member_type,
+                member.member_pointers,
+                phase.phase_aggregate.aggregate_environment,
+                Option.is_some member.member_callback )
+        | _ -> Error "selected member type lacks its original member phase")
   | Function_return function_ ->
       if
         require_current

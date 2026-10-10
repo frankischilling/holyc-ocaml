@@ -116,6 +116,14 @@ type t = {
   aggregate_base_snapshot : t option;
 }
 
+type aggregate_member = {
+  member_phase : Parser.aggregate_phase;
+  member_namespace : Declaration_collection.namespace;
+  member_type : Type_reference.t;
+  member_size : int64;
+  member_record : t option;
+}
+
 type inherited_base = {
   inherited_phase : Parser.aggregate_phase;
   inherited_namespace : Declaration_collection.namespace;
@@ -671,6 +679,68 @@ let select_aggregate_base ~table ~namespace ~selected_publication
           }
   | _ -> invalid ()
 
+let select_aggregate_member ~table ~namespace ~selected_aggregate phase
+    (record : t option) =
+  let ( let* ) = Result.bind in
+  if not (Parser.aggregate_phase_is_current phase) then
+    Error "member layout requires its original live placement phase"
+  else
+    match phase.Parser.phase_step with
+    | Parser.Aggregate_member_prepared member
+      when Option.is_none member.member_callback ->
+        let* () =
+          Source_type_reference.validate_selected_aggregate ~table ~namespace
+            selected_aggregate
+        in
+        let* type_ =
+          Source_type_reference.selected_header_class selected_aggregate
+            member.member_type member.member_pointers
+        in
+        let type_value = Type_reference.resolved_type type_ in
+        let* size, record =
+          if Type.pointer_depth type_value > 0 then
+            Ok (Int64.of_int Primitive_type.pointer_byte_size, None)
+          else
+            match record with
+            | Some record
+              when record.table == table && aggregate_snapshot_is_current record
+              -> (
+                match record.aggregate_owner with
+                | Some (owner, publication, _) when owner == namespace ->
+                    let* symbol =
+                      match
+                        Declaration_collection.publication_aggregate_identity
+                          publication
+                      with
+                      | Some symbol -> Ok symbol
+                      | None ->
+                          Error
+                            "member class record lacks its canonical identity"
+                    in
+                    if
+                      symbol
+                      != Source_type_reference.selected_base_symbol
+                           selected_aggregate
+                    then
+                      Error
+                        "member class record substituted its original selected \
+                         identity"
+                    else Ok (record.byte_size, Some record)
+                | _ ->
+                    Error
+                      "member class record belongs to another source namespace")
+            | _ -> Error "member class layout lacks its current original record"
+        in
+        Ok
+          {
+            member_phase = phase;
+            member_namespace = namespace;
+            member_type = type_;
+            member_size = size;
+            member_record = record;
+          }
+    | _ -> Error "member layout requires an original selected object member"
+
 type aggregate_progress = {
   progress_compiler_positions : compiler_positions;
   progress_namespace : Declaration_collection.namespace;
@@ -688,6 +758,7 @@ type aggregate_progress = {
   mutable progress_body_finished : bool;
   mutable progress_offset_attempt : Parser.aggregate_phase option;
   mutable progress_offsets : aggregate_offset list;
+  mutable progress_members : aggregate_member list;
 }
 
 type runtime_aggregate_offset = {
@@ -743,6 +814,7 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
           progress_body_finished = false;
           progress_offset_attempt = None;
           progress_offsets = [];
+          progress_members = [];
           progress_record =
             Ok
               {
@@ -770,7 +842,10 @@ let same_phase left right =
   | Some left, Some right -> left == right
   | _ -> false
 
-let advance_aggregate ?(callbacks = fun _ -> None)
+let advance_aggregate
+    ?(members =
+      fun _ -> Error "member lacks its original selected class layout")
+    ?(callbacks = fun _ -> None)
     ?(bases =
       fun _ -> Error "inherited layout lacks its original selected record")
     ~dimensions progress (phase : Parser.aggregate_phase) =
@@ -920,22 +995,41 @@ let advance_aggregate ?(callbacks = fun _ -> None)
       | Parser.Aggregate_member_prepared member ->
           let record =
             let* record = progress.progress_record in
-            let* type_ =
-              match member.member_callback with
-              | None ->
-                  Source_type_reference.builtin member.member_type
-                    member.member_pointers
-              | Some source -> (
-                  match callbacks source with
-                  | Some header ->
-                      Source_type_reference.callback_storage ~header source
-                  | None ->
-                      Error
-                        "retained callback member lacks its original completed \
-                         header")
-            in
-            let* element_size =
-              scalar_size (Type_reference.resolved_type type_)
+            let* element_size, selected_record =
+              match (member.member_callback, member.member_type) with
+              | None, Ast.Named_type_specifier _ ->
+                  let* selected = members phase in
+                  if
+                    selected.member_phase != phase
+                    || selected.member_namespace != progress.progress_namespace
+                  then
+                    Error
+                      "member layout substituted another original placement \
+                       phase"
+                  else (
+                    progress.progress_members <-
+                      selected :: progress.progress_members;
+                    Ok (selected.member_size, selected.member_record))
+              | callback, _ ->
+                  let* type_ =
+                    match callback with
+                    | None ->
+                        Source_type_reference.builtin member.member_type
+                          member.member_pointers
+                    | Some source -> (
+                        match callbacks source with
+                        | Some header ->
+                            Source_type_reference.callback_storage ~header
+                              source
+                        | None ->
+                            Error
+                              "retained callback member lacks its original \
+                               completed header")
+                  in
+                  let* size =
+                    scalar_size (Type_reference.resolved_type type_)
+                  in
+                  Ok (size, None)
             in
             let checked = List.filter_map dimensions member.member_dimensions in
             let* _ =
@@ -964,9 +1058,15 @@ let advance_aggregate ?(callbacks = fun _ -> None)
                 byte_size;
                 runtime_dimensions =
                   record.runtime_dimensions
+                  @ Option.fold ~none:[]
+                      ~some:(fun record -> record.runtime_dimensions)
+                      selected_record
                   @ List.concat_map dimension_runtime_dependencies checked;
                 runtime_offsets =
                   record.runtime_offsets
+                  @ Option.fold ~none:[]
+                      ~some:(fun record -> record.runtime_offsets)
+                      selected_record
                   @ List.concat_map dimension_offset_dependencies checked;
               }
           in
@@ -1077,8 +1177,26 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
                   (fun base -> base.inherited_record.byte_size)
                   progress.progress_base)
           in
-          Source_aggregate_layout.layout ~callbacks ?initial_size ~offsets
-            ~dimensions:member_dimensions ~table ~namespace ~symbol definition
+          let members type_specifier (member : Ast.aggregate_member_declarator)
+              =
+            Option.bind progress (fun progress ->
+                List.find_map
+                  (fun selected ->
+                    match selected.member_phase.phase_step with
+                    | Parser.Aggregate_member_prepared original
+                      when original.member_type == type_specifier
+                           && original.member_name == member.member_name
+                           && original.member_pointers
+                              == member.member_pointer_layers
+                           && original.member_dimensions
+                              == member.member_array_dimensions ->
+                        Some (selected.member_type, selected.member_size)
+                    | _ -> None)
+                  progress.progress_members)
+          in
+          Source_aggregate_layout.layout ~members ~callbacks ?initial_size
+            ~offsets ~dimensions:member_dimensions ~table ~namespace ~symbol
+            definition
       | _ -> Error "aggregate completion has another original declaration"
     in
     let* () =

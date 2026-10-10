@@ -162,7 +162,8 @@ let aggregate_type symbol pointer_layers =
   | Error _ as error -> error
   | Ok pointer_depth -> Sema.Type.make_aggregate ~symbol ~pointer_depth
 
-let resolve_backing visible (backing : Frontend.Ast.aggregate_backing) =
+let resolve_backing ?selected_types ~table visible
+    (backing : Frontend.Ast.aggregate_backing) =
   let spelling =
     Frontend.Ast.type_specifier_spelling backing.backing_type_specifier
   in
@@ -175,13 +176,29 @@ let resolve_backing visible (backing : Frontend.Ast.aggregate_backing) =
         primitive_type ~form:Sema.Type.Internal_storage internal.primitive
           backing.backing_pointer_layers
     | Frontend.Ast.Named_type_specifier identifier -> (
-        match String_map.find_opt identifier.spelling visible with
-        | None ->
-            Error
-              (Printf.sprintf
-                 "aggregate backing %S is not visible before this definition"
-                 identifier.spelling)
-        | Some symbol -> aggregate_type symbol backing.backing_pointer_layers)
+        match selected_types with
+        | Some (namespace, resolve) -> (
+            match resolve backing.backing_type_specifier with
+            | Some proof ->
+                Result.bind
+                  (Sema.Source_type_reference.validate_selected_aggregate ~table
+                     ~namespace proof) (fun () ->
+                    Result.map Sema.Type_reference.resolved_type
+                      (Sema.Source_type_reference.selected_header_class proof
+                         backing.backing_type_specifier
+                         backing.backing_pointer_layers))
+            | None ->
+                Error "aggregate backing lacks its original selected class")
+        | None -> (
+            match String_map.find_opt identifier.spelling visible with
+            | None ->
+                Error
+                  (Printf.sprintf
+                     "aggregate backing %S is not visible before this \
+                      definition"
+                     identifier.spelling)
+            | Some symbol ->
+                aggregate_type symbol backing.backing_pointer_layers))
   in
   match resolved_type with
   | Error _ as error -> error
@@ -198,8 +215,18 @@ let resolve_backing visible (backing : Frontend.Ast.aggregate_backing) =
              backing.backing_pointer_layers)
         ~resolved_type
 
-let resolve_base visible (base : Frontend.Ast.aggregate_base) =
-  match String_map.find_opt base.base_name.spelling visible with
+let resolve_base ?inherited_storage ~original_definitions ~table ~scope
+    definition visible (base : Frontend.Ast.aggregate_base) =
+  let selected =
+    Option.bind inherited_storage (fun storage ->
+        Inherited_metadata.selected_base ~original_definitions ~table ~scope
+          storage definition)
+  in
+  match
+    match selected with
+    | Some _ -> selected
+    | None -> String_map.find_opt base.base_name.spelling visible
+  with
   | None ->
       Error
         (Printf.sprintf "aggregate base %S is not visible at this definition"
@@ -212,7 +239,8 @@ let resolve_base visible (base : Frontend.Ast.aggregate_base) =
         ~name_origin:(origin base.base_name.location)
         ~symbol
 
-let resolve_events ~metadata_only ~table ~scope events =
+let resolve_events ?selected_types ?inherited_storage ~original_definitions
+    ~metadata_only ~table ~scope events =
   let rec resolve visible headers_rev = function
     | [] ->
         Sema.Aggregate_header_resolution.resolve ~table ~parent:scope
@@ -233,7 +261,8 @@ let resolve_events ~metadata_only ~table ~scope events =
               match definition.backing with
               | None -> Ok None
               | Some backing ->
-                  Result.map Option.some (resolve_backing visible backing)
+                  Result.map Option.some
+                    (resolve_backing ?selected_types ~table visible backing)
             in
             match backing with
             | Error _ as error -> error
@@ -245,7 +274,9 @@ let resolve_events ~metadata_only ~table ~scope events =
                   match definition.base with
                   | None -> Ok None
                   | Some base ->
-                      Result.map Option.some (resolve_base visible base)
+                      Result.map Option.some
+                        (resolve_base ?inherited_storage ~original_definitions
+                           ~table ~scope definition visible base)
                 in
                 match base with
                 | Error _ as error -> error
@@ -266,7 +297,7 @@ let resolve_events ~metadata_only ~table ~scope events =
   in
   resolve String_map.empty [] events
 
-let resolve_metadata ~table ~parent metadata =
+let resolve_metadata ?selected_types ~table ~parent metadata =
   let rec events rev = function
     | [] -> Ok (List.rev rev)
     | (item_index, proof) :: rest -> (
@@ -290,12 +321,22 @@ let resolve_metadata ~table ~parent metadata =
             Error "aggregate value header has another completed source owner")
   in
   Result.bind (events [] metadata)
-    (resolve_events ~metadata_only:(fun _ -> false) ~table ~scope:parent)
+    (resolve_events ?selected_types ~original_definitions:[]
+       ~metadata_only:(fun _ -> false)
+       ~table ~scope:parent)
 
-let resolve ?(original_definitions = []) ?(inherited_metadata = []) ~table
-    ~declarations ~aggregates module_ =
+let resolve ?selected_types ?(original_definitions = [])
+    ?(inherited_metadata = []) ?inherited_storage ~table ~declarations
+    ~aggregates module_ =
   let scope = Sema.Declaration_collection.scope declarations in
-  if not (Sema.Symbol_table.owns_scope table scope) then
+  if
+    Option.fold ~none:false
+      ~some:(fun (namespace, _) ->
+        (not (Sema.Declaration_collection.namespace_owns_table namespace table))
+        || Sema.Declaration_collection.namespace_scope namespace != scope)
+      selected_types
+  then Error "selected aggregate backings belong to another namespace or table"
+  else if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic aggregate declarations belong to a different symbol table"
   else if Sema.Symbol_table.scope_kind scope <> Sema.Symbol_table.Module then
     Error "semantic aggregate declarations must belong to a module scope"
@@ -303,7 +344,7 @@ let resolve ?(original_definitions = []) ?(inherited_metadata = []) ~table
     match events ~table ~declarations ~aggregates module_ with
     | Error _ as error -> error
     | Ok events ->
-        resolve_events
+        resolve_events ?selected_types ?inherited_storage ~original_definitions
           ~metadata_only:
             (Inherited_metadata.contains ~original_definitions ~table ~scope
                inherited_metadata)

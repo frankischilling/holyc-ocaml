@@ -25,6 +25,10 @@ val negative_offset :
   (int64, string) result
 
 val layout :
+  ?members:
+    (Frontend.Ast.type_specifier ->
+    Frontend.Ast.aggregate_member_declarator ->
+    (Type_reference.t * int64) option) ->
   ?callbacks:
     (Frontend.Ast.function_pointer_declarator ->
     Frontend.Parser.completed_callback_signature option) ->
@@ -37,6 +41,6 @@ val layout :
   symbol:Symbol.t ->
   Frontend.Ast.aggregate_definition ->
   (int64, string) result
-(** Adapt original primitive member syntax to the shared aggregate layout
-    checker. This computes metadata; it grants no source or runtime authority.
-*)
+(** Adapt original member syntax and selected class extents to the shared
+    aggregate layout checker. This computes metadata; it grants no source or
+    runtime authority. *)

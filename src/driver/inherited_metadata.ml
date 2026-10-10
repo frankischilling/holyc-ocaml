@@ -13,6 +13,7 @@ let contains ?(original_definitions = []) ~table ~scope metadata definition =
     metadata
 
 type storage_selection = {
+  definition : Frontend.Ast.aggregate_definition;
   symbol : Sema.Symbol.t;
   size : int64;
   base_symbol : Sema.Symbol.t;
@@ -20,6 +21,8 @@ type storage_selection = {
 }
 
 type storage = {
+  table : Sema.Symbol_table.t;
+  scope : Sema.Symbol_table.scope;
   metadata_only : Sema.Compiler_record.inherited_metadata list;
   selections : storage_selection list;
 }
@@ -60,6 +63,8 @@ let prepare_storage ?(original_definitions = []) ~table ~scope ~aggregates ~ast
   let rec loop ready admitted selections = function
     | [] ->
         {
+          table;
+          scope;
           metadata_only =
             List.filter (fun proof -> not (List.memq proof admitted)) metadata;
           selections = List.rev selections;
@@ -75,7 +80,8 @@ let prepare_storage ?(original_definitions = []) ~table ~scope ~aggregates ~ast
             loop
               ((definition, identity) :: ready)
               (proof :: admitted)
-              ({ symbol; size; base_symbol; base_size } :: selections)
+              ({ definition; symbol; size; base_symbol; base_size }
+              :: selections)
               rest
         | _ ->
             let ready =
@@ -87,6 +93,17 @@ let prepare_storage ?(original_definitions = []) ~table ~scope ~aggregates ~ast
   loop [] [] [] definitions
 
 let metadata_only storage = storage.metadata_only
+
+let selected_base ?(original_definitions = []) ~table ~scope storage definition
+    =
+  if storage.table != table || storage.scope != scope then None
+  else
+    let definition = original_definition original_definitions definition in
+    List.find_map
+      (fun selection ->
+        if selection.definition == definition then Some selection.base_symbol
+        else None)
+      storage.selections
 
 let validate_storage storage ~layouts =
   let rec loop = function

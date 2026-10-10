@@ -242,7 +242,22 @@ val select_aggregate_base :
     preserves runtime dependencies and grants no storage or executable
     authority. *)
 
+type aggregate_member
+
+val select_aggregate_member :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  selected_aggregate:Source_type_reference.selected_aggregate ->
+  Frontend.Parser.aggregate_phase ->
+  t option ->
+  (aggregate_member, string) result
+(** Capture the original selected class size during its live member placement.
+    Canonical class identity, namespace and current record must agree. This
+    snapshot grants no semantic member layout or runtime storage. *)
+
 val advance_aggregate :
+  ?members:
+    (Frontend.Parser.aggregate_phase -> (aggregate_member, string) result) ->
   ?callbacks:
     (Frontend.Ast.function_pointer_declarator ->
     Frontend.Parser.completed_callback_signature option) ->

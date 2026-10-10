@@ -1410,6 +1410,8 @@ and aggregate_publication = {
   aggregate_previous : Symbol_visibility.entry option;
   aggregate_join_lookup : join_lookup option;
   aggregate_name : Ast.identifier;
+  aggregate_backing : Ast.aggregate_backing option;
+  aggregate_backing_selection : named_aggregate_selection option;
   aggregate_kind : Ast.aggregate_kind;
   aggregate_activity : aggregate_activity;
 }
@@ -1419,6 +1421,7 @@ and aggregate_step =
   | Aggregate_body_started of Ast.aggregate_base option
   | Aggregate_member_prepared of {
       member_type : Ast.type_specifier;
+      member_selection : named_aggregate_selection option;
       member_name : Ast.identifier;
       member_pointers : Ast.pointer_layer list;
       member_callback : Ast.function_pointer_declarator option;
@@ -3044,8 +3047,8 @@ let observe_join_lookup cursor ~kind name =
     join_active = true;
   }
 
-let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind
-    (name : Ast.identifier) =
+let declare_aggregate ?backing ?backing_selection cursor at ~modifiers ~binding
+    ~aggregate_kind (name : Ast.identifier) =
   let aggregate_previous =
     Symbol_visibility.Environment.find_class cursor.symbols name.spelling
   in
@@ -3063,6 +3066,8 @@ let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind
       aggregate_previous;
       aggregate_join_lookup;
       aggregate_name = name;
+      aggregate_backing = backing;
+      aggregate_backing_selection = backing_selection;
       aggregate_kind;
       aggregate_activity =
         { aggregate_active = true; aggregate_last_phase = None };
@@ -6312,6 +6317,7 @@ and parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
                 (Aggregate_member_prepared
                    {
                      member_type = type_specifier;
+                     member_selection = type_selection;
                      member_name = name;
                      member_pointers = pointer_layers;
                      member_callback = function_pointer;
@@ -6424,9 +6430,9 @@ and parse_aggregate_member_metadata cursor ~recovery_depth :
   in
   collect [] []
 
-let parse_aggregate_definition ?(local = false) ?(type_tail = false)
-    ?(on_tokens = ignore) ?(on_publication = ignore) cursor ~modifier_tokens
-    ~modifiers ~backing ~aggregate_kind ~parse_function_pointer
+let parse_aggregate_definition ?backing_selection ?(local = false)
+    ?(type_tail = false) ?(on_tokens = ignore) ?(on_publication = ignore) cursor
+    ~modifier_tokens ~modifiers ~backing ~aggregate_kind ~parse_function_pointer
     ~parse_member_function_pointer =
   let aggregate_item = take cursor in
   let name_item = peek cursor in
@@ -6445,7 +6451,12 @@ let parse_aggregate_definition ?(local = false) ?(type_tail = false)
         ~location:(token_location name_item.token)
     in
     let publication =
-      declare_aggregate cursor name_item ~modifiers ~binding:None
+      declare_aggregate
+        ?backing:
+          (Option.map
+             (fun (backing : parsed_aggregate_backing) -> backing.node)
+             backing)
+        ?backing_selection cursor name_item ~modifiers ~binding:None
         ~aggregate_kind name
     in
     on_publication publication;
@@ -7587,7 +7598,9 @@ let parse_global ?(aggregate_local = false) ?(on_aggregate_tokens = ignore)
                           with
                           | None -> None
                           | Some backing ->
-                              parse_aggregate_definition ~local:aggregate_local
+                              parse_aggregate_definition
+                                ?backing_selection:type_selection
+                                ~local:aggregate_local
                                 ~on_tokens:on_aggregate_tokens cursor
                                 ~modifier_tokens ~modifiers
                                 ~backing:(Some backing) ~aggregate_kind
@@ -9261,7 +9274,8 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
                     ~declarator_context:Aggregate_member_declarator
                 in
                 match
-                  parse_aggregate_definition ~type_tail:true
+                  parse_aggregate_definition ?backing_selection:type_selection
+                    ~type_tail:true
                     ~on_tokens:(fun tokens -> original_tokens := tokens)
                     ~on_publication:(fun source -> publication := Some source)
                     cursor ~modifier_tokens ~modifiers ~backing:(Some backing)

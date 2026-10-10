@@ -31,9 +31,11 @@ let checked = function
   | Ok value -> value
   | Error errors -> Alcotest.fail (describe errors)
 
-let run ?max_frame_bytes ?(max_steps = 100_000) mode contents =
+let run ?max_frame_bytes ?max_initializer_steps ?(max_steps = 100_000) mode
+    contents =
   let session, config, source = inputs mode contents in
-  run_integer_program_report ?max_frame_bytes session ~config ~source ~max_steps
+  run_integer_program_report ?max_frame_bytes ?max_initializer_steps session
+    ~config ~source ~max_steps
 
 let value expected output report =
   let result = (integer_program_report_outcome report |> checked).value in
@@ -80,15 +82,20 @@ let faults () =
     modes
 
 let quotas () =
-  let check source_contents =
+  let check ?(modes = modes) source_contents =
     List.iter
       (fun mode ->
         let session, config, source = inputs mode source_contents in
+        let report = compile_integer_program_report session ~config ~source in
         let compiled =
-          (compile_integer_program session ~config ~source |> checked).value
+          match
+            (integer_program_compilation_result report |> checked).value
+          with
+          | Isolated program -> [ program ]
+          | Stateful _ -> integer_program_compilation_units report
         in
         let frame_bytes =
-          integer_program_functions compiled
+          List.concat_map integer_program_functions compiled
           |> List.map (fun (f : VM.function_definition) ->
               Int64.add
                 (Semantic_function_frame_layout.function_frame_size f.frame)
@@ -99,17 +106,21 @@ let quotas () =
         in
         let baseline = value 42L "" (run mode source_contents) in
         let steps = VM.executed_steps baseline in
+        let preparation = VM.compiled_initializer_steps baseline in
         ignore
           (value 42L ""
-             (run ~max_frame_bytes:frame_bytes ~max_steps:steps mode
-                source_contents));
+             (run ~max_frame_bytes:frame_bytes ~max_steps:steps
+                ~max_initializer_steps:(max 1 preparation) mode source_contents));
         failure "HCIRVM0011" ""
           (run ~max_frame_bytes:(frame_bytes - 1) mode source_contents);
         failure "HCIRVM0007" ""
-          (run ~max_steps:(steps - 1) mode source_contents))
+          (run ~max_steps:(steps - 1) mode source_contents);
+        if preparation > 1 then
+          failure "HCIRVM0007" ""
+            (run ~max_initializer_steps:(preparation - 1) mode source_contents))
       modes
   in
-  List.iter check
+  List.iter (check ~modes)
     [
       Cases.quota_source;
       Arrays.quota_source;
@@ -119,7 +130,8 @@ let quotas () =
       Default.quota_source;
       Parameters.quota_source;
       Returns.quota_source;
-    ]
+    ];
+  check ~modes:[ Preprocessor.Jit ] Cases.retained_nested_limits
 
 let foreign_frame () =
   let check source_contents =
@@ -385,7 +397,8 @@ let () =
           (fun (name, source, expected, output) ->
             Alcotest.test_case name `Quick (fun () ->
                 ignore (value expected output (run Preprocessor.Jit source))))
-          (Defaults.jit_values @ Inherited.retained_values) );
+          (Defaults.jit_values @ Inherited.retained_values
+         @ Cases.retained_nested_values) );
       ( "values",
         List.map
           (fun (name, source, expected, output) ->
@@ -393,11 +406,12 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
-         @ Pointers.values @ Pointers.view_matrix @ Inherited.values
-         @ Inherited.view_matrix @ Backed.values @ Default.values
-         @ Parameters.values @ Parameters.view_matrix @ Returns.values
-         @ Returns.view_matrix @ Returns.warning_values) );
+          (Cases.values @ Cases.nested_values @ Cases.view_matrix
+         @ Arrays.values @ Arrays.view_matrix @ Pointers.values
+         @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
+         @ Backed.values @ Default.values @ Parameters.values
+         @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
+         @ Returns.warning_values) );
       ( "storage",
         [
           Alcotest.test_case "source class default boundaries" `Quick

@@ -67,10 +67,9 @@ these source paths. They contain no TempleOS runtime capture or machine-byte
 comparison.
 
 AOT IR and native source defaults containing value or function references
-remain outside their source preparation path. Retained nested class members, ordinary
-native prototypes, owned strings,
-`lastclass`, class callback signatures, F64/pointer backings, general aggregate
-copies and complete HolyC ABI/compiler parity remain open under #686/#702/#682.
+remain outside their source preparation path. Ordinary native prototypes,
+owned strings, `lastclass`, class callback signatures, F64/pointer backings,
+general aggregate copies and complete HolyC ABI/compiler parity remain open under #686/#702/#682.
 
 Related behavior is documented in [class value parameters](class-value-parameters.md),
 [class value returns](class-value-returns.md), [integer defaults](integer-defaults.md)

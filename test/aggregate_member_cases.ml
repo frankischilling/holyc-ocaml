@@ -162,19 +162,61 @@ let extent_source definition index =
   Printf.sprintf "%s I64 F(){Box o;o.bytes[%d]=42;return o.bytes[%d];}F();"
     definition index index
 
-(* Retained parser records have no original named member-selection receipt yet.
-   Closed whole-source compilation still supports these layouts. *)
-let retained_nested_class_boundaries =
+let nested_values =
   [
-    "nested aggregate fields";
-    "two-dimensional aggregate member array";
-    "address and dereference of aggregate array element";
-    "indexed aggregate address passed to a class pointer parameter";
-    "nested member arrays inside root arrays";
-    "nested array stride is independent of containing object size";
-    "nested inherited objects and aggregate arrays";
-    "nested backed members retain absolute addresses";
-    "whole scalar may cross a nested class extent inside its root";
-    "nested default array elements retain their root";
-    "default value may reach adjacent bytes within a nested root";
+    ( "nested comma declarations retain independent array extents",
+      {|class I{U16 word;};class Box{I left[2],right[3];};I64 F(){Box o;o.right[2].word=42;return sizeof(Box)+o.right[2].word-10;}F();|},
+      42L,
+      "" );
+    ( "nested default argument retains the outer guard word",
+      {|class I{U16 low;};class Box{I item;U8 guard;};I64 Take(Box o=0x07002a){if(o.guard!=7)return -1;return o.item.low;}Take();|},
+      42L,
+      "" );
+    ( "a completed nested selection survives a later same-name header",
+      {|class I{U16 word;};class Box{I item;};class I{U8 byte;};I64 F(){Box o;o.item.word=42;return o.item.word;}F();|},
+      42L,
+      "" );
   ]
+
+let retained_nested_values =
+  [
+    ( "nested runtime dimensions prepare once",
+      {|I64 Count=0;I64 Next(){Count++;return 2;}class I{U16 value[Next()];};class Box{I item[2];};I64 F(){Box o;o.item[1].value[1]=41;return sizeof(Box)+o.item[1].value[1]+Count-8;}F();|},
+      42L,
+      "" );
+    ( "nested runtime offsets retain their original preparation",
+      {|I64 Count=0;I64 Next(){Count++;return 4;}class I{U16 word;$$=Next();U8 tag;};class Box{I item[2];};I64 F(){Box o;o.item[1].tag=41;return sizeof(Box)+o.item[1].tag+Count-10;}F();|},
+      42L,
+      "" );
+    ( "member selection precedes dimension lookahead replacement",
+      {|class I{U16 word;};class Box{I item[2 #exe{class I{U8 byte;};}];};I64 F(){Box o;o.item[1].word=42;return sizeof(Box)+o.item[1].word-4;}F();|},
+      42L,
+      "" );
+    ( "an admitted child class completes before its containing member",
+      {|class I{U16 word;};class Box{#exe{class I{U8 byte;};}I item;};I64 F(){Box o;o.item.byte=42;return sizeof(Box)+o.item.byte-1;}F();|},
+      42L,
+      "" );
+    ( "named backing selection precedes child body replacement",
+      {|U16 class I{U16 word;};I class Box{#exe{U8 class I{U8 byte;};}U8 low;};I64 F(Box o=0x12a){return o;}F();|},
+      298L,
+      "" );
+    ( "named backing selection precedes publication lookahead replacement",
+      {|U16 class I{U16 word;};I #exe{U8 class I{U8 byte;};}class Box{U8 low;};I64 F(Box o=0x12a){return o;}F();|},
+      298L,
+      "" );
+    ( "a called class default uses its nested member layout",
+      {|class I{U16 low;};class Box{I item;U8 guard;};Box Make(){return 0x07002a;}I64 Take(Box o=Make()){if(o.guard!=7)return -1;return o.item.low;}Take();|},
+      42L,
+      "" );
+    ( "named pointer metadata uses pointer bytes",
+      {|class I{U16 word;};class Box{I *link;U8 tag;};sizeof(Box)+33;|},
+      42L,
+      "" );
+    ( "nested source sizes survive an original compile directive",
+      {|#exe{class I{U16 word;};class Box{I item[2];};StreamPrint("%d;",sizeof(Box)+38);}|},
+      42L,
+      "" );
+  ]
+
+let retained_nested_limits =
+  {|I64 Count=0;I64 Next(){Count++;return 2;}class I{U16 value[Next()];};class Box{I item[2];};I64 F(){Box o;o.item[1].value[1]=41;return o.item[1].value[1]+Count;}F();|}

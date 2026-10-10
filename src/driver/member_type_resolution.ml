@@ -54,7 +54,33 @@ let resolve_type visible type_specifier pointer_layers =
                    identifier.spelling)
           | Some symbol -> Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
-let make_type_reference visible type_specifier pointer_layers =
+let make_type_reference ?selected_types ?table visible type_specifier
+    pointer_layers =
+  let selected =
+    match (type_specifier, selected_types, table) with
+    | Frontend.Ast.Named_type_specifier _, Some (namespace, resolve), Some table
+      -> (
+        match resolve type_specifier with
+        | Some proof ->
+            Result.bind
+              (Sema.Source_type_reference.validate_selected_aggregate ~table
+                 ~namespace proof) (fun () ->
+                Sema.Source_type_reference.selected_header_class proof
+                  type_specifier pointer_layers)
+        | None -> Error "member type lacks its original selected aggregate")
+    | _ ->
+        Result.bind (resolve_type visible type_specifier pointer_layers)
+          (fun resolved_type ->
+            Sema.Member_type_resolution.make_type_reference
+              ~spelling:(Frontend.Ast.type_specifier_spelling type_specifier)
+              ~spelling_origin:
+                (origin (Frontend.Ast.type_specifier_location type_specifier))
+              ~pointer_origins:(pointer_origins pointer_layers)
+              ~resolved_type)
+  in
+  selected
+
+let unselected_type_reference visible type_specifier pointer_layers =
   match resolve_type visible type_specifier pointer_layers with
   | Error _ as error -> error
   | Ok resolved_type ->
@@ -255,7 +281,7 @@ let type_belongs_to table type_ =
   | Sema.Type.Primitive _ -> true
   | Sema.Type.Aggregate symbol -> Sema.Symbol_table.owns_symbol table symbol
 
-let validate_backing ~table visible header
+let validate_backing ?selected_types ~table visible header
     (definition : Frontend.Ast.aggregate_definition) =
   match
     ( definition.Frontend.Ast.backing,
@@ -270,8 +296,9 @@ let validate_backing ~table visible header
         Error "semantic member type backing belongs to a different symbol table"
       else
         match
-          resolve_type visible backing.backing_type_specifier
-            backing.backing_pointer_layers
+          Result.map Sema.Type_reference.resolved_type
+            (make_type_reference ?selected_types ~table visible
+               backing.backing_type_specifier backing.backing_pointer_layers)
         with
         | Error _ as error -> error
         | Ok expected_type ->
@@ -309,8 +336,8 @@ let validate_backing ~table visible header
   | None, Some _ | Some _, None ->
       Error "semantic member type header has the wrong backing shape"
 
-let validate_base ~table visible header
-    (definition : Frontend.Ast.aggregate_definition) =
+let validate_base ?inherited_storage ~original_definitions ~table ~scope visible
+    header (definition : Frontend.Ast.aggregate_definition) =
   match
     ( definition.Frontend.Ast.base,
       Sema.Aggregate_header_resolution.header_base header )
@@ -323,7 +350,16 @@ let validate_base ~table visible header
       if not (Sema.Symbol_table.owns_symbol table actual_symbol) then
         Error "semantic member type base belongs to a different symbol table"
       else
-        match String_map.find_opt base.base_name.spelling visible with
+        let selected =
+          Option.bind inherited_storage (fun storage ->
+              Inherited_metadata.selected_base ~original_definitions ~table
+                ~scope storage definition)
+        in
+        match
+          match selected with
+          | Some _ -> selected
+          | None -> String_map.find_opt base.base_name.spelling visible
+        with
         | None ->
             Error
               (Printf.sprintf
@@ -462,7 +498,7 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
 
 and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
   match
-    make_type_reference visible parameter.type_specifier
+    unselected_type_reference visible parameter.type_specifier
       parameter.pointer_layers
   with
   | Error _ as error -> error
@@ -521,10 +557,15 @@ and declarator_kind_fact visible = function
         (fun pointer -> Sema.Function_type_resolution.Function_pointer pointer)
         (function_pointer_fact visible pointer)
 
-let member_fact visible entry ast_member =
+let member_fact ?selected_types ~table visible entry ast_member =
   let declarator = ast_member.declarator in
   match
-    make_type_reference visible ast_member.declaration.member_type_specifier
+    let selected_types =
+      if Option.is_some declarator.member_function_pointer then None
+      else selected_types
+    in
+    make_type_reference ?selected_types ~table visible
+      ast_member.declaration.member_type_specifier
       declarator.member_pointer_layers
   with
   | Error _ as error -> error
@@ -551,29 +592,35 @@ let member_fact visible entry ast_member =
                    origin dimension.location)
                  declarator.member_array_dimensions))
 
-let member_facts visible pairs =
+let member_facts ?selected_types ~table visible pairs =
   let rec resolve facts_rev = function
     | [] -> Ok (List.rev facts_rev)
     | (entry, ast_member) :: rest -> (
-        match member_fact visible entry ast_member with
+        match member_fact ?selected_types ~table visible entry ast_member with
         | Error _ as error -> error
         | Ok fact -> resolve (fact :: facts_rev) rest)
   in
   resolve [] pairs
 
-let resolve_definition ~table ~scope visible event header collected
+let resolve_definition ?selected_types ?inherited_storage ~original_definitions
+    ~table ~scope visible event header collected
     (definition : Frontend.Ast.aggregate_definition) =
   match validate_header_source ~table event header definition with
   | Error _ as error -> error
   | Ok () -> (
-      match validate_backing ~table visible header definition with
+      match
+        validate_backing ?selected_types ~table visible header definition
+      with
       | Error _ as error -> error
       | Ok () -> (
           let visible =
             String_map.add event.ast.identifier.spelling event.identity_symbol
               visible
           in
-          match validate_base ~table visible header definition with
+          match
+            validate_base ?inherited_storage ~original_definitions ~table ~scope
+              visible header definition
+          with
           | Error _ as error -> error
           | Ok () -> (
               match
@@ -582,7 +629,7 @@ let resolve_definition ~table ~scope visible event header collected
               with
               | Error _ as error -> error
               | Ok pairs -> (
-                  match member_facts visible pairs with
+                  match member_facts ?selected_types ~table visible pairs with
                   | Error _ as error -> error
                   | Ok members ->
                       Result.map
@@ -593,7 +640,8 @@ let resolve_definition ~table ~scope visible event header collected
                              (Sema.Member_collection.aggregate_scope collected)
                            ~item_index:event.ast.item_index members)))))
 
-let resolve_events ~metadata_only ~table ~scope events headers collected =
+let resolve_events ?selected_types ?inherited_storage ~original_definitions
+    ~metadata_only ~table ~scope events headers collected =
   let rec resolve visible facts_rev events headers collected =
     match events with
     | [] ->
@@ -620,7 +668,8 @@ let resolve_events ~metadata_only ~table ~scope events headers collected =
             match (headers, collected) with
             | header :: header_rest, aggregate :: aggregate_rest -> (
                 match
-                  resolve_definition ~table ~scope visible event header
+                  resolve_definition ?selected_types ?inherited_storage
+                    ~original_definitions ~table ~scope visible event header
                     aggregate definition
                 with
                 | Error _ as error -> error
@@ -634,10 +683,18 @@ let resolve_events ~metadata_only ~table ~scope events headers collected =
   in
   resolve String_map.empty [] events headers collected
 
-let resolve ?(original_definitions = []) ?(inherited_metadata = []) ~table
-    ~declarations ~aggregates ~headers ~members module_ =
+let resolve ?selected_types ?(original_definitions = [])
+    ?(inherited_metadata = []) ?inherited_storage ~table ~declarations
+    ~aggregates ~headers ~members module_ =
   let scope = Sema.Declaration_collection.scope declarations in
-  if not (Sema.Symbol_table.owns_scope table scope) then
+  if
+    Option.fold ~none:false
+      ~some:(fun (namespace, _) ->
+        (not (Sema.Declaration_collection.namespace_owns_table namespace table))
+        || Sema.Declaration_collection.namespace_scope namespace != scope)
+      selected_types
+  then Error "selected member types belong to another namespace or table"
+  else if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic member declarations belong to a different symbol table"
   else if Sema.Symbol_table.scope_kind scope <> Sema.Symbol_table.Module then
     Error "semantic member declarations must belong to a module scope"
@@ -645,7 +702,7 @@ let resolve ?(original_definitions = []) ?(inherited_metadata = []) ~table
     match events ~table ~declarations ~aggregates module_ with
     | Error _ as error -> error
     | Ok events ->
-        resolve_events
+        resolve_events ?selected_types ?inherited_storage ~original_definitions
           ~metadata_only:
             (Inherited_metadata.contains ~original_definitions ~table ~scope
                inherited_metadata)

@@ -62,8 +62,7 @@ native JIT/AOT source compilation. [Retained JIT contexts](retained-class-contex
 also prepare checked class-returning calls through IR or native task execution.
 AOT IR and ordinary native defaults containing references, callback class signatures,
 F64/pointer/callback backings, zero-size class pointer operations, persistent
-class objects, retained nested class members and general aggregate copies remain
-open. Complete class and ABI acceptance remain under
+class objects and general aggregate copies remain open. Complete class and ABI acceptance remain under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and
 [#702](https://github.com/frankischilling/holyc-ocaml/issues/702); full compiler
 and release acceptance remain under

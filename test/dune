@@ -5208,7 +5208,8 @@
   ../examples/default-aggregate-values.hc
   ../examples/class-value-parameters.hc
   ../examples/class-value-returns.hc
-  ../examples/class-default-words.hc)
+  ../examples/class-default-words.hc
+  ../examples/retained-nested-members.hc)
  (action
   (run
    %{test}
@@ -5221,7 +5222,8 @@
    %{dep:../examples/default-aggregate-values.hc}
    %{dep:../examples/class-value-parameters.hc}
    %{dep:../examples/class-value-returns.hc}
-   %{dep:../examples/class-default-words.hc})))
+   %{dep:../examples/class-default-words.hc}
+   %{dep:../examples/retained-nested-members.hc})))
 
 (test
  (name test_automatic_aggregate_storage)

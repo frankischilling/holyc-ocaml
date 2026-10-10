@@ -120,6 +120,18 @@ type proof_fixture = {
 }
 
 let selection_type = function
+  | S.Aggregate_backing publication -> (
+      match publication.Parser.aggregate_backing with
+      | Some backing ->
+          ( backing.backing_type_specifier,
+            backing.backing_pointer_layers,
+            publication.aggregate_backing_selection )
+      | None -> Alcotest.fail "expected original backing type")
+  | S.Aggregate_member phase -> (
+      match phase.Parser.phase_step with
+      | Parser.Aggregate_member_prepared member ->
+          (member.member_type, member.member_pointers, member.member_selection)
+      | _ -> Alcotest.fail "expected original member type")
   | S.Function_return source ->
       ( source.Parser.function_header.type_specifier,
         source.function_pointer_layers,
@@ -533,7 +545,12 @@ let callback_selection_survives_shadow () =
                 Option.is_some local.local_function_pointer
             | _ -> false)
         | S.Global_type p -> Option.is_some p.global_function_pointer
-        | S.Function_return _ -> false
+        | S.Function_return _ | S.Aggregate_backing _ -> false
+        | S.Aggregate_member phase -> (
+            match phase.phase_step with
+            | Parser.Aggregate_member_prepared member ->
+                Option.is_some member.member_callback
+            | _ -> false)
       in
       let reference =
         (if callback_metadata then S.selected_callback_return else S.selected)

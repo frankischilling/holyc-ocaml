@@ -403,7 +403,19 @@ let contains_global command ~(publication : Parser.global_publication)
       && completed.delimiter.location.span == variable.semicolon
   | _ -> false
 
-let aggregate_import_prefix ~scope ~imports command =
+let aggregate_import_prefix ?(admitted = []) ~scope ~imports command =
+  let rec entered_during_command context =
+    match Parser.context_parent context with
+    | Some (Parser.Reading_command start) ->
+        List.exists
+          (fun node -> node.receipt.command_start == start)
+          command.nodes
+        || entered_during_command start.command_context
+    | Some (Parser.Before_first_command parent) -> entered_during_command parent
+    | Some (Parser.Awaiting_resume receipt) ->
+        entered_during_command receipt.command_start.command_context
+    | None -> false
+  in
   let earlier =
     let rec before rev = function
       | [] -> None
@@ -423,15 +435,35 @@ let aggregate_import_prefix ~scope ~imports command =
           Compiler_record.aggregate_import_source ~table:command.owner.table
             ~scope proof
         with
-        | Some (_, publication, _) -> (
+        | Some (definition, publication, _) -> (
             match
               Declaration_collection.publication_source_aggregate publication
             with
             | Some source
-              when Option.fold ~none:false
-                     ~some:
-                       (List.memq source.aggregate_header.declaration_command)
-                     earlier
+              when (Option.fold ~none:false
+                      ~some:
+                        (List.memq source.aggregate_header.declaration_command)
+                      earlier
+                   || entered_during_command
+                        source.aggregate_header.declaration_command
+                          .command_context
+                      && List.exists
+                           (fun prior ->
+                             prior.owner == command.owner
+                             && List.exists
+                                  (fun node ->
+                                    node.receipt.command_start
+                                    == source.aggregate_header
+                                         .declaration_command
+                                    && List.exists
+                                         (function
+                                           | Frontend.Ast.Aggregate_definition
+                                               original ->
+                                               original == definition
+                                           | _ -> false)
+                                         node.receipt.command_ast.items)
+                                  prior.nodes)
+                           admitted)
                    && not (List.memq publication seen) ->
                 validate (publication :: seen) rest
             | _ ->

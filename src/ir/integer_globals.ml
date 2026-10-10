@@ -1224,6 +1224,7 @@ let with_source_command ?(aggregate_imports = []) view ~ast command =
       match view.catalog.namespace with
       | Some namespace ->
           Sema.Task_command_order.aggregate_import_prefix
+            ~admitted:view.catalog.admitted_commands
             ~scope:(Sema.Declaration_collection.namespace_scope namespace)
             ~imports:aggregate_imports command
       | None when aggregate_imports = [] -> Ok 0

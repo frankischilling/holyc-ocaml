@@ -74,10 +74,10 @@ The tests use independent expected words and hosted executions; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
 Postfix casts involving whole backed values, aggregate initializers, prepared
-AOT IR and ordinary native defaults containing references and callback parameter ABI paths, floating execution and
-parameter storage, persistent objects, function-local layouts and zero-sized
-automatic objects, retained nested class members,
-F64/pointer/callback backings and general aggregate copies remain open under
+AOT IR and ordinary native defaults containing references, callback parameter
+ABI paths, floating execution and parameter storage, persistent objects,
+function-local layouts, zero-sized automatic objects, F64/pointer/callback
+backings and general aggregate copies remain open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and the
 related value and ABI issues. Full compiler and release acceptance remain
 under [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).

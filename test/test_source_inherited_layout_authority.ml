@@ -58,6 +58,151 @@ let parse session source commands =
            output.diagnostics
         |> String.concat "; ")
 
+let member_selection_authority () =
+  let module Types = Holyc_lib__Sema.Source_type_reference in
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let foreign = C.create_namespace ~table () |> checked in
+  let foreign_table = Session.semantic_symbols (Session.create ()) in
+  let entries = Entries.create 8 in
+  let saved = ref [] and borrowed = ref None and completed = ref None in
+  let bad_progress = ref None and mismatch_checked = ref false in
+  let declaration = function
+    | Parser.Aggregate_declared source ->
+        let publication = C.publish_aggregate namespace source |> checked in
+        let progress =
+          Record.begin_aggregate ~table ~namespace publication |> checked
+        in
+        let initial = Record.aggregate_metadata progress |> checked in
+        Entries.add entries source.aggregate_entry
+          { publication; progress; initial; record = initial };
+        if source.aggregate_name.spelling = "Outer" then
+          bad_progress :=
+            Some
+              (Record.begin_aggregate ~table ~namespace publication |> checked);
+        Ok ()
+    | Parser.Aggregate_advanced phase ->
+        let own = state_for entries phase.phase_aggregate in
+        let member =
+          match phase.phase_step with
+          | Parser.Aggregate_member_prepared member
+            when Option.is_some member.member_selection ->
+              let selection = Option.get member.member_selection in
+              let selected = Entries.find entries selection.entry in
+              let source = Types.Aggregate_member phase in
+              let proof =
+                Types.select_aggregate ~table ~namespace ~source
+                  selected.publication
+                |> checked
+              in
+              let read ?(table = table) ?(namespace = namespace) record =
+                Record.select_aggregate_member ~table ~namespace
+                  ~selected_aggregate:proof phase record
+              in
+              reject "foreign table cannot supply a member class"
+                (read ~table:foreign_table (Some selected.record));
+              reject "foreign namespace cannot supply a member class"
+                (read ~namespace:foreign (Some selected.record));
+              reject "stale class snapshot cannot supply a member extent"
+                (read (Some selected.initial));
+              reject "containing class cannot replace the selected member class"
+                (read (Some own.record));
+              let other =
+                Entries.fold
+                  (fun _ state found ->
+                    if state == selected || state == own then found
+                    else Some state.record)
+                  entries None
+              in
+              Option.iter
+                (fun record ->
+                  reject
+                    "another equal-sized class cannot supply the member extent"
+                    (read (Some record)))
+                other;
+              reject
+                "an equal spelling cannot replace the original selected \
+                 publication"
+                (Types.select_aggregate ~table ~namespace ~source
+                   own.publication);
+              let selected_member = read (Some selected.record) |> checked in
+              saved := (phase, proof, selected.record) :: !saved;
+              Some selected_member
+          | _ -> None
+        in
+        (match !bad_progress with
+        | Some bad
+          when phase.phase_aggregate.aggregate_name.spelling = "Outer"
+               && not !mismatch_checked -> (
+            Record.advance_aggregate
+              ~members:(fun _ ->
+                match (!borrowed, member) with
+                | Some prior, _ -> Ok prior
+                | None, Some current -> Ok current
+                | _ -> Error "no member")
+              ~dimensions:(fun _ -> None)
+              bad phase
+            |> checked;
+            match (!borrowed, member) with
+            | Some _, Some _ ->
+                reject "another original placement cannot lend its class extent"
+                  (Record.aggregate_metadata bad);
+                mismatch_checked := true
+            | _ -> ())
+        | _ -> ());
+        Record.advance_aggregate
+          ~members:(fun requested ->
+            match member with
+            | Some selected when requested == phase -> Ok selected
+            | _ -> Error "no original member")
+          ~dimensions:(fun _ -> None)
+          own.progress phase
+        |> checked;
+        (match member with
+        | Some member when Option.is_none !borrowed -> borrowed := Some member
+        | _ -> ());
+        own.record <- Record.aggregate_metadata own.progress |> checked;
+        Ok ()
+    | Parser.Aggregate_completed receipt ->
+        let own = state_for entries receipt.aggregate_publication in
+        own.record <-
+          Record.complete_aggregate ~progress:own.progress ~table ~namespace
+            own.publication receipt
+          |> checked;
+        if receipt.aggregate_publication.aggregate_name.spelling = "Outer" then
+          completed := Some own;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let source =
+    Session.add_source session ~path:"member-selection-authority.hc"
+      ~contents:
+        "class A{U16 word;};class B{U16 other;};class Outer{A first;B second;A \
+         third;};"
+  in
+  ignore (parse session source (sink declaration));
+  let own = Option.get !completed in
+  let symbol = C.publication_aggregate_identity own.publication |> Option.get in
+  let type_ =
+    Semantic_type.make_aggregate ~symbol ~pointer_depth:0 |> checked
+  in
+  Alcotest.(check int64)
+    "original selected nested extents" 6L
+    (Record.return_class_size ~table ~namespace ~type_
+       ~aggregate:(Some own.record)
+    |> checked);
+  Alcotest.(check int)
+    "each original named member has a receipt" 3 (List.length !saved);
+  Alcotest.(check bool)
+    "borrowed placement check was reached" true !mismatch_checked;
+  List.iter
+    (fun (phase, proof, record) ->
+      reject "expired member phase cannot mint another layout snapshot"
+        (Record.select_aggregate_member ~table ~namespace
+           ~selected_aggregate:proof phase (Some record)))
+    !saved
+
 let selection_authority () =
   let session = Session.create () in
   let table = Session.semantic_symbols session in
@@ -405,6 +550,9 @@ let () =
     [
       ( "authority",
         [
+          Alcotest.test_case
+            "nested member selections retain original class records" `Quick
+            member_selection_authority;
           Alcotest.test_case
             "exact entry, namespace, lifetime and metadata definition" `Quick
             selection_authority;
