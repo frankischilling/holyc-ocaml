@@ -1,5 +1,10 @@
 # Retained aggregate sizes
 
+[Integer-backed aggregate values](backed-aggregate-values.md) use the original
+forwarded scalar width for whole reads, assignments and updates. Class extents,
+member identities and pointer strides remain separate. General casts, class
+value ABI paths and persistent objects still need their own implementation.
+
 Classes and unions with primitive members publish size metadata as their
 original members are parsed. `sizeof` uses the entry selected by the original
 parser read, including in a later `#exe` block or a retained function body.

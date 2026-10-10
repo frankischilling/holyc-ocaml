@@ -3,6 +3,7 @@ module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
 module Inherited = Inherited_aggregate_cases
+module Backed = Backed_aggregate_cases
 
 let require condition message = if not condition then failwith message
 
@@ -25,11 +26,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 6 || Array.length Sys.argv = 7)
-    "expected compiler and four aggregate examples, optionally --native"
+    (Array.length Sys.argv = 7 || Array.length Sys.argv = 8)
+    "expected compiler and five aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 7 && Sys.argv.(6) = "--native"
+let native = Array.length Sys.argv = 8 && Sys.argv.(7) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -131,11 +132,12 @@ let () =
                 (invoke target mode source))
             (Cases.values @ Cases.view_matrix @ Arrays.values
            @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
-           @ Inherited.values @ Inherited.view_matrix);
+           @ Inherited.values @ Inherited.view_matrix @ Backed.values);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "AB" (invoke target mode (read Sys.argv.(3)));
           value 42L "AB" (invoke target mode (read Sys.argv.(4)));
           value 42L "AB" (invoke target mode (read Sys.argv.(5)));
+          value 42L "" (invoke target mode (read Sys.argv.(6)));
           if target = "host-jit" then
             error ~code:"HCPP0008" ""
               (invoke ~status:1 target mode Inherited.lookahead_source)
@@ -146,7 +148,8 @@ let () =
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
-            (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults);
+            (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
+           @ Backed.faults);
           List.iter
             (fun (definition, bytes) ->
               value 42L ""
@@ -191,11 +194,12 @@ let () =
               (Arrays.quota_source, 24);
               (Pointers.quota_source, Pointers.quota_frame_bytes);
               (Inherited.quota_source, Inherited.quota_frame_bytes);
+              (Backed.quota_source, Backed.quota_frame_bytes);
             ];
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
             (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-           @ Inherited.unsupported))
+           @ Inherited.unsupported @ Backed.unsupported))
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then

@@ -3,6 +3,7 @@ module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
 module Inherited = Inherited_aggregate_cases
+module Backed = Backed_aggregate_cases
 module VM = Ir_integer_interpreter
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -56,7 +57,8 @@ let faults () =
     (fun mode ->
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
-        (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults);
+        (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
+       @ Backed.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -106,6 +108,7 @@ let quotas () =
       Arrays.quota_source;
       Pointers.quota_source;
       Inherited.quota_source;
+      Backed.quota_source;
     ]
 
 let foreign_frame () =
@@ -148,6 +151,7 @@ let foreign_frame () =
       Arrays.quota_source;
       Pointers.quota_source;
       Inherited.quota_source;
+      Backed.quota_source;
     ]
 
 let field_proofs () =
@@ -194,6 +198,7 @@ let field_proofs () =
       Arrays.proof_source;
       Pointers.proof_source;
       Inherited.proof_source;
+      Backed.proof_source;
     ]
 
 let boundaries () =
@@ -208,7 +213,7 @@ let boundaries () =
             (Result.is_error
                (integer_program_report_outcome (run mode contents))))
         (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-       @ Inherited.unsupported))
+       @ Inherited.unsupported @ Backed.unsupported))
     modes
 
 let () =
@@ -223,7 +228,7 @@ let () =
                   modes))
           (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
          @ Pointers.values @ Pointers.view_matrix @ Inherited.values
-         @ Inherited.view_matrix) );
+         @ Inherited.view_matrix @ Backed.values) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"

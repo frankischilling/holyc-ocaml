@@ -546,7 +546,10 @@ strides for indexing, arithmetic, difference, comparisons and updates;
 [Inherited aggregate storage](docs/inherited-aggregates.md) connects completed
 earlier base chains to the same members, arrays and pointer operations.
 `examples/inherited-aggregates.hc` prints `AB` and returns 42.
-Retained JIT imports, persistent objects, whole-object values and copies,
+[Integer-backed aggregate values](docs/backed-aggregate-values.md) add whole
+scalar prefix reads, assignments and updates while retaining class storage
+extents and pointer strides. `examples/backed-aggregate-values.hc` returns 42.
+Retained JIT imports, persistent objects, general whole-object values and copies,
 pointer fields and pointer returns remain open under issue #686.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a

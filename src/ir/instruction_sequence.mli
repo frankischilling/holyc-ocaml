@@ -39,6 +39,7 @@ type payload =
   | Symbol of Sema.Symbol.t
   | Callback of Sema.Function_type_resolution.function_pointer
   | Member_projection of Aggregate_member_projection.t
+  | Backing_projection of Aggregate_member_projection.t
   | Pointee_stride of Sema.Aggregate_pointee_layout.t
   | Retained_global of Retained_global.t
   | Saved_parameter_default of Prepared_parameter_default.t

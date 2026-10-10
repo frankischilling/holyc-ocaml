@@ -3,6 +3,7 @@ module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
 module Inherited = Inherited_aggregate_cases
+module Backed = Backed_aggregate_cases
 module P = X86_64_program
 module VM = Ir_integer_interpreter
 
@@ -74,7 +75,8 @@ let faults () =
           Alcotest.(check string)
             "native fault preserves reached output" output
             (Native_program.output_bytes report))
-        (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults);
+        (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
+       @ Backed.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -151,6 +153,7 @@ let quotas () =
       Arrays.quota_source;
       Pointers.quota_source;
       Inherited.quota_source;
+      Backed.quota_source;
     ]
 
 let images () =
@@ -199,6 +202,7 @@ let images () =
       Arrays.quota_source;
       Pointers.quota_source;
       Inherited.quota_source;
+      Backed.quota_source;
     ]
 
 let field_proofs () =
@@ -246,6 +250,7 @@ let field_proofs () =
       Arrays.proof_source;
       Pointers.proof_source;
       Inherited.proof_source;
+      Backed.proof_source;
     ]
 
 let boundaries () =
@@ -266,7 +271,7 @@ let boundaries () =
             name true
             (Result.is_error (Native_program.outcome (run mode contents))))
         (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-       @ Inherited.unsupported))
+       @ Inherited.unsupported @ Backed.unsupported))
     modes;
   let session, config, source = inputs Preprocessor.Jit Cases.quota_source in
   let report =
@@ -285,7 +290,7 @@ let () =
             Alcotest.test_case name `Quick (case contents expected output))
           (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
          @ Pointers.values @ Pointers.view_matrix @ Inherited.values
-         @ Inherited.view_matrix) );
+         @ Inherited.view_matrix @ Backed.values) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, bounds and independent activations"

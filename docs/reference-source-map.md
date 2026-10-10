@@ -1,5 +1,10 @@
 # Reference source map
 
+[Integer-backed aggregate values](backed-aggregate-values.md) use the original
+forwarded scalar width for whole reads, assignments and updates. Class extents,
+member identities and pointer strides remain separate. General casts, class
+value ABI paths and persistent objects still need their own implementation.
+
 Owned inherited storage follows complete `PrsClass` at `PrsStmt.HC:1-60`,
 complete `PrsVarLst` at `PrsVar.HC:407-721`, and `MemberFind`/`MemberAdd` at
 `LexLib.HC:67-86,103-148`. The original selected base contributes its current

@@ -7662,7 +7662,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ -> malformed description "invalid native index scaling")
           | Opcode.Ic_add
             when match description.payload with
-                 | Some (Sequence.Member_projection _) -> true
+                 | Some
+                     ( Sequence.Member_projection _
+                     | Sequence.Backing_projection _ ) -> true
                  | _ -> false -> (
               if description.flags <> 0L then
                 malformed description "invalid member projection flags";
@@ -7675,7 +7677,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | ( [ base_id; offset_id ],
                   Some result,
                   Some target_type,
-                  Some (Sequence.Member_projection proof) ) ->
+                  Some
+                    ( Sequence.Member_projection proof
+                    | Sequence.Backing_projection proof ) ) ->
                   let _, scalar = checked_reference description target_type in
                   let offset_type, delta =
                     match frame_operand frame_values description offset_id with
@@ -7744,7 +7748,15 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   in
                   if
                     not
-                      (Ir.Aggregate_member_projection.matches proof
+                      (Ir.Aggregate_member_projection.matches
+                         ?function_identity:
+                           (match runtime_owner with
+                           | Runtime.Function body ->
+                               Some
+                                 ( Function.symbol body,
+                                   Function.function_scope body )
+                           | _ -> None)
+                         ?before_item_index:source_item_index proof
                          ~base_pointer ~pointer_type:target_type ~offset:delta)
                   then
                     malformed description

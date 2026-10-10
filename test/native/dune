@@ -157,7 +157,8 @@
   ../../examples/aggregate-members.hc
   ../../examples/aggregate-arrays.hc
   ../../examples/class-pointers.hc
-  ../../examples/inherited-aggregates.hc)
+  ../../examples/inherited-aggregates.hc
+  ../../examples/backed-aggregate-values.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
@@ -166,6 +167,7 @@
    %{dep:../../examples/aggregate-arrays.hc}
    %{dep:../../examples/class-pointers.hc}
    %{dep:../../examples/inherited-aggregates.hc}
+   %{dep:../../examples/backed-aggregate-values.hc}
    --native)))
 
 (rule

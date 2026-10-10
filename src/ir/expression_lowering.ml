@@ -68,11 +68,18 @@ type member_step = {
   member_proof : Aggregate_member_projection.t;
 }
 
+type backing_step = {
+  backing_result : Semantic_result.expression_result;
+  backing_storage : Sema.Aggregate_backing_storage.t;
+  backing_span : Common.Span.t;
+}
+
 type assignment_address =
   | Direct_address of storage_address
   | Indirect_address_value of Semantic_result.expression_result
   | Pointer_base of Semantic_result.expression_result
   | Member_address of member_step * assignment_address
+  | Backing_address of backing_step * assignment_address
   | Indexed_address of {
       base : Semantic_result.expression_result;
       address : assignment_address;
@@ -113,12 +120,17 @@ type pointer_update_step = {
   updated_opcode : Opcode.t;
   updated_old_result : bool;
   updated_store :
-    (Semantic_result.expression_result * Type.t * result_conversion) option;
+    (Semantic_result.expression_result
+    * Type.t
+    * result_conversion
+    * Sema.Aggregate_backing_storage.t option)
+    option;
   updated_span : Common.Span.t;
 }
 
 type plan_node =
   | Project_member of member_step
+  | Project_backing of backing_step
   | Index_stride of index_step
   | Index_address of index_step
   | Pointer_difference of pointer_difference_step
@@ -234,6 +246,7 @@ type plan_node =
 
 type task =
   | Finish_member_projection of member_step
+  | Finish_backing_projection of backing_step
   | Emit_index_stride of index_step
   | Finish_index_address of index_step
   | Finish_pointer_update of pointer_update_step
@@ -353,7 +366,7 @@ let checked_integer_type result =
             ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
          |> Result.get_ok))
   else
-    match Semantic_result.result_type result with
+    match Semantic_result.result_value_type result with
     | None ->
         Error
           (metadata_error ?span:(result_span result)
@@ -1369,7 +1382,8 @@ let checked_direct_function_address result prefix operand =
 
 let checked_numeric_unary_types result opcode operand =
   match
-    (Semantic_result.result_type result, Semantic_result.result_type operand)
+    ( Semantic_result.result_value_type result,
+      Semantic_result.result_value_type operand )
   with
   | None, _ | _, None ->
       Error
@@ -1452,32 +1466,37 @@ let checked_alias_types result operand =
            "transparent expression does not have complete checked types")
 
 let checked_cast_types result operand target =
-  match Semantic_result.result_type result with
-  | None ->
-      Error
-        (metadata_error ?span:(result_span result)
-           "postfix cast does not have a checked target type")
-  | Some result_type -> (
-      let target_type = Type_reference.resolved_type target in
-      if not (Type.equal result_type target_type) then
+  if
+    Option.is_some (Semantic_result.result_aggregate_backing_storage result)
+    || Option.is_some (Semantic_result.result_aggregate_backing_storage operand)
+  then Ok false
+  else
+    match Semantic_result.result_type result with
+    | None ->
         Error
           (metadata_error ?span:(result_span result)
-             "postfix cast result type does not match its checked target")
-      else if
-        scalar_pointer_type result_type
-        && (match checked_frame_value operand with
-          | Ok (Checked_type type_) -> data_pointer_type type_
-          | _ -> false)
-        && (not (Semantic_result.result_is_callback_storage operand))
-        && (not (Semantic_result.result_is_callback_storage result))
-        && Option.is_none (Semantic_result.result_callback_pointer operand)
-        && Option.is_none (Semantic_result.result_callback_pointer result)
-      then Ok true
-      else
-        match (checked_numeric_type operand, checked_numeric_type result) with
-        | Error item, _ | _, Error item -> Error item
-        | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok false
-        | Ok (Checked_type _), Ok (Checked_type _) -> Ok true)
+             "postfix cast does not have a checked target type")
+    | Some result_type -> (
+        let target_type = Type_reference.resolved_type target in
+        if not (Type.equal result_type target_type) then
+          Error
+            (metadata_error ?span:(result_span result)
+               "postfix cast result type does not match its checked target")
+        else if
+          scalar_pointer_type result_type
+          && (match checked_frame_value operand with
+            | Ok (Checked_type type_) -> data_pointer_type type_
+            | _ -> false)
+          && (not (Semantic_result.result_is_callback_storage operand))
+          && (not (Semantic_result.result_is_callback_storage result))
+          && Option.is_none (Semantic_result.result_callback_pointer operand)
+          && Option.is_none (Semantic_result.result_callback_pointer result)
+        then Ok true
+        else
+          match (checked_numeric_type operand, checked_numeric_type result) with
+          | Error item, _ | _, Error item -> Error item
+          | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok false
+          | Ok (Checked_type _), Ok (Checked_type _) -> Ok true)
 
 let cast_span result =
   match result_span result with
@@ -2188,6 +2207,36 @@ and prepare_assignment_address ?frame ?globals result =
       prepare_storage_address ?frame ?globals result
       |> Result.map (Option.map (fun a -> Direct_address a))
 
+let prepare_value_address ?frame ?globals result =
+  let ( let* ) = Result.bind in
+  let* address = prepare_assignment_address ?frame ?globals result in
+  match Semantic_result.result_aggregate_backing_storage result with
+  | None -> Ok address
+  | Some storage -> (
+      match (frame, result_span result, address) with
+      | Some frame, Some span, Some address
+        when Sema.Aggregate_backing_storage.matches storage
+               ~function_symbol:
+                 (Sema.Function_frame_layout.function_symbol frame)
+               ~function_scope:
+                 (Sema.Function_frame_layout.function_scope frame
+                 |> Sema.Symbol_table.scope_id)
+               ~before_item_index:
+                 (Sema.Function_frame_layout.function_item_index frame)
+               ~source_type:(Option.get (Semantic_result.result_type result))
+               ~value_type:
+                 (Option.get (Semantic_result.result_value_type result)) ->
+          Ok
+            (Some
+               (Backing_address
+                  ( {
+                      backing_result = result;
+                      backing_storage = storage;
+                      backing_span = span;
+                    },
+                    address )))
+      | _ -> Ok None)
+
 let validate_frame_assignment result left right =
   let ( let* ) = Result.bind in
   if Semantic_result.result_is_callback_storage left then
@@ -2196,7 +2245,7 @@ let validate_frame_assignment result left right =
       (match
          ( right_type,
            Semantic_result.result_storage_type left,
-           Semantic_result.result_type result )
+           Semantic_result.result_value_type result )
        with
       | Checked_type _, Some storage, Some type_ ->
           Type.equal storage type_
@@ -2207,8 +2256,8 @@ let validate_frame_assignment result left right =
     let* valid = validate_binary_with checked_frame_value result left right in
     if not valid then Ok false
     else
-      let r = Option.get (Semantic_result.result_type result)
-      and l = Option.get (Semantic_result.result_type left)
+      let r = Option.get (Semantic_result.result_value_type result)
+      and l = Option.get (Semantic_result.result_value_type left)
       and v =
         match checked_frame_value right with
         | Ok (Checked_type v) -> v
@@ -2276,7 +2325,7 @@ let prepare_update_address ?frame ?globals result operand =
                 "scalar update does not retain its lvalue and destination \
                  result type";
             ]
-        else prepare_assignment_address ?frame ?globals operand
+        else prepare_value_address ?frame ?globals operand
 
 let rec postfix_pointer_destination pointer =
   match
@@ -2314,6 +2363,9 @@ let plan ?frame ?globals ~allow_calls root =
     | Member_address (step, address) ->
         address_tasks step.member_base address
           (Finish_member_projection step :: after)
+    | Backing_address (step, address) ->
+        address_tasks step.backing_result address
+          (Finish_backing_projection step :: after)
     | Indexed_address
         { base; address; index; stride; pointee_layout; pointer_type; span } ->
         let step =
@@ -2419,6 +2471,39 @@ let plan ?frame ?globals ~allow_calls root =
             with
             | _ when array_storage_address result ->
                 array_value result result conversion
+            | Semantic_source.Bound_identifier_expression _
+            | Semantic_source.Member_access_expression _
+            | Semantic_source.Index_expression _
+            | Semantic_source.Prefix_expression _
+              when Option.is_some
+                     (Semantic_result.result_aggregate_backing_storage result)
+                   &&
+                   match
+                     Semantic_result.result_source result
+                     |> Semantic_source.argument_expression_kind
+                   with
+                   | Semantic_source.Prefix_expression prefix ->
+                       Semantic_source.prefix_operator prefix
+                       = Semantic_source.Dereference
+                   | _ -> true -> (
+                match
+                  ( prepare_value_address ?frame ?globals result,
+                    result_span result )
+                with
+                | Error (item :: _), _ -> error := Some item
+                | Ok (Some address), Some span ->
+                    address_tasks result address
+                      [
+                        Finish_unary
+                          {
+                            result;
+                            opcode = Opcode.Ic_deref;
+                            span;
+                            operand = result;
+                            conversion;
+                          };
+                      ]
+                | _ -> unsupported := true)
             | Semantic_source.Index_expression _ -> (
                 match
                   ( checked_frame_scalar result,
@@ -3066,8 +3151,7 @@ let plan ?frame ?globals ~allow_calls root =
                               if compound_assignment opcode then
                                 prepare_update_address ?frame ?globals result
                                   left
-                              else
-                                prepare_assignment_address ?frame ?globals left
+                              else prepare_value_address ?frame ?globals left
                             with
                             | Error (item :: _) -> error := Some item
                             | Error [] ->
@@ -3101,9 +3185,17 @@ let plan ?frame ?globals ~allow_calls root =
                                    destination into IC_ASSIGN_PP/MM. That store
                                    reads the current pointer after its RHS and
                                    updates the binding only after the store. *)
-                                match address with
-                                | Indirect_address_value pointer
-                                  when opcode = Opcode.Ic_assign -> (
+                                let indirect =
+                                  match address with
+                                  | Indirect_address_value pointer
+                                  | Backing_address
+                                      (_, Indirect_address_value pointer) ->
+                                      Some pointer
+                                  | _ -> None
+                                in
+                                match indirect with
+                                | Some pointer when opcode = Opcode.Ic_assign
+                                  -> (
                                     match
                                       postfix_pointer_destination pointer
                                     with
@@ -3126,7 +3218,15 @@ let plan ?frame ?globals ~allow_calls root =
                                                    .result_is_callback_storage
                                                      operand))
                                                && Option.fold ~none:false
-                                                    ~some:scalar_pointer_type
+                                                    ~some:(fun type_ ->
+                                                      scalar_pointer_type type_
+                                                      || Automatic_aggregate_storage
+                                                         .aggregate_pointer
+                                                           type_
+                                                         && Option.is_some
+                                                              (Semantic_result
+                                                               .result_aggregate_backing_storage
+                                                                 left))
                                                     (Semantic_result
                                                      .result_storage_type
                                                        operand) -> (
@@ -3164,8 +3264,13 @@ let plan ?frame ?globals ~allow_calls root =
                                                         updated_stride =
                                                           Option.get
                                                             (pointer_element_size
+                                                               ?frame
+                                                               ~result:pointer
                                                                pointer_type);
-                                                        updated_layout = None;
+                                                        updated_layout =
+                                                          Semantic_result
+                                                          .result_aggregate_pointee_layout
+                                                            pointer;
                                                         updated_opcode =
                                                           (match
                                                              Semantic_source
@@ -3185,9 +3290,12 @@ let plan ?frame ?globals ~allow_calls root =
                                                             ( right,
                                                               Option.get
                                                                 (Semantic_result
-                                                                 .result_type
+                                                                 .result_value_type
                                                                    result),
-                                                              conversion );
+                                                              conversion,
+                                                              Semantic_result
+                                                              .result_aggregate_backing_storage
+                                                                left );
                                                         updated_span = span;
                                                       };
                                                   ])
@@ -3333,6 +3441,8 @@ let plan ?frame ?globals ~allow_calls root =
             reversed := Pointer_update step :: !reversed
         | Finish_member_projection step ->
             reversed := Project_member step :: !reversed
+        | Finish_backing_projection step ->
+            reversed := Project_backing step :: !reversed
         | Finish_materialize_array { result; operand; pointer_type; span } ->
             reversed :=
               Materialize_array { result; operand; pointer_type; span }
@@ -3645,6 +3755,7 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
     | Index_stride { indexed_result = result; _ }
     | Index_address { indexed_result = result; _ }
     | Project_member { member_result = result; _ }
+    | Project_backing { backing_result = result; _ }
     | Chain_link { result; _ } -> (result, [], false)
     | Alias { result; operand } | Eliminated_division { result; operand } ->
         (result, [ operand ], true)
@@ -3687,6 +3798,7 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
         | Index_stride _
         | Index_address _
         | Project_member _
+        | Project_backing _
         | Pointer_difference _
         | Pointer_update _
         | Materialize_array _
@@ -3730,7 +3842,7 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
       let declared =
         if numeric_callback_result result then
           Semantic_result.result_computation_type result
-        else Semantic_result.result_type result
+        else Semantic_result.result_value_type result
       in
       Option.bind declared (fun declared ->
           if full_integer_word declared then
@@ -3938,7 +4050,9 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
                   operation_flags = 0L;
                 }
               when has_division -> (
-                match (lookup right, Semantic_result.result_type result) with
+                match
+                  (lookup right, Semantic_result.result_value_type result)
+                with
                 | Some r, Some result_type
                   when Option.is_some
                          (Integer_scalar_storage.of_type result_type)
@@ -4181,7 +4295,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
     if Semantic_result.result_is_callback_storage result then
       Semantic_result.result_storage_type result
     else if Option.is_some (callback_update_operand result) then
-      Semantic_result.result_type result
+      Semantic_result.result_value_type result
     else if numeric_callback_result result then
       (* The update instruction itself retains the physical destination type.
          Only its subsequent arithmetic uses the projected numeric class. *)
@@ -4189,7 +4303,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
     else
       match Int_map.find_opt (result_key result) optimized_types with
       | Some type_ -> Some type_
-      | None -> Semantic_result.result_type result
+      | None -> Semantic_result.result_value_type result
   in
   let allocator =
     {
@@ -4418,6 +4532,50 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
             | Ok node ->
                 lowered :=
                   Int_map.add (result_key step.member_result) node !lowered)
+        | Project_backing step -> (
+            let ( let* ) = Result.bind in
+            let emitted =
+              let* base =
+                find_lowered !lowered step.backing_result
+                  "backed object address"
+              in
+              let* expected =
+                Type.pointer_to
+                  (Sema.Aggregate_backing_storage.source_type
+                     step.backing_storage)
+                |> Result.map_error (metadata_error ~span:step.backing_span)
+              in
+              let* pointer =
+                Type.pointer_to
+                  (Sema.Aggregate_backing_storage.value_type
+                     step.backing_storage)
+                |> Result.map_error (metadata_error ~span:step.backing_span)
+              in
+              if not (Type.equal base.lowered_type expected) then
+                Error
+                  (metadata_error ~span:step.backing_span
+                     "backed object address changed its original class")
+              else
+                let* offset =
+                  emit_index_value ~opcode:Opcode.Ic_imm_i64 ~operands:[]
+                    ~target_type:pointer ~payload:(Some (Sequence.Integer 0L))
+                    ~span:step.backing_span
+                in
+                emit_index_value ~opcode:Opcode.Ic_add
+                  ~operands:[ base.lowered_value; offset.lowered_value ]
+                  ~target_type:pointer
+                  ~payload:
+                    (Some
+                       (Sequence.Backing_projection
+                          (Aggregate_member_projection.of_backing
+                             step.backing_storage)))
+                  ~span:step.backing_span
+            in
+            match emitted with
+            | Error item -> error := Some item
+            | Ok node ->
+                lowered :=
+                  Int_map.add (result_key step.backing_result) node !lowered)
         | Pointer_update step -> (
             let ( let* ) = Result.bind in
             let emitted =
@@ -4438,15 +4596,37 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
               let* stored_word =
                 match step.updated_store with
                 | None -> Ok None
-                | Some (right, target_type, conversion) ->
+                | Some (right, target_type, conversion, backing) ->
                     let* right =
                       find_lowered !lowered right "postfix store value"
+                    in
+                    let* destination =
+                      match backing with
+                      | None -> Ok old
+                      | Some storage ->
+                          let* pointer =
+                            Type.pointer_to target_type
+                            |> Result.map_error
+                                 (metadata_error ~span:step.updated_span)
+                          in
+                          let* zero =
+                            emit Opcode.Ic_imm_i64 [] pointer
+                              (Some (Sequence.Integer 0L))
+                          in
+                          emit Opcode.Ic_add
+                            [ old.lowered_value; zero.lowered_value ]
+                            pointer
+                            (Some
+                               (Sequence.Backing_projection
+                                  (Aggregate_member_projection.of_backing
+                                     storage)))
                     in
                     let* stored =
                       emit_value
                         ~flags:(conversion_flags conversion)
                         ~opcode:Opcode.Ic_assign
-                        ~operands:[ old.lowered_value; right.lowered_value ]
+                        ~operands:
+                          [ destination.lowered_value; right.lowered_value ]
                         ~target_type ~payload:None ~span:step.updated_span
                     in
                     Ok (Some stored)
@@ -4586,7 +4766,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
         | Indirect_address { result; pointer } -> (
             match
               ( find_lowered !lowered pointer "indirect destination",
-                Semantic_result.result_type result )
+                Semantic_result.result_storage_type result )
             with
             | Ok node, Some type_ -> (
                 match Type.pointer_to type_ with
@@ -4702,7 +4882,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
             match find_lowered !lowered operand "transparent operand" with
             | Error item -> error := Some item
             | Ok lowered_operand -> (
-                match Semantic_result.result_type result with
+                match Semantic_result.result_value_type result with
                 | None ->
                     error :=
                       Some
@@ -4713,7 +4893,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                     if
                       not
                         (Option.fold ~none:false ~some:(Type.equal result_type)
-                           (Semantic_result.result_type operand))
+                           (Semantic_result.result_value_type operand))
                     then
                       error :=
                         Some
@@ -4773,7 +4953,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
         | Cast { result; span; operand; was_parenthesized; conversion } -> (
             match
               ( find_lowered !lowered operand "postfix-cast operand",
-                Semantic_result.result_type result )
+                Semantic_result.result_value_type result )
             with
             | Error item, _ -> error := Some item
             | _, None ->
@@ -5049,7 +5229,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
               ( find_lowered !lowered previous "previous comparison",
                 find_numeric_lowered middle "shared comparison operand" span,
                 find_numeric_lowered right "right comparison operand" span,
-                Semantic_result.result_type result,
+                Semantic_result.result_value_type result,
                 Int_map.find_opt (result_key previous) !comparison_domains )
             with
             | Error item, _, _, _, _
@@ -5191,6 +5371,7 @@ let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
                 | Index_stride { indexed_result = result; _ } :: _
                 | Index_address { indexed_result = result; _ } :: _
                 | Project_member { member_result = result; _ } :: _
+                | Project_backing { backing_result = result; _ } :: _
                 | Pointer_update { updated_result = result; _ } :: _
                 | Pointer_difference { difference_result = result; _ } :: _
                 | Materialize_array { result; _ } :: _
