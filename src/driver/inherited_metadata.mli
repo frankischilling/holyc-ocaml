@@ -1,4 +1,6 @@
 val contains :
+  ?original_definitions:
+    (Frontend.Ast.aggregate_definition * Frontend.Ast.aggregate_definition) list ->
   table:Sema.Symbol_table.t ->
   scope:Sema.Symbol_table.scope ->
   Sema.Compiler_record.inherited_metadata list ->
@@ -10,6 +12,8 @@ val contains :
 type storage
 
 val prepare_storage :
+  ?original_definitions:
+    (Frontend.Ast.aggregate_definition * Frontend.Ast.aggregate_definition) list ->
   table:Sema.Symbol_table.t ->
   scope:Sema.Symbol_table.scope ->
   aggregates:Sema.Aggregate_resolution.t ->

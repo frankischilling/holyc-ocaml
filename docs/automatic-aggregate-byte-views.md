@@ -50,9 +50,10 @@ TempleOS runtime capture.
 
 [Owned aggregate members](aggregate-members.md) use this storage for direct
 and pointer integer fields, nested fields, member arrays and owned class pointer
-locals and parameters. Inheritance still follows a separate metadata path that
-grants no runtime layout authority. Retained JIT commands cannot import
-aggregate object storage through this path. Automatic aggregate arrays use
+locals and parameters. [Inherited layouts](inherited-aggregates.md) require
+completed original base records. [Retained JIT contexts](retained-class-context.md)
+import completed layouts for IR and native task storage. Partial base metadata
+still grants no storage. Automatic aggregate arrays use
 the same bytes with their original dimensions and selected element size;
 [owned aggregate members](aggregate-members.md#automatic-aggregate-arrays)
 describes their execution. Zero-sized objects, persistent objects,

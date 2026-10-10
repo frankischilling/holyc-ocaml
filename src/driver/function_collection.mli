@@ -1,5 +1,6 @@
 val collect :
   ?retained_headers:Sema.Function_collection.collected_function list ->
+  ?retained_item_index_offset:int ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->
   Frontend.Ast.module_ ->

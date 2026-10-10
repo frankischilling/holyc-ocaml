@@ -289,7 +289,7 @@ let boundaries () =
             name true
             (Result.is_error (Native_program.outcome (run mode contents))))
         (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-       @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
+       @ Inherited.source_unsupported @ Backed.unsupported @ Default.unsupported
        @ Parameters.unsupported @ Returns.unsupported);
       let original =
         Aggregate_member_fixture.compile ~contents:Returns.quota_source mode
@@ -315,9 +315,12 @@ let boundaries () =
   let report =
     Native_source_execution.evaluate session ~config ~source ~max_steps:100_000
   in
-  Alcotest.(check bool)
-    "retained JIT class metadata cannot authorize frame storage" true
-    (Result.is_error (Native_source_execution.outcome report))
+  let result = Native_source_execution.outcome report |> checked in
+  Alcotest.(check (option int64))
+    "original retained class owns its native frame" (Some 42L)
+    (Option.map
+       (fun word -> word.Native_source_execution.bits)
+       result.value.final_value)
 
 let class_default_proofs () =
   List.iter
@@ -399,9 +402,112 @@ let class_default_proofs () =
               ~path:"class-default-quota.hc" ~contents:Defaults.quota_source ())))
     modes
 
+let run_task ?max_code_bytes ?max_ir_instructions ?max_initializer_steps
+    ?max_default_bytes ?max_frame_bytes ?max_steps contents =
+  let session, config, source = inputs Preprocessor.Jit contents in
+  Native_source_execution.evaluate ?max_ir_instructions ?max_initializer_steps
+    ?max_default_bytes ?max_frame_bytes
+    ~max_code_bytes:(Option.value ~default:524_288 max_code_bytes)
+    ~max_steps:(Option.value ~default:100_000 max_steps)
+    session ~config ~source
+
+let task_value expected output report =
+  let result = Native_source_execution.outcome report |> checked in
+  Alcotest.(check (option int64))
+    "independent retained native word" (Some expected)
+    (Option.map
+       (fun word -> word.Native_source_execution.bits)
+       result.value.final_value);
+  Alcotest.(check string)
+    "retained native output" output
+    (Native_source_execution.output_bytes report);
+  Alcotest.(check int)
+    "zero interpreted runtime instructions" 0
+    (Option.get (Native_source_execution.source_progress report)).runtime
+      .executed_steps;
+  List.iter
+    (fun (fragment : Native_source_execution.fragment) ->
+      match fragment.native_outcome with
+      | Some (Ok (P.Completed _)) -> ()
+      | _ -> Alcotest.fail "original class fragment did not complete natively")
+    (Native_source_execution.fragments report)
+
+let task_case contents expected output () =
+  task_value expected output (run_task contents)
+
+let task_failure code report =
+  match Native_source_execution.outcome report with
+  | Ok _ -> Alcotest.fail ("expected " ^ code)
+  | Error diagnostics ->
+      Alcotest.(check bool)
+        (describe diagnostics) true
+        (List.exists (fun (d : Diagnostic.t) -> d.code = code) diagnostics)
+
+let task_limits () =
+  let baseline = run_task Defaults.quota_source in
+  task_value 42L "" baseline;
+  let bytes, ir =
+    List.fold_left
+      (fun (bytes, ir) (fragment : Native_source_execution.fragment) ->
+        (bytes + fragment.image.code_bytes, ir + fragment.image.ir_instructions))
+      (0, 0)
+      (Native_source_execution.fragments baseline)
+  in
+  let steps = Native_source_execution.executed_steps baseline
+  and preparation = Native_source_execution.preparation_steps baseline in
+  task_value 42L ""
+    (run_task ~max_code_bytes:bytes ~max_ir_instructions:ir ~max_steps:steps
+       ~max_initializer_steps:preparation ~max_default_bytes:8
+       Defaults.quota_source);
+  task_failure "HCBACK0005"
+    (run_task ~max_code_bytes:(bytes - 1) Defaults.quota_source);
+  task_failure "HCBACK0001"
+    (run_task ~max_ir_instructions:(ir - 1) Defaults.quota_source);
+  task_failure "HCIRVM0007"
+    (run_task ~max_steps:(steps - 1) Defaults.quota_source);
+  task_failure "HCIRVM0007"
+    (run_task ~max_initializer_steps:(preparation - 1) Defaults.quota_source);
+  task_failure "HCIRVM0011"
+    (run_task ~max_default_bytes:7 Defaults.quota_source);
+  task_failure "HCIRVM0019" (run_task Defaults.extent_source)
+
+let task_values =
+  Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
+  @ Pointers.values @ Pointers.view_matrix @ Inherited.values
+  @ Inherited.view_matrix @ Inherited.retained_values @ Backed.values
+  @ Default.values @ Parameters.values @ Parameters.view_matrix @ Returns.values
+  @ Returns.view_matrix @ Returns.warning_values @ Defaults.native_values
+  @ [ List.hd Defaults.prototype_values ]
+  @ Defaults.jit_values
+
+let task_boundaries () =
+  List.iter
+    (fun (name, contents, _, _) ->
+      if List.mem name Cases.retained_nested_class_boundaries then
+        task_failure "HCRUN0001" (run_task contents))
+    task_values;
+  let _, original_prototype_call, _, _ = List.nth Defaults.prototype_values 1 in
+  task_failure "HCBACK0002" (run_task original_prototype_call)
+
 let () =
   Alcotest.run "native aggregate members"
     [
+      ( "retained classes",
+        List.map
+          (fun (name, contents, expected, output) ->
+            Alcotest.test_case name `Quick (task_case contents expected output))
+          (List.filter
+             (fun (name, _, _, _) ->
+               not (List.mem name Cases.retained_nested_class_boundaries))
+             task_values) );
+      ( "retained limits",
+        [
+          Alcotest.test_case "exact original class code, work and saved words"
+            `Quick task_limits;
+          Alcotest.test_case
+            "nested selections and earlier prototype ABI remain bounded" `Quick
+            task_boundaries;
+        ] );
       ( "class defaults",
         List.map
           (fun (name, contents, expected, output) ->

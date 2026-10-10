@@ -109,7 +109,8 @@ stand in for that ownership operation.
 
 [Closed class default words](class-default-words.md) preserve the selected
 class and full saved word in ordinary AOT IR and native JIT/AOT compilation.
-JIT IR preparation through retained task class storage remains separate.
+[Retained JIT class contexts](retained-class-context.md) reuse original class
+storage and also prepare defaults that call checked class-returning functions.
 
 In the pinned source, `PrsVar.HC:635-640` clears only `CCF_HAS_MISC_DATA`
 before `LexExpression2Bin` and the immediate call. It leaves AOT mode active.

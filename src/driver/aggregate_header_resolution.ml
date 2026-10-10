@@ -292,8 +292,8 @@ let resolve_metadata ~table ~parent metadata =
   Result.bind (events [] metadata)
     (resolve_events ~metadata_only:(fun _ -> false) ~table ~scope:parent)
 
-let resolve ?(inherited_metadata = []) ~table ~declarations ~aggregates module_
-    =
+let resolve ?(original_definitions = []) ?(inherited_metadata = []) ~table
+    ~declarations ~aggregates module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic aggregate declarations belong to a different symbol table"
@@ -305,5 +305,6 @@ let resolve ?(inherited_metadata = []) ~table ~declarations ~aggregates module_
     | Ok events ->
         resolve_events
           ~metadata_only:
-            (Inherited_metadata.contains ~table ~scope inherited_metadata)
+            (Inherited_metadata.contains ~original_definitions ~table ~scope
+               inherited_metadata)
           ~table ~scope events

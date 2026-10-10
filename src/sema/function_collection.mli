@@ -42,6 +42,7 @@ val make_function :
 
 val collect :
   ?retained_headers:collected_function list ->
+  ?retained_item_index_offset:int ->
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   function_declaration list ->

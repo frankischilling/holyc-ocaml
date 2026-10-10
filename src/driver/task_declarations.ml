@@ -186,6 +186,13 @@ type command = {
   calls : Sema.Function_call_phase.t list;
   function_compiler_options : (Sema.Symbol.t * int64) list;
   namespace : Collection.namespace;
+  semantic_ast : Ast.module_;
+  semantic_declarations : Collection.t;
+  aggregate_imports : Sema.Compiler_record.aggregate_import list;
+  aggregate_import_views :
+    (Ast.aggregate_definition * Ast.aggregate_definition) list;
+  imported_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
+  imported_offsets : Sema.Compiler_record.aggregate_offset list;
   inherited_metadata : Sema.Compiler_record.inherited_metadata list;
   selected_aggregate_types :
     Sema.Source_type_reference.selected_aggregate Type_specifiers.t;
@@ -3746,6 +3753,145 @@ let seal ledger (ast : Ast.module_) =
               Collection.view ledger.namespace (List.rev !facts)
               |> checked ast.span
             in
+            let earlier_commands =
+              let rec before rev = function
+                | [] ->
+                    fail ast.span
+                      "aggregate imports lack the original command boundary"
+                | Parser.Command_started start :: _
+                  when List.exists
+                         (fun entry -> entry.receipt.command_start == start)
+                         original_commands -> List.rev rev
+                | Parser.Command_started start :: rest ->
+                    before (start :: rev) rest
+                | _ :: rest -> before rev rest
+              in
+              match ledger_runtime ledger with
+              | None -> []
+              | Some _ when original_commands = [] -> []
+              | Some _ -> before [] (List.rev ledger.source_events_rev)
+            in
+            let imported =
+              Entries.fold
+                (fun _ assigned rev -> assigned :: rev)
+                ledger.entries []
+              |> List.sort (fun left right ->
+                  Int.compare left.ordinal right.ordinal)
+              |> List.filter_map (fun assigned ->
+                  match assigned.source with
+                  | Aggregate
+                      {
+                        publication;
+                        completed =
+                          Some
+                            {
+                              aggregate_item =
+                                Ast.Aggregate_definition definition;
+                              _;
+                            };
+                        record = Some (Ok record);
+                        _;
+                      }
+                    when List.memq
+                           publication.aggregate_header.declaration_command
+                           earlier_commands ->
+                      let proof =
+                        Sema.Compiler_record.retain_aggregate_import
+                          ~table:ledger.table ~namespace:ledger.namespace
+                          definition record
+                        |> checked definition.location.span
+                      in
+                      let view =
+                        if definition.attached_declarators = [] then definition
+                        else
+                          Ast.make_aggregate_definition
+                            ~modifiers:definition.modifiers
+                            ~backing:definition.backing
+                            ~aggregate_kind:definition.aggregate_kind
+                            ~aggregate_keyword_spelling:
+                              definition.aggregate_keyword_spelling
+                            ~aggregate_keyword_location:
+                              definition.aggregate_keyword_location
+                            ~name:definition.name ~base:definition.base
+                            ~opening_brace:definition.opening_brace
+                            ~members:definition.members
+                            ~closing_brace:definition.closing_brace
+                            ~attached_declarators:[]
+                            ~semicolon:definition.semicolon
+                            ~location:definition.location
+                      in
+                      Some (assigned, publication, definition, view, proof)
+                  | _ -> None)
+            in
+            let prefix = List.length imported in
+            let semantic_ast =
+              if prefix = 0 then ast
+              else
+                Ast.make_module ~source:ast.source ~span:ast.span
+                  ~items:
+                    (List.map
+                       (fun (_, _, _, view, _) -> Ast.Aggregate_definition view)
+                       imported
+                    @ ast.items)
+            in
+            let semantic_declarations =
+              if prefix = 0 then declarations
+              else
+                let imported_facts =
+                  List.mapi
+                    (fun item_index
+                         (assigned, _, _, (view : Ast.aggregate_definition), _)
+                       ->
+                      let fact =
+                        Collection.make_declaration ~name:view.name.spelling
+                          ~declaration_kind:Collection.Aggregate_definition
+                          ~origin:(origin view.name) ~item_index ()
+                        |> checked view.location.span
+                      in
+                      (assigned.publication, fact))
+                    imported
+                in
+                let current_facts =
+                  List.rev !facts
+                  |> List.map (fun (publication, fact) ->
+                      ( publication,
+                        Collection.shift_item_index prefix fact
+                        |> checked ast.span ))
+                in
+                Collection.view ledger.namespace (imported_facts @ current_facts)
+                |> checked ast.span
+            in
+            let imported_command start =
+              List.exists
+                (fun (_, publication, _, _, _) ->
+                  publication.Parser.aggregate_header.declaration_command
+                  == start)
+                imported
+            in
+            let imported_dimensions = Dimensions.create 16 in
+            Dimensions.iter
+              (fun dimension receipt ->
+                if
+                  imported_command
+                    receipt.Parser.dimension_preparation.dimension_owner
+                      .dimensions_command
+                then
+                  Option.iter
+                    (Dimensions.add imported_dimensions dimension)
+                    (Dimensions.find_opt ledger.checked_dimensions dimension))
+              ledger.dimensions;
+            let imported_offsets =
+              List.filter
+                (fun offset ->
+                  let phase =
+                    Sema.Compiler_record.aggregate_offset_phase offset
+                  in
+                  List.exists
+                    (fun (_, publication, _, _, _) ->
+                      publication == phase.phase_aggregate)
+                    imported)
+                ledger.offsets_rev
+            in
             let references = Names.create 32 in
             Names.iter
               (fun identifier reference ->
@@ -3806,6 +3952,16 @@ let seal ledger (ast : Ast.module_) =
                         else None)
                       ledger.implicit_outputs;
                 namespace = ledger.namespace;
+                semantic_ast;
+                semantic_declarations;
+                aggregate_imports =
+                  List.map (fun (_, _, _, _, proof) -> proof) imported;
+                aggregate_import_views =
+                  List.map
+                    (fun (_, _, original, view, _) -> (original, view))
+                    imported;
+                imported_dimensions;
+                imported_offsets;
                 function_compiler_options =
                   List.filter_map
                     (fun assigned ->
@@ -3841,7 +3997,9 @@ let seal ledger (ast : Ast.module_) =
                                definition record
                             |> checked definition.location.span)
                       | _ -> None)
-                    !claimed;
+                    (!claimed
+                    @ List.map (fun (assigned, _, _, _, _) -> assigned) imported
+                    );
                 static_allocations =
                   List.rev ledger.static_allocations_rev
                   |> List.filter (fun allocation ->
@@ -5830,6 +5988,66 @@ let collection ~table ~ast (command : command) =
           "task declaration seal belongs to another table or source AST";
       command.declarations)
 
+let semantic_view ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "aggregate imports belong to another source command";
+      let scope = Collection.namespace_scope command.namespace in
+      List.iter2
+        (fun proof (original, _) ->
+          match
+            Sema.Compiler_record.aggregate_import_source ~table ~scope proof
+          with
+          | Some (definition, _, _) when definition == original -> ()
+          | _ ->
+              fail ast.span
+                "aggregate import lost its original completed source")
+        command.aggregate_imports command.aggregate_import_views;
+      ( command.semantic_ast,
+        command.semantic_declarations,
+        List.length command.aggregate_imports,
+        command.aggregate_import_views ))
+
+let aggregate_imports ~table ~ast command =
+  Result.map
+    (fun _ -> command.aggregate_imports)
+    (semantic_view ~table ~ast command)
+
+let validate_aggregate_imports ~table ~ast ~layouts ~metadata_only
+    (command : command) =
+  protect (fun () ->
+      if
+        command.table != table || command.ast != ast
+        || not (Sema.Aggregate_layout.owns_table layouts table)
+      then fail ast.Ast.span "aggregate import layout has another source owner";
+      let scope = Collection.namespace_scope command.namespace in
+      List.iter2
+        (fun proof (original, view) ->
+          match
+            Sema.Compiler_record.aggregate_import_source ~table ~scope proof
+          with
+          | Some (definition, publication, size) when definition == original
+            -> (
+              match Collection.publication_aggregate_identity publication with
+              | None ->
+                  fail original.location.span
+                    "aggregate import lacks its class identity"
+              | Some symbol -> (
+                  match Sema.Aggregate_layout.find layouts symbol with
+                  | Some layout
+                    when layout.symbol == symbol && layout.size = size -> ()
+                  | None
+                    when Inherited_metadata.contains
+                           ~original_definitions:command.aggregate_import_views
+                           ~table ~scope metadata_only view -> ()
+                  | _ ->
+                      fail original.location.span
+                        "imported aggregate layout differs from its original \
+                         completed source"))
+          | _ ->
+              fail ast.span "aggregate import substituted its original source")
+        command.aggregate_imports command.aggregate_import_views)
+
 let static_allocations ~table ~ast (command : command) =
   Result.map
     (fun _ -> command.static_allocations)
@@ -5885,7 +6103,11 @@ let checked_dimension_for ~table ~ast (command : command)
       if command.table != table || command.ast != ast then
         fail ast.Ast.span
           "checked dimension seal belongs to another table or source AST";
-      match Dimensions.find_opt command.checked_dimensions dimension with
+      match
+        match Dimensions.find_opt command.checked_dimensions dimension with
+        | Some checked -> Some checked
+        | None -> Dimensions.find_opt command.imported_dimensions dimension
+      with
       | Some checked -> checked
       | None ->
           fail dimension.location.span
@@ -5929,7 +6151,7 @@ let checked_offset_for ~table ~ast (command : command) expression =
           (fun offset ->
             Sema.Compiler_record.aggregate_offset_expression offset
             == expression)
-          command.offsets
+          (command.offsets @ command.imported_offsets)
       with
       | Some offset -> offset
       | None ->

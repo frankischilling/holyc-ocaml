@@ -318,6 +318,27 @@ val aggregate_value_header_source :
 (** Read the exact completed definition and canonical class identity from this
     namespace's immutable metadata. This grants no member layout or storage. *)
 
+type aggregate_import
+
+val retain_aggregate_import :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Frontend.Ast.aggregate_definition ->
+  t ->
+  (aggregate_import, string) result
+
+val aggregate_import_source :
+  table:Symbol_table.t ->
+  scope:Symbol_table.scope ->
+  aggregate_import ->
+  (Frontend.Ast.aggregate_definition
+  * Declaration_collection.publication
+  * int64)
+  option
+(** Preserve the exact original completed definition, publication and size for a
+    later command's semantic context. The consumer must authenticate source
+    order, saved preparations, selected types and the computed object layout. *)
+
 val bind_retained_scalar :
   table:Symbol_table.t ->
   entry:Frontend.Symbol_visibility.entry ->

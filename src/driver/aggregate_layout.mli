@@ -1,4 +1,6 @@
 val layout :
+  ?original_definitions:
+    (Frontend.Ast.aggregate_definition * Frontend.Ast.aggregate_definition) list ->
   ?inherited_metadata:Sema.Compiler_record.inherited_metadata list ->
   ?offsets:
     (Frontend.Ast.expression ->

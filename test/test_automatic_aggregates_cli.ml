@@ -151,6 +151,5 @@ let () =
             Cases.unsupported)
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
-  if native then
-    error "" (invoke ~status:1 "host-jit-task" "jit" Cases.quota_source);
+  if native then value 42L "" (invoke "host-jit-task" "jit" Cases.quota_source);
   Printf.printf "Automatic aggregate CLI checks passed (%d reports).\n" !reports

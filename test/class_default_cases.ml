@@ -135,6 +135,56 @@ let unsupported =
     );
   ]
 
+let jit_values =
+  [
+    ( "called class default preserves the returned register word",
+      {|U16 class Box{U16 low;U8 guard;};Box Make(){return 0x07002a;}I64 Take(Box o=Make()){if(o.guard!=7)return -1;return o;}Take();|},
+      42L,
+      "" );
+    ( "provided arguments still prepare an effectful class default",
+      {|extern U0 Print(U8 *format,...);U16 class Box{U16 low;U8 guard;};Box Make(){Print("X");return 0x07002a;}I64 Take(Box o=Make()){return o;}Take(42);|},
+      42L,
+      "X" );
+    ( "repeated calls do not prepare the class default again",
+      {|I64 Count=0;U16 class Box{U16 low;U8 guard;};Box Make(){Count++;return 0x07002a;}I64 Take(Box o=Make()){if(o.guard!=7)return -1;return o;}Take();Take()+Count;|},
+      43L,
+      "" );
+    ( "default preparation can call a class parameter and return",
+      {|U16 class Box{U16 low;U8 guard;};Box Add(Box o){return o+1;}I64 Take(Box o=Add(41)){if(o.guard!=0)return -1;return o;}Take();|},
+      42L,
+      "" );
+    ( "recursive class return in a default",
+      {|U16 class Box{U16 low;U8 guard;};Box Make(I64 n){if(n)return Make(n-1);return 0x07002a;}I64 Take(Box o=Make(2)){if(o.guard!=7)return -1;return o;}Take();|},
+      42L,
+      "" );
+    ( "a scalar default keeps the class result word",
+      {|U16 class Box{U16 low;};Box Make(){return 0x07002a;}I64 Take(I64 n=Make()){return n;}Take();|},
+      0x07002aL,
+      "" );
+    ( "class shadowing keeps the prepared call and parameter selections",
+      {|U16 class Box{U16 low;U8 guard;};Box Make(){return 0x07002a;}I64 Take(Box o=Make()){if(o.guard!=7)return -1;return o;}U8 class Box{U8 byte;};Take();|},
+      42L,
+      "" );
+    ( "ordinary class default keeps the full returned word",
+      {|class Box{U16 low;U8 guard;};Box Make(){return 0x07002a;}I64 Take(Box o=Make()){if(o.guard!=7)return -1;return o;}Take();|},
+      0x07002aL,
+      "" );
+    ( "a completed forward identity supplies the later parameter",
+      {|extern class Box;class Box{I64 word;};I64 Take(Box o=42){return o;}Take();|},
+      42L,
+      "" );
+    ( "imported runtime dimensions retain one original preparation",
+      {|I64 Count=0;I64 Next(){Count++;return 2;}class B{U16 words[Next()];};class Box:B{U8 tag;};I64 Take(Box o=42){if(sizeof(Box)!=5)return -1;return o.words[0]+Count;}Take();|},
+      43L,
+      "" );
+    ( "imported runtime offsets retain one original preparation",
+      {|I64 Count=0;I64 Next(){Count++;return 8;}class Box{I64 word;$$=Next();U8 ninth;};I64 Take(Box o=42){if(sizeof(Box)!=9)return -1;return o.word+Count;}Take();|},
+      43L,
+      "" );
+  ]
+
+let jit_unsupported = List.filteri (fun index _ -> index < 4) unsupported
+
 let native_unsupported =
   ( "explicit class register default",
     {|class Box{I64 word;};I64 Take(reg Box o=42){return o;}Take();|} )

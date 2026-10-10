@@ -129,6 +129,7 @@ type inherited_metadata = {
 }
 
 type aggregate_value_header = inherited_metadata
+type aggregate_import = inherited_metadata
 
 type sizeof_owner =
   | Hash_record of t
@@ -1174,6 +1175,17 @@ let aggregate_value_header_source ~table ~scope metadata =
           (fun symbol -> (metadata.metadata_definition, symbol))
           (Declaration_collection.publication_aggregate_identity publication)
     | _ -> None
+
+let retain_aggregate_import = retain_aggregate_value_header
+
+let aggregate_import_source ~table ~scope metadata =
+  match aggregate_value_header_source ~table ~scope metadata with
+  | None -> None
+  | Some (definition, _) -> (
+      match metadata.metadata_record.aggregate_owner with
+      | Some (_, publication, Some _) ->
+          Some (definition, publication, metadata.metadata_record.byte_size)
+      | _ -> None)
 
 let inherited_metadata_storage_selection ~table ~scope metadata =
   let record = metadata.metadata_record in

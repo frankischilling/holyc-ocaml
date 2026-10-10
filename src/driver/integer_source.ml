@@ -2,6 +2,7 @@ module Diagnostic = Common.Diagnostic
 module Typed = Sema.Function_call_expression_result
 
 type prepared = {
+  semantic_ast_ : Frontend.Ast.module_;
   top_level_ : Typed.top_level_t;
   functions_ : Typed.t;
   frames_ : Sema.Function_frame_layout.t;
@@ -15,6 +16,7 @@ type prepared = {
   compiler_warnings_ : Common.Diagnostic.t list;
 }
 
+let semantic_ast prepared = prepared.semantic_ast_
 let top_level prepared = prepared.top_level_
 let functions prepared = prepared.functions_
 let frames prepared = prepared.frames_
@@ -52,6 +54,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
     ?implicit_call_phases ?(include_global_initializers = false) session ~config
     ~span ast =
   let table = Session.semantic_symbols session in
+  let source_ast = ast in
   let* () =
     match (declaration_command, source_command, task_environment) with
     | Some _, Some _, _ | _, Some _, Some _ ->
@@ -66,9 +69,9 @@ let prepare_unit ?environment:task_environment ?declaration_command
   let query_for =
     match (declaration_command, source_command) with
     | Some command, None ->
-        Some (Task_declarations.query_for ~table ~ast command)
+        Some (Task_declarations.query_for ~table ~ast:source_ast command)
     | None, Some command ->
-        Some (Task_declarations.source_query_for ~table ~ast command)
+        Some (Task_declarations.source_query_for ~table ~ast:source_ast command)
     | None, None -> None
     | Some _, Some _ -> assert false
   in
@@ -91,10 +94,13 @@ let prepare_unit ?environment:task_environment ?declaration_command
     let resolve =
       match (declaration_command, source_command) with
       | Some command, None ->
-          Some (Task_declarations.checked_dimension_for ~table ~ast command)
+          Some
+            (Task_declarations.checked_dimension_for ~table ~ast:source_ast
+               command)
       | None, Some command ->
           Some
-            (Task_declarations.source_checked_dimension_for ~table ~ast command)
+            (Task_declarations.source_checked_dimension_for ~table
+               ~ast:source_ast command)
       | None, None -> None
       | Some _, Some _ -> assert false
     in
@@ -114,9 +120,12 @@ let prepare_unit ?environment:task_environment ?declaration_command
     let resolve =
       match (declaration_command, source_command) with
       | Some command, None ->
-          Some (Task_declarations.checked_offset_for ~table ~ast command)
+          Some
+            (Task_declarations.checked_offset_for ~table ~ast:source_ast command)
       | None, Some command ->
-          Some (Task_declarations.source_checked_offset_for ~table ~ast command)
+          Some
+            (Task_declarations.source_checked_offset_for ~table ~ast:source_ast
+               command)
       | _ -> None
     in
     Option.map
@@ -137,14 +146,21 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* declarations =
     match (declaration_command, source_command) with
-    | Some command, None -> Task_declarations.collection ~table ~ast command
+    | Some command, None ->
+        Task_declarations.collection ~table ~ast:source_ast command
     | None, Some command ->
-        Task_declarations.source_collection ~table ~ast command
+        Task_declarations.source_collection ~table ~ast:source_ast command
     | None, None ->
         Semantic_collection.collect ~sources:(Session.sources session) ~table
           ast
         |> checked
     | Some _, Some _ -> assert false
+  in
+  let* ast, declarations, retained_item_index_offset, original_definitions =
+    match declaration_command with
+    | Some command ->
+        Task_declarations.semantic_view ~table ~ast:source_ast command
+    | None -> Ok (ast, declarations, 0, [])
   in
   let* aggregates =
     Aggregate_resolution.resolve ~table ~declarations ast |> checked
@@ -152,39 +168,48 @@ let prepare_unit ?environment:task_environment ?declaration_command
   let* inherited_metadata =
     match (declaration_command, source_command) with
     | Some command, None ->
-        Task_declarations.inherited_metadata ~table ~ast command
+        Task_declarations.inherited_metadata ~table ~ast:source_ast command
     | None, Some command ->
-        Task_declarations.source_inherited_metadata ~table ~ast command
+        Task_declarations.source_inherited_metadata ~table ~ast:source_ast
+          command
     | None, None -> Ok []
     | Some _, Some _ -> assert false
   in
   let inherited_storage =
-    Inherited_metadata.prepare_storage ~table
+    Inherited_metadata.prepare_storage ~original_definitions ~table
       ~scope:(Sema.Declaration_collection.scope declarations)
       ~aggregates ~ast inherited_metadata
   in
   let inherited_metadata = Inherited_metadata.metadata_only inherited_storage in
   let* headers =
-    Aggregate_header_resolution.resolve ~inherited_metadata ~table ~declarations
-      ~aggregates ast
+    Aggregate_header_resolution.resolve ~original_definitions
+      ~inherited_metadata ~table ~declarations ~aggregates ast
     |> checked
   in
   let* collected_members =
-    Member_collection.collect ~inherited_metadata ~table ~declarations ast
+    Member_collection.collect ~original_definitions ~inherited_metadata ~table
+      ~declarations ast
     |> checked
   in
   let* members =
-    Member_type_resolution.resolve ~inherited_metadata ~table ~declarations
-      ~aggregates ~headers ~members:collected_members ast
+    Member_type_resolution.resolve ~original_definitions ~inherited_metadata
+      ~table ~declarations ~aggregates ~headers ~members:collected_members ast
     |> checked
   in
   let* layouts =
-    Aggregate_layout.layout ~inherited_metadata ?offsets ?prepared ~table
-      ~declarations ~aggregates ~headers ~members ast
+    Aggregate_layout.layout ~original_definitions ~inherited_metadata ?offsets
+      ?prepared ~table ~declarations ~aggregates ~headers ~members ast
     |> checked
   in
   let* () =
     Inherited_metadata.validate_storage inherited_storage ~layouts |> checked
+  in
+  let* () =
+    match declaration_command with
+    | None -> Ok ()
+    | Some command ->
+        Task_declarations.validate_aggregate_imports ~table ~ast:source_ast
+          ~layouts ~metadata_only:inherited_metadata command
   in
   let* members =
     Aggregate_member_index.build ~table ~declarations ~headers ~members ~layouts
@@ -196,10 +221,11 @@ let prepare_unit ?environment:task_environment ?declaration_command
     | Some command ->
         Result.map
           (fun (namespace, headers) -> (Some namespace, headers))
-          (Task_declarations.retained_function_headers ~table ~ast command)
+          (Task_declarations.retained_function_headers ~table ~ast:source_ast
+             command)
   in
   let* collected_functions =
-    Function_collection.collect
+    Function_collection.collect ~retained_item_index_offset
       ~retained_headers:
         (List.map (fun (_, collected, _) -> collected) retained_headers)
       ~table ~declarations ast
@@ -221,16 +247,17 @@ let prepare_unit ?environment:task_environment ?declaration_command
   let* selected_types =
     match (declaration_command, source_command) with
     | Some command, None ->
-        Task_declarations.selected_type_resolver ~table ~ast command
+        Task_declarations.selected_type_resolver ~table ~ast:source_ast command
         |> Result.map Option.some
     | None, Some command ->
-        Task_declarations.source_selected_type_resolver ~table ~ast command
+        Task_declarations.source_selected_type_resolver ~table ~ast:source_ast
+          command
         |> Result.map Option.some
     | None, None -> Ok None
     | Some _, Some _ -> assert false
   in
   let* function_types =
-    Function_type_resolution.resolve ?selected_types
+    Function_type_resolution.resolve ~retained_item_index_offset ?selected_types
       ~retained_headers:(List.map (fun (_, _, typed) -> typed) retained_headers)
       ~table ~declarations ~aggregates ~functions:collected_functions ast
     |> checked
@@ -256,9 +283,12 @@ let prepare_unit ?environment:task_environment ?declaration_command
     let initializers =
       match (declaration_command, source_command) with
       | Some command, None ->
-          Some (Task_declarations.initializer_for ~table ~ast command)
+          Some
+            (Task_declarations.initializer_for ~table ~ast:source_ast command)
       | None, Some command ->
-          Some (Task_declarations.source_initializer_for ~table ~ast command)
+          Some
+            (Task_declarations.source_initializer_for ~table ~ast:source_ast
+               command)
       | None, None -> None
       | Some _, Some _ -> assert false
     in
@@ -507,10 +537,12 @@ let prepare_unit ?environment:task_environment ?declaration_command
   let* compiler_options =
     match (declaration_command, source_command) with
     | Some command, None ->
-        Task_declarations.function_compiler_options ~table ~ast command
+        Task_declarations.function_compiler_options ~table ~ast:source_ast
+          command
         |> Result.map Option.some
     | None, Some command ->
-        Task_declarations.source_function_compiler_options ~table ~ast command
+        Task_declarations.source_function_compiler_options ~table
+          ~ast:source_ast command
         |> Result.map Option.some
     | None, None -> Ok None
     | Some _, Some _ -> assert false
@@ -544,6 +576,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   Ok
     {
+      semantic_ast_ = ast;
       global_records_ = global_records;
       global_layouts_;
       initializers_;

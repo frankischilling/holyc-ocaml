@@ -114,6 +114,7 @@ val check_internal_binding_source :
   (unit, string) result
 
 val with_source_command :
+  ?aggregate_imports:Sema.Compiler_record.aggregate_import list ->
   task_view ->
   ast:Frontend.Ast.module_ ->
   Sema.Task_command_order.command ->

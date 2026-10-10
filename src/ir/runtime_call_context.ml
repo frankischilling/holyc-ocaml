@@ -1820,11 +1820,13 @@ type pending = {
 
 let graph_context ~globals ~records ~function_sources ~validate_source owner
     graph descriptions =
-  let transport_type header type_ =
+  (* Callee header indices belong to that callee's original command. This
+     context validates each call's selected class and producer; the executing
+     body separately owns the class parameter and return ABI. *)
+  let transport_type _header type_ =
     match
       Typed.aggregate_integer_value_type function_sources
-        ~before_item_index:(Headers.function_item_index header)
-        type_
+        ~before_item_index:max_int type_
     with
     | Some _ ->
         Type.make_primitive ~form:Type.Internal_storage
@@ -1833,14 +1835,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
     | None -> type_
   in
   let return_value_type shape =
-    let header =
-      match original_phase shape.source_description.source with
-      | None -> shape.selected_header
-      | Some phase -> Sema.Function_call_phase.emission_header phase
-    in
     Typed.aggregate_integer_value_type function_sources
-      ~before_item_index:(Headers.function_item_index header)
-      shape.result_type
+      ~before_item_index:max_int shape.result_type
     |> Option.value ~default:shape.result_type
   in
   let callbacks, descriptions =

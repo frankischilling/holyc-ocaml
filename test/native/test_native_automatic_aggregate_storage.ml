@@ -177,9 +177,12 @@ let boundaries () =
   let report =
     Native_source_execution.evaluate session ~config ~source ~max_steps:100_000
   in
-  Alcotest.(check bool)
-    "retained JIT class metadata cannot authorize frame storage" true
-    (Result.is_error (Native_source_execution.outcome report))
+  let result = Native_source_execution.outcome report |> checked in
+  Alcotest.(check (option int64))
+    "original retained class owns its native frame" (Some 42L)
+    (Option.map
+       (fun word -> word.Native_source_execution.bits)
+       result.value.final_value)
 
 let () =
   Alcotest.run "native automatic aggregate storage"

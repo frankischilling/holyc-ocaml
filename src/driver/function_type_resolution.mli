@@ -1,5 +1,6 @@
 val resolve :
   ?retained_headers:Sema.Function_type_resolution.resolved_function list ->
+  ?retained_item_index_offset:int ->
   ?selected_types:
     Sema.Declaration_collection.namespace
     * Sema.Function_type_resolution.selected_aggregate_resolver ->

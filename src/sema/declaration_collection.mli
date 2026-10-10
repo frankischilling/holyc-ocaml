@@ -22,6 +22,10 @@ val make_declaration :
   (declaration, string) result
 (** Build one checked declaration fact without mutating a symbol table. *)
 
+val shift_item_index : int -> declaration -> (declaration, string) result
+(** Move a fact into a context with earlier metadata items while preserving its
+    original source evidence. This does not create or publish a declaration. *)
+
 val make_function_prototype_declaration :
   prototype:Frontend.Ast.function_prototype ->
   item_index:int ->

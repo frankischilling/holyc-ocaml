@@ -349,6 +349,30 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                     when T.equal expected type_ && stride > 0L ->
                       Scaled (type_, stride)
                   | _ -> Unknown_address)
+              | ( Ic_add,
+                  [ base; offset ],
+                  Some
+                    (Seq.Member_projection proof | Seq.Backing_projection proof)
+                ) -> (
+                  match (frame, address base, address offset) with
+                  | ( Some frame,
+                      Reference (expected, [], Memory),
+                      Offset (offset_type, delta) )
+                    when T.equal offset_type type_
+                         && Ir.Aggregate_member_projection.matches
+                              ~function_identity:
+                                ( Frame.function_symbol frame,
+                                  Sema.Symbol_table.scope_id
+                                    (Frame.function_scope frame) )
+                              ~before_item_index:
+                                (Frame.function_item_index frame)
+                              proof ~base_pointer:expected ~pointer_type:type_
+                              ~offset:delta ->
+                      Reference
+                        ( type_,
+                          Ir.Aggregate_member_projection.strides proof,
+                          Memory )
+                  | _ -> Unknown_address)
               | Ic_add, [ base; offset ], None -> (
                   match (address base, address offset) with
                   | Base expected, Offset (offset_type, bits)

@@ -15,6 +15,11 @@ type declaration = {
   source_prototype : Frontend.Ast.function_prototype option;
 }
 
+let shift_item_index amount (declaration : declaration) =
+  if amount < 0 || amount > max_int - declaration.item_index then
+    Error "semantic declaration item shift is outside its source index range"
+  else Ok { declaration with item_index = declaration.item_index + amount }
+
 type function_source =
   | Collected_prototype of Frontend.Ast.function_prototype
   | Published_function of Frontend.Parser.function_publication

@@ -889,7 +889,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           in
           let function_contexts = ref [] in
           let* definitions =
-            Ast.declaration_items ast
+            Ast.declaration_items (Integer_source.semantic_ast prepared)
             |> List.filter_map (function
               | index, Ast.Function_definition definition ->
                   Some (index, definition)
@@ -1203,7 +1203,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     else None))
           in
           let statements =
-            Ast.declaration_items ast
+            Ast.declaration_items (Integer_source.semantic_ast prepared)
             |> List.map (fun (item_index, item) ->
                 match item with
                 | Ast.Top_level_statement _ -> (
@@ -1435,7 +1435,13 @@ let compile_task_ast ~task ?declaration_command session ~config
               ~table:(Session.semantic_symbols session)
               ~ast command
           in
-          Ir.Integer_globals.with_source_command task_view ~ast order
+          let* aggregate_imports =
+            Task_declarations.aggregate_imports
+              ~table:(Session.semantic_symbols session)
+              ~ast command
+          in
+          Ir.Integer_globals.with_source_command ~aggregate_imports task_view
+            ~ast order
           |> Result.map_error (fun message ->
               [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
     in

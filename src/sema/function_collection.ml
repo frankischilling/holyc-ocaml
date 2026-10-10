@@ -439,8 +439,8 @@ let parameter_bindings (bindings : binding list) =
   in
   split [] bindings
 
-let validate_retained_header ~table ~parent (retained : collected_function)
-    (function_ : function_declaration) =
+let validate_retained_header ~retained_item_index_offset ~table ~parent
+    (retained : collected_function) (function_ : function_declaration) =
   let parameters, _ = parameter_bindings function_.bindings in
   if retained.header_reused then
     Error "semantic retained function collection was already completed"
@@ -454,8 +454,11 @@ let validate_retained_header ~table ~parent (retained : collected_function)
     Error "semantic retained function collection has different source evidence"
   else if not (same_symbol retained.symbol function_.symbol) then
     Error "semantic retained function collection has the wrong function symbol"
-  else if retained.item_index <> function_.item_index then
-    Error "semantic retained function collection has the wrong item order"
+  else if
+    retained_item_index_offset < 0
+    || retained_item_index_offset > max_int - retained.item_index
+    || retained.item_index + retained_item_index_offset <> function_.item_index
+  then Error "semantic retained function collection has the wrong item order"
   else if not (Symbol_table.owns_symbol table retained.symbol) then
     Error "semantic retained function collection belongs to a different table"
   else if not (Symbol_table.owns_scope table retained.scope) then
@@ -489,7 +492,8 @@ let find_retained retained_headers (function_ : function_declaration) =
   | [ retained ] -> Ok (Some retained)
   | _ -> Error "semantic retained function collection repeats a function symbol"
 
-let validate_retained ~table ~parent retained_headers function_facts =
+let validate_retained ~retained_item_index_offset ~table ~parent
+    retained_headers function_facts =
   let rec validate_functions used_rev (remaining : function_declaration list) =
     match remaining with
     | [] ->
@@ -504,7 +508,8 @@ let validate_retained ~table ~parent retained_headers function_facts =
         | Ok None -> validate_functions (None :: used_rev) rest
         | Ok (Some retained) -> (
             match
-              validate_retained_header ~table ~parent retained function_
+              validate_retained_header ~retained_item_index_offset ~table
+                ~parent retained function_
             with
             | Error _ as error -> error
             | Ok () -> validate_functions (Some retained :: used_rev) rest))
@@ -568,12 +573,14 @@ let collect_reused_function table (function_ : function_declaration) retained =
           source_statics = retained.source_statics;
         }
 
-let collect ?(retained_headers = []) ~table ~parent function_facts =
+let collect ?(retained_headers = []) ?(retained_item_index_offset = 0) ~table
+    ~parent function_facts =
   match validate table parent function_facts with
   | Error _ as error -> error
   | Ok () -> (
       match
-        validate_retained ~table ~parent retained_headers function_facts
+        validate_retained ~retained_item_index_offset ~table ~parent
+          retained_headers function_facts
       with
       | Error _ as error -> error
       | Ok retained ->

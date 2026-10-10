@@ -70,6 +70,7 @@ type task_view = {
   function_entries : (Sema.Outer_environment.entry * Retained_function.t) list;
   private_statics : Integer_static_allocation.t list;
   source_command : Sema.Task_command_order.command option;
+  source_item_prefix : int;
 }
 
 type fragment_kind =
@@ -1217,9 +1218,21 @@ let check_offset_source catalog receipt =
   Sema.Task_command_order.check_offset catalog.source_order
     ~admitted:catalog.admitted_commands receipt
 
-let with_source_command view ~ast command =
+let with_source_command ?(aggregate_imports = []) view ~ast command =
   if Sema.Task_command_order.owns view.catalog.source_order ~ast command then
-    Ok { view with source_command = Some command }
+    let prefix =
+      match view.catalog.namespace with
+      | Some namespace ->
+          Sema.Task_command_order.aggregate_import_prefix
+            ~scope:(Sema.Declaration_collection.namespace_scope namespace)
+            ~imports:aggregate_imports command
+      | None when aggregate_imports = [] -> Ok 0
+      | None -> Error "class imports require the original task namespace"
+    in
+    Result.map
+      (fun source_item_prefix ->
+        { view with source_command = Some command; source_item_prefix })
+      prefix
   else Error "task source order belongs to another runtime or AST"
 
 let has_source_command globals =
@@ -1407,6 +1420,7 @@ let snapshot_task catalog =
       function_entries;
       private_statics = catalog.private_statics;
       source_command = None;
+      source_item_prefix = 0;
       callback_defaults = catalog.callback_defaults;
       defaults = catalog.defaults;
     }
@@ -1777,13 +1791,16 @@ let join_declared view globals =
                   Declared.declared_global_completion prior.declaration )
               with
               | Some command, Some completed
-                when Sema.Task_command_order.contains_global command
-                       ~publication:
-                         (Declared.declared_global_source prior.declaration)
-                       ~completed
-                       ~item_index:(Global.global_item_index global)
-                       ~declarator_index:(Global.global_declarator_index global)
-                -> Ok ()
+                when Global.global_item_index global >= view.source_item_prefix
+                     && Sema.Task_command_order.contains_global command
+                          ~publication:
+                            (Declared.declared_global_source prior.declaration)
+                          ~completed
+                          ~item_index:
+                            (Global.global_item_index global
+                            - view.source_item_prefix)
+                          ~declarator_index:
+                            (Global.global_declarator_index global) -> Ok ()
               | _ ->
                   Error
                     "declared storage join lacks its original completed source \
