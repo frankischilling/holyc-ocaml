@@ -291,9 +291,10 @@ let boundaries () =
           Alcotest.(check bool)
             name true
             (Result.is_error (Native_program.outcome (run mode contents))))
-        (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-       @ Inherited.source_unsupported @ Backed.unsupported @ Default.unsupported
-       @ Parameters.unsupported @ Returns.unsupported);
+        (Cases.unsupported @ Cases.pointer_unsupported @ Arrays.unsupported
+       @ Pointers.unsupported @ Inherited.source_unsupported
+       @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
+       @ Returns.unsupported);
       let original =
         Aggregate_member_fixture.compile ~contents:Returns.quota_source mode
       in
@@ -527,6 +528,27 @@ let task_boundaries () =
   let _, original_prototype_call, _, _ = List.nth Defaults.prototype_values 1 in
   task_failure "HCBACK0002" (run_task original_prototype_call)
 
+let pointer_field_boundaries () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (_, contents, _, _) ->
+          let report = run mode contents in
+          match Native_program.outcome report with
+          | Ok _ ->
+              Alcotest.fail "native pointer field escaped its ownership gate"
+          | Error errors ->
+              Alcotest.(check bool)
+                (describe errors) true
+                (List.exists
+                   (fun (d : Diagnostic.t) -> d.code = "HCBACK0002")
+                   errors))
+        (Cases.pointer_values @ Cases.pointer_width_matrix))
+    modes;
+  List.iter
+    (fun (_, contents, _, _) -> task_failure "HCBACK0002" (run_task contents))
+    (Cases.pointer_values @ Cases.pointer_retained_values)
+
 let () =
   Alcotest.run "native aggregate members"
     [
@@ -574,5 +596,7 @@ let () =
             `Quick field_proofs;
           Alcotest.test_case "metadata and numeric bits do not grant storage"
             `Quick boundaries;
+          Alcotest.test_case "pointer fields require native descriptor storage"
+            `Quick pointer_field_boundaries;
         ] );
     ]

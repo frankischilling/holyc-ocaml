@@ -48,12 +48,14 @@ in both modes. An AOT outer class and a JIT `#exe` class belong to different
 original parser environments; completing a same-name class in the directive
 does not complete the selected outer forward.
 
-Retained inherited declarations provide metadata for their captured queries.
-[Owned inherited aggregates](inherited-aggregates.md) now admit completed
-earlier base definitions present in an isolated object compilation, after
-checking their original identities and sizes. Partial, self, forward-only and
-out-of-compilation bases retain metadata-only behavior. Native source tasks
-still lack aggregate object execution. General AOT
-module layouts, runtime AOT relocation, synchronous native StreamExePrint,
-aggregate object execution, wider ABI, BIN and loader compatibility, whole-tree
-compilation and bootstrap remain open.
+[Owned inherited aggregates](inherited-aggregates.md) use completed earlier
+base definitions with checked original identities and sizes.
+[Retained class contexts](retained-class-context.md) also admit bases from
+earlier source fragments, including runtime bounds prepared by the owning JIT
+task. Native source tasks execute inherited automatic objects and arrays with
+those captured layouts. Partial, self and forward-only bases still provide
+metadata without authorizing object storage. Within admitted `#exe` tasks,
+[synchronous native `StreamExePrint`](native-stream-generation.md) executes
+supported child code and publishes declarations before the caller resumes, in
+both outer modes. General AOT module layouts, runtime AOT relocation, wider ABI,
+BIN and loader compatibility, whole-tree compilation and bootstrap remain open.

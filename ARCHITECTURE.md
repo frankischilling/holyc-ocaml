@@ -5,7 +5,10 @@ counts from live member phases. Member `sizeof` callbacks follow the exact
 root, dot and member sequence, read the selected canonical class's current
 metadata, and save an immutable result with its preparation dependencies.
 `Driver.Task_declarations` supplies those checked queries to the existing
-integer-constant lowering path. See [member sizes](docs/aggregate-member-sizeof.md).
+integer-constant lowering path. Builtin integer unions use the pinned generated
+member declarations selected by their canonical primitive identity. Published
+and retained scalar globals preserve their original selected class separately
+from their total storage extent. See [member sizes](docs/aggregate-member-sizeof.md).
 
 `Ir.Aggregate_member_projection` retains the immutable selected member lookup,
 exact base and target pointer types, offset and checked array strides. Semantic
@@ -14,8 +17,13 @@ offset and `IC_ADD` with this opaque proof. IR preparation checks the proof;
 native compilation also requires the original sealed graph. Projection keeps
 the containing object's bytes, extent and lifetime, including through nested
 member arrays and owned class pointer parameters. Integer fields use their
-selected width and signedness. Whole class values and pointer fields remain
-outside this execution domain. See [owned aggregate members](docs/aggregate-members.md).
+selected width and signedness; whole class values use their checked scalar
+prefix. IR data pointer fields store address bytes and separate ownership
+metadata for the target descriptor. Overlapping writes remove that metadata,
+and frame retirement invalidates saved addresses while releasing storage.
+Native pointer fields require their own storage and lifetime implementation.
+See [owned aggregate members](docs/aggregate-members.md) and
+[pointer fields](docs/aggregate-pointer-fields.md).
 
 `Ir.Automatic_aggregate_storage` admits nonempty automatic objects from an
 immutable frame location with a completed earlier aggregate layout. The
@@ -25,8 +33,8 @@ Array strides use that element size and the original dimensions. The interpreter
 individual unknown byte cells; native frame descriptors use one initialization
 flag per byte. An owned class address can enter an explicit primitive pointer
 view without widening the object or converting numeric bits into ownership.
-Inherited metadata and retained JIT class publication still grant no storage
-authority. See [automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
+Inherited and retained layouts require their original checked imports before
+they can supply storage. See [automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
 
 The executable expression parser checks an operand identifier's original
 lexer selection before consuming it or invoking reference consumers. An absent

@@ -13,6 +13,19 @@ module Scalar = Integer_scalar_storage
 module Computation = Sema.Integer_computation_class
 module Offset_map = Map.Make (Int64)
 
+(* Addresses in the IR storage model are disjoint numeric tokens. Byte views
+   may observe them, but only typed pointer stores retain executable ownership. *)
+let next_storage_address = ref 0x10000L
+
+let storage_address cells =
+  let extent = Int64.mul (Int64.of_int cells) 8L in
+  let bytes = Int64.add extent 8L in
+  if bytes < 0L || !next_storage_address > Int64.sub Int64.max_int bytes then
+    invalid_arg "IR storage address space exhausted";
+  let address = !next_storage_address in
+  next_storage_address := Int64.add address bytes;
+  address
+
 module Value_map = Map.Make (struct
   type t = Value_id.t
 
@@ -151,10 +164,12 @@ and runtime_address = {
 }
 
 and runtime_storage = {
-  cells : runtime_value option array;
+  mutable cells : runtime_value option array;
   (* Unknown scalar cells can acquire individual bytes through a cast view.
      A cell enters [cells] only when all of its original bytes are known. *)
   partial_words : (int, int64 * int) Hashtbl.t;
+  pointer_cells : (int64, Type.t * runtime_address * int64) Hashtbl.t;
+  address_base : int64;
   mutable live : bool;
   unknown_message : string;
 }
@@ -2827,6 +2842,8 @@ let admit_declared_global task declaration =
          {
            cells = Array.make (Integer_globals.cell_count globals) None;
            partial_words = Hashtbl.create 0;
+           pointer_cells = Hashtbl.create 0;
+           address_base = storage_address (Integer_globals.cell_count globals);
            live = true;
            unknown_message =
              "hosted execution reached an uninitialized JIT persistent object";
@@ -2870,6 +2887,8 @@ let admit_static_allocation task allocation =
           {
             cells = Array.make (Integer_globals.cell_count globals) None;
             partial_words = Hashtbl.create 0;
+            pointer_cells = Hashtbl.create 0;
+            address_base = storage_address (Integer_globals.cell_count globals);
             live = true;
             unknown_message =
               "hosted execution reached an uninitialized JIT persistent object";
@@ -5129,7 +5148,10 @@ let callback_word_type type_ =
      = Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64)
 
 let scalar_element_bytes type_ =
-  if callback_word_type type_ then Some 8
+  if
+    callback_word_type type_
+    || Aggregate_member_projection.pointer_member_type type_
+  then Some 8
   else Option.map Scalar.byte_size (Scalar.of_type type_)
 
 let scalar_pointer_type type_ =
@@ -5143,6 +5165,9 @@ let data_pointer_type type_ =
 
 let array_pointer_type type_ =
   scalar_pointer_type type_
+  || Option.fold ~none:false
+       ~some:Aggregate_member_projection.pointer_member_type
+       (Type.dereference type_ |> Result.to_option)
   || Option.fold ~none:false ~some:callback_word_type
        (Type.dereference type_ |> Result.to_option)
 
@@ -5808,7 +5833,10 @@ let member_address frame types (description : Sequence.description) =
       Some pointer,
       Some (Sequence.Member_projection proof | Sequence.Backing_projection proof)
     )
-    when data_pointer_type pointer -> (
+    when data_pointer_type pointer
+         || Option.fold ~none:false
+              ~some:Aggregate_member_projection.pointer_member_type
+              (Type.dereference pointer |> Result.to_option) -> (
       let base_pointer =
         match Value_map.find_opt base types with
         | Some (Frame_address index) ->
@@ -6107,7 +6135,7 @@ let storage_operand ?(allow_array = false) frame initialization types
     match Type.pointer_to type_ with
     | Ok pointer when Automatic_aggregate_storage.aggregate_pointer pointer ->
         Some (Stored_narrow Automatic_aggregate_storage.byte_scalar)
-    | _ -> stored_type type_
+    | _ -> frame_stored_type type_
   in
   match (frame, Value_map.find_opt address types) with
   | Some _, Some (Variadic_address pointee) when allow_array ->
@@ -6500,7 +6528,11 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                         types description.instruction_id base,
                       Type.dereference pointer )
                   with
-                  | ( Some (location, actual, (Stored_word _ | Stored_narrow _)),
+                  | ( Some
+                        ( location,
+                          actual,
+                          (Stored_word _ | Stored_narrow _ | Stored_pointer _)
+                        ),
                       Ok pointee )
                     when Type.equal actual pointee ->
                       Ok
@@ -8512,12 +8544,20 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     {
       cells = Array.copy cells;
       partial_words = Hashtbl.create 0;
+      pointer_cells = Hashtbl.create 0;
+      address_base = storage_address (Array.length cells);
       live = true;
       unknown_message;
     }
   in
   let frame_storage cells =
     make_storage cells "the reached frame slot has not been initialized"
+  in
+  let retire_frame storage =
+    storage.live <- false;
+    storage.cells <- [||];
+    Hashtbl.reset storage.partial_words;
+    Hashtbl.reset storage.pointer_cells
   in
   let global_storage =
     make_storage
@@ -8608,6 +8648,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     {
       cells;
       partial_words = Hashtbl.create 0;
+      pointer_cells = Hashtbl.create 0;
+      address_base = storage_address (Array.length cells);
       live = true;
       unknown_message =
         "owned string literal byte is unexpectedly uninitialized";
@@ -8982,6 +9024,30 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     ( address.pointer_base + Int64.to_int (Int64.div offset width),
       Int64.to_int (Int64.rem offset width) )
   in
+  let byte_key address offset =
+    let cell, within = original_cell address offset in
+    Int64.add (Int64.mul (Int64.of_int cell) 8L) (Int64.of_int within)
+  in
+  let pointer_bits address =
+    Int64.add address.pointer_storage.address_base
+      (Int64.add
+         (Int64.mul (Int64.of_int address.pointer_base) 8L)
+         address.pointer_offset)
+  in
+  let invalidate_pointer_cells storage first last =
+    (* A pointer spans eight original bytes, whose canonical keys are at most
+       eight positions apart. Scalar stores therefore need a bounded lookup
+       window, independently of the number of pointer fields in the object. *)
+    if Hashtbl.length storage.pointer_cells <> 0 then
+      let key = ref (Int64.sub first 63L) in
+      while !key <= last do
+        (match Hashtbl.find_opt storage.pointer_cells !key with
+        | Some (_, _, end_key) when end_key >= first ->
+            Hashtbl.remove storage.pointer_cells !key
+        | _ -> ());
+        key := Int64.succ !key
+      done
+  in
   let read_view_bits address width =
     let ( let* ) = Result.bind in
     let storage = address.pointer_storage in
@@ -9047,6 +9113,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             Error ("HCIRVM0008", "byte view reached an invalid scalar cell")
     in
     let* () = validate first in
+    invalidate_pointer_cells storage
+      (byte_key address address.pointer_offset)
+      (byte_key address
+         (Int64.add address.pointer_offset (Int64.of_int (width - 1))));
     for byte = 0 to width - 1 do
       let cell, within =
         original_cell address
@@ -9104,6 +9174,27 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let read_location block instruction = function
     | `Cell (storage, index) -> read_cell block instruction storage index
+    | `View address
+      when Aggregate_member_projection.pointer_member_type
+             address.pointer_pointee
+           && Option.is_none (original_view_cell address) -> (
+        match read_view_bits address 8 with
+        | Error (code, message) -> location_error block instruction code message
+        | Ok bits -> (
+            let key = byte_key address address.pointer_offset in
+            match
+              Hashtbl.find_opt address.pointer_storage.pointer_cells key
+            with
+            | Some (type_, target, _)
+              when Scalar.compatible_pointer address.pointer_pointee type_
+                   && bits = pointer_bits target -> (
+                match Type.dereference address.pointer_pointee with
+                | Ok pointer_pointee ->
+                    Some (Runtime_pointer { target with pointer_pointee })
+                | Error _ -> assert false)
+            | _ ->
+                location_error block instruction "HCIRVM0018"
+                  "pointer field has no owned pointer value"))
     | `View address -> (
         match original_view_cell address with
         | Some index ->
@@ -9127,12 +9218,36 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let write_location block instruction location value =
     let write_cell storage index =
+      let first = Int64.mul (Int64.of_int index) 8L in
+      invalidate_pointer_cells storage first (Int64.add first 7L);
       storage.cells.(index) <- Some value;
       Hashtbl.remove storage.partial_words index;
       true
     in
     match location with
     | `Cell (storage, index) -> write_cell storage index
+    | `View address
+      when Aggregate_member_projection.pointer_member_type
+             address.pointer_pointee
+           && Option.is_none (original_view_cell address) -> (
+        match value with
+        | Runtime_pointer target -> (
+            match write_view_bits address 8 (pointer_bits target) with
+            | Ok () ->
+                Hashtbl.replace address.pointer_storage.pointer_cells
+                  (byte_key address address.pointer_offset)
+                  ( address.pointer_pointee,
+                    target,
+                    byte_key address (Int64.add address.pointer_offset 7L) );
+                true
+            | Error (code, message) ->
+                ignore (location_error block instruction code message);
+                false)
+        | _ ->
+            ignore
+              (location_error block instruction "HCIRVM0008"
+                 "pointer field requires an owned pointer value");
+            false)
     | `View address -> (
         match original_view_cell address with
         | Some index -> write_cell address.pointer_storage index
@@ -10771,7 +10886,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                          "function completion disagrees with its checked \
                           return kind")
               | Some completion -> (
-                  !slots.live <- false;
+                  retire_frame !slots;
                   match !callers with
                   | [] -> completed := Some (Returned !pending_return)
                   | caller :: rest -> (
@@ -10807,8 +10922,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                            "prepared argument push has no active call"))
               instruction.push_result)
   done;
-  !slots.live <- false;
-  List.iter (fun caller -> caller.saved_slots.live <- false) !callers;
+  retire_frame !slots;
+  List.iter (fun caller -> retire_frame caller.saved_slots) !callers;
   if Option.is_none admit then (
     global_storage.live <- false;
     literal_storage.live <- false);
@@ -11923,6 +12038,8 @@ let save_default_data task ~destination ~entry ~executed_steps address =
                   (Runtime_word
                      { type_ = U64; bits = Int64.of_int (Char.code bytes.[i]) }));
           partial_words = Hashtbl.create 0;
+          pointer_cells = Hashtbl.create 0;
+          address_base = storage_address count;
           live = true;
           unknown_message = "saved string default byte is uninitialized";
         }

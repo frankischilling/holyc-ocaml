@@ -39,6 +39,12 @@ val of_spelling : string -> t option
 val of_storage_spelling : string -> t option
 val info : t -> info
 
+val public_union_members :
+  t -> Generated.Primitive_raw_types.public_union_member list option
+(** Original ordered fields of the selected builtin public union. Internal types
+    have no member tree. Field types retain their public or internal spelling.
+*)
+
 val integer_storage_info : t -> info option
 (** The audited nonzero integer backing class. Bool retains its distinct public
     identity/category while its scalar storage and computation use I8i. *)

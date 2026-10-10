@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Added owned integer and class pointer fields to IR execution, including
+  member arrays, captured assignment destinations, pointer updates and retained
+  class selections. Pointer bytes remain visible to numeric views; overlapping
+  writes invalidate ownership and expired target frames stay inaccessible.
+  Function-local field proofs and builtin member size queries share regression
+  fixtures. Native pointer-field execution remains explicitly rejected. See
+  [pointer fields](docs/aggregate-pointer-fields.md).
+
+- Added member `sizeof` queries for the six builtin integer unions, including
+  nested fields, primitive locals and parameters, and supported scalar global
+  and static objects and arrays. Generated metadata preserves all 24 original
+  field declarations; later type replacements leave earlier selections intact.
+  See [member sizes](docs/aggregate-member-sizeof.md).
+
 - Added original dot-member `sizeof` queries for named classes and unions,
   automatic objects and class parameters. Nested and inherited fields retain
   their selected types and dimensions; later forward completion preserves

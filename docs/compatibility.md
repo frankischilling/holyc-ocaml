@@ -4,8 +4,10 @@
 named classes and unions, automatic objects and class parameters. Nested and
 inherited fields retain original types, their own array counts and query-time
 class sizes. Pointer and callback fields and trailing stars use pointer width.
-Persistent aggregate declarations and builtin public-union subfields retain
-their existing unsupported boundaries.
+The six builtin integer unions retain their original fields, including nested
+queries from primitive local, parameter, static and global scalar/array roots.
+Persistent user-defined aggregate declarations retain their existing
+unsupported boundaries.
 
 [Local aggregate `sizeof`](local-aggregate-sizeof.md) supports named class and
 union locals, fixed arrays and value parameters. Queries retain exact selected
@@ -765,3 +767,10 @@ parameters retain stack storage. Effectful and owned-code defaults remain open.
 host image, private arena and executable owners across activations, including
 reached writes on checked faults. Native JIT execution at original parser
 callbacks and persistent source-task publication/linking remain unfinished.
+
+[Owned data pointer fields in IR](aggregate-pointer-fields.md) execute integer
+and class pointer members, member arrays and pointer updates in automatic
+objects. Typed stores retain the original target allocation and lifetime;
+overlapping scalar stores remove pointer ownership. Numeric bytes and word
+class parameters cannot recreate it. Native pointer fields remain gated until
+their descriptor storage and lifetime checks are implemented under issue #686.

@@ -283,6 +283,12 @@ let information =
 let info primitive =
   List.find (fun (entry : info) -> equal entry.primitive primitive) information
 
+let public_union_members primitive =
+  let info = info primitive in
+  match info.declaration_form with
+  | Internal_type -> None
+  | Public_union -> Some (public_union info.spelling).members
+
 let integer_storage_info primitive =
   Option.bind (of_storage_spelling (info primitive).storage_spelling)
     (fun storage ->

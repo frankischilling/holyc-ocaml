@@ -46,6 +46,8 @@ callable compilation continues to reject runtime-derived frames.
 Automatic bounds have no live function invocation frame while the declaration
 is parsed. [Class declarations inside function bodies](local-aggregate-declarations.md)
 also evaluate original runtime bounds and offsets during parsing, including in
-uncalled functions. AOT runtime relocation, runtime floating bounds, aggregate
-object execution, exported ABI, loader
-acceptance and bootstrap remain separate work.
+uncalled functions. [Automatic objects declared in functions](function-local-aggregate-objects.md)
+use those completed layouts during IR and native JIT source execution. The
+captured dimensions and offsets are reused when the function runs, with their
+original preparation dependencies. AOT runtime relocation, runtime floating
+bounds, exported ABI, loader acceptance and bootstrap remain separate work.

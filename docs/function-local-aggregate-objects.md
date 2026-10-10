@@ -54,6 +54,12 @@ member paths. Default class values use their selected signed word prefix.
 Objects of an earlier integer-backed type keep that backing when a local
 declaration replaces its name. A value conversion does not copy the whole object.
 
+[Data pointer fields](aggregate-pointer-fields.md) use the same original
+allocation and member-layout proofs in IR. Their ownership shadows retain the
+target's original allocation identity; overlapping scalar writes invalidate
+pointer ownership. Loading a field does not extend the target's lifetime.
+Native execution of these fields remains gated with `HCBACK0002`.
+
 The declaration-order evidence keeps the original function identity separate
 from the point where a layout became available. Member, pointer-stride and
 scalar-prefix proofs remain tied to their original types and functions. Tests
@@ -77,10 +83,11 @@ index suffix also remains gated. The current proof records the original base
 reference; admitting a later completion at the suffix needs a separate parser
 receipt. This boundary is narrower than the pinned member lookup path.
 
-Persistent aggregate objects, general object copies, pointer fields and class
-pointer returns retain their separate implementation boundaries. Runtime AOT
-layout expressions still require their relocation support. This feature is
-tracked by [issue #818](https://github.com/frankischilling/holyc-ocaml/issues/818)
+Persistent aggregate objects, general object copies, native data pointer fields,
+callback fields and class pointer returns retain their separate implementation
+boundaries. Runtime AOT layout expressions still require their relocation
+support. This feature is tracked by
+[issue #818](https://github.com/frankischilling/holyc-ocaml/issues/818)
 within the broader aggregate and compiler work.
 
 ## TempleOS source

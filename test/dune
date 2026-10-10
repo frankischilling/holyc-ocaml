@@ -5214,7 +5214,8 @@
   ../examples/class-value-parameters.hc
   ../examples/class-value-returns.hc
   ../examples/class-default-words.hc
-  ../examples/retained-nested-members.hc)
+  ../examples/retained-nested-members.hc
+  ../examples/aggregate-pointer-fields.hc)
  (action
   (run
    %{test}
@@ -5228,7 +5229,8 @@
    %{dep:../examples/class-value-parameters.hc}
    %{dep:../examples/class-value-returns.hc}
    %{dep:../examples/class-default-words.hc}
-   %{dep:../examples/retained-nested-members.hc})))
+   %{dep:../examples/retained-nested-members.hc}
+   %{dep:../examples/aggregate-pointer-fields.hc})))
 
 (test
  (name test_automatic_aggregate_storage)
@@ -5316,12 +5318,15 @@
  (name test_aggregate_member_sizeof_cli)
  (modules test_aggregate_member_sizeof_cli)
  (libraries unix yojson)
- (deps ../examples/aggregate-member-sizeof.hc)
+ (deps
+  ../examples/aggregate-member-sizeof.hc
+  ../examples/builtin-union-sizeof.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
-   %{dep:../examples/aggregate-member-sizeof.hc})))
+   %{dep:../examples/aggregate-member-sizeof.hc}
+   %{dep:../examples/builtin-union-sizeof.hc})))
 
 (test
  (name test_aggregate_member_sizeof_authority)

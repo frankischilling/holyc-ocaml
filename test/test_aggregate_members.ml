@@ -63,8 +63,9 @@ let faults () =
     (fun mode ->
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
-        (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-       @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults);
+        (Cases.faults @ Cases.pointer_faults @ Arrays.faults @ Pointers.faults
+       @ Inherited.faults @ Backed.faults @ Default.faults @ Parameters.faults
+       @ Returns.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -123,6 +124,7 @@ let quotas () =
   List.iter (check ~modes)
     [
       Cases.quota_source;
+      Cases.pointer_quota_source;
       Arrays.quota_source;
       Pointers.quota_source;
       Inherited.quota_source;
@@ -220,6 +222,8 @@ let field_proofs () =
   List.iter check
     [
       Aggregate_member_fixture.contents;
+      Cases.pointer_proof_source;
+      Cases.pointer_local_proof_source;
       Aggregate_member_fixture.local_contents;
       Aggregate_member_fixture.local_pointer_contents;
       Aggregate_member_fixture.local_backing_contents;
@@ -364,8 +368,9 @@ let boundaries () =
             name true
             (Result.is_error
                (integer_program_report_outcome (run mode contents))))
-        (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-       @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
+        (Cases.unsupported @ Cases.pointer_unsupported @ Arrays.unsupported
+       @ Pointers.unsupported @ Inherited.unsupported @ Backed.unsupported
+       @ Default.unsupported
         @ (if mode = Preprocessor.Aot then
              [ List.hd Inherited.source_unsupported ]
            else [])
@@ -401,7 +406,7 @@ let () =
             Alcotest.test_case name `Quick (fun () ->
                 ignore (value expected output (run Preprocessor.Jit source))))
           (Defaults.jit_values @ Inherited.retained_values
-         @ Cases.retained_nested_values) );
+         @ Cases.retained_nested_values @ Cases.pointer_retained_values) );
       ( "values",
         List.map
           (fun (name, source, expected, output) ->
@@ -409,12 +414,12 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Cases.values @ Cases.nested_values @ Cases.view_matrix
-         @ Arrays.values @ Arrays.view_matrix @ Pointers.values
-         @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
-         @ Backed.values @ Default.values @ Parameters.values
-         @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
-         @ Returns.warning_values) );
+          (Cases.values @ Cases.pointer_values @ Cases.pointer_width_matrix
+         @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
+         @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
+         @ Inherited.values @ Inherited.view_matrix @ Backed.values
+         @ Default.values @ Parameters.values @ Parameters.view_matrix
+         @ Returns.values @ Returns.view_matrix @ Returns.warning_values) );
       ( "storage",
         [
           Alcotest.test_case "source class default boundaries" `Quick

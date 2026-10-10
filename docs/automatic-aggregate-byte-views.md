@@ -1,8 +1,8 @@
 # Automatic aggregate byte views
 
-The interpreter and native executor can allocate a nonempty automatic class or
-union object whose exact layout completed before its function declaration. An
-explicit primitive pointer cast exposes the object's bytes:
+The interpreter and native executor allocate nonempty automatic class and union
+objects from the exact layouts admitted at their original allocations. An
+explicit primitive pointer cast exposes an object's bytes:
 
 ```c
 class Packed { U8 tag; U16 value; };
@@ -34,10 +34,11 @@ unknown bytes. Each invocation has fresh initialization state.
 
 Bounds use the original object extent, including explicit padding. A cast
 changes the view without extending that extent. Native descriptors retain
-individual byte initialization flags and the invocation's lifetime. Frame,
-instruction and image limits are checked before their corresponding allocation
-or reached operation. Numeric bits, callback addresses and foreign frames do
-not acquire object ownership.
+individual byte initialization flags and the original extent; the admitted
+native storage and call paths prevent references from outliving their
+allocations. Frame, instruction and image limits are checked before their
+corresponding allocation or reached operation. Numeric bits, callback addresses
+and foreign frames do not acquire object ownership.
 
 The maintained `examples/automatic-aggregate-byte-views.hc` prints `AB` and
 returns 42. API and CLI tests cover both modes and executors, all nine integer
@@ -56,11 +57,22 @@ import completed layouts for IR and native task storage. Partial base metadata
 still grants no storage. Automatic aggregate arrays use
 the same bytes with their original dimensions and selected element size;
 [owned aggregate members](aggregate-members.md#automatic-aggregate-arrays)
-describes their execution. Zero-sized objects, persistent objects,
-whole-object values and copies, pointer
-and callback fields, pointer returns and original named-local size/position
-queries remain unfinished. A class defined inside a function also lacks the
-required earlier layout. These boundaries remain under
+describes their execution. [Function-local types](function-local-aggregate-objects.md)
+use the layout admitted at their original allocation and member accesses.
+
+Whole-value reads and assignments use
+[default](default-aggregate-values.md) or
+[integer-backed](backed-aggregate-values.md) scalar prefixes.
+[Class parameters](class-value-parameters.md) and
+[returns](class-value-returns.md) transport words without transferring
+whole-object storage. IR [data pointer fields](aggregate-pointer-fields.md)
+retain separate ownership shadows; overlapping scalar stores invalidate those
+shadows. Native execution of data pointer fields remains gated with `HCBACK0002`.
+
+Local and member size queries use their own original metadata. Zero-sized
+automatic objects, persistent aggregate objects, general aggregate copies,
+callback fields, native data pointer fields, pointer returns and compiler
+position queries for aggregate-valued frames remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 
 The source rules come from TempleOS commit

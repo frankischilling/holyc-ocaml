@@ -15,10 +15,18 @@ type raw_alias = {
   source_comment : string option;
 }
 
+type public_union_member = {
+  type_spelling : string;
+  name : string;
+  array_count : int;
+  source_line : int;
+}
+
 type public_union = {
   storage_spelling : string;
   public_spelling : string;
   source_line : int;
+  members : public_union_member list;
 }
 
 type internal_type = {
@@ -175,9 +183,101 @@ let parse_public_union line_number line =
       let expected_public = [ "U16"; "I16"; "U32"; "I32"; "U64"; "I64" ] in
       if List.mem public_spelling expected_public then
         Ok
-          (Some { storage_spelling; public_spelling; source_line = line_number })
+          (Some
+             {
+               storage_spelling;
+               public_spelling;
+               source_line = line_number;
+               members = [];
+             })
       else Ok None
   | _ -> Ok None
+
+let parse_public_union_member line_number line =
+  let shape_error () =
+    error ~line:line_number
+      "public integer union member must be `<type> <name>[<positive count>];`"
+  in
+  let valid_name name =
+    String.length name > 0
+    && (match name.[0] with
+      | 'A' .. 'Z' | 'a' .. 'z' | '_' -> true
+      | _ -> false)
+    && String.for_all
+         (function
+           | 'A' .. 'Z' | 'a' .. 'z' | '_' | '0' .. '9' -> true
+           | _ -> false)
+         name
+  in
+  match words (fst (split_comment line)) with
+  | [ type_spelling; declarator ] -> (
+      match String.split_on_char '[' declarator with
+      | [ name; suffix ] when valid_name name -> (
+          match String.split_on_char ']' suffix with
+          | [ count; ";" ]
+            when String.length count > 0
+                 && String.for_all
+                      (function
+                        | '0' .. '9' -> true
+                        | _ -> false)
+                      count -> (
+              match int_of_string_opt count with
+              | Some array_count when array_count > 0 ->
+                  Ok
+                    {
+                      type_spelling;
+                      name;
+                      array_count;
+                      source_line = line_number;
+                    }
+              | _ -> shape_error ())
+          | _ -> shape_error ())
+      | _ -> shape_error ())
+  | _ -> shape_error ()
+
+let parse_public_union_body public_spelling opening_line lines =
+  match lines with
+  | [] ->
+      error ~line:opening_line
+        (Printf.sprintf "public integer union %s is missing its opening brace"
+           public_spelling)
+  | opening :: remaining ->
+      if not (String.equal (trim (fst (split_comment opening))) "{") then
+        error ~line:opening_line
+          (Printf.sprintf
+             "public integer union %s requires an opening brace on the next \
+              line"
+             public_spelling)
+      else
+        let rec members line_number found = function
+          | [] ->
+              error ~line:line_number
+                (Printf.sprintf
+                   "public integer union %s is missing its closing `};`"
+                   public_spelling)
+          | line :: rest -> (
+              let code = trim (fst (split_comment line)) in
+              if String.equal code "" then members (line_number + 1) found rest
+              else if String.equal code "};" then
+                Ok (List.rev found, line_number + 1, rest)
+              else
+                let next_union =
+                  match words code with
+                  | [ _; "union"; _ ] -> true
+                  | _ -> false
+                in
+                if next_union || starts_with ~prefix:"#define" code then
+                  error ~line:line_number
+                    (Printf.sprintf
+                       "public integer union %s is missing its closing `};`"
+                       public_spelling)
+                else
+                  match parse_public_union_member line_number line with
+                  | Error _ as result -> result
+                  | Ok member ->
+                      members (line_number + 1) (member :: found) rest)
+        in
+        members (opening_line + 1) [] remaining
 
 let duplicate_by project entries =
   let seen = Hashtbl.create (List.length entries) in
@@ -223,6 +323,66 @@ let expected_public_unions =
     ("U64i", "U64");
     ("I64i", "I64");
   ]
+
+let expected_public_union_members = function
+  | "U16" | "I16" -> [ ("I8i", "i8", 2); ("U8i", "u8", 2) ]
+  | "U32" | "I32" ->
+      [
+        ("I8i", "i8", 4); ("U8i", "u8", 4); ("I16", "i16", 2); ("U16", "u16", 2);
+      ]
+  | "U64" | "I64" ->
+      [
+        ("I8i", "i8", 8);
+        ("U8i", "u8", 8);
+        ("I16", "i16", 4);
+        ("U16", "u16", 4);
+        ("I32", "i32", 2);
+        ("U32", "u32", 2);
+      ]
+  | _ -> []
+
+let validate_public_union_members (union : public_union) =
+  match
+    duplicate_by
+      (fun (member : public_union_member) -> member.name)
+      union.members
+  with
+  | Some member ->
+      error ~line:member.source_line
+        (Printf.sprintf
+           "public integer union %s member %s appears more than once"
+           union.public_spelling member.name)
+  | None ->
+      let rec compare (expected : (string * string * int) list)
+          (actual : public_union_member list) =
+        match (expected, actual) with
+        | [], [] -> Ok ()
+        | (_, name, _) :: _, [] ->
+            error ~line:union.source_line
+              (Printf.sprintf "public integer union %s is missing member %s"
+                 union.public_spelling name)
+        | [], member :: _ ->
+            error ~line:member.source_line
+              (Printf.sprintf "public integer union %s has unexpected member %s"
+                 union.public_spelling member.name)
+        | (type_spelling, name, count) :: expected_rest, member :: actual_rest
+          ->
+            if
+              String.equal member.type_spelling type_spelling
+              && String.equal member.name name
+              && member.array_count = count
+            then compare expected_rest actual_rest
+            else
+              error ~line:member.source_line
+                (Printf.sprintf
+                   "public integer union %s requires `%s %s[%d];` here, but \
+                    found `%s %s[%d];`"
+                   union.public_spelling type_spelling name count
+                   member.type_spelling member.name member.array_count)
+      in
+      compare
+        (expected_public_union_members union.public_spelling)
+        union.members
 
 let validate_definition_order (definitions : definition list) =
   match duplicate_by (fun definition -> definition.name) definitions with
@@ -275,7 +435,7 @@ let validate_public_unions (unions : public_union list) =
               (Printf.sprintf "unexpected public integer union %s"
                  union.public_spelling)
         | ( (expected_storage, expected_public) :: expected_rest,
-            union :: actual_rest ) ->
+            union :: actual_rest ) -> (
             if
               not
                 (String.equal union.storage_spelling expected_storage
@@ -287,7 +447,10 @@ let validate_public_unions (unions : public_union list) =
                     found `%s union %s`"
                    expected_storage expected_public union.storage_spelling
                    union.public_spelling)
-            else compare expected_rest actual_rest
+            else
+              match validate_public_union_members union with
+              | Error _ as result -> result
+              | Ok () -> compare expected_rest actual_rest)
       in
       compare expected_public_unions unions
 
@@ -345,11 +508,21 @@ let parse_kernel source =
         | Ok definition -> (
             match parse_public_union line_number line with
             | Error _ as result -> result
-            | Ok union ->
+            | Ok None ->
                 collect (line_number + 1)
                   (Option.to_list definition @ definitions)
-                  (Option.to_list union @ unions)
-                  rest))
+                  unions rest
+            | Ok (Some union) -> (
+                match
+                  parse_public_union_body union.public_spelling
+                    (line_number + 1) rest
+                with
+                | Error _ as result -> result
+                | Ok (members, next_line, remaining) ->
+                    collect next_line
+                      (Option.to_list definition @ definitions)
+                      ({ union with members } :: unions)
+                      remaining)))
   in
   match collect 1 [] [] lines with
   | Error _ as result -> result

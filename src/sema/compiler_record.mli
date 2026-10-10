@@ -119,8 +119,10 @@ val seed_public_union :
   symbol:Symbol.t ->
   source:Generated.Primitive_raw_types.public_union ->
   (t, string) result
-(** Establish a public class record from its exact generated union declaration
-    and checked primitive backing, preserving the pinned declaration origin. *)
+(** Establish a public class record from its exact generated union declaration,
+    explicit seeded frontend primitive payload and checked backing. An ordinary
+    class with the same name and pinned origin cannot supply this association.
+*)
 
 val rebind_primitive :
   table:Symbol_table.t -> symbol:Symbol.t -> t -> (t, string) result
@@ -134,8 +136,10 @@ val published_scalar :
   Declaration_collection.publication ->
   (t, string) result
 (** Read original published type children, independently of storage admission.
-    Arrays consume their original ordered checked dimensions. Aggregate layouts
-    and function-pointer signatures still need separate checked metadata. *)
+    Arrays consume their original ordered checked dimensions. Scalar objects
+    retain their selected class for member queries; pointers and callbacks
+    retain the pointer companion. Aggregate layouts and function-pointer
+    signatures still need separate checked metadata. *)
 
 type aggregate_progress
 type inherited_base
@@ -442,8 +446,8 @@ val bind_retained_scalar :
   Global_type_resolution.global ->
   (t, string) result
 (** Associate a newly published retained frontend entry with its original
-    checked global. Call at publication, never recover an association by name.
-*)
+    checked global and selected class. Call at publication, never recover an
+    association by name. *)
 
 val return_class_size :
   table:Symbol_table.t ->
@@ -484,10 +488,11 @@ val read_sizeof_member :
   sizeof_member_start ->
   (sizeof_read, string) result
 (** Read the original named member during its live callback. Field types and
-    counts come from checked declaration phases; each selected aggregate uses
-    its current canonical record. The returned size and dependencies remain
-    immutable after later layout changes. Foreign records and source steps do
-    not authorize a lookup. *)
+    counts come from checked declaration phases or the selected builtin union's
+    pinned generated declarations. Each selected aggregate uses its current
+    canonical record. The returned size and dependencies remain immutable after
+    later layout changes. Foreign records and source steps do not authorize a
+    lookup. *)
 
 val read_local_sizeof :
   dimensions:declared_dimension list ->

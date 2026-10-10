@@ -13,6 +13,24 @@ and selection =
   | Field of Members.lookup
   | Backing of Sema.Aggregate_backing_storage.t
 
+let pointer_member_type type_ =
+  Type.pointer_depth type_ = 1
+  &&
+  match Type.dereference type_ with
+  | Ok pointee ->
+      Option.is_some (Integer_scalar_storage.of_type pointee)
+      || Automatic_aggregate_storage.aggregate_pointer type_
+  | Error _ -> false
+
+let supported_member_type type_ =
+  pointer_member_type type_
+  || Type.pointer_depth type_ = 0
+     && (Option.is_some (Integer_scalar_storage.of_type type_)
+        ||
+        match Type.base type_ with
+        | Type.Aggregate _ -> true
+        | _ -> false)
+
 let create ~lookup ~base_pointer ~pointer_type =
   let member = Members.lookup_member lookup in
   let member_type = Members.member_type member in
@@ -31,20 +49,13 @@ let create ~lookup ~base_pointer ~pointer_type =
          (Sema.Type_reference.resolved_type
             (Members.member_type_reference member))
   in
-  let scalar_member =
-    Type.pointer_depth member_type = 0
-    && (Option.is_some (Integer_scalar_storage.of_type member_type)
-       ||
-       match Type.base member_type with
-       | Type.Aggregate _ -> true
-       | _ -> false)
-  in
+  let supported_member = supported_member_type member_type in
   if
-    (not exact_aggregate) || (not exact_member) || (not scalar_member)
+    (not exact_aggregate) || (not exact_member) || (not supported_member)
     || Members.member_is_function_pointer member
   then
     Error
-      "member projection does not match its selected aggregate and scalar field"
+      "member projection does not match its selected aggregate and field type"
   else
     let checked_strides =
       List.fold_left

@@ -10,6 +10,260 @@ let quota_source =
   {|class Box{U8 bytes[9];};I64 F(){Box object;U8 *p=&object.bytes[8];
 *p=40;object.bytes[8]+=2;return *p;}F();|}
 
+let pointer_example =
+  {|extern U0 Print(U8 *fmt,...);
+class Item{U16 value;};
+class Box{U8 *text;Item *items[2];};
+I64 Bump(Item *p){return ++p->value;}
+I64 F(){Box o;U8 text[3];Item item;
+text[0]=65;text[1]=66;text[2]=0;item.value=40;
+o.text=text;o.items[1]=&item;Print("%s",o.text);
+Bump(o.items[1]);return Bump(o.items[1]);}F();|}
+
+let pointer_quota_source =
+  {|class Box{U16 *p;};I64 F(){Box o;U16 values[2];values[1]=42;
+o.p=values;o.p++;return *o.p;}F();|}
+
+let pointer_proof_source =
+  {|class Box{U8 tag;U8 *p[2][3];};I64 F(){Box o;U8 value=42;
+o.p[1][2]=&value;return *o.p[1][2];}F();|}
+
+let pointer_local_proof_source =
+  {|I64 F(){class Box{U8 tag;U8 *p[2][3];};Box o;U8 value=42;
+o.p[1][2]=&value;return *o.p[1][2];}F();|}
+
+let pointer_values =
+  [
+    ( "function-local pointer fields retain their original projection",
+      pointer_local_proof_source,
+      42L,
+      "" );
+    ( "function-local class pointer field uses its selected stride",
+      {|I64 F(){class Item{U8 tag;U16 value;};class Box{Item *p;};
+Item items[2];Box box;items[1].value=42;box.p=items;box.p++;
+return box.p->value;}F();|},
+      42L,
+      "" );
+    ( "pointer field execution combines with builtin member size queries",
+      {|class Box{U16 *p;U64 bits;};I64 F(){Box box;U16 value=32;
+box.p=&value;return *box.p+sizeof(box.p)+sizeof(box.bits.u32.u16.u8);}F();|},
+      42L,
+      "" );
+    ( "address cancellation through a pointer field",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;U8 *q=&*o.p;return *q;}F();|},
+      42L,
+      "" );
+    ("packed pointer fields and call arguments", pointer_example, 42L, "AB");
+    ( "scalar pointer field store and load",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;return *o.p;}F();|},
+      42L,
+      "" );
+    ( "nested pointer field",
+      {|class I{U8 *p;};class Box{U8 tag;I item;};I64 F(){Box o;U8 value=42;o.item.p=&value;return *o.item.p;}F();|},
+      42L,
+      "" );
+    ("multidimensional pointer member array", pointer_proof_source, 42L, "");
+    ( "class pointer member array",
+      {|class I{U16 value;};class Box{I *p[2];};I64 F(){Box o;I item;item.value=42;o.p[1]=&item;return o.p[1]->value;}F();|},
+      42L,
+      "" );
+    ( "pointer fields in an aggregate root array",
+      {|class Box{U8 tag;U16 *p;};I64 F(){Box o[2][3];U16 value=42;o[1][2].p=&value;return *o[1][2].p;}F();|},
+      42L,
+      "" );
+    ( "inherited pointer field",
+      {|class Base{U8 tag;U16 *p;};class Box:Base{U8 tail;};I64 F(){Box o;U16 value=42;o.p=&value;return *o.p;}F();|},
+      42L,
+      "" );
+    ( "self class pointer field",
+      {|class Node{Node *next;U16 value;};I64 F(){Node a,b;b.value=42;a.next=&b;return a.next->value;}F();|},
+      42L,
+      "" );
+    ( "pointer field copied to a local pointer",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;U8 *q=o.p;return *q;}F();|},
+      42L,
+      "" );
+    ( "class pointer field copied to a local pointer",
+      {|class I{U16 value;};class Box{I *p;};I64 F(){Box o;I item;item.value=42;o.p=&item;I *q=o.p;return q->value;}F();|},
+      42L,
+      "" );
+    ( "pointer fields copy owned values between objects",
+      {|class Box{U8 *p;};I64 F(){Box a,b;U8 value=42;a.p=&value;b.p=a.p;return *b.p;}F();|},
+      42L,
+      "" );
+    ( "pointer member reached through a class parameter",
+      {|class Box{U8 *p;};I64 Read(Box *p){return *p->p;}I64 F(){Box o;U8 value=42;o.p=&value;return Read(&o);}F();|},
+      42L,
+      "" );
+    ( "callee saves a caller owned address",
+      {|class Box{U8 *p;};U0 Save(Box *p,U8 *value){p->p=value;}I64 F(){Box o;U8 value=42;Save(&o,&value);return *o.p;}F();|},
+      42L,
+      "" );
+    ( "callee overwrites an expired pointer field",
+      {|class Box{U8 *p;};U0 Save(Box *p){U8 value=99;p->p=&value;}I64 F(){Box o;U8 value=42;Save(&o);o.p=&value;return *o.p;}F();|},
+      42L,
+      "" );
+    ( "dereference destination retained across field retargeting",
+      {|class Box{U16 *p;};I64 F(){Box o;U16 a=20,b=22;o.p=&a;*o.p+=(o.p=&b)[0];if(b!=22)return -1;return a;}F();|},
+      42L,
+      "" );
+    ( "field destination retained across root retargeting",
+      {|class Box{U8 *p;};I64 F(){Box a,b;Box *root=&a;U8 old=99,value=42;b.p=&old;root->p=(root=&b)->p=&value;return *a.p;}F();|},
+      42L,
+      "" );
+    ( "indexed field destination retained across index changes",
+      {|class Box{U8 *p[2];};I64 F(){Box o;U8 values[2];values[1]=42;I64 i=0;o.p[i]=&values[i=1];return *o.p[0];}F();|},
+      42L,
+      "" );
+    ( "pointer field postfix and compound updates",
+      {|class Box{U16 *p;};I64 F(){Box o;U16 values[3];values[0]=40;values[2]=2;o.p=values;U16 *old=o.p++;o.p+=1;return *old+*o.p;}F();|},
+      42L,
+      "" );
+    ( "class pointer field updates use the selected pointee size",
+      {|class I{U8 tag;U16 value;};class Box{I *p;};I64 F(){Box o;I items[2];items[1].value=42;o.p=items;++o.p;return o.p->value;}F();|},
+      42L,
+      "" );
+    ( "same type union fields share pointer ownership",
+      {|union Box{U8 *p;U8 *q;};I64 F(){Box o;U8 value=42;o.p=&value;return *o.q;}F();|},
+      42L,
+      "" );
+    ( "disjoint scalar store preserves a pointer field",
+      {|class Box{U8 *p;U8 tag;};I64 F(){Box o;U8 value=42;o.p=&value;o.tag=99;return *o.p;}F();|},
+      42L,
+      "" );
+    ( "disjoint byte view preserves a pointer field",
+      {|class Box{U8 tag;U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;U8 *bytes=(&o)(U8*);bytes[0]=99;return *o.p;}F();|},
+      42L,
+      "" );
+    ( "pointer bytes initialize the default class prefix",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;return (o!=0)*42;}F();|},
+      42L,
+      "" );
+    ( "pointer byte aliases preserve equality for the same target",
+      {|union Box{U8 *p;U64 bits;};I64 F(){Box a,b;U8 value=42;a.p=&value;b.p=&value;return (a.bits==b.bits)*42;}F();|},
+      42L,
+      "" );
+  ]
+
+let pointer_width_matrix =
+  List.map
+    (fun (spelling, width) ->
+      ( "pointer field pointee width " ^ spelling,
+        Printf.sprintf
+          "union Box{%s *p;U64 bits;};I64 F(){Box o;%s \
+           values[2];values[1]=40;o.p=values;U64 \
+           old=o.bits;++o.p;*o.p+=2;if(o.bits-old!=%d)return -1;return \
+           *o.p;}F();"
+          spelling spelling width,
+        42L,
+        "" ))
+    [
+      ("Bool", 1);
+      ("I8", 1);
+      ("U8", 1);
+      ("I16", 2);
+      ("U16", 2);
+      ("I32", 4);
+      ("U32", 4);
+      ("I64", 8);
+      ("U64", 8);
+    ]
+
+let pointer_faults =
+  [
+    ( "whole class prefix store removes pointer ownership",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;U64 old=o;o=old;return *o.p;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "a later activation cannot revive a saved local pointer",
+      {|class Box{U8 *p;};U0 Save(Box *p,I64 keep){U8 value=42;if(keep)p->p=&value;}I64 F(){Box o;Save(&o,1);Save(&o,0);return *o.p;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "pointer union cannot change nominal class identity",
+      {|class A{U16 value;};class B{U16 value;};union Box{A *p;B *q;};I64 F(){Box o;A value;value.value=42;o.p=&value;return o.q->value;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "unknown pointer field",
+      {|extern U0 Print(U8 *fmt,...);class Box{U8 *p;};I64 F(){Box o;Print("kept");return *o.p;}F();|},
+      "HCIRVM0012",
+      "kept" );
+    ( "pointer field cannot keep a callee local alive",
+      {|extern U0 Print(U8 *fmt,...);class Box{U8 *p;};U0 Save(Box *p){U8 value=42;p->p=&value;}I64 F(){Box o;Save(&o);Print("kept");return *o.p;}F();|},
+      "HCIRVM0018",
+      "kept" );
+    ( "scalar union overwrite removes pointer ownership",
+      {|union Box{U8 *p;U64 bits;};I64 F(){Box o;U8 value=42;o.p=&value;o.bits=0;return *o.p;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "restoring pointer bits cannot restore ownership",
+      {|union Box{U8 *p;U64 bits;};I64 F(){Box o;U8 value=42;o.p=&value;U64 old=o.bits;o.bits=old;return *o.p;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "same byte overwrite removes pointer ownership",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;U8 *bytes=(&o)(U8*);bytes[7]=bytes[7];return *o.p;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "pointer union cannot change pointee type",
+      {|union Box{U8 *p;I8 *q;};I64 F(){Box o;U8 value=42;o.p=&value;return *o.q;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "initialized numeric bytes do not create a pointer field",
+      {|union Box{U8 *p;U64 bits;};I64 F(){Box o;o.bits=42;return *o.p;}F();|},
+      "HCIRVM0018",
+      "" );
+    ( "partial numeric bytes leave a pointer field unknown",
+      {|union Box{U8 *p;U8 byte;};I64 F(){Box o;o.byte=42;return *o.p;}F();|},
+      "HCIRVM0012",
+      "" );
+    ( "one past pointer field target cannot be read",
+      {|class Box{U16 *p;};I64 F(){Box o;U16 value=42;o.p=&value;o.p++;return *o.p;}F();|},
+      "HCIRVM0019",
+      "" );
+    ( "pointer field array store checks its full width",
+      {|class Box{U8 *p[2];};I64 F(){Box o;U8 value=42;o.p[2]=&value;return 0;}F();|},
+      "HCIRVM0019",
+      "" );
+    ( "word class parameters do not transfer pointer ownership",
+      {|class Box{U8 *p;};I64 Read(Box o){return *o.p;}I64 F(){Box o;U8 value=42;o.p=&value;return Read(o);}F();|},
+      "HCIRVM0018",
+      "" );
+  ]
+
+let pointer_unsupported =
+  [
+    ( "explicit address of a pointer field needs another pointer layer",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;*(&o.p)=&value;return **(&o.p);}F();|}
+    );
+    ( "numeric null pointer field",
+      {|class Box{U8 *p;};I64 F(){Box o;o.p=0;return *o.p;}F();|} );
+    ( "pointer field cast to a numeric word",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;return o.p(U64);}F();|}
+    );
+    ("F64 pointer field", {|class Box{F64 *p;};I64 F(){Box o;return *o.p;}F();|});
+    ("U0 pointer field", {|class Box{U0 *p;};I64 F(){Box o;return o.p==0;}F();|});
+    ( "multiple pointer layers in a field",
+      {|class Box{U8 **p;};I64 F(){Box o;return **o.p;}F();|} );
+  ]
+
+let pointer_retained_values =
+  [
+    ( "pointer fields and builtin queries preserve their selected classes",
+      {|class Item{U16 value;};class Box{Item *p;U64 bits;};
+I64 F(){Box box;Item item;item.value=40;box.p=&item;
+return box.p->value+sizeof(box.bits.u16.u8);}
+class Item{U8 value;};class U64{U8 changed;};F();|},
+      42L,
+      "" );
+    ( "pointer member retains the earlier selected class",
+      {|class I{U16 value;};class Box{I *p;};I64 F(){Box o;I item;item.value=42;o.p=&item;return o.p->value;}class I{U8 value;};F();|},
+      42L,
+      "" );
+    ( "pointer field survives a later containing class replacement",
+      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;return *o.p;}class Box{U64 bits;};F();|},
+      42L,
+      "" );
+  ]
+
 let values =
   [
     ( "direct member store and load",
@@ -141,9 +395,6 @@ let unsupported =
       {|class Box{U8 byte;};I64 F(){Box a,b=a;return 42;}F();|} );
     ( "class pointer return",
       {|class Box{U8 byte;};Box *Get(Box *p){return p;}I64 F(){Box o;return Get(&o)->byte;}F();|}
-    );
-    ( "pointer field has no descriptor ownership",
-      {|class Box{U8 *p;};I64 F(){Box o;U8 value=42;o.p=&value;return *o.p;}F();|}
     );
     ( "callback field has no executable owner",
       {|class Box{I64 (*call)(I64 value);};I64 Id(I64 value){return value;}I64 F(){Box o;o.call=&Id;return o.call(42);}F();|}

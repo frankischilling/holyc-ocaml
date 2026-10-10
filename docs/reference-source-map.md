@@ -7,7 +7,10 @@ dimension count before further lookahead. `Compiler/LexLib.HC:67-85,103-148`
 supplies inherited lookup and first-match duplicate behavior.
 `Compiler/PrsVar.HC:247-283,521-532,660-669` supplies dimensions, member
 publication and earlier placement sizes; `Compiler/PrsLib.HC:40-59` supplies
-the pointer companion class records.
+the pointer companion class records. `Kernel/KernelA.HH:67-113` supplies all
+24 fields of the six builtin integer unions. The primitive-source generator
+preserves each field's original internal/public type spelling and array count;
+queries retain that selected class across later declarations with the same name.
 
 [Local aggregate `sizeof`](local-aggregate-sizeof.md) follows
 `Compiler/PrsExp.HC:303-350`: the original local supplies its selected class,
@@ -1111,7 +1114,7 @@ The `(` case in `PrsUnaryModifier` first handles a function expression through `
 
 The `KW_SIZEOF` case in `PrsUnaryTerm` sets `PREC_TERM`, consumes zero or more opening parentheses, calls `PrsSizeOf`, requires the same number of closing parentheses, and returns `PE_MAYBE_MODIFIERS`. `PrsSizeOf` requires an identifier, resolves it among local variables, internal types, classes, globals, functions, and exports, loops over dot-separated members, and then consumes every trailing pointer star. That star loop does not use the `PTR_STARS_NUM` limit from `PrsType`. A pointer target forces the result to `sizeof(U8 *)`; other targets use class size, array byte count, or function debug range before the routine adds an immediate I64 result. The OCaml AST preserves the keyword, wrapper pairs, unresolved target, complete member path, target stars, and combined provenance. It intentionally follows the repeated-member loop even though `Doc/HolyC.DD` claims only one member level. Because the source returns `PE_MAYBE_MODIFIERS`, only a postfix cast can follow the raw term; calls, indexes, member accesses, and updates become available after that cast. `HCPARSE0031` through `HCPARSE0034` cover malformed target shapes and direct suffixes. The semantic source view carries that complete syntax into function and executable top-level trees together with the exact source-ordered root query. Local, module, supplied outer, and complete-miss roots remain distinguishable without a second mutable lookup. Public primitive and checked scalar values use their retained type evidence. In function bodies, a completed class or union root and a zero-rank by-value aggregate object retain the source-visible completed layout size. In that function-call semantic-result path, every member segment comes from `Aggregate_member_index`, including the current-before-base search in `Compiler/LexLib.HC:67-85`, and the final member uses its full checked layout size. The trailing-star rule is applied only after a valid root or member path. That typed-result path cannot evaluate standalone array-root extents, pointer traversal, executable top-level or unmappable outer aggregate roots, or direct function debug ranges. Issues #484, #486, and #488 record these evaluation steps.
 
-The live source compiler has a separate `Sema.Compiler_record` path for member `sizeof`. It consumes the original root, dot and member callbacks before their following lexer reads, then uses each field's checked type and array count with its selected class's size at the member read. Thus `sizeof(objects.field)` works when `objects` is an automatic array; the root array count does not multiply the field size. Saved member results keep their original value and runtime dependencies after later class completion. Pointer traversal, persistent aggregate objects and builtin public-union subfields remain outside this path. See [member sizes](aggregate-member-sizeof.md).
+The live source compiler has a separate `Sema.Compiler_record` path for member `sizeof`. It consumes the original root, dot and member callbacks before their following lexer reads, then uses each field's checked type and array count with its selected class's size at the member read. Thus `sizeof(objects.field)` works when `objects` is an automatic array; the root array count does not multiply the field size. Builtin public unions use their generated original member declarations, including nested queries and supported scalar global/static roots. Saved member results keep their original value and runtime dependencies after later class completion. Pointer traversal and persistent user-defined aggregate objects remain outside this path. See [member sizes](aggregate-member-sizeof.md).
 
 The adjacent `KW_OFFSET` case has the same `PREC_TERM`, wrapper, and `PE_MAYBE_MODIFIERS` behavior, but it calls `PrsOffsetOf`. That routine resolves the first identifier as a local variable, class, or global variable, requires a dot, and follows one or more member names. Each step adds `CMemberLst.offset` and moves to `member_class`; the final sum is emitted as `IC_IMM_I64`. The OCaml AST records the unresolved root and every member segment. It follows the executable `do ... while` loop despite the one-level statement in `Doc/HolyC.DD`. Unlike `PrsSizeOf`, this routine has no pointer-star loop. `HCPARSE0035` through `HCPARSE0039` cover missing roots, missing dots or member names, unmatched wrappers, and forbidden direct suffixes. The function-binding pass resolves a local root for warning-count purposes and omits each member spelling, matching the source decrement after incidental local lookup. The expression-result pass now resolves source-visible completed aggregate publications in both result owners, keeps every checked lookup and cumulative offset, and produces internal `I64`. Local and global object roots and immediate lowering remain unimplemented.
 
@@ -2077,3 +2080,14 @@ selection still comes from the original sealed IMM-slot/DEREF receipt and
 current publication. Native Print emits the shared formatter as a separate
 fixed-scratch entry with bounded runtime argument tables; IR streams use the
 original task contexts. These hosted checks add no TempleOS runtime capture.
+
+IR data pointer fields use `Compiler/PrsLib.HC:40-60`'s eight-byte pointer
+records and `Compiler/PrsExp.HC:960-1115`'s selected member class, offset and
+array dimensions. The complete `PrsAddOp`, `PrsExpression2` and `PrsUnaryTerm`
+producers retain pointed arithmetic, dereferences, updates and destinations.
+`BackLib.HC:445-659,693-708` and `BackC.HC:159-206` supply raw-width movement,
+pointed loads and pointed stores. Hosted pointer shadows retain target ownership
+separately from serialized virtual address bytes; dead targets and overlapping
+numeric stores cannot supply executable pointers. Native fields remain gated.
+See [owned data pointer fields](aggregate-pointer-fields.md) for the execution
+contract and remaining work under issue #686.

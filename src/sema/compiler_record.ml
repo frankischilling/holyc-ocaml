@@ -98,6 +98,11 @@ end)
 
 type aggregate_stamp = { mutable current_stamp : unit ref }
 
+type sizeof_class =
+  | Declared_class of Type.t
+  | Pointer_class
+  | Unavailable_class
+
 type aggregate_field = {
   field_phase : Parser.aggregate_phase;
   field_namespace : Declaration_collection.namespace;
@@ -114,6 +119,7 @@ type t = {
   entry : Visibility.entry;
   symbol : Symbol.t;
   primitive : Primitive_type.t option;
+  object_class : sizeof_class option;
   byte_size : int64;
   internal : bool;
   runtime_dimensions : runtime_dimension_proposal list;
@@ -172,11 +178,6 @@ type inherited_metadata = {
 
 type aggregate_value_header = inherited_metadata
 type aggregate_import = inherited_metadata
-
-type sizeof_class =
-  | Declared_class of Type.t
-  | Pointer_class
-  | Unavailable_class
 
 type sizeof_member_read = {
   member_source : Parser.query_member;
@@ -639,6 +640,7 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           entry;
           symbol;
           primitive = Some primitive;
+          object_class = None;
           byte_size = Int64.of_int info.byte_size;
           internal = true;
           runtime_dimensions = [];
@@ -670,7 +672,8 @@ let seed_public_union ~table ~entry ~symbol
     | Some primitive ->
         let info = Primitive_type.info primitive in
         if
-          info.declaration_form <> Primitive_type.Public_union
+          Visibility.public_primitive entry <> Some primitive
+          || info.declaration_form <> Primitive_type.Public_union
           || info.spelling <> source.public_spelling
           || info.declaration_source_line <> source.source_line
         then
@@ -683,6 +686,7 @@ let seed_public_union ~table ~entry ~symbol
               entry;
               symbol;
               primitive = Some primitive;
+              object_class = None;
               byte_size = Int64.of_int info.byte_size;
               internal = false;
               runtime_dimensions = [];
@@ -1098,6 +1102,7 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
                 entry = source.aggregate_entry;
                 symbol = Declaration_collection.publication_symbol publication;
                 primitive = None;
+                object_class = None;
                 byte_size = 0L;
                 internal = false;
                 runtime_dimensions = [];
@@ -1548,6 +1553,7 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
         entry = source.aggregate_entry;
         symbol;
         primitive = None;
+        object_class = None;
         byte_size;
         internal = false;
         runtime_dimensions =
@@ -1688,6 +1694,9 @@ let rebind_primitive ~table ~symbol record =
   then Error "forked primitive compiler record has a foreign symbol"
   else Ok { record with table; symbol }
 
+let sizeof_class_of_type type_ =
+  if Type.pointer_depth type_ > 0 then Pointer_class else Declared_class type_
+
 let published_scalar ?(dimensions = []) ~table ~namespace publication =
   if
     (not (Declaration_collection.namespace_owns_table namespace table))
@@ -1699,16 +1708,19 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
     match Declaration_collection.publication_source_global publication with
     | None -> Error "compiler record has no original parser global publication"
     | Some source ->
-        let* byte_size =
+        let* byte_size, object_class =
           match source.global_function_pointer with
-          | Some _ -> Ok 8L
+          | Some _ ->
+              Ok (Int64.of_int Primitive_type.pointer_byte_size, Pointer_class)
           | None ->
               let* type_reference =
                 Source_type_reference.builtin
                   source.global_header.type_specifier
                   source.global_pointer_layers
               in
-              scalar_size (Type_reference.resolved_type type_reference)
+              let type_ = Type_reference.resolved_type type_reference in
+              let* byte_size = scalar_size type_ in
+              Ok (byte_size, sizeof_class_of_type type_)
         in
         let* byte_size =
           declared_array_size ~table ~namespace
@@ -1722,6 +1734,7 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
             entry = source.global_entry;
             symbol = Declaration_collection.publication_symbol publication;
             primitive = None;
+            object_class = Some object_class;
             byte_size;
             internal = false;
             runtime_dimensions =
@@ -1892,6 +1905,18 @@ let validate_declared_global_type declaration global =
   then Error "completed storage substituted its declared type or dimensions"
   else Ok ()
 
+let retained_global_class global =
+  match Global_type_resolution.global_declarator_kind global with
+  | Global_type_resolution.Function_pointer _ ->
+      Ok (Int64.of_int Primitive_type.pointer_byte_size, Pointer_class)
+  | Global_type_resolution.Object ->
+      let type_ =
+        Global_type_resolution.global_type_reference global
+        |> Type_reference.resolved_type
+      in
+      let* byte_size = scalar_size type_ in
+      Ok (byte_size, sizeof_class_of_type type_)
+
 let bind_retained_scalar ~table ~entry global =
   let symbol = Global_type_resolution.global_symbol global in
   if
@@ -1903,44 +1928,23 @@ let bind_retained_scalar ~table ~entry global =
   else if Global_type_resolution.global_array_dimensions global <> [] then
     Error "sizeof requires the retained global's checked array extent"
   else
-    match Global_type_resolution.global_declarator_kind global with
-    | Global_type_resolution.Function_pointer _ ->
-        Ok
-          {
-            table;
-            entry;
-            symbol;
-            primitive = None;
-            byte_size = 8L;
-            internal = false;
-            runtime_dimensions = [];
-            runtime_offsets = [];
-            aggregate_owner = None;
-            aggregate_stamp = None;
-            aggregate_base_snapshot = None;
-            aggregate_fields = None;
-          }
-    | Global_type_resolution.Object ->
-        let* byte_size =
-          scalar_size
-            (Type_reference.resolved_type
-               (Global_type_resolution.global_type_reference global))
-        in
-        Ok
-          {
-            table;
-            entry;
-            symbol;
-            primitive = None;
-            byte_size;
-            internal = false;
-            runtime_dimensions = [];
-            runtime_offsets = [];
-            aggregate_owner = None;
-            aggregate_stamp = None;
-            aggregate_base_snapshot = None;
-            aggregate_fields = None;
-          }
+    let* byte_size, object_class = retained_global_class global in
+    Ok
+      {
+        table;
+        entry;
+        symbol;
+        primitive = None;
+        object_class = Some object_class;
+        byte_size;
+        internal = false;
+        runtime_dimensions = [];
+        runtime_offsets = [];
+        aggregate_owner = None;
+        aggregate_stamp = None;
+        aggregate_base_snapshot = None;
+        aggregate_fields = None;
+      }
 
 let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
   if not (Declaration_collection.namespace_owns_table namespace table) then
@@ -1980,9 +1984,6 @@ let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
               "return class size lacks its exact current retained aggregate \
                layout")
 
-let sizeof_class_of_type type_ =
-  if Type.pointer_depth type_ > 0 then Pointer_class else Declared_class type_
-
 let primitive_sizeof_class ~internal primitive =
   let has_internal_spelling =
     Primitive_type.of_storage_spelling
@@ -2007,10 +2008,11 @@ let sizeof_record_class record =
           |> Result.map sizeof_class_of_type
       | None -> Error "sizeof class lacks its original canonical identity")
   | None -> (
-      match record.primitive with
-      | Some primitive ->
+      match (record.primitive, record.object_class) with
+      | Some primitive, _ ->
           primitive_sizeof_class ~internal:record.internal primitive
-      | None -> Ok Unavailable_class)
+      | None, Some class_ -> Ok class_
+      | None, None -> Ok Unavailable_class)
 
 let read_sizeof ~table ~(root : Parser.query_root) (record : t) =
   if record.table != table || not (Symbol_table.owns_symbol table record.symbol)
@@ -2356,9 +2358,45 @@ let read_sizeof_member ~table ~namespace ~aggregates
     in
     let rec find_member visited type_ =
       match Type.base type_ with
-      | Type.Primitive _ ->
-          Error
-            "sizeof public union members require their original field metadata"
+      | Type.Primitive (Type.Internal_storage, _) ->
+          Error "sizeof internal type has no members"
+      | Type.Primitive (Type.Public_spelling, primitive) -> (
+          match Primitive_type.public_union_members primitive with
+          | None -> Error "sizeof internal type has no members"
+          | Some members ->
+              let* field =
+                match
+                  List.find_opt
+                    (fun (field :
+                           Generated.Primitive_raw_types.public_union_member) ->
+                      field.name = name)
+                    members
+                with
+                | Some field -> Ok field
+                | None ->
+                    Error ("sizeof class has no member named `" ^ name ^ "`")
+              in
+              (* These spellings come from the pinned member declarations, not
+                 the current source environment. Later type replacements cannot
+                 change the class selected when the builtin union was seeded. *)
+              let form, primitive =
+                match
+                  Primitive_type.of_storage_spelling field.type_spelling
+                with
+                | Some primitive -> (Type.Internal_storage, Some primitive)
+                | None ->
+                    ( Type.Public_spelling,
+                      Primitive_type.of_spelling field.type_spelling )
+              in
+              let* primitive =
+                match primitive with
+                | Some primitive -> Ok primitive
+                | None -> Error "sizeof builtin member lacks its pinned class"
+              in
+              let* type_ =
+                Type.make_primitive ~form ~primitive ~pointer_depth:0
+              in
+              Ok ((type_, Int64.of_int field.array_count, [], []), []))
       | Type.Aggregate symbol -> (
           if List.exists (( == ) symbol) visited then
             Error "sizeof member lookup reached a repeated inherited class"
@@ -2382,7 +2420,13 @@ let read_sizeof_member ~table ~namespace ~aggregates
                 None fields
             in
             match field with
-            | Some field -> Ok (field, [ record ])
+            | Some field ->
+                Ok
+                  ( ( field.field_type,
+                      field.field_count,
+                      field.field_dimensions,
+                      field.field_offsets ),
+                    [ record ] )
             | None -> (
                 match record.aggregate_base_snapshot with
                 | None ->
@@ -2398,7 +2442,7 @@ let read_sizeof_member ~table ~namespace ~aggregates
                     | Pointer_class | Unavailable_class ->
                         Error "sizeof base lacks its selected class identity")))
     in
-    let* field, records =
+    let* (field_type, field_count, field_dimensions, field_offsets), records =
       match sizeof_selected_class read with
       | Declared_class type_ -> find_member [] type_
       | Pointer_class -> Error "sizeof pointer class has no members"
@@ -2406,35 +2450,35 @@ let read_sizeof_member ~table ~namespace ~aggregates
           Error "sizeof member requires its original selected class metadata"
     in
     let* element_size, selected_record =
-      if Type.pointer_depth field.field_type > 0 then
+      if Type.pointer_depth field_type > 0 then
         Ok (Int64.of_int Primitive_type.pointer_byte_size, None)
       else
-        match Type.base field.field_type with
+        match Type.base field_type with
         | Type.Primitive _ ->
-            let* size = scalar_size field.field_type in
+            let* size = scalar_size field_type in
             Ok (size, None)
         | Type.Aggregate symbol ->
-            let* record = current_aggregate field.field_type symbol in
+            let* record = current_aggregate field_type symbol in
             Ok (record.byte_size, Some record)
     in
     let records = Option.to_list selected_record @ records in
     let member =
       {
         member_source = source;
-        member_class = sizeof_class_of_type field.field_type;
+        member_class = sizeof_class_of_type field_type;
         (* PrsSizeOf reads the live selected class size, not the extent saved
            when this member was placed in its containing object. *)
-        member_byte_size = Int64.mul element_size field.field_count;
+        member_byte_size = Int64.mul element_size field_count;
         member_dimensions =
           merge_dimension_dependencies
             (sizeof_runtime_dependencies read)
-            (field.field_dimensions
+            (field_dimensions
             @ List.concat_map (fun record -> record.runtime_dimensions) records
             );
         member_offsets =
           merge_offset_dependencies
             (sizeof_runtime_offsets read)
-            (field.field_offsets
+            (field_offsets
             @ List.concat_map (fun record -> record.runtime_offsets) records);
       }
     in
@@ -3211,19 +3255,14 @@ let bind_retained_global ~table ~entry ~record ~extent =
         || Symbol.name symbol <> Visibility.name entry
       then Error "retained compiler record has a foreign symbol or entry"
       else
-        let* byte_size =
-          match Global_type_resolution.global_declarator_kind global with
-          | Global_type_resolution.Function_pointer _ -> Ok 8L
-          | Global_type_resolution.Object ->
-              Global_type_resolution.global_type_reference global
-              |> Type_reference.resolved_type |> scalar_size
-        in
+        let* byte_size, object_class = retained_global_class global in
         Ok
           {
             table;
             entry;
             symbol;
             primitive = None;
+            object_class = Some object_class;
             byte_size = Int64.mul byte_size extent.global_extent_count;
             internal = false;
             runtime_dimensions = global_extent_runtime_dependencies extent;

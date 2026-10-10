@@ -30,11 +30,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 12 || Array.length Sys.argv = 13)
-    "expected compiler and ten aggregate examples, optionally --native"
+    (Array.length Sys.argv = 13 || Array.length Sys.argv = 14)
+    "expected compiler and eleven aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 13 && Sys.argv.(12) = "--native"
+let native = Array.length Sys.argv = 14 && Sys.argv.(13) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -192,6 +192,22 @@ let () =
     (fun mode ->
       List.iter
         (fun target ->
+          if target = "ir" then (
+            List.iter
+              (fun (_, source, expected, output) ->
+                value expected output (invoke target mode source))
+              (Cases.pointer_values @ Cases.pointer_width_matrix);
+            value 42L "AB" (invoke target mode (read Sys.argv.(12)));
+            List.iter
+              (fun (_, source, code, output) ->
+                error ~code output (invoke ~status:1 target mode source))
+              Cases.pointer_faults)
+          else
+            List.iter
+              (fun (_, source, _, _) ->
+                error ~code:"HCBACK0002" ""
+                  (invoke ~status:1 target mode source))
+              (Cases.pointer_values @ Cases.pointer_width_matrix);
           List.iter
             (fun (name, source, word, output) ->
               value ~warnings:(value_warnings name)
@@ -269,7 +285,7 @@ let () =
               (fun (_, source, expected, output) ->
                 value expected output (invoke target mode source))
               (Defaults.jit_values @ Inherited.retained_values
-             @ Cases.retained_nested_values));
+             @ Cases.retained_nested_values @ Cases.pointer_retained_values));
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
@@ -327,7 +343,8 @@ let () =
             ];
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
-            (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
+            (Cases.unsupported @ Cases.pointer_unsupported @ Arrays.unsupported
+           @ Pointers.unsupported
             @ (if target = "ir" && mode = "jit" then Inherited.unsupported
                else Inherited.source_unsupported)
             @ Backed.unsupported @ Default.unsupported @ Parameters.unsupported
@@ -340,6 +357,10 @@ let () =
         ~options:("--code-byte-limit=524288" :: options)
         "host-jit-task" "jit" source
     in
+    List.iter
+      (fun (_, source, _, _) ->
+        error ~code:"HCBACK0002" "" (invoke_task ~status:1 source))
+      (Cases.pointer_values @ Cases.pointer_retained_values);
     value 42L "" (invoke_task (read Sys.argv.(11)));
     nested_limits "host-jit-task";
     let task_values =

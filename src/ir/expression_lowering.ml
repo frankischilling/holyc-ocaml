@@ -424,11 +424,17 @@ let callback_word_type type_ =
 
 let array_pointer_type type_ =
   scalar_pointer_type type_
+  || Option.fold ~none:false
+       ~some:Aggregate_member_projection.pointer_member_type
+       (Type.dereference type_ |> Result.to_option)
   || Option.fold ~none:false ~some:callback_word_type
        (Type.dereference type_ |> Result.to_option)
 
 let storage_element_size type_ =
-  if callback_word_type type_ then Some 8L
+  if
+    callback_word_type type_
+    || Aggregate_member_projection.pointer_member_type type_
+  then Some 8L
   else
     Option.map
       (fun scalar -> Int64.of_int (Integer_scalar_storage.byte_size scalar))
@@ -1749,12 +1755,7 @@ let checked_member_projection result member =
     | None -> invalid "member expression has no checked storage type"
     | Some member_type -> (
         let supported =
-          Type.pointer_depth member_type = 0
-          && (Option.is_some (Integer_scalar_storage.of_type member_type)
-             ||
-             match Type.base member_type with
-             | Type.Aggregate _ -> true
-             | _ -> false)
+          Aggregate_member_projection.supported_member_type member_type
         in
         if not supported then Ok None
         else
@@ -1940,6 +1941,13 @@ let rec prepare_index_address ?frame ?globals result =
                           if
                             F.location_kind location <> F.Automatic_local
                             && F.location_kind location <> F.Variadic_argv
+                            || F.location_kind location = F.Automatic_local
+                               && F.location_declarator_shape location
+                                  = F.Object
+                               && Type.pointer_depth
+                                    (F.location_storage_type location
+                                    |> Result.get_ok)
+                                  > 0
                             || F.location_declarator_shape location <> F.Object
                                && not
                                     (Option.fold ~none:false

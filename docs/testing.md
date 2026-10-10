@@ -7,8 +7,14 @@ members, forward completion and declaration lookahead. JIT and AOT authority
 tests reject foreign or expired member evidence and preserve earlier size
 snapshots. Native tests require completed fragments with no interpreted runtime
 instructions. CLI checks verify `1 14 6 4 8` and result 33 in both IR modes and
-native JIT targets; runtime fixtures check exact preparation, execution, code
-and output allowances. Persistent storage stays in explicit refusal fixtures.
+native JIT targets. The builtin union example checks `8 4 2 2 4` and result 32
+through the same targets. Shared source cases cover all six builtin unions,
+nested counts, local/parameter/global/static declarations and type replacement;
+generator tests check all 24 original fields and reject malformed declarations.
+Runtime fixtures retain dimension and offset dependencies through primitive
+member traversal and check exact preparation, execution, code and output
+allowances. Persistent user-defined aggregate storage stays in explicit refusal
+fixtures.
 
 [Local aggregate size tests](local-aggregate-sizeof.md) provide 19 shared source
 fixtures: 16 closed cases in both IR modes, two JIT declaration-lookahead cases
@@ -55,12 +61,12 @@ maintained example is `examples/default-aggregate-values.hc`.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-class defaults, callback class parameters and persistent objects still need
-their own implementation.
+AOT IR and ordinary native defaults containing references, callback class
+parameters and persistent objects still need their own implementation.
 
 Aggregate member, automatic root array, class pointer and inherited storage
-execution has 266 IR and 264 native test groups. Independent
-source expectations cover direct and pointer fields, nested aggregates,
+execution uses shared IR and native fixtures. Independent source expectations
+cover direct and pointer fields, nested aggregates,
 multidimensional member and root arrays, dynamic indices, root and row decay,
 class pointer locals and parameters, selected strides, prefix/postfix snapshots,
 compound RHS rebinding, aliases,
@@ -68,15 +74,21 @@ all nine integer widths, union overlap, padding and shadowing. Unknown-byte and
 extent faults retain reached output. IR mutation controls validate exact field
 proofs before execution; native controls reject changed sealed graphs before
 image allocation. Exact and one-below runtime frame, instruction, native stack
-and encoded-image quotas cover both modes and native ABIs. The actual CLI runs
-834 IR reports and 1669 with native execution, including unused-array warnings.
+and encoded-image quotas cover both modes and native ABIs. CLI checks exercise
+the public targets and preserve the original unused-array warnings.
 Root-array mutation controls reject changed strides and foreign frames before
 IR execution. Pointee proofs also reject missing, foreign, changed and
 other-function layouts before execution; exact quotas cover scalar, array and
 pointer update fixtures.
-General whole aggregate values and copies,
-pointer fields, partial/out-of-compilation inherited bases and retained JIT
-imports stay unsupported.
+Owned integer and class pointer fields execute in IR, including member arrays,
+pointer updates and retained selections. Combined fixtures check function-local
+field proofs and strides, builtin member sizes and type replacement. Faults
+cover expired callee locals, overlapping writes, numeric reconstruction and
+incompatible pointees. Native public and retained targets preserve the explicit
+pointer-field rejection. See [pointer fields](aggregate-pointer-fields.md).
+General aggregate copies, native pointer fields, persistent objects and partial
+or out-of-compilation inherited bases remain unsupported. Retained JIT imports
+require the original completed class and command evidence.
 These hosted checks have no TempleOS runtime capture. See
 [owned aggregate members](aggregate-members.md) and [class pointers](class-pointers.md).
 
@@ -85,8 +97,8 @@ offsets, class and union overlap rules, nested inherited arrays, all nine field
 widths, same-size redefinitions and source-selected base proofs. Faults cover
 unknown bytes, negative offsets, shrinking children, extents, cross-object
 differences and scale overflow. Metadata tests retain partial/forward/self
-bases and once-only declaration effects. Native task object storage remains
-outside this admission. See [inherited aggregates](inherited-aggregates.md).
+bases and once-only declaration effects. Native tasks retain their original
+completed layout and command evidence. See [inherited aggregates](inherited-aggregates.md).
 
 Automatic aggregate storage has 23 IR and 23 native test groups. Shared source
 fixtures cover packed and unaligned windows, named and anonymous unions,

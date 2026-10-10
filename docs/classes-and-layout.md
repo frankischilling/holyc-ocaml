@@ -3,7 +3,9 @@
 [Member `sizeof`](aggregate-member-sizeof.md) follows original dot paths through
 named types, automatic objects and class parameters. The final field uses its
 own array count and the current size of its exact selected class, including
-nested and inherited members. Earlier query results remain unchanged.
+nested and inherited members. Builtin integer-union fields retain their pinned
+types and counts, including nested queries and supported scalar globals and
+statics. Earlier query results remain unchanged.
 
 [Local aggregate `sizeof`](local-aggregate-sizeof.md) reads the selected class
 size at the original query and multiplies it by the local's checked array
@@ -22,8 +24,8 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-class defaults, callback class parameters and persistent objects still need
-their own implementation.
+AOT IR and ordinary native defaults containing references, callback class
+parameters and persistent objects still need their own implementation.
 
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) now
 connect nonempty, completed earlier class and union layouts to isolated IR and
@@ -34,10 +36,16 @@ fields, member and automatic root arrays, and class pointer locals and
 parameters. [Class pointer operations](class-pointers.md) retain exact earlier
 pointee layouts for indexing, arithmetic and updates. [Inherited
 storage](inherited-aggregates.md) admits completed earlier base chains with
-exact original identities and sizes. Partial inherited metadata, retained JIT
-imports, persistent objects, whole-value postfix casts, class defaults and
-callback parameters and general aggregate copies, pointer fields and pointer
-returns remain unfinished.
+exact original identities and sizes. [Retained JIT class imports](retained-class-context.md)
+preserve original completed layouts, and [class default words](class-default-words.md)
+preserve the declared scalar view. Partial inherited metadata, persistent
+objects, whole-value postfix casts, callback parameters, general aggregate
+copies and class pointer returns remain unfinished.
+
+[Owned data pointer fields](aggregate-pointer-fields.md) execute in IR,
+including member arrays and function-local classes. Typed stores preserve the
+target descriptor; overlapping numeric writes invalidate pointer ownership.
+Native pointer-field storage and lifetime checks remain unfinished.
 
 All compatibility findings in this document use TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
