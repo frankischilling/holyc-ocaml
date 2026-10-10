@@ -66,6 +66,7 @@ type argument = {
   value : Seq.Value_id.t;
   source_type : Type.t;
   target_type : Type.t;
+  transport_type : Type.t;
 }
 
 type call = {
@@ -180,6 +181,7 @@ let argument_producer argument = argument.producer
 let argument_value argument = argument.value
 let argument_source_type argument = argument.source_type
 let argument_target_type argument = argument.target_type
+let argument_transport_type argument = argument.transport_type
 let argument_prepared_default argument = argument.prepared_default
 let variadic_count (call : call) = call.variadic_count_
 let declaration (call : call) = call.declaration_
@@ -1557,6 +1559,16 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
     ~variadic:variadic_values ~count_type =
   let span = origin_span origin in
   let actual role target value =
+    Option.iter
+      (fun type_ ->
+        match (Type.base type_, Type.pointer_depth type_) with
+        | Type.Aggregate _, 0 ->
+            require ?span
+              (Option.is_none (Typed.result_callback_parser_pointer value))
+              "class parameters require integer words without executable \
+               callback ownership"
+        | _ -> ())
+      target;
     let source = producer_type ~globals value in
     {
       expected_role = role;
@@ -1802,7 +1814,20 @@ type pending = {
   mutable expected : expected_argument list;
 }
 
-let graph_context ~globals ~records ~validate_source owner graph descriptions =
+let graph_context ~globals ~records ~function_sources ~validate_source owner
+    graph descriptions =
+  let transport_type header type_ =
+    match
+      Typed.aggregate_integer_value_type function_sources
+        ~before_item_index:(Headers.function_item_index header)
+        type_
+    with
+    | Some _ ->
+        Type.make_primitive ~form:Type.Internal_storage
+          ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+        |> Result.get_ok
+    | None -> type_
+  in
   let callbacks, descriptions =
     List.partition
       (fun description ->
@@ -2240,6 +2265,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                         value;
                         source_type = expected.expected_source;
                         target_type = expected.expected_target;
+                        transport_type = expected.expected_target;
                       })
                     (List.combine expected item.operands);
                 pending.expected <- [];
@@ -2449,6 +2475,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                    value;
                    source_type = expected.expected_source;
                    target_type = expected.expected_target;
+                   transport_type = expected.expected_target;
                  }
                  :: pending.cb_pushes)
              else
@@ -2490,6 +2517,17 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                           immediate")
                      expected.expected_count;
                    require_saved_default_payload expected item;
+                   let transport =
+                     transport_type pending.shape.selected_header
+                       expected.expected_target
+                   in
+                   if not (Type.equal transport expected.expected_target) then
+                     require ?span
+                       (Option.is_some
+                          (Integer_scalar_storage.of_type
+                             expected.expected_source))
+                       "class parameter transport requires an integer word \
+                        producer";
                    pending.pushes <-
                      {
                        role = expected.expected_role;
@@ -2500,6 +2538,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                        value;
                        source_type = expected.expected_source;
                        target_type = expected.expected_target;
+                       transport_type = transport;
                      }
                      :: pending.pushes
                | _ ->
@@ -3024,12 +3063,12 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
           ignore
             (source_function ?span:(Function_body.span body)
                (Function_body.symbol body));
-          graph_context ~globals ~records ~validate_source (Function body)
-            (Function_body.body body) descriptions
+          graph_context ~globals ~records ~function_sources ~validate_source
+            (Function body) (Function_body.body body) descriptions
           :: checked_functions (body :: seen) rest
     in
     let graphs =
-      graph_context ~globals ~records ~validate_source Entry
+      graph_context ~globals ~records ~function_sources ~validate_source Entry
         (X87_stack.graph entry) entry_calls
       :: checked_functions [] functions
     in

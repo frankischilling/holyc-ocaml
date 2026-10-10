@@ -44,7 +44,9 @@ Ordinary assignments capture their destination before evaluating the RHS.
 Fused `*p++=rhs` and `*p--=rhs` stores read the binding's current pointer after
 the RHS, write the word, then advance by the original class size. Scalar
 results can supply supported primitive integer parameters and variadic
-output arguments. Class value parameters and returns need separate ABI work.
+output arguments. Provided integer words also supply
+[class value parameters](class-value-parameters.md).
+Class returns, prepared defaults and callback signatures need separate ABI work.
 
 The root's actual byte extent bounds every access. A one-byte standalone
 class cannot hold its default whole value. An eight-byte window beginning at
@@ -65,8 +67,9 @@ instruction, frame, stack and image limits, both native ABIs and proof
 ownership. The checks use expected words and hosted execution; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
-Whole-value postfix casts, aggregate initializers, class value parameter and
-return ABI paths, persistent objects, function-local and zero-sized layouts,
+Whole-value postfix casts, aggregate initializers, class returns, prepared class
+defaults and callback parameter ABI paths, persistent objects, function-local
+layouts and zero-sized automatic objects,
 pointer and callback backings, F64 execution, native task objects, retained
 JIT imports and general aggregate copies remain open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and related

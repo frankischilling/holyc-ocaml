@@ -97,6 +97,11 @@ val member_symbol : member -> Sema.Symbol.t
 val member_type : member -> Sema.Type.t
 val member_span : member -> Common.Span.t option
 
+val parameter_aggregate_value_type : t -> member -> Sema.Type.t option
+(** Integer raw class of an exact parameter in this body's original bound
+    definition. A raw body, foreign member or unsupported backing has no proof.
+    The nominal member type and the eight-byte argument slot remain separate. *)
+
 val human : t -> string
 (** Render the versioned named-function form used by tests and later tools. *)
 

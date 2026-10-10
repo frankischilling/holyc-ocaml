@@ -277,6 +277,11 @@ val argument_value : argument -> Instruction_sequence.Value_id.t
 val argument_source_type : argument -> Sema.Type.t
 val argument_target_type : argument -> Sema.Type.t
 
+val argument_transport_type : argument -> Sema.Type.t
+(** Full-word carrier of a source-selected integer class parameter. The target
+    type retains the original nominal signature. This does not narrow integer
+    argument bits to the class's memory view. *)
+
 val argument_prepared_default : argument -> Prepared_parameter_default.t option
 (** The exact prepared declaration-time value for an omitted fixed argument.
     Explicit argument producers and hidden variadic counts return [None]. *)

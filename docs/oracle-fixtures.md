@@ -1,5 +1,11 @@
 # Oracle fixtures
 
+The class parameter fixtures in `test/class_parameter_cases.ml` use independent
+expected words derived from the pinned argument-slot and scalar transport
+consumers. They check owned hosted IR and native execution in both modes; they
+contain no TempleOS runtime capture or machine-byte comparison. See
+[class value parameters](class-value-parameters.md) for scope and remaining ABI work.
+
 [`test/oracle/conditional-comparison-chains.json`](../test/oracle/conditional-comparison-chains.json)
 records 100 native result observations from 50 field/source pairs, plus 17 setup
 records, from one verified final-ISO TempleOS JIT boot. It covers context values,

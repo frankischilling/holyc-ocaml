@@ -552,9 +552,12 @@ extents and pointer strides. `examples/backed-aggregate-values.hc` returns 42.
 [Default class and union values](docs/default-aggregate-values.md) select the
 signed eight-byte prefix for ordinary classes and backing chains ending at
 them. `examples/default-aggregate-values.hc` returns 42.
+[Class value parameters](docs/class-value-parameters.md) receive full integer
+words in owned eight-byte slots, retaining nominal layouts and scalar views.
+`examples/class-value-parameters.hc` returns 42 in both modes and targets.
 Retained JIT imports, persistent objects, whole-value postfix casts and class
-value ABI paths remain open under issue #686. General aggregate copies,
-pointer fields and pointer returns also need their own implementation.
+returns, defaults and callback parameters remain open under issue #686. General
+aggregate copies, pointer fields and pointer returns also need their own implementation.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,

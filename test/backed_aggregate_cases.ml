@@ -139,9 +139,6 @@ let unsupported =
       {|F64 class Box{F64 word;};I64 F(){Box o;o=42;return o;}F();|} );
     ( "pointer class backing",
       {|U8 *class Box{U8 *word;};I64 F(){Box o;o=0;return o;}F();|} );
-    ( "backed class parameter ABI",
-      {|I64 class Box{I64 word;};I64 Take(Box o){return o;}I64 F(){Box o;o=42;return Take(o);}F();|}
-    );
     ( "backed class return ABI",
       {|I64 class Box{I64 word;};Box F(){Box o;o=42;return o;}F();|} );
     ( "backed persistent class object",

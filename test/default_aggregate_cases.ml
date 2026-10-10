@@ -139,9 +139,6 @@ let faults =
 
 let unsupported =
   [
-    ( "default class parameter ABI",
-      {|class Box{U64 word;};I64 Take(Box o){return o;}I64 F(){Box o;o=42;return Take(o);}F();|}
-    );
     ( "default class return ABI",
       {|class Box{U64 word;};Box F(){Box o;o=42;return o;}F();|} );
     ( "default persistent whole object",

@@ -45,14 +45,18 @@ let of_location location =
   match (Type.base type_, Frame.location_frame_slot location) with
   | Type.Aggregate _, Some slot
     when Type.pointer_depth type_ = 0
-         && Frame.location_kind location = Frame.Automatic_local
+         && (Frame.location_kind location = Frame.Automatic_local
+            || Frame.location_kind location = Frame.Named_parameter
+               && dimensions = [])
          && Frame.location_declarator_shape location = Frame.Object
          && shape_matches
          && Frame.location_source_dimensions_checked location
          && Option.is_none (Frame.location_callback_pointer location)
-         && bytes > 0L
+         && (bytes > 0L || Frame.location_kind location = Frame.Named_parameter)
          && bytes <= Int64.of_int Int.max_int
-         && extent = Some (Frame.location_allocated_size location)
+         && (extent = Some (Frame.location_allocated_size location)
+            || Frame.location_kind location = Frame.Named_parameter
+               && Frame.location_allocated_size location = 8L)
          && Frame.frame_slot_size slot = Frame.location_allocated_size location
     ->
       Some

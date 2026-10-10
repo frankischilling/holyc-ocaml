@@ -5,6 +5,7 @@ module Pointers = Aggregate_pointer_cases
 module Inherited = Inherited_aggregate_cases
 module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
+module Parameters = Class_parameter_cases
 module VM = Ir_integer_interpreter
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -59,7 +60,7 @@ let faults () =
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
         (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-       @ Backed.faults @ Default.faults);
+       @ Backed.faults @ Default.faults @ Parameters.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -87,7 +88,10 @@ let quotas () =
         let frame_bytes =
           integer_program_functions compiled
           |> List.map (fun (f : VM.function_definition) ->
-              Semantic_function_frame_layout.function_frame_size f.frame
+              Int64.add
+                (Semantic_function_frame_layout.function_frame_size f.frame)
+                (Int64.of_int
+                   (8 * List.length (Ir_function_body.parameters f.body)))
               |> Int64.to_int)
           |> List.fold_left max 0
         in
@@ -111,6 +115,7 @@ let quotas () =
       Inherited.quota_source;
       Backed.quota_source;
       Default.quota_source;
+      Parameters.quota_source;
     ]
 
 let foreign_frame () =
@@ -155,6 +160,7 @@ let foreign_frame () =
       Inherited.quota_source;
       Backed.quota_source;
       Default.quota_source;
+      Parameters.quota_source;
     ]
 
 let field_proofs () =
@@ -205,6 +211,80 @@ let field_proofs () =
       Default.proof_source;
     ]
 
+let class_parameter_ownership () =
+  let module Body = Ir_function_body in
+  let module Frame = Semantic_function_frame_layout in
+  List.iter
+    (fun mode ->
+      let compile () =
+        Aggregate_member_fixture.compile ~contents:Parameters.example mode
+      in
+      let own = compile () |> Aggregate_member_fixture.first_definition in
+      let foreign = compile () |> Aggregate_member_fixture.first_definition in
+      let parameter = List.hd (Body.parameters own.body) in
+      let location =
+        Frame.find_location own.frame (Body.member_symbol parameter)
+        |> Option.get
+      in
+      Alcotest.(check int64)
+        "nominal class extent" 3L
+        (Frame.location_element_size location);
+      Alcotest.(check int64)
+        "physical parameter slot" 8L
+        (Frame.location_allocated_size location);
+      let view =
+        Body.parameter_aggregate_value_type own.body parameter |> Option.get
+      in
+      Alcotest.(check bool)
+        "original U16 raw view" true
+        (match Semantic_type.base view with
+        | Semantic_type.Primitive (_, Primitive_type.U16) ->
+            Semantic_type.pointer_depth view = 0
+        | _ -> false);
+      Alcotest.(check bool)
+        "foreign member cannot select a class view" true
+        (Option.is_none
+           (Body.parameter_aggregate_value_type own.body
+              (List.hd (Body.parameters foreign.body))));
+      let callback =
+        Aggregate_member_fixture.compile
+          ~contents:"class Box{I64 word;};I64 F(Box (*p)()){return 42;}" mode
+        |> Aggregate_member_fixture.first_definition
+      in
+      Alcotest.(check bool)
+        "callback return metadata cannot supply class parameter ABI" true
+        (Option.is_none
+           (Body.parameter_aggregate_value_type callback.body
+              (List.hd (Body.parameters callback.body))));
+      let raw = Aggregate_member_fixture.rebuild own Fun.id in
+      Alcotest.(check bool)
+        "raw graph lacks class ABI owner" true
+        (Option.is_none
+           (Body.parameter_aggregate_value_type raw.body
+              (List.hd (Body.parameters raw.body))));
+      let execute definition =
+        VM.execute_function ~max_steps:100_000 ~max_frame_bytes:1024
+          ~frame:definition.VM.frame ~arguments:[ 0x070021L; 9L ]
+          definition.body
+      in
+      (match execute own with
+      | Ok result ->
+          Alcotest.(check (option int64))
+            "full incoming word reaches class members" (Some 42L)
+            (match VM.termination result with
+            | VM.Returned word -> Option.map (fun w -> w.VM.bits) word
+            | _ -> None)
+      | Error _ -> Alcotest.fail "owned class parameter failed direct execution");
+      match execute raw with
+      | Ok _ -> Alcotest.fail "raw graph acquired a class parameter root"
+      | Error errors ->
+          List.iter
+            (fun (e : VM.error) ->
+              Alcotest.(check int)
+                "class ABI rejection precedes execution" 0 e.executed_steps)
+            errors)
+    modes
+
 let boundaries () =
   failure "HCSEMA0046" "" (run Preprocessor.Jit Inherited.lookahead_source);
   ignore (value 42L "" (run Preprocessor.Aot Inherited.lookahead_source));
@@ -217,7 +297,8 @@ let boundaries () =
             (Result.is_error
                (integer_program_report_outcome (run mode contents))))
         (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-       @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported))
+       @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
+       @ Parameters.unsupported))
     modes
 
 let () =
@@ -232,7 +313,8 @@ let () =
                   modes))
           (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
          @ Pointers.values @ Pointers.view_matrix @ Inherited.values
-         @ Inherited.view_matrix @ Backed.values @ Default.values) );
+         @ Inherited.view_matrix @ Backed.values @ Default.values
+         @ Parameters.values @ Parameters.view_matrix) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"
@@ -240,6 +322,9 @@ let () =
           Alcotest.test_case "exact frame and instruction limits" `Quick quotas;
           Alcotest.test_case "foreign frame rejected before touching bytes"
             `Quick foreign_frame;
+          Alcotest.test_case
+            "class parameter slot requires its original ABI owner" `Quick
+            class_parameter_ownership;
           Alcotest.test_case
             "selected field proof cannot be borrowed or altered" `Quick
             field_proofs;

@@ -67,6 +67,7 @@ type member = member_description
 type definition_binding = {
   declaration : Sema.Function_resolution.resolved_declaration;
   frame : Sema.Function_frame_layout.function_layout;
+  aggregate_parameters : (Symbol.t * Sema.Type.t) list;
 }
 
 type t = {
@@ -419,13 +420,39 @@ let with_definition ~records ~sources ~frames ~definition ~frame function_ =
   Ok
     {
       function_ with
-      definition_ = Some { declaration; frame };
+      definition_ =
+        Some
+          {
+            declaration;
+            frame;
+            aggregate_parameters =
+              List.filter_map
+                (fun member ->
+                  match Frame.find_location frame (member_symbol member) with
+                  | Some location
+                    when Frame.location_declarator_shape location = Frame.Object
+                         && Option.is_none
+                              (Frame.location_callback_pointer location) ->
+                      Typed.aggregate_integer_value_type sources
+                        ~before_item_index:item_index (member_type member)
+                      |> Option.map (fun type_ -> (member_symbol member, type_))
+                  | _ -> None)
+                (parameters function_);
+          };
       dimension_dependencies_ =
         Dimension_requirements.functions sources
         @ Dimension_requirements.frame frame;
       offset_dependencies_ =
         Offset_requirements.functions sources @ Offset_requirements.frame frame;
     }
+
+let parameter_aggregate_value_type function_ member =
+  if not (List.exists (( == ) member) (parameters function_)) then None
+  else
+    Option.bind function_.definition_ (fun definition ->
+        definition.aggregate_parameters
+        |> List.find_opt (fun (symbol, _) -> symbol == member_symbol member)
+        |> Option.map snd)
 
 let add_quoted buffer text =
   Buffer.add_char buffer '"';

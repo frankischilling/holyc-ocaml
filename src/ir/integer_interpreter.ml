@@ -171,6 +171,7 @@ and frame_slot = {
 and frame_context = {
   layout : Frame.function_layout;
   slots : frame_slot array;
+  parameter_slots : (int * int * stored_type) array;
   offsets : int Offset_map.t;
   return_type : Type.t;
   allocated_bytes : int;
@@ -272,6 +273,7 @@ and callee = {
   callee_definition : Sema.Function_resolution.resolved_declaration option;
   callee_return_type : Type.t;
   parameter_types : stored_type array;
+  callee_parameter_slots : (int * int * stored_type) array;
   cleanup_opcode : Opcode.t;
   frame_bytes : int;
   variadic : bool;
@@ -5326,6 +5328,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     in
     let arguments = ref arguments in
     let prepared_rev = ref []
+    and parameter_slots_rev = ref []
     and total_cells = ref 0L
     and total_bytes = ref 0L
     and error = ref None in
@@ -5337,7 +5340,26 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     List.iter
       (fun location ->
         let dimensions = Frame.location_dimensions location in
-        let aggregate = Automatic_aggregate_storage.of_location location in
+        let aggregate =
+          let storage = Automatic_aggregate_storage.of_location location in
+          Option.bind storage (fun storage ->
+              if
+                Frame.location_kind location <> Frame.Named_parameter
+                || List.exists
+                     (fun member ->
+                       Function.member_symbol member
+                       == Frame.location_symbol location
+                       && Option.is_some
+                            (Function.parameter_aggregate_value_type function_
+                               member))
+                     (Function.parameters function_)
+              then Some storage
+              else None)
+        in
+        let aggregate_parameter =
+          Option.is_some aggregate
+          && Frame.location_kind location = Frame.Named_parameter
+        in
         let callback =
           match
             ( Frame.location_declarator_shape location,
@@ -5416,7 +5438,9 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                      | _ -> false) ->
             let offset = Frame.frame_slot_displacement slot in
             let count =
-              Int64.div bytes (Int64.of_int (stored_bytes stored_type))
+              Int64.div
+                (if aggregate_parameter then 8L else bytes)
+                (Int64.of_int (stored_bytes stored_type))
             in
             if
               count > Int64.sub max_cells !total_cells
@@ -5431,6 +5455,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                     arguments := rest;
                     match stored_type with
                     | Stored_word type_ -> Some (Runtime_word { type_; bits })
+                    | Stored_narrow _ when aggregate_parameter ->
+                        Some (Runtime_word { type_ = I64; bits })
                     | Stored_narrow scalar ->
                         Some
                           (Runtime_word
@@ -5469,7 +5495,18 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                 }
               in
               prepared_rev :=
-                (Int64.to_int !total_cells, offset, entry) :: !prepared_rev;
+                (Int64.to_int !total_cells, offset, entry, aggregate_parameter)
+                :: !prepared_rev;
+              if
+                Frame.location_kind location = Frame.Named_parameter
+                || Frame.location_kind location = Frame.Variadic_argc
+              then
+                parameter_slots_rev :=
+                  ( Int64.to_int !total_cells,
+                    Int64.to_int count,
+                    if aggregate_parameter then Stored_word I64 else stored_type
+                  )
+                  :: !parameter_slots_rev;
               total_cells := Int64.add !total_cells count;
               total_bytes := Int64.add !total_bytes (allocation_bytes bytes)
         | _ ->
@@ -5495,11 +5532,29 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
         in
         let offsets = ref Offset_map.empty in
         List.iter
-          (fun (base, offset, entry) ->
+          (fun (base, offset, entry, aggregate_parameter) ->
             if Offset_map.mem offset !offsets then
               error := Some "the checked frame contains overlapping roots";
             offsets := Offset_map.add offset base !offsets;
-            Array.fill slots base entry.object_count entry)
+            Array.fill slots base entry.object_count entry;
+            if aggregate_parameter then
+              for byte = 0 to 7 do
+                let initial =
+                  Option.map
+                    (function
+                      | Runtime_word word ->
+                          Runtime_word
+                            {
+                              type_ = U64;
+                              bits =
+                                Int64.logand 255L
+                                  (Int64.shift_right_logical word.bits (8 * byte));
+                            }
+                      | _ -> assert false)
+                    entry.initial
+                in
+                slots.(base + byte) <- { entry with initial }
+              done)
           (List.rev !prepared_rev);
         match !error with
         | Some message -> invalid message
@@ -5508,6 +5563,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               {
                 layout = frame;
                 slots;
+                parameter_slots = Array.of_list (List.rev !parameter_slots_rev);
                 offsets = !offsets;
                 return_type = Function.return_type function_;
                 allocated_bytes;
@@ -7082,7 +7138,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               |> Sema.Function_type_resolution.signature_parameters
             in
             let argument_type argument =
-              let type_ = Runtime.argument_target_type argument in
+              let type_ = Runtime.argument_transport_type argument in
               let callback =
                 match Runtime.argument_role argument with
                 | Runtime.Fixed index ->
@@ -7126,6 +7182,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   callee_definition = None;
                   callee_return_type = Runtime.return_type site;
                   parameter_types = Array.of_list types;
+                  callee_parameter_slots = [||];
                   cleanup_opcode = Runtime.cleanup_opcode site;
                   frame_bytes = 0;
                   variadic = false;
@@ -7234,6 +7291,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                       callee_return_type = callback.callback_return_type;
                       parameter_types =
                         Array.of_list (List.map Option.get parameter_types);
+                      callee_parameter_slots = [||];
                       cleanup_opcode =
                         (if callback.callback_callee_pop then Opcode.Ic_add_rsp1
                          else Opcode.Ic_add_rsp);
@@ -8710,7 +8768,14 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         | value :: rest ->
             Option.bind
               (coerce_value callee.parameter_types.(position) value)
-              (fun value -> fixed (position + 1) (Some value :: rev) rest)
+              (fun value ->
+                let _, count, _ = callee.callee_parameter_slots.(position) in
+                match value with
+                | Runtime_word _ ->
+                    fixed (position + 1) (Some value :: rev) rest
+                | _ when count = 1 ->
+                    fixed (position + 1) (Some value :: rev) rest
+                | _ -> None)
         | [] -> None
       else if not callee.variadic then
         if arguments = [] then Some (Array.of_list (List.rev rev), [||])
@@ -9824,8 +9889,29 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         let initialized =
                           frame_storage (Array.append body.initial_slots tail)
                         in
-                        Array.blit arguments 0 initialized.cells 0
-                          (Array.length arguments);
+                        Array.iteri
+                          (fun position value ->
+                            let base, count, _ =
+                              callee.callee_parameter_slots.(position)
+                            in
+                            if count = 1 then initialized.cells.(base) <- value
+                            else
+                              match value with
+                              | Some (Runtime_word word) ->
+                                  for byte = 0 to count - 1 do
+                                    initialized.cells.(base + byte) <-
+                                      Some
+                                        (Runtime_word
+                                           {
+                                             type_ = U64;
+                                             bits =
+                                               Int64.logand 255L
+                                                 (Int64.shift_right_logical
+                                                    word.bits (8 * byte));
+                                           })
+                                  done
+                              | _ -> assert false)
+                          arguments;
                         program :=
                           { body with initial_frame_bytes = frame_bytes };
                         publication_item := scope.publication_item;
@@ -11073,7 +11159,9 @@ let execute_program_with_output ?task ?isolated_budget
                 callee_return_type = Function.return_type body;
                 parameter_types =
                   Array.init parameter_count (fun position ->
-                      context.slots.(position).stored_type);
+                      let _, _, kind = context.parameter_slots.(position) in
+                      kind);
+                callee_parameter_slots = context.parameter_slots;
                 cleanup_opcode =
                   (if
                      Sema.Function_flag.caller_expects_callee_pop

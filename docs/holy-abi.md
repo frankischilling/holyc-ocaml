@@ -1,5 +1,8 @@
 # HolyC ABI source notes
 
+[Class value parameters](class-value-parameters.md) use owned eight-byte slots
+while retaining nominal member layouts, scalar views and pointer strides.
+
 These notes describe the ABI facts audited so far from TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`. They are not a claim that `holyc-ocaml` can emit or call HolyC machine code yet.
 
 ## Function flag storage

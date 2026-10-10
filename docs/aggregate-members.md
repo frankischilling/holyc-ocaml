@@ -6,7 +6,8 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
 member identities and pointer strides remain separate. General casts, class
-value ABI paths and persistent objects still need their own implementation.
+returns and defaults, callback class parameters and persistent objects still
+need their own implementation.
 
 The interpreter and native executor read, assign and update integer members of
 nonempty automatic class and union objects. The exact layout must complete
@@ -107,7 +108,7 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 178 IR and 178 native test groups. Independent expected
+The shared fixtures have 215 IR and 214 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
@@ -119,13 +120,13 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 610 reports for IR and 1221 when native execution is included,
+actual CLI runs 712 reports for IR and 1425 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
 Partial and out-of-compilation inherited bases, retained JIT aggregate imports,
 function-local layouts, zero-sized automatic objects, pointer arrays,
 aggregate array initializers, persistent
-aggregate objects, whole-value postfix casts, class value ABI paths and general aggregate copies, pointer and callback fields,
+aggregate objects, whole-value postfix casts, class returns/defaults/callback parameters and general aggregate copies, pointer and callback fields,
 general casts to class pointers, pointer returns and
 original named-local size/position consumers remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
