@@ -1,11 +1,26 @@
 module Ast = Frontend.Ast
 
+module Expressions = Hashtbl.Make (struct
+  type t = Ast.expression
+
+  let equal = ( == )
+
+  let hash expression =
+    let span = (Ast.expression_location expression).span in
+    Hashtbl.hash (Common.Source_id.to_int span.source, span.start, span.stop)
+end)
+
+type occurrence = {
+  before_item_index : int;
+  first_identifier : Ast.identifier option;
+}
+
 type function_ = {
   table : Symbol_table.t;
   parent : Symbol_table.scope;
   symbol : Symbol.t;
   item_index : int;
-  occurrences : (Ast.expression * int) list;
+  occurrences : occurrence option Expressions.t;
   locals : (Ast.identifier * int) list;
   aggregate_references :
     (Ast.identifier -> Compiler_record.aggregate_reference_visibility option)
@@ -37,57 +52,23 @@ let find_function value ~symbol ~item_index =
     value.functions
 
 let before_expression value wanted =
-  let matches =
-    List.filter_map
-      (fun (source, index) -> if source == wanted then Some index else None)
-      value.occurrences
-  in
-  match matches with
-  | first :: rest when List.for_all (( = ) first) rest -> Some first
-  | _ -> None
+  Option.bind
+    (Expressions.find_opt value.occurrences wanted)
+    (Option.map (fun occurrence -> occurrence.before_item_index))
 
 let before_local value wanted =
   List.find_map
     (fun (source, index) -> if source == wanted then Some index else None)
     value.locals
 
-let rec first_identifier = function
-  | Ast.Identifier_expression identifier -> Some identifier
-  | Ast.Parenthesized_expression value ->
-      first_identifier value.grouped_expression
-  | Ast.Prefix_expression value -> first_identifier value.prefix_operand
-  | Ast.Postfix_expression value -> first_identifier value.postfix_operand
-  | Ast.Postfix_cast_expression value -> first_identifier value.cast_operand
-  | Ast.Member_expression value -> first_identifier value.member_base
-  | Ast.Index_expression value -> (
-      match first_identifier value.index_base with
-      | Some _ as identifier -> identifier
-      | None -> first_identifier value.index_value)
-  | Ast.Binary_expression value -> (
-      match first_identifier value.binary_left with
-      | Some _ as identifier -> identifier
-      | None -> first_identifier value.binary_right)
-  | Ast.Call_expression value -> (
-      match first_identifier value.call_callee with
-      | Some _ as identifier -> identifier
-      | None ->
-          List.find_map
-            (fun argument ->
-              match argument.Ast.call_argument_value with
-              | Ast.Omitted_call_argument -> None
-              | Ast.Provided_call_argument expression ->
-                  first_identifier expression)
-            value.call_arguments)
-  | _ -> None
-
 let permits_aggregate (value : function_) ~source ~item_index ~symbol =
   if not (Symbol_table.owns_symbol value.table symbol) then false
   else
-    match before_expression value source with
+    match Option.join (Expressions.find_opt value.occurrences source) with
     | None -> false
-    | Some frontier when item_index >= frontier -> false
+    | Some occurrence when item_index >= occurrence.before_item_index -> false
     | Some _ when item_index > value.item_index -> true
-    | Some _ ->
+    | Some occurrence ->
         Option.fold ~none:false
           ~some:(fun resolve ->
             Option.fold ~none:false
@@ -98,7 +79,7 @@ let permits_aggregate (value : function_) ~source ~item_index ~symbol =
                        ~table:value.table ~parent:value.parent ~identifier
                        ~symbol)
                   (resolve identifier))
-              (first_identifier source))
+              occurrence.first_identifier)
           value.aggregate_references
 
 let create ~table ~declarations ~bodies ?aggregate_references module_ =
@@ -144,36 +125,60 @@ let create ~table ~declarations ~bodies ?aggregate_references module_ =
               then functions reversed rest
               else
                 let frontier = ref (item_index + 1) in
-                let occurrences = ref [] in
+                (* This private table is populated only during this body walk.
+                   None permanently marks a node seen at conflicting frontiers. *)
+                let occurrences = Expressions.create 64 in
                 let locals = ref [] in
-                let rec expression value =
-                  occurrences := (value, !frontier) :: !occurrences;
-                  match value with
-                  | Ast.Parenthesized_expression group ->
-                      expression group.grouped_expression
-                  | Ast.Prefix_expression value ->
-                      expression value.prefix_operand
-                  | Ast.Postfix_expression value ->
-                      expression value.postfix_operand
-                  | Ast.Postfix_cast_expression value ->
-                      expression value.cast_operand
-                  | Ast.Binary_expression value ->
-                      expression value.binary_left;
-                      expression value.binary_right
-                  | Ast.Call_expression value ->
-                      expression value.call_callee;
-                      List.iter
-                        (fun argument ->
-                          match argument.Ast.call_argument_value with
-                          | Ast.Omitted_call_argument -> ()
-                          | Ast.Provided_call_argument value -> expression value)
-                        value.call_arguments
-                  | Ast.Index_expression value ->
-                      expression value.index_base;
-                      expression value.index_value
-                  | Ast.Member_expression value -> expression value.member_base
-                  | _ -> ()
+                let prefer first following =
+                  match first with
+                  | Some _ -> first
+                  | None -> following
                 in
+                let rec visit_expression value =
+                  let before_item_index = !frontier in
+                  let first_identifier =
+                    match value with
+                    | Ast.Identifier_expression identifier -> Some identifier
+                    | Ast.Parenthesized_expression group ->
+                        visit_expression group.grouped_expression
+                    | Ast.Prefix_expression value ->
+                        visit_expression value.prefix_operand
+                    | Ast.Postfix_expression value ->
+                        visit_expression value.postfix_operand
+                    | Ast.Postfix_cast_expression value ->
+                        visit_expression value.cast_operand
+                    | Ast.Binary_expression value ->
+                        let left = visit_expression value.binary_left in
+                        let right = visit_expression value.binary_right in
+                        prefer left right
+                    | Ast.Call_expression value ->
+                        let callee = visit_expression value.call_callee in
+                        List.fold_left
+                          (fun first argument ->
+                            match argument.Ast.call_argument_value with
+                            | Ast.Omitted_call_argument -> first
+                            | Ast.Provided_call_argument value ->
+                                let following = visit_expression value in
+                                prefer first following)
+                          callee value.call_arguments
+                    | Ast.Index_expression value ->
+                        let base = visit_expression value.index_base in
+                        let index = visit_expression value.index_value in
+                        prefer base index
+                    | Ast.Member_expression value ->
+                        visit_expression value.member_base
+                    | _ -> None
+                  in
+                  (match Expressions.find_opt occurrences value with
+                  | None ->
+                      Expressions.add occurrences value
+                        (Some { before_item_index; first_identifier })
+                  | Some (Some earlier)
+                    when earlier.before_item_index = before_item_index -> ()
+                  | Some _ -> Expressions.replace occurrences value None);
+                  first_identifier
+                in
+                let expression value = ignore (visit_expression value) in
                 let rec initial = function
                   | Ast.Scalar_initializer value -> expression value
                   | Ast.Braced_initializer group ->
@@ -271,7 +276,7 @@ let create ~table ~declarations ~bodies ?aggregate_references module_ =
                      parent;
                      symbol;
                      item_index;
-                     occurrences = !occurrences;
+                     occurrences;
                      locals = !locals;
                      aggregate_references;
                    }

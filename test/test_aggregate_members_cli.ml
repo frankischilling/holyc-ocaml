@@ -82,6 +82,11 @@ let hex bytes =
   |> Seq.map (fun c -> Printf.sprintf "%02x" (Char.code c))
   |> List.of_seq |> String.concat ""
 
+let value_warnings = function
+  | "function-local class array" ->
+      [ ("HCSEMA0034", "unused variable \"a\" in function \"F\"") ]
+  | _ -> []
+
 let value ?(warnings = []) ?(unused_array = false) ?(return_warning = false)
     expected output report =
   require
@@ -89,16 +94,14 @@ let value ?(warnings = []) ?(unused_array = false) ?(return_warning = false)
     (Yojson.Safe.to_string report);
   if warnings <> [] then (
     let actual = member "diagnostics" report |> to_list in
-    require
-      (List.length actual = List.length warnings)
-      "prototype warning count";
+    require (List.length actual = List.length warnings) "expected warning count";
     List.iter2
       (fun (code, message) warning ->
         require
           (member "code" warning = `String code
           && member "severity" warning = `String "warning"
           && member "message" warning = `String message)
-          "prototype keeps its original header warning")
+          "expected warning code, severity, and message")
       warnings actual)
   else if return_warning then (
     let diagnostics = member "diagnostics" report |> to_list in
@@ -191,7 +194,7 @@ let () =
         (fun target ->
           List.iter
             (fun (name, source, word, output) ->
-              value
+              value ~warnings:(value_warnings name)
                 ~unused_array:(name = "unused automatic aggregate array")
                 ~return_warning:
                   (List.exists
@@ -350,7 +353,7 @@ let () =
     in
     List.iter
       (fun (name, source, expected, output) ->
-        value
+        value ~warnings:(value_warnings name)
           ~unused_array:(name = "unused automatic aggregate array")
           ~return_warning:
             (List.exists (fun (n, _, _, _) -> n = name) Returns.warning_values)
