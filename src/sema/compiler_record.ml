@@ -124,6 +124,28 @@ type aggregate_member = {
   member_record : t option;
 }
 
+type automatic_aggregate_allocation = {
+  automatic_table : Symbol_table.t;
+  automatic_namespace : Declaration_collection.namespace;
+  automatic_function : Declaration_collection.publication;
+  automatic_source : Parser.function_local_allocation;
+  automatic_name : Ast.identifier;
+  automatic_type : Type_reference.t;
+  automatic_size : int64;
+  automatic_record : t;
+}
+
+let automatic_aggregate_size allocation = allocation.automatic_size
+let automatic_aggregate_source allocation = allocation.automatic_source
+let automatic_aggregate_local_name allocation = allocation.automatic_name
+
+type aggregate_reference_visibility = {
+  reference_table : Symbol_table.t;
+  reference_namespace : Declaration_collection.namespace;
+  reference_source : Parser.reference_selection;
+  reference_completed_symbols : Symbol.t list;
+}
+
 type inherited_base = {
   inherited_phase : Parser.aggregate_phase;
   inherited_namespace : Declaration_collection.namespace;
@@ -457,8 +479,8 @@ let scalar_size type_ =
         Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
     | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
 
-let record_local_allocation ~table ~namespace ~dimensions positions record
-    receipt =
+let record_local_allocation ?automatic_aggregate ~table ~namespace ~dimensions
+    positions record receipt =
   let local = receipt.Parser.allocation_local in
   let snapshot = Function_record_phase.snapshot record in
   if
@@ -475,6 +497,17 @@ let record_local_allocation ~table ~namespace ~dimensions positions record
     || Local_allocations.mem positions.allocations receipt
   then Error "local allocation is foreign, expired, repeated or out of order"
   else
+    let* () =
+      match automatic_aggregate with
+      | Some allocation
+        when allocation.automatic_table != table
+             || allocation.automatic_namespace != namespace
+             || allocation.automatic_source != receipt
+             || allocation.automatic_function
+                != Function_record_phase.publication snapshot ->
+          Error "automatic class allocation belongs to another original local"
+      | _ -> Ok ()
+    in
     let* allocation =
       match local.local_source with
       | Parser.Local_variable source ->
@@ -498,27 +531,40 @@ let record_local_allocation ~table ~namespace ~dimensions positions record
                       pointer.indirection_layers
                   with
                   | Ok depth when depth > 0 ->
-                      Some (Int64.of_int Primitive_type.pointer_byte_size)
+                      Some
+                        (Int64.of_int Primitive_type.pointer_byte_size, [], [])
                   | _ -> None)
               | None -> (
-                  match
-                    Source_type_reference.builtin source.local_type_specifier
-                      source.local_pointer_layers
-                  with
-                  | Error _ -> None
-                  | Ok reference ->
-                      scalar_size (Type_reference.resolved_type reference)
-                      |> Result.to_option)
+                  match automatic_aggregate with
+                  | Some allocation ->
+                      Some
+                        ( allocation.automatic_size,
+                          allocation.automatic_record.runtime_dimensions,
+                          allocation.automatic_record.runtime_offsets )
+                  | None -> (
+                      match
+                        Source_type_reference.builtin
+                          source.local_type_specifier
+                          source.local_pointer_layers
+                      with
+                      | Error _ -> None
+                      | Ok reference ->
+                          scalar_size (Type_reference.resolved_type reference)
+                          |> Result.to_option
+                          |> Option.map (fun size -> (size, [], []))))
             in
             Ok
-              (Option.bind base (fun base ->
+              (Option.bind base
+                 (fun (base, inherited_dimensions, inherited_offsets) ->
                    Option.map
                      (fun extent ->
                        ( Int64.mul base extent,
-                         List.concat_map dimension_runtime_dependencies
-                           dimensions,
-                         List.concat_map dimension_offset_dependencies
-                           dimensions ))
+                         merge_dimension_dependencies inherited_dimensions
+                           (List.concat_map dimension_runtime_dependencies
+                              dimensions),
+                         merge_offset_dependencies inherited_offsets
+                           (List.concat_map dimension_offset_dependencies
+                              dimensions) ))
                      extent))
       | _ -> Error "frame allocation requires its original local variable"
     in
@@ -740,6 +786,197 @@ let select_aggregate_member ~table ~namespace ~selected_aggregate phase
             member_record = record;
           }
     | _ -> Error "member layout requires an original selected object member"
+
+let select_automatic_aggregate ~table ~namespace ~function_publication
+    ~selected_aggregate receipt (record : t) =
+  if
+    (not (Parser.function_local_allocation_is_current receipt))
+    || receipt.allocation_storage <> Ast.Automatic_local
+  then Error "automatic class layout requires its original live allocation"
+  else if
+    (not (Declaration_collection.namespace_owns_table namespace table))
+    || (not
+          (Declaration_collection.namespace_owns_publication namespace
+             function_publication))
+    || not
+         (Option.fold ~none:false
+            ~some:(( == ) receipt.allocation_function)
+            (Declaration_collection.publication_source_function
+               function_publication))
+  then Error "automatic class allocation belongs to another original function"
+  else
+    match receipt.allocation_local.local_source with
+    | Parser.Local_variable local
+      when Option.is_none local.local_function_pointer -> (
+        let* () =
+          Source_type_reference.validate_selected_aggregate ~table ~namespace
+            selected_aggregate
+        in
+        let* type_ =
+          Source_type_reference.selected_header_class selected_aggregate
+            local.local_type_specifier local.local_pointer_layers
+        in
+        let* () =
+          match (local.local_type_specifier, record.aggregate_owner) with
+          | Ast.Named_type_specifier name, Some (_, publication, _) -> (
+              match
+                Declaration_collection.publication_source_aggregate publication
+              with
+              | Some source
+                when source.aggregate_name == name
+                     && Option.is_some source.aggregate_backing ->
+                  Error
+                    "inline backed class has no ordinary automatic allocation"
+              | _ -> Ok ())
+          | _ -> Ok ()
+        in
+        if Type.pointer_depth (Type_reference.resolved_type type_) <> 0 then
+          Error "automatic class object allocation cannot describe a pointer"
+        else if
+          receipt.allocation_local.local_command
+          != receipt.allocation_function.function_header.declaration_command
+          || receipt.allocation_local.local_environment
+             != receipt.allocation_function.function_environment
+        then Error "automatic class allocation has a foreign local occurrence"
+        else
+          match record.aggregate_owner with
+          | Some (owner, publication, _)
+            when record.table == table && owner == namespace
+                 && Declaration_collection.namespace_owns_publication namespace
+                      publication
+                 && record.symbol
+                    == Declaration_collection.publication_symbol publication
+                 && aggregate_snapshot_is_current record
+                 && Option.fold ~none:false ~some:(( == ) publication)
+                      (Declaration_collection.current_aggregate_publication
+                         namespace publication)
+                 && Option.fold ~none:false
+                      ~some:
+                        (( == )
+                           (Source_type_reference.selected_base_symbol
+                              selected_aggregate))
+                      (Declaration_collection.publication_aggregate_identity
+                         publication)
+                 && Option.fold ~none:false
+                      ~some:(fun (source : Parser.aggregate_publication) ->
+                        source.aggregate_entry == record.entry
+                        && source.aggregate_environment
+                           == receipt.allocation_local.local_environment)
+                      (Declaration_collection.publication_source_aggregate
+                         publication) ->
+              (* PrsType consumes name and dimension lookahead before
+                 PrsVar.HC:531-532 reads this selected class size. The saved
+                 value includes zero; later forward completion cannot grow it. *)
+              Ok
+                {
+                  automatic_table = table;
+                  automatic_namespace = namespace;
+                  automatic_function = function_publication;
+                  automatic_source = receipt;
+                  automatic_name = local.local_name;
+                  automatic_type = type_;
+                  automatic_size = record.byte_size;
+                  automatic_record = record;
+                }
+          | _ ->
+              Error
+                "automatic class allocation lacks its selected current source \
+                 record")
+    | _ -> Error "automatic class allocation requires an original object local"
+
+let validate_automatic_aggregate ~table ~parent ~function_symbol ~local_symbol
+    ~local_name ~checked_type allocation =
+  if
+    allocation.automatic_table != table
+    || Declaration_collection.namespace_scope allocation.automatic_namespace
+       != parent
+    || not
+         (Declaration_collection.namespace_owns_table
+            allocation.automatic_namespace table)
+  then Error "automatic class allocation belongs to another table or namespace"
+  else if
+    function_symbol
+    != Declaration_collection.publication_symbol allocation.automatic_function
+    || not (Symbol_table.owns_symbol table function_symbol)
+  then Error "automatic class allocation belongs to another function"
+  else if
+    allocation.automatic_name != local_name
+    || (not (Symbol_table.owns_symbol table local_symbol))
+    || Symbol.kind local_symbol <> Symbol.Local_variable
+    || Symbol.name local_symbol <> local_name.Ast.spelling
+    || Symbol.origin local_symbol
+       <> Initializer_source.origin_of_location local_name.location
+  then Error "automatic class allocation belongs to another original local"
+  else if
+    not
+      (Type.equal checked_type
+         (Type_reference.resolved_type allocation.automatic_type))
+  then Error "automatic class allocation changed its selected original type"
+  else Ok ()
+
+let capture_aggregate_reference_visibility ~table ~namespace reference records =
+  if
+    (not (Parser.reference_selection_is_current reference))
+    || not (Declaration_collection.namespace_owns_table namespace table)
+  then Error "aggregate visibility requires its original live reference"
+  else
+    let rec completed symbols = function
+      | [] ->
+          Ok
+            {
+              reference_table = table;
+              reference_namespace = namespace;
+              reference_source = reference;
+              reference_completed_symbols = symbols;
+            }
+      | (record : t) :: rest -> (
+          match record.aggregate_owner with
+          | Some
+              ( owner,
+                publication,
+                Some
+                  ({ aggregate_item = Ast.Aggregate_definition _; _ } as source)
+              )
+            when record.table == table && owner == namespace
+                 && Declaration_collection.namespace_owns_publication namespace
+                      publication
+                 && record.symbol
+                    == Declaration_collection.publication_symbol publication
+                 && aggregate_snapshot_is_current record
+                 && source.aggregate_publication.aggregate_environment
+                    == Parser.selected_environment reference
+                 && source.aggregate_publication.aggregate_entry == record.entry
+                 && Option.fold ~none:false
+                      ~some:(( == ) source.aggregate_publication)
+                      (Declaration_collection.publication_source_aggregate
+                         publication)
+                 && Option.fold ~none:false ~some:(( == ) publication)
+                      (Declaration_collection.current_aggregate_publication
+                         namespace publication) -> (
+              match
+                Declaration_collection.publication_aggregate_identity
+                  publication
+              with
+              | Some symbol -> completed (symbol :: symbols) rest
+              | None ->
+                  Error "completed reference class lacks its canonical identity"
+              )
+          | _ ->
+              Error
+                "aggregate reference visibility requires current completed \
+                 original class records")
+    in
+    completed [] records
+
+let aggregate_reference_allows ~table ~parent ~identifier ~symbol visibility =
+  visibility.reference_table == table
+  && Declaration_collection.namespace_scope visibility.reference_namespace
+     == parent
+  && Declaration_collection.namespace_owns_table visibility.reference_namespace
+       table
+  && Parser.selected_identifier visibility.reference_source == identifier
+  && Symbol_table.owns_symbol table symbol
+  && List.exists (( == ) symbol) visibility.reference_completed_symbols
 
 type aggregate_progress = {
   progress_compiler_positions : compiler_positions;

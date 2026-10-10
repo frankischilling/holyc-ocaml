@@ -1143,16 +1143,16 @@ let rec argument_expression member_index before_item_index visible locals
               ~member_name:member.member_name.spelling
               ~member_origin:(origin member.member_name.location))
   in
-  Result.map
-    (fun kind ->
-      match !source_identifier with
-      | Some occurrence ->
-          Sema.Function_call_resolution.make_source_identifier_expression
-            ~occurrence
-      | None ->
-          Sema.Function_call_resolution.make_argument_expression ~kind
-            ~origin:(origin (Frontend.Ast.expression_location expression)))
-    kind_result
+  Result.bind kind_result (fun kind ->
+      (match !source_identifier with
+        | Some occurrence ->
+            Sema.Function_call_resolution.make_source_identifier_expression
+              ~occurrence
+        | None ->
+            Sema.Function_call_resolution.make_argument_expression ~kind
+              ~origin:(origin (Frontend.Ast.expression_location expression)))
+      |> Sema.Function_call_resolution.retain_source_expression
+           ~source:expression)
 
 let argument member_index before_item_index visible locals globals occurrences
     defined_queries cursor index (argument : Frontend.Ast.call_argument) =

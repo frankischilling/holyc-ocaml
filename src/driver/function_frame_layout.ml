@@ -232,7 +232,7 @@ let dimension_inputs prepared semantic ast =
   in
   pair 0 [] semantic ast
 
-let validate_local prepared semantic ast =
+let validate_local prepared on_local semantic ast =
   let symbol = Sema.Local_type_resolution.local_symbol semantic in
   if
     Sema.Local_type_resolution.local_declaration_index semantic
@@ -256,9 +256,10 @@ let validate_local prepared semantic ast =
     with
     | Error _ as error -> error
     | Ok dimensions ->
+        on_local semantic ast.name;
         Ok { Sema.Function_frame_layout.local = semantic; dimensions }
 
-let local_inputs prepared local_function body =
+let local_inputs prepared on_local local_function body =
   let semantic = Sema.Local_type_resolution.function_locals local_function in
   let ast =
     match body with
@@ -269,7 +270,7 @@ let local_inputs prepared local_function body =
     match (semantic, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
     | semantic :: semantic_rest, ast :: ast_rest -> (
-        match validate_local prepared semantic ast with
+        match validate_local prepared on_local semantic ast with
         | Error _ as error -> error
         | Ok input -> pair (input :: inputs_rev) semantic_rest ast_rest)
     | [], _ :: _ | _ :: _, [] ->
@@ -277,8 +278,8 @@ let local_inputs prepared local_function body =
   in
   pair [] semantic ast
 
-let validate_function prepared ~table ~scope declaration indexed typed local ast
-    =
+let validate_function prepared on_local ~table ~scope declaration indexed typed
+    local ast =
   let declaration_symbol =
     Sema.Declaration_collection.entry_symbol declaration
   in
@@ -332,7 +333,7 @@ let validate_function prepared ~table ~scope declaration indexed typed local ast
     match ast.kind with
     | Sema.Declaration_collection.Function_prototype -> Ok None
     | Sema.Declaration_collection.Function_definition -> (
-        match local_inputs prepared local ast.body with
+        match local_inputs prepared on_local local ast.body with
         | Error _ as error -> error
         | Ok locals ->
             Ok
@@ -349,8 +350,8 @@ let validate_function prepared ~table ~scope declaration indexed typed local ast
     | Sema.Declaration_collection.Global_variable ->
         Error "function frame input contains a nonfunction declaration"
 
-let function_inputs prepared ~table ~scope declarations indexed typed locals ast
-    =
+let function_inputs prepared on_local ~table ~scope declarations indexed typed
+    locals ast =
   let rec pair inputs_rev declarations indexed typed locals ast =
     match (declarations, indexed, typed, locals, ast) with
     | [], [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -360,8 +361,8 @@ let function_inputs prepared ~table ~scope declarations indexed typed locals ast
         local :: local_rest,
         ast :: ast_rest ) -> (
         match
-          validate_function prepared ~table ~scope declaration indexed typed
-            local ast
+          validate_function prepared on_local ~table ~scope declaration indexed
+            typed local ast
         with
         | Error _ as error -> error
         | Ok None ->
@@ -380,8 +381,17 @@ let function_inputs prepared ~table ~scope declarations indexed typed locals ast
   pair [] declarations indexed typed locals ast
 
 let layout ~table ~declarations ~bindings ~function_types ~local_types
-    ~aggregate_layouts ?prepared module_ =
+    ~aggregate_layouts ?prepared ?automatic_aggregate_resolver module_ =
   let scope = Sema.Declaration_collection.scope declarations in
+  let receipts = ref [] in
+  let on_local local name =
+    Option.iter
+      (fun resolve ->
+        Option.iter
+          (fun receipt -> receipts := (local, name, receipt) :: !receipts)
+          (resolve name))
+      automatic_aggregate_resolver
+  in
   let result =
     if not (Sema.Symbol_table.owns_scope table scope) then
       Error "function frame declarations belong to another symbol table"
@@ -389,7 +399,7 @@ let layout ~table ~declarations ~bindings ~function_types ~local_types
       Error "function frames require a module declaration collection"
     else
       match
-        function_inputs prepared ~table ~scope
+        function_inputs prepared on_local ~table ~scope
           (function_entries declarations)
           (Sema.Function_binding_index.functions bindings)
           (Sema.Function_type_resolution.functions function_types)
@@ -399,7 +409,10 @@ let layout ~table ~declarations ~bindings ~function_types ~local_types
       | Error _ as error -> error
       | Ok inputs ->
           Sema.Function_frame_layout.layout ~table ~parent:scope
-            ~aggregate_layouts inputs
+            ~aggregate_layouts
+            ?automatic_aggregates:
+              (Option.map (fun _ -> !receipts) automatic_aggregate_resolver)
+            inputs
           |> Result.map_error Sema.Function_frame_layout.error_to_string
   in
   Result.map_error

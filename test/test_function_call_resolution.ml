@@ -3295,6 +3295,97 @@ let literal_constructors_retain_typed_payloads () =
          = origin)
        expressions)
 
+let source_expression_constructors_retain_exact_occurrences () =
+  let module Call = Semantic_function_call_resolution in
+  let prepared =
+    prepare ~path:"source-expression-constructor.HC"
+      "I64 Caller(){40+2;40;return 0;}"
+  in
+  let resolved = resolve prepared |> checked in
+  let original, later =
+    match
+      function_named resolved "Caller"
+      |> Call.function_expression_statements
+      |> List.map Call.expression_statement_expression
+    with
+    | [ original; later ] -> (original, later)
+    | _ -> Alcotest.fail "expected a binary expression and a later literal"
+  in
+  let source expression =
+    match Call.argument_expression_source expression with
+    | Some source -> source
+    | None -> Alcotest.fail "checked expression lost its original source"
+  in
+  let binary =
+    match Call.argument_expression_kind original with
+    | Call.Binary_expression binary -> binary
+    | _ -> Alcotest.fail "expected the original binary expression"
+  in
+  let left = Call.binary_left binary and right = Call.binary_right binary in
+  let original_source = source original and left_source = source left in
+  let rebuild left right =
+    Call.make_binary_argument_expression
+      ~operator:(Call.binary_operator binary)
+      ~operator_origin:(Call.binary_operator_origin binary)
+      ~left ~right
+    |> checked
+    |> fun kind ->
+    Call.make_argument_expression ~kind
+      ~origin:(Call.argument_expression_origin original)
+    |> Call.retain_source_expression ~source:original_source
+  in
+  let rebuilt = rebuild left right |> checked in
+  Alcotest.(check bool)
+    "rebuilt expression retains its exact original AST" true
+    (source rebuilt == original_source);
+  Alcotest.(check bool)
+    "reattaching the same original source succeeds" true
+    (Result.is_ok
+       (Call.retain_source_expression ~source:original_source rebuilt));
+  let altered =
+    Call.make_argument_expression ~kind:(Call.Integer_literal 41L)
+      ~origin:(Call.argument_expression_origin left)
+  in
+  Alcotest.(check bool)
+    "matching literal origin cannot hide a changed payload" true
+    (Result.is_error
+       (Call.retain_source_expression ~source:left_source altered));
+  Alcotest.(check bool)
+    "original binary rejects reversed checked operands" true
+    (Result.is_error (rebuild right left));
+  let cloned_source =
+    match left_source with
+    | Ast.Integer_literal literal ->
+        Ast.Integer_literal
+          (Ast.make_expression_literal ~origin:literal.literal_origin
+             ~spelling:literal.literal_spelling ~value:literal.literal_value
+             ~location:literal.literal_location)
+    | _ -> Alcotest.fail "expected the original integer literal"
+  in
+  Alcotest.(check bool)
+    "cloned literal has equal metadata and a different identity" true
+    (cloned_source = left_source && cloned_source != left_source);
+  Alcotest.(check bool)
+    "retained literal cannot acquire an equal cloned source" true
+    (Result.is_error (Call.retain_source_expression ~source:cloned_source left));
+  let cloned_child =
+    Call.make_argument_expression
+      ~kind:(Call.argument_expression_kind left)
+      ~origin:(Call.argument_expression_origin left)
+    |> Call.retain_source_expression ~source:cloned_source
+    |> checked
+  in
+  Alcotest.(check bool)
+    "original parent rejects an equal cloned child occurrence" true
+    (Result.is_error (rebuild cloned_child right));
+  Alcotest.(check bool)
+    "retained literal cannot borrow a later equal-value occurrence" true
+    (Result.is_error
+       (Call.retain_source_expression ~source:(source later) left));
+  Alcotest.(check bool)
+    "original parent rejects the later equal-value operand" true
+    (Result.is_error (rebuild later right))
+
 let implicit_output_call_ownership () =
   let module Call = Semantic_function_call_resolution in
   let module Binding = Semantic_module_expression_binding in
@@ -3581,6 +3672,8 @@ let tests =
       switch_case_constructors_validate_patterns_and_origins;
     Alcotest.test_case "typed literal constructor payloads" `Quick
       literal_constructors_retain_typed_payloads;
+    Alcotest.test_case "source expression constructor occurrence ownership"
+      `Quick source_expression_constructors_retain_exact_occurrences;
     Alcotest.test_case "implicit output retains exact function call batch"
       `Quick implicit_output_call_ownership;
   ]

@@ -450,6 +450,8 @@ let pointer_element_size ?frame ?result type_ =
                       in
                       if
                         Sema.Aggregate_pointee_layout.matches layout
+                          ~function_symbol:
+                            (Sema.Function_frame_layout.function_symbol frame)
                           ~before_item_index:
                             (Sema.Function_frame_layout.function_item_index
                                frame)

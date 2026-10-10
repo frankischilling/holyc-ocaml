@@ -81,7 +81,12 @@ parser reaches them, including in uncalled functions. The
 [local aggregate example](examples/local-aggregate-declarations.hc) prints and
 returns 42 with IR in either mode and native JIT. See
 [statement aggregate declarations](docs/local-aggregate-declarations.md) for
-source order, saved type selections, runtime bounds and remaining object limits.
+source order, saved type selections and runtime bounds.
+Functions can also allocate automatic objects of their completed local types.
+The [object example](examples/function-local-aggregate-objects.hc) uses an array,
+a class pointer and a member array to print and return 42. Each declaration and
+expression retains its original layout, including in retained calls after a
+same-name class replacement. See [function-local objects](docs/function-local-aggregate-objects.md).
 
 Ordinary JIT `_intern` targets now execute at their original source phase in
 both IR and native tasks, including effectful calls and saved-data defaults in

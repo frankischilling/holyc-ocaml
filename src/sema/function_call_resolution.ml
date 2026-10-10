@@ -157,6 +157,7 @@ and argument_expression = {
   expression_kind : argument_expression_kind;
   expression_origin : Symbol.origin;
   source_identifier : Module_expression_binding.occurrence option;
+  source_expression : Frontend.Ast.expression option;
 }
 
 and prefix_expression = {
@@ -870,6 +871,7 @@ let make_argument_expression ~kind ~origin =
     expression_kind = kind;
     expression_origin = origin;
     source_identifier = None;
+    source_expression = None;
   }
 
 let make_source_identifier_expression ~occurrence =
@@ -877,7 +879,10 @@ let make_source_identifier_expression ~occurrence =
     expression_kind = Unresolved_expression Identifier_expression;
     expression_origin = Module_expression_binding.occurrence_origin occurrence;
     source_identifier = Some occurrence;
+    source_expression = None;
   }
+
+let argument_expression_source expression = expression.source_expression
 
 let argument_expression_source_identifier expression =
   expression.source_identifier
@@ -1895,7 +1900,8 @@ let make_return ~index ~keyword_origin ~expression ~origin =
   else Ok { index; keyword_origin; expression; origin }
 
 let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
-    ?default_fragment ?(callee_expressions = []) ?(call_expressions = []) () =
+    ?default_fragment ?(callee_expressions = []) ?(call_expressions = [])
+    ?(source_occurrences = false) () =
   let module Ast = Frontend.Ast in
   let origin = Initializer_source.origin_of_location in
   let same_list check left right =
@@ -1946,6 +1952,8 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
   let remaining = ref calls in
   let rec matches ast checked =
     checked.expression_origin = origin (Ast.expression_location ast)
+    && ((not source_occurrences)
+       || Option.fold ~none:false ~some:(( == ) ast) checked.source_expression)
     &&
     match (ast, checked.expression_kind) with
     | Ast.Integer_literal literal, Integer_literal value
@@ -1958,17 +1966,17 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
     | Ast.String_literal literal, String_literal value ->
         literal.literal_value = Ast.Bytes_value value
     | Ast.Parenthesized_expression group, Parenthesized_expression value ->
-        matches group.grouped_expression value
+        child_matches group.grouped_expression value
     | Ast.Prefix_expression ast, Prefix_expression checked ->
         prefix ast.prefix_operator_kind = checked.prefix_operator
         && origin ast.prefix_operator.operator_location
            = checked.prefix_operator_origin
-        && matches ast.prefix_operand checked.prefix_operand
+        && child_matches ast.prefix_operand checked.prefix_operand
     | Ast.Postfix_expression ast, Postfix_expression checked ->
         postfix ast.postfix_operator_kind = checked.postfix_operator
         && origin ast.postfix_operator.operator_location
            = checked.postfix_operator_origin
-        && matches ast.postfix_operand checked.postfix_operand
+        && child_matches ast.postfix_operand checked.postfix_operand
     | Ast.Postfix_cast_expression ast, Postfix_cast_expression (operand, target)
       ->
         Type_reference.spelling target
@@ -1979,27 +1987,27 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
            = List.map
                (fun (layer : Ast.pointer_layer) -> origin layer.location)
                ast.cast_pointer_layers
-        && matches ast.cast_operand operand
+        && child_matches ast.cast_operand operand
     | Ast.Binary_expression ast, Binary_expression checked ->
         Generated.Intermediate_codes.of_source_name
           ast.binary_operator_spec.ic_name
         = Some checked.binary_operator
         && origin ast.binary_operator.operator_location
            = checked.binary_operator_origin
-        && matches ast.binary_left checked.binary_left
-        && matches ast.binary_right checked.binary_right
+        && child_matches ast.binary_left checked.binary_left
+        && child_matches ast.binary_right checked.binary_right
     | Ast.Index_expression ast, Index_expression checked ->
         origin ast.index_opening_bracket = checked.index_opening_origin
         && origin ast.index_closing_bracket = checked.index_closing_origin
-        && matches ast.index_base checked.index_base
-        && matches ast.index_value checked.index_value
+        && child_matches ast.index_base checked.index_base
+        && child_matches ast.index_value checked.index_value
     | Ast.Member_expression ast, Member_access_expression checked ->
         member_kind ast.member_access_kind = checked.member_access_kind
         && origin ast.member_operator.operator_location
            = checked.member_operator_origin
         && ast.member_name.spelling = checked.member_name
         && origin ast.member_name.location = checked.member_origin
-        && matches ast.member_base checked.member_base
+        && child_matches ast.member_base checked.member_base
     | Ast.Identifier_expression ast, Bound_identifier_expression checked ->
         let occurrence = checked.bound_identifier_occurrence_ in
         Module_expression_binding.occurrence_name occurrence = ast.spelling
@@ -2096,8 +2104,14 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
         && origin operand.defined_operand_location
            = checked.defined_operand_origin_
     | Ast.Call_expression ast, Unresolved_expression Call_expression ->
-        call_matches ast checked
+        source_occurrences || call_matches ast checked
     | _ -> false
+  and child_matches ast checked =
+    if source_occurrences then
+      (* A retained child's kind and payload are immutable. Its exact source
+         association certifies the checks already performed when it was built. *)
+      Option.fold ~none:false ~some:(( == ) ast) checked.source_expression
+    else matches ast checked
   and call_matches (ast : Ast.call_expression) expression =
     match !remaining with
     | [] -> false
@@ -2177,6 +2191,18 @@ let validate_source_expression ~source ~expression ~calls ?offset_fragment
   validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
     ~calls ?offset_fragment ?default_fragment ?callee_expressions
     ?call_expressions ()
+
+let retain_source_expression ~source expression =
+  if
+    Option.fold ~none:false
+      ~some:(fun owned -> owned != source)
+      expression.source_expression
+  then Error "checked expression already belongs to another source occurrence"
+  else
+    let expression = { expression with source_expression = Some source } in
+    validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
+      ~calls:[] ~source_occurrences:true ()
+    |> Result.map (fun () -> expression)
 
 let validate_initializer_expression ~leaf ~expression ~calls ?callee_expressions
     ?call_expressions () =

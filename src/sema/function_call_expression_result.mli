@@ -117,6 +117,7 @@ val analyze :
   table:Symbol_table.t ->
   members:Aggregate_member_index.t ->
   ?outer:Outer_expression_binding.t ->
+  ?aggregate_visibility:Function_aggregate_visibility.t ->
   Function_call_conversion_policy.t ->
   (t, error) result
 (** Derive immutable source-expression results for call arguments, ordinary and

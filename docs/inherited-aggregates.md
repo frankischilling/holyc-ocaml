@@ -93,9 +93,11 @@ Partial, self-referential and forward-only bases retain their separate
 [captured size metadata](source-inherited-layouts.md); they do not supply
 owned members. A declaration-time call can move a base outside the current
 object compilation, so its captured size still does not authorize storage.
-Retained nested class members, function-local layouts,
-persistent objects, aggregate initializers, whole-value postfix casts, class
-defaults and callback parameters and general aggregate copies, pointer or
+[Retained nested class members](retained-class-context.md) preserve their
+original selected layouts. [Function-local objects](function-local-aggregate-objects.md)
+can use completed local base classes while retaining their own allocation timing.
+Persistent objects, aggregate initializers, whole-value postfix casts, class
+defaults containing references, callback parameters and general aggregate copies, pointer or
 callback fields, general derived/base pointer conversions and pointer returns
 remain open under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and related

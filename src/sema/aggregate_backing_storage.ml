@@ -4,6 +4,7 @@ type t = {
   value_type : Type.t;
   default_class : Aggregate_member_index.aggregate option;
   before_item_index : int;
+  layout_before_item_index : int;
   function_ : Function_call_conversion_policy.resolved_function;
 }
 
@@ -73,9 +74,11 @@ let integer_value_type ~table ~members ~policies ~before_item_index ~source_type
       ~before_item_index source_type
   else None
 
-let create ~table ~members ~policies ~before_item_index ~source_type =
+let create_at ~table ~members ~policies ~before_item_index
+    ~layout_before_item_index ~source_type =
   Option.bind
-    (value_class ~table ~members ~policies ~before_item_index ~source_type)
+    (value_class ~table ~members ~policies
+       ~before_item_index:layout_before_item_index ~source_type)
     (fun (aggregate, value_type, default_class) ->
       Function_call_conversion_policy.functions policies
       |> List.find_opt (fun function_ ->
@@ -88,8 +91,51 @@ let create ~table ~members ~policies ~before_item_index ~source_type =
             value_type;
             default_class;
             before_item_index;
+            layout_before_item_index;
             function_;
           }))
+
+let create ~table ~members ~policies ~before_item_index ~source_type =
+  create_at ~table ~members ~policies ~before_item_index
+    ~layout_before_item_index:before_item_index ~source_type
+
+let create_visible ~visibility ~source ~table ~members ~policies ~source_type =
+  if
+    not
+      (Function_aggregate_visibility.function_owns visibility ~table
+         ~parent:(Aggregate_member_index.parent_scope members))
+  then None
+  else
+    Option.bind
+      (Function_aggregate_visibility.before_expression visibility source)
+      (fun layout_before_item_index ->
+        let before_item_index =
+          Function_aggregate_visibility.function_item_index visibility
+        in
+        Option.bind
+          (create_at ~table ~members ~policies ~before_item_index
+             ~layout_before_item_index ~source_type) (fun storage ->
+            if
+              Function_call_conversion_policy.function_symbol storage.function_
+              == Function_aggregate_visibility.function_symbol visibility
+              && Function_aggregate_visibility.permits_aggregate visibility
+                   ~source
+                   ~item_index:
+                     (Aggregate_member_index.aggregate_item_index
+                        storage.aggregate)
+                   ~symbol:
+                     (Aggregate_member_index.aggregate_symbol storage.aggregate)
+              && Option.fold ~none:true
+                   ~some:(fun aggregate ->
+                     Function_aggregate_visibility.permits_aggregate visibility
+                       ~source
+                       ~item_index:
+                         (Aggregate_member_index.aggregate_item_index aggregate)
+                       ~symbol:
+                         (Aggregate_member_index.aggregate_symbol aggregate))
+                   storage.default_class
+            then Some storage
+            else None))
 
 let source_type storage = storage.source_type
 let value_type storage = storage.value_type
@@ -107,11 +153,11 @@ let matches storage ~function_symbol ~function_scope ~before_item_index
        |> Symbol_table.scope_id)
        function_scope
   && Aggregate_member_index.aggregate_item_index storage.aggregate
-     < before_item_index
+     < storage.layout_before_item_index
   && Option.fold ~none:true
        ~some:(fun aggregate ->
          Aggregate_member_index.aggregate_item_index aggregate
-         < before_item_index)
+         < storage.layout_before_item_index)
        storage.default_class
   && Type.equal storage.source_type source_type
   && Type.equal storage.value_type value_type

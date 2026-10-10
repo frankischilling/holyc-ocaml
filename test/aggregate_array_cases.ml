@@ -21,6 +21,10 @@ let values =
       {|class Box{U8 byte;};I64 F(){Box objects[2];return 42;}F();|},
       42L,
       "" );
+    ( "function-local class array",
+      {|I64 F(){class Box{U8 byte;};Box a[2];return 42;}F();|},
+      42L,
+      "" );
     ( "standalone member array admission",
       {|class Box{U8 byte;};I64 F(){Box items[2];items[0].byte=42;return items[0].byte;}F();|},
       42L,
@@ -134,8 +138,6 @@ let unsupported =
       {|class Box{U64 value;};I64 F(){Box a[0x7fffffffffffffff][2];return 42;}F();|}
     );
     ("empty class array", {|class Box{};I64 F(){Box a[2];return 42;}F();|});
-    ( "function-local class array",
-      {|I64 F(){class Box{U8 byte;};Box a[2];return 42;}F();|} );
     ("persistent class array", {|class Box{U8 byte;};Box a[2];42;|});
     ( "static class array",
       {|class Box{U8 byte;};I64 F(){static Box a[2];return 42;}F();|} );

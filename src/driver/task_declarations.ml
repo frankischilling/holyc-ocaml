@@ -100,6 +100,8 @@ type source =
       mutable header_warnings_emitted : bool;
       mutable return_phases_seen : Parser.function_return_phase list;
       mutable local_allocations_seen : Parser.function_local_allocation list;
+      mutable automatic_aggregate_allocations :
+        Sema.Compiler_record.automatic_aggregate_allocation list;
     }
 
 type assigned = {
@@ -138,6 +140,8 @@ type selected_reference = {
   selection : Parser.reference_selection;
   target : reference_target;
   native_record : Sema.Function_record_phase.t option;
+  aggregate_visibility :
+    Sema.Compiler_record.aggregate_reference_visibility option;
 }
 
 type selected_call = {
@@ -185,6 +189,10 @@ type reading_query = {
 type command = {
   calls : Sema.Function_call_phase.t list;
   function_compiler_options : (Sema.Symbol.t * int64) list;
+  function_body_sources :
+    (Parser.completed_function_header * Ast.function_definition) list;
+  automatic_aggregate_allocations :
+    Sema.Compiler_record.automatic_aggregate_allocation list;
   namespace : Collection.namespace;
   semantic_ast : Ast.module_;
   semantic_declarations : Collection.t;
@@ -1262,8 +1270,35 @@ let observe_reference ledger selection =
         | Visibility.Present entry -> native_record_for_entry ledger entry
         | _ -> None
       in
+      let aggregate_visibility =
+        if Parser.reference_selection_is_current selection then
+          let records =
+            Entries.fold
+              (fun _ assigned records ->
+                match assigned.source with
+                | Aggregate
+                    {
+                      completed =
+                        Some { aggregate_item = Ast.Aggregate_definition _; _ };
+                      record = Some (Ok record);
+                      _;
+                    }
+                  when Option.fold ~none:false
+                         ~some:(( == ) assigned.publication)
+                         (Collection.current_aggregate_publication
+                            ledger.namespace assigned.publication) ->
+                    record :: records
+                | _ -> records)
+              ledger.entries []
+          in
+          Some
+            (Sema.Compiler_record.capture_aggregate_reference_visibility
+               ~table:ledger.table ~namespace:ledger.namespace selection records
+            |> checked identifier.location.span)
+        else None
+      in
       Names.add ledger.references identifier
-        { selection; target; native_record };
+        { selection; target; native_record; aggregate_visibility };
       capture_runtime_reference ledger selection target)
 
 let observe_reference ledger selection =
@@ -1863,6 +1898,52 @@ let selected_member_record ledger (phase : Parser.aggregate_phase) =
       Sema.Compiler_record.select_aggregate_member ~table:ledger.table
         ~namespace:ledger.namespace ~selected_aggregate:selected phase record
   | _ -> Error "member layout lacks its original object placement phase"
+
+let automatic_aggregate_allocation ledger function_publication selected
+    (receipt : Parser.function_local_allocation) =
+  match (receipt.allocation_local.local_source, selected) with
+  | Parser.Local_variable local, Some selected
+    when receipt.allocation_storage = Ast.Automatic_local
+         && Option.is_none local.local_function_pointer
+         && local.local_pointer_layers = [] ->
+      let record =
+        match local.local_type_selection with
+        | Some selection -> (
+            match Entries.find_opt ledger.entries selection.entry with
+            | Some { source = Aggregate { publication = original; _ }; _ }
+              when Option.is_some original.aggregate_backing
+                   &&
+                   match local.local_type_specifier with
+                   | Ast.Named_type_specifier name ->
+                       name == original.aggregate_name
+                   | _ -> false -> None
+            | Some assigned -> (
+                match
+                  Collection.current_aggregate_publication ledger.namespace
+                    assigned.publication
+                with
+                | Some current ->
+                    Entries.fold
+                      (fun _ assigned found ->
+                        if assigned.publication != current then found
+                        else
+                          match assigned.source with
+                          | Aggregate { record = Some (Ok record); _ } ->
+                              Some record
+                          | _ -> None)
+                      ledger.entries None
+                | None -> None)
+            | None -> None)
+        | None -> None
+      in
+      Option.map
+        (fun record ->
+          Sema.Compiler_record.select_automatic_aggregate ~table:ledger.table
+            ~namespace:ledger.namespace ~function_publication
+            ~selected_aggregate:selected receipt record
+          |> checked receipt.allocation_lookahead.span)
+        record
+  | _ -> None
 
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
@@ -2887,6 +2968,7 @@ let observe ?offset_runtime ledger event =
                  header_warnings_emitted = false;
                  return_phases_seen = [];
                  local_allocations_seen = [];
+                 automatic_aggregate_allocations = [];
                })
             publication.function_entry;
           retain_selected_aggregate ledger
@@ -2897,7 +2979,8 @@ let observe ?offset_runtime ledger event =
           let span = publication.function_name.location.span in
           if not (Parser.function_local_allocation_is_current receipt) then
             fail span "local allocation is outside its original callback";
-          match (find ledger publication.function_name).source with
+          let assigned = find ledger publication.function_name in
+          match assigned.source with
           | Function state when state.publication == publication ->
               if List.exists (( == ) receipt) state.local_allocations_seen then
                 fail receipt.allocation_lookahead.span
@@ -2913,6 +2996,10 @@ let observe ?offset_runtime ledger event =
               | _ ->
                   fail span
                     "local allocation lacks its original type occurrence");
+              let automatic_aggregate =
+                automatic_aggregate_allocation ledger assigned.publication
+                  selected receipt
+              in
               let context =
                 receipt.allocation_local.local_command.command_context
               in
@@ -3015,7 +3102,8 @@ let observe ?offset_runtime ledger event =
                     | _ -> []
                   in
                   Sema.Compiler_record.record_local_allocation
-                    ~table:ledger.table ~namespace:ledger.namespace ~dimensions
+                    ?automatic_aggregate ~table:ledger.table
+                    ~namespace:ledger.namespace ~dimensions
                     ledger.compiler_positions record receipt
                   |> checked span;
                   Option.iter
@@ -3024,7 +3112,12 @@ let observe ?offset_runtime ledger event =
                         allocation :: ledger.static_allocations_rev)
                     (Sema.Compiler_record.static_allocation
                        ledger.compiler_positions receipt))
-                state.native_record
+                state.native_record;
+              Option.iter
+                (fun allocation ->
+                  state.automatic_aggregate_allocations <-
+                    allocation :: state.automatic_aggregate_allocations)
+                automatic_aggregate
           | _ -> fail span "local allocation belongs to another declaration")
       | Parser.Static_initializer_preparing receipt ->
           let publication = receipt.static_allocation.allocation_function in
@@ -4066,6 +4159,22 @@ let seal ledger (ast : Ast.module_) =
                                 ~default:header.header_compiler_options )
                       | _ -> None)
                     !claimed;
+                function_body_sources =
+                  List.filter_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Function { header = Some header; body = Some body; _ }
+                        -> Some (header, body)
+                      | _ -> None)
+                    !claimed;
+                automatic_aggregate_allocations =
+                  List.concat_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Function state ->
+                          List.rev state.automatic_aggregate_allocations
+                      | _ -> [])
+                    !claimed;
                 inherited_metadata =
                   List.filter_map
                     (fun assigned ->
@@ -5090,6 +5199,42 @@ let function_compiler_options ~table ~ast (command : command) =
 
 let source_function_compiler_options ~table ~ast (Source_command command) =
   function_compiler_options ~table ~ast command
+
+let function_body_sources ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "function bodies belong to another source command";
+      command.function_body_sources)
+
+let source_function_body_sources ~table ~ast (Source_command command) =
+  function_body_sources ~table ~ast command
+
+let automatic_aggregate_resolver ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "automatic class allocations belong to another source command";
+      fun identifier ->
+        List.find_opt
+          (fun allocation ->
+            Sema.Compiler_record.automatic_aggregate_local_name allocation
+            == identifier)
+          command.automatic_aggregate_allocations)
+
+let source_automatic_aggregate_resolver ~table ~ast (Source_command command) =
+  automatic_aggregate_resolver ~table ~ast command
+
+let aggregate_reference_resolver ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "aggregate reference visibility belongs to another source command";
+      fun identifier ->
+        Option.bind (Names.find_opt command.references identifier)
+          (fun reference -> reference.aggregate_visibility))
+
+let source_aggregate_reference_resolver ~table ~ast (Source_command command) =
+  aggregate_reference_resolver ~table ~ast command
 
 let selected_type_resolver ~table ~ast (command : command) =
   protect (fun () ->

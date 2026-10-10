@@ -1,11 +1,13 @@
 # holyc-ocaml roadmap
 
-Issue #686 now has direct and pointer integer member execution, nested fields,
-multidimensional member and automatic root arrays, and owned class pointer locals and parameters in
-isolated IR and native programs. Exact field proofs retain the completed
-earlier layout over the existing automatic byte storage. Inherited storage,
-retained JIT imports, persistent objects, whole-object values and copies,
-pointer fields, generic class pointer indexing and arithmetic, and pointer returns remain open.
+Issue #818 adds automatic objects for classes and unions declared inside a
+function. Original declaration and expression positions admit their completed
+layouts while preserving exact types, function identities and retained JIT
+contexts. Member access, nested and inherited objects, arrays and class pointer
+operations share the existing IR and native storage paths. See
+[function-local objects](docs/function-local-aggregate-objects.md).
+Persistent aggregates, general object copies, pointer fields and class pointer
+returns remain part of the broader work under #686.
 See [owned aggregate members](docs/aggregate-members.md) and
 [automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
 

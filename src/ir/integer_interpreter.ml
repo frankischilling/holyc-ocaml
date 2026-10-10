@@ -5697,6 +5697,7 @@ let indexed_address frame types (description : Sequence.description) =
             let stride = Sema.Aggregate_pointee_layout.byte_size layout in
             if
               Sema.Aggregate_pointee_layout.matches layout
+                ~function_symbol:(Frame.function_symbol context.layout)
                 ~before_item_index:(Frame.function_item_index context.layout)
                 ~pointer_type:pointer ~stride
             then Some stride

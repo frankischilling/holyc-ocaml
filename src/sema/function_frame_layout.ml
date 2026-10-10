@@ -772,7 +772,8 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
         (invalid_input ~origin
            "a local binding appears among the parameter type evidence")
 
-let local_location table aggregate_layouts ~function_item cursor binding input =
+let local_location table aggregate_layouts ~parent ~function_symbol
+    ~automatic_aggregates ~function_item cursor binding input =
   let symbol = Function_binding_index.binding_symbol binding in
   let local = input.local in
   let local_symbol = Local_type_resolution.local_symbol local in
@@ -809,9 +810,35 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
       | Local_type_resolution.Function_pointer pointer -> Some pointer
       | Local_type_resolution.Object -> None
     in
-    Result.bind
-      (element_size table aggregate_layouts ~before_item:function_item origin
-         declarator_shape checked_type) (fun element_size ->
+    let local_element_size =
+      match
+        (automatic_aggregates, kind, declarator_shape, Type.base checked_type)
+      with
+      | Some receipts, Automatic_local, Object, Type.Aggregate aggregate
+        when Type.pointer_depth checked_type = 0 -> (
+          match
+            List.find_opt (fun (owned, _, _) -> owned == local) receipts
+          with
+          | None -> Error (incomplete_aggregate aggregate origin)
+          | Some (_, local_name, receipt) ->
+              Result.bind
+                (Compiler_record.validate_automatic_aggregate ~table ~parent
+                   ~function_symbol ~local_symbol ~local_name ~checked_type
+                   receipt
+                |> Result.map_error (invalid_input ~origin))
+                (fun () ->
+                  match Aggregate_layout.find aggregate_layouts aggregate with
+                  | Some layout
+                    when layout.symbol == aggregate
+                         && layout.size
+                            = Compiler_record.automatic_aggregate_size receipt
+                         && layout.size > 0L -> Ok layout.size
+                  | _ -> Error (incomplete_aggregate aggregate origin)))
+      | _ ->
+          element_size table aggregate_layouts ~before_item:function_item origin
+            declarator_shape checked_type
+    in
+    Result.bind local_element_size (fun element_size ->
         Result.bind
           (evaluate_dimensions table symbol
              (Local_type_resolution.local_array_dimensions local)
@@ -986,7 +1013,7 @@ let validate_function_identity table parent previous_item seen_symbols input =
          "a function frame scope does not belong to the module")
   else Ok (item, Int_set.add key seen_symbols)
 
-let build_function table aggregate_layouts input =
+let build_function table aggregate_layouts ~parent ~automatic_aggregates input =
   let indexed = input.indexed_function in
   let typed = input.typed_function in
   let local_function = input.local_function in
@@ -1066,7 +1093,8 @@ let build_function table aggregate_layouts input =
                                 identity")
                         else
                           Result.bind
-                            (local_location table aggregate_layouts
+                            (local_location table aggregate_layouts ~parent
+                               ~function_symbol ~automatic_aggregates
                                ~function_item:
                                  (Function_binding_index.function_item_index
                                     indexed)
@@ -1113,7 +1141,7 @@ let validate_aggregate_layouts table aggregate_layouts =
     Error (invalid_input "aggregate frame evidence uses another symbol table")
   else loop (Aggregate_layout.layouts aggregate_layouts)
 
-let layout ~table ~parent ~aggregate_layouts inputs =
+let layout ~table ~parent ~aggregate_layouts ?automatic_aggregates inputs =
   Result.bind (validate_parent table parent) (fun () ->
       Result.bind (validate_aggregate_layouts table aggregate_layouts)
         (fun () ->
@@ -1123,8 +1151,9 @@ let layout ~table ~parent ~aggregate_layouts inputs =
                 Result.bind
                   (validate_function_identity table parent previous_item seen
                      input) (fun (item, seen) ->
-                    Result.bind (build_function table aggregate_layouts input)
-                      (fun function_ ->
+                    Result.bind
+                      (build_function table aggregate_layouts ~parent
+                         ~automatic_aggregates input) (fun function_ ->
                         loop item seen
                           (function_ :: functions_rev)
                           (Int_map.add

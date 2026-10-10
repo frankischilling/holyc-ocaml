@@ -11,10 +11,13 @@ sizeof(Local); // 42
 The parser accepts definitions, extern forwards, modifiers, member metadata,
 anonymous unions, and inherited class headers in statement bodies. Commas can
 separate declarations inside a function. A bare definition ends at its semicolon
-or comma; it does not consume an attached local variable. A backed inline type
-uses the local declaration path, as in `I64 class C { I64 value; } local;`.
-Parsing and semantic analysis retain that type even where executable aggregate
-object storage remains unsupported.
+or comma; it does not consume an attached local variable. The parser also accepts
+backed inline syntax such as `I64 class C { I64 value; } local;`, but execution
+of that form remains gated because the reference resets its allocation mode.
+Automatic objects of completed local types execute through the existing
+aggregate storage, member and pointer paths. See
+[function-local objects](function-local-aggregate-objects.md) for layout timing
+and execution boundaries.
 
 All semantic passes share one lexical declaration order, including types inside
 function and statement bodies. Function bodies and later globals therefore keep
@@ -46,12 +49,13 @@ instructions.
 
 The pinned `Compiler/PrsStmt.HC:1-60,1143-1159,1208-1218` provides global class
 publication and function statement delimiters. `Compiler/PrsVar.HC:286-368`
-provides backed inline types through the local declaration path.
+parses backed inline types; lines 310-318 and 367 reset declaration mode before
+the allocation dispatch at lines 531-534.
 
 [Inherited size metadata](source-inherited-layouts.md) retains the original
-selected base and its reached layout. Executable aggregate objects still need
-their storage and member-index support. Runtime AOT dimensions and offsets retain
-their relocation and callable-authority limits; broader native AOT aggregate execution and
+selected base and its reached layout. Local object allocation and member access
+retain their own original declaration positions. Runtime AOT dimensions and
+offsets retain their relocation and callable-authority limits; broader native AOT aggregate execution and
 the exported ABI also remain open. Function `$$` addresses keep
 their code-address requirements. These parser and layout changes do not complete
 those execution paths or the full compiler.

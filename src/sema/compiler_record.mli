@@ -144,15 +144,18 @@ type runtime_aggregate_offset
 type compiler_position
 type compiler_positions
 type static_allocation
+type automatic_aggregate_allocation
+type aggregate_reference_visibility
 
 val create_compiler_positions :
   sources:Common.Source_manager.t -> compiler_positions
 (** Original shared compiler-cell writes for one source manager. Outer AOT and
     nested JIT ledgers share this registry while retaining separate namespaces.
     Entries require live original aggregate or named JIT header/local phases;
-    numeric values cannot be supplied by callers. Runtime-sized primitive frames
-    retain their original dimension dependencies. Aggregate frames, unnamed
-    callback and ordinary AOT record writes remain unavailable. *)
+    numeric values cannot be supplied by callers. Runtime-sized frames retain
+    their original dimension dependencies. Aggregate locals require their
+    original allocation receipts. Unnamed callback and ordinary AOT record
+    writes remain unavailable. *)
 
 val compiler_positions_own_sources :
   compiler_positions -> Common.Source_manager.t -> bool
@@ -164,6 +167,7 @@ val compiler_position_runtime_dependencies :
   compiler_position -> runtime_dimension_proposal list
 
 val record_local_allocation :
+  ?automatic_aggregate:automatic_aggregate_allocation ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
   dimensions:declared_dimension list ->
@@ -173,9 +177,10 @@ val record_local_allocation :
   (unit, string) result
 (** Consume an original live local allocation after checking source manager,
     table, namespace, function and predecessor. Checked dimensions retain their
-    original owner, order and runtime dependencies. Unsupported layouts are
-    recorded as unavailable; neither a byte size nor executable authority can be
-    supplied by a caller. *)
+    original owner, order and runtime dependencies. An aggregate receipt must
+    belong to this exact allocation and supplies its saved class size, including
+    zero. Unsupported layouts are recorded as unavailable; neither a byte size
+    nor executable authority can be supplied by a caller. *)
 
 val static_allocation :
   compiler_positions ->
@@ -254,6 +259,65 @@ val select_aggregate_member :
 (** Capture the original selected class size during its live member placement.
     Canonical class identity, namespace and current record must agree. This
     snapshot grants no semantic member layout or runtime storage. *)
+
+val select_automatic_aggregate :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  function_publication:Declaration_collection.publication ->
+  selected_aggregate:Source_type_reference.selected_aggregate ->
+  Frontend.Parser.function_local_allocation ->
+  t ->
+  (automatic_aggregate_allocation, string) result
+(** Capture the selected class size after the original automatic local's name
+    and dimension lookahead. The exact function, local occurrence, selected
+    class identity and current source record must agree. Pointers and statics
+    reject. A zero class size is retained and cannot be enlarged by later class
+    completion. The receipt does not grant storage or executable authority. *)
+
+val automatic_aggregate_size : automatic_aggregate_allocation -> int64
+
+val automatic_aggregate_source :
+  automatic_aggregate_allocation -> Frontend.Parser.function_local_allocation
+
+val automatic_aggregate_local_name :
+  automatic_aggregate_allocation -> Frontend.Ast.identifier
+
+val validate_automatic_aggregate :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  function_symbol:Symbol.t ->
+  local_symbol:Symbol.t ->
+  local_name:Frontend.Ast.identifier ->
+  checked_type:Type.t ->
+  automatic_aggregate_allocation ->
+  (unit, string) result
+(** Match the saved allocation to its original function and physical local name
+    in this namespace, and to the local's checked type. Frame consumers retain
+    their own local-scope, layout and storage checks; current class metadata
+    cannot replace the saved allocation size. *)
+
+val capture_aggregate_reference_visibility :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Frontend.Parser.reference_selection ->
+  t list ->
+  (aggregate_reference_visibility, string) result
+(** Record which original class definitions were complete at a live identifier
+    read. Every supplied record must have its current completed definition in
+    the reference's table, namespace and parser environment. Forward
+    declarations cannot establish completion. Later definitions cannot enlarge
+    this set. *)
+
+val aggregate_reference_allows :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  identifier:Frontend.Ast.identifier ->
+  symbol:Symbol.t ->
+  aggregate_reference_visibility ->
+  bool
+(** True only for this exact original identifier and a class identity captured
+    as complete there. Foreign owners and missing identities return [false].
+    This is a visibility limit and grants no member layout or storage. *)
 
 val advance_aggregate :
   ?members:

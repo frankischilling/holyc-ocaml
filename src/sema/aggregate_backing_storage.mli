@@ -23,6 +23,15 @@ val create :
     backing, or signed RT_PTR value when the chain ends at an ordinary class.
     The class byte extent remains separate from the scalar width. *)
 
+val create_visible :
+  visibility:Function_aggregate_visibility.function_ ->
+  source:Frontend.Ast.expression ->
+  table:Symbol_table.t ->
+  members:Aggregate_member_index.t ->
+  policies:Function_call_conversion_policy.t ->
+  source_type:Type.t ->
+  t option
+
 val source_type : t -> Type.t
 val value_type : t -> Type.t
 val aggregate_symbol : t -> Symbol.t

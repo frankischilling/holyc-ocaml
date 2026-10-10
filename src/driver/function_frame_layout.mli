@@ -13,6 +13,9 @@ val layout :
   ?prepared:
     (Frontend.Ast.array_dimension ->
     (Sema.Compiler_record.declared_dimension, string) result) ->
+  ?automatic_aggregate_resolver:
+    (Frontend.Ast.identifier ->
+    Sema.Compiler_record.automatic_aggregate_allocation option) ->
   Frontend.Ast.module_ ->
   (Sema.Function_frame_layout.t, string) result
 (** Reconcile the semantic passes with each function definition in the AST,

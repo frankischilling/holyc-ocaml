@@ -5165,6 +5165,11 @@
  (modules test_local_aggregates local_aggregate_cases)
  (libraries holyc_lib alcotest))
 
+(test
+ (name test_local_aggregate_allocation)
+ (modules test_local_aggregate_allocation)
+ (libraries holyc_lib alcotest))
+
 (library
  (name automatic_aggregate_fixture)
  (wrapped false)
@@ -5271,12 +5276,15 @@
  (name test_local_aggregates_cli)
  (modules test_local_aggregates_cli)
  (libraries unix yojson)
- (deps ../examples/local-aggregate-declarations.hc)
+ (deps
+  ../examples/local-aggregate-declarations.hc
+  ../examples/function-local-aggregate-objects.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
-   %{dep:../examples/local-aggregate-declarations.hc})))
+   %{dep:../examples/local-aggregate-declarations.hc}
+   %{dep:../examples/function-local-aggregate-objects.hc})))
 
 (test
  (name test_stream_generation_cli)

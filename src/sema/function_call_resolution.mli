@@ -151,6 +151,18 @@ val make_callable :
 val make_argument_expression :
   kind:argument_expression_kind -> origin:Symbol.origin -> argument_expression
 
+val retain_source_expression :
+  source:Frontend.Ast.expression ->
+  argument_expression ->
+  (argument_expression, string) result
+(** Retain the original parser occurrence for later checked source consumers.
+    Origin, payload, operators and exact ordered child occurrences must match.
+    Calls still require their separate checked call receipts. This association
+    grants no execution or layout authority on its own. *)
+
+val argument_expression_source :
+  argument_expression -> Frontend.Ast.expression option
+
 val make_source_identifier_expression :
   occurrence:Module_expression_binding.occurrence -> argument_expression
 
