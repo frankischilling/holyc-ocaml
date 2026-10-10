@@ -36,10 +36,10 @@ let run ?max_steps ?max_initializer_steps mode text =
   run_integer_program_report ?max_initializer_steps session ~source ~config
     ~max_steps:(Option.value ~default:100_000 max_steps)
 
-let value report =
+let value ?(expected = 42L) report =
   let result = integer_program_report_outcome report |> diagnostics in
   Alcotest.(check (option int64))
-    "original result" (Some 42L)
+    "original result" (Some expected)
     (VM.final_value result.value |> Option.map (fun word -> word.VM.bits))
 
 let failure code report =
@@ -314,8 +314,34 @@ let existing_limits () =
            "U0 Make(){class Base{U8 a;};class Child:Base{U8 \
             b;};}sizeof(Child)+40;");
       failure "HCSEMA0074"
-        (run mode "I64 F(){I64 class C{I64 a;} value;return 42;}F();"))
-    modes
+        (run mode "I64 F(){I64 class C{I64 a;} value;return 42;}F();");
+      List.iter
+        (fun (code, text) -> failure code (run mode text))
+        Cases.object_failures)
+    modes;
+  failure "HCSEMA0046" (run Preprocessor.Jit Cases.suffix_completion_boundary);
+  failure "HCPARSE0048" (run Preprocessor.Aot Cases.child_backed_type);
+  failure "HCSEMA0046" (run Preprocessor.Aot Cases.completed_during_lookahead);
+  value ~expected:44L (run Preprocessor.Aot Cases.replaced_during_dimension)
+
+let object_effects () =
+  let baseline = run Preprocessor.Jit Cases.object_effects in
+  value baseline;
+  Alcotest.(check string)
+    "local object layout executes once before calls" "offdim"
+    (integer_program_report_output_bytes baseline);
+  let prep = integer_program_report_preparation_work baseline |> Option.get in
+  let steps =
+    (integer_program_report_outcome baseline |> diagnostics).value
+    |> VM.executed_steps
+  in
+  value
+    (run ~max_steps:steps ~max_initializer_steps:prep Preprocessor.Jit
+       Cases.object_effects);
+  failure "HCIRVM0007"
+    (run ~max_steps:(steps - 1) Preprocessor.Jit Cases.object_effects);
+  failure "HCIRVM0007"
+    (run ~max_initializer_steps:(prep - 1) Preprocessor.Jit Cases.object_effects)
 
 let () =
   Alcotest.run "Classes and unions in statements"
@@ -345,12 +371,19 @@ let () =
                   (fun () -> value (run mode text)))
               Cases.values)
           modes
+        @ List.map
+            (fun (name, text) ->
+              Alcotest.test_case ("JIT " ^ name) `Quick (fun () ->
+                  value (run Preprocessor.Jit text)))
+            Cases.jit_values
         @ [
             Alcotest.test_case "source effects and position ordering" `Quick
               effects;
             Alcotest.test_case "exact preparation and runtime budgets" `Quick
               quotas;
-            Alcotest.test_case "existing object and AOT boundaries" `Quick
+            Alcotest.test_case "local object layout effects and budgets" `Quick
+              object_effects;
+            Alcotest.test_case "object visibility and memory boundaries" `Quick
               existing_limits;
           ] );
     ]

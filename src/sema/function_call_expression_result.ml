@@ -349,6 +349,8 @@ type expression_context = Value_context | Lvalue_context
 
 type build_state = {
   next_id : int;
+  aggregate_visibility : Function_aggregate_visibility.t option;
+  function_visibility : Function_aggregate_visibility.function_ option;
   backing_context :
     (Symbol_table.t
     * Aggregate_member_index.t
@@ -1649,6 +1651,32 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
+let layout_item_index state before_item_index source =
+  match state.function_visibility with
+  | None -> before_item_index
+  | Some visibility ->
+      Option.bind
+        (Function_call_resolution.argument_expression_source source)
+        (Function_aggregate_visibility.before_expression visibility)
+      |> Option.value
+           ~default:
+             (Function_aggregate_visibility.function_item_index visibility)
+
+let owner_item_index state before_item_index =
+  Option.fold ~none:before_item_index
+    ~some:Function_aggregate_visibility.function_item_index
+    state.function_visibility
+
+let pointee_layout state ~members ~before_item_index ~source ~pointer_type =
+  match state.function_visibility with
+  | None ->
+      Aggregate_pointee_layout.create ~members ~before_item_index ~pointer_type
+  | Some visibility ->
+      Option.bind (Function_call_resolution.argument_expression_source source)
+        (fun source ->
+          Aggregate_pointee_layout.create_visible ~visibility ~source ~members
+            ~pointer_type)
+
 let integer_aggregate_return_type ?before_item_index table members policies
     header =
   let before_item_index =
@@ -1738,9 +1766,17 @@ let make_result ?aggregate_return_value_type ?operand_result ?binary_operands
               | Type.Aggregate _
                 when Type.pointer_depth source_type = 0
                      && Option.is_none (result_callback_parser_pointer result)
-                ->
-                  Aggregate_backing_storage.create ~table ~members ~policies
-                    ~before_item_index ~source_type
+                -> (
+                  match state.function_visibility with
+                  | None ->
+                      Aggregate_backing_storage.create ~table ~members ~policies
+                        ~before_item_index ~source_type
+                  | Some visibility ->
+                      Option.bind
+                        (Function_call_resolution.argument_expression_source
+                           source) (fun source ->
+                          Aggregate_backing_storage.create_visible ~visibility
+                            ~source ~table ~members ~policies ~source_type))
               | _ -> None))
   in
   record state { result with aggregate_backing_storage }
@@ -2058,8 +2094,8 @@ let conversion_to_target target_class result_class =
   | ( Function_call_conversion_policy.Integer_result,
       (Integer_result | Unresolved_actual_class) ) -> No_intrinsic_conversion
 
-let resolve_member_lookup members ~before_item_index ~aggregate_symbol
-    ~member_name ~member_origin =
+let resolve_member_lookup ?(layout_visible = true) members ~before_item_index
+    ~aggregate_symbol ~member_name ~member_origin =
   match Aggregate_member_index.find_aggregate members aggregate_symbol with
   | None ->
       Error
@@ -2067,8 +2103,9 @@ let resolve_member_lookup members ~before_item_index ~aggregate_symbol
            (Printf.sprintf "aggregate `%s` has no completed member index"
               (Symbol.name aggregate_symbol)))
   | Some aggregate
-    when Aggregate_member_index.aggregate_item_index aggregate
-         >= before_item_index ->
+    when (not layout_visible)
+         || Aggregate_member_index.aggregate_item_index aggregate
+            >= before_item_index ->
       Error
         (invalid_input ~origin:member_origin
            (Printf.sprintf
@@ -2499,6 +2536,7 @@ let bind_top_level_offset state ~before_item_index offset =
 let rec type_expression table members policies ~before_item_index ~context
     ?(allow_aggregate_offset_base = false)
     ?(intrinsic_conversion = No_intrinsic_conversion) state source =
+  let before_item_index = layout_item_index state before_item_index source in
   let state =
     {
       state with
@@ -3095,7 +3133,8 @@ let rec type_expression table members policies ~before_item_index ~context
                     ~intrinsic_conversion state id source call)
           | Function_call_resolution.Call_expression -> (
               match
-                nested_call_resolution policies ~before_item_index
+                nested_call_resolution policies
+                  ~before_item_index:(owner_item_index state before_item_index)
                   (Function_call_resolution.argument_expression_origin source)
               with
               | Error _ as error -> error
@@ -3212,7 +3251,7 @@ and type_prefix table members policies ~before_item_index ~context
           (make_result ~operand_result:operand ~array_rank ?function_declaration
              ?aggregate_pointee_layout:
                (Option.bind (result_storage_type operand) (fun pointer_type ->
-                    Aggregate_pointee_layout.create ~members ~before_item_index
+                    pointee_layout state ~members ~before_item_index ~source
                       ~pointer_type))
              ?function_address_path ?callback_pointer ~intrinsic_conversion
              state ~id ~source ~source_type ~category ~result_class)
@@ -3396,8 +3435,8 @@ and type_index table members policies ~before_item_index ~context
               (make_result ~index_operands:(base, index_value)
                  ?aggregate_pointee_layout:
                    (Option.bind (result_storage_type base) (fun pointer_type ->
-                        Aggregate_pointee_layout.create ~members
-                          ~before_item_index ~pointer_type))
+                        pointee_layout state ~members ~before_item_index ~source
+                          ~pointer_type))
                  ?callback_pointer:base.callback_pointer
                  ~array_address:(base.array_address && array_rank > 0)
                  ~array_rank ?member_lookup ~intrinsic_conversion state ~id
@@ -3484,7 +3523,25 @@ and type_member table members policies ~before_item_index ~context
         | Type.Primitive _ ->
             invalid_operator "member access base is not an aggregate"
         | Type.Aggregate aggregate_symbol ->
-            resolve_member_lookup members ~before_item_index ~aggregate_symbol
+            let layout_visible =
+              match state.function_visibility with
+              | None -> true
+              | Some visibility ->
+                  Option.fold ~none:false
+                    ~some:(fun source ->
+                      Option.fold ~none:false
+                        ~some:(fun aggregate ->
+                          Function_aggregate_visibility.permits_aggregate
+                            visibility ~source ~symbol:aggregate_symbol
+                            ~item_index:
+                              (Aggregate_member_index.aggregate_item_index
+                                 aggregate))
+                        (Aggregate_member_index.find_aggregate members
+                           aggregate_symbol))
+                    (Function_call_resolution.argument_expression_source source)
+            in
+            resolve_member_lookup ~layout_visible members ~before_item_index
+              ~aggregate_symbol
               ~member_name:(Function_call_resolution.member_name member)
               ~member_origin
       in
@@ -3622,8 +3679,8 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
             (make_result ~operand_result:operand ~intrinsic_conversion
                ?aggregate_pointee_layout:
                  (Option.bind (result_storage_type operand) (fun pointer_type ->
-                      Aggregate_pointee_layout.create ~members
-                        ~before_item_index ~pointer_type))
+                      pointee_layout state ~members ~before_item_index ~source
+                        ~pointer_type))
                state ~id ~source
                ~source_type:(result_storage_type operand)
                ~category:Object_value ~result_class:operand.result_class))
@@ -3704,7 +3761,7 @@ and type_assignment table members policies ~before_item_index
                   Ok
                     (make_result ~binary_operands:(left, right) ~execution_class
                        ?aggregate_pointee_layout:
-                         (Aggregate_pointee_layout.create ~members
+                         (pointee_layout state ~members ~source
                             ~before_item_index ~pointer_type:destination_type)
                        ~intrinsic_conversion state ~id ~source
                        ~source_type:(Some destination_type)
@@ -3819,8 +3876,8 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
                             else Some type_
                           in
                           Option.bind pointer (fun pointer_type ->
-                              Aggregate_pointee_layout.create ~members
-                                ~before_item_index ~pointer_type)))
+                              pointee_layout state ~members ~before_item_index
+                                ~source ~pointer_type)))
                    ~intrinsic_conversion state ~id ~source ~source_type
                    ~category:
                      (if
@@ -5250,6 +5307,10 @@ let type_return table members policies ~before_item_index ~declared_type state
                       state ))))
 
 let type_initializer table members policies ~before_item_index state source =
+  let before_item_index =
+    layout_item_index state before_item_index
+      (Function_call_resolution.initializer_expression source)
+  in
   let local = Function_call_resolution.initializer_local source in
   let target_type =
     match Local_type_resolution.local_declarator_kind local with
@@ -5301,8 +5362,18 @@ let type_function table members policies outer state source =
   in
   let state = { state with outer_function; outer_callback_calls_rev = [] } in
   let item_index = Function_call_conversion_policy.function_item_index source in
+  let function_visibility =
+    Option.bind state.aggregate_visibility (fun visibility ->
+        Function_aggregate_visibility.find_function visibility
+          ~symbol:(Function_call_conversion_policy.function_symbol source)
+          ~item_index)
+  in
   let state =
-    { state with backing_context = Some (table, members, policies, item_index) }
+    {
+      state with
+      function_visibility;
+      backing_context = Some (table, members, policies, item_index);
+    }
   in
   match
     source |> Function_call_conversion_policy.function_calls
@@ -5464,13 +5535,23 @@ let validate_outer policies outer =
               |> Symbol.origin)
              "outer expression bindings omit a checked function")
 
-let analyze ~table ~members ?outer policies =
+let analyze ~table ~members ?outer ?aggregate_visibility policies =
   if not (Function_call_conversion_policy.owns_table policies table) then
     Error
       (invalid_input "call conversion policies belong to another symbol table")
   else if not (Aggregate_member_index.owns_table members table) then
     Error
       (invalid_input "aggregate member index belongs to another symbol table")
+  else if
+    Option.fold ~none:false
+      ~some:(fun visibility ->
+        not
+          (Function_aggregate_visibility.owns visibility ~table
+             ~parent:(Aggregate_member_index.parent_scope members)))
+      aggregate_visibility
+  then
+    Error
+      (invalid_input "aggregate visibility belongs to another table or module")
   else if
     not
       (Function_call_conversion_policy.owns_parent policies
@@ -5502,6 +5583,8 @@ let analyze ~table ~members ?outer policies =
                (type_function table members policies outer)
                {
                  next_id = 0;
+                 aggregate_visibility;
+                 function_visibility = None;
                  backing_context = None;
                  results_rev = [];
                  outer_function = None;
@@ -5661,6 +5744,8 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
            (type_top_level_statement table members policies)
            {
              next_id = 0;
+             aggregate_visibility = None;
+             function_visibility = None;
              backing_context = None;
              results_rev = [];
              outer_function = None;

@@ -1517,12 +1517,15 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/local-aggregate-declarations.hc)
+ (deps
+  ../../examples/local-aggregate-declarations.hc
+  ../../examples/function-local-aggregate-objects.hc)
  (action
   (run
    %{exe:../test_local_aggregates_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/local-aggregate-declarations.hc}
+   %{dep:../../examples/function-local-aggregate-objects.hc}
    --native)))
 
 (executable

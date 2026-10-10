@@ -72,9 +72,11 @@ ownership. The checks use expected words and hosted execution; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
 [Closed class default words](class-default-words.md) prepare in both IR modes and
-native JIT/AOT source compilation. Whole-value postfix casts, aggregate
+native JIT/AOT source compilation. Completed
+[function-local classes](function-local-aggregate-objects.md) also retain their
+default signed word view and original object size. Whole-value postfix casts, aggregate
 initializers, AOT IR and ordinary native defaults containing references and
-callback parameter ABI paths, persistent objects, function-local layouts and
+callback parameter ABI paths, persistent objects and
 zero-sized automatic objects, pointer and callback backings, F64 execution and
 general aggregate copies remain
 open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)

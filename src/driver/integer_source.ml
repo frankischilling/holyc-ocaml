@@ -162,6 +162,47 @@ let prepare_unit ?environment:task_environment ?declaration_command
         Task_declarations.semantic_view ~table ~ast:source_ast command
     | None -> Ok (ast, declarations, 0, [])
   in
+  let* bodies =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.function_body_sources ~table ~ast:source_ast command
+    | None, Some command ->
+        Task_declarations.source_function_body_sources ~table ~ast:source_ast
+          command
+    | None, None -> Ok []
+    | Some _, Some _ -> assert false
+  in
+  let* aggregate_references =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.aggregate_reference_resolver ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_aggregate_reference_resolver ~table
+          ~ast:source_ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
+  let* aggregate_visibility =
+    Sema.Function_aggregate_visibility.create ~table ~declarations ~bodies
+      ?aggregate_references ast
+    |> checked
+  in
+  let* automatic_aggregate_resolver =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.automatic_aggregate_resolver ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_automatic_aggregate_resolver ~table
+          ~ast:source_ast command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
   let* aggregates =
     Aggregate_resolution.resolve ~table ~declarations ast |> checked
   in
@@ -496,7 +537,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* function_results =
-    Typed.analyze ~table ~members ?outer policies
+    Typed.analyze ~table ~members ?outer ~aggregate_visibility policies
     |> Result.map_error Typed.error_to_string
     |> checked
   in
@@ -533,7 +574,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* frames =
     Function_frame_layout.layout ~table ~declarations ~bindings ~function_types
-      ~local_types ~aggregate_layouts:layouts ?prepared ast
+      ~local_types ~aggregate_layouts:layouts ?prepared
+      ?automatic_aggregate_resolver ast
     |> checked
   in
   let* compiler_options =

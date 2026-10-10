@@ -1,5 +1,16 @@
 # Testing holyc-ocaml
 
+[Function-local object tests](function-local-aggregate-objects.md) extend the
+shared local aggregate cases with automatic storage, nested and inherited
+members, arrays, class pointer strides, recursion and retained replacements.
+Forward completion and declaration lookahead check layout timing. Original
+runtime bounds and offsets execute once across repeated calls, with exact and
+one-below instruction and preparation limits.
+The aggregate member suites also substitute foreign local field, pointee and
+scalar-prefix proofs, remove proofs and alter their offsets or strides. Public
+CLI tests exercise `examples/function-local-aggregate-objects.hc` through IR and
+native execution.
+
 [Class value returns](class-value-returns.md) carry qualified integer
 register words while preserving nominal declaration types. Object reads
 use the selected scalar prefix; register results retain the full word.

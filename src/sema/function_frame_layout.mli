@@ -64,6 +64,11 @@ val layout :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   aggregate_layouts:Aggregate_layout.t ->
+  ?automatic_aggregates:
+    (Local_type_resolution.local
+    * Frontend.Ast.identifier
+    * Compiler_record.automatic_aggregate_allocation)
+    list ->
   function_input list ->
   (t, error) result
 (** Join the completed binding and type evidence and lay out every function in

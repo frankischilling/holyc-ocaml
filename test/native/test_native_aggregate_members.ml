@@ -264,6 +264,9 @@ let field_proofs () =
   List.iter check
     [
       Aggregate_member_fixture.contents;
+      Aggregate_member_fixture.local_contents;
+      Aggregate_member_fixture.local_pointer_contents;
+      Aggregate_member_fixture.local_backing_contents;
       Arrays.proof_source;
       Pointers.proof_source;
       Inherited.proof_source;

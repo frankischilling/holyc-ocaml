@@ -16,6 +16,10 @@ let values =
       {|class Box{U8 byte;};I64 F(){Box object;object.byte=42;return object.byte;}F();|},
       42L,
       "" );
+    ( "function-local object layout",
+      {|I64 F(){class Box{U8 byte;};Box o;o.byte=42;return o.byte;}F();|},
+      42L,
+      "" );
     ("packed string array and class pointer parameter", example, 42L, "AB");
     ( "nested aggregate fields",
       {|class I{U8 tag;U16 value;};class Box{U8 prefix;I item;U8 tail;};I64 F(){Box o;o.item.value=40;(&o)->item.value+=2;return o.item.value;}F();|},
@@ -129,8 +133,6 @@ let faults =
 
 let unsupported =
   [
-    ( "function-local object layout",
-      {|I64 F(){class Box{U8 byte;};Box o;o.byte=42;return o.byte;}F();|} );
     ("zero-size automatic object", {|class Box{};I64 F(){Box o;return 42;}F();|});
     ( "automatic aggregate pointer array",
       {|class Box{U8 byte;};I64 F(){Box *items[2];return 42;}F();|} );

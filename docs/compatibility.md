@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Function-local class and union objects](function-local-aggregate-objects.md)
+retain the layout available at their original declaration and expression
+positions. Automatic members, arrays, inherited objects and class pointer
+operations execute through IR and native paths, including retained JIT calls.
+Later same-name declarations preserve earlier objects' selected types.
+
 [Class value returns](class-value-returns.md) carry qualified integer
 register words while preserving nominal declaration types. Object reads
 use the selected scalar prefix; register results retain the full word.

@@ -317,6 +317,44 @@ val function_compiler_options :
 (** Original per-function masks reached at body completion, or header completion
     for declarations without a body, in this exact sealed command. *)
 
+val function_body_sources :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( (Frontend.Parser.completed_function_header
+    * Frontend.Ast.function_definition)
+    list,
+    Common.Diagnostic.t list )
+  result
+(** Original completed headers and their exact accepted bodies in this sealed
+    command. Equal copied bodies and commands cannot obtain these witnesses. *)
+
+val automatic_aggregate_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.identifier ->
+    Sema.Compiler_record.automatic_aggregate_allocation option,
+    Common.Diagnostic.t list )
+  result
+(** Read allocation receipts by exact original local-name identity. A saved
+    zero-size receipt remains present after later class completion. Pointers,
+    statics, inline backed-class locals and missing layout proof return [None].
+    The resolver grants no frame layout or runtime storage authority. *)
+
+val aggregate_reference_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.identifier ->
+    Sema.Compiler_record.aggregate_reference_visibility option,
+    Common.Diagnostic.t list )
+  result
+(** Original class-completion snapshots for exact identifier reads in this
+    sealed command. Later source activation preserves the saved visibility;
+    copied identifiers and observations without a live parser callback have no
+    snapshot. *)
+
 val implicit_output_resolver :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -338,6 +376,34 @@ val source_function_compiler_options :
   ast:Frontend.Ast.module_ ->
   source_command ->
   (Sema.Symbol.t -> (int64, string) result, Common.Diagnostic.t list) result
+
+val source_function_body_sources :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( (Frontend.Parser.completed_function_header
+    * Frontend.Ast.function_definition)
+    list,
+    Common.Diagnostic.t list )
+  result
+
+val source_automatic_aggregate_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.identifier ->
+    Sema.Compiler_record.automatic_aggregate_allocation option,
+    Common.Diagnostic.t list )
+  result
+
+val source_aggregate_reference_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.identifier ->
+    Sema.Compiler_record.aggregate_reference_visibility option,
+    Common.Diagnostic.t list )
+  result
 
 val source_inherited_metadata :
   table:Sema.Symbol_table.t ->

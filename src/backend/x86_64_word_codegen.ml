@@ -7877,6 +7877,11 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                 (Option.fold ~none:false
                                    ~some:(fun before_item_index ->
                                      Sema.Aggregate_pointee_layout.matches
+                                       ?function_symbol:
+                                         (match runtime_owner with
+                                         | Runtime.Function body ->
+                                             Some (Function.symbol body)
+                                         | _ -> None)
                                        layout ~before_item_index
                                        ~pointer_type:target_type
                                        ~stride:scaled.index_stride)

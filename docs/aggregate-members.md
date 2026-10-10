@@ -112,7 +112,7 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 309 IR and 583 native test groups. Independent expected
+The shared fixtures have 323 IR and 614 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
@@ -127,7 +127,11 @@ still exercise graph sealing. Native host checks execute fresh images. The
 actual CLI runs 920 reports for IR and 2137 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
-Partial and out-of-compilation inherited bases, function-local layouts, zero-sized automatic objects, pointer arrays,
+[Function-local types](function-local-aggregate-objects.md) now provide automatic
+object and array storage through the same member paths. Their original
+allocation and expression receipts preserve layout timing and function ownership.
+
+Partial and out-of-compilation inherited bases, zero-sized automatic objects, pointer arrays,
 aggregate array initializers, persistent aggregate objects, whole-value
 postfix casts, AOT IR and ordinary native defaults containing references, callback parameters and general aggregate
 copies, pointer and callback fields, general casts to class pointers, pointer

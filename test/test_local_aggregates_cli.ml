@@ -21,12 +21,13 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3 || Array.length Sys.argv = 4)
-    "expected compiler and local-aggregate example, with optional --native"
+    (Array.length Sys.argv = 4 || Array.length Sys.argv = 5)
+    "expected compiler, declaration and object examples, with optional --native"
 
 let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
-let native = Array.length Sys.argv = 4 && Sys.argv.(3) = "--native"
+let object_example = Sys.argv.(3)
+let native = Array.length Sys.argv = 5 && Sys.argv.(4) = "--native"
 
 let invoke ?(status = 0) ?(options = []) target mode path =
   let args =
@@ -95,9 +96,25 @@ let () =
       word "42" report;
       require (member "output_hex" report = `String "3432") "example output")
     [ "jit"; "aot" ];
+  List.iter
+    (fun target ->
+      List.iter
+        (fun mode ->
+          let report = invoke target mode object_example in
+          word "42" report;
+          require
+            (member "output_hex" report = `String "3432")
+            "local class object example output")
+        [ "jit"; "aot" ])
+    (if native then [ "ir"; "host-jit" ] else [ "ir" ]);
   let targets = if native then [ "ir"; "host-jit-task" ] else [ "ir" ] in
   List.iter
     (fun target ->
+      let objects = invoke target "jit" object_example in
+      word "42" objects;
+      require
+        (member "output_hex" objects = `String "3432")
+        "retained local class object output";
       let report = invoke target "jit" example in
       word "42" report;
       require

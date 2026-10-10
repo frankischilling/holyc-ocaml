@@ -1,5 +1,14 @@
 # Reference source map
 
+[Function-local aggregate objects](function-local-aggregate-objects.md) follow
+`Compiler/PrsStmt.HC:1-60,1143-1164` for global class publication and local
+declaration dispatch. `Compiler/PrsVar.HC:286-370,521-532,590-617` retains the
+selected class through declarator lookahead, reads its size after dimensions,
+and allocates the automatic object before parsing its initializer. Member and
+pointer consumers use `Compiler/PrsExp.HC:15-63,960-1115`. Original allocation
+and expression positions control layout admission separately from the enclosing
+function's identity.
+
 [Class value returns](class-value-returns.md) carry qualified integer
 register words while preserving nominal declaration types. Object reads
 use the selected scalar prefix; register results retain the full word.

@@ -7,6 +7,17 @@ module Seq = Ir_instruction_sequence
 let contents =
   {|class Box{U8 tag;U16 value;};I64 F(){Box o;o.value=42;return o.value;}F();|}
 
+let local_contents =
+  {|I64 F(){class Box{U8 tag;U16 value;};Box o;o.value=42;return o.value;}F();|}
+
+let local_pointer_contents =
+  {|I64 F(){class Box{U8 tag;U16 value;};Box o[2];o[1].value=42;Box *p=o;p++;return p->value;}
+I64 G(){class Box{U8 tag;U16 value;};Box o[2];o[1].value=42;Box *p=o;p++;return p->value;}F();|}
+
+let local_backing_contents =
+  {|I64 F(){class Box{U8 tag;U8 bytes[8];};Box o;o=42;o.bytes[0]=0;return o;}
+I64 G(){class Box{U8 tag;U8 bytes[8];};Box o;o=42;o.bytes[0]=0;return o;}F();|}
+
 let compile ?(contents = contents) mode =
   let session = Session.create () in
   let source = Session.add_source session ~path:"member-proof.hc" ~contents in
@@ -102,7 +113,10 @@ let controls ?(contents = contents) mode =
     | _ -> d
   in
   let pointee_proofs =
-    if contents <> Aggregate_pointer_cases.proof_source then []
+    if
+      contents <> Aggregate_pointer_cases.proof_source
+      && contents <> local_pointer_contents
+    then []
     else
       let proof definition =
         Body.body definition.VM.body
@@ -124,6 +138,40 @@ let controls ?(contents = contents) mode =
       let later_function_proof =
         proof (List.nth (integer_program_functions original) 1)
       in
+      let frame = definition.VM.frame in
+      let instruction =
+        Body.body definition.VM.body
+        |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions)
+        |> List.find_map (fun instruction ->
+            let description = Seq.description instruction in
+            match description.payload with
+            | Some (Seq.Pointee_stride layout) -> Some (description, layout)
+            | _ -> None)
+        |> Option.get
+      in
+      let description, layout = instruction in
+      let pointer_type = Option.get description.target_type in
+      let stride = Semantic_aggregate_pointee_layout.byte_size layout in
+      let before_item_index =
+        Semantic_function_frame_layout.function_item_index frame
+      in
+      let matches ?function_symbol () =
+        Semantic_aggregate_pointee_layout.matches ?function_symbol layout
+          ~before_item_index ~pointer_type ~stride
+      in
+      let own = Semantic_function_frame_layout.function_symbol frame in
+      let other =
+        List.nth (integer_program_functions original) 1 |> fun value ->
+        Semantic_function_frame_layout.function_symbol value.VM.frame
+      in
+      if not (matches ~function_symbol:own ()) then
+        failwith "original pointee proof lost its exact function owner";
+      if matches ~function_symbol:other () then
+        failwith "reused numeric function index admitted another function owner";
+      if matches () then
+        failwith "numeric function index alone admitted a source pointee proof";
       [
         ( "foreign equal-name pointee layout",
           rebuild definition (substitute (Some foreign_proof)) );
@@ -135,7 +183,10 @@ let controls ?(contents = contents) mode =
       ]
   in
   let backing_proofs =
-    if contents <> Backed_aggregate_cases.proof_source then []
+    if
+      contents <> Backed_aggregate_cases.proof_source
+      && contents <> local_backing_contents
+    then []
     else
       let proof definition =
         Body.body definition.VM.body

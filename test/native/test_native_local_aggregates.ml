@@ -98,7 +98,22 @@ let boundaries () =
   value
     (run
        "U0 Make(){class Base{U8 a;};class Child:Base{U8 b;};}sizeof(Child)+40;");
-  failure "HCSEMA0074" (run "I64 F(){I64 class C{I64 a;} value;return 42;}F();")
+  failure "HCSEMA0074" (run "I64 F(){I64 class C{I64 a;} value;return 42;}F();");
+  List.iter (fun (code, text) -> failure code (run text)) Cases.object_failures;
+  failure "HCSEMA0046" (run Cases.suffix_completion_boundary)
+
+let object_effects () =
+  let baseline = run Cases.object_effects in
+  value baseline;
+  Alcotest.(check string)
+    "native local object layout executes once before calls" "offdim"
+    (Native.output_bytes baseline);
+  let prep = Native.preparation_steps baseline
+  and steps = Native.executed_steps baseline in
+  value (run ~max_initializer_steps:prep ~max_steps:steps Cases.object_effects);
+  failure "HCIRVM0007"
+    (run ~max_initializer_steps:(prep - 1) Cases.object_effects);
+  failure "HCIRVM0007" (run ~max_steps:(steps - 1) Cases.object_effects)
 
 let () =
   Alcotest.run "Native classes and unions in statements"
@@ -107,10 +122,13 @@ let () =
         List.map
           (fun (name, text) ->
             Alcotest.test_case name `Quick (fun () -> value (run text)))
-          Cases.values
+          (Cases.values @ Cases.jit_values)
         @ [
             Alcotest.test_case "original effects and input order" `Quick effects;
             Alcotest.test_case "exact native and source limits" `Quick quotas;
-            Alcotest.test_case "existing object boundaries" `Quick boundaries;
+            Alcotest.test_case "local object layout effects and budgets" `Quick
+              object_effects;
+            Alcotest.test_case "object visibility and memory boundaries" `Quick
+              boundaries;
           ] );
     ]
