@@ -7,6 +7,9 @@ module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
 module Returns = Class_return_cases
+module Defaults = Class_default_cases
+module Saved_default = Holyc_lib__Ir.Prepared_parameter_default
+module Default_preparation = Holyc_lib__Driver.Native_default_preparation
 module P = X86_64_program
 module VM = Ir_integer_interpreter
 
@@ -163,6 +166,7 @@ let quotas () =
       Default.quota_source;
       Parameters.quota_source;
       Returns.quota_source;
+      Defaults.quota_source;
     ]
 
 let images () =
@@ -215,6 +219,7 @@ let images () =
       Default.quota_source;
       Parameters.quota_source;
       Returns.quota_source;
+      Defaults.quota_source;
     ]
 
 let field_proofs () =
@@ -314,9 +319,94 @@ let boundaries () =
     "retained JIT class metadata cannot authorize frame storage" true
     (Result.is_error (Native_source_execution.outcome report))
 
+let class_default_proofs () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (_, contents) ->
+          Alcotest.(check bool)
+            "unsupported native default" true
+            (Result.is_error (Native_program.outcome (run mode contents))))
+        Defaults.native_unsupported;
+      List.iter
+        (fun (_, contents, _, _) ->
+          Alcotest.(check bool)
+            "ordinary native prototypes retain their source gate" true
+            (Result.is_error (Native_program.outcome (run mode contents))))
+        Defaults.prototype_values;
+      let fixture =
+        Native_scalar_fixture.compile ~mode ~path:"class-default-proof.hc"
+          ~contents:
+            (let _, source, _, _ = List.nth Defaults.values 5 in
+             source)
+          ()
+        |> checked
+      in
+      let saved = List.hd fixture.prepared_defaults in
+      Alcotest.(check (option int64))
+        "saved word retains its guard bytes" (Some 0x0714L)
+        (Saved_default.word_bits saved);
+      Alcotest.(check bool)
+        "nominal class remains selected" true
+        (match Semantic_type.base (Saved_default.type_ saved) with
+        | Semantic_type.Aggregate _ -> true
+        | _ -> false);
+      let word =
+        Semantic_type.make_primitive ~form:Internal_storage ~primitive:I64
+          ~pointer_depth:0
+        |> Result.get_ok
+      in
+      Alcotest.(check bool)
+        "saved value has a full signed word class" true
+        (Semantic_type.equal word (Saved_default.value_type saved));
+      let publication = Saved_default.publication saved
+      and header = Saved_default.header saved
+      and receipt = Saved_default.receipt saved
+      and value = Saved_default.value saved in
+      Alcotest.(check bool)
+        "a raw saved number cannot invent selected class metadata" true
+        (Result.is_error
+           (Saved_default.create_value ~publication ~header ~receipt ~value));
+      let wrong =
+        List.nth fixture.completions 1
+        |> Default_preparation.execution |> VM.default_constant_authority
+        |> Holyc_lib__Sema.Default_fragment.authorized_fragment
+      in
+      Alcotest.(check bool)
+        "another original default cannot lend its class fragment" true
+        (Result.is_error
+           (Saved_default.create_value_selected ~fragment:wrong ~publication
+              ~header ~receipt ~value ()));
+      let quota =
+        Native_scalar_fixture.compile ~max_initializer_steps:5 ~mode
+          ~path:"class-default-quota.hc" ~contents:Defaults.quota_source ()
+        |> checked
+      in
+      Alcotest.(check int)
+        "original expression charges five preparation steps" 5
+        quota.preparation_steps;
+      Alcotest.(check int)
+        "a narrow class default retains eight saved bytes" 8 quota.default_bytes;
+      Alcotest.(check bool)
+        "preparation cannot exceed its step limit" true
+        (Result.is_error
+           (Native_scalar_fixture.compile ~max_initializer_steps:4 ~mode
+              ~path:"class-default-quota.hc" ~contents:Defaults.quota_source ()));
+      Alcotest.(check bool)
+        "the saved byte limit cannot clamp a class word" true
+        (Result.is_error
+           (Native_scalar_fixture.compile ~max_default_bytes:7 ~mode
+              ~path:"class-default-quota.hc" ~contents:Defaults.quota_source ())))
+    modes
+
 let () =
   Alcotest.run "native aggregate members"
     [
+      ( "class defaults",
+        List.map
+          (fun (name, contents, expected, output) ->
+            Alcotest.test_case name `Quick (case contents expected output))
+          Defaults.native_values );
       ( "values",
         List.map
           (fun (name, contents, expected, output) ->
@@ -328,6 +418,9 @@ let () =
          @ Returns.view_matrix @ Returns.warning_values) );
       ( "storage",
         [
+          Alcotest.test_case
+            "original class defaults, quotas and source boundaries" `Quick
+            class_default_proofs;
           Alcotest.test_case "unknown bytes, bounds and independent activations"
             `Quick faults;
           Alcotest.test_case "exact runtime frame and instruction limits" `Quick

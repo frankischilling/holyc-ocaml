@@ -7,6 +7,7 @@ module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
 module Returns = Class_return_cases
+module Defaults = Class_default_cases
 module VM = Ir_integer_interpreter
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -353,9 +354,33 @@ let boundaries () =
        @ Parameters.unsupported @ Returns.unsupported))
     modes
 
+let class_default_boundaries () =
+  let _, ordinary, _, _ = List.hd Defaults.values in
+  List.iter
+    (fun (_, source) ->
+      Alcotest.(check bool)
+        "source default boundary" true
+        (Result.is_error
+           (integer_program_report_outcome (run Preprocessor.Aot source))))
+    Defaults.unsupported;
+  failure "HCIRVM0019" "" (run Preprocessor.Aot Defaults.extent_source);
+  List.iter
+    (fun source ->
+      Alcotest.(check bool)
+        "retained JIT class storage needs separate admission" true
+        (Result.is_error
+           (integer_program_report_outcome (run Preprocessor.Jit source))))
+    [ ordinary; Defaults.quota_source ]
+
 let () =
   Alcotest.run "aggregate members"
     [
+      ( "source class defaults",
+        List.map
+          (fun (name, source, expected, output) ->
+            Alcotest.test_case name `Quick (fun () ->
+                ignore (value expected output (run Preprocessor.Aot source))))
+          Defaults.all_values );
       ( "values",
         List.map
           (fun (name, source, expected, output) ->
@@ -370,6 +395,8 @@ let () =
          @ Returns.view_matrix @ Returns.warning_values) );
       ( "storage",
         [
+          Alcotest.test_case "source class default boundaries" `Quick
+            class_default_boundaries;
           Alcotest.test_case "unknown bytes, extents and fresh activations"
             `Quick faults;
           Alcotest.test_case "exact frame and instruction limits" `Quick quotas;

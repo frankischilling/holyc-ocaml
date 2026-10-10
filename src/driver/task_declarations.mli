@@ -163,6 +163,13 @@ val default_fragment_authority :
 
 val initializer_scope : t -> Sema.Symbol_table.scope
 
+val aggregate_value_headers :
+  span:Common.Span.t ->
+  t ->
+  (Sema.Aggregate_header_resolution.t, Common.Diagnostic.t list) result
+(** Original completed class headers already reached by this source ledger.
+    These supply raw value metadata without member storage authority. *)
+
 val native_initializer_fragment :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

@@ -161,7 +161,8 @@
   ../../examples/backed-aggregate-values.hc
   ../../examples/default-aggregate-values.hc
   ../../examples/class-value-parameters.hc
-  ../../examples/class-value-returns.hc)
+  ../../examples/class-value-returns.hc
+  ../../examples/class-default-words.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
@@ -174,6 +175,7 @@
    %{dep:../../examples/default-aggregate-values.hc}
    %{dep:../../examples/class-value-parameters.hc}
    %{dep:../../examples/class-value-returns.hc}
+   %{dep:../../examples/class-default-words.hc}
    --native)))
 
 (rule

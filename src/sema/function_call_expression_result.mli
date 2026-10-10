@@ -179,6 +179,13 @@ val compilation_mode : t -> Function_resolution.compilation_mode
 val functions : t -> resolved_function list
 val all_results : t -> expression_result list
 val top_level_owns_table : top_level_t -> Symbol_table.t -> bool
+
+val top_level_aggregate_integer_value_type :
+  top_level_t -> before_item_index:int -> Type.t -> Type.t option
+
+(** Read a completed class's integer value metadata in this exact top-level
+    context. This grants no addressable object storage. *)
+
 val top_level_owns_members : top_level_t -> Aggregate_member_index.t -> bool
 
 val top_level_owns_policies :

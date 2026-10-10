@@ -1603,7 +1603,7 @@ let expected_argument_values ~globals ~origin ~fixed:fixed_values
         | Prepared_default prepared ->
             {
               expected_role = Fixed i;
-              expected_source = Prepared_parameter_default.type_ prepared;
+              expected_source = Prepared_parameter_default.value_type prepared;
               expected_target = parameter_type parameter;
               expected_origin = span;
               expected_count = Prepared_parameter_default.word_bits prepared;

@@ -63,8 +63,15 @@ let value_class ~table ~members ~policies ~before_item_index ~source_type =
 
 let integer_value_type ~table ~members ~policies ~before_item_index ~source_type
     =
-  value_class ~table ~members ~policies ~before_item_index ~source_type
-  |> Option.map (fun (_, value_type, _) -> value_type)
+  if
+    Aggregate_member_index.owns_table members table
+    && Function_call_conversion_policy.owns_table policies table
+    && Function_call_conversion_policy.owns_parent policies
+         (Aggregate_member_index.parent_scope members)
+  then
+    Function_call_conversion_policy.integer_aggregate_value_type policies
+      ~before_item_index source_type
+  else None
 
 let create ~table ~members ~policies ~before_item_index ~source_type =
   Option.bind

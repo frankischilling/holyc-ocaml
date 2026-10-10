@@ -7,6 +7,7 @@ module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
 module Returns = Class_return_cases
+module Defaults = Class_default_cases
 
 let require condition message = if not condition then failwith message
 
@@ -29,11 +30,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 10 || Array.length Sys.argv = 11)
-    "expected compiler and eight aggregate examples, optionally --native"
+    (Array.length Sys.argv = 11 || Array.length Sys.argv = 12)
+    "expected compiler and nine aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 11 && Sys.argv.(10) = "--native"
+let native = Array.length Sys.argv = 12 && Sys.argv.(11) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -167,6 +168,38 @@ let () =
           value 42L "" (invoke target mode (read Sys.argv.(7)));
           value 42L "" (invoke target mode (read Sys.argv.(8)));
           value 42L "" (invoke target mode (read Sys.argv.(9)));
+          if target = "host-jit" || mode = "aot" then (
+            value 42L "" (invoke target mode (read Sys.argv.(10)));
+            List.iter
+              (fun (_, source, expected, output) ->
+                value expected output (invoke target mode source))
+              Defaults.native_values;
+            List.iter
+              (fun (_, source) ->
+                error "" (invoke ~status:1 target mode source))
+              (if target = "host-jit" then Defaults.native_unsupported
+               else Defaults.unsupported);
+            if target = "ir" then
+              List.iter
+                (fun (_, source, expected, output) ->
+                  value expected output (invoke target mode source))
+                Defaults.prototype_values
+            else
+              List.iter
+                (fun (_, source, _, _) ->
+                  error "" (invoke ~status:1 target mode source))
+                Defaults.prototype_values;
+            error ~code:"HCIRVM0019" ""
+              (invoke ~status:1 target mode Defaults.extent_source);
+            value 42L ""
+              (invoke
+                 ~options:[ "--initializer-step-limit=5" ]
+                 target mode Defaults.quota_source);
+            error ~code:"HCIRVM0007" ""
+              (invoke ~status:1
+                 ~options:[ "--initializer-step-limit=4" ]
+                 target mode Defaults.quota_source))
+          else error "" (invoke ~status:1 target mode (read Sys.argv.(10)));
           if target = "host-jit" then
             error ~code:"HCPP0008" ""
               (invoke ~status:1 target mode Inherited.lookahead_source)

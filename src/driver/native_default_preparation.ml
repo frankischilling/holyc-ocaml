@@ -217,12 +217,16 @@ let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
       not
         (stack_register_qualifiers register_qualifiers
         && (callback_word_parameter function_pointer
-           || scalar_word_type type_specifier
+           || (scalar_word_type type_specifier
+              ||
+              match type_specifier with
+              | Ast.Named_type_specifier _ -> true
+              | _ -> false)
               && pointer_layers = []
               && Option.is_none function_pointer))
     then
       fail "HCRUN0001"
-        "native defaults require scalar integer objects or original one-star \
+        "native defaults require integer value classes or original one-star \
          callback-word parameters without explicit register selection"
     else Ok ()
   in
@@ -243,15 +247,14 @@ let prepare_source value ~session ~ledger ~span ~mode ~type_specifier
   let* authority = begin_source ledger ~runtime:value.state in
   value.ledger <- Some ledger;
   let fragment = Sema.Default_fragment.authorized_fragment authority in
-  let create_context =
-    match value.compilation_mode with
-    | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
-    | Frontend.Preprocessor.Aot ->
-        Initializer_fragment_typing.create_aot_context
+  let* aggregate_headers =
+    Task_declarations.aggregate_value_headers ~span ledger
   in
   let* context =
-    create_context ~table:value.table
+    Initializer_fragment_typing.create_context_selected ~aggregate_headers
+      ~compilation_mode:value.compilation_mode ~table:value.table
       ~parent:(Task_declarations.initializer_scope ledger)
+      ()
     |> diagnose
   in
   let* typed =

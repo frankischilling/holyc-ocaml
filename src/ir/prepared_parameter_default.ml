@@ -18,11 +18,20 @@ let undefined_callback_source value =
   Saved_parameter_value.undefined_callback_source value.value
 
 let type_ value = value.type_
+
+let value_type value =
+  match Sema.Type.base value.type_ with
+  | Sema.Type.Aggregate _ when Sema.Type.pointer_depth value.type_ = 0 ->
+      Sema.Type.make_primitive ~form:Internal_storage ~primitive:I64
+        ~pointer_depth:0
+      |> Result.get_ok
+  | _ -> value.type_
+
 let receipt value = value.receipt
 let publication value = value.publication
 let header value = value.header
 
-let create_value ~publication ~header ~receipt ~value =
+let create_value_selected ?fragment ~publication ~header ~receipt ~value () =
   let ( let* ) = Result.bind in
   let* source =
     match
@@ -58,8 +67,17 @@ let create_value ~publication ~header ~receipt ~value =
     | Some _ ->
         Error "prepared callback default requires one original pointer star"
     | None ->
-        Sema.Source_type_reference.builtin source.type_specifier
-          source.pointer_layers
+        (match fragment with
+          | Some fragment -> (
+              match Sema.Default_fragment.source fragment with
+              | Named (owner, original)
+                when owner == publication && original == receipt ->
+                  Sema.Default_fragment.parameter_type fragment
+              | _ -> Error "prepared default has another original type fragment"
+              )
+          | None ->
+              Sema.Source_type_reference.builtin source.type_specifier
+                source.pointer_layers)
         |> Result.map Sema.Type_reference.resolved_type
   in
   let* () =
@@ -83,9 +101,16 @@ let create_value ~publication ~header ~receipt ~value =
   in
   Ok { publication; header; receipt; source; type_; value }
 
-let create ~publication ~header ~receipt ~bits =
-  create_value ~publication ~header ~receipt
+let create_value ~publication ~header ~receipt ~value =
+  create_value_selected ~publication ~header ~receipt ~value ()
+
+let create_selected ?fragment ~publication ~header ~receipt ~bits () =
+  create_value_selected ?fragment ~publication ~header ~receipt
     ~value:(Saved_parameter_value.word bits)
+    ()
+
+let create ~publication ~header ~receipt ~bits =
+  create_selected ~publication ~header ~receipt ~bits ()
 
 let matches value ~header ~parameter =
   (match Headers.function_provisional_call header with

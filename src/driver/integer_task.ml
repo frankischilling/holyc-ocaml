@@ -1334,10 +1334,15 @@ let prepare_default_context task receipt =
       ~runtime:task.state ~task_view receipt
   in
   let fragment = Sema.Default_fragment.authorized_fragment authority in
+  let* aggregate_headers =
+    Task_declarations.aggregate_value_headers ~span task.declarations
+  in
   let* context =
-    Initializer_fragment_typing.create_context
+    Initializer_fragment_typing.create_context_selected ~aggregate_headers
+      ~compilation_mode:Jit
       ~table:(Session.semantic_symbols task.session)
       ~parent:(Task_declarations.initializer_scope task.declarations)
+      ()
     |> diagnose
   in
   let* typed =
@@ -1397,9 +1402,14 @@ let prepare_source_default task ~session ~ledger receipt =
     else Ok ()
   in
   let* context =
-    Initializer_fragment_typing.create_aot_context
+    let* aggregate_headers =
+      Task_declarations.aggregate_value_headers ~span ledger
+    in
+    Initializer_fragment_typing.create_context_selected ~aggregate_headers
+      ~compilation_mode:Aot
       ~table:(Session.semantic_symbols session)
       ~parent:(Task_declarations.initializer_scope ledger)
+      ()
     |> diagnose
   in
   let* typed =

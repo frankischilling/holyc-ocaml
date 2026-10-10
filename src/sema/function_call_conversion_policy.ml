@@ -407,6 +407,32 @@ let forwarded_type_class result ~before_item_index type_ =
 let forwarded_type result ~before_item_index type_ =
   source_visible_type result.headers ~before_item_index type_
 
+let integer_aggregate_value_type result ~before_item_index type_ =
+  let completed symbol =
+    match Int_map.find_opt (symbol_number symbol) result.headers with
+    | Some header ->
+        Aggregate_header_resolution.header_symbol header == symbol
+        && Aggregate_header_resolution.header_item_index header
+           < before_item_index
+    | None -> false
+  in
+  match Type.base type_ with
+  | Type.Aggregate symbol when Type.pointer_depth type_ = 0 && completed symbol
+    -> (
+      let forwarded = forwarded_type result ~before_item_index type_ in
+      if Type.pointer_depth forwarded <> 0 then None
+      else
+        match Type.base forwarded with
+        | Type.Primitive (_, primitive)
+          when Option.is_some (Primitive_type.integer_storage_info primitive) ->
+            Some forwarded
+        | Type.Aggregate symbol when completed symbol ->
+            Type.make_primitive ~form:Type.Internal_storage
+              ~primitive:Primitive_type.I64 ~pointer_depth:0
+            |> Result.to_option
+        | _ -> None)
+  | _ -> None
+
 let parameter_target_class result ~before_item_index parameter =
   parameter_target_class_in_headers result.headers ~before_item_index parameter
 

@@ -14,8 +14,13 @@ let ( let* ) = Result.bind
 let records context = context.records_
 let function_sources context = context.function_sources_
 
-let create_context_with_mode ~compilation_mode ~table ~parent =
-  let* headers = Sema.Aggregate_header_resolution.resolve ~table ~parent [] in
+let create_context_with_mode ?aggregate_headers ~compilation_mode ~table ~parent
+    () =
+  let* headers =
+    match aggregate_headers with
+    | Some headers -> Ok headers
+    | None -> Sema.Aggregate_header_resolution.resolve ~table ~parent []
+  in
   let* members =
     Sema.Aggregate_member_index.build ~table ~parent []
     |> Result.map_error Sema.Aggregate_member_index.error_to_string
@@ -67,8 +72,21 @@ let create_context_with_mode ~compilation_mode ~table ~parent =
       function_sources_;
     }
 
-let create_context = create_context_with_mode ~compilation_mode:Jit
-let create_aot_context = create_context_with_mode ~compilation_mode:Aot
+let create_context_selected ?aggregate_headers ~compilation_mode ~table ~parent
+    () =
+  let compilation_mode =
+    match compilation_mode with
+    | Frontend.Preprocessor.Jit -> Sema.Outer_environment.Jit
+    | Frontend.Preprocessor.Aot -> Sema.Outer_environment.Aot
+  in
+  create_context_with_mode ?aggregate_headers ~compilation_mode ~table ~parent
+    ()
+
+let create_context ~table ~parent =
+  create_context_with_mode ~compilation_mode:Jit ~table ~parent ()
+
+let create_aot_context ~table ~parent =
+  create_context_with_mode ~compilation_mode:Aot ~table ~parent ()
 
 let finish context ~environment ~build bindings =
   let table = context.table in

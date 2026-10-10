@@ -39,7 +39,9 @@ integer arithmetic such as `84/2` prepares the word 42. Source-selected queries
 are usable only when their original evidence and the preparation engine support
 them. References to values or functions, storage effects, string ownership,
 `lastclass`, ordinary object-pointer parameters and non-integer value parameters
-remain unsupported. Prototypes remain outside the native function gate.
+remain unsupported. [Closed class and union defaults](class-default-words.md)
+retain integer words independently of their backing width and nominal size.
+Prototypes remain outside the native function gate.
 
 [Callback-word defaults](native-callback-word-defaults.md) admit original
 one-star callback-valued parameters. Their defaults retain full integer words

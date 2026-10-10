@@ -71,7 +71,9 @@ instruction, frame, stack and image limits, both native ABIs and proof
 ownership. The checks use expected words and hosted execution; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
-Whole-value postfix casts, aggregate initializers, prepared class defaults and
+[Closed class default words](class-default-words.md) now prepare in AOT IR and
+native JIT/AOT source compilation. Whole-value postfix casts, aggregate
+initializers, reference-bearing and retained-task class defaults and
 callback parameter ABI paths, persistent objects, function-local layouts and
 zero-sized automatic objects, pointer and callback backings, F64 execution,
 native task objects, retained JIT imports and general aggregate copies remain

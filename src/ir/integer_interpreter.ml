@@ -412,6 +412,7 @@ type default_attempt = {
   mutable default_state : initializer_attempt_state;
   mutable default_bits : int64 option;
   mutable default_value : Saved_parameter_value.t option;
+  mutable default_fragment : Sema.Default_fragment.t option;
   mutable default_native : bool;
   mutable default_native_program : Default_fragment_program.t option;
   mutable default_native_work : int option;
@@ -3045,6 +3046,7 @@ let begin_task_default task ~namespace ~publication receipt =
         default_state = Preparing_initializer;
         default_bits = None;
         default_value = None;
+        default_fragment = None;
         default_native = false;
         default_native_program = None;
         default_native_work = None;
@@ -3307,6 +3309,8 @@ let complete_native_task_default task attempt program value =
       "native callback default lost its original expression or admitted body"
   else (
     attempt.default_value <- Some value;
+    attempt.default_fragment <-
+      Some (Default_fragment_destination.fragment destination);
     attempt.default_bits <- Saved_parameter_value.word_bits value;
     attempt.default_native <- true;
     attempt.default_state <- Successful_initializer;
@@ -4099,8 +4103,10 @@ let complete_task_defaults task ~namespace header =
           | Callback _ -> assert false
         in
         let* value =
-          Prepared_parameter_default.create_value ~publication ~header ~receipt
+          Prepared_parameter_default.create_value_selected
+            ?fragment:attempt.default_fragment ~publication ~header ~receipt
             ~value:(Option.get attempt.default_value)
+            ()
         in
         collect (value :: rev) rest
   in
@@ -12108,6 +12114,7 @@ let execute_task_default ?(use_active_stream = true) ?compiler_options
       Error errors
   | Ok value ->
       attempt.default_value <- Some value;
+      attempt.default_fragment <- Some fragment;
       attempt.default_bits <- Saved_parameter_value.word_bits value;
       attempt.default_state <- Successful_initializer;
       Ok ()
@@ -12832,6 +12839,7 @@ let begin_task_callback_default task ~namespace receipt =
         default_state = Preparing_initializer;
         default_bits = None;
         default_value = None;
+        default_fragment = None;
         default_native = false;
         default_native_program = None;
         default_native_work = None;
