@@ -5373,7 +5373,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
           | [] when Option.is_some aggregate ->
               Some
                 ( Int64.of_int
-                    (Automatic_aggregate_storage.byte_size
+                    (Automatic_aggregate_storage.element_size
                        (Option.get aggregate)),
                   [] )
           | [] ->
@@ -5400,7 +5400,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                && Frame.location_element_size location
                   = Int64.of_int
                       (Option.fold ~none:(stored_bytes stored_type)
-                         ~some:Automatic_aggregate_storage.byte_size aggregate)
+                         ~some:Automatic_aggregate_storage.element_size
+                         aggregate)
                && Frame.location_allocated_size location
                   = allocation_bytes bytes
                && Frame.frame_slot_size slot = allocation_bytes bytes

@@ -2,19 +2,27 @@
 
 ## Unreleased
 
+- Added automatic arrays of classes and unions in IR and native programs.
+  Original dimensions use the exact earlier element layout, while storage and
+  initialization retain the full root byte extent. Indexed elements support
+  nested fields, updates, primitive views and class pointer parameters; root
+  arrays and rows can decay to their first element. Generic class pointer
+  indexing and arithmetic, whole-object copies, persistent objects and
+  aggregate array initializers remain open under #686.
+
 - Added direct and pointer integer member execution, nested fields,
   multidimensional member arrays and owned class pointer locals and parameters
   in IR and native programs. Immutable field proofs retain the selected class,
   field width, offset and strides over the original object storage. Both modes
   preserve captured destinations, overlap, initialization and extent checks.
-  Inheritance, persistent objects, standalone aggregate arrays, whole-object
+  Inheritance, persistent objects, whole-object
   values and copies, pointer fields and pointer returns remain open under #686.
 
 - Added automatic class and union storage through explicit integer pointer
   views in isolated IR and native programs. Completed earlier layouts retain
   their exact identity, packed size, overlap and padding. Stores track byte
   initialization and the original extent. Inheritance, retained JIT imports,
-  standalone aggregate arrays and copies remain open under #686.
+  aggregate pointer arrays and copies remain open under #686.
 
 - Match the original unknown-identifier operand failure before consuming its
   token or invoking a reference consumer. Saved-input catches retain the

@@ -243,7 +243,7 @@ type reference_origin =
 type reference_table = Frame_table of int | Arena_table of int
 
 type member_reference_source =
-  | Member_object of reference_origin
+  | Member_object of reference_origin * value option
   | Member_reference of reference_access
 
 type indexed_object_access = { origin : reference_origin; offset : value }
@@ -2327,8 +2327,14 @@ let allocate_body ?callable_frame ?(shared_values = [])
           spill_all_registers instruction.span;
           let site = Option.get instruction.site in
           (match source with
-          | Member_object origin ->
-              emit (Encoder.Mov_imm64 (Encoder.Rcx, delta));
+          | Member_object (origin, offset) ->
+              (match offset with
+              | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, delta))
+              | Some offset ->
+                  copy_value_to instruction.span offset rcx;
+                  emit (Encoder.Mov_imm64 (Encoder.Rax, delta));
+                  emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rax));
+                  emit_branch Overflow (fault_label 9 site));
               emit_reference_extent instruction.span Encoder.R8 origin;
               emit_bounds instruction.span site ~one_past:true ~scalar
                 ~offset:Encoder.Rcx ~extent:Encoder.R8;
@@ -4420,6 +4426,7 @@ type callable_slot = {
   slot_type : Type.t;
   slot_word : word_type;
   slot_dimensions : int64 list;
+  slot_element_size : int;
   slot_element_count : int;
   slot_extent_bytes : int;
   access : frame_access;
@@ -4942,6 +4949,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           slot_type = type_;
           slot_word = scalar.word_type;
           slot_dimensions = [];
+          slot_element_size = scalar.byte_size;
           slot_element_count = 1;
           slot_extent_bytes = scalar.byte_size;
           callback;
@@ -5029,6 +5037,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
             slot_type = argc_type;
             slot_word = I64;
             slot_dimensions = [];
+            slot_element_size = 8;
             slot_element_count = 1;
             slot_extent_bytes = 8;
             callback = None;
@@ -5079,7 +5088,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         | Some storage ->
             {
               word_type = U64;
-              byte_size = Ir.Automatic_aggregate_storage.byte_size storage;
+              byte_size = Ir.Automatic_aggregate_storage.element_size storage;
             }
         | None ->
             source_slot_scalar
@@ -5088,26 +5097,28 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
       in
       let dimensions = Frame.location_dimensions location in
       let counts = List.map Frame.dimension_value dimensions in
+      if
+        counts <> []
+        && ((Type.pointer_depth type_ <> 0 && Option.is_none callback)
+           || (not (Frame.location_source_dimensions_checked location))
+           || List.exists
+                (fun dimension ->
+                  Frame.dimension_kind dimension <> Frame.Source_extent
+                  || (not allow_runtime_layout)
+                     && (Frame.dimension_runtime_dependencies dimension <> []
+                        || Frame.dimension_offset_dependencies dimension <> []))
+                dimensions)
+      then
+        reject ?span "HCBACK0002"
+          "native automatic arrays require original admitted object dimensions";
       let elements, object_bytes =
-        if counts = [] then
-          ( (if Option.is_some aggregate then scalar.byte_size else 1),
-            scalar.byte_size )
-        else (
-          if
-            (Type.pointer_depth type_ <> 0 && Option.is_none callback)
-            || (not (Frame.location_source_dimensions_checked location))
-            || List.exists
-                 (fun dimension ->
-                   Frame.dimension_kind dimension <> Frame.Source_extent
-                   || (not allow_runtime_layout)
-                      && (Frame.dimension_runtime_dependencies dimension <> []
-                         || Frame.dimension_offset_dependencies dimension <> []
-                         ))
-                 dimensions
-          then
-            reject ?span "HCBACK0002"
-              "native automatic arrays require original admitted scalar \
-               dimensions";
+        if Option.is_some aggregate then
+          let bytes =
+            Ir.Automatic_aggregate_storage.byte_size (Option.get aggregate)
+          in
+          (bytes, bytes)
+        else if counts = [] then (1, scalar.byte_size)
+        else
           let shape_type =
             if Option.is_some callback then
               Type.make_primitive ~form:Type.Public_spelling
@@ -5123,7 +5134,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
                 Ir.Integer_storage_shape.byte_size shape )
           | Error _ ->
               reject ?span "HCBACK0002"
-                "native automatic array extent is invalid or overflows")
+                "native automatic array extent is invalid or overflows"
       in
       (* Charge before constructing the per-element initialization metadata. *)
       if
@@ -5212,6 +5223,7 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           slot_type = type_;
           slot_word = scalar.word_type;
           slot_dimensions = counts;
+          slot_element_size = scalar.byte_size;
           slot_element_count = elements;
           slot_extent_bytes = object_bytes;
           callback;
@@ -5552,7 +5564,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
   in
   let slot_strides slot =
     let rec layout = function
-      | [] -> (Int64.of_int slot.access.frame_bytes, [])
+      | [] -> (Int64.of_int slot.slot_element_size, [])
       | count :: rest ->
           let bytes, strides = layout rest in
           (Int64.mul count bytes, bytes :: strides)
@@ -7687,7 +7699,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         in
                         ( pointer,
                           Member_object
-                            (Frame_reference (frame_reference_origin slot)) )
+                            (Frame_reference (frame_reference_origin slot), None)
+                        )
                     | Some (Indexed_address indexed) -> (
                         touch_indexed position indexed;
                         match indexed.indexed_root with
@@ -7698,10 +7711,15 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                   access with
                                   offset = Some indexed.indexed_offset;
                                 } )
+                        | Indexed_object_root object_
+                          when Option.is_none object_.object_code ->
+                            ( indexed.indexed_pointer_type,
+                              Member_object
+                                ( object_.object_origin,
+                                  Some indexed.indexed_offset ) )
                         | Indexed_object_root _ ->
                             malformed description
-                              "aggregate member requires its owned byte \
-                               reference")
+                              "aggregate member requires owned data storage")
                     | _ ->
                         let base =
                           operand values description position base_id

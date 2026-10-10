@@ -7,7 +7,7 @@ module Seq = Ir_instruction_sequence
 let contents =
   {|class Box{U8 tag;U16 value;};I64 F(){Box o;o.value=42;return o.value;}F();|}
 
-let compile mode =
+let compile ?(contents = contents) mode =
   let session = Session.create () in
   let source = Session.add_source session ~path:"member-proof.hc" ~contents in
   let config =
@@ -78,8 +78,8 @@ let rebuild definition transform =
   in
   { definition with VM.body }
 
-let controls mode =
-  let original = compile mode and foreign = compile mode in
+let controls ?(contents = contents) mode =
+  let original = compile ~contents mode and foreign = compile ~contents mode in
   let definition = first_definition original in
   let foreign_projection = projection (first_definition foreign) in
   let substitute payload (d : Seq.description) =
@@ -94,6 +94,13 @@ let controls mode =
         { d with payload = Some (Seq.Integer 2L) }
     | _ -> d
   in
+  let wrong_stride (d : Seq.description) =
+    match (d.opcode, d.payload, d.target_type) with
+    | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 3L), Some type_
+      when Semantic_type.pointer_depth type_ = 1 ->
+        { d with payload = Some (Seq.Integer 4L) }
+    | _ -> d
+  in
   ( original,
     rebuild definition Fun.id,
     [
@@ -101,4 +108,11 @@ let controls mode =
         rebuild definition (substitute (Some foreign_projection)) );
       ("missing field proof", rebuild definition (substitute None));
       ("offset differs from field proof", rebuild definition wrong_offset);
-    ] )
+    ]
+    @
+    if contents = Aggregate_array_cases.proof_source then
+      [
+        ( "root array stride differs from selected element",
+          rebuild definition wrong_stride );
+      ]
+    else [] )

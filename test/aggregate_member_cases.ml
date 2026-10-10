@@ -127,9 +127,8 @@ let unsupported =
     ( "function-local object layout",
       {|I64 F(){class Box{U8 byte;};Box o;o.byte=42;return o.byte;}F();|} );
     ("zero-size automatic object", {|class Box{};I64 F(){Box o;return 42;}F();|});
-    ( "automatic aggregate array",
-      {|class Box{U8 byte;};I64 F(){Box items[2];items[0].byte=42;return items[0].byte;}F();|}
-    );
+    ( "automatic aggregate pointer array",
+      {|class Box{U8 byte;};I64 F(){Box *items[2];return 42;}F();|} );
     ("persistent aggregate", {|class Box{U8 byte;};Box object;42;|});
     ( "whole-object copy",
       {|class Box{U8 byte;};I64 F(){Box a,b=a;return 42;}F();|} );

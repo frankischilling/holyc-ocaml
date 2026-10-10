@@ -4,9 +4,9 @@
 nonempty, completed earlier class and union layouts to isolated IR and native
 frame storage. Explicit integer views share packed bytes, union overlap,
 padding, initialization and bounds. [Owned aggregate members](aggregate-members.md)
-add direct and pointer integer fields, nested fields, member arrays and class
+add direct and pointer integer fields, nested fields, member and automatic root arrays, and class
 pointer locals and parameters. Inherited storage, retained JIT imports,
-standalone aggregate arrays, persistent objects, whole-object values and copies,
+persistent objects, whole-object values and copies,
 pointer fields and pointer returns remain unfinished.
 
 All compatibility findings in this document use TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.

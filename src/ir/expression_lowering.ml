@@ -1898,10 +1898,20 @@ let rec prepare_index_address ?frame ?globals result =
                                          && F.location_source_dimensions_checked
                                               location)
                                        (F.location_callback_pointer location))
-                            || storage_element_size
-                                 (F.location_storage_type location
-                                 |> Result.get_ok)
-                               <> Some (F.location_element_size location)
+                            ||
+                            match
+                              Automatic_aggregate_storage.of_location location
+                            with
+                            | Some storage ->
+                                Int64.of_int
+                                  (Automatic_aggregate_storage.element_size
+                                     storage)
+                                <> F.location_element_size location
+                            | None ->
+                                storage_element_size
+                                  (F.location_storage_type location
+                                  |> Result.get_ok)
+                                <> Some (F.location_element_size location)
                           then Ok None
                           else
                             let rec strides = function

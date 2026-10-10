@@ -7,6 +7,8 @@ object's size, initialization state and lifetime.
 [Owned aggregate members](aggregate-members.md) expose selected integer fields
 and member arrays through the same storage. Taking a field address or decaying
 a primitive member array retains the containing object's extent and byte flags.
+The same views cover automatic class and union arrays, including the address
+of an indexed element, while retaining the full root allocation's extent.
 
 The interpreter and native executor accept explicit postfix casts between owned, one-level
 Bool, I8, U8, I16, U16, I32, U32, I64 and U64 pointers. A cast changes the

@@ -12,7 +12,9 @@ outside this execution domain. See [owned aggregate members](docs/aggregate-memb
 
 `Ir.Automatic_aggregate_storage` admits nonempty automatic objects from an
 immutable frame location with a completed earlier aggregate layout. The
-original class identity and frame size remain intact. The interpreter uses
+original class identity and frame size remain intact. Automatic arrays retain
+their selected element size separately from the checked total byte extent.
+Array strides use that element size and the original dimensions. The interpreter uses
 individual unknown byte cells; native frame descriptors use one initialization
 flag per byte. An owned class address can enter an explicit primitive pointer
 view without widening the object or converting numeric bits into ownership.
