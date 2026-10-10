@@ -101,6 +101,39 @@ let controls ?(contents = contents) mode =
         { d with payload = Some (Seq.Integer 4L) }
     | _ -> d
   in
+  let pointee_proofs =
+    if contents <> Aggregate_pointer_cases.proof_source then []
+    else
+      let proof definition =
+        Body.body definition.VM.body
+        |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions)
+        |> List.find_map (fun instruction ->
+            match (Seq.description instruction).payload with
+            | Some (Seq.Pointee_stride _ as proof) -> Some proof
+            | _ -> None)
+        |> Option.get
+      in
+      let substitute payload (d : Seq.description) =
+        match d.payload with
+        | Some (Seq.Pointee_stride _) -> { d with payload }
+        | _ -> d
+      in
+      let foreign_proof = proof (first_definition foreign) in
+      let later_function_proof =
+        proof (List.nth (integer_program_functions original) 1)
+      in
+      [
+        ( "foreign equal-name pointee layout",
+          rebuild definition (substitute (Some foreign_proof)) );
+        ("missing selected pointee layout", rebuild definition (substitute None));
+        ( "scaled offset differs from selected pointee",
+          rebuild definition wrong_stride );
+        ( "pointee layout belongs to another function",
+          rebuild definition (substitute (Some later_function_proof)) );
+      ]
+  in
   ( original,
     rebuild definition Fun.id,
     [
@@ -109,6 +142,7 @@ let controls ?(contents = contents) mode =
       ("missing field proof", rebuild definition (substitute None));
       ("offset differs from field proof", rebuild definition wrong_offset);
     ]
+    @ pointee_proofs
     @
     if contents = Aggregate_array_cases.proof_source then
       [

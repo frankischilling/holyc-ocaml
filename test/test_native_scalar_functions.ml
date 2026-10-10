@@ -418,7 +418,7 @@ let pointer_source_and_authority () =
           "I64 F(){I64 *p=0;return *p;}42;";
           "I64 F(){I64 x=42;I64 *p=&x;return p;}F();";
           "I64 F(){I64 x=42;I64 *p=&x;return p(I64);}F();";
-          "I64 F(){I64 x=42;I64 *p=&x;p++;return *p;}F();";
+          "I64 F(){I64 x=42;I64 *p=&x;p*=1;return *p;}F();";
           "I64 F(){I64 x=42;I64 *p=&x;return *(p*1);}F();";
           "I64 F(){U64 x=42;I64 *p=&x;return *p;}F();";
           "I64 F(I64 *p){return *p;}F(42);";

@@ -5626,6 +5626,25 @@ let index_offset types (description : Sequence.description) =
   | _ -> Unsupported
 
 let indexed_address frame types (description : Sequence.description) =
+  let selected_stride pointer =
+    match description.payload with
+    | Some (Sequence.Pointee_stride layout) ->
+        Option.bind frame (fun context ->
+            let stride = Sema.Aggregate_pointee_layout.byte_size layout in
+            if
+              Sema.Aggregate_pointee_layout.matches layout
+                ~before_item_index:(Frame.function_item_index context.layout)
+                ~pointer_type:pointer ~stride
+            then Some stride
+            else None)
+    | _ -> None
+  in
+  let valid_payload pointer stride =
+    match description.payload with
+    | None -> true
+    | Some (Sequence.Pointee_stride _) -> selected_stride pointer = Some stride
+    | _ -> false
+  in
   match (description.operands, description.target_type) with
   | [ base; offset ], Some pointer
     when array_pointer_type pointer
@@ -5684,18 +5703,23 @@ let indexed_address frame types (description : Sequence.description) =
         | Some (Callback_array_address (_, _, expected, strides))
         | Some (Callback_initializer_address (_, expected, strides))
           when Type.equal expected pointer -> Some strides
-        | Some (Pointer_value expected) when Type.equal expected pointer ->
-            Option.bind
-              (Result.to_option (Type.dereference pointer))
-              (fun pointee ->
-                Option.map
-                  (fun width -> [ Int64.of_int width ])
-                  (scalar_element_bytes pointee))
+        | Some (Pointer_value expected) when Type.equal expected pointer -> (
+            match selected_stride pointer with
+            | Some stride -> Some [ stride ]
+            | None ->
+                Option.bind
+                  (Result.to_option (Type.dereference pointer))
+                  (fun pointee ->
+                    Option.map
+                      (fun width -> [ Int64.of_int width ])
+                      (scalar_element_bytes pointee)))
         | _ -> None
       in
       match (strides, Value_map.find_opt offset types) with
       | Some (stride :: remaining), Some (Index_offset (expected, actual, _))
-        when stride = actual && Type.equal expected pointer -> (
+        when stride = actual
+             && Type.equal expected pointer
+             && valid_payload pointer stride -> (
           match callback_root with
           | Some (root, header) ->
               Callback_array_address (root, header, pointer, remaining)
@@ -6389,7 +6413,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               with
               | ( [ base; offset ],
                   Some result,
-                  None,
+                  (None | Some (Sequence.Pointee_stride _)),
                   Some
                     ( Indexed_address (pointer, _)
                     | Callback_array_address (_, _, pointer, _)

@@ -1,6 +1,7 @@
 open Holyc_lib
 module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
+module Pointers = Aggregate_pointer_cases
 module VM = Ir_integer_interpreter
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -54,7 +55,7 @@ let faults () =
     (fun mode ->
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
-        (Cases.faults @ Arrays.faults);
+        (Cases.faults @ Arrays.faults @ Pointers.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -98,7 +99,8 @@ let quotas () =
           (run ~max_steps:(steps - 1) mode source_contents))
       modes
   in
-  List.iter check [ Cases.quota_source; Arrays.quota_source ]
+  List.iter check
+    [ Cases.quota_source; Arrays.quota_source; Pointers.quota_source ]
 
 let foreign_frame () =
   let check source_contents =
@@ -134,7 +136,8 @@ let foreign_frame () =
               errors)
       modes
   in
-  List.iter check [ Cases.quota_source; Arrays.quota_source ]
+  List.iter check
+    [ Cases.quota_source; Arrays.quota_source; Pointers.quota_source ]
 
 let field_proofs () =
   let check contents =
@@ -174,7 +177,12 @@ let field_proofs () =
           invalid)
       modes
   in
-  List.iter check [ Aggregate_member_fixture.contents; Arrays.proof_source ]
+  List.iter check
+    [
+      Aggregate_member_fixture.contents;
+      Arrays.proof_source;
+      Pointers.proof_source;
+    ]
 
 let boundaries () =
   List.iter
@@ -185,7 +193,7 @@ let boundaries () =
             name true
             (Result.is_error
                (integer_program_report_outcome (run mode contents))))
-        (Cases.unsupported @ Arrays.unsupported))
+        (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported))
     modes
 
 let () =
@@ -198,8 +206,8 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix)
-      );
+          (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
+         @ Pointers.values @ Pointers.view_matrix) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"

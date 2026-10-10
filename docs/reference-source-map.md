@@ -1,5 +1,17 @@
 # Reference source map
 
+Owned class pointer strides follow the complete `PrsAddOp` producer at
+`PrsExp.HC:15-63`, generic indexing within `PrsUnaryModifier:960-1115`,
+`OptFixSizeOf` at `OptLib.HC:484-507`, `ICPreIncDec`/`ICPostIncDec` at
+`BackB.HC:304-383` and `ICAddSubEctImm` at `BackA.HC:56-166`. Semantic proofs
+retain the exact earlier nominal pointee and original function item. IR checks
+those facts before execution; native compilation requires sealed source graphs.
+Array dimension strides remain separate from decayed pointer arithmetic.
+`OptPass012.HC:865-889` rewrites direct postfix assignment destinations;
+`BackB.HC:429-467` stores through the current pointer after the RHS and then
+updates the binding. `BackA.HC:442-571` consumes ordinary compound operations.
+See [owned class pointers](class-pointers.md) for update ordering and limits.
+
 Automatic aggregate arrays consume `PrsVar.HC:530-531,590-618`: multiply
 the selected class size by the dimension total, then place the allocation in
 the local frame. `PrsExp.HC:1057-1100` scales indices by the remaining dimension

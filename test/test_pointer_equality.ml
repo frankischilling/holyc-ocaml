@@ -179,7 +179,6 @@ let rejected =
     "I64 F(){I8 x;U8 y;return &x!=&y;}F();";
     "I64 F(){I64 x;F64 y;return &x==&y;}F();";
     "I64 F(){I64 x;I64 *p=&x;I64 **q=&p;return q==q;}F();";
-    "class C{I64 x;};I64 F(){C c;return &c==&c;}F();";
     "I64 F(){I64 x,y;return &x==&y==&x;}F();";
     "I64 x;I64 *p=&x;42;";
     "I64 *F(){I64 x;return &x;}F();";
@@ -188,6 +187,10 @@ let rejected =
 let boundaries () =
   List.iter
     (fun mode ->
+      let _, execution =
+        success mode "class C{I64 x;};I64 F(){C c;return &c==&c;}F();"
+      in
+      T.word "class object equality" VM.I64 1L execution;
       List.iter
         (fun source ->
           match integer_program_report_outcome (run mode source) with

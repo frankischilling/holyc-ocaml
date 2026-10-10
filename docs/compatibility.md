@@ -12,8 +12,9 @@ member arrays and owned class pointer locals and fixed parameters. Their
 immutable field proofs retain the exact selected layout and original storage.
 Automatic class and union arrays also preserve their selected element size,
 original dimensions and total extent. Indexed element addresses and root/row
-decay can enter class pointer parameters; generic class pointer indexing and
-arithmetic still require a separate selected pointee layout.
+decay can enter class pointer parameters. [Owned class pointer operations](class-pointers.md)
+retain that selected pointee layout for generic indexing, arithmetic, difference,
+comparisons and prefix/postfix or compound updates.
 
 [Unknown expression operands](compiler-exceptions.md#expression-failures-and-cleanup)
 throw at their original absent lexer selection, before another read or a

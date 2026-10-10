@@ -5428,7 +5428,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     ~provider_entries ~code_edges ~indirect_code_edges ~arena_code_cells
     ~global_storage ~literal_storage ~runtime_owner ~owner
     ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
-    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~source_item_index ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -7772,7 +7772,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                      Type.pointer_depth type_ = 1
                      || Type.pointer_depth type_ = 2)
                    description.target_type -> (
-              if description.flags <> 0L || Option.is_some description.payload
+              if
+                description.flags <> 0L
+                ||
+                match description.payload with
+                | None | Some (Sequence.Pointee_stride _) -> false
+                | _ -> true
               then malformed description "invalid frame address addition";
               match
                 ( description.operands,
@@ -7783,6 +7788,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   match Value_map.find_opt offset_id !frame_values with
                   | Some (Frame_offset (offset_type, offset))
                     when description.opcode = Opcode.Ic_add -> (
+                      if Option.is_some description.payload then
+                        malformed description
+                          "frame displacement cannot borrow a pointee layout";
                       match Value_map.find_opt base_id !frame_values with
                       | Some (Frame_base base_type)
                         when Type.equal base_type target_type
@@ -7824,6 +7832,28 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           malformed description
                             "frame address operands are inconsistent")
                   | Some (Index_offset scaled) ->
+                      let selected_stride =
+                        match description.payload with
+                        | Some (Sequence.Pointee_stride layout) ->
+                            let stride =
+                              Sema.Aggregate_pointee_layout.byte_size layout
+                            in
+                            if
+                              not
+                                (Option.fold ~none:false
+                                   ~some:(fun before_item_index ->
+                                     Sema.Aggregate_pointee_layout.matches
+                                       layout ~before_item_index
+                                       ~pointer_type:target_type
+                                       ~stride:scaled.index_stride)
+                                   source_item_index)
+                            then
+                              malformed description
+                                "pointee stride does not match its original \
+                                 function and class layout";
+                            Some stride
+                        | _ -> None
+                      in
                       if not (Type.equal scaled.index_pointer_type target_type)
                       then
                         malformed description
@@ -7947,6 +7977,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             if
                               Ir.Automatic_aggregate_storage.aggregate_pointer
                                 reference.declared_type
+                              && Option.is_none selected_stride
                             then
                               unsupported description
                                 "aggregate indexing requires a selected array \
@@ -7964,7 +7995,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                             let access = { reference; scalar; offset = None } in
                             ( Indexed_reference_root access,
                               Index_reference reference,
-                              [ Int64.of_int scalar.byte_size ] )
+                              [
+                                Option.value selected_stride
+                                  ~default:(Int64.of_int scalar.byte_size);
+                              ] )
                       in
                       let remaining =
                         match strides with
@@ -10876,7 +10910,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           ~functions:function_infos ~provider_entries ~global_storage
           ~literal_storage ~runtime_owner:Runtime.Entry ~owner:Entry_owner
           ~frame_slots:Int_map.empty ~variadic:None ~expected_return:None
-          ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
+          ~source_item_index:None ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes
+          ~next_site entry_graph
       in
       let function_prepared =
         Array.map
@@ -10894,6 +10929,8 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ~runtime_owner:(Runtime.Function body) ~owner:info.owner
               ~frame_slots:info.frame_slots ~variadic:info.variadic
               ~expected_return:(Some (Function.return_type body))
+              ~source_item_index:
+                (Some (Frame.function_item_index info.definition.frame))
               ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes
               ~next_site
               (Ir.X87_stack.graph (Function.x87 body)))

@@ -46,6 +46,7 @@ type payload =
   | Symbol of Sema.Symbol.t
   | Callback of Sema.Function_type_resolution.function_pointer
   | Member_projection of Aggregate_member_projection.t
+  | Pointee_stride of Sema.Aggregate_pointee_layout.t
   | Retained_global of Retained_global.t
   | Saved_parameter_default of Prepared_parameter_default.t
   | Saved_callback_default of Prepared_callback_default.t
@@ -280,6 +281,13 @@ let add_escaped_bytes buffer bytes =
   Buffer.add_char buffer '"'
 
 let add_payload buffer = function
+  | Pointee_stride layout ->
+      Buffer.add_string buffer " pointee-stride:";
+      add_escaped_bytes buffer
+        (Sema.Symbol.name
+           (Sema.Aggregate_pointee_layout.aggregate_symbol layout));
+      Printf.bprintf buffer ":bytes=%Ld"
+        (Sema.Aggregate_pointee_layout.byte_size layout)
   | Member_projection projection ->
       Buffer.add_string buffer " member-projection:";
       add_escaped_bytes buffer

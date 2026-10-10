@@ -35,6 +35,10 @@ pointers. Owned class pointer locals and fixed parameters copy the existing
 reference descriptor, so a callee updates the caller's object. A destination
 is captured before its assignment RHS can rebind the pointer.
 
+[Owned class pointer operations](class-pointers.md) add generic indexing,
+scaled arithmetic, differences, comparisons and pointer updates. Each operation
+retains the exact pointee layout selected before its function declaration.
+
 ## Automatic aggregate arrays
 
 `Item items[2][3]` allocates one byte object with six elements of the exact
@@ -90,10 +94,11 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 58 IR and 58 native test groups. Independent expected
+The shared fixtures have 98 IR and 98 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
-root and row decay, class pointer locals and parameters, captured destinations,
+root and row decay, class pointer locals and parameters, selected pointee
+strides, prefix/postfix snapshots, RHS rebinding, captured destinations,
 union overlap, signed views, padding, shadowing and all nine integer widths.
 Faults cover unknown fields and pointers, partial union writes, fresh
 activations and out-of-object windows. Exact and one-below controls cover
@@ -101,13 +106,13 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 226 reports for IR and 453 when native execution is included,
+actual CLI runs 346 reports for IR and 693 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
 Inheritance, retained JIT aggregate imports, function-local layouts,
 zero-sized automatic objects, pointer arrays, aggregate array initializers, persistent
 aggregate objects, whole-object values and copies, pointer and callback fields,
-general casts to class pointers, generic class pointer indexing and arithmetic, pointer returns and
+general casts to class pointers, pointer returns and
 original named-local size/position consumers remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 Functions in this slice return supported integers or U0. The checks use the

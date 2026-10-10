@@ -182,8 +182,7 @@ let rejected =
     "I64 F(){I64 a=42;return *(1+&a);}F();";
     "I64 F(){I64 a=42;return *(&a+&a);}F();";
     "I64 F(){I64 a=42;return *(&a+1.0);}F();";
-    "I64 F(){I64 a=42;I64 *p=&a;p+=1;return a;}F();";
-    "I64 F(){I64 a=42;I64 *p=&a;p++;return a;}F();";
+    "I64 F(){I64 a=42;I64 *p=&a;p*=1;return a;}F();";
     "I64 *Bad(){I64 a=42;return &a+0;}Bad();";
     "I64 a=42;I64 *p=&a+0;42;";
     "class C{I64 a;};I64 F(){C c;return *(&c+1);}F();";
@@ -194,6 +193,14 @@ let rejected =
 let boundaries () =
   List.iter
     (fun mode ->
+      List.iter
+        (fun source ->
+          let _, execution = success mode source in
+          T.word "newly supported pointer update" VM.I64 42L execution)
+        [
+          "I64 F(){I64 a=42;I64 *p=&a;p+=1;return a;}F();";
+          "I64 F(){I64 a=42;I64 *p=&a;p++;return a;}F();";
+        ];
       List.iter
         (fun source ->
           match integer_program_report_outcome (run mode source) with

@@ -155,13 +155,15 @@
  (alias native-tests)
  (deps
   ../../examples/aggregate-members.hc
-  ../../examples/aggregate-arrays.hc)
+  ../../examples/aggregate-arrays.hc
+  ../../examples/class-pointers.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/aggregate-members.hc}
    %{dep:../../examples/aggregate-arrays.hc}
+   %{dep:../../examples/class-pointers.hc}
    --native)))
 
 (rule

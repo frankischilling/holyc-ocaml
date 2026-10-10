@@ -5171,7 +5171,8 @@
  (modules
   automatic_aggregate_cases
   aggregate_member_cases
-  aggregate_array_cases))
+  aggregate_array_cases
+  aggregate_pointer_cases))
 
 (test
  (name test_aggregate_members)
@@ -5192,13 +5193,17 @@
  (name test_aggregate_members_cli)
  (modules test_aggregate_members_cli)
  (libraries unix yojson automatic_aggregate_fixture)
- (deps ../examples/aggregate-members.hc ../examples/aggregate-arrays.hc)
+ (deps
+  ../examples/aggregate-members.hc
+  ../examples/aggregate-arrays.hc
+  ../examples/class-pointers.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
    %{dep:../examples/aggregate-members.hc}
-   %{dep:../examples/aggregate-arrays.hc})))
+   %{dep:../examples/aggregate-arrays.hc}
+   %{dep:../examples/class-pointers.hc})))
 
 (test
  (name test_automatic_aggregate_storage)

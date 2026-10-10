@@ -91,9 +91,12 @@ values, captures, original fault kinds and retained defaults in both modes.
 
 [Pointer subtraction](pointer-subtraction.md) uses the same owned model with
 direct subtraction checks. [Equality](pointer-equality.md) compares owned objects
-and offsets. Raw difference, integer-left addition, raw address ordering, compound
-pointer updates, pointer returns, persistent pointer variables, casts, deeper
-indirection, aggregate pointees and direct multi-rank array addition remain
+and offsets. [Owned class pointers](class-pointers.md) add selected aggregate
+pointee strides, pointer updates and direct multidimensional array decay
+arithmetic. Primitive integer pointer updates use that same checked path.
+Raw difference, integer-left addition, raw address ordering,
+pointer returns, persistent pointer variables, casts and deeper
+indirection remain
 outside this path under #687/#699/#700. Native retained tasks remain under #704,
 larger native images under #703, and full ABI, artifacts, BIN/loader and
 bootstrap acceptance under #702/#682. Expectations come from the pinned source
