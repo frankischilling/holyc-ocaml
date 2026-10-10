@@ -1,5 +1,9 @@
 # HolyC ABI source notes
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 [Class value parameters](class-value-parameters.md) use owned eight-byte slots
 while retaining nominal member layouts, scalar views and pointer strides.
 

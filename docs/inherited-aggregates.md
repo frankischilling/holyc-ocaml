@@ -1,13 +1,17 @@
 # Owned inherited aggregates
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 [Default class and union values](default-aggregate-values.md) use the signed
 eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
-forwarded scalar width for whole reads, assignments and updates. Class extents,
-member identities and pointer strides remain separate. General casts, class
-returns and defaults, callback class parameters and persistent objects still
-need their own implementation.
+forwarded scalar width for whole reads, assignments and updates. Class
+extents, member identities and pointer strides remain separate. General casts,
+class defaults, callback class parameters and persistent objects still need
+their own implementation.
 
 Completed earlier class and union definitions can supply inherited automatic
 storage in isolated IR and native programs. Direct and pointer member access,
@@ -85,14 +89,16 @@ ABIs, including fresh image executions. The CLI also checks the installed
 compiler and maintained example. These checks have no TempleOS runtime capture.
 
 Partial, self-referential and forward-only bases retain their separate
-[captured size metadata](source-inherited-layouts.md); they do not supply owned
-members. A declaration-time call can move a base outside the current object
-compilation, so its captured size still does not authorize storage. Retained
-JIT imports, native task object execution, function-local layouts, persistent
-objects, aggregate initializers, whole-value postfix casts, class returns/defaults/callback parameters and general aggregate copies, pointer or
+[captured size metadata](source-inherited-layouts.md); they do not supply
+owned members. A declaration-time call can move a base outside the current
+object compilation, so its captured size still does not authorize storage.
+Retained JIT imports, native task object execution, function-local layouts,
+persistent objects, aggregate initializers, whole-value postfix casts, class
+defaults and callback parameters and general aggregate copies, pointer or
 callback fields, general derived/base pointer conversions and pointer returns
-remain open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)
-and related pointer/ABI issues. Full compiler acceptance remains under
+remain open under
+[#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and related
+pointer/ABI issues. Full compiler acceptance remains under
 [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
 
 The source audit uses TempleOS commit

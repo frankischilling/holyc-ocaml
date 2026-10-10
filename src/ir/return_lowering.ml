@@ -147,13 +147,27 @@ let lower_function_return ?frame ?globals ?lower_call ?optimize_shifts
   match span_of_origin (Semantic_source.return_origin source) with
   | Error item -> Error [ item ]
   | Ok span ->
-      let return_type = Semantic_result.return_declared_type return_ in
+      let return_type = Semantic_result.return_execution_type return_ in
       let value = Semantic_result.return_value return_ in
       let lower =
         lower_return_value ?frame ?globals ?lower_call ?optimize_shifts
           ?optimize_division ~span ~instruction_id ~value_id ~leave
       in
-      lower return_type value
+      if
+        (not
+           (Sema.Type.equal return_type
+              (Semantic_result.return_declared_type return_)))
+        && Option.fold ~none:false
+             ~some:(fun value ->
+               Option.is_some
+                 (Semantic_result.result_callback_parser_pointer value)
+               || Option.is_none
+                    (Option.bind
+                       (Semantic_result.result_value_type value)
+                       Integer_scalar_storage.of_type))
+             value
+      then Ok Unsupported_expression
+      else lower return_type value
 
 let sequence lowered = lowered.sequence_
 let return_value lowered = lowered.return_value_

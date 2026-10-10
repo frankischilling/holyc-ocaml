@@ -1,5 +1,9 @@
 # Integer-backed aggregate values
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 [Default class and union values](default-aggregate-values.md) use the signed
 eight-byte prefix when the backing chain ends at an ordinary class.
 
@@ -69,13 +73,13 @@ controls require the original sealed source graph before image creation.
 The tests use independent expected words and hosted executions; they contain
 no TempleOS runtime capture or machine-byte comparison.
 
-Postfix casts involving whole backed values, aggregate initializers, class
-returns, prepared class defaults and callback parameter ABI paths, floating
-execution and parameter storage, persistent objects, function-local layouts and
-zero-sized automatic objects, retained JIT imports, native task objects,
-F64/pointer/callback backings and general aggregate copies remain
-open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and
-the related value and ABI issues. Full compiler and release acceptance remain
+Postfix casts involving whole backed values, aggregate initializers, prepared
+class defaults and callback parameter ABI paths, floating execution and
+parameter storage, persistent objects, function-local layouts and zero-sized
+automatic objects, retained JIT imports, native task objects,
+F64/pointer/callback backings and general aggregate copies remain open under
+[#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and the
+related value and ABI issues. Full compiler and release acceptance remain
 under [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
 
 The source audit uses TempleOS commit

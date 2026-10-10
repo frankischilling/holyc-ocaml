@@ -172,7 +172,6 @@ let faults =
 
 let unsupported =
   [
-    ("class return ABI", {|class Box{I64 word;};Box F(Box o){return o;}F(42);|});
     ( "floating class parameter ABI",
       {|F64 class Box{F64 word;};I64 Take(Box o){return o.word;}Take(42);|} );
     ( "pointer-backed class parameter ABI",

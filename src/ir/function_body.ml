@@ -68,6 +68,7 @@ type definition_binding = {
   declaration : Sema.Function_resolution.resolved_declaration;
   frame : Sema.Function_frame_layout.function_layout;
   aggregate_parameters : (Symbol.t * Sema.Type.t) list;
+  aggregate_return : Sema.Type.t option;
 }
 
 type t = {
@@ -269,6 +270,12 @@ let function_id function_ = function_.function_id_
 let symbol function_ = function_.symbol_
 let function_scope function_ = function_.function_scope_
 let return_type function_ = function_.return_type_
+
+let return_value_type function_ =
+  Option.bind function_.definition_ (fun definition ->
+      definition.aggregate_return)
+  |> Option.value ~default:(return_type function_)
+
 let parameters function_ = function_.parameters_
 let locals function_ = function_.locals_
 let stored_flags function_ = function_.stored_flags_
@@ -425,6 +432,9 @@ let with_definition ~records ~sources ~frames ~definition ~frame function_ =
           {
             declaration;
             frame;
+            aggregate_return =
+              Typed.aggregate_integer_value_type sources
+                ~before_item_index:item_index (return_type function_);
             aggregate_parameters =
               List.filter_map
                 (fun member ->

@@ -4833,7 +4833,9 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
   then
     reject ?span "HCBACK0002"
       "native source functions require ordinary calling flags";
-  let return_kind = source_return_kind ?span (Function.return_type body) in
+  let return_kind =
+    source_return_kind ?span (Function.return_value_type body)
+  in
   let local_frame_bytes =
     int_of_frame_size ?span (Frame.function_frame_size frame)
   in
@@ -6407,7 +6409,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                      else Mismatched_extern (Array.length fixed)),
                     arguments,
                     source_return_kind ?span:description.span
-                      (Runtime.return_type call),
+                      (Runtime.return_value_type call),
                     0 ))
                 else
                   match provider with
@@ -6463,7 +6465,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         fixed;
                       let return_kind =
                         source_return_kind ?span:description.span
-                          (Runtime.return_type call)
+                          (Runtime.return_value_type call)
                       in
                       if
                         return_kind
@@ -6520,7 +6522,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           "native PutChars argument must retain its U64 slot";
                       let return_kind =
                         source_return_kind ?span:description.span
-                          (Runtime.return_type call)
+                          (Runtime.return_value_type call)
                       in
                       if return_kind <> Callable_void_return then
                         malformed description "native PutChars must complete U0";
@@ -6623,7 +6625,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                           "native Print is missing an argument slot";
                       let return_kind =
                         source_return_kind ?span:description.span
-                          (Runtime.return_type call)
+                          (Runtime.return_value_type call)
                       in
                       let return_matches =
                         match (provider, return_kind) with
@@ -7183,7 +7185,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                       when Sequence.Value_id.equal result.value_id
                              (Runtime.result_value (Option.get scope.call))
                            && Type.equal target_type
-                                (Runtime.return_type (Option.get scope.call)) ->
+                                (Runtime.return_value_type
+                                   (Option.get scope.call)) ->
                         (result, target_type)
                     | _ ->
                         malformed description
@@ -10959,7 +10962,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               ~provider_entries ~global_storage ~literal_storage
               ~runtime_owner:(Runtime.Function body) ~owner:info.owner
               ~frame_slots:info.frame_slots ~variadic:info.variadic
-              ~expected_return:(Some (Function.return_type body))
+              ~expected_return:(Some (Function.return_value_type body))
               ~source_item_index:
                 (Some (Frame.function_item_index info.definition.frame))
               ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes

@@ -6,6 +6,7 @@ module Inherited = Inherited_aggregate_cases
 module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
+module Returns = Class_return_cases
 module P = X86_64_program
 module VM = Ir_integer_interpreter
 
@@ -78,7 +79,7 @@ let faults () =
             "native fault preserves reached output" output
             (Native_program.output_bytes report))
         (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-       @ Backed.faults @ Default.faults @ Parameters.faults);
+       @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -161,6 +162,7 @@ let quotas () =
       Backed.quota_source;
       Default.quota_source;
       Parameters.quota_source;
+      Returns.quota_source;
     ]
 
 let images () =
@@ -212,6 +214,7 @@ let images () =
       Backed.quota_source;
       Default.quota_source;
       Parameters.quota_source;
+      Returns.quota_source;
     ]
 
 let field_proofs () =
@@ -282,7 +285,26 @@ let boundaries () =
             (Result.is_error (Native_program.outcome (run mode contents))))
         (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
        @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
-       @ Parameters.unsupported))
+       @ Parameters.unsupported @ Returns.unsupported);
+      let original =
+        Aggregate_member_fixture.compile ~contents:Returns.quota_source mode
+      in
+      let raw =
+        Aggregate_member_fixture.first_definition original |> fun definition ->
+        Aggregate_member_fixture.rebuild definition Fun.id
+      in
+      List.iter
+        (fun status_abi ->
+          Alcotest.(check bool)
+            "raw class return body rejects before native image creation" true
+            (Result.is_error
+               (P.compile_callable ~status_abi ~max_ir_instructions:4096
+                  ~max_code_bytes:65_536
+                  ~runtime_calls:(integer_program_runtime_calls original)
+                  ~initialization:(integer_program_initialization original)
+                  ~entry:(integer_program_entry original)
+                  ~functions:[ raw ] ())))
+        [ P.Windows_x64; P.System_v_x64 ])
     modes;
   let session, config, source = inputs Preprocessor.Jit Cases.quota_source in
   let report =
@@ -302,7 +324,8 @@ let () =
           (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
          @ Pointers.values @ Pointers.view_matrix @ Inherited.values
          @ Inherited.view_matrix @ Backed.values @ Default.values
-         @ Parameters.values @ Parameters.view_matrix) );
+         @ Parameters.values @ Parameters.view_matrix @ Returns.values
+         @ Returns.view_matrix @ Returns.warning_values) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, bounds and independent activations"

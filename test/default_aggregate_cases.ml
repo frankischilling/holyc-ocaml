@@ -139,8 +139,6 @@ let faults =
 
 let unsupported =
   [
-    ( "default class return ABI",
-      {|class Box{U64 word;};Box F(){Box o;o=42;return o;}F();|} );
     ( "default persistent whole object",
       {|class Box{U64 word;};Box o;I64 F(){o=42;return o;}F();|} );
     ( "default whole postfix cast",

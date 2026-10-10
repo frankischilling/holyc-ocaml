@@ -83,10 +83,18 @@ let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
     let* () =
       match definition.backing with
       | None -> Ok ()
-      | Some backing ->
-          Source_type_reference.builtin backing.backing_type_specifier
-            backing.backing_pointer_layers
-          |> Result.map ignore
+      | Some backing -> (
+          (* A backing changes scalar interpretation, not member extent.
+             Named backings need no scalar resolution in this layout adapter;
+             their original selection is checked by the value consumers. *)
+          match backing.backing_type_specifier with
+          | Ast.Named_type_specifier _ ->
+              Source_type_reference.pointer_depth backing.backing_pointer_layers
+              |> Result.map ignore
+          | _ ->
+              Source_type_reference.builtin backing.backing_type_specifier
+                backing.backing_pointer_layers
+              |> Result.map ignore)
     in
     let offset_values = Offsets.create 8 in
     let rec facts path members =

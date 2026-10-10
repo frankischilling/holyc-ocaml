@@ -6,6 +6,7 @@ module Inherited = Inherited_aggregate_cases
 module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
+module Returns = Class_return_cases
 
 let require condition message = if not condition then failwith message
 
@@ -28,11 +29,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 9 || Array.length Sys.argv = 10)
-    "expected compiler and seven aggregate examples, optionally --native"
+    (Array.length Sys.argv = 10 || Array.length Sys.argv = 11)
+    "expected compiler and eight aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 10 && Sys.argv.(9) = "--native"
+let native = Array.length Sys.argv = 11 && Sys.argv.(10) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -80,11 +81,21 @@ let hex bytes =
   |> Seq.map (fun c -> Printf.sprintf "%02x" (Char.code c))
   |> List.of_seq |> String.concat ""
 
-let value ?(unused_array = false) expected output report =
+let value ?(unused_array = false) ?(return_warning = false) expected output
+    report =
   require
     (member "outcome" report = `String "success")
     (Yojson.Safe.to_string report);
-  if unused_array then (
+  if return_warning then (
+    let diagnostics = member "diagnostics" report |> to_list in
+    require (List.length diagnostics = 1) "empty class return warning count";
+    let warning = List.hd diagnostics in
+    require
+      (member "code" warning = `String "HCSEMA0078"
+      && member "severity" warning = `String "warning"
+      && member "message" warning = `String "Function should NOT return val")
+      "empty class return keeps its original warning")
+  else if unused_array then (
     let diagnostics = member "diagnostics" report |> to_list in
     require (List.length diagnostics = 1) "unused array warning count";
     let warning = List.hd diagnostics in
@@ -100,8 +111,15 @@ let value ?(unused_array = false) expected output report =
       ("unexpected aggregate diagnostics: " ^ Yojson.Safe.to_string report);
   require
     (report |> member "final_value" |> member "value"
-    = `String (Int64.to_string expected))
+    = `String
+        (if report |> member "final_value" |> member "type" = `String "u64" then
+           Printf.sprintf "%Lu" expected
+         else Int64.to_string expected))
     "independent aggregate word";
+  require
+    (report |> member "final_value" |> member "bits"
+    = `String (Printf.sprintf "0x%016Lx" expected))
+    "independent aggregate word bits";
   require
     (member "output_hex" report = `String (hex output))
     "aggregate output bytes"
@@ -130,12 +148,17 @@ let () =
             (fun (name, source, word, output) ->
               value
                 ~unused_array:(name = "unused automatic aggregate array")
+                ~return_warning:
+                  (List.exists
+                     (fun (warning_name, _, _, _) -> warning_name = name)
+                     Returns.warning_values)
                 word output
                 (invoke target mode source))
             (Cases.values @ Cases.view_matrix @ Arrays.values
            @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
            @ Inherited.values @ Inherited.view_matrix @ Backed.values
-           @ Default.values @ Parameters.values @ Parameters.view_matrix);
+           @ Default.values @ Parameters.values @ Parameters.view_matrix
+           @ Returns.values @ Returns.view_matrix @ Returns.warning_values);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "AB" (invoke target mode (read Sys.argv.(3)));
           value 42L "AB" (invoke target mode (read Sys.argv.(4)));
@@ -143,6 +166,7 @@ let () =
           value 42L "" (invoke target mode (read Sys.argv.(6)));
           value 42L "" (invoke target mode (read Sys.argv.(7)));
           value 42L "" (invoke target mode (read Sys.argv.(8)));
+          value 42L "" (invoke target mode (read Sys.argv.(9)));
           if target = "host-jit" then
             error ~code:"HCPP0008" ""
               (invoke ~status:1 target mode Inherited.lookahead_source)
@@ -154,7 +178,8 @@ let () =
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
             (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-           @ Backed.faults @ Default.faults @ Parameters.faults);
+           @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults
+            );
           List.iter
             (fun (definition, bytes) ->
               value 42L ""
@@ -202,12 +227,13 @@ let () =
               (Backed.quota_source, Backed.quota_frame_bytes);
               (Default.quota_source, Default.quota_frame_bytes);
               (Parameters.quota_source, Parameters.quota_frame_bytes);
+              (Returns.quota_source, Returns.quota_frame_bytes);
             ];
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
             (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
            @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
-           @ Parameters.unsupported))
+           @ Parameters.unsupported @ Returns.unsupported))
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then

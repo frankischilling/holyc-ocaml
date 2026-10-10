@@ -85,6 +85,11 @@ val function_id : t -> Function_id.t
 val symbol : t -> Sema.Symbol.t
 val function_scope : t -> Sema.Symbol.Scope_id.t
 val return_type : t -> Sema.Type.t
+
+val return_value_type : t -> Sema.Type.t
+(** Return word view authenticated by the original bound definition. Raw bodies
+    retain their nominal class type and cannot acquire a class return ABI. *)
+
 val parameters : t -> member list
 val locals : t -> member list
 val stored_flags : t -> int64

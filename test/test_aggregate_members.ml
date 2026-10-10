@@ -6,6 +6,7 @@ module Inherited = Inherited_aggregate_cases
 module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
 module Parameters = Class_parameter_cases
+module Returns = Class_return_cases
 module VM = Ir_integer_interpreter
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -60,7 +61,7 @@ let faults () =
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
         (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-       @ Backed.faults @ Default.faults @ Parameters.faults);
+       @ Backed.faults @ Default.faults @ Parameters.faults @ Returns.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -116,6 +117,7 @@ let quotas () =
       Backed.quota_source;
       Default.quota_source;
       Parameters.quota_source;
+      Returns.quota_source;
     ]
 
 let foreign_frame () =
@@ -161,6 +163,7 @@ let foreign_frame () =
       Backed.quota_source;
       Default.quota_source;
       Parameters.quota_source;
+      Returns.quota_source;
     ]
 
 let field_proofs () =
@@ -285,6 +288,55 @@ let class_parameter_ownership () =
             errors)
     modes
 
+let class_return_ownership () =
+  let module Body = Ir_function_body in
+  List.iter
+    (fun mode ->
+      let own =
+        Aggregate_member_fixture.compile
+          ~contents:"U16 class Box{U16 low;};Box F(){return 0x1002a;}F();" mode
+        |> Aggregate_member_fixture.first_definition
+      in
+      let raw = Aggregate_member_fixture.rebuild own Fun.id in
+      Alcotest.(check bool)
+        "original body retains its nominal class" true
+        (match Semantic_type.base (Body.return_type own.body) with
+        | Semantic_type.Aggregate _ -> true
+        | _ -> false);
+      Alcotest.(check bool)
+        "bound body selects its original U16 return view" true
+        (match Semantic_type.base (Body.return_value_type own.body) with
+        | Semantic_type.Primitive (_, Primitive_type.U16) ->
+            Semantic_type.pointer_depth (Body.return_value_type own.body) = 0
+        | _ -> false);
+      Alcotest.(check bool)
+        "raw body cannot supply a class return ABI" true
+        (Semantic_type.equal
+           (Body.return_type raw.body)
+           (Body.return_value_type raw.body));
+      let execute definition =
+        VM.execute_function ~max_steps:100_000 ~max_frame_bytes:1024
+          ~frame:definition.VM.frame ~arguments:[] definition.body
+      in
+      (match execute own with
+      | Ok result ->
+          Alcotest.(check (option int64))
+            "class return keeps the register word above its prefix"
+            (Some 0x1002aL)
+            (match VM.termination result with
+            | VM.Returned word -> Option.map (fun w -> w.VM.bits) word
+            | _ -> None)
+      | Error _ -> Alcotest.fail "owned class return failed direct execution");
+      match execute raw with
+      | Ok _ -> Alcotest.fail "raw graph acquired class return authority"
+      | Error errors ->
+          List.iter
+            (fun (e : VM.error) ->
+              Alcotest.(check int)
+                "return ABI rejection precedes execution" 0 e.executed_steps)
+            errors)
+    modes
+
 let boundaries () =
   failure "HCSEMA0046" "" (run Preprocessor.Jit Inherited.lookahead_source);
   ignore (value 42L "" (run Preprocessor.Aot Inherited.lookahead_source));
@@ -298,7 +350,7 @@ let boundaries () =
                (integer_program_report_outcome (run mode contents))))
         (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
        @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
-       @ Parameters.unsupported))
+       @ Parameters.unsupported @ Returns.unsupported))
     modes
 
 let () =
@@ -314,7 +366,8 @@ let () =
           (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
          @ Pointers.values @ Pointers.view_matrix @ Inherited.values
          @ Inherited.view_matrix @ Backed.values @ Default.values
-         @ Parameters.values @ Parameters.view_matrix) );
+         @ Parameters.values @ Parameters.view_matrix @ Returns.values
+         @ Returns.view_matrix @ Returns.warning_values) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"
@@ -325,6 +378,8 @@ let () =
           Alcotest.test_case
             "class parameter slot requires its original ABI owner" `Quick
             class_parameter_ownership;
+          Alcotest.test_case "class return requires its original ABI owner"
+            `Quick class_return_ownership;
           Alcotest.test_case
             "selected field proof cannot be borrowed or altered" `Quick
             field_proofs;

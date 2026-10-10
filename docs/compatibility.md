@@ -1,5 +1,9 @@
 # holyc-ocaml compatibility status
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 [Class value parameters](class-value-parameters.md) use owned eight-byte slots
 while retaining nominal member layouts, scalar views and pointer strides.
 
@@ -7,26 +11,27 @@ while retaining nominal member layouts, scalar views and pointer strides.
 eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
-forwarded scalar width for whole reads, assignments and updates. Class extents,
-member identities and pointer strides remain separate. General casts, class
-returns and defaults, callback class parameters and persistent objects still
-need their own implementation.
+forwarded scalar width for whole reads, assignments and updates. Class
+extents, member identities and pointer strides remain separate. General casts,
+class defaults, callback class parameters and persistent objects still need
+their own implementation.
 
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) support
 nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
-padding, initialized bytes and the original extent. Partial inherited metadata,
-retained JIT imports, persistent objects,
-whole-value postfix casts, class returns/defaults/callback parameters and general aggregate copies, pointer fields and pointer returns remain
-outside this slice of #686. [Owned aggregate members](aggregate-members.md)
-support direct and pointer integer fields, nested fields, multidimensional
-member arrays and owned class pointer locals and fixed parameters. Their
-immutable field proofs retain the exact selected layout and original storage.
-Automatic class and union arrays also preserve their selected element size,
-original dimensions and total extent. Indexed element addresses and root/row
-decay can enter class pointer parameters. [Owned class pointer operations](class-pointers.md)
-retain that selected pointee layout for generic indexing, arithmetic, difference,
-comparisons and prefix/postfix or compound updates.
+padding, initialized bytes and the original extent. Partial inherited
+metadata, retained JIT imports, persistent objects, whole-value postfix casts,
+class defaults and callback parameters and general aggregate copies, pointer
+fields and pointer returns remain outside this slice of #686. [Owned aggregate
+members](aggregate-members.md) support direct and pointer integer fields,
+nested fields, multidimensional member arrays and owned class pointer locals
+and fixed parameters. Their immutable field proofs retain the exact selected
+layout and original storage. Automatic class and union arrays also preserve
+their selected element size, original dimensions and total extent. Indexed
+element addresses and root/row decay can enter class pointer parameters.
+[Owned class pointer operations](class-pointers.md) retain that selected
+pointee layout for generic indexing, arithmetic, difference, comparisons and
+prefix/postfix or compound updates.
 
 [Inherited aggregate storage](inherited-aggregates.md) admits completed earlier
 base chains in the current object compilation. Child-first lookup, absolute

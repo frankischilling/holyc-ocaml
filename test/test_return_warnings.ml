@@ -163,6 +163,8 @@ let exact_classes () =
       ("extern class T;class T{I64 n;};T F(){}", [ should ]);
       ("extern class T;T *F(){return;}", [ should; should ]);
       ("class B{I64 n;};class D:B{};D F(){}", [ should ]);
+      ("U16 class B{U16 low;};B class D{U8 byte;};D F(){}", [ should ]);
+      ("class B{};B class D{};D F(){return 42;}", [ should_not ]);
       ("union T{I64 n;U8 b;};T F(){}", [ should ]);
       ("class T{};T F(){}class T{I64 n;};T G(){}", [ should ]);
     ];

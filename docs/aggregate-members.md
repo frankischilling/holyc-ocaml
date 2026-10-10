@@ -1,13 +1,17 @@
 # Owned aggregate members
 
+[Class value returns](class-value-returns.md) carry qualified integer
+register words while preserving nominal declaration types. Object reads
+use the selected scalar prefix; register results retain the full word.
+
 [Default class and union values](default-aggregate-values.md) use the signed
 eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
-forwarded scalar width for whole reads, assignments and updates. Class extents,
-member identities and pointer strides remain separate. General casts, class
-returns and defaults, callback class parameters and persistent objects still
-need their own implementation.
+forwarded scalar width for whole reads, assignments and updates. Class
+extents, member identities and pointer strides remain separate. General casts,
+class defaults, callback class parameters and persistent objects still need
+their own implementation.
 
 The interpreter and native executor read, assign and update integer members of
 nonempty automatic class and union objects. The exact layout must complete
@@ -108,7 +112,7 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 215 IR and 214 native test groups. Independent expected
+The shared fixtures have 266 IR and 264 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
@@ -120,20 +124,20 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 712 reports for IR and 1425 when native execution is included,
+actual CLI runs 834 reports for IR and 1669 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
-Partial and out-of-compilation inherited bases, retained JIT aggregate imports,
-function-local layouts, zero-sized automatic objects, pointer arrays,
-aggregate array initializers, persistent
-aggregate objects, whole-value postfix casts, class returns/defaults/callback parameters and general aggregate copies, pointer and callback fields,
-general casts to class pointers, pointer returns and
-original named-local size/position consumers remain unfinished under
-[issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
+Partial and out-of-compilation inherited bases, retained JIT aggregate
+imports, function-local layouts, zero-sized automatic objects, pointer arrays,
+aggregate array initializers, persistent aggregate objects, whole-value
+postfix casts, class defaults and callback parameters and general aggregate
+copies, pointer and callback fields, general casts to class pointers, pointer
+returns and original named-local size/position consumers remain unfinished
+under [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 Functions in this slice return supported integers or U0. The checks use the
 pinned source and hosted execution without a TempleOS runtime capture; full
-compiler parity remains under
-[issue #682](https://github.com/frankischilling/holyc-ocaml/issues/682).
+compiler parity remains under [issue
+#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
 
 ## TempleOS source evidence
 
