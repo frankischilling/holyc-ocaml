@@ -124,7 +124,7 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 920 reports for IR and 2137 when native execution is included,
+actual CLI runs 941 reports for IR and 2184 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
 [Function-local types](function-local-aggregate-objects.md) now provide automatic
