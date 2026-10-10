@@ -159,6 +159,7 @@ let integer_payload description =
       | Sequence.Saved_callback_default _
       | Sequence.Callback _
       | Sequence.Member_projection _
+      | Sequence.Backing_projection _
       | Sequence.Pointee_stride _
       | Sequence.Block_targets _ ) ->
       Alcotest.fail "expected only an integer displacement payload"
@@ -192,6 +193,7 @@ let lowered_displacement lowered =
       | Sequence.Saved_callback_default _
       | Sequence.Callback _
       | Sequence.Member_projection _
+      | Sequence.Backing_projection _
       | Sequence.Pointee_stride _
       | Sequence.Block_targets _ )
   | None -> Alcotest.fail "expected a signed frame displacement"

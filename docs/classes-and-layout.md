@@ -1,5 +1,10 @@
 # Classes and layout
 
+[Integer-backed aggregate values](backed-aggregate-values.md) use the original
+forwarded scalar width for whole reads, assignments and updates. Class extents,
+member identities and pointer strides remain separate. General casts, class
+value ABI paths and persistent objects still need their own implementation.
+
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) now connect
 nonempty, completed earlier class and union layouts to isolated IR and native
 frame storage. Explicit integer views share packed bytes, union overlap,
@@ -10,7 +15,7 @@ retain exact earlier pointee layouts for indexing, arithmetic and updates.
 [Inherited storage](inherited-aggregates.md) admits completed earlier base
 chains with exact original identities and sizes. Partial inherited metadata,
 retained JIT imports,
-persistent objects, whole-object values and copies,
+persistent objects, general whole-object values and copies,
 pointer fields and pointer returns remain unfinished.
 
 All compatibility findings in this document use TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.

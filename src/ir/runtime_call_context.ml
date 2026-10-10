@@ -1424,7 +1424,11 @@ let argument_producer_origin = producer_origin
 let rec producer_type ~globals result =
   let span = origin_span (Typed.result_origin result) in
   let type_ =
-    match Typed.result_storage_type result with
+    match
+      if Option.is_some (Typed.result_aggregate_backing_storage result) then
+        Typed.result_value_type result
+      else Typed.result_storage_type result
+    with
     | Some type_ -> type_
     | None -> fail ?span "call argument has no checked result type"
   in

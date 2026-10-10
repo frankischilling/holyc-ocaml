@@ -1,5 +1,10 @@
 # Owned inherited aggregates
 
+[Integer-backed aggregate values](backed-aggregate-values.md) use the original
+forwarded scalar width for whole reads, assignments and updates. Class extents,
+member identities and pointer strides remain separate. General casts, class
+value ABI paths and persistent objects still need their own implementation.
+
 Completed earlier class and union definitions can supply inherited automatic
 storage in isolated IR and native programs. Direct and pointer member access,
 nested objects, member arrays, root arrays and class pointer operations retain
@@ -62,7 +67,7 @@ also fail. Unknown bytes, cross-object differences and scale overflow retain
 the existing diagnostics and reached output. These checks are hosted policy;
 they do not describe TempleOS behavior for invalid memory.
 
-Thirty value groups extend the shared suites to 128 IR and 128 native groups.
+Thirty value groups are part of the shared 155 IR and 155 native groups.
 Independent expected words cover chained bases, packed and signed fields,
 empty children, union bases and children, nested inherited arrays, root/row
 decay, pointer comparisons and updates, aliasing RHS effects, backing classes,
@@ -80,7 +85,7 @@ Partial, self-referential and forward-only bases retain their separate
 members. A declaration-time call can move a base outside the current object
 compilation, so its captured size still does not authorize storage. Retained
 JIT imports, native task object execution, function-local layouts, persistent
-objects, aggregate initializers, whole-object values and copies, pointer or
+objects, aggregate initializers, general whole-object values and copies, pointer or
 callback fields, general derived/base pointer conversions and pointer returns
 remain open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)
 and related pointer/ABI issues. Full compiler acceptance remains under

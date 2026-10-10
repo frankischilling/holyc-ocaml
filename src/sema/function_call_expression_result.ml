@@ -48,6 +48,7 @@ type expression_result = {
   index_operands : (expression_result * expression_result) option;
   member_base_result : expression_result option;
   aggregate_pointee_layout : Aggregate_pointee_layout.t option;
+  aggregate_backing_storage : Aggregate_backing_storage.t option;
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
@@ -341,6 +342,12 @@ type expression_context = Value_context | Lvalue_context
 
 type build_state = {
   next_id : int;
+  backing_context :
+    (Symbol_table.t
+    * Aggregate_member_index.t
+    * Function_call_conversion_policy.t
+    * int)
+    option;
   results_rev : expression_result list;
   outer_function : Outer_expression_binding.resolved_function option;
   outer_callback_calls_rev : outer_callback_call list;
@@ -778,6 +785,15 @@ let result_index_operands (result : expression_result) = result.index_operands
 
 let result_aggregate_pointee_layout (result : expression_result) =
   result.aggregate_pointee_layout
+
+let result_aggregate_backing_storage (result : expression_result) =
+  result.aggregate_backing_storage
+
+let result_value_type (result : expression_result) =
+  match result.aggregate_backing_storage with
+  | Some storage when result.array_rank = 0 ->
+      Some (Aggregate_backing_storage.value_type storage)
+  | _ -> result.source_type
 
 let result_type (result : expression_result) = result.source_type
 
@@ -1398,8 +1414,13 @@ and result_callback_numeric_classes (result : expression_result) =
 
 and result_computation_type (result : expression_result) =
   let module C = Integer_computation_class in
-  let declared () = Option.map C.declared (result_storage_type result) in
-  let forwarded () = Option.map C.forward (result_storage_type result) in
+  let storage =
+    match result.aggregate_backing_storage with
+    | Some _ -> result_value_type result
+    | None -> result_storage_type result
+  in
+  let declared () = Option.map C.declared storage in
+  let forwarded () = Option.map C.forward storage in
   match result_callback_numeric_classes result with
   | Some classes -> Some (callback_scalar_class classes.final_class)
   | None -> (
@@ -1613,6 +1634,15 @@ let make_result ?operand_result ?binary_operands ?index_operands
     ?outer_binding ?call_resolution ?function_declaration ?function_address_path
     ?callback_call_pointer ?(intrinsic_conversion = No_intrinsic_conversion)
     state ~id ~source ~source_type ~category ~result_class =
+  let aggregate_backing_storage =
+    Option.bind state.backing_context
+      (fun (table, members, policies, before_item_index) ->
+        Option.bind source_type (fun source_type ->
+            if array_rank <> 0 then None
+            else
+              Aggregate_backing_storage.create ~table ~members ~policies
+                ~before_item_index ~source_type))
+  in
   record state
     {
       id;
@@ -1623,6 +1653,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
       index_operands;
       member_base_result;
       aggregate_pointee_layout;
+      aggregate_backing_storage;
       source_type;
       category;
       result_class;
@@ -1735,7 +1766,7 @@ let scalar_pointer_integer_arithmetic_type left right =
     | type_ when left.array_rank = 0 -> type_
     | _ -> None
   in
-  match (pointer, result_storage_type right) with
+  match (pointer, result_value_type right) with
   | Some pointer, Some integer
     when left.result_class = Integer_result
          && right.result_class = Integer_result
@@ -1789,7 +1820,9 @@ let validate_update_operand operand ~operator_origin ~operator_name =
   let invalid message = Error (invalid_input ~origin:operator_origin message) in
   match (operand.category, operand.source_type) with
   | Callback_value, Some _ when result_is_callback_storage operand -> Ok ()
-  | Lvalue, Some _ when is_writable_storage_type operand.source_type -> Ok ()
+  | Lvalue, Some _
+    when is_writable_storage_type operand.source_type
+         || Option.is_some operand.aggregate_backing_storage -> Ok ()
   | Unavailable, _ -> invalid (operator_name ^ " operand is unavailable")
   | Lvalue, None -> invalid (operator_name ^ " operand has no checked type")
   | Lvalue, Some _ ->
@@ -2394,6 +2427,12 @@ let bind_top_level_offset state ~before_item_index offset =
 let rec type_expression table members policies ~before_item_index ~context
     ?(allow_aggregate_offset_base = false)
     ?(intrinsic_conversion = No_intrinsic_conversion) state source =
+  let state =
+    {
+      state with
+      backing_context = Some (table, members, policies, before_item_index);
+    }
+  in
   match allocate state with
   | Error _ as error -> error
   | Ok (id, state) -> (
@@ -3533,7 +3572,10 @@ and type_assignment table members policies ~before_item_index
   | Error _ as error -> error
   | Ok (left, state) -> (
       let destination_type = result_storage_type left in
-      let valid_storage_type = is_writable_storage_type destination_type in
+      let valid_storage_type =
+        is_writable_storage_type destination_type
+        || Option.is_some left.aggregate_backing_storage
+      in
       let category =
         if result_is_callback_storage left then Lvalue else left.category
       in
@@ -5174,6 +5216,9 @@ let type_function table members policies outer state source =
   in
   let state = { state with outer_function; outer_callback_calls_rev = [] } in
   let item_index = Function_call_conversion_policy.function_item_index source in
+  let state =
+    { state with backing_context = Some (table, members, policies, item_index) }
+  in
   match
     source |> Function_call_conversion_policy.function_calls
     |> map_state
@@ -5372,6 +5417,7 @@ let analyze ~table ~members ?outer policies =
                (type_function table members policies outer)
                {
                  next_id = 0;
+                 backing_context = None;
                  results_rev = [];
                  outer_function = None;
                  outer_callback_calls_rev = [];
@@ -5523,6 +5569,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
            (type_top_level_statement table members policies)
            {
              next_id = 0;
+             backing_context = None;
              results_rev = [];
              outer_function = None;
              outer_callback_calls_rev = [];

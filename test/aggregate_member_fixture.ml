@@ -134,6 +134,46 @@ let controls ?(contents = contents) mode =
           rebuild definition (substitute (Some later_function_proof)) );
       ]
   in
+  let backing_proofs =
+    if contents <> Backed_aggregate_cases.proof_source then []
+    else
+      let proof definition =
+        Body.body definition.VM.body
+        |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Seq.instructions)
+        |> List.find_map (fun instruction ->
+            match (Seq.description instruction).payload with
+            | Some (Seq.Backing_projection _ as proof) -> Some proof
+            | _ -> None)
+        |> Option.get
+      in
+      let substitute payload (d : Seq.description) =
+        match d.payload with
+        | Some (Seq.Backing_projection _) -> { d with payload }
+        | _ -> d
+      in
+      let wrong_backing_offset (d : Seq.description) =
+        match (d.opcode, d.payload, d.target_type) with
+        | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 0L), Some type_
+          when Semantic_type.pointer_depth type_ = 1 ->
+            { d with payload = Some (Seq.Integer 1L) }
+        | _ -> d
+      in
+      [
+        ( "foreign equal-name backing proof",
+          rebuild definition
+            (substitute (Some (proof (first_definition foreign)))) );
+        ("missing backing proof", rebuild definition (substitute None));
+        ( "backing proof belongs to another function",
+          rebuild definition
+            (substitute
+               (Some (proof (List.nth (integer_program_functions original) 1))))
+        );
+        ( "backing projection changes its zero offset",
+          rebuild definition wrong_backing_offset );
+      ]
+  in
   ( original,
     rebuild definition Fun.id,
     [
@@ -142,7 +182,7 @@ let controls ?(contents = contents) mode =
       ("missing field proof", rebuild definition (substitute None));
       ("offset differs from field proof", rebuild definition wrong_offset);
     ]
-    @ pointee_proofs
+    @ pointee_proofs @ backing_proofs
     @
     if contents = Aggregate_array_cases.proof_source then
       [

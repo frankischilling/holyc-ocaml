@@ -5741,7 +5741,8 @@ let member_address frame types (description : Sequence.description) =
   | ( Opcode.Ic_add,
       [ base; offset ],
       Some pointer,
-      Some (Sequence.Member_projection proof) )
+      Some (Sequence.Member_projection proof | Sequence.Backing_projection proof)
+    )
     when data_pointer_type pointer -> (
       let base_pointer =
         match Value_map.find_opt base types with
@@ -5756,9 +5757,20 @@ let member_address frame types (description : Sequence.description) =
       match (base_pointer, Value_map.find_opt offset types) with
       | Some source, Some (Frame_offset (expected, delta))
         when Type.equal expected pointer
-             && Aggregate_member_projection.matches proof ~base_pointer:source
-                  ~pointer_type:pointer ~offset:delta ->
-          Indexed_address (pointer, Aggregate_member_projection.strides proof)
+             && Aggregate_member_projection.matches
+                  ?function_identity:
+                    (Option.map
+                       (fun context ->
+                         ( Frame.function_symbol context.layout,
+                           Frame.function_scope context.layout
+                           |> Sema.Symbol_table.scope_id ))
+                       frame)
+                  ?before_item_index:
+                    (Option.map
+                       (fun context -> Frame.function_item_index context.layout)
+                       frame)
+                  proof ~base_pointer:source ~pointer_type:pointer ~offset:delta
+        -> Indexed_address (pointer, Aggregate_member_projection.strides proof)
       | _ -> Unsupported)
   | _ -> Unsupported
 
@@ -6446,7 +6458,9 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               | ( [ base; offset ],
                   Some result,
                   Some pointer,
-                  Some (Sequence.Member_projection _) ) -> (
+                  Some
+                    ( Sequence.Member_projection _
+                    | Sequence.Backing_projection _ ) ) -> (
                   match
                     ( storage_operand ~allow_array:true frame initialization
                         types description.instruction_id base,

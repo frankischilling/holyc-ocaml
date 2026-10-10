@@ -544,6 +544,10 @@ val result_index_operands :
     [None]; this evidence does not change array rank or value category. *)
 
 val result_type : expression_result -> Type.t option
+val result_value_type : expression_result -> Type.t option
+
+val result_aggregate_backing_storage :
+  expression_result -> Aggregate_backing_storage.t option
 
 val result_callback_pointer :
   expression_result -> Function_type_resolution.function_pointer option

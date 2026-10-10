@@ -1,5 +1,10 @@
 # Owned aggregate members
 
+[Integer-backed aggregate values](backed-aggregate-values.md) use the original
+forwarded scalar width for whole reads, assignments and updates. Class extents,
+member identities and pointer strides remain separate. General casts, class
+value ABI paths and persistent objects still need their own implementation.
+
 The interpreter and native executor read, assign and update integer members of
 nonempty automatic class and union objects. The exact layout must complete
 before the function declaration. Direct access, one-level owned class pointers,
@@ -99,7 +104,7 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 128 IR and 128 native test groups. Independent expected
+The shared fixtures have 155 IR and 155 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
@@ -111,13 +116,13 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 444 reports for IR and 889 when native execution is included,
+actual CLI runs 534 reports for IR and 1069 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
 Partial and out-of-compilation inherited bases, retained JIT aggregate imports,
 function-local layouts, zero-sized automatic objects, pointer arrays,
 aggregate array initializers, persistent
-aggregate objects, whole-object values and copies, pointer and callback fields,
+aggregate objects, general whole-object values and copies, pointer and callback fields,
 general casts to class pointers, pointer returns and
 original named-local size/position consumers remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
@@ -133,7 +138,7 @@ All references use commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 - `Compiler/PrsExp.HC:967-1015`, `PrsUnaryModifier`, selects direct or pointer
   member access through `MemberFind`, emits the member offset and address
   addition, and retains the member's array dimension cursor.
-- `Compiler/PrsExp.HC:1057-1100` emits array stride multiplication and address
+- `Compiler/PrsExp.HC:1069-1100` emits array stride multiplication and address
   addition using the remaining dimensions and selected element class size.
 - `Compiler/PrsExp.HC:97-125,151-163,200-210` selects dereferences and updates,
   removes a dereference for address-taking, and checks assignment destinations.

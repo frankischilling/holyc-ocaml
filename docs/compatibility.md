@@ -1,11 +1,16 @@
 # holyc-ocaml compatibility status
 
+[Integer-backed aggregate values](backed-aggregate-values.md) use the original
+forwarded scalar width for whole reads, assignments and updates. Class extents,
+member identities and pointer strides remain separate. General casts, class
+value ABI paths and persistent objects still need their own implementation.
+
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) support
 nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
 padding, initialized bytes and the original extent. Partial inherited metadata,
 retained JIT imports, persistent objects,
-whole-object values and copies, pointer fields and pointer returns remain
+general whole-object values and copies, pointer fields and pointer returns remain
 outside this slice of #686. [Owned aggregate members](aggregate-members.md)
 support direct and pointer integer fields, nested fields, multidimensional
 member arrays and owned class pointer locals and fixed parameters. Their

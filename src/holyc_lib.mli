@@ -203,6 +203,7 @@ module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_aggregate_layout = Sema.Aggregate_layout
 module Semantic_aggregate_member_index = Sema.Aggregate_member_index
 module Semantic_aggregate_pointee_layout = Sema.Aggregate_pointee_layout
+module Semantic_aggregate_backing_storage = Sema.Aggregate_backing_storage
 module Semantic_aggregate_layout_dump = Sema.Aggregate_layout_dump
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
