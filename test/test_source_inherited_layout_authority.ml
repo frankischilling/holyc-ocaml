@@ -168,6 +168,42 @@ let selection_authority () =
               (Record.inherited_metadata_owns_definition ~table
                  ~scope:(C.namespace_scope foreign)
                  definition proof);
+            Alcotest.(check bool)
+              "foreign table cannot borrow a completed storage selection" true
+              (Option.is_none
+                 (Record.inherited_metadata_storage_selection
+                    ~table:foreign_table
+                    ~scope:(C.namespace_scope namespace)
+                    proof));
+            Alcotest.(check bool)
+              "foreign namespace cannot borrow a completed storage selection"
+              true
+              (Option.is_none
+                 (Record.inherited_metadata_storage_selection ~table
+                    ~scope:(C.namespace_scope foreign)
+                    proof));
+            (match
+               Record.inherited_metadata_storage_selection ~table
+                 ~scope:(C.namespace_scope namespace)
+                 proof
+             with
+            | Some (original, symbol, size, base, base_symbol, base_size) ->
+                Alcotest.(check bool)
+                  "exact completed child definition" true
+                  (original == definition);
+                Alcotest.(check bool)
+                  "exact child canonical identity" true
+                  (symbol == C.publication_symbol own.publication);
+                Alcotest.(check int64) "original child size" 9L size;
+                Alcotest.(check int64) "original base size" 8L base_size;
+                Alcotest.(check string)
+                  "original selected base name"
+                  (Option.get definition.base).base_name.spelling
+                  base.name.spelling;
+                Alcotest.(check string)
+                  "selected canonical base name" base.name.spelling
+                  (Semantic_symbol.name base_symbol)
+            | None -> Alcotest.fail "completed original base selection missing");
             metadata := (definition, own.record, proof) :: !metadata
         | _ -> ());
         Ok ()

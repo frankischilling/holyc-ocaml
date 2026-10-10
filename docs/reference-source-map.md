@@ -1,5 +1,13 @@
 # Reference source map
 
+Owned inherited storage follows complete `PrsClass` at `PrsStmt.HC:1-60`,
+complete `PrsVarLst` at `PrsVar.HC:407-721`, and `MemberFind`/`MemberAdd` at
+`LexLib.HC:67-86,103-148`. The original selected base contributes its current
+size once; class children append packed fields, while union children overlap
+at zero. Object admission authenticates the completed earlier definitions,
+canonical identities and resulting sizes before publishing members. See
+[inherited aggregates](inherited-aggregates.md) for execution and metadata limits.
+
 Owned class pointer strides follow the complete `PrsAddOp` producer at
 `PrsExp.HC:15-63`, generic indexing within `PrsUnaryModifier:960-1115`,
 `OptFixSizeOf` at `OptLib.HC:484-507`, `ICPreIncDec`/`ICPostIncDec` at

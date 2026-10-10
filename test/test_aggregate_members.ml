@@ -2,6 +2,7 @@ open Holyc_lib
 module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
+module Inherited = Inherited_aggregate_cases
 module VM = Ir_integer_interpreter
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -55,7 +56,7 @@ let faults () =
     (fun mode ->
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
-        (Cases.faults @ Arrays.faults @ Pointers.faults);
+        (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -100,7 +101,12 @@ let quotas () =
       modes
   in
   List.iter check
-    [ Cases.quota_source; Arrays.quota_source; Pointers.quota_source ]
+    [
+      Cases.quota_source;
+      Arrays.quota_source;
+      Pointers.quota_source;
+      Inherited.quota_source;
+    ]
 
 let foreign_frame () =
   let check source_contents =
@@ -137,7 +143,12 @@ let foreign_frame () =
       modes
   in
   List.iter check
-    [ Cases.quota_source; Arrays.quota_source; Pointers.quota_source ]
+    [
+      Cases.quota_source;
+      Arrays.quota_source;
+      Pointers.quota_source;
+      Inherited.quota_source;
+    ]
 
 let field_proofs () =
   let check contents =
@@ -182,9 +193,12 @@ let field_proofs () =
       Aggregate_member_fixture.contents;
       Arrays.proof_source;
       Pointers.proof_source;
+      Inherited.proof_source;
     ]
 
 let boundaries () =
+  failure "HCSEMA0046" "" (run Preprocessor.Jit Inherited.lookahead_source);
+  ignore (value 42L "" (run Preprocessor.Aot Inherited.lookahead_source));
   List.iter
     (fun mode ->
       List.iter
@@ -193,7 +207,8 @@ let boundaries () =
             name true
             (Result.is_error
                (integer_program_report_outcome (run mode contents))))
-        (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported))
+        (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
+       @ Inherited.unsupported))
     modes
 
 let () =
@@ -207,7 +222,8 @@ let () =
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
           (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
-         @ Pointers.values @ Pointers.view_matrix) );
+         @ Pointers.values @ Pointers.view_matrix @ Inherited.values
+         @ Inherited.view_matrix) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"

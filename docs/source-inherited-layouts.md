@@ -49,8 +49,11 @@ original parser environments; completing a same-name class in the directive
 does not complete the selected outer forward.
 
 Retained inherited declarations provide metadata for their captured queries.
-They grant no aggregate object storage or member index. The ordinary semantic
-layout APIs keep their completed-base and member-index requirements. General AOT
+[Owned inherited aggregates](inherited-aggregates.md) now admit completed
+earlier base definitions present in an isolated object compilation, after
+checking their original identities and sizes. Partial, self, forward-only and
+out-of-compilation bases retain metadata-only behavior. Native source tasks
+still lack aggregate object execution. General AOT
 module layouts, runtime AOT relocation, synchronous native StreamExePrint,
 aggregate object execution, wider ABI, BIN and loader compatibility, whole-tree
 compilation and bootstrap remain open.

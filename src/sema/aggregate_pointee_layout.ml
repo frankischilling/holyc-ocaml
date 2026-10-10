@@ -15,7 +15,6 @@ let create ~members ~before_item_index ~pointer_type =
           if
             Members.aggregate_symbol aggregate == symbol
             && Members.aggregate_item_index aggregate < before_item_index
-            && Option.is_none aggregate.base_symbol
             && byte_size > 0L
             && byte_size <= Int64.of_int Int.max_int
           then Some { aggregate; pointer_type; byte_size; before_item_index }

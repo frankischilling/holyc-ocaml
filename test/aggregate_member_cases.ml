@@ -121,9 +121,6 @@ let faults =
 
 let unsupported =
   [
-    ( "inherited object layout",
-      {|class B{U8 byte;};class Box:B{U16 value;};I64 F(){Box o;o.value=42;return o.value;}F();|}
-    );
     ( "function-local object layout",
       {|I64 F(){class Box{U8 byte;};Box o;o.byte=42;return o.byte;}F();|} );
     ("zero-size automatic object", {|class Box{};I64 F(){Box o;return 42;}F();|});

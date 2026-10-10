@@ -274,8 +274,9 @@ val retain_inherited_metadata :
   Frontend.Ast.aggregate_definition ->
   t ->
   (inherited_metadata, string) result
-(** Preserve a completed original inherited layout for metadata queries. This
-    does not admit an aggregate object or a member index. *)
+(** Preserve a completed original inherited layout for metadata queries and
+    selected-base validation. The object consumer must still authenticate the
+    original definitions, source order, base chain and computed layouts. *)
 
 val inherited_metadata_owns_definition :
   table:Symbol_table.t ->
@@ -283,6 +284,21 @@ val inherited_metadata_owns_definition :
   Frontend.Ast.aggregate_definition ->
   inherited_metadata ->
   bool
+
+val inherited_metadata_storage_selection :
+  table:Symbol_table.t ->
+  scope:Symbol_table.scope ->
+  inherited_metadata ->
+  (Frontend.Ast.aggregate_definition
+  * Symbol.t
+  * int64
+  * Frontend.Ast.aggregate_definition
+  * Symbol.t
+  * int64)
+  option
+(** Read this definition's original completed base snapshot. Partial and
+    forward-only bases do not grant object layout authority. The consumer must
+    authenticate both definitions, their order and the resulting layouts. *)
 
 val bind_retained_scalar :
   table:Symbol_table.t ->

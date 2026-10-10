@@ -2,6 +2,7 @@ open Holyc_lib
 module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
 module Pointers = Aggregate_pointer_cases
+module Inherited = Inherited_aggregate_cases
 module P = X86_64_program
 module VM = Ir_integer_interpreter
 
@@ -73,7 +74,7 @@ let faults () =
           Alcotest.(check string)
             "native fault preserves reached output" output
             (Native_program.output_bytes report))
-        (Cases.faults @ Arrays.faults @ Pointers.faults);
+        (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -145,7 +146,12 @@ let quotas () =
       modes
   in
   List.iter check
-    [ Cases.quota_source; Arrays.quota_source; Pointers.quota_source ]
+    [
+      Cases.quota_source;
+      Arrays.quota_source;
+      Pointers.quota_source;
+      Inherited.quota_source;
+    ]
 
 let images () =
   let check source_contents =
@@ -188,7 +194,12 @@ let images () =
       modes
   in
   List.iter check
-    [ Cases.quota_source; Arrays.quota_source; Pointers.quota_source ]
+    [
+      Cases.quota_source;
+      Arrays.quota_source;
+      Pointers.quota_source;
+      Inherited.quota_source;
+    ]
 
 let field_proofs () =
   let check contents =
@@ -234,9 +245,19 @@ let field_proofs () =
       Aggregate_member_fixture.contents;
       Arrays.proof_source;
       Pointers.proof_source;
+      Inherited.proof_source;
     ]
 
 let boundaries () =
+  List.iter
+    (fun mode ->
+      match Native_program.outcome (run mode Inherited.lookahead_source) with
+      | Ok _ -> Alcotest.fail "isolated native #exe remains unsupported"
+      | Error errors ->
+          Alcotest.(check bool)
+            (describe errors) true
+            (List.exists (fun (d : Diagnostic.t) -> d.code = "HCPP0008") errors))
+    modes;
   List.iter
     (fun mode ->
       List.iter
@@ -244,7 +265,8 @@ let boundaries () =
           Alcotest.(check bool)
             name true
             (Result.is_error (Native_program.outcome (run mode contents))))
-        (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported))
+        (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
+       @ Inherited.unsupported))
     modes;
   let session, config, source = inputs Preprocessor.Jit Cases.quota_source in
   let report =
@@ -262,7 +284,8 @@ let () =
           (fun (name, contents, expected, output) ->
             Alcotest.test_case name `Quick (case contents expected output))
           (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
-         @ Pointers.values @ Pointers.view_matrix) );
+         @ Pointers.values @ Pointers.view_matrix @ Inherited.values
+         @ Inherited.view_matrix) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, bounds and independent activations"

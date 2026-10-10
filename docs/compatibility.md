@@ -3,7 +3,7 @@
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) support
 nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
-padding, initialized bytes and the original extent. Inherited storage,
+padding, initialized bytes and the original extent. Partial inherited metadata,
 retained JIT imports, persistent objects,
 whole-object values and copies, pointer fields and pointer returns remain
 outside this slice of #686. [Owned aggregate members](aggregate-members.md)
@@ -15,6 +15,12 @@ original dimensions and total extent. Indexed element addresses and root/row
 decay can enter class pointer parameters. [Owned class pointer operations](class-pointers.md)
 retain that selected pointee layout for generic indexing, arithmetic, difference,
 comparisons and prefix/postfix or compound updates.
+
+[Inherited aggregate storage](inherited-aggregates.md) admits completed earlier
+base chains in the current object compilation. Child-first lookup, absolute
+inherited offsets, union overlap and exact source-selected identities share
+the existing owned member and pointer execution. Partial/forward bases and
+runtime-prepared bases outside that compilation retain metadata-only behavior.
 
 [Unknown expression operands](compiler-exceptions.md#expression-failures-and-cleanup)
 throw at their original absent lexer selection, before another read or a

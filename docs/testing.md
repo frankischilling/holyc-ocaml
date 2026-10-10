@@ -1,7 +1,7 @@
 # Testing holyc-ocaml
 
-Aggregate member, automatic root array and class pointer execution has 98 IR
-and 98 native test groups. Independent
+Aggregate member, automatic root array, class pointer and inherited storage
+execution has 128 IR and 128 native test groups. Independent
 source expectations cover direct and pointer fields, nested aggregates,
 multidimensional member and root arrays, dynamic indices, root and row decay,
 class pointer locals and parameters, selected strides, prefix/postfix snapshots,
@@ -11,15 +11,24 @@ extent faults retain reached output. IR mutation controls validate exact field
 proofs before execution; native controls reject changed sealed graphs before
 image allocation. Exact and one-below runtime frame, instruction, native stack
 and encoded-image quotas cover both modes and native ABIs. The actual CLI runs
-346 IR reports and 693 with native execution, including unused-array warnings.
+444 IR reports and 889 with native execution, including unused-array warnings.
 Root-array mutation controls reject changed strides and foreign frames before
 IR execution. Pointee proofs also reject missing, foreign, changed and
 other-function layouts before execution; exact quotas cover scalar, array and
 pointer update fixtures.
 Whole aggregate values, copies,
-pointer fields, inherited storage and retained JIT imports stay unsupported.
+pointer fields, partial/out-of-compilation inherited bases and retained JIT
+imports stay unsupported.
 These hosted checks have no TempleOS runtime capture. See
 [owned aggregate members](aggregate-members.md) and [class pointers](class-pointers.md).
+
+Thirty inherited value groups add completed base chains, absolute field
+offsets, class and union overlap rules, nested inherited arrays, all nine field
+widths, same-size redefinitions and source-selected base proofs. Faults cover
+unknown bytes, negative offsets, shrinking children, extents, cross-object
+differences and scale overflow. Metadata tests retain partial/forward/self
+bases and once-only declaration effects. Native task object storage remains
+outside this admission. See [inherited aggregates](inherited-aggregates.md).
 
 Automatic aggregate storage has 23 IR and 23 native test groups. Shared source
 fixtures cover packed and unaligned windows, named and anonymous unions,
