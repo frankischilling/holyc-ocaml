@@ -549,8 +549,12 @@ earlier base chains to the same members, arrays and pointer operations.
 [Integer-backed aggregate values](docs/backed-aggregate-values.md) add whole
 scalar prefix reads, assignments and updates while retaining class storage
 extents and pointer strides. `examples/backed-aggregate-values.hc` returns 42.
-Retained JIT imports, persistent objects, general whole-object values and copies,
-pointer fields and pointer returns remain open under issue #686.
+[Default class and union values](docs/default-aggregate-values.md) select the
+signed eight-byte prefix for ordinary classes and backing chains ending at
+them. `examples/default-aggregate-values.hc` returns 42.
+Retained JIT imports, persistent objects, whole-value postfix casts and class
+value ABI paths remain open under issue #686. General aggregate copies,
+pointer fields and pointer returns also need their own implementation.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,

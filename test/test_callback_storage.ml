@@ -392,6 +392,11 @@ let callback_loads_use_physical_words () =
       let values = T.expression_values function_ in
       List.iter2
         (fun depth result ->
+          Alcotest.(check bool)
+            "a callback return class does not grant aggregate storage" true
+            (Option.is_none
+               (Semantic_function_call_expression_result
+                .result_aggregate_backing_storage result));
           match
             L.lower_typed_result ~frame ~instruction_id:(T.instruction_id 0)
               ~value_id:(T.value_id 0) result

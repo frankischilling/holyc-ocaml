@@ -5174,7 +5174,8 @@
   aggregate_array_cases
   aggregate_pointer_cases
   inherited_aggregate_cases
-  backed_aggregate_cases))
+  backed_aggregate_cases
+  default_aggregate_cases))
 
 (test
  (name test_aggregate_members)
@@ -5200,7 +5201,8 @@
   ../examples/aggregate-arrays.hc
   ../examples/class-pointers.hc
   ../examples/inherited-aggregates.hc
-  ../examples/backed-aggregate-values.hc)
+  ../examples/backed-aggregate-values.hc
+  ../examples/default-aggregate-values.hc)
  (action
   (run
    %{test}
@@ -5209,7 +5211,8 @@
    %{dep:../examples/aggregate-arrays.hc}
    %{dep:../examples/class-pointers.hc}
    %{dep:../examples/inherited-aggregates.hc}
-   %{dep:../examples/backed-aggregate-values.hc})))
+   %{dep:../examples/backed-aggregate-values.hc}
+   %{dep:../examples/default-aggregate-values.hc})))
 
 (test
  (name test_automatic_aggregate_storage)

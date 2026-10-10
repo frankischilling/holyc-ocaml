@@ -3154,6 +3154,42 @@ let assignment_destinations_cover_identifiers_pointers_indexes_and_members () =
     (List.init 6 (fun _ -> "lvalue"))
     (category_names left_results)
 
+let default_aggregate_values_keep_nominal_and_scalar_types () =
+  List.iter
+    (fun compilation_mode ->
+      let prepared =
+        prepare ~mode:compilation_mode ~path:"default-aggregate-result-types.HC"
+          "class Box{U64 word;U8 guard;};extern I64 Target(I64 a,I64 b,I64 c);\n\
+           I64 Caller(){Box left,right;left=1;right=42;return \
+           Target(left=right,++left,right--);}"
+      in
+      let _, results = analyze prepared in
+      let roots = root_results results "Caller" in
+      Alcotest.(check (list string))
+        "whole operations retain their original nominal class"
+        [ "Box"; "Box"; "Box" ] (List.map type_name roots);
+      List.iter
+        (fun result ->
+          let scalar =
+            Semantic_function_call_expression_result.result_value_type result
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            "whole operations consume the signed internal RT_PTR word" true
+            (Semantic_type.pointer_depth scalar = 0
+            &&
+            match Semantic_type.base scalar with
+            | Semantic_type.Primitive
+                (Semantic_type.Internal_storage, Primitive_type.I64) -> true
+            | _ -> false);
+          Alcotest.(check bool)
+            "the scalar width has an owning aggregate selection" true
+            (Option.is_some
+               (Semantic_function_call_expression_result
+                .result_aggregate_backing_storage result)))
+        roots)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let invalid_assignment_destinations_report_the_operator () =
   [
     ( "literal",
@@ -3171,8 +3207,8 @@ let invalid_assignment_destinations_report_the_operator () =
       "extern I64 Target(I64 value);I64 Caller(){I64 \
        (*callback)(I64)[2];return Target(callback=0);}",
       "assignment destination is not an lvalue" );
-    ( "aggregate",
-      "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+    ( "floating aggregate",
+      "F64 class Box {F64 value;};extern I64 Target(I64 value);I64 Caller(Box \
        left,Box right){return Target(left=right);}",
       "assignment destination is not a pointer or internal storage value" );
     ( "outer",
@@ -3401,8 +3437,8 @@ let invalid_update_operands_report_the_operator () =
       "extern I64 Target(I64 value);I64 Caller(){return Target((&Caller)--);}",
       "--",
       "post-decrement operand is not an lvalue" );
-    ( "aggregate",
-      "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+    ( "floating aggregate",
+      "F64 class Box {F64 value;};extern I64 Target(I64 value);I64 Caller(Box \
        box){return Target(++box);}",
       "++",
       "pre-increment operand is not a pointer or internal storage value" );
@@ -6874,6 +6910,8 @@ let tests =
       assignment_conversions_separate_storage_and_execution;
     Alcotest.test_case "assignment destination shapes" `Quick
       assignment_destinations_cover_identifiers_pointers_indexes_and_members;
+    Alcotest.test_case "default aggregate nominal and scalar result types"
+      `Quick default_aggregate_values_keep_nominal_and_scalar_types;
     Alcotest.test_case "invalid assignment destination origins" `Quick
       invalid_assignment_destinations_report_the_operator;
     Alcotest.test_case "nested generated assignment determinism" `Quick

@@ -1634,16 +1634,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
     ?outer_binding ?call_resolution ?function_declaration ?function_address_path
     ?callback_call_pointer ?(intrinsic_conversion = No_intrinsic_conversion)
     state ~id ~source ~source_type ~category ~result_class =
-  let aggregate_backing_storage =
-    Option.bind state.backing_context
-      (fun (table, members, policies, before_item_index) ->
-        Option.bind source_type (fun source_type ->
-            if array_rank <> 0 then None
-            else
-              Aggregate_backing_storage.create ~table ~members ~policies
-                ~before_item_index ~source_type))
-  in
-  record state
+  let result =
     {
       id;
       source;
@@ -1653,7 +1644,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
       index_operands;
       member_base_result;
       aggregate_pointee_layout;
-      aggregate_backing_storage;
+      aggregate_backing_storage = None;
       source_type;
       category;
       result_class;
@@ -1672,6 +1663,23 @@ let make_result ?operand_result ?binary_operands ?index_operands
       function_address_path;
       callback_call_pointer;
     }
+  in
+  let aggregate_backing_storage =
+    Option.bind state.backing_context
+      (fun (table, members, policies, before_item_index) ->
+        Option.bind source_type (fun source_type ->
+            if array_rank <> 0 || Option.is_some callback_pointer then None
+            else
+              match Type.base source_type with
+              | Type.Aggregate _
+                when Type.pointer_depth source_type = 0
+                     && Option.is_none (result_callback_parser_pointer result)
+                ->
+                  Aggregate_backing_storage.create ~table ~members ~policies
+                    ~before_item_index ~source_type
+              | _ -> None))
+  in
+  record state { result with aggregate_backing_storage }
 
 let known_type table type_ =
   if type_is_owned table type_ then Ok type_

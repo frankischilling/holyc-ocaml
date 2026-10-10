@@ -1,5 +1,8 @@
 # Owned aggregate members
 
+[Default class and union values](default-aggregate-values.md) use the signed
+eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
+
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
 member identities and pointer strides remain separate. General casts, class
@@ -104,7 +107,7 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 155 IR and 155 native test groups. Independent expected
+The shared fixtures have 178 IR and 178 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
@@ -116,13 +119,13 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 534 reports for IR and 1069 when native execution is included,
+actual CLI runs 610 reports for IR and 1221 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
 Partial and out-of-compilation inherited bases, retained JIT aggregate imports,
 function-local layouts, zero-sized automatic objects, pointer arrays,
 aggregate array initializers, persistent
-aggregate objects, general whole-object values and copies, pointer and callback fields,
+aggregate objects, whole-value postfix casts, class value ABI paths and general aggregate copies, pointer and callback fields,
 general casts to class pointers, pointer returns and
 original named-local size/position consumers remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
@@ -149,6 +152,7 @@ All references use commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 - `Compiler/PrsVar.HC:530-531,590-618,660-671` supplies automatic storage sizes,
   frame placement and packed or overlapping member offsets.
 - `Compiler/OptLib.HC:9-15,509-525` follows class forwarding and selects raw
-  pointed types; general class forwarding execution remains outside this slice.
+  pointed types. Checked integer backings and default signed whole values use
+  that selection; F64 and pointer backing execution remain open.
 - `Compiler/BackLib.HC:693-707`, `ICDeref`, and
   `Compiler/BackC.HC:159-204`, `ICAssign`, consume pointed load and store widths.

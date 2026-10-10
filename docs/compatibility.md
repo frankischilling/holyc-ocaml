@@ -1,5 +1,8 @@
 # holyc-ocaml compatibility status
 
+[Default class and union values](default-aggregate-values.md) use the signed
+eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
+
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
 member identities and pointer strides remain separate. General casts, class
@@ -10,7 +13,7 @@ nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
 padding, initialized bytes and the original extent. Partial inherited metadata,
 retained JIT imports, persistent objects,
-general whole-object values and copies, pointer fields and pointer returns remain
+whole-value postfix casts, class value ABI paths and general aggregate copies, pointer fields and pointer returns remain
 outside this slice of #686. [Owned aggregate members](aggregate-members.md)
 support direct and pointer integer fields, nested fields, multidimensional
 member arrays and owned class pointer locals and fixed parameters. Their
