@@ -3,9 +3,12 @@
 [Owned aggregate members](aggregate-members.md) also admit one-level class
 pointer locals and fixed parameters in isolated programs. Exact field proofs
 select integer member windows and member-array strides over the caller's
-original automatic object. The same descriptors retain its initialization,
-extent and lifetime. Whole aggregate values, pointer fields, class pointer
-arithmetic and pointer returns remain unsupported.
+original automatic object. Descriptors retain the original initialization
+region and extent; the admitted storage and call paths keep that allocation
+live. [Class pointer operations](class-pointers.md) support indexing, arithmetic,
+comparisons and updates with the selected layout. Native execution of
+[data pointer fields](aggregate-pointer-fields.md) remains rejected with
+`HCBACK0002`. The IR field-storage path does not provide native lifetime tracking.
 
 Native [owned scalar pointer difference](pointer-difference.md) checks original
 data-base, initialization-region and extent fields, then subtracts offsets.
@@ -68,7 +71,7 @@ returns, persistent pointer storage, pointer-to-pointer objects and integer/null
 casts all reject before native entry. Owned callback calls have their separate execution path.
 [Scalar pointer addition](pointer-addition.md) and
 [subtraction](pointer-subtraction.md) scale original integer offsets and preserve
-captured objects; other pointer arithmetic remains unsupported.
+captured objects.
 [Equality and inequality](pointer-equality.md) compare original object identity
 and logical offset, including valid one-past references, without reading cells.
 [Ordering](pointer-ordering.md) requires the same original live object and
@@ -112,12 +115,14 @@ in [SECURITY.md](../SECURITY.md).
 
 Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals
-use the [persistent storage](native-persistent-storage.md) path. Persistent pointer
-variables, pointer returns and
-raw address ordering, null/integer conversions, raw pointer difference, deeper
-indirection, pointer-valued arrays, whole aggregate values, foreign calls and
-the full HolyC ABI remain unfinished native work. This feature does not produce
-objects or BIN files, establish loader acceptance, or complete the compiler.
+use the [persistent storage](native-persistent-storage.md) path. Persistent
+pointer variables, pointer returns, raw address ordering, null/integer
+conversions, raw pointer difference, deeper indirection, automatic root arrays
+of data pointers, data pointer fields, general aggregate copies, foreign calls
+and the full HolyC ABI remain unfinished native work. Class value operations
+use their selected scalar prefixes and register words, as described in
+[class value returns](class-value-returns.md). This feature does not produce
+object files or BIN files, establish loader acceptance, or complete the compiler.
 
 [Owned class pointers](class-pointers.md) now support generic indexing,
 arithmetic, difference, comparisons and updates over exact earlier automatic

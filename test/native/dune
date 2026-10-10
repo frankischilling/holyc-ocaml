@@ -163,7 +163,8 @@
   ../../examples/class-value-parameters.hc
   ../../examples/class-value-returns.hc
   ../../examples/class-default-words.hc
-  ../../examples/retained-nested-members.hc)
+  ../../examples/retained-nested-members.hc
+  ../../examples/aggregate-pointer-fields.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
@@ -178,6 +179,7 @@
    %{dep:../../examples/class-value-returns.hc}
    %{dep:../../examples/class-default-words.hc}
    %{dep:../../examples/retained-nested-members.hc}
+   %{dep:../../examples/aggregate-pointer-fields.hc}
    --native)))
 
 (rule
@@ -1564,12 +1566,15 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/aggregate-member-sizeof.hc)
+ (deps
+  ../../examples/aggregate-member-sizeof.hc
+  ../../examples/builtin-union-sizeof.hc)
  (action
   (run
    %{exe:../test_aggregate_member_sizeof_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/aggregate-member-sizeof.hc}
+   %{dep:../../examples/builtin-union-sizeof.hc}
    --native)))
 
 (executable

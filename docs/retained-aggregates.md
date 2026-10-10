@@ -19,16 +19,19 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
-member identities and pointer strides remain separate. [Class returns](class-value-returns.md)
-and [default words](class-default-words.md) retain their own source and ABI
-proofs. General casts, AOT IR and ordinary native defaults containing references, callback class
-parameters and persistent objects remain unfinished.
+member identities and pointer strides remain separate.
+[Class returns](class-value-returns.md) and
+[default words](class-default-words.md) retain their own source and ABI proofs.
+General casts, callback class parameters and persistent objects remain
+unfinished. Defaults containing references remain unsupported in AOT IR and
+ordinary native compilation.
 
-Classes and unions with primitive members publish size metadata as their
-original members are parsed. `sizeof` uses the entry selected by the original
-parser read, including in a later `#exe` block or a retained function body.
-Replacing the type does not change a size already consumed by an expression.
-This supports metadata queries, not aggregate object execution.
+Supported class and union declarations publish size metadata as their original
+members are parsed. `sizeof` uses the entry selected by the original parser
+read, including in a later `#exe` block or a retained function body. Replacing
+the type does not change a size already consumed by an expression. These size
+records authorize metadata queries; object execution requires separate storage
+and layout proofs.
 
 Isolated IR and native programs have a separate
 [automatic aggregate byte-view path](automatic-aggregate-byte-views.md) for
@@ -38,6 +41,13 @@ for integer fields, nested members, member arrays and automatic root arrays.
 present in that object compilation or imported through an original completed
 [retained JIT class context](retained-class-context.md). Partial or
 out-of-compilation inherited metadata still cannot authorize those objects.
+
+[Function-local types](function-local-aggregate-objects.md) use their original
+allocation and expression receipts to admit automatic storage. IR also executes
+[data pointer fields](aggregate-pointer-fields.md) while retaining the original
+member and pointee identities. Native execution of these fields remains gated
+with `HCBACK0002`; its descriptors do not yet support references escaping into
+object fields.
 
 [Runtime member bounds and offsets](runtime-layout-expressions.md) now use their
 original integer JIT expressions in both IR and native tasks. Each intermediate
@@ -193,8 +203,9 @@ dimension work. The fixture prepares `I64 values[++N]` once, captures the
 24-byte downward position before the next local, and calls the retained function
 to write and sum its array elements. Exact limits and each one-below failure are
 covered. Derived sizes cannot escape into standalone function execution.
-Pointer-array storage and runtime-dependent aggregate-member layout admission
-remain unsupported, even where original frame metadata can describe their size.
+Automatic root pointer arrays remain unsupported. Runtime-dependent member
+layouts require their original completed layout and successful task execution
+dependencies, as described in [runtime layout expressions](runtime-layout-expressions.md).
 
 Unmodeled writes cannot reuse an earlier aggregate value.
 Empty semicolons do not begin a new iteration, and an undelimited final parameter
@@ -263,16 +274,16 @@ frame metadata.
 
 ## Remaining work
 
-Runtime offsets before ordinary JIT source activation, ordinary AOT runtime
-offset relocation, shared position writes before a later `$$` read and runtime F64
-values still require separate support. Inheritance, aggregate-valued members,
-stored callback invocation, member metadata, attached storage and general runtime-dependent member bounds remain outside
-retained layout execution. Native extern-record reuse still needs its own
-phase-aware admission. The supported partial sizes do not establish those
-dependent layouts, member lookup or aggregate object storage.
+Ordinary AOT runtime offset relocation and runtime F64 layout values remain
+unsupported. Stored callback invocation, member metadata and attached aggregate
+storage require their own consumers. Inherited storage and runtime member
+bounds require original completed layouts and successful execution dependencies;
+a partial size record alone cannot authorize member access or object storage.
+Native extern-record reuse still needs its own phase-aware admission.
 
-The source gates and receipt tests are hosted observations. No new native
-TempleOS capture was made; native/BIN/loader execution and bootstrap remain open.
+The source gates and receipt tests are hosted observations. No new TempleOS
+runtime capture was made; TempleOS native execution, BIN/loader compatibility
+and bootstrap remain open.
 
 Class callback members now retain their exact completed anonymous header for
 eight-byte layout, independently of return class. Their original defaults run

@@ -101,7 +101,7 @@ let controls ?(contents = contents) mode =
   let wrong_offset (d : Seq.description) =
     match (d.opcode, d.payload, d.target_type) with
     | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 1L), Some type_
-      when Semantic_type.pointer_depth type_ = 1 ->
+      when Semantic_type.pointer_depth type_ > 0 ->
         { d with payload = Some (Seq.Integer 2L) }
     | _ -> d
   in
@@ -110,6 +110,9 @@ let controls ?(contents = contents) mode =
     | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 3L), Some type_
       when Semantic_type.pointer_depth type_ = 1 ->
         { d with payload = Some (Seq.Integer 4L) }
+    | Ir_opcode.Ic_imm_i64, Some (Seq.Integer 24L), Some type_
+      when Semantic_type.pointer_depth type_ = 2 ->
+        { d with payload = Some (Seq.Integer 32L) }
     | _ -> d
   in
   let pointee_proofs =
@@ -235,7 +238,10 @@ let controls ?(contents = contents) mode =
     ]
     @ pointee_proofs @ backing_proofs
     @
-    if contents = Aggregate_array_cases.proof_source then
+    if
+      contents = Aggregate_array_cases.proof_source
+      || contents = Aggregate_member_cases.pointer_proof_source
+    then
       [
         ( "root array stride differs from selected element",
           rebuild definition wrong_stride );

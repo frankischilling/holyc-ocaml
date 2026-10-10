@@ -1,5 +1,10 @@
 type t
 
+val pointer_member_type : Sema.Type.t -> bool
+
+val supported_member_type : Sema.Type.t -> bool
+(** Shape checks only. Execution still needs the exact owned member lookup. *)
+
 val create :
   lookup:Sema.Aggregate_member_index.lookup ->
   base_pointer:Sema.Type.t ->

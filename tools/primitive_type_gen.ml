@@ -126,10 +126,19 @@ let add_internal_type buffer (entry : Source.internal_type) =
     "    { raw_name = %S; byte_size = %d; spelling = %S; source_line = %d };\n"
     entry.Source.raw_name entry.byte_size entry.spelling entry.source_line
 
+let add_public_union_member buffer (entry : Source.public_union_member) =
+  Printf.bprintf buffer
+    "        { type_spelling = %S; name = %S; array_count = %d; source_line = \
+     %d };\n"
+    entry.Source.type_spelling entry.name entry.array_count entry.source_line
+
 let add_public_union buffer (entry : Source.public_union) =
   Printf.bprintf buffer
-    "    { storage_spelling = %S; public_spelling = %S; source_line = %d };\n"
-    entry.Source.storage_spelling entry.public_spelling entry.source_line
+    "    { storage_spelling = %S; public_spelling = %S; source_line = %d; \
+     members = [\n"
+    entry.Source.storage_spelling entry.public_spelling entry.source_line;
+  List.iter (add_public_union_member buffer) entry.members;
+  Buffer.add_string buffer "      ];\n    };\n"
 
 let render ~commit ~kernel_checksum ~cinit_checksum tables =
   let buffer = Buffer.create 8192 in
@@ -162,10 +171,18 @@ let render ~commit ~kernel_checksum ~cinit_checksum tables =
     \  source_comment : string option;\n\
      }\n\n";
   Buffer.add_string buffer
+    "type public_union_member = {\n\
+    \  type_spelling : string;\n\
+    \  name : string;\n\
+    \  array_count : int;\n\
+    \  source_line : int;\n\
+     }\n\n";
+  Buffer.add_string buffer
     "type public_union = {\n\
     \  storage_spelling : string;\n\
     \  public_spelling : string;\n\
     \  source_line : int;\n\
+    \  members : public_union_member list;\n\
      }\n\n";
   Buffer.add_string buffer
     "type internal_type = {\n\

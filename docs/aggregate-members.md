@@ -15,15 +15,21 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class
 extents, member identities and pointer strides remain separate. General casts,
-AOT IR and ordinary native defaults containing references, callback class parameters and persistent objects still need
-their own implementation.
+callback class parameters and persistent objects still need their own
+implementation. Defaults containing references remain unsupported in AOT IR
+and ordinary native compilation.
+
+[Data pointer fields](aggregate-pointer-fields.md) add IR reads, assignments
+and updates for one-level integer and class pointers, including pointer member
+arrays. Native execution of these fields remains gated with `HCBACK0002`.
 
 The interpreter and native executor read, assign and update integer members of
-nonempty automatic class and union objects. The exact layout must complete
-before the function declaration. Direct access, one-level owned class pointers,
-nested aggregate members and multidimensional member arrays share the original
-object's bytes. Automatic arrays of these classes and unions also retain their
-selected element layout and dimensions:
+nonempty automatic class and union objects. The layout must be complete at the
+original allocation, and each member access retains its original selected
+layout. Direct access, one-level owned class pointers, nested aggregate members
+and multidimensional member arrays share the original object's bytes. Automatic
+arrays of these classes and unions also retain their selected element layout
+and dimensions:
 
 ```c
 class Packed { U8 text[3]; U16 value; };
@@ -55,7 +61,7 @@ is captured before its assignment RHS can rebind the pointer.
 
 [Owned class pointer operations](class-pointers.md) add generic indexing,
 scaled arithmetic, differences, comparisons and pointer updates. Each operation
-retains the exact pointee layout selected before its function declaration.
+retains the exact pointee layout selected at its original source occurrence.
 
 [Inherited aggregates](inherited-aggregates.md) connect completed earlier base
 chains to those members, arrays and pointer operations. Inherited offsets stay
@@ -104,10 +110,12 @@ Tests distinguish these guards: raw IR controls reach field-proof validation;
 native mutation controls fail the whole graph seal before image allocation.
 
 Projection changes the current view and byte offset while retaining the
-original storage, initialization flags, extent and invocation lifetime. Native
-projection copies the private reference descriptor. Each invocation starts
-with unknown object bytes; a store initializes only its reached window. Reads
-of untouched or partly initialized fields fail and retain earlier output.
+original storage, initialization flags and extent. IR references keep the
+allocation's lifetime state. Native projection copies its private reference
+descriptor; admitted native storage and call paths prevent references from
+outliving their allocations. Each invocation starts with unknown object bytes;
+a store initializes only its reached window. Reads of untouched or partly
+initialized fields fail and retain earlier output.
 
 Bounds use the containing object's original extent rather than a separate
 allocation for each field. Intermediate addresses may be one past that object;
@@ -117,35 +125,42 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 323 IR and 614 native test groups. Independent expected
-words and output cover nested fields, two-dimensional primitive and aggregate
-member arrays, one- through three-dimensional root arrays, dynamic loop indices,
+The shared IR and native fixtures use independent expected words and output for
+nested integer fields, two-dimensional primitive and aggregate member arrays,
+one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
 strides, prefix/postfix snapshots, RHS rebinding, captured destinations,
-union overlap, signed views, padding, shadowing and all nine integer widths.
+union overlap, signed views, padding, shadowing and the supported integer types.
 Faults cover unknown fields and pointers, partial union writes, fresh
 activations and out-of-object windows. Exact and one-below controls cover
 runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
-still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 941 reports for IR and 2184 when native execution is included,
-including the original unused-local warning for an unused aggregate array.
+exercise graph sealing, and native host checks execute fresh images. CLI checks
+include the original unused-local warning for an unused aggregate array.
+Additional IR fixtures cover data pointer fields and their ownership shadows;
+native fixtures require rejection of those fields before execution.
 
 [Function-local types](function-local-aggregate-objects.md) now provide automatic
 object and array storage through the same member paths. Their original
 allocation and expression receipts preserve layout timing and function ownership.
 
-Partial and out-of-compilation inherited bases, zero-sized automatic objects, pointer arrays,
-aggregate array initializers, persistent aggregate objects, whole-value
-postfix casts, AOT IR and ordinary native defaults containing references, callback parameters and general aggregate
-copies, pointer and callback fields, general casts to class pointers, pointer
-returns and original named-local size/position consumers remain unfinished
+Partial inherited bases and bases without their original completed compilation
+or retained-context proof cannot authorize object storage. Zero-sized automatic
+objects, automatic root pointer arrays, aggregate array initializers,
+persistent aggregate objects, whole-value postfix casts, callback class
+parameters, general aggregate copies, native data pointer fields, callback
+fields, general casts to class pointers and pointer returns remain unfinished
 under [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
-Functions in this slice return supported integers or U0. The checks use the
+Defaults containing references remain unsupported in AOT IR and ordinary native
+compilation. Local and member size queries use their separate metadata paths;
+compiler position queries for aggregate-valued frames remain gated.
+
+Functions can return supported integers, U0 or qualified class-value words. A
+class-value return grants no addressable object extent. The checks use the
 pinned source and hosted execution without a TempleOS runtime capture; full
-compiler parity remains under [issue
-#682](https://github.com/frankischilling/holyc-ocaml/issues/682).
+compiler parity remains under
+[issue #682](https://github.com/frankischilling/holyc-ocaml/issues/682).
 
 ## TempleOS source evidence
 

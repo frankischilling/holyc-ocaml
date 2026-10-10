@@ -1,10 +1,19 @@
 # holyc-ocaml roadmap
 
+Issue #686 now includes owned integer and class pointer fields in IR. Member
+arrays, function-local types, captured destinations, overlap and expired
+targets use checked field proofs and stored pointer ownership. Native pointer
+fields still need durable allocation identities and storage metadata. Persistent
+aggregate objects and member metadata evaluation also remain under this issue.
+See [pointer fields](docs/aggregate-pointer-fields.md).
+
 Issue #822 connects original class and union member `sizeof` queries to IR and
 native execution. Named type, automatic object and parameter roots retain
 selected member identities, per-member array counts and immutable query-time
-sizes. Persistent object storage and builtin public-union field metadata remain
-under #686. See [member sizes](docs/aggregate-member-sizeof.md).
+sizes. Issue #824 connects the six builtin integer unions through generated
+field declarations, including nested fields and supported scalar global/static
+objects and arrays. Persistent user-defined aggregate storage remains under
+#686. See [member sizes](docs/aggregate-member-sizeof.md).
 
 Issue #818 adds automatic objects for classes and unions declared inside a
 function. Original declaration and expression positions admit their completed
@@ -12,8 +21,8 @@ layouts while preserving exact types, function identities and retained JIT
 contexts. Member access, nested and inherited objects, arrays and class pointer
 operations share the existing IR and native storage paths. See
 [function-local objects](docs/function-local-aggregate-objects.md).
-Persistent aggregates, general object copies, pointer fields and class pointer
-returns remain part of the broader work under #686.
+Persistent aggregates, general object copies, native pointer fields and class
+pointer returns remain part of the broader work under #686.
 See [owned aggregate members](docs/aggregate-members.md) and
 [automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
 

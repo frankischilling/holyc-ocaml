@@ -22,15 +22,39 @@ let raw_definitions =
     "#define RTG_MASK 0xFF";
   ]
 
-let public_unions =
+let public_union_definitions =
   [
-    "U16i union U16";
-    "I16i union I16";
-    "U32i union U32";
-    "I32i union I32";
-    "U64i union U64";
-    "I64i union I64";
+    ("U16i union U16", [ "I8i i8[2];"; "U8i u8[2];" ]);
+    ("I16i union I16", [ "I8i i8[2];"; "U8i u8[2];" ]);
+    ( "U32i union U32",
+      [ "I8i i8[4];"; "U8i u8[4];"; "I16 i16[2];"; "U16 u16[2];" ] );
+    ( "I32i union I32",
+      [ "I8i i8[4];"; "U8i u8[4];"; "I16 i16[2];"; "U16 u16[2];" ] );
+    ( "U64i union U64",
+      [
+        "I8i i8[8];";
+        "U8i u8[8];";
+        "I16 i16[4];";
+        "U16 u16[4];";
+        "I32 i32[2];";
+        "U32 u32[2];";
+      ] );
+    ( "I64i union I64",
+      [
+        "I8i i8[8];";
+        "U8i u8[8];";
+        "I16 i16[4];";
+        "U16 u16[4];";
+        "I32 i32[2];";
+        "U32 u32[2];";
+      ] );
   ]
+
+let public_unions =
+  List.map
+    (fun (header, members) ->
+      String.concat "\n" ([ header; "{" ] @ members @ [ "};" ]))
+    public_union_definitions
 
 let internal_records =
   [
@@ -116,10 +140,26 @@ let swap first second values =
   let second_value = List.nth values second in
   values |> replace first second_value |> replace second first_value
 
+let change_union_lines union_index change =
+  let block = List.nth public_unions union_index in
+  let lines = String.split_on_char '\n' block in
+  replace union_index (String.concat "\n" (change lines)) public_unions
+
 let parses_complete_tables () =
   let tables = parse_ok () in
   Alcotest.(check int) "raw type count" 14 (List.length tables.raw_types);
   Alcotest.(check int) "public union count" 6 (List.length tables.public_unions);
+  Alcotest.(check (list int))
+    "public union member counts" [ 2; 2; 4; 4; 6; 6 ]
+    (List.map
+       (fun (entry : Source.public_union) -> List.length entry.members)
+       tables.public_unions);
+  let last_union = List.nth tables.public_unions 5 in
+  let last_member = List.nth last_union.members 5 in
+  Alcotest.(check string) "final member type" "U32" last_member.type_spelling;
+  Alcotest.(check string) "final member name" "u32" last_member.name;
+  Alcotest.(check int) "final member count" 2 last_member.array_count;
+  Alcotest.(check int) "final member source line" 42 last_member.source_line;
   Alcotest.(check int)
     "internal type count" 17
     (List.length tables.internal_types);
@@ -162,8 +202,63 @@ let rejects_missing_public_union () =
   expect_error ~unions "requires `U32i union U32` here"
 
 let rejects_changed_public_union_storage () =
-  let unions = public_unions |> replace 1 "U16i union I16" in
+  let unions = change_union_lines 1 (replace 0 "U16i union I16") in
   expect_error ~unions "requires `I16i union I16`"
+
+let rejects_public_union_missing_opening () =
+  let unions = change_union_lines 0 (replace 1 "I8i i8[2];") in
+  expect_error ~unions "requires an opening brace"
+
+let rejects_public_union_missing_closing () =
+  let unions = change_union_lines 4 (replace 8 "") in
+  expect_error ~unions "is missing its closing `};`"
+
+let rejects_public_union_missing_member () =
+  let unions =
+    change_union_lines 4 (List.filteri (fun index _ -> index <> 3))
+  in
+  expect_error ~unions "requires `U8i u8[8];` here"
+
+let rejects_public_union_duplicate_member () =
+  let unions = change_union_lines 4 (replace 3 "I8i i8[8];") in
+  expect_error ~unions "member i8 appears more than once"
+
+let rejects_public_union_reordered_members () =
+  let unions = change_union_lines 4 (swap 2 3) in
+  expect_error ~unions "requires `I8i i8[8];` here"
+
+let rejects_public_union_changed_type () =
+  let unions = change_union_lines 4 (replace 4 "I16i i16[4];") in
+  expect_error ~unions "requires `I16 i16[4];` here"
+
+let rejects_public_union_changed_array_count () =
+  let unions = change_union_lines 4 (replace 2 "I8i i8[7];") in
+  expect_error ~unions "requires `I8i i8[8];` here"
+
+let rejects_public_union_extra_member () =
+  let unions =
+    change_union_lines 4 (fun lines ->
+        let last = List.length lines - 1 in
+        List.filteri (fun index _ -> index <> last) lines
+        @ [ "I8i unexpected[8];"; "};" ])
+  in
+  expect_error ~unions "unexpected member unexpected"
+
+let rejects_public_union_unsupported_shapes () =
+  List.iter
+    (fun (shape, reason) ->
+      let unions = change_union_lines 4 (replace 2 shape) in
+      expect_error ~unions reason)
+    [
+      ("I8i i8[8]", "must be");
+      ("I8i i8;", "must be");
+      ("I8i i8[4][2];", "must be");
+      ("I8i i8[0];", "must be");
+      ("I8i i8[-1];", "must be");
+      ("I8i *i8[8];", "must be");
+      ("I8i i8[8], other[8];", "must be");
+      ("I8i i8[999999999999999999999999999999999];", "must be");
+    ]
 
 let rejects_malformed_internal_record () =
   let cinit_source =
@@ -287,6 +382,45 @@ let parses_pinned_sources () =
     (List.map
        (fun (entry : Source.public_union) -> entry.public_spelling)
        tables.public_unions);
+  let pinned_members =
+    List.concat_map
+      (fun (entry : Source.public_union) ->
+        List.map
+          (fun (member : Source.public_union_member) ->
+            Printf.sprintf "%s.%s:%s[%d]@%d" entry.public_spelling member.name
+              member.type_spelling member.array_count member.source_line)
+          entry.members)
+      tables.public_unions
+  in
+  Alcotest.(check (list string))
+    "exact pinned public union members"
+    [
+      "U16.i8:I8i[2]@69";
+      "U16.u8:U8i[2]@70";
+      "I16.i8:I8i[2]@75";
+      "I16.u8:U8i[2]@76";
+      "U32.i8:I8i[4]@81";
+      "U32.u8:U8i[4]@82";
+      "U32.i16:I16[2]@83";
+      "U32.u16:U16[2]@84";
+      "I32.i8:I8i[4]@89";
+      "I32.u8:U8i[4]@90";
+      "I32.i16:I16[2]@91";
+      "I32.u16:U16[2]@92";
+      "U64.i8:I8i[8]@97";
+      "U64.u8:U8i[8]@98";
+      "U64.i16:I16[4]@99";
+      "U64.u16:U16[4]@100";
+      "U64.i32:I32[2]@101";
+      "U64.u32:U32[2]@102";
+      "I64.i8:I8i[8]@107";
+      "I64.u8:U8i[8]@108";
+      "I64.i16:I16[4]@109";
+      "I64.u16:U16[4]@110";
+      "I64.i32:I32[2]@111";
+      "I64.u32:U32[2]@112";
+    ]
+    pinned_members;
   Alcotest.(check (list int))
     "source lines"
     [ 67; 73; 79; 87; 95; 105; 1564; 1573; 1578; 7; 13 ]
@@ -323,6 +457,24 @@ let tests =
       rejects_missing_public_union;
     Alcotest.test_case "changed public union storage" `Quick
       rejects_changed_public_union_storage;
+    Alcotest.test_case "public union opening brace" `Quick
+      rejects_public_union_missing_opening;
+    Alcotest.test_case "public union closing brace" `Quick
+      rejects_public_union_missing_closing;
+    Alcotest.test_case "missing public union member" `Quick
+      rejects_public_union_missing_member;
+    Alcotest.test_case "duplicate public union member" `Quick
+      rejects_public_union_duplicate_member;
+    Alcotest.test_case "reordered public union members" `Quick
+      rejects_public_union_reordered_members;
+    Alcotest.test_case "changed public union member type" `Quick
+      rejects_public_union_changed_type;
+    Alcotest.test_case "changed public union member array count" `Quick
+      rejects_public_union_changed_array_count;
+    Alcotest.test_case "extra public union member" `Quick
+      rejects_public_union_extra_member;
+    Alcotest.test_case "unsupported public union member shapes" `Quick
+      rejects_public_union_unsupported_shapes;
     Alcotest.test_case "malformed internal record" `Quick
       rejects_malformed_internal_record;
     Alcotest.test_case "duplicate internal spelling" `Quick

@@ -26,10 +26,18 @@ type raw_alias = {
   source_comment : string option;
 }
 
+type public_union_member = {
+  type_spelling : string;
+  name : string;
+  array_count : int;
+  source_line : int;
+}
+
 type public_union = {
   storage_spelling : string;
   public_spelling : string;
   source_line : int;
+  members : public_union_member list;
 }
 
 type internal_type = {
@@ -66,12 +74,48 @@ let raw_group_mask = 255
 
 let public_unions =
   [
-    { storage_spelling = "U16i"; public_spelling = "U16"; source_line = 67 };
-    { storage_spelling = "I16i"; public_spelling = "I16"; source_line = 73 };
-    { storage_spelling = "U32i"; public_spelling = "U32"; source_line = 79 };
-    { storage_spelling = "I32i"; public_spelling = "I32"; source_line = 87 };
-    { storage_spelling = "U64i"; public_spelling = "U64"; source_line = 95 };
-    { storage_spelling = "I64i"; public_spelling = "I64"; source_line = 105 };
+    { storage_spelling = "U16i"; public_spelling = "U16"; source_line = 67; members = [
+        { type_spelling = "I8i"; name = "i8"; array_count = 2; source_line = 69 };
+        { type_spelling = "U8i"; name = "u8"; array_count = 2; source_line = 70 };
+      ];
+    };
+    { storage_spelling = "I16i"; public_spelling = "I16"; source_line = 73; members = [
+        { type_spelling = "I8i"; name = "i8"; array_count = 2; source_line = 75 };
+        { type_spelling = "U8i"; name = "u8"; array_count = 2; source_line = 76 };
+      ];
+    };
+    { storage_spelling = "U32i"; public_spelling = "U32"; source_line = 79; members = [
+        { type_spelling = "I8i"; name = "i8"; array_count = 4; source_line = 81 };
+        { type_spelling = "U8i"; name = "u8"; array_count = 4; source_line = 82 };
+        { type_spelling = "I16"; name = "i16"; array_count = 2; source_line = 83 };
+        { type_spelling = "U16"; name = "u16"; array_count = 2; source_line = 84 };
+      ];
+    };
+    { storage_spelling = "I32i"; public_spelling = "I32"; source_line = 87; members = [
+        { type_spelling = "I8i"; name = "i8"; array_count = 4; source_line = 89 };
+        { type_spelling = "U8i"; name = "u8"; array_count = 4; source_line = 90 };
+        { type_spelling = "I16"; name = "i16"; array_count = 2; source_line = 91 };
+        { type_spelling = "U16"; name = "u16"; array_count = 2; source_line = 92 };
+      ];
+    };
+    { storage_spelling = "U64i"; public_spelling = "U64"; source_line = 95; members = [
+        { type_spelling = "I8i"; name = "i8"; array_count = 8; source_line = 97 };
+        { type_spelling = "U8i"; name = "u8"; array_count = 8; source_line = 98 };
+        { type_spelling = "I16"; name = "i16"; array_count = 4; source_line = 99 };
+        { type_spelling = "U16"; name = "u16"; array_count = 4; source_line = 100 };
+        { type_spelling = "I32"; name = "i32"; array_count = 2; source_line = 101 };
+        { type_spelling = "U32"; name = "u32"; array_count = 2; source_line = 102 };
+      ];
+    };
+    { storage_spelling = "I64i"; public_spelling = "I64"; source_line = 105; members = [
+        { type_spelling = "I8i"; name = "i8"; array_count = 8; source_line = 107 };
+        { type_spelling = "U8i"; name = "u8"; array_count = 8; source_line = 108 };
+        { type_spelling = "I16"; name = "i16"; array_count = 4; source_line = 109 };
+        { type_spelling = "U16"; name = "u16"; array_count = 4; source_line = 110 };
+        { type_spelling = "I32"; name = "i32"; array_count = 2; source_line = 111 };
+        { type_spelling = "U32"; name = "u32"; array_count = 2; source_line = 112 };
+      ];
+    };
   ]
 
 let internal_types =

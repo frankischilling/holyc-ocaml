@@ -1,5 +1,17 @@
 # holyc-ocaml
 
+Owned data pointer fields execute in IR with their original member types,
+array strides and target lifetimes. Function-local classes, nested and inherited
+fields, pointer updates and retained functions share the checked storage path.
+The [pointer field example](examples/aggregate-pointer-fields.hc) prints `AB`
+and returns 42. See [pointer fields](docs/aggregate-pointer-fields.md) for the
+native execution boundary and overlap rules.
+
+Builtin integer-union member `sizeof` queries use their original field types
+and counts. Nested queries, scalar globals and static locals retain the class
+selected by the declaration. The [builtin union example](examples/builtin-union-sizeof.hc)
+prints `8 4 2 2 4` and returns 32. See [member sizes](docs/aggregate-member-sizeof.md).
+
 Class and union member `sizeof` queries now follow original dot paths through
 nested and inherited fields. Each field uses its own dimensions and the current
 size of its selected class. The [member size example](examples/aggregate-member-sizeof.hc)
@@ -585,8 +597,11 @@ one preparation and two calls. `examples/retained-nested-members.hc` returns 42
 with its original array dimensions after a same-name class replacement.
 Persistent objects, whole-value postfix casts, AOT IR and ordinary native defaults containing
 references and callback parameters remain open
-under issue #686. General aggregate copies, pointer fields and pointer returns
-also need their own implementation.
+under issue #686. [Owned data pointer fields in IR](docs/aggregate-pointer-fields.md)
+support integer and class pointers, pointer member arrays and updates while
+preserving bounds and invocation lifetimes. `examples/aggregate-pointer-fields.hc`
+prints `AB` and returns 42 with `--target=ir` in JIT and AOT mode. Native pointer
+fields, general aggregate copies and pointer returns still need implementation.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,

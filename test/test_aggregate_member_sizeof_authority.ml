@@ -705,6 +705,273 @@ U0 Timing() {
         state.members_rev)
     !completed
 
+let builtin_union_query_authority mode () =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let foreign_table = Session.semantic_symbols (Session.create ()) in
+  let namespace = C.create_namespace ~table () |> checked in
+  let other_namespace = C.create_namespace ~table () |> checked in
+  let queries : query list ref = ref [] in
+  let selected_records : Record.t list ref = ref [] in
+  let completed = ref [] in
+  let ordinary_class_seed_controls = ref 0 in
+  let other_union_controls = ref 0 in
+  let find_query root =
+    List.find (fun (state : query) -> state.root == root) !queries
+  in
+  let no_source_aggregate _ =
+    Alcotest.fail "pinned primitive member consulted a user aggregate record"
+  in
+  let query event =
+    (match event with
+    | Parser.Query_root root ->
+        Alcotest.(check bool)
+          "builtin sizeof starts during original root lookup" true
+          (Parser.query_root_is_current root);
+        let entry =
+          match root.query_lookup with
+          | Symbol_visibility.Present entry -> entry
+          | _ -> Alcotest.fail "builtin union root lacks its original entry"
+        in
+        let binding =
+          match Session.primitive_for session entry with
+          | Some binding -> binding
+          | None -> Alcotest.fail "builtin union selected another source symbol"
+        in
+        let primitive = Session.primitive_type binding in
+        Alcotest.(check bool)
+          "original entry selects one of the six public primitive unions" true
+          ((Primitive_type.info primitive).declaration_form
+         = Primitive_type.Public_union);
+        if primitive = Primitive_type.U16 then (
+          let module Facts = Holyc_lib__Generated.Primitive_raw_types in
+          let source =
+            match
+              List.find_opt
+                (fun (source : Facts.public_union) ->
+                  source.public_spelling = Symbol_visibility.name entry)
+                Facts.public_unions
+            with
+            | Some source -> source
+            | None -> Alcotest.fail "seeded U16 has no original union source"
+          in
+          let separate_environment = Symbol_visibility.Environment.create () in
+          let ordinary_class =
+            Symbol_visibility.Environment.add separate_environment
+              ~name:(Symbol_visibility.name entry)
+              ~kind:Symbol_visibility.Class
+              ~origin:(Symbol_visibility.origin entry)
+              ()
+          in
+          Alcotest.(check bool)
+            "ordinary class matches the seeded name and pinned origin" true
+            (Symbol_visibility.kind ordinary_class = Symbol_visibility.Class
+            && Symbol_visibility.name ordinary_class
+               = Symbol_visibility.name entry
+            && Symbol_visibility.origin ordinary_class
+               = Symbol_visibility.origin entry);
+          Alcotest.(check bool)
+            "separately published ordinary class has no primitive payload" true
+            (Symbol_visibility.public_primitive ordinary_class = None);
+          reject
+            "ordinary class cannot acquire pinned builtin union member metadata"
+            (Record.seed_public_union ~table ~entry:ordinary_class
+               ~symbol:(Session.primitive_symbol binding)
+               ~source);
+          incr ordinary_class_seed_controls);
+        let record = Session.primitive_record binding in
+        reject "foreign table cannot use original union root"
+          (Record.read_sizeof ~table:foreign_table ~root record);
+        (match
+           List.find_opt (fun previous -> previous != record) !selected_records
+         with
+        | Some previous ->
+            reject "other original union entry cannot authorize root"
+              (Record.read_sizeof ~table ~root previous);
+            incr other_union_controls
+        | None -> ());
+        let original = Record.read_sizeof ~table ~root record |> checked in
+        Alcotest.(check bool)
+          "root retains selected primitive identity" true
+          (Record.sizeof_primitive original = Some primitive);
+        selected_records := record :: !selected_records;
+        queries :=
+          {
+            root;
+            original;
+            current = original;
+            pending = None;
+            starts_rev = [];
+            members_rev = [];
+            reads_rev = [];
+          }
+          :: !queries
+    | Parser.Query_member_started source ->
+        let state = find_query source.member_start_root in
+        Alcotest.(check bool)
+          "builtin member dot is original active callback" true
+          (Parser.query_member_start_is_current source);
+        reject "foreign table cannot mint builtin member start"
+          (Record.start_sizeof_member ~table:foreign_table ~namespace ~source
+             state.current);
+        (match
+           List.find_opt (fun state_ -> state_.root != state.root) !queries
+         with
+        | Some another ->
+            reject "another sizeof root cannot mint this member start"
+              (Record.start_sizeof_member ~table ~namespace ~source
+                 another.original)
+        | None -> ());
+        if source.member_start_ordinal > 0 then
+          reject "a builtin member start cannot skip earlier members"
+            (Record.start_sizeof_member ~table ~namespace ~source state.original);
+        let prior = state.current in
+        let start =
+          Record.start_sizeof_member ~table ~namespace ~source prior |> checked
+        in
+        state.starts_rev <- (source, prior, start) :: state.starts_rev;
+        state.pending <- Some (source, start)
+    | Parser.Query_member source ->
+        let state = find_query source.query_member_root in
+        Alcotest.(check bool)
+          "builtin member name is original active callback" true
+          (Parser.query_member_is_current source);
+        let observed_start, start =
+          match state.pending with
+          | Some started -> started
+          | None -> Alcotest.fail "builtin member lacks its original dot"
+        in
+        Alcotest.(check bool)
+          "builtin member retains physical original dot" true
+          (source.query_member_start == observed_start);
+        let read ?(table = table) ?(namespace = namespace) proof =
+          Record.read_sizeof_member ~table ~namespace
+            ~aggregates:no_source_aggregate ~source proof
+        in
+        reject "foreign table cannot complete builtin member"
+          (read ~table:foreign_table start);
+        reject "another namespace cannot complete this minted member"
+          (read ~namespace:other_namespace start);
+        (match state.members_rev with
+        | (_, earlier) :: _ ->
+            reject "earlier builtin ordinal cannot read later member"
+              (read earlier)
+        | [] -> ());
+        let next = read start |> checked in
+        (match source.query_member_node with
+        | Parser.Sizeof_member member ->
+            let spelling = member.sizeof_member_name.spelling in
+            if spelling = "u8" || spelling = "i8" then
+              Alcotest.(check bool)
+                "pinned intrinsic member becomes an internal terminal class"
+                true
+                (Record.sizeof_is_internal next)
+            else
+              Alcotest.(check bool)
+                "pinned public union member permits another original lookup"
+                false
+                (Record.sizeof_is_internal next)
+        | _ -> Alcotest.fail "builtin sizeof selected an offset member");
+        state.members_rev <- (source, start) :: state.members_rev;
+        state.reads_rev <- next :: state.reads_rev;
+        state.current <- next;
+        state.pending <- None
+    | Parser.Query_completed receipt ->
+        let state = find_query receipt.query_root in
+        Alcotest.(check bool)
+          "builtin query has no pending member lookahead" true
+          (Option.is_none state.pending);
+        reject "builtin completion cannot omit its member path"
+          (Record.complete_sizeof ~table ~receipt state.original);
+        (match state.reads_rev with
+        | _last :: partial :: _ ->
+            reject "builtin completion cannot truncate nested member path"
+              (Record.complete_sizeof ~table ~receipt partial)
+        | _ -> ());
+        Record.complete_sizeof ~table ~receipt state.current |> checked;
+        let pointer =
+          match receipt.query_expression with
+          | Ast.Sizeof_expression expression ->
+              expression.sizeof_pointer_layers <> []
+          | _ -> Alcotest.fail "expected original builtin sizeof expression"
+        in
+        let value = Record.sizeof_value state.current ~pointer in
+        completed := (state, value, pointer) :: !completed);
+    Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      lexical_lookup = None;
+      checkpoint = None;
+      reference = None;
+      call = None;
+      implicit_output = None;
+      declaration = None;
+      query = Some query;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let source =
+    Session.add_source session ~path:"builtin-union-member-authority.hc"
+      ~contents:
+        {|U0 F(){
+sizeof(U16.u8);
+sizeof(I16.i8);
+sizeof(U32.u16.u8);
+sizeof(I32.i16.i8);
+sizeof(U64.u32);
+class U64{U8 changed[9];};
+sizeof(I64.i32.i16.u8);
+sizeof(I64.i16.u8 *****);
+}|}
+  in
+  parse session mode source commands;
+  Alcotest.(check int)
+    "original U16 root exercised the ordinary-class seed rejection" 1
+    !ordinary_class_seed_controls;
+  Alcotest.(check int)
+    "every later query rejects a distinct original union record" 6
+    !other_union_controls;
+  let completed = List.rev !completed in
+  Alcotest.(check (list int64))
+    "all six original primitive identities and nested members survive parsing"
+    [ 2L; 2L; 2L; 2L; 8L; 2L; 8L ]
+    (List.map (fun (_, value, _) -> value) completed);
+  Alcotest.(check bool)
+    "the final pointer suffix overrides the internal U8i terminal size" true
+    (match List.rev completed with
+    | (_, _, true) :: _ -> true
+    | _ -> false);
+  List.iter
+    (fun (state, value, pointer) ->
+      Alcotest.(check int64)
+        "builtin query value remains frozen after same-name class publication"
+        value
+        (Record.sizeof_value state.current ~pointer);
+      Alcotest.(check bool)
+        "builtin root receipt expires after parsing" false
+        (Parser.query_root_is_current state.root);
+      List.iter
+        (fun (source, prior, _) ->
+          Alcotest.(check bool)
+            "builtin dot receipt expires after parsing" false
+            (Parser.query_member_start_is_current source);
+          reject "expired builtin dot cannot mint another member start"
+            (Record.start_sizeof_member ~table ~namespace ~source prior))
+        state.starts_rev;
+      List.iter
+        (fun (source, start) ->
+          Alcotest.(check bool)
+            "builtin member receipt expires after parsing" false
+            (Parser.query_member_is_current source);
+          reject "expired builtin member cannot read another field"
+            (Record.read_sizeof_member ~table ~namespace
+               ~aggregates:no_source_aggregate ~source start))
+        state.members_rev)
+    completed
+
 let () =
   Alcotest.run "Aggregate member sizeof source authority"
     [
@@ -714,5 +981,12 @@ let () =
             (member_query_authority Preprocessor.Jit);
           Alcotest.test_case "AOT live reads and provenance" `Quick
             (member_query_authority Preprocessor.Aot);
+        ] );
+      ( "pinned public union member queries",
+        [
+          Alcotest.test_case "JIT member lookup and source receipts" `Quick
+            (builtin_union_query_authority Preprocessor.Jit);
+          Alcotest.test_case "AOT member lookup and source receipts" `Quick
+            (builtin_union_query_authority Preprocessor.Aot);
         ] );
     ]

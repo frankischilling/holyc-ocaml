@@ -123,6 +123,44 @@ return before*10+sizeof(Box.field);}F();|};
     make "self field keeps partial placement and reads completed class size" 55L
       {|class Partial{U16 prefix;Partial earlier;U8 tail;};
 I64 F(){Partial object;return sizeof(Partial)*10+sizeof(object.earlier);}F();|};
+    make "all six pinned public unions keep their own member extents" 884422L
+      {|I64 F(){return sizeof(U16.u8)+sizeof(I16.i8)*10+
+sizeof(U32.u16)*100+sizeof(I32.i16)*1000+
+sizeof(U64.u32)*10000+sizeof(I64.i32)*100000;}F();|};
+    make "nested public union arrays replace every earlier extent" 2222L
+      {|I64 F(){return sizeof(U64.u32.u16.u8)*1000+
+sizeof(I64.i32.i16.i8)*100+sizeof(U32.u16.u8)*10+
+sizeof(I32.i16.i8);}F();|};
+    make "pinned union terminal array supports trailing pointer override" 86L
+      {|I64 F(){return sizeof(I64.i32.i16.u8 *****)*10+
+sizeof(U16.u8)+sizeof(U32.i16);}F();|};
+    make "primitive parameter and locals retain selected member classes" 222L
+      {|I64 F(U64 argument){U32 local;I16 signed_word;
+return sizeof(argument.u16.u8)*100+sizeof(local.u16.u8)*10+
+sizeof(signed_word.i8);}F(0);|};
+    make "aggregate primitive arrays do not multiply later union fields" 24364L
+      {|class Box{U64 rows[3];I32 cols[4];};
+I64 F(){Box objects[2];return sizeof(Box.rows)*1000+
+sizeof(objects.rows.u32.u16.u8)*100+sizeof(Box.cols)*10+
+sizeof(Box.cols.i16);}F();|};
+    make "scalar global and global array use original primitive class" 8328L
+      {|U64 selected;I32 words[3];
+I64 F(){return sizeof(selected.u8)*1000+sizeof(words.i16.u8)*100+
+sizeof(words)*10+sizeof(selected.u32);}F();|};
+    make "primitive scalar globals keep their selected class after shadowing"
+      82L
+      {|U64 kept;U64 parts[2];
+class U64{U8 changed[9];};
+I64 F(){return sizeof(kept.u32)*10+sizeof(parts.u16.u8);}F();|};
+    make "static primitive objects and arrays retain public union fields" 12L
+      {|I64 F(){static U64 stored;static U32 units[2];
+return sizeof(stored.u16)+sizeof(units.u8);}F();|};
+    make "primitive local remains canonical after same-name class" 89L
+      {|I64 F(){U64 earlier;class U64{U8 changed[9];};U64 later;
+return sizeof(earlier.u16)*10+sizeof(later.changed);}F();|};
+    make "function keeps original primitive query after source replacement" 8L
+      {|I64 F(){return sizeof(U64.u32);}
+class U64{U8 changed[9];};F();|};
   ]
 
 (* These are valid sizeof member expressions, but persistent aggregate storage
@@ -161,6 +199,13 @@ return sizeof(object. #exe{class C{U8 value[9];};} value);}F();|};
 class Box{Leaf field;U8 tag;};
 I64 before=sizeof(Box.field #exe{class Leaf{U16 value;};});
 return before*10+sizeof(Box.field);}F();|};
+    make "pinned primitive root stays selected across member-name directive" 8L
+      {|I64 F(){return sizeof(U64. #exe{class U64{U8 changed[9];};} u32);}F();|};
+    make "primitive object stays selected across member-name directive" 8L
+      {|I64 F(){U64 original;
+return sizeof(original. #exe{class U64{U8 changed[9];};} u16);}F();|};
+    make "nested primitive member preserves original class before directive" 2L
+      {|I64 F(){return sizeof(U64.u32. #exe{class U32{U8 changed[9];};} u16.u8);}F();|};
   ]
 
 let rejected =
@@ -180,15 +225,28 @@ let rejected =
     reject ~message_fragment:"member" "missing nested field"
       {|class Leaf{U16 value;};class C{Leaf leaf;};
 I64 F(){return sizeof(C.leaf.missing);}F();|};
-    reject "scalar intermediate is not a class"
+    reject "public union intermediate lacks the requested member"
       {|class C{U16 value;};
 I64 F(){return sizeof(C.value.second);}F();|};
+    reject ~message_fragment:"pointer class has no members"
+      "local U64 pointer has no builtin union fields"
+      {|I64 F(){U64 *ptr;return sizeof(ptr.u8);}F();|};
     reject ~message_fragment:"member" "stars cannot rescue missing field"
       {|class C{U16 value;};
 I64 F(){return sizeof(C.missing *****);}F();|};
     reject ~code:"HCSEMA0012" "inherited ordinary duplicate member is invalid"
       {|class Base{U8 value[7];};class Child:Base{U16 value[2];};
 I64 F(){return sizeof(Child.value);}F();|};
+    reject ~message_fragment:"member" "pinned public union lacks named member"
+      {|I64 F(){return sizeof(U64.nonexistent);}F();|};
+    reject ~message_fragment:"member" "pinned nested public union lacks member"
+      {|I64 F(){return sizeof(U64.u16.nonexistent);}F();|};
+    reject ~message_fragment:"internal" "pinned internal U8i cannot continue"
+      {|I64 F(){return sizeof(U64.u8.other);}F();|};
+    reject ~message_fragment:"internal" "nested internal I8i cannot continue"
+      {|I64 F(){return sizeof(I64.i32.i16.i8.other);}F();|};
+    reject ~message_fragment:"member" "pointer stars cannot rescue union typo"
+      {|I64 F(){return sizeof(U32.nonexistent *****);}F();|};
   ]
 
 (* PrsSizeOf rejects HTT_INTERNAL_TYPE at dot because only HTT_CLASS and
@@ -205,6 +263,19 @@ let jit_rejected_effects : (rejection * string) list =
         "class pointer rejects after member-token directive"
         {|class C{U8 value;};
 I64 F(){C *ptr;return sizeof(ptr. #exe{Print("late");} value);}F();|},
+      "late" );
+    ( reject ~code:"HCRUN0004"
+        "pinned internal union field rejects before member-token directive"
+        {|I64 F(){return sizeof(U64.u8. #exe{Print("late");} wrong);}F();|},
+      "" );
+    ( reject ~code:"HCRUN0004"
+        "pinned union missing field reads directive before rejection"
+        {|I64 F(){return sizeof(U64. #exe{Print("late");} wrong);}F();|},
+      "late" );
+    ( reject ~code:"HCRUN0004"
+        "internal scalar global reads member directive before rejection"
+        {|U8 scalar;
+I64 F(){return sizeof(scalar. #exe{Print("late");} wrong);}F();|},
       "late" );
   ]
 
@@ -223,5 +294,5 @@ let runtime_layout =
 I64 Offset(){Print("off");Calls++;return 4;}
 I64 Count(){Print("dim");Calls++;return 2;}
 I64 F(){class C{U8 tag;$$=Offset();U16 words[Count()];};C object;
-return sizeof(object.words)+Calls+36;}
+return sizeof(object.words)+sizeof(object.words.u8)+Calls+34;}
 F();|}

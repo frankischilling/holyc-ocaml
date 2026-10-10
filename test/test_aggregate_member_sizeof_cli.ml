@@ -16,15 +16,43 @@ let with_file suffix action =
 
 let () =
   require
-    (Array.length Sys.argv = 3
-    || (Array.length Sys.argv = 4 && Sys.argv.(3) = "--native"))
-    "expected compiler and member sizeof example, with optional --native"
+    (Array.length Sys.argv = 4
+    || (Array.length Sys.argv = 5 && Sys.argv.(4) = "--native"))
+    "expected compiler and two member sizeof examples, with optional --native"
 
 let compiler = Sys.argv.(1)
-let example = Sys.argv.(2)
-let native = Array.length Sys.argv = 4
+let native = Array.length Sys.argv = 5
 
-let invoke target mode =
+type fixture = {
+  example : string;
+  expected_word : string;
+  expected_bits : string;
+  expected_output : string;
+  expected_hex : string;
+  expected_length : int;
+}
+
+let fixtures =
+  [
+    {
+      example = Sys.argv.(2);
+      expected_word = "33";
+      expected_bits = "0x0000000000000021";
+      expected_output = "1 14 6 4 8";
+      expected_hex = "312031342036203420380a";
+      expected_length = 11;
+    };
+    {
+      example = Sys.argv.(3);
+      expected_word = "32";
+      expected_bits = "0x0000000000000020";
+      expected_output = "8 4 2 2 4";
+      expected_hex = "3820342032203220340a";
+      expected_length = 10;
+    };
+  ]
+
+let invoke example target mode =
   let arguments =
     [
       "run";
@@ -62,8 +90,8 @@ let invoke target mode =
             "member sizeof JSON diagnostics escaped to stderr";
           Yojson.Safe.from_string output))
 
-let check target mode =
-  let report = invoke target mode in
+let check fixture target mode =
+  let report = invoke fixture.example target mode in
   let evidence = Yojson.Safe.to_string report in
   require
     (member "schema" report = `String "holyc-integer-program-v2")
@@ -80,14 +108,14 @@ let check target mode =
   let final = member "final_value" report in
   require (member "type" final = `String "i64") "I64 function result";
   require
-    (member "value" final = `String "33"
-    && member "bits" final = `String "0x0000000000000021")
+    (member "value" final = `String fixture.expected_word
+    && member "bits" final = `String fixture.expected_bits)
     ("member sizeof final value: " ^ evidence);
   require
-    (member "output_hex" report = `String "312031342036203420380a"
-    && member "output_byte_length" report = `Int 11)
-    ("member sizeof output must be 1 14 6 4 8 followed by a newline: "
-   ^ evidence);
+    (member "output_hex" report = `String fixture.expected_hex
+    && member "output_byte_length" report = `Int fixture.expected_length)
+    ("member sizeof output must be " ^ fixture.expected_output
+   ^ " followed by a newline: " ^ evidence);
   require
     (member "arithmetic" report
     = `String (if target = "ir" then "runtime-ir" else "runtime-native"))
@@ -113,7 +141,10 @@ let () =
     if native then [ ("host-jit", "jit"); ("host-jit-task", "jit") ]
     else [ ("ir", "jit"); ("ir", "aot") ]
   in
-  List.iter (fun (target, mode) -> check target mode) cases;
-  Printf.printf "Aggregate member sizeof CLI passed: %s\n"
+  List.iter
+    (fun fixture ->
+      List.iter (fun (target, mode) -> check fixture target mode) cases)
+    fixtures;
+  Printf.printf "Aggregate and builtin union member sizeof CLI passed: %s\n"
     (String.concat ", "
        (List.map (fun (target, mode) -> target ^ "/" ^ mode) cases))

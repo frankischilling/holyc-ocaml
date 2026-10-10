@@ -60,6 +60,10 @@ val to_string : t -> string
 val of_spelling : string -> t option
 val of_storage_spelling : string -> t option
 val info : t -> info
+
+val public_union_members :
+  t -> Generated.Primitive_raw_types.public_union_member list option
+
 val integer_storage_info : t -> info option
 val is_zero_sized : t -> bool
 val pointer_representation : pointer_representation

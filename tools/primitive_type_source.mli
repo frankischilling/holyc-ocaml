@@ -15,10 +15,18 @@ type raw_alias = {
   source_comment : string option;
 }
 
+type public_union_member = {
+  type_spelling : string;
+  name : string;
+  array_count : int;
+  source_line : int;
+}
+
 type public_union = {
   storage_spelling : string;
   public_spelling : string;
   source_line : int;
+  members : public_union_member list;
 }
 
 type internal_type = {
