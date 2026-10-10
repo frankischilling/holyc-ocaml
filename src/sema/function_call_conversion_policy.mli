@@ -92,6 +92,12 @@ val forwarded_type : t -> before_item_index:int -> Type.t -> Type.t
 (** Return the source-visible result of the same checked backing traversal.
     Pointer types are not forwarded. *)
 
+val integer_aggregate_value_type :
+  t -> before_item_index:int -> Type.t -> Type.t option
+(** Read the integer raw class from an original completed header and its
+    source-visible backing chain. This supplies value metadata without object
+    layout or storage authority. *)
+
 val parameter_target_class :
   t ->
   before_item_index:int ->

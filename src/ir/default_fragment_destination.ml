@@ -7,6 +7,7 @@ type t = {
   root_ : Typed.top_level_root_result;
   globals_ : Integer_globals.t;
   type_ : Sema.Type.t;
+  aggregate_value_type_ : Sema.Type.t option;
   span_ : Common.Span.t;
 }
 
@@ -15,6 +16,7 @@ let typed value = value.typed_
 let root value = value.root_
 let globals value = value.globals_
 let type_ value = value.type_
+let aggregate_value_type value = value.aggregate_value_type_
 let span value = value.span_
 let symbol_opt value = Fragment.symbol_opt value.fragment_
 let symbol value = Option.get (symbol_opt value)
@@ -41,9 +43,7 @@ let create_with_globals globals typed =
     | Sema.Top_level_expression_tree.Default_fragment fragment -> Ok fragment
     | _ -> Error "default destination requires its original default root"
   in
-  let type_specifier, pointer_layers, function_pointer =
-    Fragment.parameter_parts fragment_
-  in
+  let _, _, function_pointer = Fragment.parameter_parts fragment_ in
   let* type_ =
     match function_pointer with
     | Some pointer when List.length pointer.indirection_layers = 1 ->
@@ -54,8 +54,26 @@ let create_with_globals globals typed =
     | Some _ ->
         Error "HCRUN0001: callback defaults require one original pointer star"
     | None ->
-        Sema.Source_type_reference.builtin type_specifier pointer_layers
+        Fragment.parameter_type fragment_
         |> Result.map Sema.Type_reference.resolved_type
+  in
+  let aggregate_value_type_ =
+    if Option.is_some function_pointer then None
+    else
+      Typed.top_level_aggregate_integer_value_type typed
+        ~before_item_index:max_int type_
+  in
+  let* type_ =
+    match (Sema.Type.base type_, aggregate_value_type_) with
+    | Sema.Type.Aggregate _, Some _ when Sema.Type.pointer_depth type_ = 0 ->
+        (* A default is saved before the member's load/store width is applied. *)
+        Sema.Type.make_primitive ~form:Internal_storage ~primitive:I64
+          ~pointer_depth:0
+    | Sema.Type.Aggregate _, _ when Sema.Type.pointer_depth type_ = 0 ->
+        Error
+          "HCRUN0001: class defaults require original completed integer value \
+           metadata"
+    | _ -> Ok type_
   in
   let value = Typed.top_level_root_value root_ in
   let* () =
@@ -73,7 +91,9 @@ let create_with_globals globals typed =
       && Option.fold ~none:false
            ~some:(fun type_ ->
              Option.is_some (Integer_scalar_storage.of_type type_))
-           (Typed.result_type value)
+           (Typed.result_value_type value)
+      && (Option.is_none aggregate_value_type_
+         || Option.is_none (Typed.result_callback_parser_pointer value))
     then Ok ()
     else if
       Option.is_none function_pointer
@@ -102,6 +122,7 @@ let create_with_globals globals typed =
       root_;
       globals_;
       type_;
+      aggregate_value_type_;
       span_ = (Fragment.ast fragment_).location.span;
     }
 

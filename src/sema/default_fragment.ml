@@ -9,6 +9,7 @@ type source =
 type t = {
   table : Symbol_table.t;
   source_ : source;
+  selected_aggregate_ : Source_type_reference.selected_aggregate option;
   expression_ : Frontend.Ast.expression;
   environment_ : Outer_environment.t;
   references_ : (Frontend.Ast.identifier * Reference_selection.t) list;
@@ -60,6 +61,17 @@ let parameter_parts fragment =
       ( p.callback_parameter_type_specifier,
         p.callback_parameter_pointer_layers,
         p.callback_parameter_function_pointer )
+
+let parameter_type fragment =
+  let type_specifier, pointer_layers, _ = parameter_parts fragment in
+  match fragment.selected_aggregate_ with
+  | Some selected
+    when Symbol_table.owns_symbol fragment.table
+           (Source_type_reference.selected_base_symbol selected) ->
+      Source_type_reference.selected_header_class selected type_specifier
+        pointer_layers
+  | Some _ -> Error "default parameter class belongs to another semantic table"
+  | None -> Source_type_reference.builtin type_specifier pointer_layers
 
 let same_source a b =
   match (a, b) with
@@ -113,9 +125,19 @@ let authorize ?activation ~namespace fragment =
     Error
       "default execution requires its original namespace and active source \
        boundary"
-  else Ok { authorized_fragment = fragment }
+  else
+    let ( let* ) = Result.bind in
+    let* () =
+      match fragment.selected_aggregate_ with
+      | None -> Ok ()
+      | Some selected ->
+          Source_type_reference.validate_selected_aggregate
+            ~table:fragment.table ~namespace selected
+    in
+    Ok { authorized_fragment = fragment }
 
-let create_common ~table ~source ~environment ~references ~queries =
+let create_common ?selected_aggregate ~table ~source ~environment ~references
+    ~queries () =
   let ( let* ) = Result.bind in
   let* expression_ =
     match (source_ast source).value with
@@ -162,6 +184,7 @@ let create_common ~table ~source ~environment ~references ~queries =
     {
       table;
       source_ = source;
+      selected_aggregate_ = selected_aggregate;
       expression_;
       environment_ = environment;
       references_ = references;
@@ -169,7 +192,8 @@ let create_common ~table ~source ~environment ~references ~queries =
       queries_ = queries;
     }
 
-let create ~table ~publication ~receipt ~environment ~references ~queries =
+let create_selected ?selected_aggregate ~table ~publication ~receipt
+    ~environment ~references ~queries () =
   let ( let* ) = Result.bind in
   let* () =
     if
@@ -196,9 +220,13 @@ let create ~table ~publication ~receipt ~environment ~references ~queries =
           Ok ()
       | _ -> Error "default fragment has another source function publication"
   in
-  create_common ~table
+  create_common ?selected_aggregate ~table
     ~source:(Named (publication, receipt))
-    ~environment ~references ~queries
+    ~environment ~references ~queries ()
+
+let create ~table ~publication ~receipt ~environment ~references ~queries =
+  create_selected ~table ~publication ~receipt ~environment ~references ~queries
+    ()
 
 let create_callback ~table ~namespace ~receipt ~environment ~references ~queries
     =
@@ -225,7 +253,7 @@ let create_callback ~table ~namespace ~receipt ~environment ~references ~queries
   else
     create_common ~table
       ~source:(Callback (namespace, receipt))
-      ~environment ~references ~queries
+      ~environment ~references ~queries ()
 
 let reference_for fragment identifier =
   match

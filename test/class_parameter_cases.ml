@@ -179,9 +179,6 @@ let unsupported =
     ( "persistent class parameter copy",
       {|class Box{I64 word;};Box saved;I64 Take(Box o){saved=o;return o;}Take(42);|}
     );
-    ( "class parameter default requires separate declaration preparation",
-      {|U16 class Box{U16 low;U8 guard;};I64 Take(Box o=0x07002a){return o;}Take();|}
-    );
     ( "class callback parameter requires separate signature admission",
       {|class Box{I64 word;};I64 Take(Box o){return o;}I64 (*p)(Box o);p=&Take;p(42);|}
     );

@@ -128,6 +128,8 @@ type inherited_metadata = {
   metadata_definition : Ast.aggregate_definition;
 }
 
+type aggregate_value_header = inherited_metadata
+
 type sizeof_owner =
   | Hash_record of t
   | Local_record of {
@@ -1143,6 +1145,35 @@ let inherited_metadata_owns_definition ~table ~scope definition metadata =
   | Some (namespace, _, _) ->
       Declaration_collection.namespace_scope namespace == scope
   | None -> false
+
+let retain_aggregate_value_header ~table ~namespace definition record =
+  match record.aggregate_owner with
+  | Some
+      ( owner_namespace,
+        publication,
+        Some { aggregate_item = Ast.Aggregate_definition original; _ } )
+    when owner_namespace == namespace
+         && record.table == table && original == definition
+         && Option.is_none record.aggregate_stamp
+         && Declaration_collection.namespace_owns_table namespace table
+         && Declaration_collection.namespace_owns_publication namespace
+              publication ->
+      Ok { metadata_record = record; metadata_definition = original }
+  | _ -> Error "aggregate value header requires its original completed source"
+
+let aggregate_value_header_source ~table ~scope metadata =
+  if
+    not
+      (inherited_metadata_owns_definition ~table ~scope
+         metadata.metadata_definition metadata)
+  then None
+  else
+    match metadata.metadata_record.aggregate_owner with
+    | Some (_, publication, Some _) ->
+        Option.map
+          (fun symbol -> (metadata.metadata_definition, symbol))
+          (Declaration_collection.publication_aggregate_identity publication)
+    | _ -> None
 
 let inherited_metadata_storage_selection ~table ~scope metadata =
   let record = metadata.metadata_record in

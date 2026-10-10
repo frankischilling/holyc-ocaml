@@ -300,6 +300,24 @@ val inherited_metadata_storage_selection :
     forward-only bases do not grant object layout authority. The consumer must
     authenticate both definitions, their order and the resulting layouts. *)
 
+type aggregate_value_header
+
+val retain_aggregate_value_header :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Frontend.Ast.aggregate_definition ->
+  t ->
+  (aggregate_value_header, string) result
+(** Preserve only the original completed class's raw type metadata. *)
+
+val aggregate_value_header_source :
+  table:Symbol_table.t ->
+  scope:Symbol_table.scope ->
+  aggregate_value_header ->
+  (Frontend.Ast.aggregate_definition * Symbol.t) option
+(** Read the exact completed definition and canonical class identity from this
+    namespace's immutable metadata. This grants no member layout or storage. *)
+
 val bind_retained_scalar :
   table:Symbol_table.t ->
   entry:Frontend.Symbol_visibility.entry ->

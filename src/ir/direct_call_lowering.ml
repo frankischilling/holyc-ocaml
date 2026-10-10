@@ -454,7 +454,8 @@ let lower_arguments ?frame ?globals ?lower_call ?optimize_shifts
         | Ok next_instruction_id, Ok next_value_id ->
             let item =
               description ~instruction_id ~opcode:Opcode.Ic_imm_i64
-                ~target_type:(Some (Prepared_parameter_default.type_ prepared))
+                ~target_type:
+                  (Some (Prepared_parameter_default.value_type prepared))
                 ~payload:
                   (Some
                      (match Prepared_parameter_default.word_bits prepared with

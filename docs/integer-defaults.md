@@ -107,6 +107,10 @@ stand in for that ownership operation.
 
 ## Native AOT preparation boundary
 
+[Closed class default words](class-default-words.md) preserve the selected
+class and full saved word in ordinary AOT IR and native JIT/AOT compilation.
+JIT IR preparation through retained task class storage remains separate.
+
 In the pinned source, `PrsVar.HC:635-640` clears only `CCF_HAS_MISC_DATA`
 before `LexExpression2Bin` and the immediate call. It leaves AOT mode active.
 `PrsExp.HC:1117-1133` and `PrsLib.HC:99-123` push and initialize code controls

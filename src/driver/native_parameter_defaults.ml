@@ -85,6 +85,11 @@ let supported_parameter ?(allow_data = false) parameter =
   | Headers.Object ->
       let type_ = parameter_type parameter in
       scalar_word type_
+      || (Type.pointer_depth type_ = 0
+         &&
+         match Type.base type_ with
+         | Type.Aggregate _ -> true
+         | _ -> false)
       || allow_data
          && Type.pointer_depth type_ = 1
          && Option.is_some
@@ -97,8 +102,20 @@ let supported_parameter ?(allow_data = false) parameter =
 let execution_type_matches fragment prepared_type destination =
   let _, _, pointer = Sema.Default_fragment.parameter_parts fragment in
   match pointer with
-  | None ->
-      Type.equal (Default_fragment_destination.type_ destination) prepared_type
+  | None -> (
+      match Default_fragment_destination.aggregate_value_type destination with
+      | None ->
+          Type.equal
+            (Default_fragment_destination.type_ destination)
+            prepared_type
+      | Some _ ->
+          Option.fold ~none:false
+            ~some:(fun reference ->
+              Type.equal
+                (Sema.Type_reference.resolved_type reference)
+                prepared_type)
+            (Result.to_option (Sema.Default_fragment.parameter_type fragment))
+          && scalar_word (Default_fragment_destination.type_ destination))
   | Some pointer when List.length pointer.Frontend.Ast.indirection_layers = 1 ->
       let storage =
         Type.make_primitive ~form:Internal_storage ~primitive:I64

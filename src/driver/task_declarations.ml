@@ -5196,9 +5196,11 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
         selected_fragment_transcript ledger ~task_view ~span expression
       in
       let fragment =
-        Sema.Default_fragment.create ~table:ledger.table
+        Sema.Default_fragment.create_selected ~table:ledger.table
+          ?selected_aggregate:
+            (selected_aggregate_for ledger receipt.default_type_specifier)
           ~publication:assigned.publication ~receipt ~environment ~references
-          ~queries
+          ~queries ()
         |> (fun result ->
         Result.bind result
           (Sema.Default_fragment.with_positions
@@ -5307,9 +5309,11 @@ let begin_source_default_with_owner owner ledger ~runtime receipt =
                 fail span "output default lacks its original checked query")
       in
       let fragment =
-        Sema.Default_fragment.create ~table:ledger.table
+        Sema.Default_fragment.create_selected ~table:ledger.table
+          ?selected_aggregate:
+            (selected_aggregate_for ledger receipt.default_type_specifier)
           ~publication:assigned.publication ~receipt ~environment ~references:[]
-          ~queries
+          ~queries ()
         |> (fun result ->
         Result.bind result
           (Sema.Default_fragment.with_positions
@@ -5397,7 +5401,7 @@ let complete_source_defaults ledger header =
           (fun index (parameter : Ast.function_parameter) ->
             match parameter.default with
             | Some { value = Ast.Expression_default _; _ } ->
-                let receipt, bits =
+                let receipt, bits, fragment =
                   match
                     List.find_opt
                       (fun (receipt, _, _, _, _) ->
@@ -5406,8 +5410,11 @@ let complete_source_defaults ledger header =
                         && receipt.default_parameter_index = index)
                       ledger.source_default_attempts
                   with
-                  | Some (receipt, _, _, _, value) when Option.is_some !value ->
-                      (receipt, Option.get !value)
+                  | Some (receipt, authority, _, _, value)
+                    when Option.is_some !value ->
+                      ( receipt,
+                        Option.get !value,
+                        Sema.Default_fragment.authorized_fragment authority )
                   | _ ->
                       fail span
                         "output header requires every original default \
@@ -5420,8 +5427,8 @@ let complete_source_defaults ledger header =
                     ledger.prepared_source_defaults
                 then fail span "output defaults cannot be published twice";
                 Some
-                  (Ir.Prepared_parameter_default.create
-                     ~publication:assigned.publication ~header ~receipt ~bits
+                  (Ir.Prepared_parameter_default.create_selected ~fragment
+                     ~publication:assigned.publication ~header ~receipt ~bits ()
                   |> checked span)
             | _ -> None)
           header.parameters
@@ -5759,6 +5766,37 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
     | Sema.Source_activation.Command _ -> Ok ())
 
 let initializer_scope ledger = Collection.namespace_scope ledger.namespace
+
+let aggregate_value_headers ~span ledger =
+  protect (fun () ->
+      let originals =
+        Entries.fold (fun _ assigned rev -> assigned :: rev) ledger.entries []
+        |> List.sort (fun left right -> Int.compare left.ordinal right.ordinal)
+        |> List.filter_map (fun assigned ->
+            match assigned.source with
+            | Aggregate
+                {
+                  completed =
+                    Some
+                      {
+                        aggregate_item = Ast.Aggregate_definition definition;
+                        _;
+                      };
+                  record = Some (Ok record);
+                  _;
+                } ->
+                let proof =
+                  Sema.Compiler_record.retain_aggregate_value_header
+                    ~table:ledger.table ~namespace:ledger.namespace definition
+                    record
+                  |> checked definition.location.span
+                in
+                Some (assigned.ordinal, proof)
+            | _ -> None)
+      in
+      Aggregate_header_resolution.resolve_metadata ~table:ledger.table
+        ~parent:(initializer_scope ledger) originals
+      |> checked span)
 
 let initializer_for ~table ~ast (command : command) name initial =
   protect (fun () ->

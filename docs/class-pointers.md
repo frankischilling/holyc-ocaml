@@ -104,7 +104,7 @@ integer widths. Raw IR controls reject missing, foreign, altered and
 other-function pointee proofs before storage. Exact and one-below controls
 cover frame bytes, executed instructions and both native ABIs' stack and
 encoded image bytes. Fresh native image executions retain the same results.
-The maintained CLI checks run 834 IR reports and 1669 including native execution.
+The maintained CLI checks run 872 IR reports and 1785 including native execution.
 
 Completed earlier [inherited layouts](inherited-aggregates.md) also use these
 selected strides. Partial or out-of-compilation bases, function-local layouts,

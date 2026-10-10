@@ -57,7 +57,10 @@ Ownership checks reject raw bodies before execution; native checks cover both
 host ABIs and fresh images. Expected words follow the pinned source audit.
 These tests contain no TempleOS runtime capture or machine-byte comparison.
 
-Prepared class defaults, callback class signatures, F64/pointer/callback
+[Closed class default words](class-default-words.md) now prepare in AOT IR and
+native JIT/AOT source compilation. Calls to class-returning functions during
+default preparation still need callable authority. Reference-bearing and
+retained-task class defaults, callback class signatures, F64/pointer/callback
 backings, zero-size class pointer operations, persistent class objects, native
 task classes, retained aggregate imports and general aggregate copies remain
 open. Complete class and ABI acceptance remain under

@@ -9089,7 +9089,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                        (Option.fold ~none:false
                                           ~some:
                                             (Type.equal
-                                               (Prepared_default.type_ prepared))
+                                               (Prepared_default.value_type
+                                                  prepared))
                                           raw.target_type)
                                 then
                                   malformed raw

@@ -112,7 +112,7 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 266 IR and 264 native test groups. Independent expected
+The shared fixtures have 296 IR and 292 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
@@ -124,7 +124,7 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 834 reports for IR and 1669 when native execution is included,
+actual CLI runs 872 reports for IR and 1785 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
 Partial and out-of-compilation inherited bases, retained JIT aggregate

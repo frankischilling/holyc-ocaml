@@ -11,6 +11,20 @@ type authority
 
 val table : t -> Symbol_table.t
 
+val create_selected :
+  ?selected_aggregate:Source_type_reference.selected_aggregate ->
+  table:Symbol_table.t ->
+  publication:Declaration_collection.publication ->
+  receipt:Frontend.Parser.completed_parameter_default ->
+  environment:Outer_environment.t ->
+  references:(Frontend.Ast.identifier * Reference_selection.t) list ->
+  queries:Query_selection.t list ->
+  unit ->
+  (t, string) result
+(** Pure original-default expression evidence. The transcript owns every exact
+    selected identifier and query in one retained environment. No effects or
+    argument materialization are authorized by this value. *)
+
 val create :
   table:Symbol_table.t ->
   publication:Declaration_collection.publication ->
@@ -19,9 +33,6 @@ val create :
   references:(Frontend.Ast.identifier * Reference_selection.t) list ->
   queries:Query_selection.t list ->
   (t, string) result
-(** Pure original-default expression evidence. The transcript owns every exact
-    selected identifier and query in one retained environment. No effects or
-    argument materialization are authorized by this value. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val publication : t -> Declaration_collection.publication
@@ -64,6 +75,11 @@ val parameter_parts :
   Frontend.Ast.type_specifier
   * Frontend.Ast.pointer_layer list
   * Frontend.Ast.function_pointer_declarator option
+
+val parameter_type : t -> (Type_reference.t, string) result
+(** Resolve the exact original parameter type using its retained class
+    selection. This supplies nominal metadata, without storage or ABI authority.
+*)
 
 val symbol_opt : t -> Symbol.t option
 val in_scope : t -> Symbol_table.scope -> bool

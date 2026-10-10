@@ -1,5 +1,13 @@
 type context
 
+val create_context_selected :
+  ?aggregate_headers:Sema.Aggregate_header_resolution.t ->
+  compilation_mode:Frontend.Preprocessor.compilation_mode ->
+  table:Sema.Symbol_table.t ->
+  parent:Sema.Symbol_table.scope ->
+  unit ->
+  (context, string) result
+
 val create_aot_context :
   table:Sema.Symbol_table.t ->
   parent:Sema.Symbol_table.scope ->

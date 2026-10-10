@@ -17,6 +17,11 @@ val typed : t -> Sema.Function_call_expression_result.top_level_t
 val root : t -> Sema.Function_call_expression_result.top_level_root_result
 val globals : t -> Integer_globals.t
 val type_ : t -> Sema.Type.t
+val aggregate_value_type : t -> Sema.Type.t option
+
+(** The qualified raw class of an original class parameter. Its saved default
+    still uses a full word, independently of this class's scalar width. *)
+
 val is_callback : t -> bool
 val symbol : t -> Sema.Symbol.t
 val span : t -> Common.Span.t

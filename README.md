@@ -558,8 +558,12 @@ words in owned eight-byte slots, retaining nominal layouts and scalar views.
 [Class value returns](docs/class-value-returns.md) retain full register words
 and use the selected scalar prefix for object reads.
 `examples/class-value-returns.hc` returns 42 in both modes and targets.
+[Closed class default words](docs/class-default-words.md) retain full saved
+argument words in AOT IR and native JIT/AOT source compilation.
+`examples/class-default-words.hc` returns 42 through those paths.
 Retained JIT imports, persistent objects, whole-value postfix casts, class
-defaults and callback parameters remain open under issue #686. General
+defaults involving references or retained task storage, and callback parameters
+remain open under issue #686. General
 aggregate copies, pointer fields and pointer returns also need their own implementation.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a

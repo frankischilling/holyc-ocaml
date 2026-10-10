@@ -385,6 +385,12 @@ let functions result = result.functions
 let all_results result = result.all_results
 let function_all_results result = result.expression_results
 let top_level_owns_table result table = result.top_level_table == table
+
+let top_level_aggregate_integer_value_type result ~before_item_index type_ =
+  Aggregate_backing_storage.integer_value_type ~table:result.top_level_table
+    ~members:result.top_level_members ~policies:result.top_level_policies
+    ~before_item_index ~source_type:type_
+
 let top_level_owns_members result members = result.top_level_members == members
 
 let top_level_owns_policies result policies =

@@ -266,6 +266,32 @@ let resolve_events ~metadata_only ~table ~scope events =
   in
   resolve String_map.empty [] events
 
+let resolve_metadata ~table ~parent metadata =
+  let rec events rev = function
+    | [] -> Ok (List.rev rev)
+    | (item_index, proof) :: rest -> (
+        match
+          Sema.Compiler_record.aggregate_value_header_source ~table
+            ~scope:parent proof
+        with
+        | Some (definition, identity_symbol) ->
+            let ast =
+              {
+                identifier = definition.Frontend.Ast.name;
+                declaration_kind =
+                  Sema.Declaration_collection.Aggregate_definition;
+                aggregate_kind = aggregate_kind definition.aggregate_kind;
+                item_index;
+                definition = Some definition;
+              }
+            in
+            events ({ ast; identity_symbol } :: rev) rest
+        | None ->
+            Error "aggregate value header has another completed source owner")
+  in
+  Result.bind (events [] metadata)
+    (resolve_events ~metadata_only:(fun _ -> false) ~table ~scope:parent)
+
 let resolve ?(inherited_metadata = []) ~table ~declarations ~aggregates module_
     =
   let scope = Sema.Declaration_collection.scope declarations in
