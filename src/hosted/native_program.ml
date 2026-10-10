@@ -293,7 +293,8 @@ let local_source_error (declaration : Ast.local_declaration) =
             && Option.is_none local.local_initializer
            || named_pointer declaration.local_type_specifier
                 local.local_pointer_layers)
-           && local.local_array_dimensions = []
+           && (local.local_array_dimensions = []
+              || local.local_pointer_layers = [])
            && Option.is_none local.local_function_pointer)
          declaration.local_declarators
   in

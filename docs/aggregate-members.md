@@ -4,7 +4,8 @@ The interpreter and native executor read, assign and update integer members of
 nonempty automatic class and union objects. The exact layout must complete
 before the function declaration. Direct access, one-level owned class pointers,
 nested aggregate members and multidimensional member arrays share the original
-object's bytes:
+object's bytes. Automatic arrays of these classes and unions also retain their
+selected element layout and dimensions:
 
 ```c
 class Packed { U8 text[3]; U16 value; };
@@ -33,6 +34,30 @@ same field identity. Primitive member arrays and rows can decay to primitive
 pointers. Owned class pointer locals and fixed parameters copy the existing
 reference descriptor, so a callee updates the caller's object. A destination
 is captured before its assignment RHS can rebind the pointer.
+
+## Automatic aggregate arrays
+
+`Item items[2][3]` allocates one byte object with six elements of the exact
+earlier `Item` layout. `items[i][j].value` consumes the original dimensions;
+each stride uses the selected class size, including packed fields and explicit
+padding. That element size stays separate from the full allocation extent,
+the one-byte storage cells and the eight-byte pointer slots.
+
+An indexed element can supply a member address or an owned class pointer to a
+callee. A root array or partially indexed row can decay to its first element.
+`examples/aggregate-arrays.hc` prints `AB` and returns 42 after a callee updates
+the selected element twice. Dynamic indices, nested member arrays and captured
+assignment destinations use the same checked address path in both executors.
+Explicit primitive views share the entire root array's extent and byte flags.
+Bounds guard the containing allocation; they do not create separate row or
+element allocations.
+
+Only positive source extents with a representable product and a nonempty
+earlier element layout receive storage. IR preparation checks every emitted
+stride against the original frame dimensions. Native compilation preserves
+dimension ownership and dependency checks before allocating storage and one
+initialization flag per byte. The selected element size never comes from a
+pointer slot or from dividing a containing object's extent.
 
 ## Selected field and storage ownership
 
@@ -65,20 +90,24 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 31 IR and 31 native test groups. Independent expected
+The shared fixtures have 58 IR and 58 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
-member arrays, class pointer locals and parameters, captured destinations,
+member arrays, one- through three-dimensional root arrays, dynamic loop indices,
+root and row decay, class pointer locals and parameters, captured destinations,
 union overlap, signed views, padding, shadowing and all nine integer widths.
 Faults cover unknown fields and pointers, partial union writes, fresh
 activations and out-of-object windows. Exact and one-below controls cover
 runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
-image bytes. Native host checks execute fresh images. The actual CLI runs 114
-reports for IR and 229 when native execution is included.
+image bytes. Root-array controls also reject borrowed frames, altered field
+proofs and a forged element stride before IR execution. Native mutation checks
+still exercise graph sealing. Native host checks execute fresh images. The
+actual CLI runs 226 reports for IR and 453 when native execution is included,
+including the original unused-local warning for an unused aggregate array.
 
 Inheritance, retained JIT aggregate imports, function-local layouts,
-zero-sized automatic objects, standalone aggregate arrays, persistent
+zero-sized automatic objects, pointer arrays, aggregate array initializers, persistent
 aggregate objects, whole-object values and copies, pointer and callback fields,
-general casts to class pointers, class pointer arithmetic, pointer returns and
+general casts to class pointers, generic class pointer indexing and arithmetic, pointer returns and
 original named-local size/position consumers remain unfinished under
 [issue #686](https://github.com/frankischilling/holyc-ocaml/issues/686).
 Functions in this slice return supported integers or U0. The checks use the

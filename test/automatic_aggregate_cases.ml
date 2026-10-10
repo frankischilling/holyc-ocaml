@@ -128,8 +128,8 @@ let unsupported =
 I64 F(){Child object;return 42;}F();|}
     );
     ("zero-sized object", {|class Box{};I64 F(){Box object;return 42;}F();|});
-    ( "aggregate array",
-      {|class Box{U8 byte;};I64 F(){Box objects[2];return 42;}F();|} );
+    ( "aggregate pointer array",
+      {|class Box{U8 byte;};I64 F(){Box *objects[2];return 42;}F();|} );
     ( "aggregate pointer return",
       {|class Box{U8 byte;};Box *Get(Box *p){return p;}I64 F(){Box object;return Get(&object)->byte;}F();|}
     );

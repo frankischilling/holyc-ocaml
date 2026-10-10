@@ -1,5 +1,6 @@
 open Holyc_lib
 module Cases = Aggregate_member_cases
+module Arrays = Aggregate_array_cases
 module VM = Ir_integer_interpreter
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -53,7 +54,7 @@ let faults () =
     (fun mode ->
       List.iter
         (fun (_, source, code, output) -> failure code output (run mode source))
-        Cases.faults;
+        (Cases.faults @ Arrays.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -61,101 +62,119 @@ let faults () =
                (run mode (Cases.extent_source definition (bytes - 1))));
           failure "HCIRVM0019" ""
             (run mode (Cases.extent_source definition bytes)))
-        Cases.extents)
+        Cases.extents;
+      List.iter
+        (fun ((_, _, bytes) as extent) ->
+          ignore
+            (value 42L "" (run mode (Arrays.extent_source extent (bytes - 1))));
+          failure "HCIRVM0019" "" (run mode (Arrays.extent_source extent bytes)))
+        Arrays.extents)
     modes
 
 let quotas () =
-  List.iter
-    (fun mode ->
-      let session, config, source = inputs mode Cases.quota_source in
-      let compiled =
-        (compile_integer_program session ~config ~source |> checked).value
-      in
-      let frame_bytes =
-        integer_program_functions compiled
-        |> List.map (fun (f : VM.function_definition) ->
-            Semantic_function_frame_layout.function_frame_size f.frame
-            |> Int64.to_int)
-        |> List.fold_left max 0
-      in
-      let baseline = value 42L "" (run mode Cases.quota_source) in
-      let steps = VM.executed_steps baseline in
-      ignore
-        (value 42L ""
-           (run ~max_frame_bytes:frame_bytes ~max_steps:steps mode
-              Cases.quota_source));
-      failure "HCIRVM0011" ""
-        (run ~max_frame_bytes:(frame_bytes - 1) mode Cases.quota_source);
-      failure "HCIRVM0007" ""
-        (run ~max_steps:(steps - 1) mode Cases.quota_source))
-    modes
+  let check source_contents =
+    List.iter
+      (fun mode ->
+        let session, config, source = inputs mode source_contents in
+        let compiled =
+          (compile_integer_program session ~config ~source |> checked).value
+        in
+        let frame_bytes =
+          integer_program_functions compiled
+          |> List.map (fun (f : VM.function_definition) ->
+              Semantic_function_frame_layout.function_frame_size f.frame
+              |> Int64.to_int)
+          |> List.fold_left max 0
+        in
+        let baseline = value 42L "" (run mode source_contents) in
+        let steps = VM.executed_steps baseline in
+        ignore
+          (value 42L ""
+             (run ~max_frame_bytes:frame_bytes ~max_steps:steps mode
+                source_contents));
+        failure "HCIRVM0011" ""
+          (run ~max_frame_bytes:(frame_bytes - 1) mode source_contents);
+        failure "HCIRVM0007" ""
+          (run ~max_steps:(steps - 1) mode source_contents))
+      modes
+  in
+  List.iter check [ Cases.quota_source; Arrays.quota_source ]
 
 let foreign_frame () =
-  List.iter
-    (fun mode ->
-      let compile () =
-        let session, config, source = inputs mode Cases.quota_source in
-        (compile_integer_program session ~config ~source |> checked).value
-      in
-      let original = compile () and foreign = compile () in
-      let functions =
-        List.map2
-          (fun (a : VM.function_definition) (b : VM.function_definition) ->
-            { a with frame = b.frame })
-          (integer_program_functions original)
-          (integer_program_functions foreign)
-      in
-      match
-        VM.execute_program
-          ~runtime_calls:(integer_program_runtime_calls original)
-          ~globals:(integer_program_globals original)
-          ~initialization:(integer_program_initialization original)
-          ~max_steps:100_000 ~max_frame_bytes:1024 ~max_call_depth:16 ~functions
-          (integer_program_entry original)
-      with
-      | Ok _ -> Alcotest.fail "equal names and sizes admitted a foreign frame"
-      | Error errors ->
-          List.iter
-            (fun (e : VM.error) ->
-              Alcotest.(check int)
-                "ownership failure precedes execution" 0 e.executed_steps)
-            errors)
-    modes
+  let check source_contents =
+    List.iter
+      (fun mode ->
+        let compile () =
+          let session, config, source = inputs mode source_contents in
+          (compile_integer_program session ~config ~source |> checked).value
+        in
+        let original = compile () and foreign = compile () in
+        let functions =
+          List.map2
+            (fun (a : VM.function_definition) (b : VM.function_definition) ->
+              { a with frame = b.frame })
+            (integer_program_functions original)
+            (integer_program_functions foreign)
+        in
+        match
+          VM.execute_program
+            ~runtime_calls:(integer_program_runtime_calls original)
+            ~globals:(integer_program_globals original)
+            ~initialization:(integer_program_initialization original)
+            ~max_steps:100_000 ~max_frame_bytes:1024 ~max_call_depth:16
+            ~functions
+            (integer_program_entry original)
+        with
+        | Ok _ -> Alcotest.fail "equal names and sizes admitted a foreign frame"
+        | Error errors ->
+            List.iter
+              (fun (e : VM.error) ->
+                Alcotest.(check int)
+                  "ownership failure precedes execution" 0 e.executed_steps)
+              errors)
+      modes
+  in
+  List.iter check [ Cases.quota_source; Arrays.quota_source ]
 
 let field_proofs () =
-  List.iter
-    (fun mode ->
-      let _, own, invalid = Aggregate_member_fixture.controls mode in
-      let execute definition =
-        VM.execute_function ~max_steps:100_000 ~max_frame_bytes:1024
-          ~frame:definition.VM.frame ~arguments:[] definition.body
-      in
-      (match execute own with
-      | Ok value ->
-          Alcotest.(check (option int64))
-            "rebuilt own proof executes" (Some 42L)
-            (match VM.termination value with
-            | VM.Returned word -> Option.map (fun w -> w.VM.bits) word
-            | _ -> None)
-      | Error errors ->
-          Alcotest.fail
-            (String.concat "; "
-               (List.map
-                  (fun (e : VM.error) -> e.code ^ ": " ^ e.message)
-                  errors)));
-      List.iter
-        (fun (name, definition) ->
-          match execute definition with
-          | Ok _ -> Alcotest.fail (name ^ " executed")
-          | Error errors ->
-              List.iter
-                (fun (e : VM.error) ->
-                  Alcotest.(check int)
-                    (name ^ " precedes storage")
-                    0 e.executed_steps)
-                errors)
-        invalid)
-    modes
+  let check contents =
+    List.iter
+      (fun mode ->
+        let _, own, invalid =
+          Aggregate_member_fixture.controls ~contents mode
+        in
+        let execute definition =
+          VM.execute_function ~max_steps:100_000 ~max_frame_bytes:1024
+            ~frame:definition.VM.frame ~arguments:[] definition.body
+        in
+        (match execute own with
+        | Ok value ->
+            Alcotest.(check (option int64))
+              "rebuilt own proof executes" (Some 42L)
+              (match VM.termination value with
+              | VM.Returned word -> Option.map (fun w -> w.VM.bits) word
+              | _ -> None)
+        | Error errors ->
+            Alcotest.fail
+              (String.concat "; "
+                 (List.map
+                    (fun (e : VM.error) -> e.code ^ ": " ^ e.message)
+                    errors)));
+        List.iter
+          (fun (name, definition) ->
+            match execute definition with
+            | Ok _ -> Alcotest.fail (name ^ " executed")
+            | Error errors ->
+                List.iter
+                  (fun (e : VM.error) ->
+                    Alcotest.(check int)
+                      (name ^ " precedes storage")
+                      0 e.executed_steps)
+                  errors)
+          invalid)
+      modes
+  in
+  List.iter check [ Aggregate_member_fixture.contents; Arrays.proof_source ]
 
 let boundaries () =
   List.iter
@@ -166,7 +185,7 @@ let boundaries () =
             name true
             (Result.is_error
                (integer_program_report_outcome (run mode contents))))
-        Cases.unsupported)
+        (Cases.unsupported @ Arrays.unsupported))
     modes
 
 let () =
@@ -179,7 +198,8 @@ let () =
                 List.iter
                   (fun mode -> ignore (value expected output (run mode source)))
                   modes))
-          (Cases.values @ Cases.view_matrix) );
+          (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix)
+      );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, extents and fresh activations"

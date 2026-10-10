@@ -1,5 +1,12 @@
 # Reference source map
 
+Automatic aggregate arrays consume `PrsVar.HC:530-531,590-618`: multiply
+the selected class size by the dimension total, then place the allocation in
+the local frame. `PrsExp.HC:1057-1100` scales indices by the remaining dimension
+product and selected element size. Hosted frame facts retain those dimensions
+and keep element size separate from total extent and byte storage. See
+[automatic aggregate arrays](aggregate-members.md#automatic-aggregate-arrays).
+
 Owned aggregate members follow `PrsExp.HC:967-1015` selected member lookup,
 offset and address addition, and `1057-1100` remaining array strides. Original
 dereference, update, address-taking and assignment checks are at

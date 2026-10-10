@@ -1,14 +1,18 @@
 # Testing holyc-ocaml
 
-Aggregate member execution has 31 IR and 31 native test groups. Independent
+Aggregate member and automatic root array execution has 58 IR and 58 native test groups. Independent
 source expectations cover direct and pointer fields, nested aggregates,
-multidimensional member arrays, class pointer locals and parameters, aliases,
+multidimensional member and root arrays, dynamic indices, root and row decay,
+class pointer locals and parameters, aliases,
 all nine integer widths, union overlap, padding and shadowing. Unknown-byte and
 extent faults retain reached output. IR mutation controls validate exact field
 proofs before execution; native controls reject changed sealed graphs before
 image allocation. Exact and one-below runtime frame, instruction, native stack
 and encoded-image quotas cover both modes and native ABIs. The actual CLI runs
-114 IR reports and 229 with native execution. Whole aggregate values, copies,
+226 IR reports and 453 with native execution, including unused-array warnings.
+Root-array mutation controls reject changed strides and foreign frames before
+IR execution; exact quotas cover both scalar and array allocations.
+Whole aggregate values, copies,
 pointer fields, inherited storage and retained JIT imports stay unsupported.
 These hosted checks have no TempleOS runtime capture. See
 [owned aggregate members](aggregate-members.md).
@@ -20,7 +24,7 @@ primitive parameters and all nine integer view spellings. Fault controls retain
 reached output while rejecting unknown bytes and accesses beyond the original
 object. Fresh activations have independent initialization state. Foreign frames
 fail before execution; incomplete or inherited layouts, persistent objects,
-standalone aggregate arrays, copies and numeric ownership remain rejected.
+aggregate pointer arrays, copies and numeric ownership remain rejected.
 Runtime frame and instruction quotas have exact and one-below checks. Native
 image checks cover both ABIs, stack and encoded-byte quotas, and fresh host
 execution. CLI controls run 96 reports for IR and 193 with native execution.

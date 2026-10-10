@@ -52,8 +52,11 @@ TempleOS runtime capture.
 and pointer integer fields, nested fields, member arrays and owned class pointer
 locals and parameters. Inheritance still follows a separate metadata path that
 grants no runtime layout authority. Retained JIT commands cannot import
-aggregate object storage through this path. Zero-sized objects, standalone
-aggregate arrays, persistent objects, whole-object values and copies, pointer
+aggregate object storage through this path. Automatic aggregate arrays use
+the same bytes with their original dimensions and selected element size;
+[owned aggregate members](aggregate-members.md#automatic-aggregate-arrays)
+describes their execution. Zero-sized objects, persistent objects,
+whole-object values and copies, pointer
 and callback fields, pointer returns and original named-local size/position
 queries remain unfinished. A class defined inside a function also lacks the
 required earlier layout. These boundaries remain under

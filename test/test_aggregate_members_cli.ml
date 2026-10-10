@@ -1,5 +1,6 @@
 open Yojson.Safe.Util
 module Cases = Aggregate_member_cases
+module Arrays = Aggregate_array_cases
 
 let require condition message = if not condition then failwith message
 
@@ -22,11 +23,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3 || Array.length Sys.argv = 4)
-    "expected compiler and example, optionally --native"
+    (Array.length Sys.argv = 4 || Array.length Sys.argv = 5)
+    "expected compiler and member/array examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 4 && Sys.argv.(3) = "--native"
+let native = Array.length Sys.argv = 5 && Sys.argv.(4) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -74,13 +75,24 @@ let hex bytes =
   |> Seq.map (fun c -> Printf.sprintf "%02x" (Char.code c))
   |> List.of_seq |> String.concat ""
 
-let value expected output report =
+let value ?(unused_array = false) expected output report =
   require
     (member "outcome" report = `String "success")
     (Yojson.Safe.to_string report);
-  require
-    (member "diagnostics" report = `List [])
-    "unexpected aggregate diagnostics";
+  if unused_array then (
+    let diagnostics = member "diagnostics" report |> to_list in
+    require (List.length diagnostics = 1) "unused array warning count";
+    let warning = List.hd diagnostics in
+    require
+      (member "code" warning = `String "HCSEMA0034"
+      && member "severity" warning = `String "warning"
+      && member "message" warning
+         = `String "unused variable \"objects\" in function \"F\"")
+      "unused array keeps its original warning")
+  else
+    require
+      (member "diagnostics" report = `List [])
+      ("unexpected aggregate diagnostics: " ^ Yojson.Safe.to_string report);
   require
     (report |> member "final_value" |> member "value"
     = `String (Int64.to_string expected))
@@ -110,14 +122,19 @@ let () =
       List.iter
         (fun target ->
           List.iter
-            (fun (_, source, word, output) ->
-              value word output (invoke target mode source))
-            (Cases.values @ Cases.view_matrix);
+            (fun (name, source, word, output) ->
+              value
+                ~unused_array:(name = "unused automatic aggregate array")
+                word output
+                (invoke target mode source))
+            (Cases.values @ Cases.view_matrix @ Arrays.values
+           @ Arrays.view_matrix);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
+          value 42L "AB" (invoke target mode (read Sys.argv.(3)));
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
-            Cases.faults;
+            (Cases.faults @ Arrays.faults);
           List.iter
             (fun (definition, bytes) ->
               value 42L ""
@@ -127,28 +144,39 @@ let () =
                 (invoke ~status:1 target mode
                    (Cases.extent_source definition bytes)))
             Cases.extents;
-          let baseline = invoke target mode Cases.quota_source in
-          value 42L "" baseline;
-          let steps = baseline |> member "executed_steps" |> to_int in
-          value 42L ""
-            (invoke
-               ~options:
-                 [
-                   "--frame-byte-limit=24";
-                   "--step-limit=" ^ string_of_int steps;
-                 ]
-               target mode Cases.quota_source);
-          error ~code:"HCIRVM0011" ""
-            (invoke ~status:1
-               ~options:[ "--frame-byte-limit=23" ]
-               target mode Cases.quota_source);
-          error ~code:"HCIRVM0007" ""
-            (invoke ~status:1
-               ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
-               target mode Cases.quota_source);
+          List.iter
+            (fun ((_, _, bytes) as extent) ->
+              value 42L ""
+                (invoke target mode (Arrays.extent_source extent (bytes - 1)));
+              error ~code:"HCIRVM0019" ""
+                (invoke ~status:1 target mode
+                   (Arrays.extent_source extent bytes)))
+            Arrays.extents;
+          List.iter
+            (fun quota_source ->
+              let baseline = invoke target mode quota_source in
+              value 42L "" baseline;
+              let steps = baseline |> member "executed_steps" |> to_int in
+              value 42L ""
+                (invoke
+                   ~options:
+                     [
+                       "--frame-byte-limit=24";
+                       "--step-limit=" ^ string_of_int steps;
+                     ]
+                   target mode quota_source);
+              error ~code:"HCIRVM0011" ""
+                (invoke ~status:1
+                   ~options:[ "--frame-byte-limit=23" ]
+                   target mode quota_source);
+              error ~code:"HCIRVM0007" ""
+                (invoke ~status:1
+                   ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+                   target mode quota_source))
+            [ Cases.quota_source; Arrays.quota_source ];
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
-            Cases.unsupported)
+            (Cases.unsupported @ Arrays.unsupported))
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then

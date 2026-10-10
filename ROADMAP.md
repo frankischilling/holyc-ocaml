@@ -1,11 +1,11 @@
 # holyc-ocaml roadmap
 
 Issue #686 now has direct and pointer integer member execution, nested fields,
-multidimensional member arrays and owned class pointer locals and parameters in
+multidimensional member and automatic root arrays, and owned class pointer locals and parameters in
 isolated IR and native programs. Exact field proofs retain the completed
 earlier layout over the existing automatic byte storage. Inherited storage,
-retained JIT imports, standalone aggregate arrays, persistent objects,
-whole-object values and copies, pointer fields and pointer returns remain open.
+retained JIT imports, persistent objects, whole-object values and copies,
+pointer fields, generic class pointer indexing and arithmetic, and pointer returns remain open.
 See [owned aggregate members](docs/aggregate-members.md) and
 [automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
 

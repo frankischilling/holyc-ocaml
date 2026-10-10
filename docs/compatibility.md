@@ -4,12 +4,16 @@
 nonempty class and union objects from completed earlier layouts in isolated IR
 and native programs, in both modes. Explicit integer views retain overlap,
 padding, initialized bytes and the original extent. Inherited storage,
-retained JIT imports, standalone aggregate arrays, persistent objects,
+retained JIT imports, persistent objects,
 whole-object values and copies, pointer fields and pointer returns remain
 outside this slice of #686. [Owned aggregate members](aggregate-members.md)
 support direct and pointer integer fields, nested fields, multidimensional
 member arrays and owned class pointer locals and fixed parameters. Their
 immutable field proofs retain the exact selected layout and original storage.
+Automatic class and union arrays also preserve their selected element size,
+original dimensions and total extent. Indexed element addresses and root/row
+decay can enter class pointer parameters; generic class pointer indexing and
+arithmetic still require a separate selected pointee layout.
 
 [Unknown expression operands](compiler-exceptions.md#expression-failures-and-cleanup)
 throw at their original absent lexer selection, before another read or a

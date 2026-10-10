@@ -779,7 +779,7 @@ let local_fact ?selected_aggregate ?selected_owner visible (symbol, ast) =
       ~callback_metadata:(Option.is_some ast.function_pointer)
       ~automatic_object_metadata:
         (ast.storage = Sema.Local_type_resolution.Automatic
-        && ast.array_dimensions = []
+        && (ast.array_dimensions = [] || ast.pointer_layers = [])
         && Option.is_none ast.function_pointer)
       visible ast.type_specifier ast.pointer_layers
   with

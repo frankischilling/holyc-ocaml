@@ -1,10 +1,11 @@
 type t
 
 val of_location : Sema.Function_frame_layout.location -> t option
-(** Admit one nonempty automatic aggregate object from its immutable checked
-    frame location. Its contents use individual, initially unknown byte cells.
-    This does not admit aggregate values, array decay, or member projections. *)
+(** Admit nonempty scalar or array automatic aggregate storage from its exact
+    checked frame location. Original dimensions multiply the selected element
+    size; all contents use individual, initially unknown byte cells. *)
 
+val element_size : t -> int
 val byte_size : t -> int
 val byte_type : Sema.Type.t
 val byte_scalar : Integer_scalar_storage.t
