@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Local aggregate `sizeof`](local-aggregate-sizeof.md) supports named class and
+union locals, fixed arrays and value parameters. Queries retain exact selected
+class identities, current layout snapshots and runtime bound or offset
+dependencies. Scalar pointer and callback locals retain pointer-sized results;
+arrays include their original dimension count.
+
 [Function-local class and union objects](function-local-aggregate-objects.md)
 retain the layout available at their original declaration and expression
 positions. Automatic members, arrays, inherited objects and class pointer

@@ -1,5 +1,11 @@
 # Retained aggregate sizes
 
+[Local class and union size queries](local-aggregate-sizeof.md) retain the
+original selected type and query-time layout, including class parameters and
+arrays. Completing a selected forward can change a later query without
+rewriting an earlier result. Runtime layout dependencies stay attached to
+the saved size.
+
 [Class value parameters](class-value-parameters.md) use owned eight-byte slots
 while retaining nominal member layouts, scalar views and pointer strides.
 

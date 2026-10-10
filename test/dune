@@ -5287,6 +5287,27 @@
    %{dep:../examples/function-local-aggregate-objects.hc})))
 
 (test
+ (name test_local_aggregate_sizeof)
+ (modules test_local_aggregate_sizeof local_aggregate_sizeof_cases)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_local_aggregate_sizeof_authority)
+ (modules test_local_aggregate_sizeof_authority)
+ (libraries holyc_lib alcotest))
+
+(test
+ (name test_local_aggregate_sizeof_cli)
+ (modules test_local_aggregate_sizeof_cli)
+ (libraries unix yojson)
+ (deps ../examples/local-aggregate-sizeof.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/local-aggregate-sizeof.hc})))
+
+(test
  (name test_stream_generation_cli)
  (modules test_stream_generation_cli)
  (libraries unix yojson)

@@ -1,5 +1,9 @@
 # Classes and layout
 
+[Local aggregate `sizeof`](local-aggregate-sizeof.md) reads the selected class
+size at the original query and multiplies it by the local's checked array
+extent. Parameter slot width and automatic allocation size remain separate.
+
 [Class value returns](class-value-returns.md) carry qualified integer
 register words while preserving nominal declaration types. Object reads
 use the selected scalar prefix; register results retain the full word.

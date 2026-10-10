@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+Local class and union `sizeof` queries now use the original selected layout and
+array dimensions, including fixed value parameters and function-local types.
+Later same-name classes leave earlier selections intact. The
+[size example](examples/local-aggregate-sizeof.hc) prints `3 18 8 8 8` and returns
+45 through IR and native execution. See [local aggregate sizes](docs/local-aggregate-sizeof.md).
+
 Unknown identifiers used as expression operands now fail at the original
 lexer selection, before a later directive, declaration or lexer error can run.
 The counted `Compiler` cause and owned expression cleanup survive a caught

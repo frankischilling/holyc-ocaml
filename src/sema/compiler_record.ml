@@ -1895,8 +1895,8 @@ let read_sizeof ~table ~(root : Parser.query_root) (record : t) =
       when entry == record.entry -> Ok { owner = Hash_record record; root }
     | _ -> Error "sizeof read does not select this exact compiler record"
 
-let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
-    ~(root : Parser.query_root) =
+let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
+    ~function_publication ~(root : Parser.query_root) =
   if
     (not (Declaration_collection.namespace_owns_table namespace table))
     || not
@@ -1934,8 +1934,8 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
                 (* PrsType (PrsVar.HC:350-356) assigns the RT_PTR companion
                  class, independently of the signature's return type. The
                  original declarator is retained by this local publication. *)
-                Ok (Int64.of_int Primitive_type.pointer_byte_size, false)
-          | None ->
+                Ok (Int64.of_int Primitive_type.pointer_byte_size, false, None)
+          | None -> (
               let* pointer_depth =
                 Source_type_reference.pointer_depth pointer_layers
               in
@@ -1944,32 +1944,64 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
                    declaration to its pointer companion while consuming the
                    original '*' children. sizeof therefore needs no pointee
                    layout or value load for this retained type query. *)
-                Ok (Int64.of_int Primitive_type.pointer_byte_size, false)
+                Ok (Int64.of_int Primitive_type.pointer_byte_size, false, None)
               else
-                let* type_reference =
-                  Source_type_reference.builtin type_specifier pointer_layers
-                in
-                let type_ = Type_reference.resolved_type type_reference in
-                let* byte_size = scalar_size type_ in
-                let internal =
-                  Type.pointer_depth type_ = 0
-                  &&
-                  match Type.base type_ with
-                  | Type.Primitive (Type.Internal_storage, _) -> true
-                  | Type.Primitive (Type.Public_spelling, primitive) ->
-                      (Primitive_type.info primitive).declaration_form
-                      = Primitive_type.Internal_type
-                  | Type.Aggregate _ -> false
-                in
-                Ok (byte_size, internal)
+                match type_specifier with
+                | Ast.Named_type_specifier _ -> (
+                    if not (Parser.query_root_is_current root) then
+                      Error
+                        "local class sizeof requires its original live query"
+                    else
+                      match aggregate with
+                      | None ->
+                          Error
+                            "local class sizeof lacks its selected aggregate \
+                             layout"
+                      | Some (selected, record) ->
+                          let* () =
+                            Source_type_reference.validate_selected_aggregate
+                              ~table ~namespace selected
+                          in
+                          let* reference =
+                            Source_type_reference.selected_header_class selected
+                              type_specifier pointer_layers
+                          in
+                          let* byte_size =
+                            return_class_size ~table ~namespace
+                              ~type_:(Type_reference.resolved_type reference)
+                              ~aggregate:(Some record)
+                          in
+                          (* PrsSizeOf reads member_class->size at this query,
+                             independently of the earlier local allocation or
+                             argument slot. The saved value remains immutable. *)
+                          Ok (byte_size, false, Some record))
+                | Ast.Primitive_type_specifier _ | Ast.Internal_type_specifier _
+                  ->
+                    let* type_reference =
+                      Source_type_reference.builtin type_specifier
+                        pointer_layers
+                    in
+                    let type_ = Type_reference.resolved_type type_reference in
+                    let* byte_size = scalar_size type_ in
+                    let internal =
+                      Type.pointer_depth type_ = 0
+                      &&
+                      match Type.base type_ with
+                      | Type.Primitive (Type.Internal_storage, _) -> true
+                      | Type.Primitive (Type.Public_spelling, primitive) ->
+                          (Primitive_type.info primitive).declaration_form
+                          = Primitive_type.Internal_type
+                      | Type.Aggregate _ -> false
+                    in
+                    Ok (byte_size, internal, None))
         in
-        let* byte_size, internal =
+        let* byte_size, internal, aggregate_record =
           match source.local_source with
           | Parser.Local_parameter parameter ->
               declared_size parameter.type_specifier parameter.pointer_layers
                 parameter.function_pointer
           | Parser.Local_variable local ->
-              let* byte_size, internal =
+              let* byte_size, internal, aggregate_record =
                 declared_size local.local_type_specifier
                   local.local_pointer_layers local.local_function_pointer
               in
@@ -1979,18 +2011,20 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
                   ~dimensions:local.local_array_dimensions ~checked:dimensions
                   byte_size
               in
-              Ok (byte_size, internal)
+              Ok (byte_size, internal, aggregate_record)
           | Parser.Variadic_count _ ->
               Ok
                 ( Int64.of_int (Primitive_type.info Primitive_type.I64).byte_size,
-                  true )
+                  true,
+                  None )
           | Parser.Variadic_vector _ ->
               (* PrsVar.HC:392-403 gives argv an internal I64 class and a
                127-element extent, independently of its eight-byte slot. *)
               Ok
                 ( Int64.of_int
                     (127 * (Primitive_type.info Primitive_type.I64).byte_size),
-                  true )
+                  true,
+                  None )
         in
         Ok
           {
@@ -2002,9 +2036,17 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
                   byte_size;
                   internal;
                   runtime_dimensions =
-                    List.concat_map dimension_runtime_dependencies dimensions;
+                    merge_dimension_dependencies
+                      (Option.fold ~none:[]
+                         ~some:(fun (record : t) -> record.runtime_dimensions)
+                         aggregate_record)
+                      (List.concat_map dimension_runtime_dependencies dimensions);
                   runtime_offsets =
-                    List.concat_map dimension_offset_dependencies dimensions;
+                    merge_offset_dependencies
+                      (Option.fold ~none:[]
+                         ~some:(fun (record : t) -> record.runtime_offsets)
+                         aggregate_record)
+                      (List.concat_map dimension_offset_dependencies dimensions);
                 };
             root;
           }

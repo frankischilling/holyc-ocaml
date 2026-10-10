@@ -451,11 +451,17 @@ val complete_sizeof :
 
 val read_local_sizeof :
   dimensions:declared_dimension list ->
+  aggregate:(Source_type_reference.selected_aggregate * t) option ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
   function_publication:Declaration_collection.publication ->
   root:Frontend.Parser.query_root ->
   (sizeof_read, string) result
+(** Read the original local's declared class and array extent. Named values
+    require the exact selected type proof and its current aggregate record at
+    the live query callback. The immutable result retains layout dependencies,
+    not storage or execution authority. Pointer and callback types use pointer
+    size before local array extents. *)
 
 val sizeof_value : sizeof_read -> pointer:bool -> int64
 val sizeof_primitive : sizeof_read -> Primitive_type.t option
