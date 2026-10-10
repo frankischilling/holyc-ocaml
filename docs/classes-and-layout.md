@@ -5,7 +5,9 @@ nonempty, completed earlier class and union layouts to isolated IR and native
 frame storage. Explicit integer views share packed bytes, union overlap,
 padding, initialization and bounds. [Owned aggregate members](aggregate-members.md)
 add direct and pointer integer fields, nested fields, member and automatic root arrays, and class
-pointer locals and parameters. Inherited storage, retained JIT imports,
+pointer locals and parameters. [Class pointer operations](class-pointers.md)
+retain exact earlier pointee layouts for indexing, arithmetic and updates.
+Inherited storage, retained JIT imports,
 persistent objects, whole-object values and copies,
 pointer fields and pointer returns remain unfinished.
 

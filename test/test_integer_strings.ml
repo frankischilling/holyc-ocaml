@@ -147,7 +147,7 @@ let explicit_boundaries () =
           "I64 F(){U8 *s=\"*\";return s(I64);}F();";
           "U8 *F(){return \"*\";}42;";
           "I64 F(){U8 *s=\"*\";return s;}F();";
-          "I64 F(){U8 *s=\"*\";s++;return *s;}F();";
+          "I64 F(){U8 *s=\"*\";s*=1;return *s;}F();";
           "I64 F(){I64 n=42;U64i *p=&n;return *p;}F();";
         ];
       List.iter

@@ -150,9 +150,6 @@ let unsupported =
       {|class Box{U8 byte;};I64 F(){Box a[2];a[0]=a[1];return 42;}F();|} );
     ( "class pointer array has no per-element ownership",
       {|class Box{U8 byte;};I64 F(){Box *a[2];return 42;}F();|} );
-    ( "generic class pointer indexing needs its selected pointee stride",
-      {|class Box{U16 value;};I64 F(){Box a[2];Box *p=a;p[1].value=42;return p[1].value;}F();|}
-    );
   ]
 
 let extents =

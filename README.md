@@ -539,7 +539,10 @@ and pointer field access, nested fields, multidimensional member arrays and
 owned class pointer locals and parameters. `examples/aggregate-members.hc`
 also prints `AB` and returns 42. Automatic class and union arrays retain their
 selected element size and dimensions; `examples/aggregate-arrays.hc` passes an
-indexed element to a callee, prints `AB` and returns 42. Inherited storage,
+indexed element to a callee, prints `AB` and returns 42.
+[Class pointer operations](docs/class-pointers.md) retain selected pointee
+strides for indexing, arithmetic, difference, comparisons and updates;
+`examples/class-pointers.hc` also prints `AB` and returns 42. Inherited storage,
 retained JIT imports, persistent objects, whole-object values and copies,
 pointer fields and pointer returns remain open under issue #686.
 

@@ -47,6 +47,7 @@ type expression_result = {
   binary_operands : (expression_result * expression_result) option;
   index_operands : (expression_result * expression_result) option;
   member_base_result : expression_result option;
+  aggregate_pointee_layout : Aggregate_pointee_layout.t option;
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
@@ -774,6 +775,10 @@ let result_operand (result : expression_result) = result.operand_result
 let result_member_base (result : expression_result) = result.member_base_result
 let result_binary_operands (result : expression_result) = result.binary_operands
 let result_index_operands (result : expression_result) = result.index_operands
+
+let result_aggregate_pointee_layout (result : expression_result) =
+  result.aggregate_pointee_layout
+
 let result_type (result : expression_result) = result.source_type
 
 let result_callback_pointer (result : expression_result) =
@@ -1602,10 +1607,10 @@ let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
 let make_result ?operand_result ?binary_operands ?index_operands
-    ?member_base_result ?(array_rank = 0) ?(array_address = false)
-    ?execution_class ?member_lookup ?callback_pointer ?aggregate_offset_path
-    ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
-    ?call_resolution ?function_declaration ?function_address_path
+    ?member_base_result ?aggregate_pointee_layout ?(array_rank = 0)
+    ?(array_address = false) ?execution_class ?member_lookup ?callback_pointer
+    ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
+    ?outer_binding ?call_resolution ?function_declaration ?function_address_path
     ?callback_call_pointer ?(intrinsic_conversion = No_intrinsic_conversion)
     state ~id ~source ~source_type ~category ~result_class =
   record state
@@ -1617,6 +1622,7 @@ let make_result ?operand_result ?binary_operands ?index_operands
       binary_operands;
       index_operands;
       member_base_result;
+      aggregate_pointee_layout;
       source_type;
       category;
       result_class;
@@ -1724,7 +1730,7 @@ let select_known_binary_type left right result_class =
 let scalar_pointer_integer_arithmetic_type left right =
   let pointer =
     match result_storage_type left with
-    | Some type_ when left.array_address && left.array_rank = 1 ->
+    | Some type_ when left.array_address && left.array_rank > 0 ->
         Result.to_option (Type.pointer_to type_)
     | type_ when left.array_rank = 0 -> type_
     | _ -> None
@@ -1743,6 +1749,7 @@ let scalar_pointer_integer_arithmetic_type left right =
           | Type.Primitive (_, primitive)
             when Option.is_some (Primitive_type.integer_storage_info primitive)
             -> Some pointer
+          | Type.Aggregate _ -> Some pointer
           | _ -> None)
       | _ -> None)
   | _ -> None
@@ -1750,7 +1757,7 @@ let scalar_pointer_integer_arithmetic_type left right =
 let scalar_pointer_difference left right =
   let pointer result =
     match result_storage_type result with
-    | Some type_ when result.array_address && result.array_rank = 1 ->
+    | Some type_ when result.array_address && result.array_rank > 0 ->
         Result.to_option (Type.pointer_to type_)
     | type_ when result.array_rank = 0 -> type_
     | _ -> None
@@ -1766,7 +1773,7 @@ let scalar_pointer_difference left right =
           match Type.base pointee with
           | Type.Primitive (_, primitive) ->
               Option.is_some (Primitive_type.integer_storage_info primitive)
-          | _ -> false)
+          | Type.Aggregate _ -> true)
       | _ -> false)
   | _ -> false
 
@@ -3092,6 +3099,10 @@ and type_prefix table members policies ~before_item_index ~context
           ?function_address_path ?callback_pointer category result_class =
         Ok
           (make_result ~operand_result:operand ~array_rank ?function_declaration
+             ?aggregate_pointee_layout:
+               (Option.bind (result_storage_type operand) (fun pointer_type ->
+                    Aggregate_pointee_layout.create ~members ~before_item_index
+                      ~pointer_type))
              ?function_address_path ?callback_pointer ~intrinsic_conversion
              state ~id ~source ~source_type ~category ~result_class)
       in
@@ -3272,6 +3283,10 @@ and type_index table members policies ~before_item_index ~context
         | Ok (index_value, state) ->
             Ok
               (make_result ~index_operands:(base, index_value)
+                 ?aggregate_pointee_layout:
+                   (Option.bind (result_storage_type base) (fun pointer_type ->
+                        Aggregate_pointee_layout.create ~members
+                          ~before_item_index ~pointer_type))
                  ?callback_pointer:base.callback_pointer
                  ~array_address:(base.array_address && array_rank > 0)
                  ~array_rank ?member_lookup ~intrinsic_conversion state ~id
@@ -3493,8 +3508,12 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
       | Error _ as error -> error
       | Ok () ->
           Ok
-            (make_result ~operand_result:operand ~intrinsic_conversion state ~id
-               ~source
+            (make_result ~operand_result:operand ~intrinsic_conversion
+               ?aggregate_pointee_layout:
+                 (Option.bind (result_storage_type operand) (fun pointer_type ->
+                      Aggregate_pointee_layout.create ~members
+                        ~before_item_index ~pointer_type))
+               state ~id ~source
                ~source_type:(result_storage_type operand)
                ~category:Object_value ~result_class:operand.result_class))
 
@@ -3570,6 +3589,9 @@ and type_assignment table members policies ~before_item_index
               | Ok (right, state) ->
                   Ok
                     (make_result ~binary_operands:(left, right) ~execution_class
+                       ?aggregate_pointee_layout:
+                         (Aggregate_pointee_layout.create ~members
+                            ~before_item_index ~pointer_type:destination_type)
                        ~intrinsic_conversion state ~id ~source
                        ~source_type:(Some destination_type)
                        ~category:Object_value ~result_class:destination_class)))
@@ -3675,6 +3697,16 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
               in
               Ok
                 (make_result ~binary_operands:(left, right)
+                   ?aggregate_pointee_layout:
+                     (Option.bind (result_storage_type left) (fun type_ ->
+                          let pointer =
+                            if left.array_address && left.array_rank > 0 then
+                              Result.to_option (Type.pointer_to type_)
+                            else Some type_
+                          in
+                          Option.bind pointer (fun pointer_type ->
+                              Aggregate_pointee_layout.create ~members
+                                ~before_item_index ~pointer_type)))
                    ~intrinsic_conversion state ~id ~source ~source_type
                    ~category:
                      (if

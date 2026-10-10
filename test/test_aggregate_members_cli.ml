@@ -1,6 +1,7 @@
 open Yojson.Safe.Util
 module Cases = Aggregate_member_cases
 module Arrays = Aggregate_array_cases
+module Pointers = Aggregate_pointer_cases
 
 let require condition message = if not condition then failwith message
 
@@ -23,11 +24,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4 || Array.length Sys.argv = 5)
-    "expected compiler and member/array examples, optionally --native"
+    (Array.length Sys.argv = 5 || Array.length Sys.argv = 6)
+    "expected compiler and member/array/pointer examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 5 && Sys.argv.(4) = "--native"
+let native = Array.length Sys.argv = 6 && Sys.argv.(5) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -128,13 +129,14 @@ let () =
                 word output
                 (invoke target mode source))
             (Cases.values @ Cases.view_matrix @ Arrays.values
-           @ Arrays.view_matrix);
+           @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "AB" (invoke target mode (read Sys.argv.(3)));
+          value 42L "AB" (invoke target mode (read Sys.argv.(4)));
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
-            (Cases.faults @ Arrays.faults);
+            (Cases.faults @ Arrays.faults @ Pointers.faults);
           List.iter
             (fun (definition, bytes) ->
               value 42L ""
@@ -153,7 +155,7 @@ let () =
                    (Arrays.extent_source extent bytes)))
             Arrays.extents;
           List.iter
-            (fun quota_source ->
+            (fun (quota_source, frame_bytes) ->
               let baseline = invoke target mode quota_source in
               value 42L "" baseline;
               let steps = baseline |> member "executed_steps" |> to_int in
@@ -161,22 +163,27 @@ let () =
                 (invoke
                    ~options:
                      [
-                       "--frame-byte-limit=24";
+                       "--frame-byte-limit=" ^ string_of_int frame_bytes;
                        "--step-limit=" ^ string_of_int steps;
                      ]
                    target mode quota_source);
               error ~code:"HCIRVM0011" ""
                 (invoke ~status:1
-                   ~options:[ "--frame-byte-limit=23" ]
+                   ~options:
+                     [ "--frame-byte-limit=" ^ string_of_int (frame_bytes - 1) ]
                    target mode quota_source);
               error ~code:"HCIRVM0007" ""
                 (invoke ~status:1
                    ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
                    target mode quota_source))
-            [ Cases.quota_source; Arrays.quota_source ];
+            [
+              (Cases.quota_source, 24);
+              (Arrays.quota_source, 24);
+              (Pointers.quota_source, Pointers.quota_frame_bytes);
+            ];
           List.iter
             (fun (_, source) -> error "" (invoke ~status:1 target mode source))
-            (Cases.unsupported @ Arrays.unsupported))
+            (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported))
         (if native then [ "ir"; "host-jit" ] else [ "ir" ]))
     [ "jit"; "aot" ];
   if native then

@@ -527,6 +527,11 @@ val result_member_base : expression_result -> expression_result option
     its selected aggregate identity and source value category. Other forms
     return [None]. *)
 
+val result_aggregate_pointee_layout :
+  expression_result -> Aggregate_pointee_layout.t option
+(** The exact earlier pointee layout selected by a class pointer operation,
+    retained with the original function item. *)
+
 val result_binary_operands :
   expression_result -> (expression_result * expression_result) option
 (** Return the exact checked left and right children of a binary result in

@@ -92,9 +92,11 @@ fixtures check values, captures, full computed words, original overflow/bounds
 faults and once-only retained defaults.
 
 [Equality](pointer-equality.md) compares original object identity and offset.
-Raw difference, raw ordering, integer-left operations, compound pointer updates,
-casts, escaping/returned/persistent pointer variables, deeper pointers,
-aggregate pointees and direct multi-rank array arithmetic remain under
+[Owned class pointers](class-pointers.md) add selected aggregate pointee
+strides, pointer updates and multidimensional array decay arithmetic. Primitive
+integer pointer updates use that same checked path. Raw difference, raw
+ordering, integer-left operations, casts, escaping/returned/persistent pointer
+variables and deeper pointers remain under
 #687/#699/#700. Native retained tasks remain under #704, larger native images
 under #703, and full ABI, artifacts, BIN/loader and bootstrap acceptance under
 #702/#682. Expectations come from the pinned source and hosted execution.

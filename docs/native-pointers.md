@@ -114,10 +114,15 @@ Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals
 use the [persistent storage](native-persistent-storage.md) path. Persistent pointer
 variables, pointer returns and
-raw address ordering, null/integer conversions, raw pointer difference and compound
-pointer updates, deeper indirection, pointer-valued arrays, aggregates, foreign calls and
+raw address ordering, null/integer conversions, raw pointer difference, deeper
+indirection, pointer-valued arrays, whole aggregate values, foreign calls and
 the full HolyC ABI remain unfinished native work. This feature does not produce
 objects or BIN files, establish loader acceptance, or complete the compiler.
+
+[Owned class pointers](class-pointers.md) now support generic indexing,
+arithmetic, difference, comparisons and updates over exact earlier automatic
+layouts. Primitive integer pointer locals and parameters also support prefix,
+postfix and compound updates through the same checked reference path.
 
 ## Evidence and verification
 
