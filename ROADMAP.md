@@ -1,5 +1,11 @@
 # holyc-ocaml roadmap
 
+Issue #822 connects original class and union member `sizeof` queries to IR and
+native execution. Named type, automatic object and parameter roots retain
+selected member identities, per-member array counts and immutable query-time
+sizes. Persistent object storage and builtin public-union field metadata remain
+under #686. See [member sizes](docs/aggregate-member-sizeof.md).
+
 Issue #818 adds automatic objects for classes and unions declared inside a
 function. Original declaration and expression positions admit their completed
 layouts while preserving exact types, function identities and retained JIT

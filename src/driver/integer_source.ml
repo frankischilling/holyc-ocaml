@@ -251,9 +251,23 @@ let prepare_unit ?environment:task_environment ?declaration_command
       ~headers ~members:collected_members ast
     |> checked
   in
+  let* original_fields =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.aggregate_field_resolver ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_aggregate_field_resolver ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
   let* layouts =
     Aggregate_layout.layout ~original_definitions ~inherited_metadata ?offsets
-      ?prepared ~table ~declarations ~aggregates ~headers ~members ast
+      ?prepared ?original_fields ~table ~declarations ~aggregates ~headers
+      ~members ast
     |> checked
   in
   let* () =

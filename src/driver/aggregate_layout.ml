@@ -206,7 +206,7 @@ let validate_member fact path declarator_index
     then Error "aggregate layout member does not match its array dimensions"
     else Ok ()
 
-let field ~dimension fact path declarator_index
+let field ~dimension ~original_member ~type_specifier fact path declarator_index
     (declarator : Frontend.Ast.aggregate_member_declarator) =
   let ( let* ) = Result.bind in
   let* () = validate_member fact path declarator_index declarator in
@@ -219,20 +219,22 @@ let field ~dimension fact path declarator_index
     | Sema.Member_type_resolution.Object -> false
     | Sema.Member_type_resolution.Function_pointer _ -> true
   in
-  Ok
-    (Sema.Aggregate_layout.Field
-       {
-         member_symbol = Sema.Member_type_resolution.member_symbol fact;
-         member_path = path;
-         member_declarator_index = declarator_index;
-         member_origin = origin declarator.member_declarator_location;
-         member_type =
-           Sema.Member_type_resolution.type_reference_type type_reference;
-         member_is_function_pointer;
-         member_dimensions;
-       })
+  let input : Sema.Aggregate_layout.member_input =
+    {
+      member_symbol = Sema.Member_type_resolution.member_symbol fact;
+      member_path = path;
+      member_declarator_index = declarator_index;
+      member_origin = origin declarator.member_declarator_location;
+      member_type =
+        Sema.Member_type_resolution.type_reference_type type_reference;
+      member_is_function_pointer;
+      member_dimensions;
+    }
+  in
+  let* () = original_member type_specifier declarator input in
+  Ok (Sema.Aggregate_layout.Field input)
 
-let declaration_items ~dimension path
+let declaration_items ~dimension ~original_member path
     (declaration : Frontend.Ast.aggregate_member_declaration) facts =
   let rec loop index items_rev facts = function
     | [] -> Ok (List.rev items_rev, facts)
@@ -240,12 +242,16 @@ let declaration_items ~dimension path
         match facts with
         | [] -> Error "aggregate layout is missing a resolved member"
         | fact :: fact_rest ->
-            Result.bind (field ~dimension fact path index declarator)
-              (fun item -> loop (index + 1) (item :: items_rev) fact_rest rest))
+            Result.bind
+              (field ~dimension ~original_member
+                 ~type_specifier:declaration.member_type_specifier fact path
+                 index declarator) (fun item ->
+                loop (index + 1) (item :: items_rev) fact_rest rest))
   in
   loop 0 [] facts declaration.Frontend.Ast.member_declarators
 
-let rec member_items ~offset ~dimension path_prefix members facts =
+let rec member_items ~offset ~dimension ~original_member path_prefix members
+    facts =
   let rec loop member_index items_rev facts = function
     | [] -> Ok (List.rev items_rev, facts)
     | member :: rest ->
@@ -253,7 +259,8 @@ let rec member_items ~offset ~dimension path_prefix members facts =
         let built =
           match member with
           | Frontend.Ast.Aggregate_member_declaration declaration ->
-              declaration_items ~dimension path declaration facts
+              declaration_items ~dimension ~original_member path declaration
+                facts
           | Frontend.Ast.Aggregate_offset_directive directive ->
               Result.map
                 (fun prepared ->
@@ -271,7 +278,7 @@ let rec member_items ~offset ~dimension path_prefix members facts =
                         };
                     ],
                     facts ))
-                (member_items ~offset ~dimension path
+                (member_items ~offset ~dimension ~original_member path
                    anonymous_union.anonymous_union_members facts)
           | Frontend.Ast.Empty_aggregate_member location ->
               Ok
@@ -330,15 +337,17 @@ let validate_definition ~table ~scope event header aggregate
   then Error "aggregate layout member scope does not belong to the module"
   else Ok ()
 
-let aggregate_input ~offset ~dimension ~table ~scope event header aggregate
-    definition =
+let aggregate_input ~offset ~dimension ~original_member ~table ~scope event
+    header aggregate definition =
   Result.bind
     (validate_definition ~table ~scope event header aggregate definition)
     (fun () ->
       let facts = Sema.Member_type_resolution.aggregate_members aggregate in
       Result.bind
-        (member_items ~offset ~dimension [] definition.Frontend.Ast.members
-           facts) (fun (items, remaining) ->
+        (member_items ~offset ~dimension
+           ~original_member:(original_member event.identity_symbol)
+           [] definition.Frontend.Ast.members facts)
+        (fun (items, remaining) ->
           if remaining <> [] then
             Error "aggregate layout has extra resolved members"
           else
@@ -365,8 +374,8 @@ let aggregate_input ~offset ~dimension ~table ~scope event header aggregate
                 aggregate_items = items;
               }))
 
-let inputs ~metadata_only ~offset ~dimension ~table ~scope events headers
-    aggregates =
+let inputs ~metadata_only ~offset ~dimension ~original_member ~table ~scope
+    events headers aggregates =
   let rec loop inputs_rev events headers aggregates =
     match events with
     | [] ->
@@ -381,8 +390,8 @@ let inputs ~metadata_only ~offset ~dimension ~table ~scope events headers
             match (headers, aggregates) with
             | header :: header_rest, aggregate :: aggregate_rest ->
                 Result.bind
-                  (aggregate_input ~offset ~dimension ~table ~scope event header
-                     aggregate definition) (fun input ->
+                  (aggregate_input ~offset ~dimension ~original_member ~table
+                     ~scope event header aggregate definition) (fun input ->
                     loop (input :: inputs_rev) rest header_rest aggregate_rest)
             | [], _ | _, [] ->
                 Error "aggregate layout is missing a definition input"))
@@ -390,7 +399,8 @@ let inputs ~metadata_only ~offset ~dimension ~table ~scope events headers
   loop [] events headers aggregates
 
 let layout ?(original_definitions = []) ?(inherited_metadata = []) ?offsets
-    ?prepared ~table ~declarations ~aggregates ~headers ~members module_ =
+    ?prepared ?original_fields ~table ~declarations ~aggregates ~headers
+    ~members module_ =
   let dimension = dimension ~table ?prepared in
   let offset ast =
     match offsets with
@@ -410,6 +420,28 @@ let layout ?(original_definitions = []) ?(inherited_metadata = []) ?offsets
                    }))
   in
   let scope = Sema.Declaration_collection.scope declarations in
+  let original_members = ref [] in
+  let original_member aggregate type_specifier
+      (declarator : Frontend.Ast.aggregate_member_declarator)
+      (input : Sema.Aggregate_layout.member_input) =
+    match
+      ( Sema.Type.base input.member_type,
+        Sema.Type.pointer_depth input.member_type )
+    with
+    | Sema.Type.Aggregate _, 0 when not input.member_is_function_pointer -> (
+        match
+          Option.bind original_fields (fun resolve ->
+              resolve declarator.member_name)
+        with
+        | None -> Ok ()
+        | Some field ->
+            Result.map
+              (fun original ->
+                original_members := original :: !original_members)
+              (Sema.Aggregate_layout.original_member ~table ~parent:scope
+                 ~aggregate ~type_specifier ~declarator input field))
+    | _ -> Ok ()
+  in
   let result =
     if not (Sema.Symbol_table.owns_scope table scope) then
       Error "aggregate layout declarations belong to a different symbol table"
@@ -423,11 +455,12 @@ let layout ?(original_definitions = []) ?(inherited_metadata = []) ?offsets
                ~metadata_only:
                  (Inherited_metadata.contains ~original_definitions ~table
                     ~scope inherited_metadata)
-               ~offset ~dimension ~table ~scope events
+               ~offset ~dimension ~original_member ~table ~scope events
                (Sema.Aggregate_header_resolution.headers headers)
                (Sema.Member_type_resolution.aggregates members))
             (fun inputs ->
-              Sema.Aggregate_layout.layout ~table ~parent:scope inputs
+              Sema.Aggregate_layout.layout ~original_members:!original_members
+                ~table ~parent:scope inputs
               |> Result.map_error Sema.Aggregate_layout.error_to_string))
   in
   Result.map_error

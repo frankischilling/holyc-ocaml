@@ -1,5 +1,10 @@
 # Classes and layout
 
+[Member `sizeof`](aggregate-member-sizeof.md) follows original dot paths through
+named types, automatic objects and class parameters. The final field uses its
+own array count and the current size of its exact selected class, including
+nested and inherited members. Earlier query results remain unchanged.
+
 [Local aggregate `sizeof`](local-aggregate-sizeof.md) reads the selected class
 size at the original query and multiplies it by the local's checked array
 extent. Parameter slot width and automatic allocation size remain separate.

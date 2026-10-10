@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+Class and union member `sizeof` queries now follow original dot paths through
+nested and inherited fields. Each field uses its own dimensions and the current
+size of its selected class. The [member size example](examples/aggregate-member-sizeof.hc)
+prints `1 14 6 4 8` and returns 33 through IR and native execution. See
+[member sizes](docs/aggregate-member-sizeof.md) for query timing and boundaries.
+
 Local class and union `sizeof` queries now use the original selected layout and
 array dimensions, including fixed value parameters and function-local types.
 Later same-name classes leave earlier selections intact. The

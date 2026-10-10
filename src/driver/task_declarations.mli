@@ -297,6 +297,15 @@ val selected_type_resolver :
     ownership checks. The resolver carries no runtime or source-replay
     authority. *)
 
+val aggregate_field_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Frontend.Ast.identifier -> Sema.Compiler_record.aggregate_field option,
+    Common.Diagnostic.t list )
+  result
+(** Return the original field placement snapshots belonging to this command. *)
+
 val retained_function_headers :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -370,6 +379,14 @@ val implicit_output_resolver :
 *)
 
 type source_command
+
+val source_aggregate_field_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Frontend.Ast.identifier -> Sema.Compiler_record.aggregate_field option,
+    Common.Diagnostic.t list )
+  result
 
 val source_function_compiler_options :
   table:Sema.Symbol_table.t ->

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added original dot-member `sizeof` queries for named classes and unions,
+  automatic objects and class parameters. Nested and inherited fields retain
+  their selected types and dimensions; later forward completion preserves
+  earlier query results. Pointer and callback fields, trailing stars and
+  original runtime preparation dependencies work through IR and native paths.
+  See [member sizes](docs/aggregate-member-sizeof.md).
+
 - Added automatic arrays of classes and unions in IR and native programs.
   Original dimensions use the exact earlier element layout, while storage and
   initialization retain the full root byte extent. Indexed elements support

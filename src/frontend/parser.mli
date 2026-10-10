@@ -408,14 +408,23 @@ type query_member_start = private {
   member_start_root : query_root;
   member_start_ordinal : int;
   member_start_dot : Ast.location;
+  member_start_activity : query_activity;
 }
+
+val query_member_start_is_current : query_member_start -> bool
+(** True only during the original dot callback, before member-token lookahead.
+*)
 
 type query_member = private {
   query_member_root : query_root;
   query_member_ordinal : int;
   query_member_node : query_member_node;
   query_member_start : query_member_start;
+  query_member_activity : query_activity;
 }
+
+val query_member_is_current : query_member -> bool
+(** True only during the original member callback, before further lookahead. *)
 
 type completed_query = private {
   query_root : query_root;

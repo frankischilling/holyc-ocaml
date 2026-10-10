@@ -97,6 +97,7 @@ val validate_declared_global_type :
   declared_global -> Global_type_resolution.global -> (unit, string) result
 
 type sizeof_read
+type sizeof_member_start
 type dimension_preparation
 
 val declared_dimension_preparation : declared_dimension -> dimension_preparation
@@ -248,6 +249,23 @@ val select_aggregate_base :
     authority. *)
 
 type aggregate_member
+type aggregate_field
+
+val aggregate_fields : t -> aggregate_field list
+val aggregate_field_name : aggregate_field -> Frontend.Ast.identifier
+
+val aggregate_field_element_size :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  aggregate:Symbol.t ->
+  type_specifier:Frontend.Ast.type_specifier ->
+  declarator:Frontend.Ast.aggregate_member_declarator ->
+  type_:Type.t ->
+  aggregate_field ->
+  (int64, string) result
+(** Read the element size captured at the original member placement. The exact
+    class identity, namespace, source children and nominal type must match.
+    Later forward completion cannot change this saved storage extent. *)
 
 val select_aggregate_member :
   table:Symbol_table.t ->
@@ -448,6 +466,28 @@ val complete_sizeof :
   receipt:Frontend.Parser.completed_query ->
   sizeof_read ->
   (unit, string) result
+
+val start_sizeof_member :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  source:Frontend.Parser.query_member_start ->
+  sizeof_read ->
+  (sizeof_member_start, string) result
+(** Validate the original live dot and selected class before member lookahead.
+*)
+
+val read_sizeof_member :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  aggregates:(Symbol.t -> t option) ->
+  source:Frontend.Parser.query_member ->
+  sizeof_member_start ->
+  (sizeof_read, string) result
+(** Read the original named member during its live callback. Field types and
+    counts come from checked declaration phases; each selected aggregate uses
+    its current canonical record. The returned size and dependencies remain
+    immutable after later layout changes. Foreign records and source steps do
+    not authorize a lookup. *)
 
 val read_local_sizeof :
   dimensions:declared_dimension list ->

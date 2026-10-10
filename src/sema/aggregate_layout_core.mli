@@ -202,13 +202,17 @@ end) : sig
     (int64, error) result
 
   val layout :
+    ?selected_sizes:
+      (aggregate_input -> member_input -> (int64 option, string) result) ->
     table:Symbol_table.t ->
     parent:Symbol_table.scope ->
     aggregate_input list ->
     (t, error) result
-  (** Lay out definitions in source order. A by-value aggregate or base must
-      have a completed earlier layout; pointers do not require the pointee
-      layout. *)
+  (** Lay out definitions in source order. The source adapter authenticates
+      [selected_sizes] before supplying original class field extents. This pure
+      calculation grants no source or storage authority. Without a selected
+      extent, by-value aggregates and bases require an earlier completed layout;
+      pointers do not require the pointee layout. *)
 
   val layouts : t -> aggregate_layout list
 

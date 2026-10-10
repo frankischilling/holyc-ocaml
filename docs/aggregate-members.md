@@ -1,5 +1,10 @@
 # Owned aggregate members
 
+[Member `sizeof`](aggregate-member-sizeof.md) reads original field metadata
+through named types, automatic objects and class parameters. Its dot paths
+support nested and inherited members without loading object bytes. Member
+arrays use their own dimensions; pointer and callback fields use pointer width.
+
 [Class value returns](class-value-returns.md) carry qualified integer
 register words while preserving nominal declaration types. Object reads
 use the selected scalar prefix; register results retain the full word.
