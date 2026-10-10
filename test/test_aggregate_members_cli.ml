@@ -30,11 +30,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 11 || Array.length Sys.argv = 12)
-    "expected compiler and nine aggregate examples, optionally --native"
+    (Array.length Sys.argv = 12 || Array.length Sys.argv = 13)
+    "expected compiler and ten aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 12 && Sys.argv.(11) = "--native"
+let native = Array.length Sys.argv = 13 && Sys.argv.(12) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -153,6 +153,37 @@ let error ?code output report =
     (member "output_hex" report = `String (hex output))
     "aggregate fault preserves reached output"
 
+let nested_limits target =
+  let source = Cases.retained_nested_limits in
+  let invoke_nested ?(status = 0) ?(options = []) () =
+    invoke ~status
+      ~options:("--code-byte-limit=524288" :: options)
+      target "jit" source
+  in
+  let baseline = invoke_nested () in
+  value 42L "" baseline;
+  let steps = baseline |> member "executed_steps" |> to_int
+  and preparation = baseline |> member "compiled_initializer_steps" |> to_int in
+  require (preparation > 1) "nested dimension preparation must be counted";
+  value 42L ""
+    (invoke_nested
+       ~options:
+         [
+           "--frame-byte-limit=8";
+           "--step-limit=" ^ string_of_int steps;
+           "--initializer-step-limit=" ^ string_of_int preparation;
+         ]
+       ());
+  List.iter
+    (fun (code, option) ->
+      error ~code "" (invoke_nested ~status:1 ~options:[ option ] ()))
+    [
+      ("HCIRVM0011", "--frame-byte-limit=7");
+      ("HCIRVM0007", "--step-limit=" ^ string_of_int (steps - 1));
+      ( "HCIRVM0007",
+        "--initializer-step-limit=" ^ string_of_int (preparation - 1) );
+    ]
+
 let () =
   List.iter
     (fun mode ->
@@ -168,11 +199,12 @@ let () =
                      Returns.warning_values)
                 word output
                 (invoke target mode source))
-            (Cases.values @ Cases.view_matrix @ Arrays.values
-           @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
-           @ Inherited.values @ Inherited.view_matrix @ Backed.values
-           @ Default.values @ Parameters.values @ Parameters.view_matrix
-           @ Returns.values @ Returns.view_matrix @ Returns.warning_values);
+            (Cases.values @ Cases.nested_values @ Cases.view_matrix
+           @ Arrays.values @ Arrays.view_matrix @ Pointers.values
+           @ Pointers.view_matrix @ Inherited.values @ Inherited.view_matrix
+           @ Backed.values @ Default.values @ Parameters.values
+           @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
+           @ Returns.warning_values);
           value 42L "AB" (invoke target mode (read Sys.argv.(2)));
           value 42L "AB" (invoke target mode (read Sys.argv.(3)));
           value 42L "AB" (invoke target mode (read Sys.argv.(4)));
@@ -227,11 +259,14 @@ let () =
             error ~code:"HCPP0008" ""
               (invoke ~status:1 target mode Inherited.lookahead_source)
           else value 42L "" (invoke target mode Inherited.lookahead_source);
-          if target = "ir" && mode = "jit" then
+          if target = "ir" && mode = "jit" then (
+            value 42L "" (invoke target mode (read Sys.argv.(11)));
+            nested_limits target;
             List.iter
               (fun (_, source, expected, output) ->
                 value expected output (invoke target mode source))
-              (Defaults.jit_values @ Inherited.retained_values);
+              (Defaults.jit_values @ Inherited.retained_values
+             @ Cases.retained_nested_values));
           List.iter
             (fun (_, source, code, output) ->
               error ~code output (invoke ~status:1 target mode source))
@@ -302,26 +337,24 @@ let () =
         ~options:("--code-byte-limit=524288" :: options)
         "host-jit-task" "jit" source
     in
+    value 42L "" (invoke_task (read Sys.argv.(11)));
+    nested_limits "host-jit-task";
     let task_values =
-      Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
-      @ Pointers.values @ Pointers.view_matrix @ Inherited.values
-      @ Inherited.view_matrix @ Inherited.retained_values @ Backed.values
-      @ Default.values @ Parameters.values @ Parameters.view_matrix
-      @ Returns.values @ Returns.view_matrix @ Returns.warning_values
-      @ Defaults.native_values @ Defaults.jit_values
+      Cases.values @ Cases.nested_values @ Cases.view_matrix @ Arrays.values
+      @ Arrays.view_matrix @ Pointers.values @ Pointers.view_matrix
+      @ Inherited.values @ Inherited.view_matrix @ Inherited.retained_values
+      @ Backed.values @ Default.values @ Parameters.values
+      @ Parameters.view_matrix @ Returns.values @ Returns.view_matrix
+      @ Returns.warning_values @ Defaults.native_values @ Defaults.jit_values
+      @ Cases.retained_nested_values
     in
     List.iter
       (fun (name, source, expected, output) ->
-        if List.mem name Cases.retained_nested_class_boundaries then
-          error ~code:"HCRUN0001" "" (invoke_task ~status:1 source)
-        else
-          value
-            ~unused_array:(name = "unused automatic aggregate array")
-            ~return_warning:
-              (List.exists
-                 (fun (n, _, _, _) -> n = name)
-                 Returns.warning_values)
-            expected output (invoke_task source))
+        value
+          ~unused_array:(name = "unused automatic aggregate array")
+          ~return_warning:
+            (List.exists (fun (n, _, _, _) -> n = name) Returns.warning_values)
+          expected output (invoke_task source))
       task_values;
     let _, prototype, expected, output = List.hd Defaults.prototype_values in
     value

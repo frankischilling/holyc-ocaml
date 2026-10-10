@@ -73,8 +73,9 @@ module Offsets = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
-let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
-    ~table ~namespace ~symbol (definition : Ast.aggregate_definition) =
+let layout ?(members = fun _ _ -> None) ?(callbacks = fun _ -> None)
+    ?initial_size ~offsets ~dimensions ~table ~namespace ~symbol
+    (definition : Ast.aggregate_definition) =
   if Option.is_some definition.base <> Option.is_some initial_size then
     Error "retained aggregate bases require original selected layout metadata"
   else if definition.attached_declarators <> [] then
@@ -96,6 +97,7 @@ let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
                 backing.backing_pointer_layers
               |> Result.map ignore)
     in
+    let selected_members = members in
     let offset_values = Offsets.create 8 in
     let rec facts path members =
       map_result
@@ -111,17 +113,27 @@ let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
                       "retained aggregate member metadata requires original \
                        preparation"
                   else
-                    let* type_ =
+                    let* type_, selected_size =
                       match member.member_function_pointer with
-                      | None ->
-                          Source_type_reference.builtin
-                            declaration.member_type_specifier
-                            member.member_pointer_layers
+                      | None -> (
+                          match
+                            selected_members declaration.member_type_specifier
+                              member
+                          with
+                          | Some (type_, size) -> Ok (type_, Some size)
+                          | None ->
+                              Result.map
+                                (fun type_ -> (type_, None))
+                                (Source_type_reference.builtin
+                                   declaration.member_type_specifier
+                                   member.member_pointer_layers))
                       | Some source -> (
                           match callbacks source with
                           | Some header ->
-                              Source_type_reference.callback_storage ~header
-                                source
+                              Result.map
+                                (fun type_ -> (type_, None))
+                                (Source_type_reference.callback_storage ~header
+                                   source)
                           | None ->
                               Error
                                 "retained callback layout lacks its original \
@@ -134,7 +146,7 @@ let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
                         ~member_path:path ~declarator_index
                     in
                     let* counts = dimensions member in
-                    Ok (fact, type_, member, counts))
+                    Ok (fact, type_, member, counts, selected_size))
                 (List.mapi (fun i m -> (i, m)) declaration.member_declarators)
           | Ast.Anonymous_union_member union ->
               facts path union.anonymous_union_members
@@ -149,15 +161,15 @@ let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
     let* facts = facts [] definition.members in
     let* aggregate =
       Member_collection.make_aggregate ~symbol ~item_index:0
-        (List.map (fun (fact, _, _, _) -> fact) facts)
+        (List.map (fun (fact, _, _, _, _) -> fact) facts)
     in
     let parent = Declaration_collection.namespace_scope namespace in
     let* collection = Member_collection.collect ~table ~parent [ aggregate ] in
     let collected = List.hd (Member_collection.aggregates collection) in
     let pairs = Members.create (List.length facts) in
     List.iter2
-      (fun entry (_, type_, member, counts) ->
-        Members.add pairs member (entry, type_, counts))
+      (fun entry (_, type_, member, counts, selected_size) ->
+        Members.add pairs member (entry, type_, counts, selected_size))
       (Member_collection.aggregate_entries collected)
       facts;
     let rec items path members =
@@ -189,31 +201,67 @@ let layout ?(callbacks = fun _ -> None) ?initial_size ~offsets ~dimensions
               List.mapi
                 (fun declarator_index (member : Ast.aggregate_member_declarator)
                    ->
-                  let entry, type_, counts = Members.find pairs member in
+                  let entry, type_, counts, selected_size =
+                    Members.find pairs member
+                  in
+                  let source_type = Type_reference.resolved_type type_ in
+                  (* This adapter returns only source size metadata. An original
+                     class extent becomes its byte count here; semantic member
+                     types and runtime layouts retain the selected class. *)
+                  let layout_type, dimensions =
+                    match
+                      ( selected_size,
+                        Type.base source_type,
+                        Type.pointer_depth source_type )
+                    with
+                    | Some size, Type.Aggregate _, 0 ->
+                        let byte_type =
+                          Type.make_primitive ~form:Type.Internal_storage
+                            ~primitive:U8 ~pointer_depth:0
+                          |> Result.get_ok
+                        in
+                        let class_extent =
+                          {
+                            Layout.dimension_origin =
+                              origin member.member_declarator_location;
+                            dimension_expression =
+                              Some
+                                (Layout.Integer_expression
+                                   {
+                                     value = size;
+                                     origin =
+                                       origin member.member_declarator_location;
+                                   });
+                          }
+                        in
+                        (byte_type, [ class_extent ])
+                    | _ -> (source_type, [])
+                  in
                   Layout.Field
                     {
                       member_symbol = Member_collection.entry_symbol entry;
                       member_path = path;
                       member_declarator_index = declarator_index;
                       member_origin = origin member.member_declarator_location;
-                      member_type = Type_reference.resolved_type type_;
+                      member_type = layout_type;
                       member_is_function_pointer =
                         Option.is_some member.member_function_pointer;
                       member_dimensions =
-                        List.map2
-                          (fun (dimension : Ast.array_dimension) count ->
-                            {
-                              Layout.dimension_origin =
-                                origin dimension.location;
-                              dimension_expression =
-                                Some
-                                  (Layout.Integer_expression
-                                     {
-                                       value = count;
-                                       origin = origin dimension.location;
-                                     });
-                            })
-                          member.member_array_dimensions counts;
+                        dimensions
+                        @ List.map2
+                            (fun (dimension : Ast.array_dimension) count ->
+                              {
+                                Layout.dimension_origin =
+                                  origin dimension.location;
+                                dimension_expression =
+                                  Some
+                                    (Layout.Integer_expression
+                                       {
+                                         value = count;
+                                         origin = origin dimension.location;
+                                       });
+                              })
+                            member.member_array_dimensions counts;
                     })
                 declaration.member_declarators)
         members

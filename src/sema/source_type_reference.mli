@@ -23,6 +23,8 @@ type selected_source =
   | Callback_parameter of Frontend.Parser.callback_parameter_publication
   | Function_local of Frontend.Parser.function_local_allocation
   | Global_type of Frontend.Parser.global_publication
+  | Aggregate_member of Frontend.Parser.aggregate_phase
+  | Aggregate_backing of Frontend.Parser.aggregate_publication
 
 val source_type :
   selected_source ->

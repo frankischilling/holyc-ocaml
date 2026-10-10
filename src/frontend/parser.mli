@@ -939,6 +939,7 @@ type aggregate_step =
   | Aggregate_body_started of Ast.aggregate_base option
   | Aggregate_member_prepared of {
       member_type : Ast.type_specifier;
+      member_selection : named_aggregate_selection option;
       member_name : Ast.identifier;
       member_pointers : Ast.pointer_layer list;
       member_callback : Ast.function_pointer_declarator option;
@@ -957,6 +958,8 @@ type aggregate_publication = private {
   aggregate_previous : Symbol_visibility.entry option;
   aggregate_join_lookup : join_lookup option;
   aggregate_name : Ast.identifier;
+  aggregate_backing : Ast.aggregate_backing option;
+  aggregate_backing_selection : named_aggregate_selection option;
   aggregate_kind : Ast.aggregate_kind;
   aggregate_activity : aggregate_activity;
 }

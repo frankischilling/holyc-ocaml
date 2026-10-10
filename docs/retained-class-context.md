@@ -47,7 +47,9 @@ preparation and saved-word limits remain enforced.
 
 Imports carry opaque proofs of the original completed definitions, publications
 and sizes from the owning namespace. The task lifecycle journal requires each
-import to precede the consuming command. Duplicate imports and foreign tables
+import to precede the consuming command or belong to an already admitted child
+command of the original input. Child classes complete before the class that
+contains the directive. Duplicate imports and foreign tables
 cannot change the declaration index adjustment. Executable commands retain
 their original syntax and admission receipts.
 
@@ -71,16 +73,38 @@ ASTs and another function's projection do not grant that storage. Argument and
 return words retain their nominal class separately from the integer carrier.
 Runtime checks still require the bound callee's original ABI.
 
-The aggregate suites pass 309 IR groups and 583 native groups: 292 ordinary
-native groups and 291 retained task groups. The CLI checks pass 920 IR reports
-and 2,137 reports including native execution. The retained checks include
-exact and one-below limits plus the remaining nested-member and prototype gates.
+Named members keep the class selected before their declarators and dimensions.
+A directive reached in a dimension can publish a replacement class without
+changing that member. Named scalar backings keep their earlier selection too.
+The layout snapshot records the original member size, prepared dimensions and
+`$$` offsets. A pointer member contributes eight bytes to metadata; pointer
+member storage still requires its own execution support.
+
+`examples/retained-nested-members.hc` returns 42 on both JIT targets. Its dimension
+function runs once. The saved `Packet` default contains two original `Element`
+objects, each with two `U16` words. A later one-byte `Element` declaration leaves
+those objects and their member reads unchanged.
+
+```text
+holyc run --mode=jit examples/retained-nested-members.hc
+holyc run --mode=jit --target=host-jit-task examples/retained-nested-members.hc
+```
+
+The aggregate suites cover nested arrays, unions, saved defaults, child
+publications, replacement lookahead, runtime dimensions and `$$` offsets.
+Exact and one-below frame, preparation, execution, instruction and code limits
+remain enforced. Ownership checks reject stale member phases, another
+publication, equal-sized classes from another definition, foreign tables and
+borrowed member receipts. The earlier extern class prototype ABI gate remains.
 
 The reference is TempleOS commit
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 `Compiler/PrsStmt.HC:1-60` publishes and completes class metadata in the compiler
-hash table, including the selected base. `Compiler/PrsVar.HC:609-674` prepares
-fixed defaults immediately and allocates word argument slots.
+hash table, including the selected base. `Compiler/PrsVar.HC:285-317` keeps the
+selected class as an inline class's backing. Lines 521-535 select the member
+class and multiply its size by the original array count. Lines 661-674 place
+class and union members. Lines 609-674 prepare fixed defaults immediately and
+allocate word argument slots.
 `Compiler/PrsExp.HC:453-470` materializes a saved default with its original
 parameter. `Compiler/BackLib.HC:445-659` distinguishes register words from memory
 prefix reads. `Compiler/LexLib.HC:154-177` compares saved defaults during header
@@ -88,11 +112,9 @@ replacement, so changing a JIT default retains the argument-list warning.
 Expected values come from these source paths. The tests contain no TempleOS
 runtime capture or machine-byte comparison.
 
-AOT IR and ordinary native source compilation still restrict defaults containing value
-or function references. Retained nested class members still lack an original
-member-selection receipt; their whole-source layouts remain supported. Native
-calls made through an extern class prototype before its replacement still lack
+AOT IR and ordinary native source compilation still restrict defaults containing
+value or function references. Native calls made through an extern class prototype
+before its replacement still lack
 the completed callee ABI. Ordinary native prototypes, class callback signatures,
-F64/pointer backings, persistent objects,
-owned string defaults, `lastclass` and general aggregate copies remain open
+F64/pointer backings, persistent objects, owned string defaults, `lastclass` and general aggregate copies remain open
 under #686/#702. Full compiler and release acceptance remain under #682.

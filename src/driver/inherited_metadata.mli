@@ -25,6 +25,17 @@ val prepare_storage :
 
 val metadata_only : storage -> Sema.Compiler_record.inherited_metadata list
 
+val selected_base :
+  ?original_definitions:
+    (Frontend.Ast.aggregate_definition * Frontend.Ast.aggregate_definition) list ->
+  table:Sema.Symbol_table.t ->
+  scope:Sema.Symbol_table.scope ->
+  storage ->
+  Frontend.Ast.aggregate_definition ->
+  Sema.Symbol.t option
+(** Recover the original base only for an admitted definition in the same table
+    and scope. A later declaration with the same name cannot replace it. *)
+
 val validate_storage :
   storage -> layouts:Sema.Aggregate_layout.t -> (unit, string) result
 (** Check the completed child and base sizes and their exact identities before

@@ -75,8 +75,8 @@ no TempleOS runtime capture or machine-byte comparison.
 native JIT/AOT source compilation. Whole-value postfix casts, aggregate
 initializers, AOT IR and ordinary native defaults containing references and
 callback parameter ABI paths, persistent objects, function-local layouts and
-zero-sized automatic objects, pointer and callback backings, F64 execution,
-retained nested class members, general aggregate copies remain
+zero-sized automatic objects, pointer and callback backings, F64 execution and
+general aggregate copies remain
 open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)
 and related value and ABI issues. Full compiler and release acceptance remain
 under [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).

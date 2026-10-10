@@ -3538,6 +3538,9 @@ let retained_aggregate_context () =
   reject "a class cannot import its own later completion"
     (Holyc_lib__Sema.Task_command_order.aggregate_import_prefix
        ~scope:(C.scope declarations) ~imports earlier);
+  reject "admitted commands cannot turn self completion into a child import"
+    (Holyc_lib__Sema.Task_command_order.aggregate_import_prefix
+       ~admitted:[ earlier ] ~scope:(C.scope declarations) ~imports earlier);
   let session, _, ledger = runtime_setup () in
   let output, _ = parse session ledger "class Box{I64 word;} attached;" in
   let attached = Test_parser.expect_ast output in

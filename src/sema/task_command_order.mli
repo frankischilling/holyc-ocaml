@@ -52,12 +52,14 @@ val contains_global :
   bool
 
 val aggregate_import_prefix :
+  ?admitted:command list ->
   scope:Symbol_table.scope ->
   imports:Compiler_record.aggregate_import list ->
   command ->
   (int, string) result
 (** Count only distinct completed class imports from this namespace whose
-    original publications precede the command in the task lifecycle journal.
+    original publications precede the command in the task lifecycle journal, or
+    belong to already admitted original child commands in this same task.
     Executable syntax and command admission remain unchanged. *)
 
 val create : table:Symbol_table.t -> t

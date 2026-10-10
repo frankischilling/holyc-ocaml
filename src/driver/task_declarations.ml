@@ -649,6 +649,8 @@ let prepare_selected_aggregate ledger source =
     | Source.Function_local p ->
         p.Parser.allocation_function.function_name.location.span
     | Source.Global_type p -> p.Parser.global_name.location.span
+    | Source.Aggregate_member p -> p.Parser.phase_location.span
+    | Source.Aggregate_backing p -> p.Parser.aggregate_name.location.span
   in
   let type_specifier, selection = Source.source_type source |> checked span in
   match type_specifier with
@@ -1820,6 +1822,48 @@ let selected_base_record ledger (phase : Parser.aggregate_phase) =
       )
   | _ -> Error "inherited layout read belongs to another original base phase"
 
+let selected_member_record ledger (phase : Parser.aggregate_phase) =
+  let ( let* ) = Result.bind in
+  match phase.phase_step with
+  | Parser.Aggregate_member_prepared member
+    when Option.is_none member.member_callback ->
+      let selected =
+        prepare_selected_aggregate ledger
+          (Sema.Source_type_reference.Aggregate_member phase)
+      in
+      retain_selected_aggregate ledger member.member_type selected;
+      let* selected =
+        match selected with
+        | Some selected -> Ok selected
+        | None -> Error "member class has no original selected type"
+      in
+      let record =
+        match member.member_selection with
+        | Some selection -> (
+            match Entries.find_opt ledger.entries selection.entry with
+            | Some assigned -> (
+                match
+                  Collection.current_aggregate_publication ledger.namespace
+                    assigned.publication
+                with
+                | Some current ->
+                    Entries.fold
+                      (fun _ assigned found ->
+                        if assigned.publication != current then found
+                        else
+                          match assigned.source with
+                          | Aggregate { record = Some (Ok record); _ } ->
+                              Some record
+                          | _ -> None)
+                      ledger.entries None
+                | None -> None)
+            | None -> None)
+        | None -> None
+      in
+      Sema.Compiler_record.select_aggregate_member ~table:ledger.table
+        ~namespace:ledger.namespace ~selected_aggregate:selected phase record
+  | _ -> Error "member layout lacks its original object placement phase"
+
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
   | Parser.Defined_target _ | Parser.Offset_target _ -> None
@@ -2590,6 +2634,15 @@ let observe ?offset_runtime ledger event =
             (Aggregate
                { publication; progress = None; completed = None; record = None })
             publication.aggregate_entry;
+          Option.iter
+            (fun backing ->
+              let selected =
+                prepare_selected_aggregate ledger
+                  (Sema.Source_type_reference.Aggregate_backing publication)
+              in
+              retain_selected_aggregate ledger
+                backing.Ast.backing_type_specifier selected)
+            publication.aggregate_backing;
           let assigned = find ledger publication.aggregate_name in
           match assigned.source with
           | Aggregate state ->
@@ -2678,6 +2731,7 @@ let observe ?offset_runtime ledger event =
                       fail ~code phase.phase_location.span message)
               | _ -> ());
               Sema.Compiler_record.advance_aggregate
+                ~members:(selected_member_record ledger)
                 ~callbacks:(completed_callback_header ledger)
                 ~bases:(selected_base_record ledger)
                 ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
@@ -3771,6 +3825,30 @@ let seal ledger (ast : Ast.module_) =
               | Some _ when original_commands = [] -> []
               | Some _ -> before [] (List.rev ledger.source_events_rev)
             in
+            let rec entered_during_original context =
+              match Parser.context_parent context with
+              | Some (Parser.Reading_command start) ->
+                  List.exists
+                    (fun entry -> entry.receipt.command_start == start)
+                    original_commands
+                  || entered_during_original start.command_context
+              | Some (Parser.Before_first_command parent) ->
+                  entered_during_original parent
+              | Some (Parser.Awaiting_resume receipt) ->
+                  entered_during_original receipt.command_start.command_context
+              | None -> false
+            in
+            let completion_order source =
+              let start = source.Parser.aggregate_header.declaration_command in
+              List.rev ledger.source_events_rev
+              |> List.mapi (fun index event -> (index, event))
+              |> List.find_map (fun (index, event) ->
+                  match event with
+                  | Parser.Command_completed receipt
+                    when receipt.command_start == start -> Some index
+                  | _ -> None)
+              |> Option.value ~default:max_int
+            in
             let imported =
               Entries.fold
                 (fun _ assigned rev -> assigned :: rev)
@@ -3794,7 +3872,19 @@ let seal ledger (ast : Ast.module_) =
                       }
                     when List.memq
                            publication.aggregate_header.declaration_command
-                           earlier_commands ->
+                           earlier_commands
+                         || Option.is_some (ledger_runtime ledger)
+                            && (not
+                                  (List.exists
+                                     (fun entry ->
+                                       entry.receipt.command_start
+                                       == publication.aggregate_header
+                                            .declaration_command)
+                                     original_commands))
+                            && entered_during_original
+                                 publication.aggregate_header
+                                   .declaration_command
+                                   .command_context ->
                       let proof =
                         Sema.Compiler_record.retain_aggregate_import
                           ~table:ledger.table ~namespace:ledger.namespace
@@ -3822,6 +3912,8 @@ let seal ledger (ast : Ast.module_) =
                       in
                       Some (assigned, publication, definition, view, proof)
                   | _ -> None)
+              |> List.sort (fun (_, left, _, _, _) (_, right, _, _, _) ->
+                  Int.compare (completion_order left) (completion_order right))
             in
             let prefix = List.length imported in
             let semantic_ast =
@@ -5952,8 +6044,9 @@ let aggregate_value_headers ~span ledger =
                 Some (assigned.ordinal, proof)
             | _ -> None)
       in
-      Aggregate_header_resolution.resolve_metadata ~table:ledger.table
-        ~parent:(initializer_scope ledger) originals
+      Aggregate_header_resolution.resolve_metadata
+        ~selected_types:(ledger.namespace, selected_aggregate_for ledger)
+        ~table:ledger.table ~parent:(initializer_scope ledger) originals
       |> checked span)
 
 let initializer_for ~table ~ast (command : command) name initial =

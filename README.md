@@ -562,10 +562,12 @@ and use the selected scalar prefix for object reads.
 argument words in both IR modes and native JIT/AOT source compilation.
 `examples/class-default-words.hc` returns 42 through those paths.
 [Retained JIT class contexts](docs/retained-class-context.md) preserve earlier
-class layouts and prepare defaults that call checked class-returning functions.
-`examples/retained-class-defaults.hc` returns 43 with one preparation and two calls.
+class layouts, nested member selections and defaults that call checked
+class-returning functions. `examples/retained-class-defaults.hc` returns 43 with
+one preparation and two calls. `examples/retained-nested-members.hc` returns 42
+with its original array dimensions after a same-name class replacement.
 Persistent objects, whole-value postfix casts, AOT IR and ordinary native defaults containing
-references, retained nested class members and callback parameters remain open
+references and callback parameters remain open
 under issue #686. General aggregate copies, pointer fields and pointer returns
 also need their own implementation.
 

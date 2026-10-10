@@ -181,9 +181,22 @@ let prepare_unit ?environment:task_environment ?declaration_command
       ~aggregates ~ast inherited_metadata
   in
   let inherited_metadata = Inherited_metadata.metadata_only inherited_storage in
+  let* selected_types =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.selected_type_resolver ~table ~ast:source_ast command
+        |> Result.map Option.some
+    | None, Some command ->
+        Task_declarations.source_selected_type_resolver ~table ~ast:source_ast
+          command
+        |> Result.map Option.some
+    | None, None -> Ok None
+    | Some _, Some _ -> assert false
+  in
   let* headers =
-    Aggregate_header_resolution.resolve ~original_definitions
-      ~inherited_metadata ~table ~declarations ~aggregates ast
+    Aggregate_header_resolution.resolve ?selected_types ~inherited_storage
+      ~original_definitions ~inherited_metadata ~table ~declarations ~aggregates
+      ast
     |> checked
   in
   let* collected_members =
@@ -192,8 +205,9 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* members =
-    Member_type_resolution.resolve ~original_definitions ~inherited_metadata
-      ~table ~declarations ~aggregates ~headers ~members:collected_members ast
+    Member_type_resolution.resolve ?selected_types ~inherited_storage
+      ~original_definitions ~inherited_metadata ~table ~declarations ~aggregates
+      ~headers ~members:collected_members ast
     |> checked
   in
   let* layouts =
@@ -243,18 +257,6 @@ let prepare_unit ?environment:task_environment ?declaration_command
             "HCEVAL0003"
             (Label_resolution.error_message error);
         ])
-  in
-  let* selected_types =
-    match (declaration_command, source_command) with
-    | Some command, None ->
-        Task_declarations.selected_type_resolver ~table ~ast:source_ast command
-        |> Result.map Option.some
-    | None, Some command ->
-        Task_declarations.source_selected_type_resolver ~table ~ast:source_ast
-          command
-        |> Result.map Option.some
-    | None, None -> Ok None
-    | Some _, Some _ -> assert false
   in
   let* function_types =
     Function_type_resolution.resolve ~retained_item_index_offset ?selected_types
