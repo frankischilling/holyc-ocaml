@@ -5193,7 +5193,10 @@
  (name test_aggregate_members_cli)
  (modules test_aggregate_members_cli)
  (libraries unix yojson automatic_aggregate_fixture)
- (deps ../examples/aggregate-members.hc ../examples/aggregate-arrays.hc ../examples/class-pointers.hc)
+ (deps
+  ../examples/aggregate-members.hc
+  ../examples/aggregate-arrays.hc
+  ../examples/class-pointers.hc)
  (action
   (run
    %{test}
