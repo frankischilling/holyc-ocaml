@@ -158,6 +158,12 @@ let prepare_unit ?environment:task_environment ?declaration_command
     | None, None -> Ok []
     | Some _, Some _ -> assert false
   in
+  let inherited_storage =
+    Inherited_metadata.prepare_storage ~table
+      ~scope:(Sema.Declaration_collection.scope declarations)
+      ~aggregates ~ast inherited_metadata
+  in
+  let inherited_metadata = Inherited_metadata.metadata_only inherited_storage in
   let* headers =
     Aggregate_header_resolution.resolve ~inherited_metadata ~table ~declarations
       ~aggregates ast
@@ -176,6 +182,9 @@ let prepare_unit ?environment:task_environment ?declaration_command
     Aggregate_layout.layout ~inherited_metadata ?offsets ?prepared ~table
       ~declarations ~aggregates ~headers ~members ast
     |> checked
+  in
+  let* () =
+    Inherited_metadata.validate_storage inherited_storage ~layouts |> checked
   in
   let* members =
     Aggregate_member_index.build ~table ~declarations ~headers ~members ~layouts

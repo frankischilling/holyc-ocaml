@@ -134,9 +134,6 @@ let unsupported =
       {|class Box{U64 value;};I64 F(){Box a[0x7fffffffffffffff][2];return 42;}F();|}
     );
     ("empty class array", {|class Box{};I64 F(){Box a[2];return 42;}F();|});
-    ( "inherited class array",
-      {|class Base{U8 byte;};class Box:Base{U8 value;};I64 F(){Box a[2];return 42;}F();|}
-    );
     ( "function-local class array",
       {|I64 F(){class Box{U8 byte;};Box a[2];return 42;}F();|} );
     ("persistent class array", {|class Box{U8 byte;};Box a[2];42;|});

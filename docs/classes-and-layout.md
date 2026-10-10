@@ -7,7 +7,9 @@ padding, initialization and bounds. [Owned aggregate members](aggregate-members.
 add direct and pointer integer fields, nested fields, member and automatic root arrays, and class
 pointer locals and parameters. [Class pointer operations](class-pointers.md)
 retain exact earlier pointee layouts for indexing, arithmetic and updates.
-Inherited storage, retained JIT imports,
+[Inherited storage](inherited-aggregates.md) admits completed earlier base
+chains with exact original identities and sizes. Partial inherited metadata,
+retained JIT imports,
 persistent objects, whole-object values and copies,
 pointer fields and pointer returns remain unfinished.
 

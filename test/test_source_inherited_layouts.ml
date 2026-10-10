@@ -77,7 +77,7 @@ let quotas () =
 let boundaries () =
   List.iter
     (fun mode ->
-      failure "HCSEMA0074" (run mode Cases.object_storage);
+      value (run mode Cases.object_storage);
       failure "HCRUN0004" (run mode Cases.overflow))
     [ Preprocessor.Jit; Preprocessor.Aot ];
   failure "HCRUN0006" (run Preprocessor.Aot Cases.effects);
@@ -107,6 +107,7 @@ let () =
             Alcotest.test_case "original effects and base attachment order"
               `Quick effects;
             Alcotest.test_case "exact shared budgets" `Quick quotas;
-            Alcotest.test_case "object and AOT boundaries" `Quick boundaries;
+            Alcotest.test_case "completed object storage and AOT boundaries"
+              `Quick boundaries;
           ] );
     ]

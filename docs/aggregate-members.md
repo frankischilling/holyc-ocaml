@@ -39,6 +39,11 @@ is captured before its assignment RHS can rebind the pointer.
 scaled arithmetic, differences, comparisons and pointer updates. Each operation
 retains the exact pointee layout selected before its function declaration.
 
+[Inherited aggregates](inherited-aggregates.md) connect completed earlier base
+chains to those members, arrays and pointer operations. Inherited offsets stay
+absolute; a union child still overlaps at zero. The original selected base and
+its size are checked before publishing members.
+
 ## Automatic aggregate arrays
 
 `Item items[2][3]` allocates one byte object with six elements of the exact
@@ -94,7 +99,7 @@ TempleOS behavior for invalid or uninitialized memory.
 
 ## Verification and remaining work
 
-The shared fixtures have 98 IR and 98 native test groups. Independent expected
+The shared fixtures have 128 IR and 128 native test groups. Independent expected
 words and output cover nested fields, two-dimensional primitive and aggregate
 member arrays, one- through three-dimensional root arrays, dynamic loop indices,
 root and row decay, class pointer locals and parameters, selected pointee
@@ -106,11 +111,12 @@ runtime frame bytes and instructions, plus both x86-64 ABIs' stack and encoded
 image bytes. Root-array controls also reject borrowed frames, altered field
 proofs and a forged element stride before IR execution. Native mutation checks
 still exercise graph sealing. Native host checks execute fresh images. The
-actual CLI runs 346 reports for IR and 693 when native execution is included,
+actual CLI runs 444 reports for IR and 889 when native execution is included,
 including the original unused-local warning for an unused aggregate array.
 
-Inheritance, retained JIT aggregate imports, function-local layouts,
-zero-sized automatic objects, pointer arrays, aggregate array initializers, persistent
+Partial and out-of-compilation inherited bases, retained JIT aggregate imports,
+function-local layouts, zero-sized automatic objects, pointer arrays,
+aggregate array initializers, persistent
 aggregate objects, whole-object values and copies, pointer and callback fields,
 general casts to class pointers, pointer returns and
 original named-local size/position consumers remain unfinished under

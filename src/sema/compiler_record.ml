@@ -113,6 +113,7 @@ type t = {
     * Parser.completed_aggregate option)
     option;
   aggregate_stamp : (aggregate_stamp * unit ref) option;
+  aggregate_base_snapshot : t option;
 }
 
 type inherited_base = {
@@ -550,6 +551,7 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           runtime_offsets = [];
           aggregate_owner = None;
           aggregate_stamp = None;
+          aggregate_base_snapshot = None;
         }
 
 let seed_public_union ~table ~entry ~symbol
@@ -592,6 +594,7 @@ let seed_public_union ~table ~entry ~symbol
               runtime_offsets = [];
               aggregate_owner = None;
               aggregate_stamp = None;
+              aggregate_base_snapshot = None;
             }
 
 let aggregate_snapshot_is_current record =
@@ -750,6 +753,7 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
                 runtime_offsets = [];
                 aggregate_owner = Some (namespace, publication, None);
                 aggregate_stamp = Some (stamp, stamp.current_stamp);
+                aggregate_base_snapshot = None;
               };
         }
   | _ ->
@@ -813,6 +817,7 @@ let advance_aggregate ?(callbacks = fun _ -> None)
                   {
                     record with
                     byte_size = base.inherited_record.byte_size;
+                    aggregate_base_snapshot = Some base.inherited_record;
                     runtime_dimensions =
                       merge_dimension_dependencies record.runtime_dimensions
                         base.inherited_record.runtime_dimensions;
@@ -1106,6 +1111,11 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
             progress;
         aggregate_owner = Some (namespace, publication, Some receipt);
         aggregate_stamp = None;
+        aggregate_base_snapshot =
+          Option.bind progress (fun progress ->
+              Option.map
+                (fun base -> base.inherited_record)
+                progress.progress_base);
       }
 
 let retain_inherited_metadata ~table ~namespace definition record =
@@ -1133,6 +1143,40 @@ let inherited_metadata_owns_definition ~table ~scope definition metadata =
   | Some (namespace, _, _) ->
       Declaration_collection.namespace_scope namespace == scope
   | None -> false
+
+let inherited_metadata_storage_selection ~table ~scope metadata =
+  let record = metadata.metadata_record in
+  let canonical record publication =
+    Option.value
+      (Declaration_collection.publication_aggregate_identity publication)
+      ~default:record.symbol
+  in
+  if
+    not
+      (inherited_metadata_owns_definition ~table ~scope
+         metadata.metadata_definition metadata)
+  then None
+  else
+    match (record.aggregate_owner, record.aggregate_base_snapshot) with
+    | Some (namespace, publication, _), Some base -> (
+        match base.aggregate_owner with
+        | Some
+            ( base_namespace,
+              base_publication,
+              Some { aggregate_item = Ast.Aggregate_definition definition; _ }
+            )
+          when base.table == table
+               && base_namespace == namespace
+               && Option.is_none base.aggregate_stamp ->
+            Some
+              ( metadata.metadata_definition,
+                canonical record publication,
+                record.byte_size,
+                definition,
+                canonical base base_publication,
+                base.byte_size )
+        | _ -> None)
+    | _ -> None
 
 let rebind_primitive ~table ~symbol record =
   if
@@ -1186,6 +1230,7 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
               List.concat_map dimension_offset_dependencies dimensions;
             aggregate_owner = None;
             aggregate_stamp = None;
+            aggregate_base_snapshot = None;
           }
 
 let declare_global ?callback
@@ -1371,6 +1416,7 @@ let bind_retained_scalar ~table ~entry global =
             runtime_offsets = [];
             aggregate_owner = None;
             aggregate_stamp = None;
+            aggregate_base_snapshot = None;
           }
     | Global_type_resolution.Object ->
         let* byte_size =
@@ -1390,6 +1436,7 @@ let bind_retained_scalar ~table ~entry global =
             runtime_offsets = [];
             aggregate_owner = None;
             aggregate_stamp = None;
+            aggregate_base_snapshot = None;
           }
 
 let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
@@ -2394,6 +2441,7 @@ let bind_retained_global ~table ~entry ~record ~extent =
             runtime_offsets = global_extent_offset_dependencies extent;
             aggregate_owner = None;
             aggregate_stamp = None;
+            aggregate_base_snapshot = None;
           }
 
 let record_callback_position positions ~parameters receipt =

@@ -81,8 +81,9 @@ and extent guards are hosted policy, not TempleOS invalid-memory claims.
 
 ## Verification and remaining work
 
-Forty new value groups extend the shared member suite to 98 IR and 98 native
-groups. Independent expected words and output cover parameter and local
+The pointer fixtures contribute forty value groups to the shared member suite,
+which now has 128 IR and 128 native groups. Independent expected words and
+output cover parameter and local
 copies, negative in-range indices, pointer loops, postfix snapshots, RHS
 rebinding, delayed primitive postfix stores, nested arrays, union overlap,
 padding, class shadowing and all nine
@@ -90,9 +91,11 @@ integer widths. Raw IR controls reject missing, foreign, altered and
 other-function pointee proofs before storage. Exact and one-below controls
 cover frame bytes, executed instructions and both native ABIs' stack and
 encoded image bytes. Fresh native image executions retain the same results.
-The maintained CLI checks run 346 IR reports and 693 including native execution.
+The maintained CLI checks run 444 IR reports and 889 including native execution.
 
-Inherited and function-local layouts, retained JIT aggregate imports,
+Completed earlier [inherited layouts](inherited-aggregates.md) also use these
+selected strides. Partial or out-of-compilation bases, function-local layouts,
+retained JIT aggregate imports,
 zero-sized objects, persistent aggregate storage, pointer arrays, aggregate
 initializers, whole-object values and copies, pointer and callback fields,
 general class pointer casts, pointer returns and deeper indirection remain

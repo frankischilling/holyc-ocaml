@@ -123,8 +123,8 @@ if(n)*p=42;return *p;}F(1);F(0);|},
 
 let unsupported =
   [
-    ( "inherited metadata is not runtime layout authority",
-      {|class Base{U8 byte;};class Child:Base{U8 tail;};
+    ( "forward base metadata is not runtime layout authority",
+      {|extern class Base;class Child:Base{U8 tail;};
 I64 F(){Child object;return 42;}F();|}
     );
     ("zero-sized object", {|class Box{};I64 F(){Box object;return 42;}F();|});

@@ -542,8 +542,11 @@ selected element size and dimensions; `examples/aggregate-arrays.hc` passes an
 indexed element to a callee, prints `AB` and returns 42.
 [Class pointer operations](docs/class-pointers.md) retain selected pointee
 strides for indexing, arithmetic, difference, comparisons and updates;
-`examples/class-pointers.hc` also prints `AB` and returns 42. Inherited storage,
-retained JIT imports, persistent objects, whole-object values and copies,
+`examples/class-pointers.hc` also prints `AB` and returns 42.
+[Inherited aggregate storage](docs/inherited-aggregates.md) connects completed
+earlier base chains to the same members, arrays and pointer operations.
+`examples/inherited-aggregates.hc` prints `AB` and returns 42.
+Retained JIT imports, persistent objects, whole-object values and copies,
 pointer fields and pointer returns remain open under issue #686.
 
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a

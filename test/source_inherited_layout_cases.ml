@@ -14,7 +14,8 @@ let values =
       {|class B{U8 a[30];};union C:B{U8 b[40];I64 c;};sizeof(C)+2;|} );
     ( "union retains larger base",
       {|class B{U8 a[42];};union C:B{U8 b;I64 c;};sizeof(C);|} );
-    ("union as base", {|union B{U8 a[34];I64 b;};class C:B{I64 b;};sizeof(C);|});
+    ( "union as base",
+      {|union B{U8 a[34];I64 b;};class C:B{I64 child;};sizeof(C);|} );
     ( "offset replaces current size",
       {|class B{U8 a[34];};class C:B{$$=34;I64 b;};sizeof(C);|} );
     ( "position starts at copied size",
