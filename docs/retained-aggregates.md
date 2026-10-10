@@ -1,5 +1,10 @@
 # Retained aggregate sizes
 
+[Member size queries](aggregate-member-sizeof.md) retain original field types,
+dimensions and parser steps. Each selected class is read at the member's live
+callback, so a later forward completion changes later queries while saved
+results and original preparation dependencies remain intact.
+
 [Local class and union size queries](local-aggregate-sizeof.md) retain the
 original selected type and query-time layout, including class parameters and
 arrays. Completing a selected forward can change a later query without

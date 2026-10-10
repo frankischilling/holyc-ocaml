@@ -181,6 +181,7 @@ type query = {
 type reading_query = {
   target : reference_target;
   mutable sizeof_read : Sema.Compiler_record.sizeof_read option;
+  mutable sizeof_member_start : Sema.Compiler_record.sizeof_member_start option;
   mutable member_start : Parser.query_member_start option;
   mutable members_rev : Parser.query_member list;
   mutable completed : bool;
@@ -199,6 +200,7 @@ type command = {
   aggregate_imports : Sema.Compiler_record.aggregate_import list;
   aggregate_import_views :
     (Ast.aggregate_definition * Ast.aggregate_definition) list;
+  aggregate_fields : Sema.Compiler_record.aggregate_field list;
   imported_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
   imported_offsets : Sema.Compiler_record.aggregate_offset list;
   inherited_metadata : Sema.Compiler_record.inherited_metadata list;
@@ -1945,6 +1947,20 @@ let automatic_aggregate_allocation ledger function_publication selected
         record
   | _ -> None
 
+let sizeof_aggregate_record ledger symbol =
+  Entries.fold
+    (fun _ assigned found ->
+      match assigned.source with
+      | Aggregate { record = Some (Ok record); _ }
+        when Option.fold ~none:false ~some:(( == ) symbol)
+               (Collection.publication_aggregate_identity assigned.publication)
+             && Option.fold ~none:false
+                  ~some:(( == ) assigned.publication)
+                  (Collection.current_aggregate_publication ledger.namespace
+                     assigned.publication) -> Some record
+      | _ -> found)
+    ledger.entries None
+
 let local_sizeof_aggregate ledger (root : Parser.query_root) =
   let selected =
     match root.query_local with
@@ -1960,19 +1976,8 @@ let local_sizeof_aggregate ledger (root : Parser.query_root) =
   in
   Option.bind selected (fun selected ->
       let symbol = Sema.Source_type_reference.selected_base_symbol selected in
-      Entries.fold
-        (fun _ assigned found ->
-          match assigned.source with
-          | Aggregate { record = Some (Ok record); _ }
-            when Option.fold ~none:false ~some:(( == ) symbol)
-                   (Collection.publication_aggregate_identity
-                      assigned.publication)
-                 && Option.fold ~none:false
-                      ~some:(( == ) assigned.publication)
-                      (Collection.current_aggregate_publication ledger.namespace
-                         assigned.publication) -> Some (selected, record)
-          | _ -> found)
-        ledger.entries None)
+      sizeof_aggregate_record ledger symbol
+      |> Option.map (fun record -> (selected, record)))
 
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
@@ -2078,6 +2083,7 @@ let observe_query ledger event =
             {
               target;
               sizeof_read;
+              sizeof_member_start = None;
               member_start = None;
               members_rev = [];
               completed = false;
@@ -2105,7 +2111,15 @@ let observe_query ledger event =
           then
             fail start.member_start_dot.span
               "sizeof internal type cannot select a member";
-          if not (requires_query_metadata ledger) then state.sizeof_read <- None;
+          if requires_query_metadata ledger then
+            state.sizeof_member_start <-
+              Option.map
+                (fun read ->
+                  Sema.Compiler_record.start_sizeof_member ~table:ledger.table
+                    ~namespace:ledger.namespace ~source:start read
+                  |> checked start.member_start_dot.span)
+                state.sizeof_read
+          else state.sizeof_read <- None;
           state.member_start <- Some start
       | Parser.Query_member member ->
           let state =
@@ -2120,19 +2134,32 @@ let observe_query ledger event =
           in
           if member.query_member_ordinal <> next then
             fail span "query member is missing, replayed or out of order";
-          let dot =
+          let dot, member_span =
             match member.query_member_node with
-            | Parser.Sizeof_member member -> member.sizeof_member_dot
-            | Parser.Offset_member member -> member.offset_member_dot
+            | Parser.Sizeof_member member ->
+                ( member.sizeof_member_dot,
+                  member.sizeof_member_name.location.span )
+            | Parser.Offset_member member ->
+                ( member.offset_member_dot,
+                  member.offset_member_name.location.span )
           in
           (match state.member_start with
           | Some start
             when start == member.query_member_start
                  && start.member_start_dot == dot -> ()
           | _ -> fail span "query member lacks its original observed dot");
-          if Option.is_some state.sizeof_read then
-            fail span
-              "sizeof requires the selected class's checked member layout";
+          (match (state.sizeof_read, state.sizeof_member_start) with
+          | Some _, Some started ->
+              state.sizeof_read <-
+                Some
+                  (Sema.Compiler_record.read_sizeof_member ~table:ledger.table
+                     ~namespace:ledger.namespace
+                     ~aggregates:(sizeof_aggregate_record ledger)
+                     ~source:member started
+                  |> checked member_span)
+          | None, None -> ()
+          | _ -> fail span "sizeof member lacks its original checked dot");
+          state.sizeof_member_start <- None;
           state.member_start <- None;
           state.members_rev <- member :: state.members_rev
       | Parser.Query_completed receipt ->
@@ -4175,6 +4202,16 @@ let seal ledger (ast : Ast.module_) =
                   List.map
                     (fun (_, _, original, view, _) -> (original, view))
                     imported;
+                aggregate_fields =
+                  List.concat_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Aggregate { record = Some (Ok record); _ } ->
+                          Sema.Compiler_record.aggregate_fields record
+                      | _ -> [])
+                    (!claimed
+                    @ List.map (fun (assigned, _, _, _, _) -> assigned) imported
+                    );
                 imported_dimensions;
                 imported_offsets;
                 function_compiler_options =
@@ -5277,6 +5314,19 @@ let selected_type_resolver ~table ~ast (command : command) =
 
 let source_selected_type_resolver ~table ~ast (Source_command command) =
   selected_type_resolver ~table ~ast command
+
+let aggregate_field_resolver ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "member placements belong to another source command";
+      fun identifier ->
+        List.find_opt
+          (fun field ->
+            Sema.Compiler_record.aggregate_field_name field == identifier)
+          command.aggregate_fields)
+
+let source_aggregate_field_resolver ~table ~ast (Source_command command) =
+  aggregate_field_resolver ~table ~ast command
 
 let inherited_metadata ~table ~ast (command : command) =
   protect (fun () ->

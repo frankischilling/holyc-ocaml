@@ -60,10 +60,11 @@ occurrences, tables, namespaces and functions. They query one forward local
 before and after completion, observe zero then two, and verify that both saved
 results remain unchanged.
 
-Those metadata checks do not authorize zero-sized automatic storage or expand
-aggregate execution. Member-suffix and `offset` queries, persistent objects,
-general object copies and runtime AOT layout relocation retain their existing
-boundaries. [Issue #820](https://github.com/frankischilling/holyc-ocaml/issues/820)
+Member suffixes follow the separate [member query path](aggregate-member-sizeof.md).
+These metadata checks do not authorize zero-sized automatic storage. Remaining
+`offset` queries, persistent objects, general object copies and runtime AOT
+layout relocation retain their existing boundaries.
+[Issue #820](https://github.com/frankischilling/holyc-ocaml/issues/820)
 tracks this query feature within [aggregate work](https://github.com/frankischilling/holyc-ocaml/issues/686).
 
 ## TempleOS source

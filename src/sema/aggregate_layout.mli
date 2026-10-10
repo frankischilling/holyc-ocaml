@@ -165,13 +165,30 @@ val evaluate_expression :
     result to [I64], while an aggregate offset retains the raw [F64] bits used
     by [LexExpression]. *)
 
+type original_member
+
+val original_member :
+  table:Symbol_table.t ->
+  parent:Symbol_table.scope ->
+  aggregate:Symbol.t ->
+  type_specifier:Frontend.Ast.type_specifier ->
+  declarator:Frontend.Ast.aggregate_member_declarator ->
+  member_input ->
+  Compiler_record.aggregate_field ->
+  (original_member, string) result
+(** Bind an original class field's placement size to this exact semantic input.
+    The nominal field type is preserved. *)
+
 val layout :
+  ?original_members:original_member list ->
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   aggregate_input list ->
   (t, error) result
-(** Lay out definitions in source order. A by-value aggregate or base must have
-    a completed earlier layout; pointers do not require the pointee layout. *)
+(** Lay out definitions in source order. Original member receipts preserve the
+    element size read at placement, including a forward class's zero size.
+    Without a receipt, by-value aggregates and bases require an earlier
+    completed layout. Pointers do not require the pointee layout. *)
 
 val layouts : t -> aggregate_layout list
 val owns_table : t -> Symbol_table.t -> bool

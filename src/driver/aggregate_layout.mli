@@ -8,6 +8,8 @@ val layout :
   ?prepared:
     (Frontend.Ast.array_dimension ->
     (Sema.Compiler_record.declared_dimension, string) result) ->
+  ?original_fields:
+    (Frontend.Ast.identifier -> Sema.Compiler_record.aggregate_field option) ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->
   aggregates:Sema.Aggregate_resolution.t ->
@@ -21,4 +23,7 @@ val layout :
     [prepared] and its original checked offsets through [offsets]. Both
     resolvers must return receipts for the exact expression/dimension and
     semantic table. Original inherited metadata proofs preserve their reached
-    sizes separately; they cannot grant an object layout or member index. *)
+    sizes separately; they cannot grant an object layout or member index.
+    [original_fields] supplies each class field's saved placement extent; its
+    original source children and class identity must match the semantic input.
+*)

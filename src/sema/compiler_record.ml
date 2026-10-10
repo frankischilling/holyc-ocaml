@@ -98,6 +98,17 @@ end)
 
 type aggregate_stamp = { mutable current_stamp : unit ref }
 
+type aggregate_field = {
+  field_phase : Parser.aggregate_phase;
+  field_namespace : Declaration_collection.namespace;
+  field_publication : Declaration_collection.publication;
+  field_type : Type.t;
+  field_element_size : int64;
+  field_count : int64;
+  field_dimensions : runtime_dimension_proposal list;
+  field_offsets : aggregate_offset list;
+}
+
 type t = {
   table : Symbol_table.t;
   entry : Visibility.entry;
@@ -114,6 +125,7 @@ type t = {
     option;
   aggregate_stamp : (aggregate_stamp * unit ref) option;
   aggregate_base_snapshot : t option;
+  aggregate_fields : aggregate_field list option;
 }
 
 type aggregate_member = {
@@ -161,10 +173,24 @@ type inherited_metadata = {
 type aggregate_value_header = inherited_metadata
 type aggregate_import = inherited_metadata
 
+type sizeof_class =
+  | Declared_class of Type.t
+  | Pointer_class
+  | Unavailable_class
+
+type sizeof_member_read = {
+  member_source : Parser.query_member;
+  member_class : sizeof_class;
+  member_byte_size : int64;
+  member_dimensions : runtime_dimension_proposal list;
+  member_offsets : aggregate_offset list;
+}
+
 type sizeof_owner =
   | Hash_record of t
   | Local_record of {
       table : Symbol_table.t;
+      namespace : Declaration_collection.namespace;
       source : Parser.local_publication;
       byte_size : int64;
       internal : bool;
@@ -172,7 +198,18 @@ type sizeof_owner =
       runtime_offsets : aggregate_offset list;
     }
 
-type sizeof_read = { owner : sizeof_owner; root : Parser.query_root }
+type sizeof_read = {
+  owner : sizeof_owner;
+  root : Parser.query_root;
+  root_class : sizeof_class;
+  members_rev : sizeof_member_read list;
+}
+
+type sizeof_member_start = {
+  start_source : Parser.query_member_start;
+  start_namespace : Declaration_collection.namespace;
+  start_read : sizeof_read;
+}
 
 type query_role = Query_source.role =
   | Sizeof_root
@@ -609,6 +646,7 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           aggregate_owner = None;
           aggregate_stamp = None;
           aggregate_base_snapshot = None;
+          aggregate_fields = None;
         }
 
 let seed_public_union ~table ~entry ~symbol
@@ -652,6 +690,7 @@ let seed_public_union ~table ~entry ~symbol
               aggregate_owner = None;
               aggregate_stamp = None;
               aggregate_base_snapshot = None;
+              aggregate_fields = None;
             }
 
 let aggregate_snapshot_is_current record =
@@ -1066,12 +1105,50 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
                 aggregate_owner = Some (namespace, publication, None);
                 aggregate_stamp = Some (stamp, stamp.current_stamp);
                 aggregate_base_snapshot = None;
+                aggregate_fields = Some [];
               };
         }
   | _ ->
       Error "partial aggregate metadata requires its original live publication"
 
 let aggregate_metadata progress = progress.progress_record
+let aggregate_fields record = Option.value ~default:[] record.aggregate_fields
+
+let aggregate_field_name field =
+  match field.field_phase.phase_step with
+  | Parser.Aggregate_member_prepared member -> member.member_name
+  | _ -> assert false
+
+let aggregate_field_element_size ~table ~parent ~aggregate ~type_specifier
+    ~(declarator : Ast.aggregate_member_declarator) ~type_ field =
+  let namespace = field.field_namespace in
+  let publication = field.field_publication in
+  if
+    (not (Declaration_collection.namespace_owns_table namespace table))
+    || Declaration_collection.namespace_scope namespace != parent
+    || (not
+          (Declaration_collection.namespace_owns_publication namespace
+             publication))
+    || (not
+          (Option.fold ~none:false ~some:(( == ) aggregate)
+             (Declaration_collection.publication_aggregate_identity publication)))
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) field.field_phase.phase_aggregate)
+             (Declaration_collection.publication_source_aggregate publication)))
+    || not (Type.equal type_ field.field_type)
+  then Error "member placement belongs to another original class or type"
+  else
+    match field.field_phase.phase_step with
+    | Parser.Aggregate_member_prepared original
+      when original.member_type == type_specifier
+           && original.member_name == declarator.member_name
+           && original.member_pointers == declarator.member_pointer_layers
+           && original.member_dimensions == declarator.member_array_dimensions
+           && Option.is_none original.member_callback
+           && Option.is_none declarator.member_function_pointer ->
+        Ok field.field_element_size
+    | _ -> Error "member placement substituted its original source children"
 
 let same_phase left right =
   match (left, right) with
@@ -1232,7 +1309,7 @@ let advance_aggregate
       | Parser.Aggregate_member_prepared member ->
           let record =
             let* record = progress.progress_record in
-            let* element_size, selected_record =
+            let* element_size, selected_record, field_type =
               match (member.member_callback, member.member_type) with
               | None, Ast.Named_type_specifier _ ->
                   let* selected = members phase in
@@ -1246,7 +1323,10 @@ let advance_aggregate
                   else (
                     progress.progress_members <-
                       selected :: progress.progress_members;
-                    Ok (selected.member_size, selected.member_record))
+                    Ok
+                      ( selected.member_size,
+                        selected.member_record,
+                        Type_reference.resolved_type selected.member_type ))
               | callback, _ ->
                   let* type_ =
                     match callback with
@@ -1266,10 +1346,10 @@ let advance_aggregate
                   let* size =
                     scalar_size (Type_reference.resolved_type type_)
                   in
-                  Ok (size, None)
+                  Ok (size, None, Type_reference.resolved_type type_)
             in
             let checked = List.filter_map dimensions member.member_dimensions in
-            let* _ =
+            let* field_count =
               declared_array_size ~table:record.table
                 ~namespace:progress.progress_namespace
                 ~command:
@@ -1293,6 +1373,23 @@ let advance_aggregate
               {
                 record with
                 byte_size;
+                aggregate_fields =
+                  Option.map
+                    (fun fields ->
+                      {
+                        field_phase = phase;
+                        field_namespace = progress.progress_namespace;
+                        field_publication = progress.progress_publication;
+                        field_type;
+                        field_element_size = element_size;
+                        field_count;
+                        field_dimensions =
+                          List.concat_map dimension_runtime_dependencies checked;
+                        field_offsets =
+                          List.concat_map dimension_offset_dependencies checked;
+                      }
+                      :: fields)
+                    record.aggregate_fields;
                 runtime_dimensions =
                   record.runtime_dimensions
                   @ Option.fold ~none:[]
@@ -1474,6 +1571,11 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
               Option.map
                 (fun base -> base.inherited_record)
                 progress.progress_base);
+        aggregate_fields =
+          Option.bind progress (fun progress ->
+              match progress.progress_record with
+              | Ok record -> record.aggregate_fields
+              | Error _ -> None);
       }
 
 let retain_inherited_metadata ~table ~namespace definition record =
@@ -1629,6 +1731,7 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
             aggregate_owner = None;
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
+            aggregate_fields = None;
           }
 
 let declare_global ?callback
@@ -1815,6 +1918,7 @@ let bind_retained_scalar ~table ~entry global =
             aggregate_owner = None;
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
+            aggregate_fields = None;
           }
     | Global_type_resolution.Object ->
         let* byte_size =
@@ -1835,6 +1939,7 @@ let bind_retained_scalar ~table ~entry global =
             aggregate_owner = None;
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
+            aggregate_fields = None;
           }
 
 let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
@@ -1875,6 +1980,38 @@ let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
               "return class size lacks its exact current retained aggregate \
                layout")
 
+let sizeof_class_of_type type_ =
+  if Type.pointer_depth type_ > 0 then Pointer_class else Declared_class type_
+
+let primitive_sizeof_class ~internal primitive =
+  let has_internal_spelling =
+    Primitive_type.of_storage_spelling
+      (Primitive_type.info primitive).storage_spelling
+    = Some primitive
+  in
+  let form =
+    if internal && has_internal_spelling then Type.Internal_storage
+    else Type.Public_spelling
+  in
+  Type.make_primitive ~form ~primitive ~pointer_depth:0
+  |> Result.map sizeof_class_of_type
+
+let sizeof_record_class record =
+  match record.aggregate_owner with
+  | Some (_, publication, _) -> (
+      match
+        Declaration_collection.publication_aggregate_identity publication
+      with
+      | Some symbol ->
+          Type.make_aggregate ~symbol ~pointer_depth:0
+          |> Result.map sizeof_class_of_type
+      | None -> Error "sizeof class lacks its original canonical identity")
+  | None -> (
+      match record.primitive with
+      | Some primitive ->
+          primitive_sizeof_class ~internal:record.internal primitive
+      | None -> Ok Unavailable_class)
+
 let read_sizeof ~table ~(root : Parser.query_root) (record : t) =
   if record.table != table || not (Symbol_table.owns_symbol table record.symbol)
   then Error "sizeof compiler record belongs to another semantic table"
@@ -1892,7 +2029,9 @@ let read_sizeof ~table ~(root : Parser.query_root) (record : t) =
   else
     match (root.query_node, root.query_lookup) with
     | Parser.Sizeof_target _, Visibility.Present entry
-      when entry == record.entry -> Ok { owner = Hash_record record; root }
+      when entry == record.entry ->
+        let* root_class = sizeof_record_class record in
+        Ok { owner = Hash_record record; root; root_class; members_rev = [] }
     | _ -> Error "sizeof read does not select this exact compiler record"
 
 let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
@@ -1934,7 +2073,11 @@ let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
                 (* PrsType (PrsVar.HC:350-356) assigns the RT_PTR companion
                  class, independently of the signature's return type. The
                  original declarator is retained by this local publication. *)
-                Ok (Int64.of_int Primitive_type.pointer_byte_size, false, None)
+                Ok
+                  ( Int64.of_int Primitive_type.pointer_byte_size,
+                    false,
+                    None,
+                    Pointer_class )
           | None -> (
               let* pointer_depth =
                 Source_type_reference.pointer_depth pointer_layers
@@ -1944,7 +2087,11 @@ let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
                    declaration to its pointer companion while consuming the
                    original '*' children. sizeof therefore needs no pointee
                    layout or value load for this retained type query. *)
-                Ok (Int64.of_int Primitive_type.pointer_byte_size, false, None)
+                Ok
+                  ( Int64.of_int Primitive_type.pointer_byte_size,
+                    false,
+                    None,
+                    Pointer_class )
               else
                 match type_specifier with
                 | Ast.Named_type_specifier _ -> (
@@ -1974,7 +2121,12 @@ let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
                           (* PrsSizeOf reads member_class->size at this query,
                              independently of the earlier local allocation or
                              argument slot. The saved value remains immutable. *)
-                          Ok (byte_size, false, Some record))
+                          Ok
+                            ( byte_size,
+                              false,
+                              Some record,
+                              sizeof_class_of_type
+                                (Type_reference.resolved_type reference) ))
                 | Ast.Primitive_type_specifier _ | Ast.Internal_type_specifier _
                   ->
                     let* type_reference =
@@ -1993,15 +2145,15 @@ let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
                           = Primitive_type.Internal_type
                       | Type.Aggregate _ -> false
                     in
-                    Ok (byte_size, internal, None))
+                    Ok (byte_size, internal, None, sizeof_class_of_type type_))
         in
-        let* byte_size, internal, aggregate_record =
+        let* byte_size, internal, aggregate_record, root_class =
           match source.local_source with
           | Parser.Local_parameter parameter ->
               declared_size parameter.type_specifier parameter.pointer_layers
                 parameter.function_pointer
           | Parser.Local_variable local ->
-              let* byte_size, internal, aggregate_record =
+              let* byte_size, internal, aggregate_record, root_class =
                 declared_size local.local_type_specifier
                   local.local_pointer_layers local.local_function_pointer
               in
@@ -2011,20 +2163,28 @@ let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
                   ~dimensions:local.local_array_dimensions ~checked:dimensions
                   byte_size
               in
-              Ok (byte_size, internal, aggregate_record)
+              Ok (byte_size, internal, aggregate_record, root_class)
           | Parser.Variadic_count _ ->
+              let* root_class =
+                primitive_sizeof_class ~internal:true Primitive_type.I64
+              in
               Ok
                 ( Int64.of_int (Primitive_type.info Primitive_type.I64).byte_size,
                   true,
-                  None )
+                  None,
+                  root_class )
           | Parser.Variadic_vector _ ->
               (* PrsVar.HC:392-403 gives argv an internal I64 class and a
                127-element extent, independently of its eight-byte slot. *)
+              let* root_class =
+                primitive_sizeof_class ~internal:true Primitive_type.I64
+              in
               Ok
                 ( Int64.of_int
                     (127 * (Primitive_type.info Primitive_type.I64).byte_size),
                   true,
-                  None )
+                  None,
+                  root_class )
         in
         Ok
           {
@@ -2032,6 +2192,7 @@ let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
               Local_record
                 {
                   table;
+                  namespace;
                   source;
                   byte_size;
                   internal;
@@ -2049,6 +2210,8 @@ let read_local_sizeof ~dimensions ~aggregate ~table ~namespace
                       (List.concat_map dimension_offset_dependencies dimensions);
                 };
             root;
+            root_class;
+            members_rev = [];
           }
     | _ ->
         Error
@@ -2064,26 +2227,218 @@ let complete_sizeof ~table ~(receipt : Parser.completed_query) read =
     Error "sizeof completion belongs to another read or semantic table"
   else
     match receipt.query_expression with
-    | Ast.Sizeof_expression expression when expression.sizeof_members = [] ->
-        Ok ()
+    | Ast.Sizeof_expression expression ->
+        let members =
+          List.rev_map (fun member -> member.member_source) read.members_rev
+        in
+        if
+          List.length members = List.length receipt.query_members
+          && List.for_all2 ( == ) members receipt.query_members
+          && List.length members = List.length expression.sizeof_members
+          && List.for_all2
+               (fun member source ->
+                 match member.Parser.query_member_node with
+                 | Parser.Sizeof_member original -> original == source
+                 | Parser.Offset_member _ -> false)
+               members expression.sizeof_members
+        then Ok ()
+        else Error "sizeof completion lacks its original ordered member reads"
     | _ -> Error "sizeof requires its original checked member reads"
 
 let sizeof_value read ~pointer =
   if pointer then Int64.of_int Primitive_type.pointer_byte_size
   else
-    match read.owner with
-    | Hash_record record -> record.byte_size
-    | Local_record local -> local.byte_size
+    match read.members_rev with
+    | member :: _ -> member.member_byte_size
+    | [] -> (
+        match read.owner with
+        | Hash_record record -> record.byte_size
+        | Local_record local -> local.byte_size)
+
+let sizeof_selected_class read =
+  match read.members_rev with
+  | member :: _ -> member.member_class
+  | [] -> read.root_class
 
 let sizeof_primitive read =
-  match read.owner with
-  | Hash_record record -> record.primitive
-  | Local_record _ -> None
+  match read.members_rev with
+  | { member_class = Declared_class type_; _ } :: _ -> (
+      match Type.base type_ with
+      | Type.Primitive (_, primitive) -> Some primitive
+      | Type.Aggregate _ -> None)
+  | _ :: _ -> None
+  | [] -> (
+      match read.owner with
+      | Hash_record record -> record.primitive
+      | Local_record _ -> None)
 
 let sizeof_is_internal read =
-  match read.owner with
-  | Hash_record record -> record.internal
-  | Local_record local -> local.internal
+  match read.members_rev with
+  | { member_class = Declared_class type_; _ } :: _ -> (
+      match Type.base type_ with
+      | Type.Primitive (Type.Internal_storage, _) -> true
+      | Type.Primitive (Type.Public_spelling, primitive) ->
+          (Primitive_type.info primitive).declaration_form
+          = Primitive_type.Internal_type
+      | Type.Aggregate _ -> false)
+  | _ :: _ -> false
+  | [] -> (
+      match read.owner with
+      | Hash_record record -> record.internal
+      | Local_record local -> local.internal)
+
+let sizeof_runtime_dependencies read =
+  match read.members_rev with
+  | member :: _ -> member.member_dimensions
+  | [] -> (
+      match read.owner with
+      | Hash_record record -> record.runtime_dimensions
+      | Local_record local -> local.runtime_dimensions)
+
+let sizeof_runtime_offsets read =
+  match read.members_rev with
+  | member :: _ -> member.member_offsets
+  | [] -> (
+      match read.owner with
+      | Hash_record record -> record.runtime_offsets
+      | Local_record local -> local.runtime_offsets)
+
+let start_sizeof_member ~table ~namespace ~(source : Parser.query_member_start)
+    read =
+  let owner_namespace =
+    match read.owner with
+    | Hash_record record ->
+        Option.map (fun (namespace, _, _) -> namespace) record.aggregate_owner
+    | Local_record local -> Some local.namespace
+  in
+  if
+    sizeof_table read != table
+    || (not (Declaration_collection.namespace_owns_table namespace table))
+    || Option.fold ~none:false ~some:(( != ) namespace) owner_namespace
+    || source.member_start_root != read.root
+    || source.member_start_ordinal <> List.length read.members_rev
+    || not (Parser.query_member_start_is_current source)
+  then Error "sizeof dot has foreign, expired or out-of-order source evidence"
+  else if sizeof_is_internal read then
+    Error "sizeof internal type cannot select a member"
+  else
+    Ok { start_source = source; start_namespace = namespace; start_read = read }
+
+let read_sizeof_member ~table ~namespace ~aggregates
+    ~(source : Parser.query_member) start =
+  let read = start.start_read in
+  if
+    sizeof_table read != table
+    || start.start_namespace != namespace
+    || (not (Declaration_collection.namespace_owns_table namespace table))
+    || source.query_member_root != read.root
+    || source.query_member_start != start.start_source
+    || source.query_member_ordinal <> List.length read.members_rev
+    || not (Parser.query_member_is_current source)
+  then
+    Error "sizeof member has foreign, expired or out-of-order source evidence"
+  else
+    let* name =
+      match source.query_member_node with
+      | Parser.Sizeof_member member
+        when member.sizeof_member_dot == start.start_source.member_start_dot ->
+          Ok member.sizeof_member_name.spelling
+      | _ -> Error "sizeof member does not retain its original dot and name"
+    in
+    let current_aggregate type_ symbol =
+      match aggregates symbol with
+      | None -> Error "sizeof member lacks its selected current class record"
+      | Some record ->
+          let* _ =
+            return_class_size ~table ~namespace ~type_ ~aggregate:(Some record)
+          in
+          Ok record
+    in
+    let rec find_member visited type_ =
+      match Type.base type_ with
+      | Type.Primitive _ ->
+          Error
+            "sizeof public union members require their original field metadata"
+      | Type.Aggregate symbol -> (
+          if List.exists (( == ) symbol) visited then
+            Error "sizeof member lookup reached a repeated inherited class"
+          else
+            let* record = current_aggregate type_ symbol in
+            let* fields =
+              match record.aggregate_fields with
+              | Some fields -> Ok fields
+              | None ->
+                  Error "sizeof class lacks its original member layout phases"
+            in
+            let field =
+              (* MemberAdd leaves an earlier pad/reserved/_anon_ match above
+                 later duplicates. These phase entries are stored newest first. *)
+              List.fold_left
+                (fun found field ->
+                  match field.field_phase.phase_step with
+                  | Parser.Aggregate_member_prepared original
+                    when original.member_name.spelling = name -> Some field
+                  | _ -> found)
+                None fields
+            in
+            match field with
+            | Some field -> Ok (field, [ record ])
+            | None -> (
+                match record.aggregate_base_snapshot with
+                | None ->
+                    Error ("sizeof class has no member named `" ^ name ^ "`")
+                | Some base -> (
+                    let* base_class = sizeof_record_class base in
+                    match base_class with
+                    | Declared_class type_ ->
+                        let* field, records =
+                          find_member (symbol :: visited) type_
+                        in
+                        Ok (field, record :: records)
+                    | Pointer_class | Unavailable_class ->
+                        Error "sizeof base lacks its selected class identity")))
+    in
+    let* field, records =
+      match sizeof_selected_class read with
+      | Declared_class type_ -> find_member [] type_
+      | Pointer_class -> Error "sizeof pointer class has no members"
+      | Unavailable_class ->
+          Error "sizeof member requires its original selected class metadata"
+    in
+    let* element_size, selected_record =
+      if Type.pointer_depth field.field_type > 0 then
+        Ok (Int64.of_int Primitive_type.pointer_byte_size, None)
+      else
+        match Type.base field.field_type with
+        | Type.Primitive _ ->
+            let* size = scalar_size field.field_type in
+            Ok (size, None)
+        | Type.Aggregate symbol ->
+            let* record = current_aggregate field.field_type symbol in
+            Ok (record.byte_size, Some record)
+    in
+    let records = Option.to_list selected_record @ records in
+    let member =
+      {
+        member_source = source;
+        member_class = sizeof_class_of_type field.field_type;
+        (* PrsSizeOf reads the live selected class size, not the extent saved
+           when this member was placed in its containing object. *)
+        member_byte_size = Int64.mul element_size field.field_count;
+        member_dimensions =
+          merge_dimension_dependencies
+            (sizeof_runtime_dependencies read)
+            (field.field_dimensions
+            @ List.concat_map (fun record -> record.runtime_dimensions) records
+            );
+        member_offsets =
+          merge_offset_dependencies
+            (sizeof_runtime_offsets read)
+            (field.field_offsets
+            @ List.concat_map (fun record -> record.runtime_offsets) records);
+      }
+    in
+    Ok { read with members_rev = member :: read.members_rev }
 
 let origin (location : Frontend.Ast.location) =
   Symbol.Source_location
@@ -2164,18 +2519,12 @@ let query_sizeof selection =
 let query_runtime_dependencies selection =
   match selection.sizeof_read with
   | None -> []
-  | Some read -> (
-      match read.owner with
-      | Hash_record record -> record.runtime_dimensions
-      | Local_record local -> local.runtime_dimensions)
+  | Some read -> sizeof_runtime_dependencies read
 
 let query_runtime_offsets selection =
   match selection.sizeof_read with
   | None -> []
-  | Some read -> (
-      match read.owner with
-      | Hash_record record -> record.runtime_offsets
-      | Local_record local -> local.runtime_offsets)
+  | Some read -> sizeof_runtime_offsets read
 
 let query_constant selection =
   match query_presence selection with
@@ -2882,6 +3231,7 @@ let bind_retained_global ~table ~entry ~record ~extent =
             aggregate_owner = None;
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
+            aggregate_fields = None;
           }
 
 let record_callback_position positions ~parameters receipt =

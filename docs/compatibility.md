@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[Aggregate member `sizeof`](aggregate-member-sizeof.md) supports dot paths from
+named classes and unions, automatic objects and class parameters. Nested and
+inherited fields retain original types, their own array counts and query-time
+class sizes. Pointer and callback fields and trailing stars use pointer width.
+Persistent aggregate declarations and builtin public-union subfields retain
+their existing unsupported boundaries.
+
 [Local aggregate `sizeof`](local-aggregate-sizeof.md) supports named class and
 union locals, fixed arrays and value parameters. Queries retain exact selected
 class identities, current layout snapshots and runtime bound or offset

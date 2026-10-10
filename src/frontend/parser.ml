@@ -679,14 +679,24 @@ type query_member_start = {
   member_start_root : query_root;
   member_start_ordinal : int;
   member_start_dot : Ast.location;
+  member_start_activity : query_activity;
 }
+
+let query_member_start_is_current source =
+  source.member_start_activity.query_active
+  && source.member_start_root.query_command.command_context.context_active
 
 type query_member = {
   query_member_root : query_root;
   query_member_ordinal : int;
   query_member_node : query_member_node;
   query_member_start : query_member_start;
+  query_member_activity : query_activity;
 }
+
+let query_member_is_current source =
+  source.query_member_activity.query_active
+  && source.query_member_root.query_command.command_context.context_active
 
 type completed_query = {
   query_root : query_root;
@@ -2615,9 +2625,12 @@ let start_query_member cursor item query member_start_dot =
           member_start_root = query_member_root;
           member_start_ordinal = query_member_ordinal;
           member_start_dot;
+          member_start_activity = { query_active = true };
         }
       in
-      publish_query cursor item (Query_member_started start);
+      Fun.protect
+        ~finally:(fun () -> start.member_start_activity.query_active <- false)
+        (fun () -> publish_query cursor item (Query_member_started start));
       start)
     query
 
@@ -2632,9 +2645,12 @@ let query_member cursor item query start query_member_node =
           query_member_ordinal;
           query_member_node;
           query_member_start;
+          query_member_activity = { query_active = true };
         }
       in
-      publish_query cursor item (Query_member member);
+      Fun.protect
+        ~finally:(fun () -> member.query_member_activity.query_active <- false)
+        (fun () -> publish_query cursor item (Query_member member));
       members := member :: !members)
     query
 

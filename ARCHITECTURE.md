@@ -1,5 +1,12 @@
 # holyc-ocaml architecture
 
+`Sema.Compiler_record` retains original aggregate field types and dimension
+counts from live member phases. Member `sizeof` callbacks follow the exact
+root, dot and member sequence, read the selected canonical class's current
+metadata, and save an immutable result with its preparation dependencies.
+`Driver.Task_declarations` supplies those checked queries to the existing
+integer-constant lowering path. See [member sizes](docs/aggregate-member-sizeof.md).
+
 `Ir.Aggregate_member_projection` retains the immutable selected member lookup,
 exact base and target pointer types, offset and checked array strides. Semantic
 member results retain their typed base; lowering emits the original immediate

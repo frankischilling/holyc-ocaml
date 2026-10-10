@@ -329,15 +329,36 @@ struct
         checked_multiply_nonnegative origin "the member storage size"
           element_size count)
 
-  let lay_out_member (previous : aggregate_layout Int_map.t) mode union_base
-      state member =
+  let lay_out_member ~selected_size (previous : aggregate_layout Int_map.t) mode
+      union_base state member =
     let current_position =
       match mode with
       | Class -> state.size
       | Union -> union_base
     in
-    Result.bind (element_shape previous member)
-      (fun (element_size, signedness) ->
+    let shape =
+      Result.bind
+        (selected_size member
+        |> Result.map_error (invalid_input ~origin:member.member_origin))
+        (function
+          | None -> element_shape previous member
+          | Some size -> (
+              if
+                member.member_is_function_pointer
+                || Type.pointer_depth member.member_type > 0
+              then
+                Error
+                  (invalid_input ~origin:member.member_origin
+                     "selected class extent cannot replace pointer storage")
+              else
+                match Type.base member.member_type with
+                | Type.Aggregate _ -> Ok (size, Not_applicable)
+                | Type.Primitive _ ->
+                    Error
+                      (invalid_input ~origin:member.member_origin
+                         "selected class extent cannot replace scalar storage")))
+    in
+    Result.bind shape (fun (element_size, signedness) ->
         Result.bind
           (evaluate_dimensions current_position member.member_dimensions)
           (fun (total_count, dimensions) ->
@@ -373,16 +394,19 @@ struct
                     })
                   placed_size)))
 
-  let rec lay_out_items (previous : aggregate_layout Int_map.t) mode union_base
-      state items =
+  let rec lay_out_items ~selected_size (previous : aggregate_layout Int_map.t)
+      mode union_base state items =
     match items with
     | [] -> Ok state
     | item :: rest -> (
         match item with
-        | Empty_member _ -> lay_out_items previous mode union_base state rest
+        | Empty_member _ ->
+            lay_out_items ~selected_size previous mode union_base state rest
         | Field member ->
-            Result.bind (lay_out_member previous mode union_base state member)
-              (fun state -> lay_out_items previous mode union_base state rest)
+            Result.bind
+              (lay_out_member ~selected_size previous mode union_base state
+                 member) (fun state ->
+                lay_out_items ~selected_size previous mode union_base state rest)
         | Offset_directive expression ->
             let current_position =
               match mode with
@@ -399,14 +423,18 @@ struct
                   (fun state ->
                     match mode with
                     | Class ->
-                        lay_out_items previous mode union_base
+                        lay_out_items ~selected_size previous mode union_base
                           { state with size = position }
                           rest
-                    | Union -> lay_out_items previous mode position state rest))
+                    | Union ->
+                        lay_out_items ~selected_size previous mode position
+                          state rest))
         | Anonymous_union { union_items; _ } ->
             Result.bind
-              (lay_out_items previous Union state.size state union_items)
-              (fun state -> lay_out_items previous mode union_base state rest))
+              (lay_out_items ~selected_size previous Union state.size state
+                 union_items) (fun state ->
+                lay_out_items ~selected_size previous mode union_base state rest)
+        )
 
   let validate_member table aggregate_scope seen (member : member_input) =
     let key = symbol_key member.member_symbol in
@@ -605,8 +633,8 @@ struct
                    size = layout.size;
                  }))
 
-  let lay_out_aggregate ?initial_size (previous : aggregate_layout Int_map.t)
-      (input : aggregate_input) =
+  let lay_out_aggregate ?initial_size ?(selected_sizes = fun _ _ -> Ok None)
+      (previous : aggregate_layout Int_map.t) (input : aggregate_input) =
     Result.bind (base_layout previous input) (fun base ->
         let initial_size =
           match base with
@@ -618,8 +646,9 @@ struct
         in
         let union_base = 0L in
         Result.bind
-          (lay_out_items previous input.aggregate_kind union_base state
-             input.aggregate_items) (fun state ->
+          (lay_out_items ~selected_size:(selected_sizes input) previous
+             input.aggregate_kind union_base state input.aggregate_items)
+          (fun state ->
             Result.map
               (fun size ->
                 {
@@ -647,12 +676,13 @@ struct
             })
           (lay_out_aggregate ~initial_size Int_map.empty input))
 
-  let layout ~table ~parent inputs =
+  let layout ?selected_sizes ~table ~parent inputs =
     Result.bind (validate_inputs table parent inputs) (fun () ->
         let rec loop by_symbol layouts_rev = function
           | [] -> Ok { table; layouts = List.rev layouts_rev; by_symbol }
           | input :: rest ->
-              Result.bind (lay_out_aggregate by_symbol input) (fun layout ->
+              Result.bind (lay_out_aggregate ?selected_sizes by_symbol input)
+                (fun layout ->
                   loop
                     (Int_map.add (symbol_key layout.symbol) layout by_symbol)
                     (layout :: layouts_rev) rest)
