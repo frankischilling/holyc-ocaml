@@ -1,5 +1,8 @@
 # Reference source map
 
+[Default class and union values](default-aggregate-values.md) use the signed
+eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
+
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
 member identities and pointer strides remain separate. General casts, class

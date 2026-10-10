@@ -1,5 +1,8 @@
 # Integer-backed aggregate values
 
+[Default class and union values](default-aggregate-values.md) use the signed
+eight-byte prefix when the backing chain ends at an ordinary class.
+
 Completed earlier classes and unions with an integer backing can read, assign,
 and update a whole value in automatic storage. The value is the scalar prefix
 selected by the backing chain. The class still owns its full byte extent, and
@@ -68,8 +71,8 @@ no TempleOS runtime capture or machine-byte comparison.
 
 Postfix casts involving whole backed values, aggregate initializers, class
 parameter and return ABI paths, floating execution and parameter storage, persistent objects, function-local and
-zero-sized layouts, retained JIT imports, native task objects, unbacked whole
-class values, F64/pointer/callback backings and general aggregate copies remain
+zero-sized layouts, retained JIT imports, native task objects,
+F64/pointer/callback backings and general aggregate copies remain
 open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and
 the related value and ABI issues. Full compiler and release acceptance remain
 under [#682](https://github.com/frankischilling/holyc-ocaml/issues/682).

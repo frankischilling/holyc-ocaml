@@ -1,12 +1,17 @@
 # Testing holyc-ocaml
 
+Default class and union values add 23 shared value groups and seven fault
+fixtures in `test/default_aggregate_cases.ml`, including signed raw words,
+original backing chains, inheritance, byte overlap and RHS effects. The
+maintained example is `examples/default-aggregate-values.hc`.
+
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
 member identities and pointer strides remain separate. General casts, class
 value ABI paths and persistent objects still need their own implementation.
 
 Aggregate member, automatic root array, class pointer and inherited storage
-execution has 155 IR and 155 native test groups. Independent
+execution has 178 IR and 178 native test groups. Independent
 source expectations cover direct and pointer fields, nested aggregates,
 multidimensional member and root arrays, dynamic indices, root and row decay,
 class pointer locals and parameters, selected strides, prefix/postfix snapshots,
@@ -16,7 +21,7 @@ extent faults retain reached output. IR mutation controls validate exact field
 proofs before execution; native controls reject changed sealed graphs before
 image allocation. Exact and one-below runtime frame, instruction, native stack
 and encoded-image quotas cover both modes and native ABIs. The actual CLI runs
-534 IR reports and 1069 with native execution, including unused-array warnings.
+610 IR reports and 1221 with native execution, including unused-array warnings.
 Root-array mutation controls reject changed strides and foreign frames before
 IR execution. Pointee proofs also reject missing, foreign, changed and
 other-function layouts before execution; exact quotas cover scalar, array and

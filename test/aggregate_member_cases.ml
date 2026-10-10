@@ -117,6 +117,14 @@ let faults =
       {|class Box{U16 value;};I64 once=0;I64 F(){Box o;if(once)return o.value;once=1;o.value=42;return o.value;}F();F();|},
       "HCIRVM0012",
       "" );
+    ( "whole member word exceeds its root",
+      {|class I{U8 byte;};class Box{I item;};I64 F(){Box o;o.item;return 42;}F();|},
+      "HCIRVM0019",
+      "" );
+    ( "whole array element word exceeds its root",
+      {|class I{U8 byte;};class Box{I items[2];};I64 F(){Box o;o.items[0];return 42;}F();|},
+      "HCIRVM0019",
+      "" );
   ]
 
 let unsupported =
@@ -129,12 +137,6 @@ let unsupported =
     ("persistent aggregate", {|class Box{U8 byte;};Box object;42;|});
     ( "whole-object copy",
       {|class Box{U8 byte;};I64 F(){Box a,b=a;return 42;}F();|} );
-    ( "whole aggregate member value",
-      {|class I{U8 byte;};class Box{I item;};I64 F(){Box o;o.item;return 42;}F();|}
-    );
-    ( "whole aggregate array element value",
-      {|class I{U8 byte;};class Box{I items[2];};I64 F(){Box o;o.items[0];return 42;}F();|}
-    );
     ( "class pointer return",
       {|class Box{U8 byte;};Box *Get(Box *p){return p;}I64 F(){Box o;return Get(&o)->byte;}F();|}
     );

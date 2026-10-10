@@ -8,7 +8,8 @@ val create :
   source_type:Type.t ->
   t option
 (** Select the original completed aggregate and its source-visible integer
-    backing. The class byte extent remains separate from the scalar width. *)
+    backing, or signed RT_PTR value when the chain ends at an ordinary class.
+    The class byte extent remains separate from the scalar width. *)
 
 val source_type : t -> Type.t
 val value_type : t -> Type.t
