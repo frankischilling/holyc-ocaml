@@ -5175,7 +5175,8 @@
   aggregate_pointer_cases
   inherited_aggregate_cases
   backed_aggregate_cases
-  default_aggregate_cases))
+  default_aggregate_cases
+  class_parameter_cases))
 
 (test
  (name test_aggregate_members)
@@ -5202,7 +5203,8 @@
   ../examples/class-pointers.hc
   ../examples/inherited-aggregates.hc
   ../examples/backed-aggregate-values.hc
-  ../examples/default-aggregate-values.hc)
+  ../examples/default-aggregate-values.hc
+  ../examples/class-value-parameters.hc)
  (action
   (run
    %{test}
@@ -5212,7 +5214,8 @@
    %{dep:../examples/class-pointers.hc}
    %{dep:../examples/inherited-aggregates.hc}
    %{dep:../examples/backed-aggregate-values.hc}
-   %{dep:../examples/default-aggregate-values.hc})))
+   %{dep:../examples/default-aggregate-values.hc}
+   %{dep:../examples/class-value-parameters.hc})))
 
 (test
  (name test_automatic_aggregate_storage)

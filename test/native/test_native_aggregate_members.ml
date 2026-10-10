@@ -5,6 +5,7 @@ module Pointers = Aggregate_pointer_cases
 module Inherited = Inherited_aggregate_cases
 module Backed = Backed_aggregate_cases
 module Default = Default_aggregate_cases
+module Parameters = Class_parameter_cases
 module P = X86_64_program
 module VM = Ir_integer_interpreter
 
@@ -77,7 +78,7 @@ let faults () =
             "native fault preserves reached output" output
             (Native_program.output_bytes report))
         (Cases.faults @ Arrays.faults @ Pointers.faults @ Inherited.faults
-       @ Backed.faults @ Default.faults);
+       @ Backed.faults @ Default.faults @ Parameters.faults);
       List.iter
         (fun (definition, bytes) ->
           ignore
@@ -128,7 +129,10 @@ let quotas () =
         let frame =
           Holyc_lib__Driver.Integer_unit.functions fixture.unit_
           |> List.map (fun (f : VM.function_definition) ->
-              Semantic_function_frame_layout.function_frame_size f.frame
+              Int64.add
+                (Semantic_function_frame_layout.function_frame_size f.frame)
+                (Int64.of_int
+                   (8 * List.length (Ir_function_body.parameters f.body)))
               |> Int64.to_int)
           |> List.fold_left max 0
         in
@@ -156,6 +160,7 @@ let quotas () =
       Inherited.quota_source;
       Backed.quota_source;
       Default.quota_source;
+      Parameters.quota_source;
     ]
 
 let images () =
@@ -206,6 +211,7 @@ let images () =
       Inherited.quota_source;
       Backed.quota_source;
       Default.quota_source;
+      Parameters.quota_source;
     ]
 
 let field_proofs () =
@@ -275,7 +281,8 @@ let boundaries () =
             name true
             (Result.is_error (Native_program.outcome (run mode contents))))
         (Cases.unsupported @ Arrays.unsupported @ Pointers.unsupported
-       @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported))
+       @ Inherited.unsupported @ Backed.unsupported @ Default.unsupported
+       @ Parameters.unsupported))
     modes;
   let session, config, source = inputs Preprocessor.Jit Cases.quota_source in
   let report =
@@ -294,7 +301,8 @@ let () =
             Alcotest.test_case name `Quick (case contents expected output))
           (Cases.values @ Cases.view_matrix @ Arrays.values @ Arrays.view_matrix
          @ Pointers.values @ Pointers.view_matrix @ Inherited.values
-         @ Inherited.view_matrix @ Backed.values @ Default.values) );
+         @ Inherited.view_matrix @ Backed.values @ Default.values
+         @ Parameters.values @ Parameters.view_matrix) );
       ( "storage",
         [
           Alcotest.test_case "unknown bytes, bounds and independent activations"

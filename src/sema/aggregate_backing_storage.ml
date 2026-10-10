@@ -26,7 +26,7 @@ let scalar_type ~members ~before_item_index forwarded =
           else None)
   | _ -> Some (forwarded, None)
 
-let create ~table ~members ~policies ~before_item_index ~source_type =
+let value_class ~table ~members ~policies ~before_item_index ~source_type =
   if
     (not (Aggregate_member_index.owns_table members table))
     || (not (Function_call_conversion_policy.owns_table policies table))
@@ -37,49 +37,52 @@ let create ~table ~members ~policies ~before_item_index ~source_type =
   else
     match Type.base source_type with
     | Type.Aggregate symbol when Type.pointer_depth source_type = 0 ->
-        let function_ =
-          Function_call_conversion_policy.functions policies
-          |> List.find_opt (fun function_ ->
-              Function_call_conversion_policy.function_item_index function_
-              = before_item_index)
-        in
-        Option.bind function_ (fun function_ ->
-            Option.bind (Aggregate_member_index.find_aggregate members symbol)
-              (fun aggregate ->
-                let forwarded =
-                  Function_call_conversion_policy.forwarded_type policies
-                    ~before_item_index source_type
-                in
-                Option.bind (scalar_type ~members ~before_item_index forwarded)
-                  (fun (value_type, default_class) ->
-                    let integer =
-                      Type.pointer_depth value_type = 0
-                      &&
-                      match Type.base value_type with
-                      | Type.Primitive (_, primitive) ->
-                          Option.is_some
-                            (Primitive_type.integer_storage_info primitive)
-                      | Type.Aggregate _ -> false
-                    in
-                    if
-                      Aggregate_member_index.aggregate_symbol aggregate
-                      == symbol
-                      && Aggregate_member_index.aggregate_item_index aggregate
-                         < before_item_index
-                      && Aggregate_member_index.aggregate_size aggregate > 0L
-                      && integer
-                    then
-                      Some
-                        {
-                          aggregate;
-                          source_type;
-                          value_type;
-                          default_class;
-                          before_item_index;
-                          function_;
-                        }
-                    else None)))
+        Option.bind (Aggregate_member_index.find_aggregate members symbol)
+          (fun aggregate ->
+            if
+              Aggregate_member_index.aggregate_symbol aggregate != symbol
+              || Aggregate_member_index.aggregate_item_index aggregate
+                 >= before_item_index
+            then None
+            else
+              let selected =
+                Function_call_conversion_policy.forwarded_type policies
+                  ~before_item_index source_type
+                |> scalar_type ~members ~before_item_index
+              in
+              Option.bind selected (fun (value_type, default_class) ->
+                  if Type.pointer_depth value_type <> 0 then None
+                  else
+                    match Type.base value_type with
+                    | Type.Primitive (_, primitive)
+                      when Option.is_some
+                             (Primitive_type.integer_storage_info primitive) ->
+                        Some (aggregate, value_type, default_class)
+                    | _ -> None))
     | _ -> None
+
+let integer_value_type ~table ~members ~policies ~before_item_index ~source_type
+    =
+  value_class ~table ~members ~policies ~before_item_index ~source_type
+  |> Option.map (fun (_, value_type, _) -> value_type)
+
+let create ~table ~members ~policies ~before_item_index ~source_type =
+  Option.bind
+    (value_class ~table ~members ~policies ~before_item_index ~source_type)
+    (fun (aggregate, value_type, default_class) ->
+      Function_call_conversion_policy.functions policies
+      |> List.find_opt (fun function_ ->
+          Function_call_conversion_policy.function_item_index function_
+          = before_item_index)
+      |> Option.map (fun function_ ->
+          {
+            aggregate;
+            source_type;
+            value_type;
+            default_class;
+            before_item_index;
+            function_;
+          }))
 
 let source_type storage = storage.source_type
 let value_type storage = storage.value_type

@@ -73,7 +73,7 @@ let make_type_reference ?selected_aggregate ?selected_owner
              Sema.Source_type_reference.selected_header_class
            else if callback_metadata then
              Sema.Source_type_reference.selected_callback_return
-           else Sema.Source_type_reference.selected)
+           else Sema.Source_type_reference.selected_header_class)
             proof type_specifier pointer_layers
       | None ->
           Error "named function type lacks its retained selected aggregate")

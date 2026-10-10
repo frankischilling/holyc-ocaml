@@ -942,7 +942,7 @@ let source_type_reference ?owner ?(callback_metadata = false)
           in
           (if callback_metadata then
              Source_type_reference.selected_callback_return
-           else Source_type_reference.selected)
+           else Source_type_reference.selected_header_class)
             proof type_specifier pointer_layers
       | None -> Error "named source type lacks its retained aggregate selection"
       )

@@ -144,6 +144,12 @@ val analyze :
     declared type, integer or F64 conversion intent, and warning facts for
     missing or unexpected values. *)
 
+val aggregate_integer_value_type :
+  t -> before_item_index:int -> Type.t -> Type.t option
+(** Select the original aggregate's integer raw class using this exact checked
+    expression namespace. Storage and ABI consumers must prove their own owner
+    and physical extent separately. *)
+
 val analyze_top_level :
   table:Symbol_table.t ->
   members:Aggregate_member_index.t ->

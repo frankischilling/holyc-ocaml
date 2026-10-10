@@ -4896,8 +4896,23 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
       in
       let callback = Frame.location_callback_pointer location in
       let type_ = Frame.location_storage_type location |> Result.get_ok in
+      let aggregate =
+        if Option.is_some (Function.parameter_aggregate_value_type body member)
+        then Ir.Automatic_aggregate_storage.of_location location
+        else None
+      in
       let scalar =
-        source_slot_scalar ?span:(Function.member_span member) "parameter" type_
+        if Option.is_some aggregate then { word_type = I64; byte_size = 8 }
+        else
+          source_slot_scalar
+            ?span:(Function.member_span member)
+            "parameter" type_
+      in
+      let storage_scalar =
+        if Option.is_some aggregate then
+          source_scalar "class parameter byte"
+            Ir.Automatic_aggregate_storage.byte_type
+        else scalar
       in
       let register_ok =
         match Frame.location_register_selection location with
@@ -4917,7 +4932,10 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
         || Frame.location_dimensions location <> []
         || (not
               (Type.equal (Frame.location_checked_type location) declared_type))
-        || Frame.location_element_size location <> Int64.of_int scalar.byte_size
+        || Frame.location_element_size location
+           <> Int64.of_int
+                (Option.fold ~none:scalar.byte_size
+                   ~some:Ir.Automatic_aggregate_storage.element_size aggregate)
         || Frame.location_allocated_size location <> 8L
         || Frame.location_alignment location <> 8
       then
@@ -4947,11 +4965,12 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
       add_slot actual 8
         {
           slot_type = type_;
-          slot_word = scalar.word_type;
+          slot_word = storage_scalar.word_type;
           slot_dimensions = [];
-          slot_element_size = scalar.byte_size;
-          slot_element_count = 1;
-          slot_extent_bytes = scalar.byte_size;
+          slot_element_size = storage_scalar.byte_size;
+          slot_element_count = (if Option.is_some aggregate then 8 else 1);
+          slot_extent_bytes =
+            (if Option.is_some aggregate then 8 else scalar.byte_size);
           callback;
           slot_owner_offset = Option.map (fun _ -> reserve_metadata ()) callback;
           slot_reference_offset =
@@ -4965,8 +4984,8 @@ let prepare_callable_function ~allow_runtime_layout ~max_stack_bytes
           access =
             {
               frame_offset = actual;
-              frame_bytes = scalar.byte_size;
-              frame_word = scalar.word_type;
+              frame_bytes = storage_scalar.byte_size;
+              frame_word = storage_scalar.word_type;
               initialized_flag_offset = None;
             };
         })
@@ -9194,10 +9213,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         else if has_code_word_view value then
                           ignore
                             (checked_scalar ~allow_public:true raw
-                               (Runtime.argument_target_type argument))
+                               (Runtime.argument_transport_type argument))
                         else
                           checked_copy raw
-                            (Runtime.argument_target_type argument)
+                            (Runtime.argument_transport_type argument)
                             value.declared_type;
                         (match Runtime.argument_role argument with
                         | Runtime.Variadic_count ->

@@ -1,5 +1,17 @@
 type t
 
+val integer_value_type :
+  table:Symbol_table.t ->
+  members:Aggregate_member_index.t ->
+  policies:Function_call_conversion_policy.t ->
+  before_item_index:int ->
+  source_type:Type.t ->
+  Type.t option
+(** Read the integer raw class of an exact completed aggregate in this checked
+    namespace. This grants no object storage or byte extent. Empty classes may
+    have an integer raw class even though automatic storage cannot admit them.
+*)
+
 val create :
   table:Symbol_table.t ->
   members:Aggregate_member_index.t ->

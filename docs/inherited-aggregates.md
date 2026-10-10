@@ -6,7 +6,8 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
 member identities and pointer strides remain separate. General casts, class
-value ABI paths and persistent objects still need their own implementation.
+returns and defaults, callback class parameters and persistent objects still
+need their own implementation.
 
 Completed earlier class and union definitions can supply inherited automatic
 storage in isolated IR and native programs. Direct and pointer member access,
@@ -88,7 +89,7 @@ Partial, self-referential and forward-only bases retain their separate
 members. A declaration-time call can move a base outside the current object
 compilation, so its captured size still does not authorize storage. Retained
 JIT imports, native task object execution, function-local layouts, persistent
-objects, aggregate initializers, whole-value postfix casts, class value ABI paths and general aggregate copies, pointer or
+objects, aggregate initializers, whole-value postfix casts, class returns/defaults/callback parameters and general aggregate copies, pointer or
 callback fields, general derived/base pointer conversions and pointer returns
 remain open under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686)
 and related pointer/ABI issues. Full compiler acceptance remains under

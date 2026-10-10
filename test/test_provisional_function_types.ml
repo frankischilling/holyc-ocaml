@@ -393,14 +393,24 @@ let unconsumed_named_members () =
     "native argument count still zero" (Some 0)
     (N.argument_count snapshot);
   Alcotest.(check bool)
-    "aggregate value remains unsupported with authentic selection" true
+    "class metadata still requires its authentic selection" true
     (Result.is_error
-       (D.resolve_provisional_call ~selected_aggregate:selected ~table
-          ~namespace
+       (D.resolve_provisional_call ~table ~namespace
           (N.call_shape snapshot |> checked)));
   Alcotest.(check int)
-    "aggregate value fails before scope allocation" scope_count
+    "unselected class fails before scope allocation" scope_count
     (List.length (S.all_scopes table));
+  let typed =
+    D.resolve_provisional_call ~selected_aggregate:selected ~table ~namespace
+      (N.call_shape snapshot |> checked)
+    |> checked
+  in
+  Alcotest.(check int)
+    "selected class metadata does not invent emitted arguments" 0
+    (H.function_signature typed |> H.signature_parameters |> List.length);
+  Alcotest.(check (option int))
+    "original native argument cursor remains zero" (Some 0)
+    (N.argument_count snapshot);
   let table, namespace, snapshot =
     one "class C {};I64 F(I64 (*cb)(C n))#exe {};"
   in

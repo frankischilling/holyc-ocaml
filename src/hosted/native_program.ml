@@ -256,6 +256,11 @@ let function_source_error (definition : Ast.function_definition) =
           not
             (scalar_word_type parameter.type_specifier
             || named_pointer parameter.type_specifier parameter.pointer_layers
+            || (parameter.pointer_layers = []
+               &&
+               match parameter.type_specifier with
+               | Ast.Named_type_specifier _ -> true
+               | _ -> false)
             || Option.is_some parameter.function_pointer)
         then
           reject

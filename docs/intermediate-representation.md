@@ -1,5 +1,8 @@
 # Intermediate-code specification
 
+[Class value parameters](class-value-parameters.md) use owned eight-byte slots
+while retaining nominal member layouts, scalar views and pointer strides.
+
 Owned scalar pointer difference retains numeric-result IC_SUB over captured
 original references. Pointee sizes above one then emit IMM_I64 and IC_DIV; byte
 sizes omit division. These original records and transitive producers are

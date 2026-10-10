@@ -266,6 +266,31 @@ let signature_parity () =
 
 let unsupported_types () =
   List.iter
+    (fun (text, parameter) ->
+      let _, _, headers = parse text in
+      match headers with
+      | [ (_, _, _, typed) ] ->
+          let reference =
+            if parameter then
+              H.function_signature typed |> H.signature_parameters |> List.hd
+              |> H.parameter_type_reference
+            else H.function_return_type typed
+          in
+          let type_ = Semantic_type_reference.resolved_type reference in
+          Alcotest.(check bool)
+            "original nominal class remains header metadata" true
+            (Semantic_type.pointer_depth type_ = 0
+            &&
+            match Semantic_type.base type_ with
+            | Semantic_type.Aggregate symbol ->
+                Semantic_symbol.name symbol = "Node"
+            | _ -> false)
+      | _ -> Alcotest.fail "missing original class value header")
+    [
+      ("class Node {}; extern Node F();", false);
+      ("class Node {}; extern I64 F(Node node);", true);
+    ];
+  List.iter
     (fun text ->
       try
         ignore
@@ -290,11 +315,7 @@ let unsupported_types () =
              text);
         Alcotest.fail "missing completed header"
       with Exit -> ())
-    [
-      "class Node {}; extern Node F();";
-      "class Node {}; extern I64 F(Node node);";
-      "class Node {}; extern I64 F(U0 (*callback)(Node *node));";
-    ]
+    [ "class Node {}; extern I64 F(U0 (*callback)(Node *node));" ]
 
 let aggregate_pointer_types () =
   List.iter
@@ -537,9 +558,8 @@ let tests =
       callback_exception;
     Alcotest.test_case "recursive types defaults and register parity" `Quick
       signature_parity;
-    Alcotest.test_case
-      "aggregate values and nested callback names remain unsupported" `Quick
-      unsupported_types;
+    Alcotest.test_case "class value metadata and nested callback boundary"
+      `Quick unsupported_types;
     Alcotest.test_case "selected aggregate pointer headers" `Quick
       aggregate_pointer_types;
     Alcotest.test_case "native header and body lookahead phases" `Quick

@@ -6,7 +6,8 @@ eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
 member identities and pointer strides remain separate. General casts, class
-value ABI paths and persistent objects still need their own implementation.
+returns and defaults, callback class parameters and persistent objects still
+need their own implementation.
 
 One-level pointers to completed earlier, nonempty class and union layouts
 support indexing, addition, subtraction, difference, comparisons, `++`, `--`,
@@ -99,13 +100,13 @@ integer widths. Raw IR controls reject missing, foreign, altered and
 other-function pointee proofs before storage. Exact and one-below controls
 cover frame bytes, executed instructions and both native ABIs' stack and
 encoded image bytes. Fresh native image executions retain the same results.
-The maintained CLI checks run 610 IR reports and 1221 including native execution.
+The maintained CLI checks run 712 IR reports and 1425 including native execution.
 
 Completed earlier [inherited layouts](inherited-aggregates.md) also use these
 selected strides. Partial or out-of-compilation bases, function-local layouts,
 retained JIT aggregate imports,
 zero-sized objects, persistent aggregate storage, pointer arrays, aggregate
-initializers, whole-value postfix casts, class value ABI paths and general aggregate copies, pointer and callback fields,
+initializers, whole-value postfix casts, class returns/defaults/callback parameters and general aggregate copies, pointer and callback fields,
 general class pointer casts, pointer returns and deeper indirection remain
 separate work under [#686](https://github.com/frankischilling/holyc-ocaml/issues/686),
 [#687](https://github.com/frankischilling/holyc-ocaml/issues/687),

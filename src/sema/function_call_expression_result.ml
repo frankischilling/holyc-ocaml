@@ -307,6 +307,11 @@ type t = {
   all_results : expression_result list;
 }
 
+let aggregate_integer_value_type (source : t) ~before_item_index type_ =
+  Aggregate_backing_storage.integer_value_type ~table:source.table
+    ~members:source.members ~policies:source.policies ~before_item_index
+    ~source_type:type_
+
 type top_level_root_result = {
   top_level_root_source : Top_level_expression_tree.root;
   top_level_root_value : expression_result;

@@ -1,12 +1,16 @@
 # Classes and layout
 
+[Class value parameters](class-value-parameters.md) use owned eight-byte slots
+while retaining nominal member layouts, scalar views and pointer strides.
+
 [Default class and union values](default-aggregate-values.md) use the signed
 eight-byte `RT_PTR` prefix while retaining nominal layouts and pointer strides.
 
 [Integer-backed aggregate values](backed-aggregate-values.md) use the original
 forwarded scalar width for whole reads, assignments and updates. Class extents,
 member identities and pointer strides remain separate. General casts, class
-value ABI paths and persistent objects still need their own implementation.
+returns and defaults, callback class parameters and persistent objects still
+need their own implementation.
 
 [Automatic aggregate byte views](automatic-aggregate-byte-views.md) now connect
 nonempty, completed earlier class and union layouts to isolated IR and native
@@ -18,7 +22,7 @@ retain exact earlier pointee layouts for indexing, arithmetic and updates.
 [Inherited storage](inherited-aggregates.md) admits completed earlier base
 chains with exact original identities and sizes. Partial inherited metadata,
 retained JIT imports,
-persistent objects, whole-value postfix casts, class value ABI paths and general aggregate copies,
+persistent objects, whole-value postfix casts, class returns/defaults/callback parameters and general aggregate copies,
 pointer fields and pointer returns remain unfinished.
 
 All compatibility findings in this document use TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
