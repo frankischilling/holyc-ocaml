@@ -619,7 +619,7 @@ let assembly_file assembly_mode emit position code_byte_limit
                       |> print_endline);
                   0)))
 
-let assembly_mode_argument =
+let mode_argument documentation =
   let modes =
     [
       ("16", Holyc_lib.Asm_operand.Use16);
@@ -630,10 +630,12 @@ let assembly_mode_argument =
   Arg.(
     value
     & opt (enum modes) Holyc_lib.Asm_operand.Use64
-    & info [ "bits" ] ~docv:"BITS"
-        ~doc:
-          "Set the initial assembly mode. USE16, USE32 and USE64 change it in \
-           the stream.")
+    & info [ "bits" ] ~docv:"BITS" ~doc:documentation)
+
+let assembly_mode_argument =
+  mode_argument
+    "Set the initial assembly mode. USE16, USE32 and USE64 change it in the \
+     stream."
 
 let assembly_command =
   let emit =
@@ -740,6 +742,170 @@ let assembly_command =
          const assembly_file $ assembly_mode_argument $ emit $ position
          $ code_byte_limit $ directive_work_limit $ binary_input_byte_limit
          $ base $ symbol $ map_argument $ listing $ output))
+
+let disassemble_file mode position offset length byte_limit instruction_limit
+    symbols listing_path map_path format path =
+  let fail message =
+    print_command_error format ~command:"disasm" message;
+    1
+  in
+  if byte_limit <= 0 || byte_limit > Holyc_lib.Asm_disassembler.max_input_bytes
+  then fail "byte-limit must be positive and at most 16 MiB"
+  else if offset < 0 then fail "offset must be nonnegative"
+  else if
+    instruction_limit <= 0
+    || instruction_limit > Holyc_lib.Asm_disassembler.max_input_bytes
+  then fail "instruction-limit must be positive and at most 16777216"
+  else
+    let input =
+      try
+        if (Unix.stat path).Unix.st_kind <> Unix.S_REG then
+          raise (Sys_error "binary input must be a regular file");
+        let channel = open_in_bin path in
+        Fun.protect
+          ~finally:(fun () -> close_in_noerr channel)
+          (fun () ->
+            let size = in_channel_length channel in
+            if size > byte_limit then Error "binary input exceeds byte-limit"
+            else if offset > size then Error "offset exceeds binary input"
+            else
+              let count = Option.value ~default:(size - offset) length in
+              if count < 0 || count > size - offset then
+                Error "length must fit the remaining binary input"
+              else (
+                seek_in channel offset;
+                Ok (really_input_string channel count)))
+      with
+      | Sys_error message | Invalid_argument message -> Error message
+      | End_of_file -> Error "binary input changed while reading"
+      | Unix.Unix_error (error, operation, argument) ->
+          Error
+            (Printf.sprintf "%s: %s: %s" operation argument
+               (Unix.error_message error))
+    in
+    match input with
+    | Error message -> fail message
+    | Ok bytes -> (
+        let symbols =
+          List.map
+            (fun (name, address) ->
+              Holyc_lib.Asm_disassembler.{ name; address })
+            symbols
+        in
+        match
+          Holyc_lib.Asm_disassembler.decode ~max_bytes:byte_limit
+            ~max_instructions:instruction_limit ~symbols ~mode ~position bytes
+        with
+        | Error error ->
+            fail
+              (Printf.sprintf "byte %d: %s" (offset + error.offset)
+                 error.message)
+        | Ok report -> (
+            let listing = Holyc_lib.Asm_disassembler.listing report in
+            let files =
+              List.filter_map Fun.id
+                [
+                  Option.map (fun path -> (path, listing)) listing_path;
+                  Option.map
+                    (fun path -> (path, Holyc_lib.Asm_disassembler.map report))
+                    map_path;
+                ]
+            in
+            let validation =
+              try
+                let input_path = Unix.realpath path in
+                Result.bind
+                  (validate_assembly_outputs ((path, "") :: files))
+                  (fun () ->
+                    validate_assembly_outputs ((input_path, "") :: files))
+              with Unix.Unix_error (error, operation, argument) ->
+                Error
+                  (Printf.sprintf "%s: %s: %s" operation argument
+                     (Unix.error_message error))
+            in
+            match validation with
+            | Error message -> fail message
+            | Ok () -> (
+                let rec write = function
+                  | [] -> Ok ()
+                  | (path, bytes) :: rest -> (
+                      match write_assembly_bytes path bytes with
+                      | Error _ as error -> error
+                      | Ok () -> write rest)
+                in
+                match write files with
+                | Error message -> fail message
+                | Ok () ->
+                    (match format with
+                    | Human -> output_string stdout listing
+                    | Json ->
+                        Holyc_lib.Asm_disassembler.to_yojson report
+                        |> Yojson.Safe.to_string |> print_endline);
+                    0)))
+
+let disassembly_command =
+  let open Arg in
+  let bits =
+    mode_argument "Select one mode for the complete binary range (default 64)."
+  in
+  let position =
+    value & opt int64 0L
+    & info [ "position" ] ~docv:"ADDRESS"
+        ~doc:"Address of the first selected input byte (default 0)."
+  in
+  let offset =
+    value & opt int 0
+    & info [ "offset" ] ~docv:"BYTES"
+        ~doc:"Skip this many input bytes before decoding."
+  in
+  let length =
+    value
+    & opt (some int) None
+    & info [ "length" ] ~docv:"BYTES"
+        ~doc:"Decode this many bytes; otherwise decode the remaining input."
+  in
+  let byte_limit =
+    value
+    & opt int Holyc_lib.Asm_disassembler.max_input_bytes
+    & info [ "byte-limit" ] ~docv:"BYTES"
+        ~doc:"Bound the complete binary input (default 16 MiB)."
+  in
+  let instruction_limit =
+    value & opt int 1_000_000
+    & info [ "instruction-limit" ] ~docv:"COUNT"
+        ~doc:"Bound decoded instructions (default 1000000)."
+  in
+  let symbols =
+    value
+    & opt_all (pair ~sep:'=' string int64) []
+    & info [ "symbol" ] ~docv:"NAME=ADDRESS"
+        ~doc:
+          "Name an exact instruction or operand address. Repeat for separate \
+           symbols."
+  in
+  let listing =
+    value
+    & opt (some string) None
+    & info [ "listing" ] ~docv:"FILE"
+        ~doc:"Write the complete decoded instruction listing after validation."
+  in
+  let map_argument =
+    value
+    & opt (some string) None
+    & info [ "map" ] ~docv:"FILE"
+        ~doc:
+          "Write supplied symbols and decoded branch targets after validation."
+  in
+  let file = required & pos 0 (some string) None & info [] ~docv:"BINARY" in
+  Cmd.v
+    (Cmd.info "disasm"
+       ~doc:
+         "Inspect binary instructions using the pinned TempleOS UAsm forms and \
+          dialect.")
+    Term.(
+      const disassemble_file $ bits $ position $ offset $ length $ byte_limit
+      $ instruction_limit $ symbols $ listing $ map_argument $ format_argument
+      $ file)
 
 let print_integer_result format result =
   let module VM = Holyc_lib.Ir_integer_interpreter in
@@ -1727,6 +1893,7 @@ let root_command =
       preprocess_command;
       parse_command;
       assembly_command;
+      disassembly_command;
       dump_ast_command;
       dump_symbols_command;
       dump_layout_command;

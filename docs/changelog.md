@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added `holyc disasm` and the public `Asm_disassembler` library module, with
+  source-owned instruction forms, addresses, operands, relative targets,
+  listings, maps and versioned JSON. Native `Ui` captures check 89 distinct
+  instructions twice; malformed streams and unrelated fallback records fail
+  before report files are written. See [disassembly](disassembly.md).
+
 - Added shared assembler operand parsing and original instruction-form selection
   for blocks, direct function instructions and standalone `holyc asm` input.
   Dumps retain modes, selected source records, immediate/address fields and

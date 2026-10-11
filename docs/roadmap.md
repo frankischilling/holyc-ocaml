@@ -10,10 +10,12 @@ Standalone directive output under #713 adds data, repetition, alignment,
 explicitly rooted binary input and ordered metadata. See
 [assembler support](assembler.md) and [directive output](assembly-directives.md).
 
-General label/import fixups and branch layout remain under #714. Live compiler
+Label/import fixups and branch layout are implemented under #714. Live compiler
 expressions and source assembly loading and execution remain under #715,
-disassembly under #716, and BIN serialization/loading under #717. Intact
-DolDoc oracle evidence remains under #375; these standalone byte-output
+and BIN serialization/loading under #717. [Disassembly](disassembly.md) under
+#716 provides public binary inspection, bounded source lookup and native
+compiler/kernel captures. Intact DolDoc oracle evidence remains under #375;
+these standalone byte-output
 features do not establish full compiler parity.
 
 Issue #686 now includes owned integer and class pointer fields in IR. Member

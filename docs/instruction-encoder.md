@@ -60,7 +60,7 @@ instruction whose form and size remain valid. An imported value or a form
 that needs another layout pass produces an explicit diagnostic. General
 label/import fixups and branch layout remain under #714. Loading and
 executing source assembly, live compiler expressions and compiler-owned
-`$IB` pointers remain under #715; disassembly remains under #716. The
+`$IB` pointers remain under #715; bounded [Ui disassembly](disassembly.md) has public CLI and library reports. The
 intact DolDoc oracle boundary remains under #375.
 
 `BINFILE` requires explicit input-root configuration and reports both raw and
