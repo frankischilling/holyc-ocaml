@@ -36,6 +36,1603 @@
               }
             ]
           },
+          "items": [
+            {
+              "kind": "label",
+              "label": {
+                "kind": "global",
+                "name": {
+                  "spelling": "ROOT",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 2,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 6,
+                      "stop": 10
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 2,
+                        "column": 1,
+                        "source_id": 0,
+                        "start": 6,
+                        "stop": 10
+                      }
+                    ]
+                  }
+                },
+                "delimiter_spelling": ":",
+                "delimiter": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 2,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 10,
+                    "stop": 11
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 2,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 10,
+                      "stop": 11
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 2,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 6,
+                    "stop": 11
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 2,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 6,
+                      "stop": 10
+                    },
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 2,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 10,
+                      "stop": 11
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "kind": "label",
+              "label": {
+                "kind": "local",
+                "name": {
+                  "spelling": "@@loop",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 3,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 12,
+                      "stop": 18
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 1,
+                        "source_id": 0,
+                        "start": 12,
+                        "stop": 18
+                      }
+                    ]
+                  }
+                },
+                "delimiter_spelling": ":",
+                "delimiter": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 18,
+                    "stop": 19
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 18,
+                      "stop": 19
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 12,
+                    "stop": 19
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 3,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 12,
+                      "stop": 18
+                    },
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 18,
+                      "stop": 19
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "kind": "instruction",
+              "mode": 64,
+              "selection": {
+                "form": {
+                  "entry_index": 7,
+                  "source_path": "Compiler/OpCodes.DD",
+                  "source_line": 261,
+                  "opcode_bytes": [ 139 ],
+                  "argument1": 15,
+                  "argument2": 19,
+                  "size1": 64,
+                  "size2": 64
+                },
+                "candidate_count": 1,
+                "comparison_bytes": 4,
+                "estimated_bytes": 4,
+                "operand_prefix": false,
+                "address_prefix": false,
+                "segment_prefix": null,
+                "rex": 72,
+                "modrm": 69,
+                "sib": null,
+                "immediate_bytes": 0,
+                "displacement_bytes": 1,
+                "unresolved": false,
+                "warnings": []
+              },
+              "opcode": {
+                "category": "opcode",
+                "spelling": "MOV",
+                "lexical_kind": "identifier",
+                "value": "MOV",
+                "mode": "holyc",
+                "canonical_spelling": "MOV",
+                "source_is_alias": false,
+                "location": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 20,
+                    "stop": 23
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 3,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 20,
+                      "stop": 23
+                    }
+                  ]
+                }
+              },
+              "operands": [
+                {
+                  "kind": "register",
+                  "size_prefix": null,
+                  "segment_prefix": null,
+                  "value": {
+                    "mode": 64,
+                    "size_bytes": 8,
+                    "segment": null,
+                    "register1": { "spelling": "RAX", "number": 0 },
+                    "register2": null,
+                    "scale": "1",
+                    "indirect": false,
+                    "segment_only": false,
+                    "immediate": null,
+                    "unresolved": false,
+                    "argument_mask": "34360295424"
+                  },
+                  "tokens": [
+                    {
+                      "category": "register",
+                      "spelling": "RAX",
+                      "lexical_kind": "identifier",
+                      "value": "RAX",
+                      "mode": "holyc",
+                      "register_kind": "r64",
+                      "register_number": 0,
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 3,
+                          "column": 13,
+                          "source_id": 0,
+                          "start": 24,
+                          "stop": 27
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 3,
+                            "column": 13,
+                            "source_id": 0,
+                            "start": 24,
+                            "stop": 27
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 3,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 24,
+                      "stop": 27
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 13,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 27
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "memory",
+                  "size_prefix": {
+                    "category": "directive",
+                    "spelling": "I64",
+                    "lexical_kind": "identifier",
+                    "value": "I64",
+                    "mode": "holyc",
+                    "templeos_id": 70,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 28,
+                        "stop": 31
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 3,
+                          "column": 17,
+                          "source_id": 0,
+                          "start": 28,
+                          "stop": 31
+                        }
+                      ]
+                    }
+                  },
+                  "segment_prefix": null,
+                  "value": {
+                    "mode": 64,
+                    "size_bytes": 8,
+                    "segment": null,
+                    "register1": { "spelling": "RBP", "number": 5 },
+                    "register2": null,
+                    "scale": "1",
+                    "indirect": true,
+                    "segment_only": false,
+                    "immediate": {
+                      "value": "8",
+                      "symbols": [],
+                      "absolute": false,
+                      "absolute_known": true
+                    },
+                    "unresolved": false,
+                    "argument_mask": "8912896"
+                  },
+                  "tokens": [
+                    {
+                      "category": "directive",
+                      "spelling": "I64",
+                      "lexical_kind": "identifier",
+                      "value": "I64",
+                      "mode": "holyc",
+                      "templeos_id": 70,
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 3,
+                          "column": 17,
+                          "source_id": 0,
+                          "start": 28,
+                          "stop": 31
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 3,
+                            "column": 17,
+                            "source_id": 0,
+                            "start": 28,
+                            "stop": 31
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "category": "punctuation",
+                      "spelling": "[",
+                      "lexical_kind": "punctuation('[')",
+                      "value": null,
+                      "mode": "holyc",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 3,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 32,
+                          "stop": 33
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 3,
+                            "column": 21,
+                            "source_id": 0,
+                            "start": 32,
+                            "stop": 33
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "category": "register",
+                      "spelling": "RBP",
+                      "lexical_kind": "identifier",
+                      "value": "RBP",
+                      "mode": "holyc",
+                      "register_kind": "r64",
+                      "register_number": 5,
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 3,
+                          "column": 22,
+                          "source_id": 0,
+                          "start": 33,
+                          "stop": 36
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 3,
+                            "column": 22,
+                            "source_id": 0,
+                            "start": 33,
+                            "stop": 36
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "category": "punctuation",
+                      "spelling": "+",
+                      "lexical_kind": "punctuation('+')",
+                      "value": null,
+                      "mode": "holyc",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 3,
+                          "column": 25,
+                          "source_id": 0,
+                          "start": 36,
+                          "stop": 37
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 3,
+                            "column": 25,
+                            "source_id": 0,
+                            "start": 36,
+                            "stop": 37
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "category": "integer",
+                      "spelling": "8",
+                      "lexical_kind": "integer",
+                      "value": "0x0000000000000008",
+                      "mode": "holyc",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 3,
+                          "column": 26,
+                          "source_id": 0,
+                          "start": 37,
+                          "stop": 38
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 3,
+                            "column": 26,
+                            "source_id": 0,
+                            "start": 37,
+                            "stop": 38
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "category": "punctuation",
+                      "spelling": "]",
+                      "lexical_kind": "punctuation(']')",
+                      "value": null,
+                      "mode": "holyc",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 3,
+                          "column": 27,
+                          "source_id": 0,
+                          "start": 38,
+                          "stop": 39
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 3,
+                            "column": 27,
+                            "source_id": 0,
+                            "start": 38,
+                            "stop": 39
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 3,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 28,
+                      "stop": 39
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 28,
+                        "stop": 31
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 32,
+                        "stop": 33
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 22,
+                        "source_id": 0,
+                        "start": 33,
+                        "stop": 36
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 36,
+                        "stop": 37
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 26,
+                        "source_id": 0,
+                        "start": 37,
+                        "stop": 38
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 3,
+                        "column": 27,
+                        "source_id": 0,
+                        "start": 38,
+                        "stop": 39
+                      }
+                    ]
+                  }
+                }
+              ],
+              "separator": {
+                "span": {
+                  "path": "cli/parse-assembly-block.hc",
+                  "line": 3,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 27,
+                  "stop": 28
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 27,
+                    "stop": 28
+                  }
+                ]
+              },
+              "semicolon": null,
+              "location": {
+                "span": {
+                  "path": "cli/parse-assembly-block.hc",
+                  "line": 3,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 39
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 20,
+                    "stop": 23
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 24,
+                    "stop": 27
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 27,
+                    "stop": 28
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 31
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 32,
+                    "stop": 33
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 22,
+                    "source_id": 0,
+                    "start": 33,
+                    "stop": 36
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 37
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 37,
+                    "stop": 38
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 3,
+                    "column": 27,
+                    "source_id": 0,
+                    "start": 38,
+                    "stop": 39
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "label",
+              "label": {
+                "kind": "exported_global",
+                "name": {
+                  "spelling": "EXPORTED",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 4,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 48
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 4,
+                        "column": 1,
+                        "source_id": 0,
+                        "start": 40,
+                        "stop": 48
+                      }
+                    ]
+                  }
+                },
+                "delimiter_spelling": "::",
+                "delimiter": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 4,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 48,
+                    "stop": 50
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 4,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 48,
+                      "stop": 50
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 4,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 50
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 4,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 48
+                    },
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 4,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 48,
+                      "stop": 50
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "kind": "directive",
+              "directive_kind": "data",
+              "element_width_bytes": 1,
+              "segment_width_bits": null,
+              "directive": {
+                "category": "directive",
+                "spelling": "DU8",
+                "lexical_kind": "identifier",
+                "value": "DU8",
+                "mode": "holyc",
+                "templeos_id": 77,
+                "location": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 5,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 51,
+                    "stop": 54
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 5,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 51,
+                      "stop": 54
+                    }
+                  ]
+                }
+              },
+              "arguments": [
+                {
+                  "category": "string",
+                  "spelling": "\"A\"",
+                  "lexical_kind": "string",
+                  "value": "A",
+                  "mode": "holyc",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 5,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 55,
+                      "stop": 58
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 5,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 55,
+                        "stop": 58
+                      }
+                    ]
+                  }
+                },
+                {
+                  "category": "punctuation",
+                  "spelling": ",",
+                  "lexical_kind": "punctuation(',')",
+                  "value": null,
+                  "mode": "holyc",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 5,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 58,
+                      "stop": 59
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 5,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 58,
+                        "stop": 59
+                      }
+                    ]
+                  }
+                },
+                {
+                  "category": "integer",
+                  "spelling": "0",
+                  "lexical_kind": "integer",
+                  "value": "0x0000000000000000",
+                  "mode": "holyc",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 5,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 59,
+                      "stop": 60
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 5,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 59,
+                        "stop": 60
+                      }
+                    ]
+                  }
+                }
+              ],
+              "separators": [
+                {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 5,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 58,
+                    "stop": 59
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 5,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 58,
+                      "stop": 59
+                    }
+                  ]
+                }
+              ],
+              "semicolon": {
+                "span": {
+                  "path": "cli/parse-assembly-block.hc",
+                  "line": 5,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 61
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 5,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 61
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-assembly-block.hc",
+                  "line": 5,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 51,
+                  "stop": 61
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 5,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 51,
+                    "stop": 54
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 5,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 55,
+                    "stop": 58
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 5,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 58,
+                    "stop": 59
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 5,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 59,
+                    "stop": 60
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 5,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 61
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "directive",
+              "directive_kind": "use",
+              "element_width_bytes": null,
+              "segment_width_bits": 64,
+              "directive": {
+                "category": "directive",
+                "spelling": "USE64",
+                "lexical_kind": "identifier",
+                "value": "USE64",
+                "mode": "holyc",
+                "templeos_id": 84,
+                "location": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 62,
+                    "stop": 67
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 6,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 62,
+                      "stop": 67
+                    }
+                  ]
+                }
+              },
+              "arguments": [],
+              "separators": [],
+              "semicolon": null,
+              "location": {
+                "span": {
+                  "path": "cli/parse-assembly-block.hc",
+                  "line": 6,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 62,
+                  "stop": 67
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 62,
+                    "stop": 67
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "instruction",
+              "mode": 64,
+              "selection": {
+                "form": {
+                  "entry_index": 7,
+                  "source_path": "Compiler/OpCodes.DD",
+                  "source_line": 261,
+                  "opcode_bytes": [ 139 ],
+                  "argument1": 15,
+                  "argument2": 19,
+                  "size1": 64,
+                  "size2": 64
+                },
+                "candidate_count": 1,
+                "comparison_bytes": 4,
+                "estimated_bytes": 4,
+                "operand_prefix": false,
+                "address_prefix": false,
+                "segment_prefix": null,
+                "rex": 72,
+                "modrm": 101,
+                "sib": null,
+                "immediate_bytes": 0,
+                "displacement_bytes": 1,
+                "unresolved": false,
+                "warnings": []
+              },
+              "opcode": {
+                "category": "opcode",
+                "spelling": "MOV",
+                "lexical_kind": "identifier",
+                "value": "MOV",
+                "mode": "holyc",
+                "canonical_spelling": "MOV",
+                "source_is_alias": false,
+                "location": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 68,
+                    "stop": 71
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 6,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 68,
+                      "stop": 71
+                    }
+                  ]
+                }
+              },
+              "operands": [
+                {
+                  "kind": "register",
+                  "size_prefix": null,
+                  "segment_prefix": null,
+                  "value": {
+                    "mode": 64,
+                    "size_bytes": 8,
+                    "segment": null,
+                    "register1": { "spelling": "RSP", "number": 4 },
+                    "register2": null,
+                    "scale": "1",
+                    "indirect": false,
+                    "segment_only": false,
+                    "immediate": null,
+                    "unresolved": false,
+                    "argument_mask": "557056"
+                  },
+                  "tokens": [
+                    {
+                      "category": "register",
+                      "spelling": "RSP",
+                      "lexical_kind": "identifier",
+                      "value": "RSP",
+                      "mode": "holyc",
+                      "register_kind": "r64",
+                      "register_number": 4,
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 6,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 72,
+                          "stop": 75
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 6,
+                            "column": 11,
+                            "source_id": 0,
+                            "start": 72,
+                            "stop": 75
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 6,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 72,
+                      "stop": 75
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 6,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 72,
+                        "stop": 75
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "memory",
+                  "size_prefix": {
+                    "category": "directive",
+                    "spelling": "I64",
+                    "lexical_kind": "identifier",
+                    "value": "I64",
+                    "mode": "holyc",
+                    "templeos_id": 70,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 6,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 76,
+                        "stop": 79
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 6,
+                          "column": 15,
+                          "source_id": 0,
+                          "start": 76,
+                          "stop": 79
+                        }
+                      ]
+                    }
+                  },
+                  "segment_prefix": null,
+                  "value": {
+                    "mode": 64,
+                    "size_bytes": 8,
+                    "segment": null,
+                    "register1": { "spelling": "RBP", "number": 5 },
+                    "register2": null,
+                    "scale": "1",
+                    "indirect": true,
+                    "segment_only": false,
+                    "immediate": null,
+                    "unresolved": false,
+                    "argument_mask": "8912896"
+                  },
+                  "tokens": [
+                    {
+                      "category": "directive",
+                      "spelling": "I64",
+                      "lexical_kind": "identifier",
+                      "value": "I64",
+                      "mode": "holyc",
+                      "templeos_id": 70,
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 6,
+                          "column": 15,
+                          "source_id": 0,
+                          "start": 76,
+                          "stop": 79
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 6,
+                            "column": 15,
+                            "source_id": 0,
+                            "start": 76,
+                            "stop": 79
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "category": "punctuation",
+                      "spelling": "[",
+                      "lexical_kind": "punctuation('[')",
+                      "value": null,
+                      "mode": "holyc",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 6,
+                          "column": 19,
+                          "source_id": 0,
+                          "start": 80,
+                          "stop": 81
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 6,
+                            "column": 19,
+                            "source_id": 0,
+                            "start": 80,
+                            "stop": 81
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "category": "register",
+                      "spelling": "RBP",
+                      "lexical_kind": "identifier",
+                      "value": "RBP",
+                      "mode": "holyc",
+                      "register_kind": "r64",
+                      "register_number": 5,
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 6,
+                          "column": 20,
+                          "source_id": 0,
+                          "start": 81,
+                          "stop": 84
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 6,
+                            "column": 20,
+                            "source_id": 0,
+                            "start": 81,
+                            "stop": 84
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "category": "punctuation",
+                      "spelling": "]",
+                      "lexical_kind": "punctuation(']')",
+                      "value": null,
+                      "mode": "holyc",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 6,
+                          "column": 23,
+                          "source_id": 0,
+                          "start": 84,
+                          "stop": 85
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 6,
+                            "column": 23,
+                            "source_id": 0,
+                            "start": 84,
+                            "stop": 85
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 6,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 76,
+                      "stop": 85
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 6,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 76,
+                        "stop": 79
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 6,
+                        "column": 19,
+                        "source_id": 0,
+                        "start": 80,
+                        "stop": 81
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 6,
+                        "column": 20,
+                        "source_id": 0,
+                        "start": 81,
+                        "stop": 84
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 6,
+                        "column": 23,
+                        "source_id": 0,
+                        "start": 84,
+                        "stop": 85
+                      }
+                    ]
+                  }
+                }
+              ],
+              "separator": {
+                "span": {
+                  "path": "cli/parse-assembly-block.hc",
+                  "line": 6,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 75,
+                  "stop": 76
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 75,
+                    "stop": 76
+                  }
+                ]
+              },
+              "semicolon": null,
+              "location": {
+                "span": {
+                  "path": "cli/parse-assembly-block.hc",
+                  "line": 6,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 68,
+                  "stop": 85
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 68,
+                    "stop": 71
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 72,
+                    "stop": 75
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 75,
+                    "stop": 76
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 76,
+                    "stop": 79
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 80,
+                    "stop": 81
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 81,
+                    "stop": 84
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 6,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 84,
+                    "stop": 85
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "instruction",
+              "mode": 64,
+              "selection": {
+                "form": {
+                  "entry_index": 0,
+                  "source_path": "Compiler/OpCodes.DD",
+                  "source_line": 606,
+                  "opcode_bytes": [ 116 ],
+                  "argument1": 1,
+                  "argument2": 0,
+                  "size1": 8,
+                  "size2": 0
+                },
+                "candidate_count": 2,
+                "comparison_bytes": 2,
+                "estimated_bytes": 2,
+                "operand_prefix": false,
+                "address_prefix": false,
+                "segment_prefix": null,
+                "rex": null,
+                "modrm": null,
+                "sib": null,
+                "immediate_bytes": 1,
+                "displacement_bytes": 0,
+                "unresolved": true,
+                "warnings": []
+              },
+              "opcode": {
+                "category": "opcode",
+                "spelling": "JZ",
+                "lexical_kind": "identifier",
+                "value": "JZ",
+                "mode": "holyc",
+                "canonical_spelling": "JE",
+                "source_is_alias": true,
+                "location": {
+                  "span": {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 7,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 86,
+                    "stop": 88
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 7,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 86,
+                      "stop": 88
+                    }
+                  ]
+                }
+              },
+              "operands": [
+                {
+                  "kind": "immediate",
+                  "size_prefix": null,
+                  "segment_prefix": null,
+                  "value": {
+                    "mode": 64,
+                    "size_bytes": 0,
+                    "segment": null,
+                    "register1": null,
+                    "register2": null,
+                    "scale": "1",
+                    "indirect": false,
+                    "segment_only": false,
+                    "immediate": {
+                      "value": null,
+                      "symbols": [ "@@loop" ],
+                      "absolute": true,
+                      "absolute_known": true
+                    },
+                    "unresolved": true,
+                    "argument_mask": "4094"
+                  },
+                  "tokens": [
+                    {
+                      "category": "identifier",
+                      "spelling": "@@loop",
+                      "lexical_kind": "identifier",
+                      "value": "@@loop",
+                      "mode": "holyc",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 7,
+                          "column": 4,
+                          "source_id": 0,
+                          "start": 89,
+                          "stop": 95
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 7,
+                            "column": 4,
+                            "source_id": 0,
+                            "start": 89,
+                            "stop": 95
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 7,
+                      "column": 4,
+                      "source_id": 0,
+                      "start": 89,
+                      "stop": 95
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 7,
+                        "column": 4,
+                        "source_id": 0,
+                        "start": 89,
+                        "stop": 95
+                      }
+                    ]
+                  }
+                }
+              ],
+              "separator": null,
+              "semicolon": null,
+              "location": {
+                "span": {
+                  "path": "cli/parse-assembly-block.hc",
+                  "line": 7,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 86,
+                  "stop": 95
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 7,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 86,
+                    "stop": 88
+                  },
+                  {
+                    "path": "cli/parse-assembly-block.hc",
+                    "line": 7,
+                    "column": 4,
+                    "source_id": 0,
+                    "start": 89,
+                    "stop": 95
+                  }
+                ]
+              }
+            }
+          ],
           "opening_brace": {
             "span": {
               "path": "cli/parse-assembly-block.hc",
@@ -2172,6 +3769,270 @@
                   }
                 ]
               },
+              "items": [
+                {
+                  "kind": "directive",
+                  "directive_kind": "list",
+                  "element_width_bytes": null,
+                  "segment_width_bits": null,
+                  "directive": {
+                    "category": "directive",
+                    "spelling": "LIST",
+                    "lexical_kind": "identifier",
+                    "value": "LIST",
+                    "mode": "holyc",
+                    "templeos_id": 86,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 13,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 125,
+                        "stop": 129
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 13,
+                          "column": 5,
+                          "source_id": 0,
+                          "start": 125,
+                          "stop": 129
+                        }
+                      ]
+                    }
+                  },
+                  "arguments": [],
+                  "separators": [],
+                  "semicolon": null,
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 13,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 125,
+                      "stop": 129
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 13,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 125,
+                        "stop": 129
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "instruction",
+                  "mode": 64,
+                  "selection": {
+                    "form": {
+                      "entry_index": 2,
+                      "source_path": "Compiler/OpCodes.DD",
+                      "source_line": 571,
+                      "opcode_bytes": [ 232 ],
+                      "argument1": 3,
+                      "argument2": 0,
+                      "size1": 32,
+                      "size2": 0
+                    },
+                    "candidate_count": 1,
+                    "comparison_bytes": 5,
+                    "estimated_bytes": 5,
+                    "operand_prefix": false,
+                    "address_prefix": false,
+                    "segment_prefix": null,
+                    "rex": null,
+                    "modrm": null,
+                    "sib": null,
+                    "immediate_bytes": 4,
+                    "displacement_bytes": 0,
+                    "unresolved": true,
+                    "warnings": []
+                  },
+                  "opcode": {
+                    "category": "opcode",
+                    "spelling": "CALL",
+                    "lexical_kind": "identifier",
+                    "value": "CALL",
+                    "mode": "holyc",
+                    "canonical_spelling": "CALL",
+                    "source_is_alias": false,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 14,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 134,
+                        "stop": 138
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 14,
+                          "column": 5,
+                          "source_id": 0,
+                          "start": 134,
+                          "stop": 138
+                        }
+                      ]
+                    }
+                  },
+                  "operands": [
+                    {
+                      "kind": "immediate",
+                      "size_prefix": null,
+                      "segment_prefix": null,
+                      "value": {
+                        "mode": 64,
+                        "size_bytes": 0,
+                        "segment": null,
+                        "register1": null,
+                        "register2": null,
+                        "scale": "1",
+                        "indirect": false,
+                        "segment_only": false,
+                        "immediate": {
+                          "value": null,
+                          "symbols": [ "Target" ],
+                          "absolute": true,
+                          "absolute_known": true
+                        },
+                        "unresolved": true,
+                        "argument_mask": "4094"
+                      },
+                      "tokens": [
+                        {
+                          "category": "punctuation",
+                          "spelling": "&",
+                          "lexical_kind": "punctuation('&')",
+                          "value": null,
+                          "mode": "holyc",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-assembly-block.hc",
+                              "line": 14,
+                              "column": 10,
+                              "source_id": 0,
+                              "start": 139,
+                              "stop": 140
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-assembly-block.hc",
+                                "line": 14,
+                                "column": 10,
+                                "source_id": 0,
+                                "start": 139,
+                                "stop": 140
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "category": "identifier",
+                          "spelling": "Target",
+                          "lexical_kind": "identifier",
+                          "value": "Target",
+                          "mode": "holyc",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-assembly-block.hc",
+                              "line": 14,
+                              "column": 11,
+                              "source_id": 0,
+                              "start": 140,
+                              "stop": 146
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-assembly-block.hc",
+                                "line": 14,
+                                "column": 11,
+                                "source_id": 0,
+                                "start": 140,
+                                "stop": 146
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-assembly-block.hc",
+                          "line": 14,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 139,
+                          "stop": 146
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 14,
+                            "column": 10,
+                            "source_id": 0,
+                            "start": 139,
+                            "stop": 140
+                          },
+                          {
+                            "path": "cli/parse-assembly-block.hc",
+                            "line": 14,
+                            "column": 11,
+                            "source_id": 0,
+                            "start": 140,
+                            "stop": 146
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "separator": null,
+                  "semicolon": null,
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-assembly-block.hc",
+                      "line": 14,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 134,
+                      "stop": 146
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 14,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 134,
+                        "stop": 138
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 14,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 139,
+                        "stop": 140
+                      },
+                      {
+                        "path": "cli/parse-assembly-block.hc",
+                        "line": 14,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 140,
+                        "stop": 146
+                      }
+                    ]
+                  }
+                }
+              ],
               "opening_brace": {
                 "span": {
                   "path": "cli/parse-assembly-block.hc",

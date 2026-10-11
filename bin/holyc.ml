@@ -408,6 +408,72 @@ let source_parser_options run =
 
 let source_parser_term run = source_parser_options Term.(const run)
 
+let assembly_file assembly_mode format include_roots templeos_root
+    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
+    max_conditional_depth max_expression_nodes compilation_mode
+    conditional_recovery predefined_date predefined_time command_line_source
+    path =
+  let session = Holyc_lib.Session.create () in
+  match Holyc_lib.Session.load_source session ~path with
+  | Error message ->
+      print_command_error format ~command:"asm" message;
+      1
+  | Ok source -> (
+      match
+        make_preprocessor_config include_roots templeos_root max_include_depth
+          max_source_bytes max_definition_depth max_generated_bytes
+          max_conditional_depth max_expression_nodes compilation_mode
+          conditional_recovery predefined_date predefined_time
+          command_line_source
+      with
+      | Error message ->
+          print_command_error format ~command:"asm" message;
+          1
+      | Ok config -> (
+          let output =
+            Holyc_lib.parse_assembly_detailed ~mode:assembly_mode session
+              ~config ~source
+          in
+          if output.diagnostics <> [] then
+            print_diagnostics format session output.diagnostics;
+          match output.assembly with
+          | None -> 1
+          | Some assembly ->
+              let sources = Holyc_lib.Session.sources session in
+              (match format with
+              | Human ->
+                  Holyc_lib.Ast_dump.assembly_human sources assembly
+                  |> output_string stdout
+              | Json ->
+                  Holyc_lib.Ast_dump.assembly_json sources assembly
+                  |> print_endline);
+              0))
+
+let assembly_mode_argument =
+  let modes =
+    [
+      ("16", Holyc_lib.Asm_operand.Use16);
+      ("32", Holyc_lib.Asm_operand.Use32);
+      ("64", Holyc_lib.Asm_operand.Use64);
+    ]
+  in
+  Arg.(
+    value
+    & opt (enum modes) Holyc_lib.Asm_operand.Use64
+    & info [ "bits" ] ~docv:"BITS"
+        ~doc:
+          "Set the initial assembly mode. USE16, USE32 and USE64 change it in \
+           the stream.")
+
+let assembly_command =
+  let documentation =
+    "Parse and validate TempleOS assembly operands and print selected \
+     instruction forms."
+  in
+  Cmd.v
+    (Cmd.info "asm" ~doc:documentation)
+    (source_parser_options Term.(const assembly_file $ assembly_mode_argument))
+
 let print_integer_result format result =
   let module VM = Holyc_lib.Ir_integer_interpreter in
   match VM.termination result with
@@ -1393,6 +1459,7 @@ let root_command =
       lex_command;
       preprocess_command;
       parse_command;
+      assembly_command;
       dump_ast_command;
       dump_symbols_command;
       dump_layout_command;

@@ -45,44 +45,48 @@
   },
   "summary": {
     "files": 528,
-    "both_parse": 25,
+    "both_parse": 17,
     "standalone_only": 0,
-    "project_prelude_only": 101,
-    "neither_parses": 402,
+    "project_prelude_only": 106,
+    "neither_parses": 405,
     "standalone": {
-      "parses": 25,
-      "frontend_diagnostics": 17,
-      "parser_diagnostics": 486,
+      "parses": 17,
+      "frontend_diagnostics": 16,
+      "parser_diagnostics": 495,
       "read_errors": 0,
       "internal_errors": 0,
-      "failed": 503,
-      "unresolved_name_failures": 480,
-      "other_failures": 23,
-      "diagnostics": 36999,
-      "errors": 36999,
+      "failed": 511,
+      "unresolved_name_failures": 468,
+      "other_failures": 43,
+      "diagnostics": 37113,
+      "errors": 37113,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 10352,
+        "HCPARSE0001": 10397,
         "HCPARSE0003": 26,
-        "HCPARSE0009": 599,
+        "HCPARSE0009": 597,
         "HCPARSE0018": 49,
         "HCPARSE0020": 25,
         "HCPARSE0024": 5,
         "HCPARSE0029": 3,
         "HCPARSE0035": 5,
         "HCPARSE0046": 2,
-        "HCPARSE0047": 54,
-        "HCPARSE0048": 18564,
-        "HCPARSE0050": 3932,
-        "HCPARSE0055": 2517,
+        "HCPARSE0047": 53,
+        "HCPARSE0048": 18546,
+        "HCPARSE0050": 3968,
+        "HCPARSE0055": 2518,
         "HCPARSE0082": 118,
         "HCPARSE0093": 2,
         "HCPARSE0095": 4,
         "HCPARSE0098": 1,
         "HCPARSE0112": 63,
         "HCPARSE0121": 13,
-        "HCPARSE0147": 187,
+        "HCPARSE0147": 208,
+        "HCPARSE0150": 1,
+        "HCPARSE0151": 4,
+        "HCPARSE0175": 13,
+        "HCPARSE0177": 14,
         "HCPP0003": 349,
         "HCPP0008": 38,
         "HCPP0009": 10,
@@ -90,20 +94,20 @@
       }
     },
     "project_prelude": {
-      "parses": 126,
+      "parses": 123,
       "frontend_diagnostics": 30,
-      "parser_diagnostics": 372,
+      "parser_diagnostics": 375,
       "read_errors": 0,
       "internal_errors": 0,
-      "failed": 402,
+      "failed": 405,
       "unresolved_name_failures": 370,
-      "other_failures": 32,
-      "diagnostics": 20946,
-      "errors": 20946,
+      "other_failures": 35,
+      "diagnostics": 21046,
+      "errors": 21046,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 3889,
+        "HCPARSE0001": 3893,
         "HCPARSE0003": 15,
         "HCPARSE0009": 28,
         "HCPARSE0018": 14,
@@ -111,9 +115,9 @@
         "HCPARSE0024": 43,
         "HCPARSE0029": 33,
         "HCPARSE0035": 6,
-        "HCPARSE0047": 56,
-        "HCPARSE0048": 11624,
-        "HCPARSE0050": 2795,
+        "HCPARSE0047": 54,
+        "HCPARSE0048": 11666,
+        "HCPARSE0050": 2831,
         "HCPARSE0055": 1780,
         "HCPARSE0082": 135,
         "HCPARSE0093": 1,
@@ -122,6 +126,9 @@
         "HCPARSE0105": 16,
         "HCPARSE0112": 48,
         "HCPARSE0147": 104,
+        "HCPARSE0151": 2,
+        "HCPARSE0175": 1,
+        "HCPARSE0177": 17,
         "HCPP0003": 166,
         "HCPP0008": 58,
         "HCPP0009": 10,
@@ -3112,15 +3119,20 @@
     {
       "path": "Adam/Gr/GrAsm.HC",
       "effective_project_directory": "Adam/Gr",
-      "comparison": "project-prelude-only",
+      "comparison": "neither-parses",
       "bytes": 6234,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 4,
+        "errors": 4,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0009": 1, "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0009": 1,
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPP0022",
           "severity": "error",
@@ -3132,13 +3144,20 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0050": 1, "HCPARSE0151": 1 },
+        "first_error": {
+          "code": "HCPARSE0151",
+          "severity": "error",
+          "message": "expected an expression term in assembly expression after \"MOV\"",
+          "path": "Adam/Gr/GrAsm.HC",
+          "line": 263,
+          "column": 18
+        },
         "failure_message": null
       }
     },
@@ -3772,38 +3791,50 @@
     {
       "path": "Adam/Gr/GrTextBase.HC",
       "effective_project_directory": "Adam/Gr",
-      "comparison": "project-prelude-only",
+      "comparison": "neither-parses",
       "bytes": 7230,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 28,
-        "errors": 28,
+        "diagnostics": 29,
+        "errors": 29,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 8,
-          "HCPARSE0009": 5,
+          "HCPARSE0009": 4,
           "HCPARSE0048": 12,
-          "HCPARSE0050": 3
+          "HCPARSE0050": 4,
+          "HCPARSE0177": 1
         },
         "first_error": {
-          "code": "HCPARSE0009",
+          "code": "HCPARSE0177",
           "severity": "error",
-          "message": "expected a primitive, class, or union parameter type, but found identifier \"CTask\"",
+          "message": "expected an assembly opcode, directive, or label, but found \".\"",
           "path": "Adam/Gr/GrTextBase.HC",
-          "line": 312,
-          "column": 41
+          "line": 12,
+          "column": 19
         },
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 10,
+        "errors": 10,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": {
+          "HCPARSE0048": 8,
+          "HCPARSE0050": 1,
+          "HCPARSE0151": 1
+        },
+        "first_error": {
+          "code": "HCPARSE0151",
+          "severity": "error",
+          "message": "expected an expression term in assembly expression after \"ADD\"",
+          "path": "Adam/Gr/GrTextBase.HC",
+          "line": 76,
+          "column": 18
+        },
         "failure_message": null
       }
     },
@@ -4504,11 +4535,16 @@
       "bytes": 3766,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 6,
+        "errors": 6,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 2, "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 3,
+          "HCPARSE0147": 1,
+          "HCPARSE0175": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPARSE0001",
           "severity": "error",
@@ -4521,11 +4557,15 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "diagnostics": 3,
+        "errors": 3,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPP0022",
           "severity": "error",
@@ -4566,15 +4606,17 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "diagnostics": 27,
+        "errors": 27,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
+          "HCPARSE0001": 2,
           "HCPARSE0029": 1,
-          "HCPARSE0048": 2,
-          "HCPARSE0050": 1,
+          "HCPARSE0048": 15,
+          "HCPARSE0050": 5,
           "HCPARSE0082": 1,
+          "HCPARSE0177": 1,
           "HCPP0022": 2
         },
         "first_error": {
@@ -4595,11 +4637,16 @@
       "bytes": 1962,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 5,
+        "errors": 5,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 2,
+          "HCPARSE0147": 1,
+          "HCPARSE0175": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPARSE0001",
           "severity": "error",
@@ -4612,11 +4659,15 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "diagnostics": 3,
+        "errors": 3,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPP0022",
           "severity": "error",
@@ -4659,16 +4710,17 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 9,
-        "errors": 9,
+        "diagnostics": 14,
+        "errors": 14,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0029": 2,
           "HCPARSE0047": 1,
-          "HCPARSE0048": 1,
-          "HCPARSE0050": 1,
+          "HCPARSE0048": 3,
+          "HCPARSE0050": 3,
           "HCPARSE0082": 1,
+          "HCPARSE0177": 1,
           "HCPP0022": 3
         },
         "first_error": {
@@ -4689,11 +4741,16 @@
       "bytes": 2148,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 4,
+        "errors": 4,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 1,
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPARSE0001",
           "severity": "error",
@@ -4706,11 +4763,15 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "diagnostics": 3,
+        "errors": 3,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPP0022",
           "severity": "error",
@@ -4729,11 +4790,16 @@
       "bytes": 2398,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 4,
+        "errors": 4,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 1,
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPARSE0001",
           "severity": "error",
@@ -4746,11 +4812,15 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "diagnostics": 3,
+        "errors": 3,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0022": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPP0022",
           "severity": "error",
@@ -4794,14 +4864,17 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 6,
-        "errors": 6,
+        "diagnostics": 16,
+        "errors": 16,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0029": 1,
           "HCPARSE0047": 1,
+          "HCPARSE0048": 2,
+          "HCPARSE0050": 6,
           "HCPARSE0082": 1,
+          "HCPARSE0177": 2,
           "HCPP0022": 3
         },
         "first_error": {
@@ -4982,16 +5055,18 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 22,
-        "errors": 22,
+        "diagnostics": 57,
+        "errors": 57,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
+          "HCPARSE0001": 2,
           "HCPARSE0029": 4,
           "HCPARSE0047": 2,
-          "HCPARSE0048": 3,
-          "HCPARSE0050": 2,
+          "HCPARSE0048": 20,
+          "HCPARSE0050": 14,
           "HCPARSE0082": 3,
+          "HCPARSE0177": 4,
           "HCPP0022": 8
         },
         "first_error": {
@@ -10149,23 +10224,24 @@
       "bytes": 3579,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 42,
-        "errors": 42,
+        "diagnostics": 44,
+        "errors": 44,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 20,
           "HCPARSE0048": 18,
-          "HCPARSE0050": 3,
-          "HCPARSE0055": 1
+          "HCPARSE0050": 4,
+          "HCPARSE0055": 1,
+          "HCPARSE0175": 1
         },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0175",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"Fs\" after a statement comma is not implemented",
+          "message": "invalid operand form for MOV in USE64 for assembly opcode \"MOV\"",
           "path": "Compiler/CMisc.HC",
-          "line": 53,
-          "column": 10
+          "line": 19,
+          "column": 2
         },
         "failure_message": null
       },
@@ -11866,18 +11942,22 @@
       "bytes": 1893,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "diagnostics": 3,
+        "errors": 3,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0048": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 1,
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1
+        },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0177",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"Snd\" after a statement comma is not implemented",
+          "message": "expected an assembly opcode, directive, or label, but found \".\"",
           "path": "Demo/Asm/AsmAndC1.HC",
-          "line": 71,
-          "column": 3
+          "line": 65,
+          "column": 18
         },
         "failure_message": null
       },
@@ -11899,18 +11979,24 @@
       "bytes": 2182,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "diagnostics": 6,
+        "errors": 6,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0048": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 1,
+          "HCPARSE0048": 1,
+          "HCPARSE0050": 2,
+          "HCPARSE0151": 1,
+          "HCPARSE0177": 1
+        },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0151",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"Snd\" after a statement comma is not implemented",
+          "message": "expected an expression term in assembly expression after \"PUSH\"",
           "path": "Demo/Asm/AsmAndC2.HC",
-          "line": 82,
-          "column": 3
+          "line": 27,
+          "column": 17
         },
         "failure_message": null
       },
@@ -11928,16 +12014,23 @@
     {
       "path": "Demo/Asm/AsmAndC3.HC",
       "effective_project_directory": "Demo/Asm",
-      "comparison": "both-parse",
+      "comparison": "project-prelude-only",
       "bytes": 475,
       "standalone": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0048": 1 },
+        "first_error": {
+          "code": "HCPARSE0048",
+          "severity": "error",
+          "message": "statement form beginning with \".\" is not implemented",
+          "path": "Demo/Asm/AsmAndC3.HC",
+          "line": 17,
+          "column": 17
+        },
         "failure_message": null
       },
       "project_prelude": {
@@ -12020,16 +12113,23 @@
     {
       "path": "Demo/Asm/DivByHand.HC",
       "effective_project_directory": "Demo/Asm",
-      "comparison": "both-parse",
+      "comparison": "project-prelude-only",
       "bytes": 326,
       "standalone": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0050": 1, "HCPARSE0175": 1 },
+        "first_error": {
+          "code": "HCPARSE0175",
+          "severity": "error",
+          "message": "invalid operand form for MOV in USE64 for assembly opcode \"MOV\"",
+          "path": "Demo/Asm/DivByHand.HC",
+          "line": 7,
+          "column": 2
+        },
         "failure_message": null
       },
       "project_prelude": {
@@ -12046,16 +12146,23 @@
     {
       "path": "Demo/Asm/MulByHand.HC",
       "effective_project_directory": "Demo/Asm",
-      "comparison": "both-parse",
+      "comparison": "project-prelude-only",
       "bytes": 1457,
       "standalone": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0050": 1, "HCPARSE0175": 1 },
+        "first_error": {
+          "code": "HCPARSE0175",
+          "severity": "error",
+          "message": "invalid operand form for MOV in USE64 for assembly opcode \"MOV\"",
+          "path": "Demo/Asm/MulByHand.HC",
+          "line": 27,
+          "column": 2
+        },
         "failure_message": null
       },
       "project_prelude": {
@@ -12076,18 +12183,18 @@
       "bytes": 1083,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1 },
+        "diagnostic_codes": { "HCPARSE0050": 1, "HCPARSE0177": 1 },
         "first_error": {
-          "code": "HCPARSE0001",
+          "code": "HCPARSE0177",
           "severity": "error",
-          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"Call\"",
+          "message": "expected an assembly opcode, directive, or label, but found identifier \"PUSH_C_REGS\"",
           "path": "Demo/Asm/PutDec.HC",
-          "line": 49,
-          "column": 1
+          "line": 11,
+          "column": 2
         },
         "failure_message": null
       },
@@ -17146,18 +17253,23 @@
       "bytes": 3717,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "diagnostics": 4,
+        "errors": 4,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0048": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 1,
+          "HCPARSE0048": 1,
+          "HCPARSE0147": 1,
+          "HCPARSE0151": 1
+        },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0151",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"CPURep\" after a statement comma is not implemented",
+          "message": "expected a named type in the postfix cast in assembly expression after \"MOV\"",
           "path": "Demo/Lectures/FixedPointAdvanced.HC",
-          "line": 82,
-          "column": 3
+          "line": 29,
+          "column": 16
         },
         "failure_message": null
       },
@@ -17226,18 +17338,22 @@
       "bytes": 1573,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 5,
+        "errors": 5,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0048": 2 },
+        "diagnostic_codes": {
+          "HCPARSE0048": 3,
+          "HCPARSE0050": 1,
+          "HCPARSE0175": 1
+        },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0175",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"CPURep\" after a statement comma is not implemented",
+          "message": "invalid operand form for MOV in USE64 for assembly opcode \"MOV\"",
           "path": "Demo/Lectures/InterruptDemo.HC",
-          "line": 59,
-          "column": 3
+          "line": 34,
+          "column": 2
         },
         "failure_message": null
       },
@@ -17473,18 +17589,23 @@
       "bytes": 1457,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 5,
-        "errors": 5,
+        "diagnostics": 10,
+        "errors": 10,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0048": 5 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 3,
+          "HCPARSE0050": 2,
+          "HCPARSE0147": 4,
+          "HCPARSE0177": 1
+        },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0177",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"TSSBusy\" after a statement comma is not implemented",
+          "message": "expected an assembly opcode, directive, or label, but found \".\"",
           "path": "Demo/Lectures/Ring3.HC",
-          "line": 34,
-          "column": 3
+          "line": 17,
+          "column": 15
         },
         "failure_message": null
       },
@@ -20672,24 +20793,25 @@
       "bytes": 7600,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 85,
-        "errors": 85,
+        "diagnostics": 86,
+        "errors": 86,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 29,
-          "HCPARSE0009": 2,
+          "HCPARSE0009": 1,
           "HCPARSE0048": 42,
-          "HCPARSE0050": 9,
-          "HCPARSE0055": 3
+          "HCPARSE0050": 10,
+          "HCPARSE0055": 3,
+          "HCPARSE0150": 1
         },
         "first_error": {
-          "code": "HCPARSE0009",
+          "code": "HCPARSE0150",
           "severity": "error",
-          "message": "expected a primitive, class, or union parameter type, but found identifier \"CArcCtrl\"",
+          "message": "expected ',' between the two operands of inline assembly opcode \"BTR\", but found \".\"",
           "path": "Kernel/Compress.HC",
-          "line": 100,
-          "column": 39
+          "line": 48,
+          "column": 18
         },
         "failure_message": null
       },
@@ -21192,16 +21314,17 @@
       "bytes": 3576,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 42,
-        "errors": 42,
+        "diagnostics": 45,
+        "errors": 45,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 1,
           "HCPARSE0009": 1,
-          "HCPARSE0048": 33,
-          "HCPARSE0050": 3,
+          "HCPARSE0048": 34,
+          "HCPARSE0050": 4,
           "HCPARSE0055": 1,
+          "HCPARSE0177": 1,
           "HCPP0008": 2,
           "HCPP0022": 1
         },
@@ -21306,18 +21429,23 @@
       "bytes": 4507,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 5,
-        "errors": 5,
+        "diagnostics": 7,
+        "errors": 7,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 3, "HCPARSE0009": 2 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 3,
+          "HCPARSE0009": 2,
+          "HCPARSE0050": 1,
+          "HCPARSE0175": 1
+        },
         "first_error": {
-          "code": "HCPARSE0001",
+          "code": "HCPARSE0175",
           "severity": "error",
-          "message": "expected a primitive, class, or union type after declaration binding \"_extern\", but found identifier \"CHash\"",
+          "message": "invalid operand form for AND in USE64 for assembly opcode \"AND\"",
           "path": "Kernel/KHashA.HC",
-          "line": 255,
-          "column": 20
+          "line": 45,
+          "column": 7
         },
         "failure_message": null
       },
@@ -21393,18 +21521,24 @@
       "bytes": 4846,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 26,
-        "errors": 26,
+        "diagnostics": 49,
+        "errors": 49,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0048": 26 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 29,
+          "HCPARSE0048": 5,
+          "HCPARSE0050": 8,
+          "HCPARSE0147": 6,
+          "HCPARSE0177": 1
+        },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0177",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"OutU8\" after a statement comma is not implemented",
+          "message": "expected an assembly opcode, directive, or label, but found \".\"",
           "path": "Kernel/KInts.HC",
-          "line": 131,
-          "column": 3
+          "line": 10,
+          "column": 23
         },
         "failure_message": null
       },
@@ -21513,16 +21647,23 @@
     {
       "path": "Kernel/KMathA.HC",
       "effective_project_directory": "Kernel",
-      "comparison": "both-parse",
+      "comparison": "project-prelude-only",
       "bytes": 10729,
       "standalone": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0050": 1, "HCPARSE0175": 1 },
+        "first_error": {
+          "code": "HCPARSE0175",
+          "severity": "error",
+          "message": "invalid operand form for MOV in USE64 for assembly opcode \"MOV\"",
+          "path": "Kernel/KMathA.HC",
+          "line": 318,
+          "column": 2
+        },
         "failure_message": null
       },
       "project_prelude": {
@@ -21621,15 +21762,16 @@
       "bytes": 5583,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 30,
-        "errors": 30,
+        "diagnostics": 31,
+        "errors": 31,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 5,
-          "HCPARSE0047": 3,
-          "HCPARSE0050": 1,
+          "HCPARSE0047": 2,
+          "HCPARSE0050": 2,
           "HCPARSE0147": 14,
+          "HCPARSE0177": 1,
           "HCPP0008": 2,
           "HCPP0022": 5
         },
@@ -21645,15 +21787,16 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 30,
-        "errors": 30,
+        "diagnostics": 31,
+        "errors": 31,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 5,
-          "HCPARSE0047": 3,
-          "HCPARSE0050": 1,
+          "HCPARSE0047": 2,
+          "HCPARSE0050": 2,
           "HCPARSE0147": 14,
+          "HCPARSE0177": 1,
           "HCPP0008": 2,
           "HCPP0022": 5
         },
@@ -21675,14 +21818,16 @@
       "bytes": 2996,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 39,
-        "errors": 39,
+        "diagnostics": 41,
+        "errors": 41,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 29,
           "HCPARSE0047": 1,
+          "HCPARSE0050": 1,
           "HCPARSE0147": 7,
+          "HCPARSE0177": 1,
           "HCPP0008": 1,
           "HCPP0022": 1
         },
@@ -21698,14 +21843,16 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 39,
-        "errors": 39,
+        "diagnostics": 41,
+        "errors": 41,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 29,
           "HCPARSE0047": 1,
+          "HCPARSE0050": 1,
           "HCPARSE0147": 7,
+          "HCPARSE0177": 1,
           "HCPP0008": 1,
           "HCPP0022": 1
         },
@@ -21723,16 +21870,23 @@
     {
       "path": "Kernel/KStart64.HC",
       "effective_project_directory": "Kernel",
-      "comparison": "both-parse",
+      "comparison": "project-prelude-only",
       "bytes": 1993,
       "standalone": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 4,
+        "errors": 4,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0147": 3, "HCPARSE0175": 1 },
+        "first_error": {
+          "code": "HCPARSE0175",
+          "severity": "error",
+          "message": "invalid operand form for BTS in USE64 for assembly opcode \"BTS\"",
+          "path": "Kernel/KStart64.HC",
+          "line": 3,
+          "column": 2
+        },
         "failure_message": null
       },
       "project_prelude": {
@@ -21753,18 +21907,19 @@
       "bytes": 13685,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 207,
-        "errors": 207,
+        "diagnostics": 209,
+        "errors": 209,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 81,
           "HCPARSE0009": 1,
           "HCPARSE0048": 81,
-          "HCPARSE0050": 24,
+          "HCPARSE0050": 25,
           "HCPARSE0055": 8,
           "HCPARSE0082": 1,
           "HCPARSE0147": 9,
+          "HCPARSE0175": 1,
           "HCPP0008": 2
         },
         "first_error": {
@@ -21805,26 +21960,40 @@
     {
       "path": "Kernel/KUtils.HC",
       "effective_project_directory": "Kernel",
-      "comparison": "both-parse",
+      "comparison": "neither-parses",
       "bytes": 6678,
       "standalone": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0050": 1, "HCPARSE0175": 1 },
+        "first_error": {
+          "code": "HCPARSE0175",
+          "severity": "error",
+          "message": "invalid operand form for MOVZX in USE64 for assembly opcode \"MOVZX\"",
+          "path": "Kernel/KUtils.HC",
+          "line": 211,
+          "column": 2
+        },
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0050": 1, "HCPARSE0175": 1 },
+        "first_error": {
+          "code": "HCPARSE0175",
+          "severity": "error",
+          "message": "opcode REP_OUTSB selects the original empty instruction form at OpCodes.DD:920; no checked opcode byte is available for assembly opcode \"REP_OUTSB\"",
+          "path": "Kernel/KUtils.HC",
+          "line": 314,
+          "column": 2
+        },
         "failure_message": null
       }
     },
@@ -21859,20 +22028,21 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 290,
-        "errors": 290,
+        "diagnostics": 293,
+        "errors": 293,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 50,
           "HCPARSE0009": 1,
           "HCPARSE0029": 2,
-          "HCPARSE0047": 5,
+          "HCPARSE0047": 4,
           "HCPARSE0048": 81,
-          "HCPARSE0050": 24,
+          "HCPARSE0050": 26,
           "HCPARSE0055": 7,
           "HCPARSE0112": 9,
           "HCPARSE0147": 38,
+          "HCPARSE0177": 2,
           "HCPP0003": 30,
           "HCPP0008": 24,
           "HCPP0022": 19
@@ -22134,9 +22304,9 @@
       "comparison": "neither-parses",
       "bytes": 10519,
       "standalone": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 27,
-        "errors": 27,
+        "status": "parser-diagnostics",
+        "diagnostics": 29,
+        "errors": 29,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
@@ -22144,27 +22314,33 @@
           "HCPARSE0009": 2,
           "HCPARSE0047": 2,
           "HCPARSE0048": 1,
-          "HCPARSE0050": 9,
+          "HCPARSE0050": 10,
           "HCPARSE0055": 1,
+          "HCPARSE0175": 1,
           "HCPP0022": 8
         },
         "first_error": {
-          "code": "HCPP0022",
+          "code": "HCPARSE0175",
           "severity": "error",
-          "message": "identifier \"CTask\" requires compile-time execution in #assert",
+          "message": "invalid operand form for MOV in USE64 for assembly opcode \"MOV\"",
           "path": "Kernel/Mem/MAllocFree.HC",
-          "line": 18,
-          "column": 9
+          "line": 15,
+          "column": 2
         },
         "failure_message": null
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "diagnostics": 9,
+        "errors": 9,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0029": 2, "HCPP0022": 5 },
+        "diagnostic_codes": {
+          "HCPARSE0029": 2,
+          "HCPARSE0050": 1,
+          "HCPARSE0177": 1,
+          "HCPP0022": 5
+        },
         "first_error": {
           "code": "HCPP0022",
           "severity": "error",
@@ -22325,16 +22501,27 @@
     {
       "path": "Kernel/Mem/PageTables.HC",
       "effective_project_directory": "Kernel/Mem",
-      "comparison": "both-parse",
+      "comparison": "project-prelude-only",
       "bytes": 3908,
       "standalone": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 4,
+        "errors": 4,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": {
+          "HCPARSE0050": 2,
+          "HCPARSE0055": 1,
+          "HCPARSE0177": 1
+        },
+        "first_error": {
+          "code": "HCPARSE0177",
+          "severity": "error",
+          "message": "expected an assembly opcode, directive, or label, but found \".\"",
+          "path": "Kernel/Mem/PageTables.HC",
+          "line": 159,
+          "column": 52
+        },
         "failure_message": null
       },
       "project_prelude": {
@@ -22355,25 +22542,26 @@
       "bytes": 9956,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 125,
-        "errors": 125,
+        "diagnostics": 128,
+        "errors": 128,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 76,
-          "HCPARSE0048": 18,
-          "HCPARSE0050": 14,
+          "HCPARSE0048": 17,
+          "HCPARSE0050": 15,
           "HCPARSE0055": 1,
-          "HCPARSE0147": 15,
+          "HCPARSE0147": 17,
+          "HCPARSE0151": 1,
           "HCPP0022": 1
         },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0151",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"LBEqu\" after a statement comma is not implemented",
+          "message": "expected an expression term in assembly expression after \"LGDT\"",
           "path": "Kernel/MultiProc.HC",
-          "line": 73,
-          "column": 3
+          "line": 19,
+          "column": 24
         },
         "failure_message": null
       },
@@ -22409,18 +22597,23 @@
       "bytes": 5430,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 14,
-        "errors": 14,
+        "diagnostics": 34,
+        "errors": 34,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0048": 14 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 9,
+          "HCPARSE0048": 21,
+          "HCPARSE0147": 3,
+          "HCPARSE0151": 1
+        },
         "first_error": {
-          "code": "HCPARSE0048",
+          "code": "HCPARSE0151",
           "severity": "error",
-          "message": "label or declaration syntax for unresolved identifier \"Yield\" after a statement comma is not implemented",
+          "message": "expected an expression term in assembly expression after \"DU16\"",
           "path": "Kernel/PCIBIOS.HC",
-          "line": 169,
-          "column": 5
+          "line": 47,
+          "column": 11
         },
         "failure_message": null
       },
@@ -22475,15 +22668,17 @@
       "bytes": 7121,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 25,
-        "errors": 25,
+        "diagnostics": 27,
+        "errors": 27,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 11,
           "HCPARSE0009": 1,
           "HCPARSE0048": 7,
-          "HCPARSE0147": 6
+          "HCPARSE0050": 1,
+          "HCPARSE0147": 6,
+          "HCPARSE0175": 1
         },
         "first_error": {
           "code": "HCPARSE0048",
@@ -22710,16 +22905,23 @@
     {
       "path": "Kernel/StrA.HC",
       "effective_project_directory": "Kernel",
-      "comparison": "both-parse",
+      "comparison": "project-prelude-only",
       "bytes": 12898,
       "standalone": {
-        "status": "parses",
-        "diagnostics": 0,
-        "errors": 0,
+        "status": "parser-diagnostics",
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {},
-        "first_error": null,
+        "diagnostic_codes": { "HCPARSE0050": 1, "HCPARSE0177": 1 },
+        "first_error": {
+          "code": "HCPARSE0177",
+          "severity": "error",
+          "message": "expected an assembly opcode, directive, or label, but found identifier \"PUSH_C_REGS\"",
+          "path": "Kernel/StrA.HC",
+          "line": 23,
+          "column": 2
+        },
         "failure_message": null
       },
       "project_prelude": {

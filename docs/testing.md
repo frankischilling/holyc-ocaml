@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+[Assembler tests](assembler.md) compare original Compiler, Kernel and Demo
+operands through block, direct and standalone parsing. They cover USE modes,
+aliases, x87 registers, memory slots, immediate masks, source form choices and
+malformed inputs. Public CLI checks inspect exact JSON fields and deterministic
+dumps, while include and macro cases preserve original locations and limits.
+Same-line assembly labels remain visible to language goto resolution.
+
 [Switch extension tests](integer-switch.md) share original source fixtures across
 IR and native targets. They cover bracket cases and holes, repeated defaults,
 direct entry and fallthrough through setup prefixes, nested region suffixes,
@@ -1210,7 +1217,23 @@ Eleven member-list source cases compare all seven `MLF_*` masks, five source dig
 
 Corpus tests cover deterministic extension filtering and path order, LF and CRLF continuation trivia, a NUL-terminated source with a retained payload count, malformed-input diagnostics, file-size rejection, dirty and mismatched reference rejection, isolated parser sessions, diagnostic classification, path redaction, stable human and JSON rendering, and the complete pinned source set. A focused project-prelude test reads different direct include orders from synthetic `Compiler.PRJ` and `Kernel.PRJ` files. It proves that a header definition and type make a dependent file parse only in prelude mode, that a sibling include follows the measured source directory only in that mode, that an existing outside-root file is still rejected, and that every target receives a copy of the same frontend state. The JSON report names the `source-directory` policy and records the effective directory for every file. The validated scans read each root from its Git object rather than a converted worktree file. This keeps root byte counts stable on Windows and Unix while the pre-scan and post-scan worktree checks still detect local changes. Parser includes come from that clean checkout, stay inside its resolver roots, and omit checkout-sensitive byte offsets from the report.
 
-The lexer report records 528 tokenized files, zero failures, 4,190,323 canonical source bytes, 719,471 tokens, 54 NUL terminators, and 1,266,852 trailing payload bytes. The reviewed AOT parser comparison records 25 standalone parses, 17 frontend failures, 486 parser failures, and 36,999 accumulated diagnostics. Its project-prelude side accepts 126 files, with 30 frontend failures, 372 parser failures, and 20,981 diagnostics. One hundred and one files parse only with the prelude. The report classifies 370 prelude first failures as unresolved names and 32 as other boundaries. Both sides have no read or internal errors and retain every file's first error. All 38 former `HCPP0003` first failures advance: 33 now reach parser diagnostics and five reach `HCPP0022` in included source. `Kernel/StrA.HC`, `Kernel/KernelC.HH`, `Kernel/KMisc.HC`, `Kernel/KInts.HC`, `Demo/AcctExample/TOS/TOSExt.HC`, `Adam/DolDoc/DocHighlight.HC`, `Adam/Opt/Utils/MemRep.HC`, `Demo/DolDoc/TextDemo.HC`, and `Demo/MsgLoop.HC` parse with the project prelude. `TextDemo.HC` also parses standalone, while standalone `MsgLoop.HC` advances to unresolved `Fs` at line 10. The complete DolDoc string-command ranges remove 150 spurious raw tokens across the corpus. `Kernel/KInts.HC` crosses from an intrinsic-backed `U64` class to the assembler size table before its direct `MOV`; `Kernel.PRJ` loses the same recovered diagnostic. The two unnamed string definition headings in `KernelA.HH` no longer produce `HCPP0010`; this removes six standalone and eight project-prelude diagnostics without changing a phase classification. `Demo/AcctExample/TOS/MakeTOS.HC` advances through the semicolon-free prototype in `TOSExt.HC` and reaches unresolved `SndShift` in `TOSMisc.HC`. `Demo/Graphics/Life.HC` reaches unresolved `GrBlot` at line 10. `Demo/Graphics/Pick3D.HC` crosses the semicolon-free `PCSprite`/`PObj` boundary and reaches unresolved `DCDepthBufAlloc` at line 83. The seven files that formerly stopped at a discarded `$IB` command also retain their later boundaries. The 23 diagnostics encountered while reading the four prelude headers remain visible in the report; declaration publication before unsupported forms is what makes the comparison useful.
+The lexer report records 528 tokenized files, zero failures, 4,190,323 canonical source
+bytes, 719,471 tokens, 54 NUL terminators and 1,266,852 trailing payload bytes. The
+reviewed AOT parser comparison records 17 standalone parses, 16 frontend first errors,
+495 parser first errors and 37,113 diagnostics. The project-prelude side accepts 123
+files, including 106 prelude-only parses, with 30 frontend first errors, 375 parser
+first errors and 21,046 diagnostics. It classifies 370 first failures as unresolved
+names and 35 as other boundaries. Both scans retain every file, record each first error
+and finish without read or internal errors. The four prelude headers contribute 23
+visible diagnostics.
+
+Assembly validation now checks source operands that were previously retained as raw
+tokens. Missing constants, macros and declarations therefore produce syntax or form
+diagnostics in isolated source files. The project prelude omits Adam's `gr` declaration,
+so `Adam/Gr/GrAsm.HC` and `GrTextBase.HC` stop at an export name followed by a member
+suffix. Public fixtures supply the original graphics declarations and accept those
+operands. `Kernel/KUtils.HC` reaches the pinned empty first form of `REP_OUTSB`, which
+produces an explicit checked diagnostic.
 
 ```text
 dune exec holyc -- corpus parse --mode=aot --reference-root=third_party/TempleOS

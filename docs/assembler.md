@@ -1,105 +1,226 @@
 # TempleOS assembler
 
-Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
+The assembler follows TempleOS commit
+`c26482bb6ad3f80106d28504ec5db3c6a360732c`. Its grammar and form-selection
+rules come from `Compiler/Asm.HC`, `AsmLib.HC` and `AsmInit.HC`; the instruction
+records come from the checked `Compiler/OpCodes.DD` database.
 
-## Current implementation boundary
+## Public commands
 
-The project has a checked OCaml representation of the complete `Compiler/OpCodes.DD` file. It includes registers, language keywords, assembler directives, canonical opcode records, instruction forms, and aliases. The generator verifies the pinned blob checksum and CI rejects stale output. The HolyC parser accepts brace-delimited `asm { ... }` statements and function-local direct assembly with source-ordered instruction and directive items. Instructions retain the zero, one, or two operands named by each opcode's first form. Both paths retain their source structure in the AST.
+HolyC `asm { ... }` blocks and function-local direct instructions share the
+same operand parser and instruction-form selector. The `asm` command reads a
+standalone assembly stream, with USE64 as its default initial mode:
 
-Brace-block body tokens are classified but not split into operations. Direct operands and directive arguments are structurally classified without checking instruction forms, resolving imports, emitting data, changing assembler state, or reading `BINFILE` input. The source assembly paths do not select forms, encode instructions, apply fixups, execute directives, or disassemble code. There is no `holyc asm` command.
-
-The checked compiler backend has a separate native instruction encoder.
-[Lock regions](lock-operations.md) use that encoder for eligible integer
-memory updates after the source and storage checks. `Compiler/BackLib.HC`
-and the arithmetic and bit consumers define where HolyC applies the prefix;
-`Compiler/OpCodes.DD:864` defines its byte as `0xF0`. A locked memory update
-must preserve the selected width and its instruction's flag behavior.
-Register forms, widened accesses beyond an owned object, and unsupported
-prefix combinations cannot be emitted through that path. This compiler
-consumer does not enable arbitrary source `LOCK` assembly. Exact encoding,
-source image, and native contention checks cover its supported memory forms.
-
-## Brace-delimited HolyC assembly
-
-`Compiler/PrsStmt.HC:PrsStmt` sends the `asm` keyword through two source paths. The top-level AOT path calls `PrsAsmBlk` directly. Top-level JIT and function compilation join the block through `CMPF_ASM_BLK`. `Compiler/Asm.HC:PrsAsmBlk` requires an opening brace, consumes assembly operations until the block close, and distinguishes assembler directives, opcode records, and label definitions by their hash types. The separate `CMPF_ONE_ASM_INS` path handles direct assembly inside a function and is described below.
-
-The OCaml AST has a distinct `assembly_block_statement` node. It records the keyword, both braces, every body token, and source-line groups used for readable dumps. Newlines do not terminate TempleOS assembly operations, so these groups have no grammatical meaning. An instruction and a directive on the same physical line remain in one group.
-
-Tokens are classified without rewriting their source spelling:
-
-| AST category | Retained information |
-| --- | --- |
-| Canonical opcode | Canonical spelling and `alias=false` |
-| Opcode alias | Source spelling, canonical spelling, and `alias=true` |
-| Assembler directive | TempleOS directive ID |
-| Register | Register family and number |
-| Identifier, keyword, literal, operator, punctuation | Original token and category |
-
-Leading `name:`, `name::`, and `@@name:` pairs are also recorded as ordinary global, exported global, and local labels. Their source tokens stay in the line rather than disappearing into the label annotation. Includes and definition expansions retain their canonical source, invocation site, and definition site in both AST dump formats.
-
-When a block appears in a collected function, `Driver.Label_resolution` adds all three structural forms to the function's semantic label batch. `Compiler/Asm.HC:1081-1091` places the corresponding native record in the code-control namespace used by language `goto`, so the OCaml pass lets a language goto bind to the same stable identity. It also records the source-compatible warning-suppression use on an assembly definition. A repeated assembly spelling remains provisional: `Compiler/Asm.HC:1032-1062` accepts it only when both definitions have the same output address. Issue #174 tracks that layout-dependent check, along with local assembler scope. Operand references, direct-assembly labels, fixups, and emitted `IC_LABEL` operations remain unimplemented.
-
-The checked inventory in `reference/assembly-blocks.json` lists every brace-delimited block found by a raw-token scan of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. At the pinned commit it contains 45 blocks in 40 files: 39 at brace depth zero and six nested inside another source block. Focused tests parse the top-level and function-local blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC`. `HCPARSE0145` reports a missing opening brace, and `HCPARSE0146` reports an unterminated block.
-
-## Function-local direct assembly
-
-Before ordinary identifier-statement parsing, `Compiler/PrsStmt.HC:PrsStmt` checks for both `HTT_OPCODE` and `HTT_ASM_KEYWORD`. It rejects either direct form when no function is active. Inside a function it joins compilation with `CMPF_ASM_BLK | CMPF_ONE_ASM_INS`. `Compiler/Asm.HC:PrsAsmBlk` then skips the opening-brace check, uses `tmpo->ins[0].arg1` and `arg2` to decide whether to parse operands, and can continue while the next hash entry is another opcode or assembler keyword. A physical newline is not a grammar boundary.
-
-`Compiler/Asm.HC:PrsAsmArg` distinguishes register operands, the eight integer size prefixes, segment prefixes, direct expressions, and bracketed addresses. When an integer spelling currently resolves to a class or internal type, lines 84-110 look up the same spelling in `cmp.asm_hash` before classifying it as a size. This matters after `Kernel/KernelA.HH:95` publishes the intrinsic-backed `U64` union: `MOV RAX,U64 8[RBP]` in `Kernel/KInts.HC:156` still uses an eight-byte prefix. The hosted parser applies that fallback only to the eight checked size spellings; locals and unrelated newer symbols still shadow them. `PrsAsmBlk` requires a comma before `arg2`; the first checked form supplies the structural arity. Assembly immediates use the ordinary expression compiler, with `CCF_ASM_EXPRESSIONS` changing symbol and `$$` behavior.
-
-The `inline_assembly_statement` node contains one or more adjacent source-ordered items. An instruction item keeps the classified opcode, source spelling, canonical alias identity, zero to two operands, separating comma, optional semicolon, full span, and include or definition provenance. Each operand is marked register, immediate, or memory and retains every classified source token. An optional size prefix and segment prefix are also exposed directly. Physical newlines remain trivia rather than instruction delimiters.
-
-Directive items cover the function-local source branches in `Compiler/Asm.HC:PrsAsmBlk`: `IMPORT`; `DU8`, `DU16`, `DU32`, and `DU64`, including the postfix `DUP` form; `BINFILE`; `LIST`; `NOLIST`; and `USE16`, `USE32`, and `USE64`. They retain the directive token, argument tokens, comma locations, semicolon, complete span, and provenance. `IMPORT` names and `DU*` values may be adjacent or comma-separated because `PrsAsmBlk` consumes commas when present but does not require them. `IMPORT`, `DU*`, and `BINFILE` require a semicolon; the listing and mode directives do not. The parser records `BINFILE` syntax without opening the path.
-
-`ORG` and `ALIGN` are brace-block-only in the pinned function path and receive a direct-use diagnostic. `I0` through `F64` remain operand or declaration prefixes rather than starting a direct assembly statement. `DUP` is valid only after a `DU*` value and cannot begin an item. These distinctions prevent ordinary declarations such as `I64 value;` from being reclassified as assembly.
-
-Visible compiler symbols control opcode and register recognition, so a local or newer declaration can shadow those spellings. Exact operand-free snippets from `Adam/AMem.HC`, `Kernel/Job.HC`, and `Demo/Graphics/Balloon.HC` parse in JIT and AOT modes. Operand-bearing tests use `MOV AL,0x41`, `CALL PUT_HEX_U8`, and the delay-loop sequence from `Demo/Asm/AsmAndC3.HC`; `CLI` and `LTR AX` from `Demo/Lectures/Ring3.HC`; and `MOV RAX,U64 8[RBP]` from `Kernel/KInts.HC`.
-
-`HCPARSE0147` rejects a direct opcode or supported directive at top level and recommends a brace-delimited block. `HCPARSE0149` reports a missing operand, `HCPARSE0150` a missing comma, `HCPARSE0151` an unclosed address bracket, and `HCPARSE0152` a third operand. `HCPARSE0153` rejects a directive that cannot appear directly in a function, while `HCPARSE0154` through `HCPARSE0156` report malformed `IMPORT`, data, and `BINFILE` items. Direct labels, detailed address validation, form selection, directive evaluation, import publication, data and file emission, lowering, encoding, fixups, and execution remain unimplemented. The AST records syntax only and cannot establish that an item would assemble or run.
-
-## Source grammar
-
-`Compiler/AsmInit.HC:AsmHashLoad` reads four ordered record groups from `Compiler/OpCodes.DD`:
-
-```text
-REGISTER_KIND spelling number;
-KEYWORD spelling token_id;
-ASM_KEYWORD spelling token_id;
-OPCODE spelling instruction_form... [: alias...] ;
+```sh
+dune exec holyc -- parse examples/assembly-operands.hc
+dune exec holyc -- asm test/cli/assembly-operations.hc
+dune exec holyc -- asm --bits=16 --format=json test/cli/assembly-operations.hc
 ```
 
-`REGISTER_KIND` is one of `R8`, `R16`, `R32`, `R64`, `SEG`, `FSTK`, `MM`, or `XMM`. The pinned file contains 106 records: 20 R8, 16 R16, 16 R32, 24 R64, 6 segment, 8 x87 stack, 8 MMX, and 8 XMM names. Repeated register numbers are meaningful. For example, `R8` through `R15` and `R8u64` through `R15u64` name the same eight 64-bit register numbers.
+The command accepts the same include roots, TempleOS path mapping, preprocessing
+mode and source-expansion limits as `parse`. The `--bits` option selects the
+initial assembler mode; `USE16`, `USE32` and `USE64` change it as the stream is
+read. HolyC compilation mode (`--mode=jit` or `--mode=aot`) is a separate setting.
 
-An instruction form starts with zero to four opcode bytes. A comma separates those bytes from flags and operands unless the semicolon ends the canonical record immediately. `CInst` then records:
+Human and JSON dumps expose each instruction's source spelling, canonical
+opcode, selected database entry and source line, operand fields, size prefixes,
+mode, matching-form count and warnings. The standalone JSON schema is
+`holyc-assembly-v1`. HolyC AST dumps retain `holyc-ast-v1` and add the ordered
+`items` of each assembly block. Source-line groups remain available for display.
 
-| Source form | Stored meaning |
+This phase checks assembly syntax and selects instruction forms. Symbolic
+expressions keep their original tokens and are marked unresolved; their selected
+forms and byte counts remain provisional until expression evaluation and layout.
+The command does not produce a machine-code file. Instruction emission, data and
+file directives, symbol relocation, disassembly and execution have separate
+requirements under issues #712 through #716.
+
+## Operation boundaries and source identity
+
+`Compiler/Asm.HC:904-1114` parses a stream of operations. A physical newline
+does not end an instruction. Instructions, directives and labels can share one
+line, and one operand can span several lines.
+
+The original `PrsAsmBlk` consults the first opcode record to determine whether
+to read zero, one or two operands. That is only the grammar's operand count:
+`PrsAsmInst` subsequently checks the complete form list. The OCaml parser keeps
+this distinction. Two-operand instructions require their separating comma;
+an unexpected additional operand produces a diagnostic.
+
+`LOCK` is an ordinary zero-operand record and remains a separate operation in
+the dump. Repeat-string instructions use the pinned combined names such as
+`REP_MOVSB`. Instruction names and aliases keep their exact spelling; for
+example, the original dialect uses `RET1 8` and `IMUL2 RAX,10`.
+
+Blocks and standalone streams retain ordinary `name:`, exported `name::` and
+local `@@name:` labels at their actual operation positions. Function label
+collection consumes these ordered items, so a label after an instruction on the
+same line remains visible to language `goto` resolution. Output addresses,
+repeated-definition equality and local assembler fixup scopes remain part of
+the layout work in #174 and #714.
+
+Every item and operand retains its source span, component spans, include source,
+definition site and expansion site. Classification does not replace a source
+spelling with its canonical name. Visible compiler symbols can shadow opcode,
+register and directive names.
+
+## Operands
+
+`PrsAsmArg` at `Compiler/Asm.HC:35-175` supplies the operand grammar:
+
+| Form | Retained meaning |
 | --- | --- |
-| `NO`, `CB`, `CW`, `CD`, `CP`, `IB`, `IW`, `ID` | Opcode modifier values 0 through 7 |
-| `16`, `32` | Operand-size flags |
-| `+0` through `+7`, `+R`, `+I` | Add an operand value to the opcode and retain its slash selector |
-| `/0` through `/7`, `/R`, `/I` | Fixed, register, or immediate slash selector |
-| `!`, `&`, `%`, `=`, `` ` ``, `^`, `*`, `$$` | The eight `IEF_*` flags parsed by `AsmPrsInsFlags` |
-| Up to two `ST_ARG_TYPES` names | Operand shapes and sizes derived from `cmp.size_arg_mask` |
+| Register | Original register family, spelling and number |
+| Integer size prefix | I8/U8, I16/U16, I32/U32 or I64/U64, with byte width |
+| Segment prefix | A segment register followed by a colon, such as `FS:` |
+| Immediate expression | Original expression tokens and an exact integer value when available |
+| Memory operand | Brackets, register slots, scale and optional displacement expression |
+| Displacement before brackets | Expressions such as `8[RBP]` and `&value[RBP]` |
 
-The source loader reserves space for 32 forms per canonical opcode. The checked reader rejects a 33rd form, a fifth opcode byte, an unknown modifier or operand name, an out-of-range byte or register number, an empty alias list, duplicate opcode spellings, and records outside their ordered section. It handles the nested block comments accepted by the compiler lexer and does not turn commented records into symbols.
+Only the eight integer size spellings take the source's assembler-keyword
+fallback when ordinary lookup finds a class or internal type. This preserves
+`U64` prefixes after the kernel publishes its intrinsic-backed union.
+A local or unrelated newer symbol still shadows that spelling.
 
-The pinned database has 325 canonical opcodes, 49 aliases, and 924 instruction forms. Aliases copy the canonical `CHashOpcode` record and set `OCF_ALIAS` in TempleOS. The generated OCaml table nests each alias under its canonical record so that relationship cannot be lost.
+x87 stack, MMX and XMM registers retain the original parser's eight-byte size
+field; their register families remain distinct during matching. A segment
+register used alone is distinct from a segment override. The mode and operand
+masks determine which generated forms can match.
 
-## Preserved source quirk
+The implementation preserves the pinned address parser's register-slot rules.
+An initial stack-pointer-family register creates the original special register
+pair. A scale can swap the register slots. A later address register replaces
+the second slot rather than adding a third slot. These are source behaviors,
+not a normalized Intel-syntax address tree.
 
-`REP_OUTSB` starts with a comma before its first byte sequence. `AsmHashLoad` therefore creates an empty instruction entry before its two encoded forms. The OCaml table retains all three entries, including the empty form at source line 920. Repairing the data during generation would no longer describe what the pinned compiler loads.
+The original parser accepts an integer scale token. Its encoding planner sets
+SIB scale bits only for 1, 2, 4 and 8; other values leave those bits zero.
+The parsed scale remains visible in the dump. Repeated size prefixes overwrite
+the previous size, and a direct register then supplies its own size.
+Missing brackets, missing scale tokens and duplicate immediate components
+produce diagnostics.
 
-## Compiler symbol visibility
+Expressions retain the compiler's source grammar and operator precedence.
+Symbol, call, query and address expressions that need a later compiler phase
+remain visibly unresolved. The operand model does not turn an unresolved
+expression into a known zero.
 
-`AsmHashLoad` publishes register records as `HTT_REG` and canonical opcodes and aliases as `HTT_OPCODE`. `Driver.Session` seeds all 480 spellings alongside the existing keyword and internal-type records. They can therefore satisfy `#ifdef` and `defined` through the default TempleOS hash mask. Imports remain excluded, and a local symbol can still suppress hash lookup as described in [the preprocessor notes](preprocessor.md).
+Visible globals and static locals permit expression indexing, so `values[1]`
+stays one typed expression. An export label followed by brackets starts an
+assembly address. Automatic locals require `&name`, as in `&value[RBP]`.
+Known class member offsets keep their identity separately from export labels.
+Postfix casts retain pointer, array and function-pointer syntax. Literal,
+query, label and typed-value terms follow the modifier states in `PrsExp.HC`;
+for example, a literal followed by `()` is not a function call.
 
-The session appends these records after the earlier seed groups so existing stable IDs remain unchanged. The six public primitive unions follow these groups as class records. A new session contains 576 checked compiler symbols in deterministic order.
+Known function declarations supply their required, defaulted and variadic
+parameter shapes. Calls without parentheses consume required arguments using
+the original grammar. A known scalar variable cannot be called; a declared
+function pointer retains its callable shape. Values whose type or address needs
+later resolution remain explicit in the operand model. An immediate's
+`absolute_known` field distinguishes confirmed address-count parity from an
+address whose export metadata still needs resolution.
 
-## Regeneration
+Inline class and union definitions in postfix casts use the ordinary aggregate
+parser, including its member checks and declaration visibility. Instruction
+operands and directive arguments retain these definitions alongside the
+original source tokens. JSON dumps include a `type_definitions` array when
+such a definition occurs.
 
-```text
+## Form selection
+
+`AsmMakeArgMask` at `Compiler/Asm.HC:177-276` classifies operands.
+`PrsAsmInst` at lines 395-812 checks the generated form records, mode flags,
+operand masks, immediate widths, address shape and prefix requirements.
+
+The original selection rule is specific:
+
+1. Consider matching forms in database order.
+2. Prefer the form with the smallest original comparison byte count.
+3. Keep the earlier form when counts tie.
+4. Preserve the warning for an unsized operand when a second possible form is
+   reached after a best candidate without `IEF_DFT`.
+
+A blanket rejection of every ambiguous unsized operand would disagree with
+`PrsAsmInst`. The warning and deterministic selected form are both exposed.
+
+The source's comparison count excludes operand/address/segment prefixes and
+the final zero emitted by `ENTER`. Dumps therefore distinguish
+`comparison_bytes` from `estimated_bytes`. Neither field is a loaded address.
+Relative target distances and unresolved symbol values require later layout
+before a final encoding can be certified.
+
+Each HolyC assembly block or direct run begins in USE64, matching line 914.
+An optional semicolon after a direct opcode, `USE` or listing directive ends
+that run; a later direct run begins in USE64 again. A mandatory semicolon
+consumed by `DU*`, `IMPORT` or `BINFILE` belongs to that directive and permits
+the current run to continue. Brace blocks continue across separators.
+
+## Directives
+
+The shared operation stream retains `IMPORT`, `DU8`, `DU16`, `DU32`, `DU64`,
+postfix `DUP`, `BINFILE`, `LIST`, `NOLIST` and the three `USE` directives.
+`ORG` and `ALIGN` have their original context restrictions.
+`IMPORT` names and data values can use the optional commas accepted by
+`PrsAsmBlk`. `DUP` cannot start an operation.
+
+The parser records directive arguments and separators without reading a
+`BINFILE` path or publishing imported symbols. USE directives change parser
+mode; data emission and output-position changes belong to #713 and #714.
+
+`ALIGN` checks the original signed `I64` value. Positive JIT alignments are
+limited to 8; the single high-bit value also passes the source's power-of-two
+and signed-limit checks. The parser preserves that syntax without advancing
+an output position.
+
+## Checked opcode database
+
+The generator validates the pinned source checksum and records source lines.
+CI rejects stale generated output. The database contains 106 register names,
+325 canonical opcodes, 49 aliases and 924 instruction records. Aliases share
+their canonical form list while retaining alias identity.
+
+The source loader accepts up to four opcode bytes and up to 32 forms per
+canonical opcode. It preserves opcode modifiers, operand-size flags,
+slash selectors and all eight `IEF_*` flags. The checked reader rejects
+malformed records, unknown operand classes, out-of-range bytes, duplicate
+spellings and reordered sections.
+
+`REP_OUTSB` has an empty first instruction record because its source starts
+with a comma at `OpCodes.DD:920`. That entry remains in generated data.
+Selection diagnoses the empty record with its source location instead of
+indexing before its opcode bytes or silently replacing it.
+
+```sh
 dune exec tools/opcode_table_gen.exe -- --source third_party/TempleOS/Compiler/OpCodes.DD --manifest reference/manifest.json --output src/generated/opcode_keywords.ml
-dune build '@generated-check'
+dune build @generated-check
 ```
 
-The output records the reference commit, source path, SHA-256, and source line for every generated name and instruction form.
+The separate checked native compiler encoder continues to serve its existing
+source-program consumers. The assembler parser's form selections do not grant
+those consumers permission to execute arbitrary source assembly.
+
+## Verification
+
+The public command uses the shared parser diagnostics:
+
+| Code | Meaning |
+| --- | --- |
+| HCPARSE0175 | No compatible instruction form, or the selected original form has no opcode bytes |
+| HCPARSE0176 | Original warning for an unsized operand with multiple matching forms |
+| HCPARSE0177 | Invalid operation start, conflicting label identity or unexpected standalone closing brace |
+| HCPARSE0178 | A local `@@label` cannot use the exported `::` delimiter |
+| HCPARSE0179 | Invalid ALIGN power, JIT alignment limit or missing fill separator |
+
+The tests use original Compiler, Kernel and Demo instruction patterns, cover
+all three modes, check aliases and x87 operands, and distinguish source quirks
+from malformed syntax. Public parser and command fixtures check ordered items,
+deterministic dumps, same-line labels, include and macro provenance, and
+source-expansion limits. Exact expected masks and form choices are derived from
+the pinned source.
+
+The checked raw-token inventory in `reference/assembly-blocks.json` still
+records 45 brace blocks in 40 files under Compiler, Kernel, Adam and Demo:
+39 at brace depth zero and six nested in another source block. That inventory
+measures discovery separately from instruction validation. These are hosted
+source-derived checks; they do not constitute a fresh TempleOS execution capture.

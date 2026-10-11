@@ -551,25 +551,25 @@ let pinned_parser_reference () =
     "compilation mode" "aot"
     (Preprocessor.compilation_mode_name (Corpus.Parse.compilation_mode report));
   Alcotest.(check int) "source count" 528 (Corpus.Parse.file_count report);
-  Alcotest.(check int) "parsed count" 25 (Corpus.Parse.parses_count report);
+  Alcotest.(check int) "parsed count" 17 (Corpus.Parse.parses_count report);
   Alcotest.(check int)
-    "frontend failures" 17
+    "frontend failures" 16
     (Corpus.Parse.frontend_diagnostic_count report);
   Alcotest.(check int)
-    "parser failures" 486
+    "parser failures" 495
     (Corpus.Parse.parser_diagnostic_count report);
   Alcotest.(check int) "read errors" 0 (Corpus.Parse.read_error_count report);
   Alcotest.(check int)
     "internal errors" 0
     (Corpus.Parse.internal_error_count report);
-  Alcotest.(check int) "failure count" 503 (Corpus.Parse.failure_count report);
+  Alcotest.(check int) "failure count" 511 (Corpus.Parse.failure_count report);
   Alcotest.(check int64)
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 36_999
+    "diagnostics" 37_113
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 36_999 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_113 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -588,26 +588,26 @@ let pinned_parser_reference () =
     "prelude diagnostics" 23
     (Corpus.Parse.Comparison.prelude_diagnostic_count comparison);
   Alcotest.(check int)
-    "both parse" 25
+    "both parse" 17
     (Corpus.Parse.Comparison.both_parse_count comparison);
   Alcotest.(check int)
     "standalone only" 0
     (Corpus.Parse.Comparison.standalone_only_count comparison);
   Alcotest.(check int)
-    "prelude only" 101
+    "prelude only" 106
     (Corpus.Parse.Comparison.project_prelude_only_count comparison);
   Alcotest.(check int)
-    "neither parses" 402
+    "neither parses" 405
     (Corpus.Parse.Comparison.neither_parses_count comparison);
-  Alcotest.(check int) "prelude parses" 126 (Corpus.Parse.parses_count prelude);
+  Alcotest.(check int) "prelude parses" 123 (Corpus.Parse.parses_count prelude);
   Alcotest.(check int)
     "prelude frontend failures" 30
     (Corpus.Parse.frontend_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude parser failures" 372
+    "prelude parser failures" 375
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 20_946
+    "prelude diagnostics" 21_046
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -700,6 +700,8 @@ let pinned_parser_reference () =
           Alcotest.(check int) (path ^ " first-error line") line diagnostic.line
       | None -> Alcotest.fail ("expected a parser boundary for " ^ path))
     [
+      ("Adam/Gr/GrAsm.HC", "HCPARSE0151", 263);
+      ("Adam/Gr/GrTextBase.HC", "HCPARSE0151", 76);
       ("Apps/KeepAway/KeepAway.HC", "HCPARSE0001", 221);
       ("Apps/Logic/Logic.HC", "HCPARSE0048", 190);
       ("Apps/Psalmody/PsalmodyDraw.HC", "HCPARSE0048", 88);
@@ -708,6 +710,7 @@ let pinned_parser_reference () =
       ("Demo/Graphics/EdSprite.HC", "HCPARSE0048", 61);
       ("Demo/Graphics/Pick3D.HC", "HCPARSE0048", 83);
       ("Demo/Graphics/WallPaperFish.HC", "HCPARSE0048", 67);
+      ("Kernel/KUtils.HC", "HCPARSE0175", 314);
     ];
   let expected =
     Filename.concat (workspace ()) "reference/parser-corpus-aot.json"

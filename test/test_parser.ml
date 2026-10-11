@@ -16982,20 +16982,92 @@ let assembly_block_inventory () =
          if String.equal context "nested" then count + 1 else count)
        0 actual)
 
+let assembly_source_session ?compilation_mode () =
+  let session = Session.create () in
+  let config = config ?compilation_mode (Sys.getcwd ()) in
+  List.iter
+    (fun (name, kind, path, line) ->
+      ignore
+        (Symbol_visibility.Environment.add
+           ~origin:(Symbol_visibility.Pinned_source { path; line })
+           (Session.symbols session) ~name ~kind ()))
+    [
+      ("CTask", Symbol_visibility.Class, "Kernel/KernelA.HH", 3271);
+      ("CHashFun", Symbol_visibility.Class, "Kernel/KernelA.HH", 860);
+      ("CHashTable", Symbol_visibility.Class, "Kernel/KernelA.HH", 647);
+      ("cnts", Symbol_visibility.Global_variable, "Kernel/KGlbls.HC", 21);
+      ("glbl_ona", Symbol_visibility.Global_variable, "Demo/Asm/AsmAndC2.HC", 10);
+      ( "glbl_ona_step",
+        Symbol_visibility.Global_variable,
+        "Demo/Asm/AsmAndC2.HC",
+        10 );
+      ( "glbl_ona_base",
+        Symbol_visibility.Global_variable,
+        "Demo/Asm/AsmAndC2.HC",
+        10 );
+    ];
+  let constants =
+    Session.add_source session ~path:"assembly-source-constants.HH"
+      ~contents:
+        (pinned_lines "Kernel/KernelA.HH" ~first:21 ~last:21
+        ^ "\n"
+        ^ pinned_lines "Kernel/KernelA.HH" ~first:577 ~last:584
+        ^ "\n")
+  in
+  ignore
+    (Holyc_lib.parse_detailed session ~config ~source:constants |> expect_ast);
+  (session, config)
+
+let parse_assembly_source_string ?(path = "assembly-source.HC")
+    ?compilation_mode contents =
+  let session, config = assembly_source_session ?compilation_mode () in
+  let source = Session.add_source session ~path ~contents in
+  let output = Holyc_lib.parse_detailed session ~config ~source in
+  (session, source, output)
+
 let pinned_assembly_block_shapes () =
   let cases =
     [
-      ("AsmAndC1 top level", "Demo/Asm/AsmAndC1.HC", 8, 33);
-      ("AsmAndC1 nested", "Demo/Asm/AsmAndC1.HC", 48, 70);
-      ("AsmAndC2 top level", "Demo/Asm/AsmAndC2.HC", 12, 51);
-      ("AsmAndC2 nested", "Demo/Asm/AsmAndC2.HC", 64, 81);
+      ("AsmAndC1 top level", "Demo/Asm/AsmAndC1.HC", 8, 33, None);
+      ("AsmAndC1 nested", "Demo/Asm/AsmAndC1.HC", 48, 70, Some "I64 noreg i;");
+      ("AsmAndC2 top level", "Demo/Asm/AsmAndC2.HC", 12, 51, None);
+      ("AsmAndC2 nested", "Demo/Asm/AsmAndC2.HC", 64, 81, Some "I64 reg R15 i;");
     ]
   in
   List.iter
-    (fun (name, path, first, last) ->
-      let source = pinned_lines path ~first ~last in
-      let _, _, output = parse_string ~path source in
-      let statement = expect_ast output |> expect_one_top_level_assembly in
+    (fun (name, path, first, last, local) ->
+      let original = pinned_lines path ~first ~last in
+      let source =
+        match local with
+        | None -> original
+        | Some declaration ->
+            "U0 OriginalAssemblyScope(){\n" ^ declaration ^ "\n" ^ original
+            ^ "\n}"
+      in
+      let _, _, output = parse_assembly_source_string ~path source in
+      let rec assemblies = function
+        | Ast.Assembly_block_statement statement -> [ statement ]
+        | Ast.Block_statement block ->
+            List.concat_map assemblies block.block_statements
+        | Ast.Sequence_statement sequence ->
+            List.concat_map
+              (fun element -> assemblies element.Ast.sequence_statement)
+              sequence.sequence_elements
+        | _ -> []
+      in
+      let ast = expect_ast output in
+      let statement =
+        match local with
+        | None -> expect_one_top_level_assembly ast
+        | Some _ -> (
+            expect_one_definition ast |> expect_function_body |> assemblies
+            |> function
+            | [ statement ] -> statement
+            | statements ->
+                Alcotest.failf
+                  "expected one original nested assembly block, got %d"
+                  (List.length statements))
+      in
       Alcotest.(check bool)
         (name ^ " retains source lines")
         true
@@ -17090,86 +17162,72 @@ let assembly_block_shapes () =
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let assembly_checked_table_classification () =
-  let parse_words words =
-    let source = "asm {\n" ^ String.concat "\n" words ^ "\n}" in
-    let _, _, output = parse_string source in
+  let source =
+    "asm {\n\
+     USE16 MOV AX,1\n\
+     USE32 MOV EAX,1\n\
+     USE64 MOV R8u64,RAX\n\
+     MOV AL,U8 [RBX]\n\
+     MOV RAX,U64 FS:[RBX]\n\
+     FLD U64 [RAX]\n\
+     FADDP ST1,ST0\n\
+     LOCK BPT JZ Target LOOPZ Target\n\
+     Target: RET\n\
+     DU8 0;\n\
+     }"
+  in
+  let _, _, output = parse_string source in
+  let tokens =
     expect_ast output |> expect_one_top_level_assembly |> assembly_tokens
   in
-  let canonical_tokens =
-    Asm_opcode.all |> List.map Asm_opcode.spelling |> parse_words
-  in
-  Alcotest.(check int)
-    "one token per canonical opcode"
-    (List.length Asm_opcode.all)
-    (List.length canonical_tokens);
-  List.iter2
-    (fun opcode (token : Ast.assembly_token) ->
-      Alcotest.(check string)
-        "canonical opcode spelling"
-        (Asm_opcode.spelling opcode)
-        token.assembly_source_token.raw;
+  let canonical = ref [] and aliases = ref [] and registers = ref [] in
+  List.iter
+    (fun (token : Ast.assembly_token) ->
+      let spelling = token.assembly_source_token.raw in
       match token.assembly_token_kind with
       | Ast.Assembly_opcode_token { canonical_spelling; source_is_alias } ->
+          let resolved = Asm_opcode.resolve spelling |> Option.get in
           Alcotest.(check string)
-            "canonical opcode identity"
-            (Asm_opcode.spelling opcode)
+            "validated opcode keeps its checked canonical identity"
+            (Asm_opcode.resolved_opcode resolved |> Asm_opcode.spelling)
             canonical_spelling;
           Alcotest.(check bool)
-            "canonical opcode is not an alias" false source_is_alias
-      | _ -> Alcotest.fail "checked opcode was not classified as an opcode")
-    Asm_opcode.all canonical_tokens;
-  let aliases =
-    List.concat_map
-      (fun opcode ->
-        List.map (fun alias -> (alias, opcode)) (Asm_opcode.aliases opcode))
-      Asm_opcode.all
-  in
-  let alias_tokens = aliases |> List.map fst |> parse_words in
-  Alcotest.(check int)
-    "one token per opcode alias" (List.length aliases)
-    (List.length alias_tokens);
-  List.iter2
-    (fun (alias, opcode) (token : Ast.assembly_token) ->
-      Alcotest.(check string)
-        "alias source spelling" alias token.assembly_source_token.raw;
-      match token.assembly_token_kind with
-      | Ast.Assembly_opcode_token { canonical_spelling; source_is_alias } ->
-          Alcotest.(check string)
-            "alias canonical identity"
-            (Asm_opcode.spelling opcode)
-            canonical_spelling;
-          Alcotest.(check bool) "alias marker" true source_is_alias
-      | _ -> Alcotest.fail "checked alias was not classified as an opcode")
-    aliases alias_tokens;
-  let directive_tokens =
-    Asm_directive.all |> List.map Asm_directive.spelling |> parse_words
-  in
-  List.iter2
-    (fun directive (token : Ast.assembly_token) ->
-      match token.assembly_token_kind with
+            "validated opcode keeps its checked alias marker"
+            (Asm_opcode.resolved_is_alias resolved)
+            source_is_alias;
+          if source_is_alias then aliases := canonical_spelling :: !aliases
+          else canonical := spelling :: !canonical
       | Ast.Assembly_directive_token { templeos_id } ->
+          let directive = Asm_directive.find spelling |> Option.get in
           Alcotest.(check int)
-            "directive TempleOS ID"
+            "validated directive keeps its checked TempleOS ID"
             (Asm_directive.templeos_id directive)
             templeos_id
-      | _ -> Alcotest.fail "checked directive was not classified as a directive")
-    Asm_directive.all directive_tokens;
-  let register_tokens =
-    Asm_register.all |> List.map Asm_register.spelling |> parse_words
-  in
-  List.iter2
-    (fun register (token : Ast.assembly_token) ->
-      match token.assembly_token_kind with
       | Ast.Assembly_register_token { register_kind; register_number } ->
+          let register = Asm_register.find spelling |> Option.get in
+          registers := spelling :: !registers;
           Alcotest.(check bool)
-            "register kind" true
+            "validated operand keeps its checked register kind" true
             (register_kind = Asm_register.kind register);
           Alcotest.(check int)
-            "register number"
+            "validated operand keeps its checked register number"
             (Asm_register.number register)
             register_number
-      | _ -> Alcotest.fail "checked register was not classified as a register")
-    Asm_register.all register_tokens
+      | _ -> ())
+    tokens;
+  Alcotest.(check (list string))
+    "representative canonical instructions parse with valid operands"
+    [ "MOV"; "MOV"; "MOV"; "MOV"; "MOV"; "FLD"; "FADDP"; "LOCK"; "RET" ]
+    (List.rev !canonical);
+  Alcotest.(check (list string))
+    "representative aliases preserve canonical identities"
+    [ "INT3"; "JE"; "LOOPE" ] (List.rev !aliases);
+  List.iter
+    (fun name ->
+      Alcotest.(check bool)
+        (name ^ " is classified in a valid operand position")
+        true (List.mem name !registers))
+    [ "AL"; "AX"; "EAX"; "RAX"; "R8u64"; "FS"; "ST0"; "ST1" ]
 
 let assembly_block_provenance () =
   let source = "#define INST MOV\n#define DEST RAX\nasm {\nINST DEST,RBX\n}" in
@@ -17509,14 +17567,17 @@ let inline_assembly_instructions (statement : Ast.inline_assembly_statement) =
   List.filter_map
     (function
       | Ast.Inline_assembly_instruction operation -> Some operation
-      | Ast.Inline_assembly_directive _ -> None)
+      | Ast.Inline_assembly_directive _
+      | Ast.Inline_assembly_label _
+      | Ast.Inline_assembly_empty _ -> None)
     statement.inline_assembly_items
 
 let inline_assembly_directives (statement : Ast.inline_assembly_statement) =
   List.filter_map
     (function
       | Ast.Inline_assembly_instruction _ -> None
-      | Ast.Inline_assembly_directive directive -> Some directive)
+      | Ast.Inline_assembly_directive directive -> Some directive
+      | Ast.Inline_assembly_label _ | Ast.Inline_assembly_empty _ -> None)
     statement.inline_assembly_items
 
 let inline_assembly_opcode_spellings (statement : Ast.inline_assembly_statement)
@@ -17587,13 +17648,15 @@ let inline_assembly_operand_shapes () =
      CALL PUT_HEX_U8\n\
      MOV RCX,cnts.time_stamp_freq>>5\n\
      MOV RAX,U64 8[RBP]\n\
-     MOV RDX,FS:[RBP+(RAX*8)]\n\
+     MOV RDX,FS:[RBP+RAX*8]\n\
      LTR AX;\n\
      }"
   in
   List.iter
     (fun mode ->
-      let _, _, output = parse_string ~compilation_mode:mode source in
+      let _, _, output =
+        parse_assembly_source_string ~compilation_mode:mode source
+      in
       let statement =
         expect_ast output |> expect_one_definition |> expect_function_body
         |> expect_block_statement
@@ -17685,7 +17748,9 @@ let pinned_inline_assembly_operand_snippets () =
     (fun mode ->
       List.iter
         (fun (name, path, source) ->
-          let _, _, output = parse_string ~path ~compilation_mode:mode source in
+          let _, _, output =
+            parse_assembly_source_string ~path ~compilation_mode:mode source
+          in
           let body =
             expect_ast output |> expect_one_definition |> expect_function_body
             |> expect_block_statement
@@ -17754,7 +17819,7 @@ let inline_assembly_intrinsic_class_size_prefix () =
             "expected direct assembly and a following C statement, got %d"
             (List.length statements))
     [ Preprocessor.Jit; Preprocessor.Aot ];
-  let _, _, shadowed = parse_string "U0 Shadowed(){I64 U64;MOV RAX,U64;}" in
+  let _, _, shadowed = parse_string "U0 Shadowed(){I64 U64;MOV RAX,&U64;}" in
   let operation =
     expect_ast shadowed |> expect_one_definition |> expect_function_body
     |> expect_block_statement
@@ -17790,12 +17855,15 @@ let inline_assembly_directive_shapes () =
   List.iter
     (fun mode ->
       let _, _, output = parse_string ~compilation_mode:mode source in
-      let statement =
+      let statements =
         expect_ast output |> expect_one_definition |> expect_function_body
         |> expect_block_statement
         |> fun block ->
-        List.hd block.block_statements |> expect_inline_assembly_statement
+        List.map expect_inline_assembly_statement block.block_statements
       in
+      Alcotest.(check int)
+        "the optional NOLIST semicolon ends the first direct run" 2
+        (List.length statements);
       let item_spellings =
         List.map
           (function
@@ -17803,8 +17871,13 @@ let inline_assembly_directive_shapes () =
                 operation.inline_assembly_opcode.assembly_source_token.raw
             | Ast.Inline_assembly_directive directive ->
                 directive.inline_assembly_directive_token.assembly_source_token
-                  .raw)
-          statement.inline_assembly_items
+                  .raw
+            | Ast.Inline_assembly_label label ->
+                label.assembly_label_name.spelling
+            | Ast.Inline_assembly_empty _ -> ";")
+          (List.concat_map
+             (fun statement -> statement.Ast.inline_assembly_items)
+             statements)
       in
       Alcotest.(check (list string))
         "direct instructions and directives retain source order"
@@ -17820,8 +17893,10 @@ let inline_assembly_directive_shapes () =
           "USE64";
         ]
         item_spellings;
-      let directives = inline_assembly_directives statement in
-      let instructions = inline_assembly_instructions statement in
+      let directives = List.concat_map inline_assembly_directives statements in
+      let instructions =
+        List.concat_map inline_assembly_instructions statements
+      in
       Alcotest.(check int)
         "eight directives are retained" 8 (List.length directives);
       Alcotest.(check int)
@@ -18084,6 +18159,9 @@ let inline_assembly_failures () =
       ( "mismatched memory delimiter diagnostic",
         "U0 Bad(){MOV RAX,[(RBP];}",
         "HCPARSE0151" );
+      ( "registers cannot appear in parenthesized displacement expressions",
+        "U0 Bad(){MOV RDX,FS:[RBP+(RAX*8)];}",
+        "HCPARSE0151" );
       ("extra operand diagnostic", "U0 Bad(){MOV RAX,RBX,RCX;}", "HCPARSE0152");
     ];
   let _, _, local = parse_string "U0 Local(){I64 value;}" in
@@ -18135,7 +18213,7 @@ let inline_assembly_failures () =
         "an adjacent shadow should produce three ordered statements, got %d"
         (List.length statements));
   let _, _, register_shadow =
-    parse_string "U0 RegisterShadow(){I64 RAX;MOV RAX,RBX;}"
+    parse_string "U0 RegisterShadow(){static I64 RAX;MOV RBX,RAX;}"
   in
   let operation =
     expect_ast register_shadow |> expect_one_definition |> expect_function_body
@@ -18148,8 +18226,8 @@ let inline_assembly_failures () =
       | _ -> None)
     |> Option.get
   in
-  let first_operand = List.hd operation.inline_assembly_operands in
-  match first_operand.inline_assembly_operand_kind with
+  let source_operand = List.nth operation.inline_assembly_operands 1 in
+  match source_operand.inline_assembly_operand_kind with
   | Ast.Inline_assembly_immediate_operand -> ()
   | _ -> Alcotest.fail "a local named RAX did not shadow the register spelling"
 

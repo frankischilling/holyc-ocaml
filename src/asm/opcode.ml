@@ -4,6 +4,7 @@ type resolved = { opcode : t; source_spelling : string; is_alias : bool }
 let all = Generated.Opcode_keywords.opcodes
 let spelling (opcode : t) = opcode.spelling
 let source_line (opcode : t) = opcode.source_line
+let forms (opcode : t) = opcode.instructions
 
 let aliases (opcode : t) =
   List.map
@@ -20,6 +21,15 @@ let first_form_argument_count (opcode : t) =
       if instruction.argument1 = 0 then 0
       else if instruction.argument2 = 0 then 1
       else 2
+
+let first_form_relative_arguments (opcode : t) =
+  let relative argument = argument >= 1 && argument <= 3 in
+  match opcode.instructions with
+  | [] -> []
+  | instruction :: _ ->
+      if instruction.argument1 = 0 then []
+      else if instruction.argument2 = 0 then [ relative instruction.argument1 ]
+      else [ relative instruction.argument1; relative instruction.argument2 ]
 
 let entries =
   List.concat_map

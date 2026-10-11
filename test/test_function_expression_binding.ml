@@ -226,7 +226,7 @@ let excluded_identifier_roles () =
      offset(C.field);\n\
      defined(field);\n\
      hidden:\n\
-     asm { MOV RAX,field; }\n\
+     asm { MOV RAX,&field; }\n\
      }"
   in
   let result = prepare ~path:"excluded-identifier-roles.HC" source in

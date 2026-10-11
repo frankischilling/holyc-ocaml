@@ -648,6 +648,8 @@ type inline_assembly_operand_kind =
 
 type inline_assembly_operand = private {
   inline_assembly_operand_kind : inline_assembly_operand_kind;
+  inline_assembly_operand : Asm.Operand.t;
+  inline_assembly_type_definitions : aggregate_definition list;
   inline_assembly_size_prefix : assembly_token option;
   inline_assembly_segment_prefix : assembly_token option;
   inline_assembly_operand_tokens : assembly_token list;
@@ -656,6 +658,8 @@ type inline_assembly_operand = private {
 
 type inline_assembly_operation = private {
   inline_assembly_opcode : assembly_token;
+  inline_assembly_mode : Asm.Operand.mode;
+  inline_assembly_selection : Asm.Instruction.selection;
   inline_assembly_operands : inline_assembly_operand list;
   inline_assembly_separator : location option;
   inline_assembly_semicolon : location option;
@@ -664,6 +668,8 @@ type inline_assembly_operation = private {
 
 type inline_assembly_directive_kind =
   | Inline_assembly_import_directive
+  | Inline_assembly_org_directive
+  | Inline_assembly_align_directive
   | Inline_assembly_data_directive of { element_width_bytes : int }
   | Inline_assembly_binfile_directive
   | Inline_assembly_list_directive
@@ -674,6 +680,7 @@ type inline_assembly_directive = private {
   inline_assembly_directive_kind : inline_assembly_directive_kind;
   inline_assembly_directive_token : assembly_token;
   inline_assembly_directive_arguments : assembly_token list;
+  inline_assembly_directive_type_definitions : aggregate_definition list;
   inline_assembly_directive_separators : location list;
   inline_assembly_directive_semicolon : location option;
   inline_assembly_directive_location : location;
@@ -682,6 +689,16 @@ type inline_assembly_directive = private {
 type inline_assembly_item =
   | Inline_assembly_instruction of inline_assembly_operation
   | Inline_assembly_directive of inline_assembly_directive
+  | Inline_assembly_label of assembly_label
+  | Inline_assembly_empty of location
+
+type assembly_unit = private {
+  assembly_unit_items : inline_assembly_item list;
+  assembly_unit_lines : assembly_line list;
+  assembly_unit_initial_mode : Asm.Operand.mode;
+  assembly_unit_final_mode : Asm.Operand.mode;
+  assembly_unit_location : location;
+}
 
 type statement =
   | Aggregate_declaration_statement of aggregate_statement
@@ -715,6 +732,7 @@ and assembly_block_statement = private {
   assembly_keyword : location;
   assembly_opening_brace : location;
   assembly_lines : assembly_line list;
+  assembly_items : inline_assembly_item list;
   assembly_closing_brace : location;
   assembly_block_location : location;
 }
@@ -1412,12 +1430,15 @@ val make_assembly_block_statement :
   keyword:location ->
   opening_brace:location ->
   lines:assembly_line list ->
+  items:inline_assembly_item list ->
   closing_brace:location ->
   location:location ->
   assembly_block_statement
 
 val make_inline_assembly_operand :
   kind:inline_assembly_operand_kind ->
+  operand:Asm.Operand.t ->
+  type_definitions:aggregate_definition list ->
   size_prefix:assembly_token option ->
   segment_prefix:assembly_token option ->
   tokens:assembly_token list ->
@@ -1426,6 +1447,8 @@ val make_inline_assembly_operand :
 
 val make_inline_assembly_operation :
   opcode:assembly_token ->
+  mode:Asm.Operand.mode ->
+  selection:Asm.Instruction.selection ->
   operands:inline_assembly_operand list ->
   separator:location option ->
   semicolon:location option ->
@@ -1436,6 +1459,7 @@ val make_inline_assembly_directive :
   kind:inline_assembly_directive_kind ->
   directive:assembly_token ->
   arguments:assembly_token list ->
+  type_definitions:aggregate_definition list ->
   separators:location list ->
   semicolon:location option ->
   location:location ->
@@ -1445,6 +1469,14 @@ val make_inline_assembly_statement :
   items:inline_assembly_item list ->
   location:location ->
   inline_assembly_statement
+
+val make_assembly_unit :
+  items:inline_assembly_item list ->
+  lines:assembly_line list ->
+  initial_mode:Asm.Operand.mode ->
+  final_mode:Asm.Operand.mode ->
+  location:location ->
+  assembly_unit
 
 val make_block_statement :
   opening_brace:location ->

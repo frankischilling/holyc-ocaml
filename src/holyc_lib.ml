@@ -65,6 +65,8 @@ module Native_source_execution = Hosted.Native_source_execution
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode
 module Asm_register = Asm.Register
+module Asm_operand = Asm.Operand
+module Asm_instruction = Asm.Instruction
 module Keyword = Frontend.Keyword
 module Operator = Frontend.Operator
 module Trivia = Frontend.Trivia
@@ -194,6 +196,11 @@ let preprocess session ~config ~source =
 
 let parse_detailed session ~config ~source =
   Frontend.Parser.parse ~sources:(Session.sources session)
+    ~definitions:(Session.definitions session)
+    ~symbols:(Session.symbols session) ~config source
+
+let parse_assembly_detailed ?mode session ~config ~source =
+  Frontend.Parser.parse_assembly ?mode ~sources:(Session.sources session)
     ~definitions:(Session.definitions session)
     ~symbols:(Session.symbols session) ~config source
 
