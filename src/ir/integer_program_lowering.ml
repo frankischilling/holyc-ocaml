@@ -55,6 +55,7 @@ type statement =
   | Do_while of statement * Typed.expression_result
   | For of statement * Typed.expression_result * statement option * statement
   | Switch of Switch.t * Typed.expression_result * switch_element list
+  | Try of Sema.Exception_region.t * statement * statement
   | Break of Common.Span.t
   | Goto of Common.Span.t * Sema.Label_resolution.resolved_occurrence
   | Label of Common.Span.t * Sema.Label_resolution.resolved_occurrence
@@ -70,6 +71,11 @@ type switch_prefix = {
   mutable prefix_continuations : Sequence.Block_id.t list;
 }
 
+type pending_exception = {
+  exception_source : Sema.Exception_region.t;
+  mutable exception_early_leaves : Sequence.description list;
+}
+
 type t = {
   expression_source_ : (Integer_globals.t * Typed.expression_result) option;
   graph_ : X87_stack.t;
@@ -77,6 +83,7 @@ type t = {
   static_initializer_regions_ :
     Global_initialization.static_region_description list;
   runtime_calls_ : Runtime_call_context.description list;
+  exception_regions_ : Exception_regions.t;
   publications_ : Global_initialization.publication_description list;
   publication_evidence_ : Global_initialization.publication_evidence option;
 }
@@ -92,6 +99,7 @@ let owns_expression result ~globals ~value =
 let initializer_regions result = result.initializer_regions_
 let static_initializer_regions result = result.static_initializer_regions_
 let runtime_calls result = result.runtime_calls_
+let exception_regions result = result.exception_regions_
 let publications result = result.publications_
 let publication_evidence result = result.publication_evidence_
 
@@ -120,6 +128,14 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     let initial_regions = ref [] in
     let static_regions = ref [] in
     let runtime_calls = ref [] in
+    let exception_descriptions = ref [] in
+    let exception_stack = ref [] in
+    let exception_blocks = ref Int_map.empty in
+    let exception_scopes () =
+      List.map
+        (fun (pending, arm) -> (pending.exception_source, arm))
+        !exception_stack
+    in
     let switches = Switches.create 16 in
     let switch_table_entries = ref 0 in
     let local_returns = ref Int_map.empty in
@@ -150,6 +166,8 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     in
     let block () = allocate Sequence.Block_id.of_int block_count in
     let entry = block () in
+    exception_blocks :=
+      Int_map.add (Sequence.Block_id.to_int entry) [] !exception_blocks;
     let leave = Option.map (fun _ -> block ()) frame in
     let label_lowering =
       match (frame, labels) with
@@ -249,6 +267,9 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                 Option.iter (inspect_statement prefixes) update;
                 inspect_statement prefixes body
             | Switch (_, _, elements) -> inspect_elements prefixes elements
+            | Try (_, body, handler) ->
+                inspect_statement prefixes body;
+                inspect_statement prefixes handler
             | Empty _
             | Expression _
             | Function_output _
@@ -361,7 +382,12 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     let current = ref (Some (entry, [])) and blocks = ref [] in
     let start block_id =
       match !current with
-      | None -> current := Some (block_id, [])
+      | None ->
+          exception_blocks :=
+            Int_map.add
+              (Sequence.Block_id.to_int block_id)
+              (exception_scopes ()) !exception_blocks;
+          current := Some (block_id, [])
       | Some _ ->
           fail span "HCRUN0004"
             "cannot start a block before terminating its predecessor"
@@ -422,6 +448,25 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           span = Some at;
         };
       value_id
+    in
+    let exception_marker ~at opcode =
+      let instruction_id =
+        allocate Sequence.Instruction_id.of_int instruction_count
+      in
+      let description =
+        {
+          Sequence.instruction_id;
+          opcode;
+          operands = [];
+          result = None;
+          target_type = None;
+          payload = None;
+          flags = 0L;
+          span = Some at;
+        }
+      in
+      append description;
+      description
     in
     let jump ~at target =
       instruction ~at ~payload:(Sequence.Block target) Opcode.Ic_jmp;
@@ -934,10 +979,30 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                   instruction ~at ~operands:[ operand ] ~flags:0x200L
                     Opcode.Ic_end_exp))
       | Return returned -> (
+          let at =
+            match
+              Source.return_keyword_origin (Typed.return_source returned)
+            with
+            | Sema.Symbol.Source_location location -> location.span
+            | _ -> span
+          in
           if !prefix_depth > 0 then
             fail span "HCRUN0001"
               "return from a switch setup region bypasses its local \
                continuation";
+          if
+            List.exists
+              (fun (_, arm) -> arm = Sema.Exception_region.Catch_body)
+              !exception_stack
+          then
+            fail at "HCRUN0001"
+              "return from a catch bypasses the original exception dispatcher";
+          List.iter
+            (fun (pending, _) ->
+              let marker = exception_marker ~at Opcode.Ic_nop1 in
+              pending.exception_early_leaves <-
+                marker :: pending.exception_early_leaves)
+            !exception_stack;
           match leave with
           | None -> fail span "HCRUN0001" "return has no named function body"
           | Some leave -> (
@@ -963,6 +1028,60 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                        (Return_lowering.next_value_id result)
                        ());
                   finish ()))
+      | Try (source, body, handler) ->
+          let original = Sema.Exception_region.source source in
+          let at = original.try_keyword.span in
+          (match records with
+          | Some records
+            when Sema.Exception_region.matches_records source records -> ()
+          | _ ->
+              fail at "HCRUN0004"
+                "try lowering does not own its original checked function \
+                 headers");
+          if
+            not
+              (Sema.Exception_region.matches_header source
+                 (Option.map Sema.Function_frame_layout.function_header frame))
+          then
+            fail at "HCRUN0004"
+              "try lowering does not own its original containing function";
+          let catch_target = block () in
+          let untry_target = block () in
+          let done_ = block () in
+          let parents = !exception_stack in
+          let pending =
+            { exception_source = source; exception_early_leaves = [] }
+          in
+          let enter = exception_marker ~at Opcode.Ic_nop1 in
+          exception_stack :=
+            (pending, Sema.Exception_region.Try_body) :: parents;
+          statement None body;
+          jump ~at untry_target;
+          start untry_target;
+          let leave = exception_marker ~at Opcode.Ic_nop1 in
+          exception_stack := parents;
+          jump ~at done_;
+          exception_stack :=
+            (pending, Sema.Exception_region.Catch_body) :: parents;
+          start catch_target;
+          statement None handler;
+          let handler_return =
+            exception_marker ~at:original.catch_keyword.span Opcode.Ic_ret
+          in
+          finish ();
+          exception_stack := parents;
+          start done_;
+          exception_descriptions :=
+            {
+              Exception_regions.source;
+              enter;
+              leave;
+              early_leaves = List.rev pending.exception_early_leaves;
+              handler_return;
+              catch_target;
+              untry_target;
+            }
+            :: !exception_descriptions
       | Expression value ->
           let operand = expression value in
           instruction
@@ -1352,6 +1471,21 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     in
     X87_stack.verify graph
     |> Result.map (fun graph ->
+        let exception_regions_ =
+          let blocks =
+            Int_map.bindings !exception_blocks
+            |> List.map (fun (id, scopes) ->
+                Exception_regions.
+                  { block = Sequence.Block_id.of_int id |> checked_id; scopes })
+          in
+          match
+            Exception_regions.create ~span ~graph:(X87_stack.graph graph)
+              ~blocks
+              (List.rev !exception_descriptions)
+          with
+          | Ok regions -> regions
+          | Error diagnostics -> raise (Invalid diagnostics)
+        in
         let publications_ = List.rev !publications in
         let publication_evidence_ =
           match (globals, publications_) with
@@ -1370,6 +1504,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           initializer_regions_ = List.rev !initial_regions;
           static_initializer_regions_ = List.rev !static_regions;
           runtime_calls_ = List.rev !runtime_calls;
+          exception_regions_;
           publications_;
           publication_evidence_;
         })

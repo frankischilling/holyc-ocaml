@@ -557,6 +557,19 @@ val catch_task_child_compiler :
     parser failure once. Only work created inside this child can be excluded;
     its syntax remains failed and its incomplete bindings remain unavailable. *)
 
+type child_source_exception_outcome =
+  | Source_exception_caught
+  | Source_exception_propagating
+
+val finish_task_child_source_exception :
+  task_child_input ->
+  catch_compiler:bool ->
+  (child_source_exception_outcome option, string) result
+(** Settle the original child parser abort around a private source exception
+    emitted by its active interpreter provider. ExePutS accepts only Compiler
+    and Break; other codes retain their frames until an enclosing catch accepts
+    them. Diagnostics and parser failures cannot create this channel. *)
+
 val close_task_child_input : task_child_input -> (unit, string) result
 (** Close the original scope after success, a catch or propagation. Unhandled
     faults keep enclosing completion invalid. *)
@@ -962,6 +975,15 @@ val execute_task_program :
     budgets remain cumulative across commands. *)
 
 val reference_commit : string
+
+val execute_constant_preparation :
+  max_steps:int -> X87_stack.t -> (t, error list) result
+(** Check and evaluate a closed pure constant graph with one byte of frame
+    allowance and one call-depth slot. Evaluation has no task or callable
+    context. Arithmetic faults retain their diagnostic and reached work without
+    allocating exception storage or charging throw arguments. The result grants
+    no source or publication authority; callers retain their original
+    preparation proofs. *)
 
 val execute_program :
   ?runtime_calls:Runtime_call_context.t ->

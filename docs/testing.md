@@ -1124,7 +1124,7 @@ Unit tests cover source positions, spans, token construction, literal decoding, 
 CLI and ownership suites. The explicit `@native-tests` alias executes generated
 machine code and native CLI fixtures. These checks cover the implemented slices
 listed below; their passing counts do not measure whole-compiler compatibility.
-The reference verifier checks 83 individually audited Git blobs, and both corpus
+The reference verifier checks 85 individually audited Git blobs, and both corpus
 phases account for all 528 relevant blobs from the pinned Git tree.
 
 The runtime-frame tests cover once-only array bounds, native downward alignment,
@@ -1528,6 +1528,10 @@ Lock-statement cases read the pinned `KW_LOCK` dispatch, `lock_cnt` lifetime, `I
 
 Try/catch cases read the complete pinned `PrsTryBlk` flow, keyword IDs 5 and 3, unbraced compiler and kernel uses, braced and nested demo uses, and the language guide. They cover JIT and AOT syntax, both body shapes, empty and nested pairs, comma-linked bodies, conditionals, loops, locks, `for` updates, definitions, includes, and deterministic dumps. Negative cases exercise a missing body, keyword, or handler, a standalone `catch`, malformed children, block-safe recovery, and the independent 256-try hosted nesting limit. Human and JSON CLI goldens record the complete pair and `HCPARSE0080` output. The tests prove syntax and provenance only; they do not claim `SysTry` or `SysUntry` calls, handler labels, exception transfer, return unwinding, lowering, or execution.
 
+Executable exception coverage lives in the separate [exception execution
+suite](exception-execution.md). The parser cases above still verify their
+original syntax boundary; they do not serve as execution evidence.
+
 Assembly-block cases read the `KW_ASM` dispatch, both `PrsAsmBlk` entry paths, the directive and opcode hash branches, label handling, assembly expression support, listing behavior, and the relevant `Doc/Asm.DD` definitions. The checked inventory is not based on a line-prefix search: tests lex every committed `.HC` and `.HH` file under `Compiler`, `Kernel`, `Adam`, and `Demo`, identify adjacent `asm` and `{` raw tokens, track surrounding brace depth, and compare the resulting path, line, and context tuples with `reference/assembly-blocks.json`. The pinned result is 45 blocks in 40 files, with six nested blocks. Focused cases parse four exact top-level and function-local regions from `AsmAndC1.HC` and `AsmAndC2.HC` in both compilation modes. Exhaustive classification covers all 325 canonical opcodes, 49 aliases, 25 directives, and 106 registers. Other cases cover global, exported, and local labels, multiple operations on one physical line, includes, definition-generated tokens, deterministic dumps, empty blocks, recovery after a missing opener, and an unterminated close. Human and JSON goldens record the accepted structure and `HCPARSE0145`. Separate semantic tests give function-local structural labels stable identities. These parser cases do not claim operand parsing, directive execution, output-address validation, encoding, or assembly execution.
 
 Direct-assembly cases read both hash branches in `PrsStmt`, the `CMPF_ONE_ASM_INS` flag, `PrsAsmArg`, first-form operand checks, `PrsAsmDefine`, `PrsBinFile`, and the assembler-keyword dispatch in `PrsAsmBlk`. Exact instruction tests cover operand-free uses in `Adam/AMem.HC`, `Kernel/Job.HC`, and `Demo/Graphics/Balloon.HC`, plus operand-bearing uses in `Demo/Asm/AsmAndC3.HC`, `Demo/Lectures/Ring3.HC`, and `Kernel/KInts.HC`. JIT and AOT cases retain adjacent instructions and directives; aliases; register, immediate, sized-memory, and segment-prefixed memory forms; import names; `DU*` values and postfix `DUP`; file strings; listing and mode changes; optional separators; semicolon distinctions; local shadows; includes; definitions; and deterministic dumps. Negative cases assert `HCPARSE0147` and `HCPARSE0149` through `HCPARSE0156`. The issue #157 corpus comparison added `AsmAndC3.HC` to the parsed set and removed four `HCPARSE0148` diagnostics. The issue #159 comparison leaves all phase and diagnostic totals unchanged; `Kernel/KStart16.HC` and `Kernel/KStart32.HC` retain their first `HCPP0008` failure but classify 19 recovered direct items as `HCPARSE0147` instead of `HCPARSE0001`. These tests do not claim operand validity, directive evaluation or state changes, form selection, lowering, encoding, or execution.
@@ -1665,6 +1669,105 @@ Run all CLI golden rules with `opam exec -- dune runtest`. Check changed OCaml
 files directly with `opam exec -- ocamlformat --check FILE...` as well as the
 normal build and generated-source checks. Quote Dune aliases in PowerShell so
 the shell passes them as arguments. Review new golden output before accepting it.
+
+## HolyC exception execution (bounded IR)
+
+`test/exception_execution_cases.ml` holds source programs shared by the
+library and CLI tests. The header declares the original `SysTry`,
+`SysUntry` and `throw` signatures and the task `Fs` internal. It represents
+the original `CTask` prefix through `catch_except` with verified byte
+offsets: 816 for `except_ch`, 824 for `except_callers` and 888 for
+`catch_except`. The fixture checks those values through the named
+`I64 ExceptionLayout()` function and calls
+`if(!ExceptionLayout())throw('Layout');` from reached source. Its three
+`offset(CTask.field)` expressions use the checked function's aggregate
+context. Raw top-level `offset` cannot resolve this fixture's aggregate,
+and preprocessor `#assert` fails with `HCPP0022` because semantic member
+offsets are unavailable there. The expected offsets come from
+`Kernel/KernelA.HH:41,3255-3256,3271-3325`.
+
+`test/test_exception_execution.ml` uses `run_integer_program_report` in
+both JIT and AOT source modes. Successful cases check final I64 values,
+termination and exact retained output. They cover skipped catches,
+default and explicit zero throws, named values and no-log, selective
+handling, unmarked propagation, conditional throw and reentry from a catch,
+child and recursive function throws, throws during argument evaluation,
+nested returns, retained handler state across repeated calls, legal in-arm
+goto and loop breaks, explicit `UndefExt` and `DivZero` values, and reached
+ordinary unresolved extern calls that deliver `UndefExt`.
+Division and remainder each exercise zero divisors and signed overflow.
+The [captured division oracle](../test/oracle/integer-division.json)
+provides independent evidence for the arithmetic cases.
+
+Negative cases reject jumps into or out of a try, entry into a catch,
+crossing between sibling protected regions, and returning from a catch.
+They require unhandled throws to remain failures. The pointer case passes
+a parent-owned local's address into a child, which writes the value 42
+before throwing.
+The parent reads that value after handling the exception. Output and other
+reached updates likewise survive; source after the throw remains skipped.
+
+The lifetime group `caught_child_frame_limits` measures
+frame ownership directly. `Child` allocates `I64 Held[64]` (512 bytes),
+copies its first value into the ordinary retained integer `Saved=42`,
+then throws. `Inspect` allocates `I64 Scratch[64]` (512 bytes) and reads
+`Saved`. Invoking `Inspect` inside the catch has an exact peak of
+1160 frame bytes (512 child + 120 handler + 16 retained throw arguments +
+512 inspection), so the test requires success at 1160 and `HCIRVM0011`
+at 1159. Inspecting after the accepted catch returns to normal execution has a
+peak of 648 bytes (512 + 120 + 16), because the child frame has
+been released. That path specifies success at 648 and `HCIRVM0011`
+at 647, including repeated accepted calls. Both compilation modes exercise
+these exact and one-below limits. Global/static data-pointer variables and
+escaped child-local pointers remain outside this source execution path.
+
+Nested stream execution uses a private source-exception handoff.
+`Compiler/CMain.HC:673-689` calls `ExePutS` from `StreamExePrint` at
+line 685. The `ExePutS` catch (`CMain.HC:589-598`) consumes only
+`'Compiler'` and `'Break'` and returns zero for those codes. Other
+explicit throw codes and reached `'DivZero'` exceptions must propagate
+through the private child-to-parent exception channel to an enclosing
+source handler. Host quotas, invalid references and provider errors must
+stay fatal even if that parent has a catch. The bridge tests use an
+800-byte frame cap to check child-frame retention during a catch, release
+after acceptance and reuse on later calls. They also exercise fatal
+provider errors. The `ExePutS` boundary consumes genuine parser `Compiler`
+receipts locally and returns zero. It publishes
+`Fs->except_ch='Compiler'`, sets `Fs->catch_except=TRUE` and charges the
+889-byte lazy task view. Those consumed parser failures do not reach an
+enclosing source catch, and ordinary diagnostics without an authenticated
+receipt remain diagnostics.
+
+Runtime tests repeat the same source in independent sessions, replay an
+observed exact `max_steps` budget, reject the next instruction at one
+below that limit, and confirm a fresh run still succeeds. Call-depth and
+frame-byte limits remain host failures outside the source catch. Another
+exact/one-below test measures the owned task's global bytes and rejects one
+less byte, checking the original 889-byte task view through
+`catch_except`. The CLI
+test runs representative cases in both `--mode=jit` and `--mode=aot` using
+`--target=ir`, compares the JSON final value and output bytes, checks error
+diagnostics, and repeats the exact/one-below step boundary. It also
+requires `--target=host-jit-task` to reject exception execution under
+issue [#706](https://github.com/frankischilling/holyc-ocaml/issues/706).
+
+The Alcotest group is `"exception execution"` in
+`test/test_main.ml`; the standalone runner is
+`test/test_exception_execution_cli.ml`. Dune registers the shared
+`exception_execution_fixture` library for both. These tests specify
+source-derived expectations. There is no new capture of the full exception
+fixture table from TempleOS; original `Demo/Exceptions.HC` and the kernel
+sources provide the handler semantics, while only the integer-division
+cases have a captured TempleOS runtime oracle. Native machine-code
+unwinding and the full `PutExcept` caller-address formatter remain separate.
+
+`test/test_exception_regions.ml` covers original parser-header selection,
+return and parameter syntax, retained task declarations, source ancestry,
+function ownership and standard calling flags. Its graph mutations reject
+copied, removed and moved markers, illegal protected edges and foreign
+runtime owners or records. `test/test_exception_source_bridge.ml` covers
+nested source exception delivery, selective `ExePutS` handling and shared
+task limits.
 
 ## Integer division and remainder
 

@@ -54,6 +54,7 @@ type provider =
   | Stream_exe_print
   | Get_option
   | Set_option
+  | Throw
 
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
@@ -152,9 +153,11 @@ type graph_context = {
   intrinsic_ends : intrinsic Instructions.t;
   function_addresses : function_address Instructions.t;
   function_slot_addresses : function_slot_address Instructions.t;
+  exception_regions_ : Exception_regions.t option;
 }
 
 type t = {
+  records_ : Records.t;
   typed_top_level : Typed.top_level_t;
   dimension_dependencies_ :
     Sema.Compiler_record.runtime_dimension_proposal list;
@@ -296,6 +299,15 @@ let source_producers_match context =
              (Block_graph.blocks graph_)
       in
       layout_matches
+      && Option.fold ~none:true
+           ~some:(fun regions ->
+             Exception_regions.matches_graph regions graph_
+             && Exception_regions.matches_records regions context.records_
+             && Exception_regions.matches_function regions
+                  (match graph.owner with
+                  | Entry -> None
+                  | Function body -> Some body))
+           graph.exception_regions_
       &&
       let current =
         X87_stack.graph checked |> Block_graph.blocks
@@ -358,6 +370,12 @@ let matches_graph context ~owner graph =
     | Entry -> X87_stack.graph context.entry == graph
     | Function body -> Function_body.body body == graph)
   && source_producers_match context
+
+let exception_regions context ~owner =
+  if source_producers_match context then
+    Option.bind (find_graph context owner) (fun graph ->
+        graph.exception_regions_)
+  else None
 
 type function_addresses = function_address Instructions.t
 
@@ -1292,7 +1310,21 @@ let approved_provider_record ~record ~declaration ~symbol ~result_type
            && primitive (parameter_type parameter) 0 primitive_)
          parameters expected
   in
+  let throw_parameters =
+    Option.is_none count_type
+    && List.length parameters = 2
+    && List.for_all2
+         (fun parameter expected ->
+           Headers.parameter_register_requests parameter = []
+           && primitive (parameter_type parameter) 0 expected)
+         parameters
+         [ Sema.Primitive_type.I64; Sema.Primitive_type.Bool ]
+  in
   match (ordinary, Sema.Symbol.name symbol, parameter) with
+  | true, "throw", _
+    when primitive result_type 0 Sema.Primitive_type.U0
+         && throw_parameters
+         && Int64.equal flags (Flags.to_mask Flags.Ret1) -> Some Throw
   | true, (("Print" | "StreamPrint") as name), Some parameter
     when primitive result_type 0 Sema.Primitive_type.U0
          && Headers.parameter_default parameter = None
@@ -2668,10 +2700,12 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
     intrinsic_ends = !intrinsic_ends;
     function_addresses = Instructions.empty;
     function_slot_addresses = Instructions.empty;
+    exception_regions_ = None;
   }
 
-let create ~records ~function_sources ~top_level ~initialization ~entry
-    ~entry_calls ~functions =
+let create_with_exceptions ?entry_exceptions ?(function_exceptions = [])
+    ~records ~function_sources ~top_level ~initialization ~entry ~entry_calls
+    ~functions () =
   try
     let globals = Global_initialization.globals initialization in
     let provided = function
@@ -3087,6 +3121,45 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
       graph_context ~globals ~records ~function_sources ~validate_source Entry
         (X87_stack.graph entry) entry_calls
       :: checked_functions [] functions
+    in
+    let exception_owners = ref [] in
+    List.iter
+      (fun (body, regions) ->
+        require ?span:(Function_body.span body)
+          (List.exists (fun (original, _) -> original == body) functions
+          && not (List.exists (( == ) body) !exception_owners))
+          "exception regions have a foreign or repeated function owner";
+        require ?span:(Function_body.span body)
+          (Exception_regions.matches_graph regions (Function_body.body body)
+          && Exception_regions.matches_records regions records
+          && Exception_regions.matches_function regions (Some body))
+          "exception regions do not own the exact function graph and source \
+           records";
+        exception_owners := body :: !exception_owners)
+      function_exceptions;
+    Option.iter
+      (fun regions ->
+        require
+          (Exception_regions.matches_graph regions (X87_stack.graph entry)
+          && Exception_regions.matches_records regions records
+          && Exception_regions.matches_function regions None)
+          "exception regions do not own the exact entry graph and source \
+           records")
+      entry_exceptions;
+    let graphs =
+      List.map
+        (fun graph ->
+          let exception_regions_ =
+            match graph.owner with
+            | Entry -> entry_exceptions
+            | Function body ->
+                List.find_map
+                  (fun (original, regions) ->
+                    if original == body then Some regions else None)
+                  function_exceptions
+          in
+          { graph with exception_regions_ })
+        graphs
     in
     let function_link declaration =
       match
@@ -3509,6 +3582,7 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
     let graphs = List.map seal_addresses graphs in
     Ok
       {
+        records_ = records;
         typed_top_level = top_level;
         dimension_dependencies_ =
           Dimension_requirements.top_level top_level
@@ -3522,6 +3596,11 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
         graphs;
       }
   with Invalid error -> Error [ error ]
+
+let create ~records ~function_sources ~top_level ~initialization ~entry
+    ~entry_calls ~functions =
+  create_with_exceptions ~records ~function_sources ~top_level ~initialization
+    ~entry ~entry_calls ~functions ()
 
 let dimension_dependencies context = context.dimension_dependencies_
 let owns_top_level context typed = context.typed_top_level == typed

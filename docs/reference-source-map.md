@@ -1185,7 +1185,85 @@ The OCaml AST keeps the switch keyword, delimiter mode, expression, matching del
 
 `Compiler/PrsStmt.HC:PrsTryBlk` looks up `SysTry` and `SysUntry`, creates handler and completion labels, emits the setup call, and passes the next input to `PrsStmt` with `try_cnt + 1`. After the body it emits `SysUntry`, requires `KW_CATCH`, and parses the handler through the same ordinary statement path and incremented count. This makes braces optional on both sides and lets a nested `return` use the active count to emit the required `SysUntry` calls. `Compiler/CompilerA.HH` and `Compiler/OpCodes.DD` assign IDs 5 and 3 to `try` and `catch`. `Compiler/PrsExp.HC`, `Kernel/Job.HC`, and `Demo/Exceptions.HC` establish unbraced, braced, and nested forms. `Doc/HolyC.DD` documents the pair and identifies lowercase `throw` as a function.
 
-The OCaml AST represents the complete pair as one `Try_catch_statement` containing both keywords, two recursively parsed ordinary statements, and the combined location. Tests cover both compilation modes, blocks, unbraced bodies, nesting, conditionals, loops, locks, comma boundaries, definitions, includes, deterministic dumps, malformed input, and a separate 256-level hosted recursion guard. `HCPARSE0079` through `HCPARSE0081` report a missing body, keyword, or handler. A standalone `catch` reaches the pinned expression parser's generic `Missing expression` diagnostic; `HCPARSE0082` retains rejection with a more specific hosted message. `HCPARSE0083` reports excessive nesting. `SysTry` and `SysUntry` calls, handler labels, exception transfer, return unwinding, lowering, and execution remain pending.
+The OCaml AST represents the complete pair as one `Try_catch_statement` containing both keywords, two recursively parsed ordinary statements, and the combined location. Tests cover both compilation modes, blocks, unbraced bodies, nesting, conditionals, loops, locks, comma boundaries, definitions, includes, deterministic dumps, malformed input, and a separate 256-level hosted recursion guard. `HCPARSE0079` through `HCPARSE0081` report a missing body, keyword, or handler. A standalone `catch` reaches the pinned expression parser's generic `Missing expression` diagnostic; `HCPARSE0082` retains rejection with a more specific hosted message. `HCPARSE0083` reports excessive nesting. These are parser guarantees. The separate [#692 source path](exception-execution.md) checks handler labels, transfers, unwinding and execution.
+
+`Kernel/KernelA.HH:3116-3121` defines `CExcept` with two queue pointers and thirteen eight-byte context fields, totaling 120 bytes. `Kernel/KExcept.HC:3-43,64-113` supplies the catch/untry jumps, register restoration, queue insertion/removal and innermost-first search. `throw(I64 ch=0,Bool no_log=FALSE)` writes `Fs->except_ch`, clears `Fs->catch_except` and enters each handler; the handler must mark the exception accepted, otherwise dispatch continues outward. `Doc/HolyC.DD:230` and `Demo/Exceptions.HC:12-45` show named values, selective handling and propagation. `Demo/Exceptions.HC:1-2` warns that returning from catch is unsafe. `Compiler/PrsStmt.HC:1089-1119` emits an active `SysUntry` for each protected region *before* parsing and evaluating a return value. Its `goto` emits an ordinary jump without untry (`1121-1132`), so the verified hosted path rejects transfers crossing protected-arm boundaries. The source's `break` target is reset at each try/catch arm (`PrsStmt.HC:877,899`).
+
+The #692 implementation requires the original parser-selected ordinary extern
+`SysTry`/`SysUntry` declarations with their standard signatures and calling
+flags. `Compiler/PrsStmt.HC:114-117` derives `Ff_RET1` for the two fixed
+`SysTry` arguments. Each live handler charges 120 frame bytes. `SysTry`
+requires a further 16 argument bytes at its call peak and releases them on
+return. `throw` retains its 16 argument bytes while handlers run, until
+accepted transfer or the end of unwinding releases them.
+
+`Kernel/KernelA.HH:41,3255-3256,3271-3325` fixes `Fs->except_ch` at offset
+816 and `Fs->catch_except` at 888. The hosted runtime lazily reserves 889
+global bytes for the prefix and initializes those two fields. Other prefix
+bytes begin unknown; ordinary owned-memory writes can initialize them, and
+reads use the normal initialization and bounds checks. The allocation does
+not model the kernel's queue or caller-address behavior, and later `CTask`
+fields lie outside its extent.
+
+`Compiler/BackA.HC:355-439` and `Kernel/KInts.HC:150-164` ground catchable
+`DivZero` on reached integer division/remainder traps, including signed
+quotient overflow. `Compiler/CExcept.HC:98-101` supplies `UndefinedExtern`,
+whose reached ordinary unresolved extern calls deliver `UndefExt` in both
+hosted source modes. Missing binding authority and failed preflight remain
+diagnostics, as do host limits, invalid pointers and provider failures.
+The existing `test/oracle/integer-division.json` confirms the arithmetic
+results; other exception expectations follow the pinned source. Native
+unwind stays outside #692 under
+[issue #706](https://github.com/frankischilling/holyc-ocaml/issues/706).
+
+`Compiler/PrsVar.HC:590-617` supplies automatic local storage placement,
+and `Kernel/KExcept.HC:3-43` supplies the saved throw/untry contexts. The
+hosted lifetime checks use the resulting frame sizes directly. `Child`
+allocates `I64 Held[64]` (512 bytes), publishes `Saved=42` through an
+ordinary retained integer global, then throws. `Inspect` allocates
+`I64 Scratch[64]` (another 512 bytes) and reads `Saved`. Invoking
+`Inspect` during catch needs 1160 frame bytes in total: child 512,
+active `CExcept` 120, retained throw arguments 16, and inspection 512.
+The tests specify success at 1160 and a frame-limit fault at 1159.
+Inspecting after accepted transfer has a 648-byte peak from the earlier
+child, handler and throw arguments, with a 647-byte fault control.
+Repeated post-catch inspection checks that the old child frame no longer
+counts against the budget. A separate supported fixture lets the child
+write to the parent's `I64` local through a passed pointer before throwing.
+Global/static data-pointer variables and child-local pointer escapes remain
+outside source execution, so the tests make no dereference or stale-pointer
+claim. JIT and AOT tests exercise both 1160/1159 and 648/647 pairs as
+hosted frame-accounting checks. These expectations follow the pinned source
+without adding a TempleOS runtime capture.
+
+The exception fixture's partial `CTask` view is checked through
+`I64 ExceptionLayout()`, which returns the conjunction of three semantic
+`offset` comparisons (816 for `except_ch`, 824 for `except_callers`,
+and 888 for `catch_except`). The source immediately calls
+`if(!ExceptionLayout())throw('Layout');`. Raw top-level `offset` does not
+resolve this fixture's aggregate, and preprocessor `#assert` reports
+`HCPP0022` for semantic member offsets. Placing the queries in a checked
+function preserves the layout witness without widening preprocessor evaluation.
+The runtime supplies initial values only for `Fs->except_ch` and
+`Fs->catch_except` within the owned prefix.
+
+`Compiler/CMain.HC:589-598` is the narrow exception contract for
+`ExePutS`: `'Compiler'` and `'Break'` are marked accepted and its result
+becomes zero. The hosted boundary also consumes genuine parser
+`Compiler` receipts locally, returning zero and setting
+`Fs->except_ch='Compiler'` and `Fs->catch_except=TRUE` through the same lazy
+889-byte task view.
+Unauthenticated parser diagnostics have no source-throw authority.
+Other exception codes remain unmarked. At
+`Compiler/CMain.HC:673-689`, `StreamExePrint` formats source and invokes
+`ExePutS(buf,,,htc)` at line 685 in the saved compiler context. The
+#692 source-only channel carries other explicit codes or a reached
+`'DivZero'` to an enclosing source handler. A host quota, memory or
+provider failure remains fatal instead. The nested `StreamExePrint`
+800-byte limit checks frame retention during catch evaluation, release
+after acceptance and reuse on later calls. Other bridge tests cover parser
+`Compiler` state, global-byte accounting and fatal provider failures.
+Native exception unwinding belongs to #706.
 
 `Compiler/PrsStmt.HC:PrsNoWarn` loops while the current token is an identifier, requires `cc->local_var_entry`, sets `MLF_NO_UNUSED_WARN`, and consumes one comma after a target when present. The `KW_NO_WARN` dispatch advances once before entering that routine and then uses the common statement terminator. `Compiler/Lex.HC` establishes that `local_var_entry` is selected before hash-table lookup. `Compiler/LexLib.HC:MemberFind`, the `CMemberLst` definitions in `Kernel/KernelA.HH`, `Doc/HolyC.DD`, and `Doc/Options.DD` ground the later member flag and warning behavior. Six pinned files contain eight live statements; `Adam/Ctrls/CtrlsSlider.HC` contains another form inside text that generates HolyC later.
 

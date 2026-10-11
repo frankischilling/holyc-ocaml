@@ -201,6 +201,7 @@ and prepared_operation =
   | Callback_call of Runtime.callback_call * stored_type array
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
+  | Internal_task_address of Type.t
   | Internal_strlen of prepared_pointer
   | Internal_mod_u64 of prepared_pointer * prepared_operand
   | Internal_bit of Integer_intrinsic.bit * prepared_pointer * prepared_operand
@@ -211,6 +212,10 @@ and prepared_operation =
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Call_end_void of Value_id.t
+  | Call_end_pointer of Value_id.t * Type.t
+  | Exception_enter of Exception_regions.region * int * int
+  | Exception_leave of Exception_regions.region
+  | Exception_finish of Exception_regions.region
   | Frame_address_tick
   | Scale_index of prepared_operand * int64 * Value_id.t
   | Index_address of
@@ -541,6 +546,7 @@ type task_implicit_call_start = {
 type task_resources = {
   domain : Domain.id;
   mutable global_bytes : int;
+  mutable exception_storage : runtime_storage option;
   mutable literal_bytes : int;
   mutable steps : int;
   mutable initializer_steps : int;
@@ -565,6 +571,7 @@ type task_resources = {
   mutable child_input_stack : task_child_input list;
   mutable child_inputs : task_child_input list;
   mutable child_failure_generation : unit ref;
+  mutable source_exception_bridges : source_exception_bridge list;
 }
 
 and task_child_input = {
@@ -588,6 +595,42 @@ and child_input_phase =
   | Child_completed of Frontend.Parser.completed_sequence
   | Child_failed
   | Child_caught of Frontend.Parser.failed_input
+  | Child_source_exception of source_exception_crossing
+
+and source_exception_crossing = {
+  crossing_scope : task_child_input;
+  mutable crossing_state : source_exception_crossing_state;
+}
+
+and source_exception_crossing_state =
+  | Crossing_unverified
+  | Crossing_pending
+  | Crossing_caught
+  | Crossing_failed
+
+and source_exception_bridge = {
+  bridge_task : task_state;
+  mutable bridge_active : bool;
+  mutable bridge_exception : source_exception_packet option;
+}
+
+and source_exception_packet = {
+  packet_bridge : source_exception_bridge;
+  packet_task : task_state;
+  packet_crossing : source_exception_crossing;
+  packet_origin : error;
+  packet_frames : runtime_storage list;
+  packet_frame_bytes : int;
+  packet_call_depth : int;
+  packet_crossings : source_exception_crossing list;
+  mutable packet_state : source_exception_packet_state;
+}
+
+and source_exception_packet_state =
+  | Packet_escaping
+  | Packet_sealed
+  | Packet_delivered
+  | Packet_released
 
 and child_participant = {
   participant_task : task_state;
@@ -661,6 +704,132 @@ and task_state = {
   mutable isolated_programs : task_source_program list;
   resources : task_resources;
 }
+
+type nested_source_result =
+  | Nested_result of (int64, Common.Diagnostic.t list) result
+  | Nested_exception of source_exception_packet
+  | Nested_invalid of string
+
+type child_source_exception_outcome =
+  | Source_exception_caught
+  | Source_exception_propagating
+
+let retire_runtime_storage storage =
+  if storage.live then (
+    storage.live <- false;
+    storage.cells <- [||];
+    Hashtbl.reset storage.partial_words;
+    Hashtbl.reset storage.pointer_cells)
+
+let invalidate_pointer_cells storage first last =
+  (* A pointer spans eight original bytes, whose canonical keys are at most
+     eight positions apart. Scalar stores therefore need a bounded lookup
+     window, independently of the number of pointer fields in the object. *)
+  if Hashtbl.length storage.pointer_cells <> 0 then
+    let key = ref (Int64.sub first 63L) in
+    while !key <= last do
+      (match Hashtbl.find_opt storage.pointer_cells !key with
+      | Some (_, _, end_key) when end_key >= first ->
+          Hashtbl.remove storage.pointer_cells !key
+      | _ -> ());
+      key := Int64.succ !key
+    done
+
+let write_task_bytes storage offset count bits =
+  invalidate_pointer_cells storage
+    (Int64.of_int (8 * offset))
+    (Int64.of_int (8 * (offset + count - 1)));
+  for byte = 0 to count - 1 do
+    let cell = offset + byte in
+    Hashtbl.remove storage.partial_words cell;
+    storage.cells.(cell) <-
+      Some
+        (Runtime_word
+           {
+             type_ = U64;
+             bits =
+               Int64.logand 255L (Int64.shift_right_logical bits (8 * byte));
+           })
+  done
+
+let new_exception_storage () =
+  let storage =
+    {
+      cells = Array.make Task_exception_layout.byte_count None;
+      partial_words = Hashtbl.create 0;
+      pointer_cells = Hashtbl.create 0;
+      address_base = storage_address Task_exception_layout.byte_count;
+      live = true;
+      unknown_message =
+        "this CTask field has no owned hosted task implementation";
+    }
+  in
+  write_task_bytes storage Task_exception_layout.code_offset 8 0L;
+  write_task_bytes storage Task_exception_layout.caught_offset 1 0L;
+  storage
+
+let ensure_task_exception_storage resources =
+  match resources.exception_storage with
+  | Some storage -> Ok storage
+  | None ->
+      if
+        Task_exception_layout.byte_count
+        > resources.max_global_bytes - resources.global_bytes
+      then
+        Error
+          ( "HCIRVM0016",
+            "task exception storage exceeds the cumulative global byte limit" )
+      else
+        let storage = new_exception_storage () in
+        resources.exception_storage <- Some storage;
+        resources.global_bytes <-
+          resources.global_bytes + Task_exception_layout.byte_count;
+        Ok storage
+
+let read_exception_storage_code = function
+  | Some storage
+    when storage.live
+         && Array.length storage.cells = Task_exception_layout.byte_count ->
+      let rec bytes byte bits =
+        if byte = 8 then Some bits
+        else
+          match storage.cells.(Task_exception_layout.code_offset + byte) with
+          | Some (Runtime_word { type_ = U64; bits = octet })
+            when octet >= 0L && octet <= 255L ->
+              bytes (byte + 1)
+                (Int64.logor bits (Int64.shift_left octet (8 * byte)))
+          | _ -> None
+      in
+      bytes 0 0L
+  | _ -> None
+
+let read_task_exception_code resources =
+  read_exception_storage_code resources.exception_storage
+
+let packed_exception name =
+  let bits = ref 0L in
+  String.iteri
+    (fun index byte ->
+      bits :=
+        Int64.logor !bits
+          (Int64.shift_left (Int64.of_int (Char.code byte)) (8 * index)))
+    name;
+  !bits
+
+let settle_source_crossing crossing state =
+  match crossing.crossing_state with
+  | Crossing_unverified | Crossing_pending -> crossing.crossing_state <- state
+  | Crossing_caught | Crossing_failed -> ()
+
+let release_source_exception packet state =
+  match packet.packet_state with
+  | Packet_escaping | Packet_sealed ->
+      List.iter retire_runtime_storage packet.packet_frames;
+      List.iter
+        (fun crossing -> settle_source_crossing crossing state)
+        packet.packet_crossings;
+      packet.packet_state <- Packet_released
+  | Packet_delivered | Packet_released -> ()
 
 let make_task_state ~resources ~native_storage_authority ~table =
   {
@@ -754,6 +923,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
       {
         domain = Domain.self ();
         global_bytes = 0;
+        exception_storage = None;
         literal_bytes = 0;
         steps = 0;
         initializer_steps = 0;
@@ -778,6 +948,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         child_input_stack = [];
         child_inputs = [];
         child_failure_generation = ref ();
+        source_exception_bridges = [];
       }
     in
     Ok (make_task_state ~resources ~native_storage_authority ~table)
@@ -1024,6 +1195,19 @@ let child_input_is_active scope =
   | Child_open -> true
   | _ -> false
 
+let escaping_source_exception task =
+  match task.resources.source_exception_bridges with
+  | bridge :: _ when bridge.bridge_active -> (
+      match bridge.bridge_exception with
+      | Some packet
+        when packet.packet_bridge == bridge
+             && packet.packet_task == task
+             && packet.packet_state = Packet_escaping
+             && child_input_is_active packet.packet_crossing.crossing_scope ->
+          Some packet
+      | _ -> None)
+  | _ -> None
+
 let begin_task_child_input caller ~target ~suspension ~source =
   let ( let* ) = Result.bind in
   let* parent =
@@ -1089,6 +1273,7 @@ let close_task_child_input scope =
     | _ -> Error "child input cleanup requires its original active scope"
 
 let catch_task_child_compiler scope failure =
+  let ( let* ) = Result.bind in
   let module Parser = Frontend.Parser in
   let chain = Parser.failed_input_aborted_contexts failure in
   let context = Parser.failed_input_context failure in
@@ -1157,6 +1342,13 @@ let catch_task_child_compiler scope failure =
       "Compiler catch requires its complete original child execution and abort \
        journals"
   else
+    let* exception_storage =
+      if scope.child_caller.native_storage_authority then Ok None
+      else
+        ensure_task_exception_storage scope.child_caller.resources
+        |> Result.map Option.some
+        |> Result.map_error (fun (code, message) -> code ^ ": " ^ message)
+    in
     let snapshots =
       List.map
         (fun participant ->
@@ -1171,14 +1363,124 @@ let catch_task_child_compiler scope failure =
         (fun (participant, after) ->
           participant.participant_after <- Some after)
         snapshots;
+      Option.iter
+        (fun storage ->
+          write_task_bytes storage Task_exception_layout.code_offset 8
+            (packed_exception "Compiler");
+          write_task_bytes storage Task_exception_layout.caught_offset 1 1L)
+        exception_storage;
       scope.child_phase <- Child_caught failure;
       Ok ())
+
+let finish_task_child_source_exception scope ~catch_compiler =
+  let module Parser = Frontend.Parser in
+  let resources = scope.child_caller.resources in
+  let packet =
+    match resources.source_exception_bridges with
+    | bridge :: _ when bridge.bridge_active -> (
+        match bridge.bridge_exception with
+        | Some packet when packet.packet_crossing.crossing_scope == scope ->
+            Some packet
+        | _ -> None)
+    | _ -> None
+  in
+  match packet with
+  | None -> Ok None
+  | Some packet -> (
+      let contexts = List.rev_map snd scope.child_aborts in
+      let participant_valid participant =
+        let task = participant.participant_task in
+        let before = participant.participant_before in
+        task.resources == resources
+        && task.failure_generation == before.work_failure
+        && task.source_execution_failed = before.work_failed
+        && task.source_activation == before.work_activation
+        && List.for_all
+             (fun context ->
+               Parser.context_is_in_suspended_input context
+                 ~suspension:scope.child_suspension
+               && Parser.context_command_events_match context
+                    ~events_rev:
+                      (Sema.Task_command_order.context_events_rev
+                         (task_source_order task) context)
+                  = Some true)
+             participant.participant_contexts
+      in
+      let root_valid =
+        match (scope.child_context, List.rev contexts) with
+        | Some context, original :: _ ->
+            context == original
+            && Parser.context_source context == scope.child_source
+            && Parser.context_sources context
+               == Parser.context_sources scope.child_enclosing
+            && Parser.context_environment context
+               == Parser.context_environment scope.child_enclosing
+        | _ -> false
+      in
+      if
+        (not (child_input_is_active scope))
+        || scope.child_fault
+        || resources.streams != scope.child_streams
+        || packet.packet_state <> Packet_escaping
+        || packet.packet_bridge.bridge_task != scope.child_caller
+        || packet.packet_crossing.crossing_state <> Crossing_unverified
+        || (not root_valid)
+        || (not
+              (Parser.suspension_aborted_input_is_current scope.child_suspension
+                 ~contexts))
+        || (not (List.for_all participant_valid scope.child_participants))
+        || (not
+              (List.exists
+                 (fun participant ->
+                   participant.participant_task == packet.packet_task)
+                 scope.child_participants))
+        || not
+             (List.for_all
+                (fun (task, context) ->
+                  List.exists
+                    (fun participant ->
+                      participant.participant_task == task
+                      && List.exists (( == ) context)
+                           participant.participant_contexts)
+                    scope.child_participants)
+                scope.child_aborts)
+      then (
+        release_source_exception packet Crossing_failed;
+        Error
+          "source exception requires its original provider, child execution \
+           and complete abort journals")
+      else
+        match read_task_exception_code resources with
+        | None ->
+            release_source_exception packet Crossing_failed;
+            Error "source exception has no initialized owned task code"
+        | Some code ->
+            List.iter
+              (fun participant ->
+                participant.participant_after <-
+                  Some (child_work participant.participant_task))
+              scope.child_participants;
+            packet.packet_crossing.crossing_state <- Crossing_pending;
+            scope.child_phase <- Child_source_exception packet.packet_crossing;
+            packet.packet_state <- Packet_sealed;
+            if
+              catch_compiler
+              && (code = packed_exception "Compiler"
+                 || code = packed_exception "Break")
+            then (
+              let storage = Option.get resources.exception_storage in
+              write_task_bytes storage Task_exception_layout.caught_offset 1 1L;
+              release_source_exception packet Crossing_caught;
+              packet.packet_bridge.bridge_exception <- None;
+              Ok (Some Source_exception_caught))
+            else Ok (Some Source_exception_propagating))
 
 let child_work_is_excluded task select item =
   List.exists
     (fun scope ->
       match scope.child_phase with
-      | Child_caught _ ->
+      | Child_caught _
+      | Child_source_exception { crossing_state = Crossing_caught; _ } ->
           List.exists
             (fun participant ->
               participant.participant_task == task
@@ -1198,7 +1500,8 @@ let child_inputs_complete task =
     (fun scope ->
       match scope.child_phase with
       | Child_completed _ | Child_caught _ -> true
-      | Child_open | Child_failed -> false)
+      | Child_source_exception { crossing_state = Crossing_caught; _ } -> true
+      | Child_open | Child_failed | Child_source_exception _ -> false)
     task.resources.child_inputs
 
 let rec input_prefix_complete before current complete =
@@ -6190,7 +6493,8 @@ let saved_data_payload (description : Sequence.description) =
 
 let declared_types ?frame ?globals ?literals ?initialization
     ?(allow_calls = false) ?(is_default = fun _ -> false)
-    ?(is_function_slot = fun _ -> false) ~types block =
+    ?(is_function_slot = fun _ -> false) ?(is_task_pointer = fun _ -> false)
+    ~types block =
   let memory_enabled =
     Option.is_some frame || Option.is_some globals || Option.is_some literals
   in
@@ -6308,11 +6612,13 @@ let declared_types ?frame ?globals ?literals ?initialization
                        else if
                          allow_calls && description.opcode = Opcode.Ic_call_end
                        then
-                         match checked_return_kind type_ with
-                         | Some (Word_return word_type) ->
-                             supported word_type type_
-                         | Some Void_return -> Void_value
-                         | None -> Unsupported
+                         if is_task_pointer description then Pointer_value type_
+                         else
+                           match checked_return_kind type_ with
+                           | Some (Word_return word_type) ->
+                               supported word_type type_
+                           | Some Void_return -> Void_value
+                           | None -> Unsupported
                        else
                          match (frame, description.opcode) with
                          | _, Opcode.Ic_imm_i64 when is_default description -> (
@@ -7398,6 +7704,23 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     ?(retained_functions = []) ?(retained_provider_entries = [])
     ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
+  let exceptions =
+    Option.bind runtime_calls (fun context ->
+        Runtime.exception_regions context ~owner:runtime_owner)
+  in
+  let exception_operation description =
+    Option.bind exceptions (fun regions ->
+        Exception_regions.find regions description)
+  in
+  let is_task_pointer description =
+    Option.bind runtime_calls (fun context ->
+        Runtime.find_intrinsic_end context ~owner:runtime_owner
+          description.Sequence.instruction_id)
+    |> Option.fold ~none:false ~some:(fun intrinsic ->
+        Runtime.intrinsic_opcode intrinsic = Opcode.Ic_fs
+        && Task_exception_layout.pointer_type
+             (Runtime.intrinsic_return_type intrinsic))
+  in
   let callbacks =
     Option.bind runtime_calls (fun context ->
         Runtime.original_callback_calls context ~owner:runtime_owner)
@@ -7469,7 +7792,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
           ~allow_calls:(Option.is_some callees) ~is_default
           ~is_function_slot:(fun description ->
             Option.is_some (original_function_slot_address description))
-          ~types block)
+          ~is_task_pointer ~types block)
       Value_map.empty
       (Graph.definition_order graph)
   in
@@ -7809,6 +8132,34 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 intrinsics :=
                   (intrinsic, false, List.length stack) :: !intrinsics;
                 call_instruction description (Call_start None))
+          | Opcode.Ic_fs, stack -> (
+              match
+                ( !intrinsics,
+                  Option.bind runtime_calls (fun context ->
+                      Runtime.find_intrinsic_instruction context
+                        ~owner:runtime_owner description.instruction_id) )
+              with
+              | (original, false, ordinary_depth) :: rest, Some intrinsic
+                when original == intrinsic
+                     && Runtime.intrinsic_opcode intrinsic = Opcode.Ic_fs
+                     && ordinary_depth = List.length stack
+                     && Runtime.intrinsic_arguments intrinsic = []
+                     && no_operands
+                     && Option.is_none description.result
+                     && Option.is_none description.payload
+                     && Option.fold ~none:false
+                          ~some:
+                            (Type.equal
+                               (Runtime.intrinsic_return_type intrinsic))
+                          description.target_type ->
+                  intrinsics := (intrinsic, true, ordinary_depth) :: rest;
+                  call_instruction description
+                    (Internal_task_address
+                       (Runtime.intrinsic_return_type intrinsic))
+              | _ ->
+                  Error
+                    (call_error description
+                       "IC_FS has no original zero-argument task pointer call"))
           | opcode, stack
             when Option.is_some (Integer_intrinsic.unary opcode)
                  || Option.is_some (Integer_intrinsic.binary opcode) -> (
@@ -8158,6 +8509,15 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                       intrinsics := rest;
                       call_instruction description
                         (Call_end_void result.value_id)
+                  | None
+                    when Runtime.intrinsic_opcode intrinsic = Opcode.Ic_fs
+                         && Task_exception_layout.pointer_type
+                              (Runtime.intrinsic_return_type intrinsic) ->
+                      intrinsics := rest;
+                      call_instruction description
+                        (Call_end_pointer
+                           ( result.value_id,
+                             Runtime.intrinsic_return_type intrinsic ))
                   | None ->
                       Error
                         (call_error description
@@ -8411,118 +8771,119 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               else description
             in
             match
-              match
-                Instruction_map.find_opt description.instruction_id
-                  callback_loads
-              with
-              | Some callback -> (
-                  match (frame, description.operands) with
-                  | None, [ address ] -> (
-                      let owns slot =
-                        (match Integer_globals.storage_frame slot with
-                          | None -> true
-                          | Some frame ->
-                              Option.fold ~none:false
-                                ~some:(fun initialization ->
-                                  Global_initialization.storage_regions
-                                    initialization
-                                  |> List.exists (fun region ->
-                                      Option.fold ~none:false
-                                        ~some:(( == ) frame)
-                                        (Global_initialization.storage_frame
-                                           region)
-                                      && Instruction_id.compare
-                                           description.instruction_id
-                                           (Global_initialization.storage_first
-                                              region)
-                                         >= 0
-                                      && Instruction_id.compare
-                                           description.instruction_id
-                                           (Global_initialization.storage_last
-                                              region)
-                                         <= 0))
-                                initialization)
-                        && Option.fold ~none:false
-                             ~some:(( == ) callback.callback_pointer)
-                             (Integer_globals.storage_callback_pointer slot)
-                        && Option.fold ~none:false
-                             ~some:(fun globals ->
-                               Option.fold ~none:false
-                                 ~some:(Integer_globals.same_storage slot)
-                                 (Integer_globals.persistent_callback_storage
-                                    globals callback.callback_pointer))
-                             globals
-                      in
-                      match Value_map.find_opt address types with
-                      | Some (Global_address slot)
-                        when owns slot
-                             && Integer_globals.storage_dimensions slot = [] ->
-                          call_instruction description
-                            (Load_slot
-                               ( Global_slot slot,
-                                 callback.callback_capture_value ))
-                      | Some
-                          (Callback_array_address
-                             (Global_slot slot, header, pointer_type, []))
-                        when header == callback.callback_pointer
-                             && owns slot
-                             && Integer_globals.storage_dimensions slot <> [] ->
-                          call_instruction description
-                            (Load_slot
-                               ( Indexed_slot
-                                   { pointer_value = address; pointer_type },
-                                 callback.callback_capture_value ))
-                      | _ ->
-                          Error
-                            (call_error description
-                               "entry callback load has no original global \
-                                storage"))
-                  | Some frame, [ address ] -> (
-                      match Value_map.find_opt address types with
-                      | Some (Frame_address index)
-                        when Option.fold ~none:false
-                               ~some:(( == ) callback.callback_pointer)
-                               frame.slots.(index).slot_callback
-                             && frame.slots.(index).strides = [] ->
-                          call_instruction description
-                            (Load_slot
-                               ( Frame_slot (index, 1),
-                                 callback.callback_capture_value ))
-                      | Some (Global_address slot)
-                        when Option.fold ~none:false
-                               ~some:(( == ) callback.callback_pointer)
-                               (Integer_globals.storage_callback_pointer slot)
-                             && (match Integer_globals.storage_frame slot with
-                               | Some owner -> owner == frame.layout
-                               | None ->
+              match exception_operation description with
+              | Some operation -> (
+                  if !calls <> [] || !intrinsics <> [] then
+                    Error
+                      (call_error description
+                         "exception boundary crosses a collecting call scope")
+                  else
+                    match operation with
+                    | Exception_regions.Enter region -> (
+                        match
+                          ( Block_map.find_opt
+                              (Exception_regions.catch_target region)
+                              block_index,
+                            Block_map.find_opt
+                              (Exception_regions.untry_target region)
+                              block_index )
+                        with
+                        | Some catch, Some untry ->
+                            call_instruction description
+                              (Exception_enter (region, catch, untry))
+                        | _ ->
+                            Error
+                              (call_error description
+                                 "exception boundary lost its checked handler \
+                                  labels"))
+                    | Exception_regions.Leave region ->
+                        call_instruction description (Exception_leave region)
+                    | Exception_regions.Catch_finish region ->
+                        call_instruction description (Exception_finish region))
+              | None -> (
+                  match
+                    Instruction_map.find_opt description.instruction_id
+                      callback_loads
+                  with
+                  | Some callback -> (
+                      match (frame, description.operands) with
+                      | None, [ address ] -> (
+                          let owns slot =
+                            (match Integer_globals.storage_frame slot with
+                              | None -> true
+                              | Some frame ->
+                                  Option.fold ~none:false
+                                    ~some:(fun initialization ->
+                                      Global_initialization.storage_regions
+                                        initialization
+                                      |> List.exists (fun region ->
+                                          Option.fold ~none:false
+                                            ~some:(( == ) frame)
+                                            (Global_initialization.storage_frame
+                                               region)
+                                          && Instruction_id.compare
+                                               description.instruction_id
+                                               (Global_initialization
+                                                .storage_first region)
+                                             >= 0
+                                          && Instruction_id.compare
+                                               description.instruction_id
+                                               (Global_initialization
+                                                .storage_last region)
+                                             <= 0))
+                                    initialization)
+                            && Option.fold ~none:false
+                                 ~some:(( == ) callback.callback_pointer)
+                                 (Integer_globals.storage_callback_pointer slot)
+                            && Option.fold ~none:false
+                                 ~some:(fun globals ->
                                    Option.fold ~none:false
-                                     ~some:(fun globals ->
-                                       Option.fold ~none:false
-                                         ~some:
-                                           (Integer_globals.same_storage slot)
-                                         (Integer_globals
-                                          .persistent_callback_storage globals
-                                            callback.callback_pointer))
-                                     globals)
-                             && Integer_globals.storage_dimensions slot = [] ->
-                          call_instruction description
-                            (Load_slot
-                               ( Global_slot slot,
-                                 callback.callback_capture_value ))
-                      | Some
-                          (Callback_array_address
-                             (root, header, pointer_type, []))
-                        when header == callback.callback_pointer
-                             &&
-                             match root with
-                             | Frame_slot (index, count) ->
-                                 count = frame.slots.(index).object_count
-                                 && Option.fold ~none:false
-                                      ~some:(( == ) header)
-                                      frame.slots.(index).slot_callback
-                                 && frame.slots.(index).strides <> []
-                             | Global_slot slot ->
-                                 Option.fold ~none:false ~some:(( == ) header)
+                                     ~some:(Integer_globals.same_storage slot)
+                                     (Integer_globals
+                                      .persistent_callback_storage globals
+                                        callback.callback_pointer))
+                                 globals
+                          in
+                          match Value_map.find_opt address types with
+                          | Some (Global_address slot)
+                            when owns slot
+                                 && Integer_globals.storage_dimensions slot = []
+                            ->
+                              call_instruction description
+                                (Load_slot
+                                   ( Global_slot slot,
+                                     callback.callback_capture_value ))
+                          | Some
+                              (Callback_array_address
+                                 (Global_slot slot, header, pointer_type, []))
+                            when header == callback.callback_pointer
+                                 && owns slot
+                                 && Integer_globals.storage_dimensions slot
+                                    <> [] ->
+                              call_instruction description
+                                (Load_slot
+                                   ( Indexed_slot
+                                       { pointer_value = address; pointer_type },
+                                     callback.callback_capture_value ))
+                          | _ ->
+                              Error
+                                (call_error description
+                                   "entry callback load has no original global \
+                                    storage"))
+                      | Some frame, [ address ] -> (
+                          match Value_map.find_opt address types with
+                          | Some (Frame_address index)
+                            when Option.fold ~none:false
+                                   ~some:(( == ) callback.callback_pointer)
+                                   frame.slots.(index).slot_callback
+                                 && frame.slots.(index).strides = [] ->
+                              call_instruction description
+                                (Load_slot
+                                   ( Frame_slot (index, 1),
+                                     callback.callback_capture_value ))
+                          | Some (Global_address slot)
+                            when Option.fold ~none:false
+                                   ~some:(( == ) callback.callback_pointer)
                                    (Integer_globals.storage_callback_pointer
                                       slot)
                                  && (match
@@ -8538,116 +8899,161 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                                                   slot)
                                              (Integer_globals
                                               .persistent_callback_storage
-                                                globals header))
+                                                globals
+                                                callback.callback_pointer))
                                          globals)
-                                 && Integer_globals.storage_dimensions slot
-                                    <> []
-                             | _ -> false ->
-                          call_instruction description
-                            (Load_slot
-                               ( Indexed_slot
-                                   { pointer_value = address; pointer_type },
-                                 callback.callback_capture_value ))
+                                 && Integer_globals.storage_dimensions slot = []
+                            ->
+                              call_instruction description
+                                (Load_slot
+                                   ( Global_slot slot,
+                                     callback.callback_capture_value ))
+                          | Some
+                              (Callback_array_address
+                                 (root, header, pointer_type, []))
+                            when header == callback.callback_pointer
+                                 &&
+                                 match root with
+                                 | Frame_slot (index, count) ->
+                                     count = frame.slots.(index).object_count
+                                     && Option.fold ~none:false
+                                          ~some:(( == ) header)
+                                          frame.slots.(index).slot_callback
+                                     && frame.slots.(index).strides <> []
+                                 | Global_slot slot ->
+                                     Option.fold ~none:false
+                                       ~some:(( == ) header)
+                                       (Integer_globals.storage_callback_pointer
+                                          slot)
+                                     && (match
+                                           Integer_globals.storage_frame slot
+                                         with
+                                       | Some owner -> owner == frame.layout
+                                       | None ->
+                                           Option.fold ~none:false
+                                             ~some:(fun globals ->
+                                               Option.fold ~none:false
+                                                 ~some:
+                                                   (Integer_globals.same_storage
+                                                      slot)
+                                                 (Integer_globals
+                                                  .persistent_callback_storage
+                                                    globals header))
+                                             globals)
+                                     && Integer_globals.storage_dimensions slot
+                                        <> []
+                                 | _ -> false ->
+                              call_instruction description
+                                (Load_slot
+                                   ( Indexed_slot
+                                       { pointer_value = address; pointer_type },
+                                     callback.callback_capture_value ))
+                          | _ ->
+                              Error
+                                (call_error description
+                                   "callback load lost its original frame cell")
+                          )
                       | _ ->
                           Error
                             (call_error description
-                               "callback load lost its original frame cell"))
-                  | _ ->
-                      Error
-                        (call_error description
-                           "callback load has no original frame address"))
-              | None -> (
-                  match original_function_slot_address description with
-                  | Some receipt
-                    when Runtime.function_slot_address_cursor receipt
-                         == description ->
-                      call_instruction description
-                        (Function_slot_cursor
-                           ((Option.get description.result).value_id, receipt))
-                  | Some receipt ->
-                      call_instruction description
-                        (Function_slot_load
-                           ( (Option.get description.result).value_id,
-                             (Option.get
-                                (Runtime.function_slot_address_cursor receipt)
-                                  .result)
-                               .value_id,
-                             receipt ))
-                  | None
-                    when match description.payload with
-                         | Some (Sequence.Saved_parameter_default prepared) ->
-                             is_default description
-                             && Option.is_some
-                                  (Prepared_parameter_default
-                                   .undefined_callback_source prepared)
-                         | Some (Sequence.Saved_callback_default prepared) ->
-                             is_default description
-                             && Option.is_some
-                                  (Prepared_callback_default
-                                   .undefined_callback_source prepared)
-                         | _ -> false ->
-                      call_instruction description
-                        (Undefined_function_address
-                           (Option.get description.result).value_id)
+                               "callback load has no original frame address"))
                   | None -> (
-                      match original_function_address description with
-                      | Some address ->
-                          let declaration =
-                            Runtime.function_address_declaration address
-                          in
-                          let local =
-                            Option.fold ~none:false
-                              ~some:(fun callees ->
+                      match original_function_slot_address description with
+                      | Some receipt
+                        when Runtime.function_slot_address_cursor receipt
+                             == description ->
+                          call_instruction description
+                            (Function_slot_cursor
+                               ( (Option.get description.result).value_id,
+                                 receipt ))
+                      | Some receipt ->
+                          call_instruction description
+                            (Function_slot_load
+                               ( (Option.get description.result).value_id,
+                                 (Option.get
+                                    (Runtime.function_slot_address_cursor
+                                       receipt)
+                                      .result)
+                                   .value_id,
+                                 receipt ))
+                      | None
+                        when match description.payload with
+                             | Some (Sequence.Saved_parameter_default prepared)
+                               ->
+                                 is_default description
+                                 && Option.is_some
+                                      (Prepared_parameter_default
+                                       .undefined_callback_source prepared)
+                             | Some (Sequence.Saved_callback_default prepared)
+                               ->
+                                 is_default description
+                                 && Option.is_some
+                                      (Prepared_callback_default
+                                       .undefined_callback_source prepared)
+                             | _ -> false ->
+                          call_instruction description
+                            (Undefined_function_address
+                               (Option.get description.result).value_id)
+                      | None -> (
+                          match original_function_address description with
+                          | Some address ->
+                              let declaration =
+                                Runtime.function_address_declaration address
+                              in
+                              let local =
+                                Option.fold ~none:false
+                                  ~some:(fun callees ->
+                                    List.exists
+                                      (fun callee ->
+                                        Option.fold ~none:false
+                                          ~some:(fun original ->
+                                            original == declaration)
+                                          callee.callee_definition)
+                                      callees)
+                                  callees
+                              in
+                              let retained =
                                 List.exists
-                                  (fun callee ->
-                                    Option.fold ~none:false
-                                      ~some:(fun original ->
-                                        original == declaration)
-                                      callee.callee_definition)
-                                  callees)
-                              callees
-                          in
-                          let retained =
-                            List.exists
-                              (fun executable ->
-                                Retained_function.same executable.function_link
-                                  (Runtime.function_address_link address)
-                                && Option.fold ~none:false
-                                     ~some:(fun original ->
-                                       original == declaration)
-                                     executable.function_callee
-                                       .callee_definition)
-                              retained_functions
-                          in
-                          let provider =
-                            List.exists
-                              (fun (link, receipt) ->
-                                Retained_function.same link
-                                  (Runtime.function_address_link address)
-                                && Runtime.function_slot_address_declaration
-                                     receipt
-                                   == declaration)
-                              retained_provider_entries
-                          in
-                          if local || retained || provider then
-                            call_instruction description
-                              (Function_address
-                                 ( (Option.get description.result).value_id,
-                                   address ))
-                          else
-                            Error
-                              (call_error description
-                                 "function address has no original prepared \
-                                  executable body")
-                      | None ->
-                          if Option.is_some callees then
-                            prepare_call
-                              ~original_default:(is_default description)
-                              checked_description
-                          else
-                            prepare_instruction ?frame ?globals ?literals
-                              ?initialization block_index types block_id
-                              description))
+                                  (fun executable ->
+                                    Retained_function.same
+                                      executable.function_link
+                                      (Runtime.function_address_link address)
+                                    && Option.fold ~none:false
+                                         ~some:(fun original ->
+                                           original == declaration)
+                                         executable.function_callee
+                                           .callee_definition)
+                                  retained_functions
+                              in
+                              let provider =
+                                List.exists
+                                  (fun (link, receipt) ->
+                                    Retained_function.same link
+                                      (Runtime.function_address_link address)
+                                    && Runtime.function_slot_address_declaration
+                                         receipt
+                                       == declaration)
+                                  retained_provider_entries
+                              in
+                              if local || retained || provider then
+                                call_instruction description
+                                  (Function_address
+                                     ( (Option.get description.result).value_id,
+                                       address ))
+                              else
+                                Error
+                                  (call_error description
+                                     "function address has no original \
+                                      prepared executable body")
+                          | None ->
+                              if Option.is_some callees then
+                                prepare_call
+                                  ~original_default:(is_default description)
+                                  checked_description
+                              else
+                                prepare_instruction ?frame ?globals ?literals
+                                  ?initialization block_index types block_id
+                                  description)))
             with
             | Ok prepared ->
                 let control_transfer =
@@ -8657,6 +9063,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   | Local_return _
                   | Branch _
                   | Switch _
+                  | Exception_finish _
                   | Return
                   | End -> true
                   | _ -> false
@@ -8829,7 +9236,11 @@ let runtime_error ?instruction block executed_steps code message =
         ~instruction_id:instruction.instruction_id ?span:instruction.span code
         message
 
-type call_completion = Pending | Completed_void | Completed_word of word
+type call_completion =
+  | Pending
+  | Completed_void
+  | Completed_word of word
+  | Completed_pointer of runtime_address
 
 type call_scope = {
   arguments_rev : runtime_value list;
@@ -8849,6 +9260,26 @@ type caller = {
   saved_local_returns : int list;
   saved_calls : call_scope list;
   saved_publication_item : int option;
+}
+
+type exception_snapshot = {
+  exception_execution : caller;
+  exception_callers : caller list;
+  exception_frames : runtime_storage list;
+  exception_crossings : source_exception_crossing list;
+  exception_depth : int;
+  exception_frame_bytes : int;
+  exception_handlers : exception_handler list;
+  exception_active : exception_handler option;
+  exception_origin : error option;
+  exception_initializer : Global_initialization.storage_region option;
+}
+
+and exception_handler = {
+  handler_region : Exception_regions.region;
+  handler_catch : int;
+  handler_untry : int;
+  handler_snapshot : exception_snapshot;
 }
 
 let storage_word slot bits =
@@ -8876,10 +9307,11 @@ let publish_array_payload ~slot ~cell_offset payload write =
 
 let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     ?(max_frame_bytes = Int.max_int) ?(max_call_depth = Int.max_int)
-    ?(capture_last = false) ?(saved_data = []) ?on_capture ?initialization
-    ?globals ?(global_words = [||]) ?literal_image ?output ?stream_output
-    ?generation_output ?compiler_options ?stream_exe_print
-    ?resumed_step_allowance ?admit ?(retained_regions = [])
+    ?(max_global_bytes = Int.max_int) ?exception_resources ?exception_task
+    ?(constant_preparation = false) ?(capture_last = false) ?(saved_data = [])
+    ?on_capture ?initialization ?globals ?(global_words = [||]) ?literal_image
+    ?output ?stream_output ?generation_output ?compiler_options
+    ?stream_exe_print ?resumed_step_allowance ?admit ?(retained_regions = [])
     ?(retained_functions = []) ?(retained_provider_entries = [])
     ?on_provider_entry ~max_steps program =
   let entry_program = program in
@@ -8887,6 +9319,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
+  let live_frames = ref [] in
+  let live_source_crossings = ref [] in
+  let escaping_packet = ref None in
   let make_storage cells unknown_message =
     {
       cells = Array.copy cells;
@@ -8898,13 +9333,15 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     }
   in
   let frame_storage cells =
-    make_storage cells "the reached frame slot has not been initialized"
+    let storage =
+      make_storage cells "the reached frame slot has not been initialized"
+    in
+    live_frames := storage :: !live_frames;
+    storage
   in
   let retire_frame storage =
-    storage.live <- false;
-    storage.cells <- [||];
-    Hashtbl.reset storage.partial_words;
-    Hashtbl.reset storage.pointer_cells
+    retire_runtime_storage storage;
+    live_frames := List.filter (fun current -> current != storage) !live_frames
   in
   let global_storage =
     make_storage
@@ -9029,9 +9466,187 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let completed = ref None in
   let failed = ref None in
   let active_initializer = ref None in
+  let handlers = ref [] in
+  let active_handler = ref None in
+  let exception_origin = ref None in
+  let exception_transfer = ref false in
+  let local_exception_storage = ref None in
+  let ensure_exception_storage block instruction =
+    let result =
+      match exception_resources with
+      | Some resources -> ensure_task_exception_storage resources
+      | None -> (
+          match !local_exception_storage with
+          | Some storage -> Ok storage
+          | None ->
+              let allocated =
+                Option.fold ~none:0 ~some:Integer_globals.byte_size globals
+              in
+              if Task_exception_layout.byte_count > max_global_bytes - allocated
+              then
+                Error
+                  ( "HCIRVM0016",
+                    "task exception storage exceeds the cumulative global byte \
+                     limit" )
+              else
+                let storage = new_exception_storage () in
+                local_exception_storage := Some storage;
+                Ok storage)
+    in
+    match result with
+    | Ok storage -> Some storage
+    | Error (code, message) ->
+        failed := Some (runtime_error ~instruction block !steps code message);
+        None
+  in
+  let execution_snapshot () =
+    {
+      saved_program = !program;
+      saved_owner = !owner;
+      saved_block = !current_block;
+      saved_instruction = !current_instruction;
+      saved_values = !values;
+      saved_slots = !slots;
+      saved_return = !pending_return;
+      saved_local_returns = !local_returns;
+      saved_calls = !calls;
+      saved_publication_item = !publication_item;
+    }
+  in
+  let restore_execution saved =
+    program := saved.saved_program;
+    owner := saved.saved_owner;
+    current_block := saved.saved_block;
+    current_instruction := saved.saved_instruction;
+    values := saved.saved_values;
+    slots := saved.saved_slots;
+    pending_return := saved.saved_return;
+    local_returns := saved.saved_local_returns;
+    calls := saved.saved_calls;
+    publication_item := saved.saved_publication_item
+  in
+  let snapshot_exception () =
+    {
+      exception_execution = execution_snapshot ();
+      exception_callers = !callers;
+      exception_frames = !live_frames;
+      exception_crossings = !live_source_crossings;
+      exception_depth = !depth;
+      exception_frame_bytes = !live_frame_bytes;
+      exception_handlers = !handlers;
+      exception_active = !active_handler;
+      exception_origin = !exception_origin;
+      exception_initializer = !active_initializer;
+    }
+  in
   let transfer target =
     current_block := target;
     current_instruction := 0
+  in
+  let enter_catch handler =
+    (* _TEST_EXCEPT restores the registering frame, but keeps the throwing
+       stack live. The eventual _TAKE_EXCEPT restores RSP and retires it. *)
+    restore_execution handler.handler_snapshot.exception_execution;
+    callers := handler.handler_snapshot.exception_callers;
+    active_initializer := handler.handler_snapshot.exception_initializer;
+    active_handler := Some handler;
+    exception_transfer := true;
+    transfer handler.handler_catch
+  in
+  let escape_source_exception (origin : error) =
+    let origin =
+      if origin.code <> "HCEX0001" then origin
+      else
+        let storage =
+          match exception_resources with
+          | Some resources -> resources.exception_storage
+          | None -> !local_exception_storage
+        in
+        match read_exception_storage_code storage with
+        | None -> origin
+        | Some code ->
+            {
+              origin with
+              message = Printf.sprintf "unhandled HolyC exception 0x%Lx" code;
+            }
+    in
+    (* Only the active original StreamExePrint invocation can own a transfer
+       between interpreters. The diagnostic remains a failure for the parser;
+       the private packet carries the source exception and its live frames. *)
+    (match exception_task with
+    | Some task
+      when task.resources.domain = Domain.self ()
+           && not task.native_storage_authority -> (
+        match
+          ( task.resources.source_exception_bridges,
+            task.resources.child_input_stack )
+        with
+        | bridge :: _, scope :: _
+          when bridge.bridge_active
+               && Option.is_none bridge.bridge_exception
+               && bridge.bridge_task == scope.child_caller
+               && child_input_is_active scope
+               && List.exists
+                    (fun participant -> participant.participant_task == task)
+                    scope.child_participants ->
+            let crossing =
+              { crossing_scope = scope; crossing_state = Crossing_unverified }
+            in
+            let packet =
+              {
+                packet_bridge = bridge;
+                packet_task = task;
+                packet_crossing = crossing;
+                packet_origin = identify_initializer !active_initializer origin;
+                packet_frames = !live_frames;
+                packet_frame_bytes = !live_frame_bytes;
+                packet_call_depth = !depth;
+                packet_crossings = crossing :: !live_source_crossings;
+                packet_state = Packet_escaping;
+              }
+            in
+            bridge.bridge_exception <- Some packet;
+            escaping_packet := Some packet
+        | _ -> ())
+    | _ -> ());
+    failed := Some origin
+  in
+  let continue_source_exception origin =
+    exception_origin := Some origin;
+    match !handlers with
+    | handler :: _ -> enter_catch handler
+    | [] -> escape_source_exception origin
+  in
+  let source_exception block instruction code origin =
+    if !depth >= max_call_depth then
+      failed :=
+        Some
+          (runtime_error ~instruction block !steps "HCIRVM0015"
+             "exception delivery exceeds the runtime call depth limit")
+    else if 16 > max_frame_bytes - !live_frame_bytes then
+      failed :=
+        Some
+          (runtime_error ~instruction block !steps "HCIRVM0011"
+             "throw argument slots exceed the active frame byte limit")
+    else
+      match ensure_exception_storage block instruction with
+      | None -> ()
+      | Some storage ->
+          write_task_bytes storage Task_exception_layout.code_offset 8 code;
+          write_task_bytes storage Task_exception_layout.caught_offset 1 0L;
+          let origin =
+            match !program.owner with
+            | None -> origin
+            | Some (function_id, function_name) ->
+                {
+                  origin with
+                  function_id = Some function_id;
+                  function_name = Some function_name;
+                }
+          in
+          incr depth;
+          live_frame_bytes := !live_frame_bytes + 16;
+          continue_source_exception origin
   in
   let require_operand ?(computation = false) block instruction operand =
     match Value_map.find_opt operand.value_id !values with
@@ -9244,6 +9859,37 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               executable.function_program,
               executable.function_owner ))
   in
+  let exception_provider_available declaration =
+    let module Functions = Sema.Function_resolution in
+    let symbol = Functions.resolved_declaration_identity_symbol declaration in
+    let replaces callee =
+      callee.callee_symbol == symbol
+      && Option.fold ~none:false
+           ~some:(fun later ->
+             Functions.is_joined_successor ~earlier:declaration ~later)
+           callee.callee_definition
+    in
+    let visible callee =
+      aot_linked
+      || Option.fold ~none:false
+           ~some:(fun item ->
+             Option.fold ~none:false
+               ~some:(fun later ->
+                 later |> Functions.resolved_declaration_site
+                 |> Functions.declaration_site_function
+                 |> Sema.Function_type_resolution.function_item_index
+                 |> fun declared -> declared < item)
+               callee.callee_definition)
+           !publication_item
+    in
+    not
+      (Array.exists
+         (fun (callee, _) -> replaces callee && visible callee)
+         entry_owner.owner_callees
+      || List.exists
+           (fun executable -> replaces executable.function_callee)
+           retained_functions)
+  in
   let extern_signature_matches site callee =
     let module Headers = Sema.Function_type_resolution in
     let module Functions = Sema.Function_resolution in
@@ -9381,20 +10027,6 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
       (Int64.add
          (Int64.mul (Int64.of_int address.pointer_base) 8L)
          address.pointer_offset)
-  in
-  let invalidate_pointer_cells storage first last =
-    (* A pointer spans eight original bytes, whose canonical keys are at most
-       eight positions apart. Scalar stores therefore need a bounded lookup
-       window, independently of the number of pointer fields in the object. *)
-    if Hashtbl.length storage.pointer_cells <> 0 then
-      let key = ref (Int64.sub first 63L) in
-      while !key <= last do
-        (match Hashtbl.find_opt storage.pointer_cells !key with
-        | Some (_, _, end_key) when end_key >= first ->
-            Hashtbl.remove storage.pointer_cells !key
-        | _ -> ());
-        key := Int64.succ !key
-      done
   in
   let read_view_bits address width =
     let ( let* ) = Result.bind in
@@ -9666,6 +10298,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
       | Some Runtime.Stream_exe_print -> "StreamExePrint"
       | Some Runtime.Get_option -> "GetOption"
       | Some Runtime.Set_option -> "Option"
+      | Some Runtime.Throw -> "throw"
       | None -> "runtime output"
     in
     let provider_message message =
@@ -9760,6 +10393,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 make_provider_error "HCIRVM0025" message
           in
           match (provider, arguments) with
+          | Some Runtime.Throw, [ Runtime_word code; Runtime_word _ ] ->
+              let origin =
+                runtime_error ~instruction block !steps "HCEX0001"
+                  (Printf.sprintf "unhandled HolyC exception 0x%Lx" code.bits)
+              in
+              source_exception block instruction code.bits origin;
+              Ok Pending
           | Some Runtime.Get_option, [ Runtime_word index ]
           | Some Runtime.Set_option, [ Runtime_word index; Runtime_word _ ] -> (
               let enabled =
@@ -9843,10 +10483,14 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     if
                       nested_steps < 0
                       || nested_steps > !execution_limit - !steps
-                    then
+                    then (
+                      (match nested with
+                      | Nested_exception packet ->
+                          release_source_exception packet Crossing_failed
+                      | Nested_result _ | Nested_invalid _ -> ());
                       error "HCIRVM0007"
                         "nested source exceeded the remaining execution step \
-                         limit"
+                         limit")
                     else (
                       steps := !steps + nested_steps;
                       Option.iter
@@ -9855,10 +10499,46 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                             min !execution_limit (!steps + remaining ()))
                         resumed_step_allowance;
                       match nested with
-                      | Ok bits -> Ok (Completed_word { type_ = I64; bits })
-                      | Error [] ->
+                      | Nested_invalid message -> error "HCEX0002" message
+                      | Nested_exception packet ->
+                          let frame_bytes = 8 * Array.length parameter_types in
+                          let owned =
+                            packet.packet_state = Packet_sealed
+                            && (not packet.packet_bridge.bridge_active)
+                            && Option.fold ~none:false
+                                 ~some:(fun task ->
+                                   packet.packet_bridge.bridge_task == task)
+                                 exception_task
+                            && packet.packet_frame_bytes >= 0
+                            && packet.packet_call_depth >= 0
+                            && packet.packet_frame_bytes
+                               <= max_frame_bytes - !live_frame_bytes
+                                  - frame_bytes
+                            && packet.packet_call_depth
+                               <= max_call_depth - !depth - 1
+                          in
+                          if not owned then (
+                            release_source_exception packet Crossing_failed;
+                            error "HCEX0002"
+                              "nested source exception lost its original \
+                               active execution and resource allowance")
+                          else (
+                            live_frames := packet.packet_frames @ !live_frames;
+                            live_source_crossings :=
+                              packet.packet_crossings @ !live_source_crossings;
+                            live_frame_bytes :=
+                              !live_frame_bytes + frame_bytes
+                              + packet.packet_frame_bytes;
+                            depth := !depth + 1 + packet.packet_call_depth;
+                            packet.packet_state <- Packet_delivered;
+                            continue_source_exception packet.packet_origin;
+                            Ok Pending)
+                      | Nested_result (Ok bits) ->
+                          Ok (Completed_word { type_ = I64; bits })
+                      | Nested_result (Error []) ->
                           error "HCIRVM0026" "nested source execution failed"
-                      | Error ((diagnostic : Common.Diagnostic.t) :: _) ->
+                      | Nested_result
+                          (Error ((diagnostic : Common.Diagnostic.t) :: _)) ->
                           Error
                             (runtime_error ~instruction block !steps
                                diagnostic.code
@@ -9867,768 +10547,465 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               error "HCIRVM0008"
                 "prepared runtime provider arguments are inconsistent")
   in
-  while Option.is_none !completed && Option.is_none !failed do
-    if !current_block < 0 || !current_block >= Array.length !program.blocks then
-      failed :=
-        Some
-          (make_error ~stage:Execution ~executed_steps:!steps "HCIRVM0008"
-             "the prepared block cursor is out of bounds")
-    else
-      let block = !program.blocks.(!current_block) in
-      if !current_instruction >= Array.length block.instructions then
-        match block.fallthrough with
-        | Some target -> transfer target
-        | None ->
-            failed :=
-              Some
-                (runtime_error block !steps "HCIRVM0008"
-                   "execution reached an impossible final-block fallthrough")
-      else
-        let instruction = block.instructions.(!current_instruction) in
-        let () =
-          if not !program.is_function then (
-            active_initializer :=
-              Option.bind initialization (fun context ->
-                  Global_initialization.find_storage context
-                    instruction.instruction_id);
-            if !program == entry_program then
-              publish_before instruction.instruction_id)
-        in
-        if !steps >= !execution_limit then
+  Fun.protect
+    ~finally:(fun () ->
+      if Option.is_none !escaping_packet then (
+        List.iter retire_frame !live_frames;
+        List.iter
+          (fun crossing -> settle_source_crossing crossing Crossing_failed)
+          !live_source_crossings);
+      handlers := [];
+      active_handler := None;
+      if Option.is_none admit then (
+        global_storage.live <- false;
+        literal_storage.live <- false))
+    (fun () ->
+      while Option.is_none !completed && Option.is_none !failed do
+        if !current_block < 0 || !current_block >= Array.length !program.blocks
+        then
           failed :=
             Some
-              (runtime_error ~instruction block !steps "HCIRVM0007"
-                 "the bounded integer execution step limit was exhausted")
-        else (
-          steps := !steps + 1;
-          current_instruction := !current_instruction + 1;
-          (match instruction.operation with
-          | Call_start item ->
-              calls :=
-                {
-                  arguments_rev = [];
-                  completion = Pending;
-                  callback_value = None;
-                  publication_item =
-                    (match item with
-                    | Some _ -> item
-                    | None -> !publication_item);
-                }
-                :: !calls
-          | Callback_start captured -> (
-              match require_value block instruction captured with
-              | Some value ->
-                  calls :=
-                    {
-                      arguments_rev = [];
-                      completion = Pending;
-                      publication_item = !publication_item;
-                      callback_value = Some value;
-                    }
-                    :: !calls
-              | None -> ())
-          | Call_cleanup -> ()
-          | Internal_integer (operation, operand, type_) -> (
-              match (!calls, require_operand block instruction operand) with
-              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
-                  :: rest,
-                  Some word ) ->
-                  let bits = Integer_intrinsic.apply operation word.bits in
-                  calls :=
-                    { scope with completion = Completed_word { type_; bits } }
-                    :: rest
-              | _, None -> ()
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "integer internal operation has no pending source \
-                          call scope"))
-          | Internal_binary (operation, left, right, type_) -> (
-              let right_word = require_operand block instruction right in
-              let left_word =
-                Option.bind right_word (fun _ ->
-                    require_operand block instruction left)
-              in
-              match (!calls, left_word, right_word) with
-              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
-                  :: rest,
-                  Some left,
-                  Some right ) ->
-                  let bits =
-                    Integer_intrinsic.apply_binary operation left.bits
-                      right.bits
-                  in
-                  calls :=
-                    { scope with completion = Completed_word { type_; bits } }
-                    :: rest
-              | _, None, _ | _, _, None -> ()
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "integer internal operation has no pending source \
-                          call scope"))
-          | Internal_bit (operation, pointer, index) -> (
-              let index = require_operand block instruction index in
-              let address =
-                Option.bind index (fun _ ->
-                    require_pointer ~bounded:false block instruction pointer)
-              in
-              match (!calls, index, address) with
-              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
-                  :: rest,
-                  Some index,
-                  Some address ) -> (
-                  let error code message =
-                    failed :=
-                      Some
-                        (runtime_error ~instruction block !steps code message)
-                  in
-                  let relative = Int64.shift_right_logical index.bits 3 in
+              (make_error ~stage:Execution ~executed_steps:!steps "HCIRVM0008"
+                 "the prepared block cursor is out of bounds")
+        else
+          let block = !program.blocks.(!current_block) in
+          if !current_instruction >= Array.length block.instructions then
+            match block.fallthrough with
+            | Some target -> transfer target
+            | None ->
+                failed :=
+                  Some
+                    (runtime_error block !steps "HCIRVM0008"
+                       "execution reached an impossible final-block fallthrough")
+          else
+            let instruction = block.instructions.(!current_instruction) in
+            let () =
+              if not !program.is_function then (
+                active_initializer :=
+                  Option.bind initialization (fun context ->
+                      Global_initialization.find_storage context
+                        instruction.instruction_id);
+                if !program == entry_program then
+                  publish_before instruction.instruction_id)
+            in
+            if !steps >= !execution_limit then
+              failed :=
+                Some
+                  (runtime_error ~instruction block !steps "HCIRVM0007"
+                     "the bounded integer execution step limit was exhausted")
+            else (
+              exception_transfer := false;
+              steps := !steps + 1;
+              current_instruction := !current_instruction + 1;
+              (match instruction.operation with
+              | Exception_enter (region, catch, untry) ->
+                  let source = Exception_regions.source region in
                   if
-                    index.bits < 0L
-                    || address.pointer_offset < 0L
-                    || address.pointer_offset > address.pointer_extent_bytes
-                    || relative
-                       >= Int64.sub address.pointer_extent_bytes
-                            address.pointer_offset
-                  then
-                    error "HCIRVM0019"
-                      "bit index is outside its declared object extent"
-                  else
-                    match Scalar.of_type address.pointer_pointee with
-                    | None ->
-                        error "HCIRVM0008"
-                          "pointed bit operation has no scalar view"
-                    | Some scalar -> (
-                        let width = Int64.of_int (Scalar.byte_size scalar) in
-                        let within = Int64.rem relative width in
-                        let address =
-                          {
-                            address with
-                            pointer_offset =
-                              Int64.add address.pointer_offset
-                                (Int64.sub relative within);
-                          }
-                        in
-                        if
-                          address_bounds ~one_past:false block instruction
-                            address
-                        then
-                          let location = `View address in
-                          match read_location block instruction location with
-                          | Some (Runtime_word word)
-                            when word.type_ = scalar_runtime_type scalar ->
-                              let bit =
-                                (8 * Int64.to_int within)
-                                + Int64.to_int (Int64.logand index.bits 7L)
-                              in
-                              let previous, updated =
-                                Integer_intrinsic.apply_bit operation ~index:bit
-                                  word.bits
-                              in
-                              if
-                                operation = Integer_intrinsic.Test_bit
-                                || write_location block instruction location
-                                     (Runtime_word
-                                        {
-                                          word with
-                                          bits = Scalar.normalize scalar updated;
-                                        })
-                              then
-                                calls :=
-                                  {
-                                    scope with
-                                    completion =
-                                      Completed_word
-                                        { type_ = I64; bits = previous };
-                                  }
-                                  :: rest
-                          | None -> ()
-                          | Some _ ->
-                              error "HCIRVM0008"
-                                "pointed bit operation reached an invalid \
-                                 scalar cell"))
-              | _, None, _ | _, _, None -> ()
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "pointed bit operation has no pending source call \
-                          scope"))
-          | Internal_swap (left, right) -> (
-              let read pointer =
-                Option.bind (require_pointer block instruction pointer)
-                  (fun address ->
-                    if
-                      not
-                        (address_bounds ~one_past:false block instruction
-                           address)
-                    then None
-                    else
-                      match
-                        ( Scalar.of_type address.pointer_pointee,
-                          read_location block instruction (`View address) )
-                      with
-                      | Some scalar, Some (Runtime_word word)
-                        when word.type_ = scalar_runtime_type scalar ->
-                          Some (address, scalar, word)
-                      | _, None -> None
-                      | _ ->
-                          failed :=
-                            Some
-                              (runtime_error ~instruction block !steps
-                                 "HCIRVM0008"
-                                 "swap reached an invalid scalar cell");
-                          None)
-              in
-              let left_cell = read left in
-              let right_cell = Option.bind left_cell (fun _ -> read right) in
-              match (!calls, left_cell, right_cell) with
-              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
-                  :: rest,
-                  Some (left_address, left_scalar, left_word),
-                  Some (right_address, right_scalar, right_word) ) ->
-                  if
-                    write_location block instruction (`View right_address)
-                      (Runtime_word
-                         {
-                           right_word with
-                           bits = Scalar.normalize right_scalar left_word.bits;
-                         })
-                    && write_location block instruction (`View left_address)
-                         (Runtime_word
-                            {
-                              left_word with
-                              bits =
-                                Scalar.normalize left_scalar right_word.bits;
-                            })
-                  then
-                    calls := { scope with completion = Completed_void } :: rest
-              | _, None, _ | _, _, None -> ()
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "swap has no pending source call scope"))
-          | Internal_mod_u64 (pointer, divisor) -> (
-              let right = require_operand block instruction divisor in
-              let location =
-                Option.bind right (fun _ ->
-                    resolve_location block instruction (Indirect_slot pointer))
-              in
-              match (!calls, right, location) with
-              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
-                  :: rest,
-                  Some right,
-                  Some location ) -> (
-                  match read_location block instruction location with
-                  | Some (Runtime_word left) -> (
-                      match
-                        divide_bits ~opcode:"IC_MOD_U64" ~remainder:true U64
-                          left right
-                      with
-                      | Error (code, message) ->
-                          failed :=
-                            Some
-                              (runtime_error ~instruction block !steps code
-                                 message)
-                      | Ok bits ->
-                          let quotient =
-                            Int64.unsigned_div left.bits right.bits
-                          in
-                          if
-                            write_location block instruction location
-                              (Runtime_word { left with bits = quotient })
-                          then
-                            calls :=
-                              {
-                                scope with
-                                completion =
-                                  Completed_word { type_ = U64; bits };
-                              }
-                              :: rest)
-                  | None -> ()
-                  | Some _ ->
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0008"
-                             "IC_MOD_U64 pointed object is not a scalar word"))
-              | _, None, _ | _, _, None -> ()
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "IC_MOD_U64 has no pending source call scope"))
-          | Internal_strlen pointer -> (
-              match
-                ( !calls,
-                  require_pointer ~bounded:false block instruction pointer )
-              with
-              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
-                  :: rest,
-                  Some address ) ->
-                  let relative = ref 0L in
-                  let finished = ref false in
-                  while (not !finished) && Option.is_none !failed do
-                    if !relative <> 0L && !steps >= !execution_limit then
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0007"
-                             "the bounded integer execution step limit was \
-                              exhausted")
-                    else (
-                      if !relative <> 0L then incr steps;
-                      match
-                        read_owned_byte ~purpose:"IC_STRLEN" block instruction
-                          address !relative
-                      with
-                      | Error error -> failed := Some error
-                      | Ok '\000' ->
-                          calls :=
-                            {
-                              scope with
-                              completion =
-                                Completed_word { type_ = I64; bits = !relative };
-                            }
-                            :: rest;
-                          finished := true
-                      | Ok _ -> relative := Int64.succ !relative)
-                  done
-              | _, None -> ()
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "internal byte scan has no pending source call scope"))
-          | (Call _ | Retained_call _ | Extern_call _ | Callback_call _) as
-            operation -> (
-              let target =
-                match operation with
-                | Call index
-                  when index >= 0 && index < Array.length !owner.owner_callees
-                  ->
-                    let callee, body = !owner.owner_callees.(index) in
-                    Some (Source_entry (callee, body, !owner))
-                | Retained_call link ->
-                    List.find_opt
-                      (fun executable ->
-                        Retained_function.same executable.function_link link)
-                      retained_functions
-                    |> Option.map (fun executable ->
-                        Source_entry
-                          ( executable.function_callee,
-                            executable.function_program,
-                            executable.function_owner ))
-                | Callback_call _ -> (
-                    match !calls with
-                    | { callback_value = Some (Runtime_code code); _ } :: _ ->
-                        Some code.code_entry
-                    | _ -> None)
-                | Extern_call (site, _) ->
-                    let visible_item =
-                      match !calls with
-                      | scope :: _ -> scope.publication_item
-                      | [] -> None
-                    in
-                    Option.map
-                      (fun (callee, body, owner) ->
-                        Source_entry (callee, body, owner))
-                      (extern_target site visible_item)
-                | _ -> None
-              in
-              match (!calls, target) with
-              | ( ({ completion = Pending; _ } as scope) :: rest,
-                  Some (Provider_entry receipt) ) -> (
-                  match operation with
-                  | Callback_call (callback, parameter_types)
-                    when Runtime.function_slot_address_matches_callback receipt
-                           callback -> (
-                      match
-                        invoke_output block instruction
-                          (Runtime.function_slot_address_provider receipt)
-                          parameter_types scope
-                      with
-                      | Ok completion ->
-                          calls := { scope with completion } :: rest
-                      | Error error -> failed := Some error)
-                  | _ ->
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0014"
-                             "the captured provider entry disagrees with the \
-                              original callback signature or cleanup policy"))
-              | ({ completion = Pending; _ } as scope) :: rest, None -> (
-                  match operation with
-                  | Callback_call _ ->
-                      failed :=
-                        Some
-                          (match scope.callback_value with
-                          | Some (Runtime_undefined_code _) ->
-                              runtime_error ~instruction block !steps
-                                "HCIRVM0030"
-                                "the reached captured function address is \
-                                 UndefinedExtern"
-                          | _ ->
-                              runtime_error ~instruction block !steps
-                                "HCIRVM0024"
-                                "the reached callback has no owned executable \
-                                 address")
-                  | Extern_call (site, parameter_types) ->
-                      if Option.is_some (Runtime.provider site) then
-                        match
-                          invoke_output block instruction
-                            (Runtime.provider site) parameter_types scope
-                        with
-                        | Ok completion ->
-                            calls := { scope with completion } :: rest
-                        | Error error -> failed := Some error
-                      else
-                        failed :=
-                          Some
-                            (runtime_error ~instruction block !steps
-                               "HCIRVM0030"
-                               "the reached extern function has no published \
-                                executable definition")
-                  | _ ->
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0008"
-                             "prepared direct call has no available caller \
-                              scope"))
-              | ( ({ completion = Pending; _ } as scope) :: _,
-                  Some (Source_entry (callee, body, callee_owner)) ) -> (
-                  let tail_count =
-                    if callee.variadic then
-                      List.length scope.arguments_rev
-                      - Array.length callee.parameter_types
-                      - 1
-                    else 0
-                  in
-                  if
-                    match operation with
-                    | Callback_call (callback, _) ->
-                        not (callback_signature_matches callback callee)
-                    | Extern_call (site, _) ->
-                        not (extern_signature_matches site callee)
-                    | _ -> false
+                    not
+                      (exception_provider_available
+                         (Sema.Exception_region.try_declaration source)
+                      && exception_provider_available
+                           (Sema.Exception_region.untry_declaration source))
                   then
                     failed :=
                       Some
-                        (runtime_error ~instruction block !steps "HCIRVM0014"
-                           (match operation with
-                           | Callback_call _ ->
-                               "the reached callback definition disagrees with \
-                                its original signature or cleanup policy"
-                           | _ ->
-                               "published extern definition disagrees with the \
-                                captured call signature"))
+                        (runtime_error ~instruction block !steps "HCEX0002"
+                           "exception helpers no longer select their checked \
+                            extern providers")
                   else if !depth >= max_call_depth then
                     failed :=
                       Some
                         (runtime_error ~instruction block !steps "HCIRVM0015"
-                           "the integer call depth limit was exhausted")
+                           "SysTry exceeds the runtime call depth limit")
                   else if
-                    callee.frame_bytes > max_frame_bytes - !live_frame_bytes
-                    || tail_count
-                       > (max_frame_bytes - !live_frame_bytes
-                        - callee.frame_bytes)
-                         / 8
-                    || tail_count
-                       > Sys.max_array_length - Array.length body.initial_slots
+                    Task_exception_layout.handler_byte_count + 16
+                    > max_frame_bytes - !live_frame_bytes
                   then
                     failed :=
                       Some
                         (runtime_error ~instruction block !steps "HCIRVM0011"
-                           "the active function frames exceed the frame byte \
+                           "active exception records exceed the frame byte \
                             limit")
                   else
-                    match prepare_arguments callee scope.arguments_rev with
-                    | None ->
-                        failed :=
-                          Some
-                            (runtime_error ~instruction block !steps
-                               "HCIRVM0008"
-                               "prepared arguments disagree with the checked \
-                                function frame")
-                    | Some (arguments, tail) ->
-                        let frame_bytes =
-                          callee.frame_bytes + (8 * Array.length tail)
-                        in
-                        callers :=
-                          {
-                            saved_program = !program;
-                            saved_owner = !owner;
-                            saved_block = !current_block;
-                            saved_instruction = !current_instruction;
-                            saved_values = !values;
-                            saved_slots = !slots;
-                            saved_return = !pending_return;
-                            saved_local_returns = !local_returns;
-                            saved_calls = !calls;
-                            saved_publication_item = !publication_item;
-                          }
-                          :: !callers;
-                        incr depth;
-                        live_frame_bytes := !live_frame_bytes + frame_bytes;
-                        let initialized =
-                          frame_storage (Array.append body.initial_slots tail)
-                        in
-                        Array.iteri
-                          (fun position value ->
-                            let base, count, _ =
-                              callee.callee_parameter_slots.(position)
-                            in
-                            if count = 1 then initialized.cells.(base) <- value
-                            else
-                              match value with
-                              | Some (Runtime_word word) ->
-                                  for byte = 0 to count - 1 do
-                                    initialized.cells.(base + byte) <-
-                                      Some
-                                        (Runtime_word
-                                           {
-                                             type_ = U64;
-                                             bits =
-                                               Int64.logand 255L
-                                                 (Int64.shift_right_logical
-                                                    word.bits (8 * byte));
-                                           })
-                                  done
-                              | _ -> assert false)
-                          arguments;
-                        program :=
-                          { body with initial_frame_bytes = frame_bytes };
-                        publication_item := scope.publication_item;
-                        owner := callee_owner;
-                        slots := initialized;
-                        values := Value_map.empty;
-                        pending_return := None;
-                        local_returns := [];
-                        calls := [];
-                        current_block := body.entry_index;
-                        current_instruction := 0)
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "prepared direct call has no available caller scope"))
-          | Call_end (result, type_) -> (
-              match !calls with
-              | { completion = Completed_word word; _ } :: rest
-                when word.type_ = type_ ->
-                  calls := rest;
-                  values := Value_map.add result (Runtime_word word) !values
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "direct call did not supply its declared return word"))
-          | Call_end_void result -> (
-              match !calls with
-              | { completion = Completed_void; _ } :: rest ->
-                  calls := rest;
-                  values := Value_map.add result Runtime_void !values
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "prepared U0 call did not complete without a value"))
-          | Frame_address_tick -> ()
-          | Scale_index (operand, stride, result) -> (
-              match require_operand block instruction operand with
-              | None -> ()
-              | Some index ->
-                  if
-                    (index.type_ = U64 && index.bits < 0L)
-                    || index.bits > Int64.div Int64.max_int stride
-                    || index.bits < Int64.div Int64.min_int stride
-                  then
-                    failed :=
-                      Some
-                        (runtime_error ~instruction block !steps "HCIRVM0020"
-                           "index byte scaling exceeds the hosted signed \
-                            address range")
-                  else
-                    values :=
-                      Value_map.add result
-                        (Runtime_offset (Int64.mul index.bits stride))
-                        !values)
-          | Index_address (operation, location, offset, result, pointee) -> (
-              match
-                ( resolve_address block instruction location pointee,
-                  Value_map.find_opt offset !values )
-              with
-              | Some address, Some (Runtime_offset delta) ->
-                  let overflow, offset =
-                    match operation with
-                    | Add ->
-                        ( delta > 0L
-                          && address.pointer_offset
-                             > Int64.sub Int64.max_int delta
-                          || delta < 0L
-                             && address.pointer_offset
-                                < Int64.sub Int64.min_int delta,
-                          Int64.add address.pointer_offset delta )
-                    | Subtract ->
-                        ( delta > 0L
-                          && address.pointer_offset
-                             < Int64.add Int64.min_int delta
-                          || delta < 0L
-                             && address.pointer_offset
-                                > Int64.add Int64.max_int delta,
-                          Int64.sub address.pointer_offset delta )
-                    | _ -> assert false
-                  in
-                  if overflow then
-                    failed :=
-                      Some
-                        (runtime_error ~instruction block !steps "HCIRVM0020"
-                           (if operation = Subtract then
-                              "index address subtraction exceeds the hosted \
-                               signed address range"
-                            else
-                              "index address addition exceeds the hosted \
-                               signed address range"))
-                  else
-                    values :=
-                      Value_map.add result
-                        (Runtime_pointer
-                           { address with pointer_offset = offset })
-                        !values
-              | None, _ -> ()
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "prepared index offset is unavailable"))
-          | Project_member (location, delta, result, source, pointer_pointee)
-            -> (
-              match resolve_address block instruction location source with
-              | None -> ()
-              | Some address ->
-                  if
-                    delta > 0L
-                    && address.pointer_offset > Int64.sub Int64.max_int delta
-                    || delta < 0L
-                       && address.pointer_offset < Int64.sub Int64.min_int delta
-                  then
-                    failed :=
-                      Some
-                        (runtime_error ~instruction block !steps "HCIRVM0020"
-                           "member address exceeds the hosted signed address \
-                            range")
-                  else
-                    let projected =
+                    let handler =
                       {
-                        address with
-                        pointer_offset = Int64.add address.pointer_offset delta;
-                        pointer_pointee;
+                        handler_region = region;
+                        handler_catch = catch;
+                        handler_untry = untry;
+                        handler_snapshot = snapshot_exception ();
                       }
                     in
-                    if address_bounds ~one_past:true block instruction projected
-                    then
-                      values :=
-                        Value_map.add result (Runtime_pointer projected) !values
-              )
-          | Materialize_address (location, result, pointer_pointee) -> (
-              match
-                resolve_address block instruction location pointer_pointee
-              with
-              | Some address
-                when address_bounds ~one_past:true block instruction address ->
-                  values :=
-                    Value_map.add result (Runtime_pointer address) !values
-              | _ -> ())
-          | Load_slot (location, result) -> (
-              match
-                Option.bind
-                  (resolve_location block instruction location)
-                  (read_location block instruction)
-              with
-              | None -> ()
-              | Some value -> values := Value_map.add result value !values)
-          | Store_slot (location, operand, result, type_) -> (
-              match require_value block instruction operand with
-              | None -> ()
-              | Some operand -> (
+                    handlers := handler :: !handlers;
+                    live_frame_bytes :=
+                      !live_frame_bytes
+                      + Task_exception_layout.handler_byte_count
+              | Exception_leave region -> (
+                  match !handlers with
+                  | handler :: rest
+                    when handler.handler_region == region
+                         && handler.handler_snapshot.exception_execution
+                              .saved_slots == !slots ->
+                      handlers := rest;
+                      live_frame_bytes :=
+                        !live_frame_bytes
+                        - Task_exception_layout.handler_byte_count
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCEX0002"
+                             "SysUntry has no matching active exception record")
+                  )
+              | Exception_finish region -> (
+                  match (!active_handler, !handlers) with
+                  | Some handler, head :: outer
+                    when handler == head
+                         && handler.handler_region == region
+                         && handler.handler_snapshot.exception_execution
+                              .saved_slots == !slots -> (
+                      match ensure_exception_storage block instruction with
+                      | None -> ()
+                      | Some storage -> (
+                          match
+                            storage.cells.(Task_exception_layout.caught_offset)
+                          with
+                          | Some (Runtime_word caught) when caught.bits <> 0L ->
+                              let saved = handler.handler_snapshot in
+                              List.iter
+                                (fun frame ->
+                                  if
+                                    not
+                                      (List.exists (( == ) frame)
+                                         saved.exception_frames)
+                                  then retire_frame frame)
+                                !live_frames;
+                              live_frames := saved.exception_frames;
+                              List.iter
+                                (fun crossing ->
+                                  if
+                                    not
+                                      (List.exists (( == ) crossing)
+                                         saved.exception_crossings)
+                                  then
+                                    settle_source_crossing crossing
+                                      Crossing_caught)
+                                !live_source_crossings;
+                              live_source_crossings := saved.exception_crossings;
+                              restore_execution saved.exception_execution;
+                              callers := saved.exception_callers;
+                              depth := saved.exception_depth;
+                              live_frame_bytes :=
+                                saved.exception_frame_bytes
+                                + Task_exception_layout.handler_byte_count;
+                              handlers := handler :: saved.exception_handlers;
+                              active_handler := saved.exception_active;
+                              exception_origin := saved.exception_origin;
+                              active_initializer := saved.exception_initializer;
+                              exception_transfer := true;
+                              transfer handler.handler_untry
+                          | Some (Runtime_word _) -> (
+                              handlers := outer;
+                              live_frame_bytes :=
+                                !live_frame_bytes
+                                - Task_exception_layout.handler_byte_count;
+                              active_handler := None;
+                              match outer with
+                              | next :: _ -> enter_catch next
+                              | [] -> (
+                                  match !exception_origin with
+                                  | Some origin ->
+                                      escape_source_exception origin
+                                  | None ->
+                                      failed :=
+                                        Some
+                                          (runtime_error ~instruction block
+                                             !steps "HCEX0002"
+                                             "catch completion has no original \
+                                              throw")))
+                          | _ ->
+                              failed :=
+                                Some
+                                  (runtime_error ~instruction block !steps
+                                     "HCEX0002"
+                                     "catch state has no initialized owned \
+                                      task byte")))
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCEX0002"
+                             "catch return has no matching exception dispatch"))
+              | Internal_task_address type_ -> (
                   match
-                    ( coerce_value type_ operand,
-                      resolve_location block instruction location )
+                    (!calls, ensure_exception_storage block instruction)
                   with
-                  | Some value, Some location
-                    when write_location block instruction location value ->
-                      let expression_value =
-                        match (type_, operand) with
-                        | Stored_narrow scalar, Runtime_word word ->
-                            Runtime_word
-                              {
-                                type_ = scalar_runtime_type scalar;
-                                bits = word.bits;
-                              }
-                        | _ -> value
+                  | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                      :: rest,
+                      Some storage ) ->
+                      let address =
+                        {
+                          pointer_storage = storage;
+                          pointer_base = 0;
+                          pointer_count = Task_exception_layout.byte_count;
+                          pointer_storage_pointee =
+                            Automatic_aggregate_storage.byte_type;
+                          pointer_element_bytes = 1;
+                          pointer_extent_bytes =
+                            Int64.of_int Task_exception_layout.byte_count;
+                          pointer_offset = 0L;
+                          pointer_pointee =
+                            Type.dereference type_ |> Result.get_ok;
+                        }
                       in
-                      values := Value_map.add result expression_value !values
-                  | Some _, Some _ -> ()
+                      calls :=
+                        { scope with completion = Completed_pointer address }
+                        :: rest
                   | _, None -> ()
-                  | None, _ ->
+                  | _ ->
                       failed :=
                         Some
                           (runtime_error ~instruction block !steps "HCIRVM0008"
-                             "prepared store disagrees with its checked \
-                              storage type")))
-          | Update_slot
-              ( location,
-                operation,
-                operand,
-                old_result,
-                result,
-                stored,
-                callback ) -> (
-              let type_ =
-                match stored with
-                | Stored_word type_ -> type_
-                | Stored_narrow scalar -> scalar_runtime_type scalar
-                | Stored_pointer _ -> assert false
-              in
-              let right =
-                match operand with
-                | None -> Some { type_; bits = (if callback then 8L else 1L) }
-                | Some operand -> require_operand block instruction operand
-              in
-              match right with
-              | None -> ()
-              | Some right -> (
-                  match resolve_location block instruction location with
-                  | None -> ()
-                  | Some location -> (
-                      match read_location block instruction location with
-                      | None -> ()
-                      | Some (Runtime_code _ | Runtime_undefined_code _)
-                        when callback ->
-                          failed :=
-                            Some
-                              (runtime_error ~instruction block !steps
-                                 "HCIRVM0024"
-                                 "opaque function address has no numeric \
-                                  callback update")
-                      | Some
-                          ( Runtime_code _
-                          | Runtime_undefined_code _
-                          | Runtime_function_slot_cursor _
-                          | Runtime_pointer _
-                          | Runtime_offset _
-                          | Runtime_void ) ->
-                          failed :=
-                            Some
-                              (runtime_error ~instruction block !steps
-                                 "HCIRVM0008"
-                                 "scalar update reached a pointer-valued slot")
-                      | Some (Runtime_word old) -> (
-                          (* Read the original object after RHS effects, including calls through aliases. *)
+                             "IC_FS has no pending source call scope"))
+              | Call_start item ->
+                  calls :=
+                    {
+                      arguments_rev = [];
+                      completion = Pending;
+                      callback_value = None;
+                      publication_item =
+                        (match item with
+                        | Some _ -> item
+                        | None -> !publication_item);
+                    }
+                    :: !calls
+              | Callback_start captured -> (
+                  match require_value block instruction captured with
+                  | Some value ->
+                      calls :=
+                        {
+                          arguments_rev = [];
+                          completion = Pending;
+                          publication_item = !publication_item;
+                          callback_value = Some value;
+                        }
+                        :: !calls
+                  | None -> ())
+              | Call_cleanup -> ()
+              | Internal_integer (operation, operand, type_) -> (
+                  match (!calls, require_operand block instruction operand) with
+                  | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                      :: rest,
+                      Some word ) ->
+                      let bits = Integer_intrinsic.apply operation word.bits in
+                      calls :=
+                        {
+                          scope with
+                          completion = Completed_word { type_; bits };
+                        }
+                        :: rest
+                  | _, None -> ()
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "integer internal operation has no pending source \
+                              call scope"))
+              | Internal_binary (operation, left, right, type_) -> (
+                  let right_word = require_operand block instruction right in
+                  let left_word =
+                    Option.bind right_word (fun _ ->
+                        require_operand block instruction left)
+                  in
+                  match (!calls, left_word, right_word) with
+                  | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                      :: rest,
+                      Some left,
+                      Some right ) ->
+                      let bits =
+                        Integer_intrinsic.apply_binary operation left.bits
+                          right.bits
+                      in
+                      calls :=
+                        {
+                          scope with
+                          completion = Completed_word { type_; bits };
+                        }
+                        :: rest
+                  | _, None, _ | _, _, None -> ()
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "integer internal operation has no pending source \
+                              call scope"))
+              | Internal_bit (operation, pointer, index) -> (
+                  let index = require_operand block instruction index in
+                  let address =
+                    Option.bind index (fun _ ->
+                        require_pointer ~bounded:false block instruction pointer)
+                  in
+                  match (!calls, index, address) with
+                  | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                      :: rest,
+                      Some index,
+                      Some address ) -> (
+                      let error code message =
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps code
+                               message)
+                      in
+                      let relative = Int64.shift_right_logical index.bits 3 in
+                      if
+                        index.bits < 0L
+                        || address.pointer_offset < 0L
+                        || address.pointer_offset > address.pointer_extent_bytes
+                        || relative
+                           >= Int64.sub address.pointer_extent_bytes
+                                address.pointer_offset
+                      then
+                        error "HCIRVM0019"
+                          "bit index is outside its declared object extent"
+                      else
+                        match Scalar.of_type address.pointer_pointee with
+                        | None ->
+                            error "HCIRVM0008"
+                              "pointed bit operation has no scalar view"
+                        | Some scalar -> (
+                            let width =
+                              Int64.of_int (Scalar.byte_size scalar)
+                            in
+                            let within = Int64.rem relative width in
+                            let address =
+                              {
+                                address with
+                                pointer_offset =
+                                  Int64.add address.pointer_offset
+                                    (Int64.sub relative within);
+                              }
+                            in
+                            if
+                              address_bounds ~one_past:false block instruction
+                                address
+                            then
+                              let location = `View address in
+                              match
+                                read_location block instruction location
+                              with
+                              | Some (Runtime_word word)
+                                when word.type_ = scalar_runtime_type scalar ->
+                                  let bit =
+                                    (8 * Int64.to_int within)
+                                    + Int64.to_int (Int64.logand index.bits 7L)
+                                  in
+                                  let previous, updated =
+                                    Integer_intrinsic.apply_bit operation
+                                      ~index:bit word.bits
+                                  in
+                                  if
+                                    operation = Integer_intrinsic.Test_bit
+                                    || write_location block instruction location
+                                         (Runtime_word
+                                            {
+                                              word with
+                                              bits =
+                                                Scalar.normalize scalar updated;
+                                            })
+                                  then
+                                    calls :=
+                                      {
+                                        scope with
+                                        completion =
+                                          Completed_word
+                                            { type_ = I64; bits = previous };
+                                      }
+                                      :: rest
+                              | None -> ()
+                              | Some _ ->
+                                  error "HCIRVM0008"
+                                    "pointed bit operation reached an invalid \
+                                     scalar cell"))
+                  | _, None, _ | _, _, None -> ()
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "pointed bit operation has no pending source call \
+                              scope"))
+              | Internal_swap (left, right) -> (
+                  let read pointer =
+                    Option.bind (require_pointer block instruction pointer)
+                      (fun address ->
+                        if
+                          not
+                            (address_bounds ~one_past:false block instruction
+                               address)
+                        then None
+                        else
                           match
-                            binary_bits ~compound:true operation old right type_
+                            ( Scalar.of_type address.pointer_pointee,
+                              read_location block instruction (`View address) )
+                          with
+                          | Some scalar, Some (Runtime_word word)
+                            when word.type_ = scalar_runtime_type scalar ->
+                              Some (address, scalar, word)
+                          | _, None -> None
+                          | _ ->
+                              failed :=
+                                Some
+                                  (runtime_error ~instruction block !steps
+                                     "HCIRVM0008"
+                                     "swap reached an invalid scalar cell");
+                              None)
+                  in
+                  let left_cell = read left in
+                  let right_cell =
+                    Option.bind left_cell (fun _ -> read right)
+                  in
+                  match (!calls, left_cell, right_cell) with
+                  | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                      :: rest,
+                      Some (left_address, left_scalar, left_word),
+                      Some (right_address, right_scalar, right_word) ) ->
+                      if
+                        write_location block instruction (`View right_address)
+                          (Runtime_word
+                             {
+                               right_word with
+                               bits =
+                                 Scalar.normalize right_scalar left_word.bits;
+                             })
+                        && write_location block instruction (`View left_address)
+                             (Runtime_word
+                                {
+                                  left_word with
+                                  bits =
+                                    Scalar.normalize left_scalar right_word.bits;
+                                })
+                      then
+                        calls :=
+                          { scope with completion = Completed_void } :: rest
+                  | _, None, _ | _, _, None -> ()
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "swap has no pending source call scope"))
+              | Internal_mod_u64 (pointer, divisor) -> (
+                  let right = require_operand block instruction divisor in
+                  let location =
+                    Option.bind right (fun _ ->
+                        resolve_location block instruction
+                          (Indirect_slot pointer))
+                  in
+                  match (!calls, right, location) with
+                  | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                      :: rest,
+                      Some right,
+                      Some location ) -> (
+                      match read_location block instruction location with
+                      | Some (Runtime_word left) -> (
+                          match
+                            divide_bits ~opcode:"IC_MOD_U64" ~remainder:true U64
+                              left right
                           with
                           | Error (code, message) ->
                               failed :=
@@ -10636,698 +11013,1316 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                   (runtime_error ~instruction block !steps code
                                      message)
                           | Ok bits ->
-                              let computed = { type_; bits } in
-                              let word =
-                                match stored with
-                                | Stored_narrow scalar ->
-                                    {
-                                      type_;
-                                      bits = Scalar.normalize scalar bits;
-                                    }
-                                | Stored_word _ -> computed
-                                | Stored_pointer _ -> assert false
+                              let quotient =
+                                Int64.unsigned_div left.bits right.bits
                               in
                               if
                                 write_location block instruction location
-                                  (Runtime_word word)
+                                  (Runtime_word { left with bits = quotient })
                               then
-                                values :=
-                                  Value_map.add result
-                                    (Runtime_word
-                                       (if old_result then old
-                                        else if Option.is_some operand then
-                                          computed
-                                        else word))
-                                    !values))))
-          | Immediate (result, word) ->
-              values := Value_map.add result (Runtime_word word) !values
-          | Undefined_function_address result ->
-              values :=
-                Value_map.add result (Runtime_undefined_code I64) !values
-          | Function_slot_cursor (result, receipt) ->
-              values :=
-                Value_map.add result (Runtime_function_slot_cursor receipt)
-                  !values
-          | Function_slot_load (result, cursor, receipt) -> (
-              match Value_map.find_opt cursor !values with
-              | Some (Runtime_function_slot_cursor original)
-                when original == receipt ->
-                  let selected =
-                    Runtime.function_slot_address_declaration receipt
-                  in
-                  let symbol =
-                    Sema.Function_resolution
-                    .resolved_declaration_identity_symbol selected
-                  in
-                  let matches callee =
-                    callee.callee_symbol == symbol
-                    && Option.fold ~none:false
-                         ~some:(fun declaration ->
-                           declaration == selected
-                           || Sema.Function_resolution.is_joined_successor
-                                ~earlier:selected ~later:declaration)
-                         callee.callee_definition
-                  in
-                  let retained =
-                    List.find_opt
-                      (fun executable -> matches executable.function_callee)
-                      retained_functions
-                  in
-                  let executable =
-                    match retained with
-                    | Some executable ->
-                        Some
-                          ( executable.function_callee,
-                            executable.function_program,
-                            executable.function_owner,
-                            executable.function_link )
-                    | None ->
-                        Option.bind
-                          (Array.to_list entry_owner.owner_callees
-                          |> List.find_opt (fun (callee, candidate) ->
-                              matches callee
-                              && (candidate == !program
-                                 || Option.fold ~none:false
-                                      ~some:(fun item ->
-                                        Option.fold ~none:false
-                                          ~some:(fun declaration ->
-                                            Sema.Function_type_resolution
-                                            .function_item_index
-                                              (Sema.Function_resolution
-                                               .resolved_declaration_header
-                                                 declaration)
-                                            < item)
-                                          callee.callee_definition)
-                                      (match
-                                         Runtime
-                                         .function_slot_address_item_index
-                                           receipt
-                                       with
-                                      | Some _ as item -> item
-                                      | None -> !publication_item))))
-                          (fun (callee, program) ->
-                            Option.map
-                              (fun link -> (callee, program, entry_owner, link))
-                              (Option.bind globals (fun globals ->
-                                   List.find_opt
-                                     (fun link ->
-                                       Option.fold ~none:false
-                                         ~some:(fun declaration ->
-                                           declaration
-                                           == Sema.Outer_environment
-                                              .function_declaration
-                                                (Retained_function.metadata link))
-                                         callee.callee_definition)
-                                     (Integer_globals.function_publications
-                                        globals))))
-                  in
-                  let value =
-                    match executable with
-                    | None
-                      when Option.is_some
-                             (Runtime.function_slot_address_provider receipt)
-                      -> (
-                        match Runtime.function_slot_address_link receipt with
-                        | Some link
-                          when Option.fold ~none:false
-                                 ~some:(fun globals ->
-                                   List.exists
-                                     (Retained_function.same link)
-                                     (Integer_globals.function_publications
-                                        globals)
-                                   || Option.fold ~none:false
-                                        ~some:(Retained_function.same link)
-                                        (Integer_globals
-                                         .retained_function_declaration globals
-                                           selected))
-                                 globals ->
-                            Option.iter
-                              (fun retain -> retain link receipt)
-                              on_provider_entry;
-                            Runtime_code
-                              {
-                                code_type = I64;
-                                code_link = link;
-                                code_entry = Provider_entry receipt;
-                              }
-                        | _ ->
-                            failed :=
-                              Some
-                                (runtime_error ~instruction block !steps
-                                   "HCIRVM0024"
-                                   "provider entry lacks its original task \
-                                    publication");
-                            Runtime_undefined_code I64)
-                    | None ->
-                        if
-                          Option.is_some
-                            (Runtime.function_slot_address_provider receipt)
-                        then
+                                calls :=
+                                  {
+                                    scope with
+                                    completion =
+                                      Completed_word { type_ = U64; bits };
+                                  }
+                                  :: rest)
+                      | None -> ()
+                      | Some _ ->
                           failed :=
                             Some
                               (runtime_error ~instruction block !steps
-                                 "HCIRVM0024"
-                                 "hosted provider callback address has no \
-                                  original checked executable entry");
-                        Runtime_undefined_code I64
-                    | Some (code_callee, code_program, code_owner, code_link) ->
-                        Runtime_code
-                          {
-                            code_type = I64;
-                            code_link;
-                            code_entry =
-                              Source_entry
-                                (code_callee, code_program, code_owner);
-                          }
-                  in
-                  values := Value_map.add result value !values
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0024"
-                         "function slot dereference lost its original private \
-                          cursor"))
-          | Function_address (result, address) -> (
-              let declaration = Runtime.function_address_declaration address in
-              let local =
-                Array.to_list !owner.owner_callees
-                |> List.find_opt (fun (callee, _) ->
-                    Option.fold ~none:false
-                      ~some:(fun original -> original == declaration)
-                      callee.callee_definition)
-                |> Option.map (fun (callee, program) ->
-                    (callee, program, !owner))
-              in
-              let executable =
-                match local with
-                | Some _ as original -> original
-                | None ->
-                    List.find_opt
-                      (fun executable ->
-                        Retained_function.same executable.function_link
-                          (Runtime.function_address_link address)
-                        && Option.fold ~none:false
-                             ~some:(fun original -> original == declaration)
-                             executable.function_callee.callee_definition)
-                      retained_functions
-                    |> Option.map (fun executable ->
-                        ( executable.function_callee,
-                          executable.function_program,
-                          executable.function_owner ))
-              in
-              match executable with
-              | Some (code_callee, code_program, code_owner) ->
-                  values :=
-                    Value_map.add result
-                      (Runtime_code
-                         {
-                           code_type = I64;
-                           code_link = Runtime.function_address_link address;
-                           code_entry =
-                             Source_entry (code_callee, code_program, code_owner);
-                         })
-                      !values
-              | None
-                when List.exists
-                       (fun (link, _) ->
-                         Retained_function.same link
-                           (Runtime.function_address_link address))
-                       retained_provider_entries ->
-                  let _, receipt =
-                    List.find
-                      (fun (link, _) ->
-                        Retained_function.same link
-                          (Runtime.function_address_link address))
-                      retained_provider_entries
-                  in
-                  values :=
-                    Value_map.add result
-                      (Runtime_code
-                         {
-                           code_type = I64;
-                           code_link = Runtime.function_address_link address;
-                           code_entry = Provider_entry receipt;
-                         })
-                      !values
-              | None ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0024"
-                         "function address has lost its original executable \
-                          owner"))
-          | Unary (operation, operand, result, result_type) -> (
-              match require_operand block instruction operand with
-              | None -> ()
-              | Some operand ->
-                  let bits =
-                    match operation with
-                    | Complement -> Int64.lognot operand.bits
-                    | Logical_not ->
-                        if Int64.equal operand.bits 0L then 1L else 0L
-                    | Negate -> Int64.neg operand.bits
-                  in
-                  values :=
-                    Value_map.add result
-                      (Runtime_word { type_ = result_type; bits })
-                      !values)
-          | Constant_shift (direction, operand, count, result, result_type) -> (
-              match require_operand block instruction operand with
-              | None -> ()
-              | Some operand ->
-                  let shift = shift_count count in
-                  let bits =
-                    match (direction, result_type) with
-                    | Shift_left, (I64 | U64) ->
-                        Int64.shift_left operand.bits shift
-                    | Shift_right, I64 -> Int64.shift_right operand.bits shift
-                    | Shift_right, U64 ->
-                        Int64.shift_right_logical operand.bits shift
-                    | _ -> assert false
-                  in
-                  values :=
-                    Value_map.add result
-                      (Runtime_word { type_ = result_type; bits })
-                      !values)
-          | Pointer_view (operand, result, pointer_pointee) -> (
-              match require_pointer block instruction operand with
-              | None -> ()
-              | Some address ->
-                  values :=
-                    Value_map.add result
-                      (Runtime_pointer { address with pointer_pointee })
-                      !values)
-          | Word_view (operand, result, result_type) -> (
-              match require_value block instruction (Word_operand operand) with
-              | None -> ()
-              | Some (Runtime_word operand) ->
-                  values :=
-                    Value_map.add result
-                      (Runtime_word { type_ = result_type; bits = operand.bits })
-                      !values
-              | Some (Runtime_code code) ->
-                  values :=
-                    Value_map.add result
-                      (Runtime_code { code with code_type = result_type })
-                      !values
-              | Some (Runtime_undefined_code _) ->
-                  values :=
-                    Value_map.add result (Runtime_undefined_code result_type)
-                      !values
-              | Some
-                  ( Runtime_pointer _
-                  | Runtime_offset _
-                  | Runtime_void
-                  | Runtime_function_slot_cursor _ ) -> assert false)
-          | Subtract_pointers (left, right, result) -> (
-              match require_pointer block instruction left with
-              | None -> ()
-              | Some left -> (
-                  match require_pointer block instruction right with
-                  | None -> ()
-                  | Some right ->
-                      if
-                        left.pointer_storage != right.pointer_storage
-                        || left.pointer_base <> right.pointer_base
-                        || left.pointer_count <> right.pointer_count
-                        || left.pointer_element_bytes
-                           <> right.pointer_element_bytes
-                      then
-                        failed :=
-                          Some
-                            (runtime_error ~instruction block !steps
-                               "HCIRVM0018"
-                               "pointer difference requires the same live \
-                                object extent")
-                      else
-                        values :=
-                          Value_map.add result
-                            (Runtime_word
-                               {
-                                 type_ = I64;
-                                 bits =
-                                   Int64.sub left.pointer_offset
-                                     right.pointer_offset;
-                               })
-                            !values))
-          | Compare_pointers (comparison, left, right, result) -> (
-              match require_pointer block instruction left with
-              | None -> ()
-              | Some left -> (
-                  match require_pointer block instruction right with
-                  | None -> ()
-                  | Some right ->
-                      let same_object =
-                        left.pointer_storage == right.pointer_storage
-                        && left.pointer_base = right.pointer_base
-                        && left.pointer_count = right.pointer_count
-                        && left.pointer_element_bytes
-                           = right.pointer_element_bytes
-                      in
-                      if
-                        comparison <> Equal && comparison <> Not_equal
-                        && not same_object
-                      then
-                        failed :=
-                          Some
-                            (runtime_error ~instruction block !steps
-                               "HCIRVM0018"
-                               "pointer ordering requires the same live object \
-                                extent")
-                      else
-                        let order =
-                          Int64.compare left.pointer_offset right.pointer_offset
-                        in
-                        let predicate =
-                          match comparison with
-                          | Equal -> same_object && order = 0
-                          | Not_equal -> not (same_object && order = 0)
-                          | Less -> order < 0
-                          | Less_equal -> order <= 0
-                          | Greater -> order > 0
-                          | Greater_equal -> order >= 0
-                        in
-                        values :=
-                          Value_map.add result
-                            (Runtime_word
-                               {
-                                 type_ = I64;
-                                 bits = (if predicate then 1L else 0L);
-                               })
-                            !values))
-          | Binary
-              ( (Compare (Equal | Not_equal) as operation),
-                left,
-                right,
-                result,
-                result_type )
-            when match
-                   ( Value_map.find_opt left.value_id !values,
-                     Value_map.find_opt right.value_id !values )
-                 with
-                 | Some (Runtime_code _ | Runtime_undefined_code _), _
-                 | _, Some (Runtime_code _ | Runtime_undefined_code _) -> true
-                 | _ -> false -> (
-              let operands =
-                Option.bind
-                  (require_value block instruction (Word_operand left))
-                  (fun left ->
-                    Option.map
-                      (fun right -> (left, right))
-                      (require_value block instruction (Word_operand right)))
-              in
-              match operands with
-              | None -> ()
-              | Some (left, right) -> (
-                  let equal =
-                    match (left, right) with
-                    | Runtime_code left, Runtime_code right ->
+                                 "HCIRVM0008"
+                                 "IC_MOD_U64 pointed object is not a scalar \
+                                  word"))
+                  | _, None, _ | _, _, None -> ()
+                  | _ ->
+                      failed :=
                         Some
-                          (Retained_function.same left.code_link right.code_link
-                          &&
-                          match (left.code_entry, right.code_entry) with
-                          | Source_entry (lc, lp, lo), Source_entry (rc, rp, ro)
-                            -> lc == rc && lp == rp && lo == ro
-                          | Provider_entry left, Provider_entry right ->
-                              Runtime.function_slot_address_declaration left
-                              == Runtime.function_slot_address_declaration right
-                          | _ -> false)
-                    | Runtime_code _, Runtime_word { bits = 0L; _ }
-                    | Runtime_word { bits = 0L; _ }, Runtime_code _ ->
-                        Some false
-                    | Runtime_undefined_code _, Runtime_undefined_code _ ->
-                        Some true
-                    | ( Runtime_undefined_code _,
-                        (Runtime_code _ | Runtime_word { bits = 0L; _ }) )
-                    | ( (Runtime_code _ | Runtime_word { bits = 0L; _ }),
-                        Runtime_undefined_code _ ) -> Some false
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "IC_MOD_U64 has no pending source call scope"))
+              | Internal_strlen pointer -> (
+                  match
+                    ( !calls,
+                      require_pointer ~bounded:false block instruction pointer
+                    )
+                  with
+                  | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                      :: rest,
+                      Some address ) ->
+                      let relative = ref 0L in
+                      let finished = ref false in
+                      while (not !finished) && Option.is_none !failed do
+                        if !relative <> 0L && !steps >= !execution_limit then
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0007"
+                                 "the bounded integer execution step limit was \
+                                  exhausted")
+                        else (
+                          if !relative <> 0L then incr steps;
+                          match
+                            read_owned_byte ~purpose:"IC_STRLEN" block
+                              instruction address !relative
+                          with
+                          | Error error -> failed := Some error
+                          | Ok '\000' ->
+                              calls :=
+                                {
+                                  scope with
+                                  completion =
+                                    Completed_word
+                                      { type_ = I64; bits = !relative };
+                                }
+                                :: rest;
+                              finished := true
+                          | Ok _ -> relative := Int64.succ !relative)
+                      done
+                  | _, None -> ()
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "internal byte scan has no pending source call \
+                              scope"))
+              | (Call _ | Retained_call _ | Extern_call _ | Callback_call _) as
+                operation -> (
+                  let target =
+                    match operation with
+                    | Call index
+                      when index >= 0
+                           && index < Array.length !owner.owner_callees ->
+                        let callee, body = !owner.owner_callees.(index) in
+                        Some (Source_entry (callee, body, !owner))
+                    | Retained_call link ->
+                        List.find_opt
+                          (fun executable ->
+                            Retained_function.same executable.function_link link)
+                          retained_functions
+                        |> Option.map (fun executable ->
+                            Source_entry
+                              ( executable.function_callee,
+                                executable.function_program,
+                                executable.function_owner ))
+                    | Callback_call _ -> (
+                        match !calls with
+                        | { callback_value = Some (Runtime_code code); _ } :: _
+                          -> Some code.code_entry
+                        | _ -> None)
+                    | Extern_call (site, _) ->
+                        let visible_item =
+                          match !calls with
+                          | scope :: _ -> scope.publication_item
+                          | [] -> None
+                        in
+                        Option.map
+                          (fun (callee, body, owner) ->
+                            Source_entry (callee, body, owner))
+                          (extern_target site visible_item)
                     | _ -> None
                   in
-                  match equal with
-                  | Some equal ->
-                      let predicate =
-                        if operation = Compare Equal then equal else not equal
+                  match (!calls, target) with
+                  | ( ({ completion = Pending; _ } as scope) :: rest,
+                      Some (Provider_entry receipt) ) -> (
+                      match operation with
+                      | Callback_call (callback, parameter_types)
+                        when Runtime.function_slot_address_matches_callback
+                               receipt callback -> (
+                          match
+                            invoke_output block instruction
+                              (Runtime.function_slot_address_provider receipt)
+                              parameter_types scope
+                          with
+                          | Ok _ when !exception_transfer -> ()
+                          | Ok completion ->
+                              calls := { scope with completion } :: rest
+                          | Error error -> failed := Some error)
+                      | _ ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0014"
+                                 "the captured provider entry disagrees with \
+                                  the original callback signature or cleanup \
+                                  policy"))
+                  | ({ completion = Pending; _ } as scope) :: rest, None -> (
+                      match operation with
+                      | Callback_call _ -> (
+                          match scope.callback_value with
+                          | Some (Runtime_undefined_code _) ->
+                              let origin =
+                                runtime_error ~instruction block !steps
+                                  "HCIRVM0030"
+                                  "the reached captured function address is \
+                                   UndefinedExtern"
+                              in
+                              source_exception block instruction
+                                (packed_exception "UndefExt")
+                                origin
+                          | _ ->
+                              failed :=
+                                Some
+                                  (runtime_error ~instruction block !steps
+                                     "HCIRVM0024"
+                                     "the reached callback has no owned \
+                                      executable address"))
+                      | Extern_call (site, parameter_types) ->
+                          if Option.is_some (Runtime.provider site) then
+                            match
+                              invoke_output block instruction
+                                (Runtime.provider site) parameter_types scope
+                            with
+                            | Ok _ when !exception_transfer -> ()
+                            | Ok completion ->
+                                calls := { scope with completion } :: rest
+                            | Error error -> failed := Some error
+                          else
+                            let origin =
+                              runtime_error ~instruction block !steps
+                                "HCIRVM0030"
+                                "the reached extern function has no published \
+                                 executable definition"
+                            in
+                            source_exception block instruction
+                              (packed_exception "UndefExt")
+                              origin
+                      | _ ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0008"
+                                 "prepared direct call has no available caller \
+                                  scope"))
+                  | ( ({ completion = Pending; _ } as scope) :: _,
+                      Some (Source_entry (callee, body, callee_owner)) ) -> (
+                      let tail_count =
+                        if callee.variadic then
+                          List.length scope.arguments_rev
+                          - Array.length callee.parameter_types
+                          - 1
+                        else 0
+                      in
+                      if
+                        match operation with
+                        | Callback_call (callback, _) ->
+                            not (callback_signature_matches callback callee)
+                        | Extern_call (site, _) ->
+                            not (extern_signature_matches site callee)
+                        | _ -> false
+                      then
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0014"
+                               (match operation with
+                               | Callback_call _ ->
+                                   "the reached callback definition disagrees \
+                                    with its original signature or cleanup \
+                                    policy"
+                               | _ ->
+                                   "published extern definition disagrees with \
+                                    the captured call signature"))
+                      else if !depth >= max_call_depth then
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0015"
+                               "the integer call depth limit was exhausted")
+                      else if
+                        callee.frame_bytes > max_frame_bytes - !live_frame_bytes
+                        || tail_count
+                           > (max_frame_bytes - !live_frame_bytes
+                            - callee.frame_bytes)
+                             / 8
+                        || tail_count
+                           > Sys.max_array_length
+                             - Array.length body.initial_slots
+                      then
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0011"
+                               "the active function frames exceed the frame \
+                                byte limit")
+                      else
+                        match prepare_arguments callee scope.arguments_rev with
+                        | None ->
+                            failed :=
+                              Some
+                                (runtime_error ~instruction block !steps
+                                   "HCIRVM0008"
+                                   "prepared arguments disagree with the \
+                                    checked function frame")
+                        | Some (arguments, tail) ->
+                            let frame_bytes =
+                              callee.frame_bytes + (8 * Array.length tail)
+                            in
+                            callers :=
+                              {
+                                saved_program = !program;
+                                saved_owner = !owner;
+                                saved_block = !current_block;
+                                saved_instruction = !current_instruction;
+                                saved_values = !values;
+                                saved_slots = !slots;
+                                saved_return = !pending_return;
+                                saved_local_returns = !local_returns;
+                                saved_calls = !calls;
+                                saved_publication_item = !publication_item;
+                              }
+                              :: !callers;
+                            incr depth;
+                            live_frame_bytes := !live_frame_bytes + frame_bytes;
+                            let initialized =
+                              frame_storage
+                                (Array.append body.initial_slots tail)
+                            in
+                            Array.iteri
+                              (fun position value ->
+                                let base, count, _ =
+                                  callee.callee_parameter_slots.(position)
+                                in
+                                if count = 1 then
+                                  initialized.cells.(base) <- value
+                                else
+                                  match value with
+                                  | Some (Runtime_word word) ->
+                                      for byte = 0 to count - 1 do
+                                        initialized.cells.(base + byte) <-
+                                          Some
+                                            (Runtime_word
+                                               {
+                                                 type_ = U64;
+                                                 bits =
+                                                   Int64.logand 255L
+                                                     (Int64.shift_right_logical
+                                                        word.bits (8 * byte));
+                                               })
+                                      done
+                                  | _ -> assert false)
+                              arguments;
+                            program :=
+                              { body with initial_frame_bytes = frame_bytes };
+                            publication_item := scope.publication_item;
+                            owner := callee_owner;
+                            slots := initialized;
+                            values := Value_map.empty;
+                            pending_return := None;
+                            local_returns := [];
+                            calls := [];
+                            current_block := body.entry_index;
+                            current_instruction := 0)
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "prepared direct call has no available caller \
+                              scope"))
+              | Call_end (result, type_) -> (
+                  match !calls with
+                  | { completion = Completed_word word; _ } :: rest
+                    when word.type_ = type_ ->
+                      calls := rest;
+                      values := Value_map.add result (Runtime_word word) !values
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "direct call did not supply its declared return \
+                              word"))
+              | Call_end_pointer (result, type_) -> (
+                  match !calls with
+                  | { completion = Completed_pointer address; _ } :: rest
+                    when Option.fold ~none:false
+                           ~some:(Type.equal address.pointer_pointee)
+                           (Type.dereference type_ |> Result.to_option) ->
+                      calls := rest;
+                      values :=
+                        Value_map.add result (Runtime_pointer address) !values
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "IC_FS completion lost its checked task pointer"))
+              | Call_end_void result -> (
+                  match !calls with
+                  | { completion = Completed_void; _ } :: rest ->
+                      calls := rest;
+                      values := Value_map.add result Runtime_void !values
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "prepared U0 call did not complete without a value")
+                  )
+              | Frame_address_tick -> ()
+              | Scale_index (operand, stride, result) -> (
+                  match require_operand block instruction operand with
+                  | None -> ()
+                  | Some index ->
+                      if
+                        (index.type_ = U64 && index.bits < 0L)
+                        || index.bits > Int64.div Int64.max_int stride
+                        || index.bits < Int64.div Int64.min_int stride
+                      then
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0020"
+                               "index byte scaling exceeds the hosted signed \
+                                address range")
+                      else
+                        values :=
+                          Value_map.add result
+                            (Runtime_offset (Int64.mul index.bits stride))
+                            !values)
+              | Index_address (operation, location, offset, result, pointee)
+                -> (
+                  match
+                    ( resolve_address block instruction location pointee,
+                      Value_map.find_opt offset !values )
+                  with
+                  | Some address, Some (Runtime_offset delta) ->
+                      let overflow, offset =
+                        match operation with
+                        | Add ->
+                            ( delta > 0L
+                              && address.pointer_offset
+                                 > Int64.sub Int64.max_int delta
+                              || delta < 0L
+                                 && address.pointer_offset
+                                    < Int64.sub Int64.min_int delta,
+                              Int64.add address.pointer_offset delta )
+                        | Subtract ->
+                            ( delta > 0L
+                              && address.pointer_offset
+                                 < Int64.add Int64.min_int delta
+                              || delta < 0L
+                                 && address.pointer_offset
+                                    > Int64.add Int64.max_int delta,
+                              Int64.sub address.pointer_offset delta )
+                        | _ -> assert false
+                      in
+                      if overflow then
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0020"
+                               (if operation = Subtract then
+                                  "index address subtraction exceeds the \
+                                   hosted signed address range"
+                                else
+                                  "index address addition exceeds the hosted \
+                                   signed address range"))
+                      else
+                        values :=
+                          Value_map.add result
+                            (Runtime_pointer
+                               { address with pointer_offset = offset })
+                            !values
+                  | None, _ -> ()
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "prepared index offset is unavailable"))
+              | Project_member (location, delta, result, source, pointer_pointee)
+                -> (
+                  match resolve_address block instruction location source with
+                  | None -> ()
+                  | Some address ->
+                      if
+                        delta > 0L
+                        && address.pointer_offset
+                           > Int64.sub Int64.max_int delta
+                        || delta < 0L
+                           && address.pointer_offset
+                              < Int64.sub Int64.min_int delta
+                      then
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0020"
+                               "member address exceeds the hosted signed \
+                                address range")
+                      else
+                        let projected =
+                          {
+                            address with
+                            pointer_offset =
+                              Int64.add address.pointer_offset delta;
+                            pointer_pointee;
+                          }
+                        in
+                        if
+                          address_bounds ~one_past:true block instruction
+                            projected
+                        then
+                          values :=
+                            Value_map.add result (Runtime_pointer projected)
+                              !values)
+              | Materialize_address (location, result, pointer_pointee) -> (
+                  match
+                    resolve_address block instruction location pointer_pointee
+                  with
+                  | Some address
+                    when address_bounds ~one_past:true block instruction address
+                    ->
+                      values :=
+                        Value_map.add result (Runtime_pointer address) !values
+                  | _ -> ())
+              | Load_slot (location, result) -> (
+                  match
+                    Option.bind
+                      (resolve_location block instruction location)
+                      (read_location block instruction)
+                  with
+                  | None -> ()
+                  | Some value -> values := Value_map.add result value !values)
+              | Store_slot (location, operand, result, type_) -> (
+                  match require_value block instruction operand with
+                  | None -> ()
+                  | Some operand -> (
+                      match
+                        ( coerce_value type_ operand,
+                          resolve_location block instruction location )
+                      with
+                      | Some value, Some location
+                        when write_location block instruction location value ->
+                          let expression_value =
+                            match (type_, operand) with
+                            | Stored_narrow scalar, Runtime_word word ->
+                                Runtime_word
+                                  {
+                                    type_ = scalar_runtime_type scalar;
+                                    bits = word.bits;
+                                  }
+                            | _ -> value
+                          in
+                          values :=
+                            Value_map.add result expression_value !values
+                      | Some _, Some _ -> ()
+                      | _, None -> ()
+                      | None, _ ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0008"
+                                 "prepared store disagrees with its checked \
+                                  storage type")))
+              | Update_slot
+                  ( location,
+                    operation,
+                    operand,
+                    old_result,
+                    result,
+                    stored,
+                    callback ) -> (
+                  let type_ =
+                    match stored with
+                    | Stored_word type_ -> type_
+                    | Stored_narrow scalar -> scalar_runtime_type scalar
+                    | Stored_pointer _ -> assert false
+                  in
+                  let right =
+                    match operand with
+                    | None ->
+                        Some { type_; bits = (if callback then 8L else 1L) }
+                    | Some operand -> require_operand block instruction operand
+                  in
+                  match right with
+                  | None -> ()
+                  | Some right -> (
+                      match resolve_location block instruction location with
+                      | None -> ()
+                      | Some location -> (
+                          match read_location block instruction location with
+                          | None -> ()
+                          | Some (Runtime_code _ | Runtime_undefined_code _)
+                            when callback ->
+                              failed :=
+                                Some
+                                  (runtime_error ~instruction block !steps
+                                     "HCIRVM0024"
+                                     "opaque function address has no numeric \
+                                      callback update")
+                          | Some
+                              ( Runtime_code _
+                              | Runtime_undefined_code _
+                              | Runtime_function_slot_cursor _
+                              | Runtime_pointer _
+                              | Runtime_offset _
+                              | Runtime_void ) ->
+                              failed :=
+                                Some
+                                  (runtime_error ~instruction block !steps
+                                     "HCIRVM0008"
+                                     "scalar update reached a pointer-valued \
+                                      slot")
+                          | Some (Runtime_word old) -> (
+                              (* Read the original object after RHS effects, including calls through aliases. *)
+                              match
+                                binary_bits ~compound:true operation old right
+                                  type_
+                              with
+                              | Error (code, message) ->
+                                  failed :=
+                                    Some
+                                      (runtime_error ~instruction block !steps
+                                         code message)
+                              | Ok bits ->
+                                  let computed = { type_; bits } in
+                                  let word =
+                                    match stored with
+                                    | Stored_narrow scalar ->
+                                        {
+                                          type_;
+                                          bits = Scalar.normalize scalar bits;
+                                        }
+                                    | Stored_word _ -> computed
+                                    | Stored_pointer _ -> assert false
+                                  in
+                                  if
+                                    write_location block instruction location
+                                      (Runtime_word word)
+                                  then
+                                    values :=
+                                      Value_map.add result
+                                        (Runtime_word
+                                           (if old_result then old
+                                            else if Option.is_some operand then
+                                              computed
+                                            else word))
+                                        !values))))
+              | Immediate (result, word) ->
+                  values := Value_map.add result (Runtime_word word) !values
+              | Undefined_function_address result ->
+                  values :=
+                    Value_map.add result (Runtime_undefined_code I64) !values
+              | Function_slot_cursor (result, receipt) ->
+                  values :=
+                    Value_map.add result (Runtime_function_slot_cursor receipt)
+                      !values
+              | Function_slot_load (result, cursor, receipt) -> (
+                  match Value_map.find_opt cursor !values with
+                  | Some (Runtime_function_slot_cursor original)
+                    when original == receipt ->
+                      let selected =
+                        Runtime.function_slot_address_declaration receipt
+                      in
+                      let symbol =
+                        Sema.Function_resolution
+                        .resolved_declaration_identity_symbol selected
+                      in
+                      let matches callee =
+                        callee.callee_symbol == symbol
+                        && Option.fold ~none:false
+                             ~some:(fun declaration ->
+                               declaration == selected
+                               || Sema.Function_resolution.is_joined_successor
+                                    ~earlier:selected ~later:declaration)
+                             callee.callee_definition
+                      in
+                      let retained =
+                        List.find_opt
+                          (fun executable -> matches executable.function_callee)
+                          retained_functions
+                      in
+                      let executable =
+                        match retained with
+                        | Some executable ->
+                            Some
+                              ( executable.function_callee,
+                                executable.function_program,
+                                executable.function_owner,
+                                executable.function_link )
+                        | None ->
+                            Option.bind
+                              (Array.to_list entry_owner.owner_callees
+                              |> List.find_opt (fun (callee, candidate) ->
+                                  matches callee
+                                  && (candidate == !program
+                                     || Option.fold ~none:false
+                                          ~some:(fun item ->
+                                            Option.fold ~none:false
+                                              ~some:(fun declaration ->
+                                                Sema.Function_type_resolution
+                                                .function_item_index
+                                                  (Sema.Function_resolution
+                                                   .resolved_declaration_header
+                                                     declaration)
+                                                < item)
+                                              callee.callee_definition)
+                                          (match
+                                             Runtime
+                                             .function_slot_address_item_index
+                                               receipt
+                                           with
+                                          | Some _ as item -> item
+                                          | None -> !publication_item))))
+                              (fun (callee, program) ->
+                                Option.map
+                                  (fun link ->
+                                    (callee, program, entry_owner, link))
+                                  (Option.bind globals (fun globals ->
+                                       List.find_opt
+                                         (fun link ->
+                                           Option.fold ~none:false
+                                             ~some:(fun declaration ->
+                                               declaration
+                                               == Sema.Outer_environment
+                                                  .function_declaration
+                                                    (Retained_function.metadata
+                                                       link))
+                                             callee.callee_definition)
+                                         (Integer_globals.function_publications
+                                            globals))))
+                      in
+                      let value =
+                        match executable with
+                        | None
+                          when Option.is_some
+                                 (Runtime.function_slot_address_provider receipt)
+                          -> (
+                            match
+                              Runtime.function_slot_address_link receipt
+                            with
+                            | Some link
+                              when Option.fold ~none:false
+                                     ~some:(fun globals ->
+                                       List.exists
+                                         (Retained_function.same link)
+                                         (Integer_globals.function_publications
+                                            globals)
+                                       || Option.fold ~none:false
+                                            ~some:(Retained_function.same link)
+                                            (Integer_globals
+                                             .retained_function_declaration
+                                               globals selected))
+                                     globals ->
+                                Option.iter
+                                  (fun retain -> retain link receipt)
+                                  on_provider_entry;
+                                Runtime_code
+                                  {
+                                    code_type = I64;
+                                    code_link = link;
+                                    code_entry = Provider_entry receipt;
+                                  }
+                            | _ ->
+                                failed :=
+                                  Some
+                                    (runtime_error ~instruction block !steps
+                                       "HCIRVM0024"
+                                       "provider entry lacks its original task \
+                                        publication");
+                                Runtime_undefined_code I64)
+                        | None ->
+                            if
+                              Option.is_some
+                                (Runtime.function_slot_address_provider receipt)
+                            then
+                              failed :=
+                                Some
+                                  (runtime_error ~instruction block !steps
+                                     "HCIRVM0024"
+                                     "hosted provider callback address has no \
+                                      original checked executable entry");
+                            Runtime_undefined_code I64
+                        | Some (code_callee, code_program, code_owner, code_link)
+                          ->
+                            Runtime_code
+                              {
+                                code_type = I64;
+                                code_link;
+                                code_entry =
+                                  Source_entry
+                                    (code_callee, code_program, code_owner);
+                              }
+                      in
+                      values := Value_map.add result value !values
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0024"
+                             "function slot dereference lost its original \
+                              private cursor"))
+              | Function_address (result, address) -> (
+                  let declaration =
+                    Runtime.function_address_declaration address
+                  in
+                  let local =
+                    Array.to_list !owner.owner_callees
+                    |> List.find_opt (fun (callee, _) ->
+                        Option.fold ~none:false
+                          ~some:(fun original -> original == declaration)
+                          callee.callee_definition)
+                    |> Option.map (fun (callee, program) ->
+                        (callee, program, !owner))
+                  in
+                  let executable =
+                    match local with
+                    | Some _ as original -> original
+                    | None ->
+                        List.find_opt
+                          (fun executable ->
+                            Retained_function.same executable.function_link
+                              (Runtime.function_address_link address)
+                            && Option.fold ~none:false
+                                 ~some:(fun original -> original == declaration)
+                                 executable.function_callee.callee_definition)
+                          retained_functions
+                        |> Option.map (fun executable ->
+                            ( executable.function_callee,
+                              executable.function_program,
+                              executable.function_owner ))
+                  in
+                  match executable with
+                  | Some (code_callee, code_program, code_owner) ->
+                      values :=
+                        Value_map.add result
+                          (Runtime_code
+                             {
+                               code_type = I64;
+                               code_link = Runtime.function_address_link address;
+                               code_entry =
+                                 Source_entry
+                                   (code_callee, code_program, code_owner);
+                             })
+                          !values
+                  | None
+                    when List.exists
+                           (fun (link, _) ->
+                             Retained_function.same link
+                               (Runtime.function_address_link address))
+                           retained_provider_entries ->
+                      let _, receipt =
+                        List.find
+                          (fun (link, _) ->
+                            Retained_function.same link
+                              (Runtime.function_address_link address))
+                          retained_provider_entries
                       in
                       values :=
                         Value_map.add result
-                          (Runtime_word
+                          (Runtime_code
                              {
-                               type_ = result_type;
-                               bits = (if predicate then 1L else 0L);
+                               code_type = I64;
+                               code_link = Runtime.function_address_link address;
+                               code_entry = Provider_entry receipt;
                              })
                           !values
                   | None ->
                       failed :=
                         Some
                           (runtime_error ~instruction block !steps "HCIRVM0024"
-                             "opaque function addresses can compare only with \
-                              owned code or null")))
-          | Binary (operation, left, right, result, result_type) -> (
-              match
-                require_operand ~computation:true block instruction left
-              with
-              | None -> ()
-              | Some left -> (
-                  match
-                    require_operand ~computation:true block instruction right
-                  with
+                             "function address has lost its original \
+                              executable owner"))
+              | Unary (operation, operand, result, result_type) -> (
+                  match require_operand block instruction operand with
                   | None -> ()
-                  | Some right -> (
-                      match binary_bits operation left right result_type with
-                      | Ok bits ->
-                          values :=
-                            Value_map.add result
-                              (Runtime_word { type_ = result_type; bits })
-                              !values
-                      | Error (code, message) ->
-                          failed :=
-                            Some
-                              (runtime_error ~instruction block !steps code
-                                 message))))
-          | Saved_data_address (result, data, type_) -> (
-              match
-                List.find_opt
-                  (fun (original, _) ->
-                    Saved_parameter_value.same_data original data)
-                  saved_data
-              with
-              | Some (_, address) when address.pointer_storage.live -> (
-                  match Type.dereference type_ with
-                  | Ok pointer_pointee ->
+                  | Some operand ->
+                      let bits =
+                        match operation with
+                        | Complement -> Int64.lognot operand.bits
+                        | Logical_not ->
+                            if Int64.equal operand.bits 0L then 1L else 0L
+                        | Negate -> Int64.neg operand.bits
+                      in
+                      values :=
+                        Value_map.add result
+                          (Runtime_word { type_ = result_type; bits })
+                          !values)
+              | Constant_shift (direction, operand, count, result, result_type)
+                -> (
+                  match require_operand block instruction operand with
+                  | None -> ()
+                  | Some operand ->
+                      let shift = shift_count count in
+                      let bits =
+                        match (direction, result_type) with
+                        | Shift_left, (I64 | U64) ->
+                            Int64.shift_left operand.bits shift
+                        | Shift_right, I64 ->
+                            Int64.shift_right operand.bits shift
+                        | Shift_right, U64 ->
+                            Int64.shift_right_logical operand.bits shift
+                        | _ -> assert false
+                      in
+                      values :=
+                        Value_map.add result
+                          (Runtime_word { type_ = result_type; bits })
+                          !values)
+              | Pointer_view (operand, result, pointer_pointee) -> (
+                  match require_pointer block instruction operand with
+                  | None -> ()
+                  | Some address ->
                       values :=
                         Value_map.add result
                           (Runtime_pointer { address with pointer_pointee })
+                          !values)
+              | Word_view (operand, result, result_type) -> (
+                  match
+                    require_value block instruction (Word_operand operand)
+                  with
+                  | None -> ()
+                  | Some (Runtime_word operand) ->
+                      values :=
+                        Value_map.add result
+                          (Runtime_word
+                             { type_ = result_type; bits = operand.bits })
                           !values
-                  | Error _ -> assert false)
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0026"
-                         "saved data default has no live original task-owned \
-                          value"))
-          | Discard operand ->
-              let runtime_value = require_value block instruction operand in
-              let value =
-                Option.bind runtime_value (function
-                  | Runtime_word word -> Some word
-                  | Runtime_code _
-                  | Runtime_undefined_code _
-                  | Runtime_function_slot_cursor _
-                  | Runtime_pointer _
-                  | Runtime_offset _
-                  | Runtime_void -> None)
-              in
-              if
-                capture_last && instruction.capture_discard
-                && (not !program.is_function)
-                && Option.is_none !active_initializer
-                && Option.is_none !failed
-              then (
-                capture value;
-                final_callback :=
-                  Option.bind runtime_value (function
-                    | Runtime_code code -> Some (Captured_body code.code_link)
-                    | Runtime_undefined_code _ -> Some Captured_undefined
-                    | _ -> None);
-                final_pointer :=
-                  Option.bind runtime_value (function
-                    | Runtime_pointer address -> Some address
-                    | _ -> None))
-          | Discard_void value_id -> (
-              match Value_map.find_opt value_id !values with
-              | Some Runtime_void ->
+                  | Some (Runtime_code code) ->
+                      values :=
+                        Value_map.add result
+                          (Runtime_code { code with code_type = result_type })
+                          !values
+                  | Some (Runtime_undefined_code _) ->
+                      values :=
+                        Value_map.add result
+                          (Runtime_undefined_code result_type) !values
+                  | Some
+                      ( Runtime_pointer _
+                      | Runtime_offset _
+                      | Runtime_void
+                      | Runtime_function_slot_cursor _ ) -> assert false)
+              | Subtract_pointers (left, right, result) -> (
+                  match require_pointer block instruction left with
+                  | None -> ()
+                  | Some left -> (
+                      match require_pointer block instruction right with
+                      | None -> ()
+                      | Some right ->
+                          if
+                            left.pointer_storage != right.pointer_storage
+                            || left.pointer_base <> right.pointer_base
+                            || left.pointer_count <> right.pointer_count
+                            || left.pointer_element_bytes
+                               <> right.pointer_element_bytes
+                          then
+                            failed :=
+                              Some
+                                (runtime_error ~instruction block !steps
+                                   "HCIRVM0018"
+                                   "pointer difference requires the same live \
+                                    object extent")
+                          else
+                            values :=
+                              Value_map.add result
+                                (Runtime_word
+                                   {
+                                     type_ = I64;
+                                     bits =
+                                       Int64.sub left.pointer_offset
+                                         right.pointer_offset;
+                                   })
+                                !values))
+              | Compare_pointers (comparison, left, right, result) -> (
+                  match require_pointer block instruction left with
+                  | None -> ()
+                  | Some left -> (
+                      match require_pointer block instruction right with
+                      | None -> ()
+                      | Some right ->
+                          let same_object =
+                            left.pointer_storage == right.pointer_storage
+                            && left.pointer_base = right.pointer_base
+                            && left.pointer_count = right.pointer_count
+                            && left.pointer_element_bytes
+                               = right.pointer_element_bytes
+                          in
+                          if
+                            comparison <> Equal && comparison <> Not_equal
+                            && not same_object
+                          then
+                            failed :=
+                              Some
+                                (runtime_error ~instruction block !steps
+                                   "HCIRVM0018"
+                                   "pointer ordering requires the same live \
+                                    object extent")
+                          else
+                            let order =
+                              Int64.compare left.pointer_offset
+                                right.pointer_offset
+                            in
+                            let predicate =
+                              match comparison with
+                              | Equal -> same_object && order = 0
+                              | Not_equal -> not (same_object && order = 0)
+                              | Less -> order < 0
+                              | Less_equal -> order <= 0
+                              | Greater -> order > 0
+                              | Greater_equal -> order >= 0
+                            in
+                            values :=
+                              Value_map.add result
+                                (Runtime_word
+                                   {
+                                     type_ = I64;
+                                     bits = (if predicate then 1L else 0L);
+                                   })
+                                !values))
+              | Binary
+                  ( (Compare (Equal | Not_equal) as operation),
+                    left,
+                    right,
+                    result,
+                    result_type )
+                when match
+                       ( Value_map.find_opt left.value_id !values,
+                         Value_map.find_opt right.value_id !values )
+                     with
+                     | Some (Runtime_code _ | Runtime_undefined_code _), _
+                     | _, Some (Runtime_code _ | Runtime_undefined_code _) ->
+                         true
+                     | _ -> false -> (
+                  let operands =
+                    Option.bind
+                      (require_value block instruction (Word_operand left))
+                      (fun left ->
+                        Option.map
+                          (fun right -> (left, right))
+                          (require_value block instruction (Word_operand right)))
+                  in
+                  match operands with
+                  | None -> ()
+                  | Some (left, right) -> (
+                      let equal =
+                        match (left, right) with
+                        | Runtime_code left, Runtime_code right ->
+                            Some
+                              (Retained_function.same left.code_link
+                                 right.code_link
+                              &&
+                              match (left.code_entry, right.code_entry) with
+                              | ( Source_entry (lc, lp, lo),
+                                  Source_entry (rc, rp, ro) ) ->
+                                  lc == rc && lp == rp && lo == ro
+                              | Provider_entry left, Provider_entry right ->
+                                  Runtime.function_slot_address_declaration left
+                                  == Runtime.function_slot_address_declaration
+                                       right
+                              | _ -> false)
+                        | Runtime_code _, Runtime_word { bits = 0L; _ }
+                        | Runtime_word { bits = 0L; _ }, Runtime_code _ ->
+                            Some false
+                        | Runtime_undefined_code _, Runtime_undefined_code _ ->
+                            Some true
+                        | ( Runtime_undefined_code _,
+                            (Runtime_code _ | Runtime_word { bits = 0L; _ }) )
+                        | ( (Runtime_code _ | Runtime_word { bits = 0L; _ }),
+                            Runtime_undefined_code _ ) -> Some false
+                        | _ -> None
+                      in
+                      match equal with
+                      | Some equal ->
+                          let predicate =
+                            if operation = Compare Equal then equal
+                            else not equal
+                          in
+                          values :=
+                            Value_map.add result
+                              (Runtime_word
+                                 {
+                                   type_ = result_type;
+                                   bits = (if predicate then 1L else 0L);
+                                 })
+                              !values
+                      | None ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0024"
+                                 "opaque function addresses can compare only \
+                                  with owned code or null")))
+              | Binary (operation, left, right, result, result_type) -> (
+                  match
+                    require_operand ~computation:true block instruction left
+                  with
+                  | None -> ()
+                  | Some left -> (
+                      match
+                        require_operand ~computation:true block instruction
+                          right
+                      with
+                      | None -> ()
+                      | Some right -> (
+                          match
+                            binary_bits operation left right result_type
+                          with
+                          | Ok bits ->
+                              values :=
+                                Value_map.add result
+                                  (Runtime_word { type_ = result_type; bits })
+                                  !values
+                          | Error (code, message) ->
+                              failed :=
+                                Some
+                                  (runtime_error ~instruction block !steps code
+                                     message))))
+              | Saved_data_address (result, data, type_) -> (
+                  match
+                    List.find_opt
+                      (fun (original, _) ->
+                        Saved_parameter_value.same_data original data)
+                      saved_data
+                  with
+                  | Some (_, address) when address.pointer_storage.live -> (
+                      match Type.dereference type_ with
+                      | Ok pointer_pointee ->
+                          values :=
+                            Value_map.add result
+                              (Runtime_pointer { address with pointer_pointee })
+                              !values
+                      | Error _ -> assert false)
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0026"
+                             "saved data default has no live original \
+                              task-owned value"))
+              | Discard operand ->
+                  let runtime_value = require_value block instruction operand in
+                  let value =
+                    Option.bind runtime_value (function
+                      | Runtime_word word -> Some word
+                      | Runtime_code _
+                      | Runtime_undefined_code _
+                      | Runtime_function_slot_cursor _
+                      | Runtime_pointer _
+                      | Runtime_offset _
+                      | Runtime_void -> None)
+                  in
                   if
                     capture_last && instruction.capture_discard
                     && (not !program.is_function)
                     && Option.is_none !active_initializer
-                  then capture None
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "prepared no-value result is unavailable or invalid"))
-          | Return_value (operand, type_) -> (
-              match require_operand block instruction operand with
-              | Some word -> pending_return := Some { type_; bits = word.bits }
-              | None -> ())
-          | Jump target -> transfer target
-          | Local_call (entry, continuation) ->
-              if
-                List.length !local_returns >= !program.local_subroutine_capacity
-              then
-                failed :=
-                  Some
-                    (runtime_error ~instruction block !steps "HCSW0006"
-                       "local subroutine continuation is unavailable or \
-                        exceeds its stack bound")
-              else if max_frame_bytes - !live_frame_bytes < 8 then
-                failed :=
-                  Some
-                    (runtime_error ~instruction block !steps "HCIRVM0011"
-                       "local subroutine continuations exceed the active frame \
-                        byte limit")
-              else (
-                local_returns := continuation :: !local_returns;
-                live_frame_bytes := !live_frame_bytes + 8;
-                transfer entry)
-          | Local_return targets -> (
-              match !local_returns with
-              | continuation :: rest when List.mem continuation targets ->
-                  local_returns := rest;
-                  live_frame_bytes := !live_frame_bytes - 8;
-                  transfer continuation
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCSW0006"
-                         "local subroutine continuation is unavailable or \
-                          exceeds its stack bound"))
-          | Branch (condition, operand, target) -> (
-              match require_operand block instruction operand with
-              | None -> ()
-              | Some word -> (
-                  let is_zero = Int64.equal word.bits 0L in
-                  let take_target =
-                    match condition with
-                    | Zero -> is_zero
-                    | Not_zero -> not is_zero
-                  in
-                  if take_target then transfer target
-                  else
-                    match block.fallthrough with
-                    | Some fallthrough -> transfer fallthrough
-                    | None ->
+                    && Option.is_none !failed
+                  then (
+                    capture value;
+                    final_callback :=
+                      Option.bind runtime_value (function
+                        | Runtime_code code ->
+                            Some (Captured_body code.code_link)
+                        | Runtime_undefined_code _ -> Some Captured_undefined
+                        | _ -> None);
+                    final_pointer :=
+                      Option.bind runtime_value (function
+                        | Runtime_pointer address -> Some address
+                        | _ -> None))
+              | Discard_void value_id -> (
+                  match Value_map.find_opt value_id !values with
+                  | Some Runtime_void ->
+                      if
+                        capture_last && instruction.capture_discard
+                        && (not !program.is_function)
+                        && Option.is_none !active_initializer
+                      then capture None
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "prepared no-value result is unavailable or \
+                              invalid"))
+              | Return_value (operand, type_) -> (
+                  match require_operand block instruction operand with
+                  | Some word ->
+                      pending_return := Some { type_; bits = word.bits }
+                  | None -> ())
+              | Jump target -> transfer target
+              | Local_call (entry, continuation) ->
+                  if
+                    List.length !local_returns
+                    >= !program.local_subroutine_capacity
+                  then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCSW0006"
+                           "local subroutine continuation is unavailable or \
+                            exceeds its stack bound")
+                  else if max_frame_bytes - !live_frame_bytes < 8 then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0011"
+                           "local subroutine continuations exceed the active \
+                            frame byte limit")
+                  else (
+                    local_returns := continuation :: !local_returns;
+                    live_frame_bytes := !live_frame_bytes + 8;
+                    transfer entry)
+              | Local_return targets -> (
+                  match !local_returns with
+                  | continuation :: rest when List.mem continuation targets ->
+                      local_returns := rest;
+                      live_frame_bytes := !live_frame_bytes - 8;
+                      transfer continuation
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCSW0006"
+                             "local subroutine continuation is unavailable or \
+                              exceeds its stack bound"))
+              | Branch (condition, operand, target) -> (
+                  match require_operand block instruction operand with
+                  | None -> ()
+                  | Some word -> (
+                      let is_zero = Int64.equal word.bits 0L in
+                      let take_target =
+                        match condition with
+                        | Zero -> is_zero
+                        | Not_zero -> not is_zero
+                      in
+                      if take_target then transfer target
+                      else
+                        match block.fallthrough with
+                        | Some fallthrough -> transfer fallthrough
+                        | None ->
+                            failed :=
+                              Some
+                                (runtime_error ~instruction block !steps
+                                   "HCIRVM0008"
+                                   "a conditional branch has no physical \
+                                    fallthrough")))
+              | Switch (adjusted, range, targets, no_bound) -> (
+                  match
+                    ( require_operand block instruction adjusted,
+                      require_operand block instruction range )
+                  with
+                  | Some adjusted, Some range ->
+                      let table_range = Array.length targets - 1 in
+                      if
+                        table_range <= 0
+                        || not
+                             (Int64.equal range.bits (Int64.of_int table_range))
+                      then
                         failed :=
                           Some
                             (runtime_error ~instruction block !steps
                                "HCIRVM0008"
-                               "a conditional branch has no physical \
-                                fallthrough")))
-          | Switch (adjusted, range, targets, no_bound) -> (
-              match
-                ( require_operand block instruction adjusted,
-                  require_operand block instruction range )
-              with
-              | Some adjusted, Some range ->
-                  let table_range = Array.length targets - 1 in
-                  if
-                    table_range <= 0
-                    || not (Int64.equal range.bits (Int64.of_int table_range))
-                  then
-                    failed :=
-                      Some
-                        (runtime_error ~instruction block !steps "HCIRVM0008"
-                           "prepared IC_SWITCH range disagrees with its target \
-                            table")
-                  else if
-                    Int64.unsigned_compare adjusted.bits
-                      (Int64.of_int table_range)
-                    >= 0
-                  then
-                    if no_bound then
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCSW0005"
-                             "no-bound switch index is outside its prepared \
-                              table")
-                    else transfer targets.(0)
-                  else transfer targets.(Int64.to_int adjusted.bits + 1)
-              | None, _ | _, None -> ())
-          | Return
-            when match !program.required_return with
-                 | Some (Word_return _) -> Option.is_none !pending_return
-                 | Some Void_return | None -> false ->
-              failed :=
-                Some
-                  (runtime_error ~instruction block !steps "HCIRVM0013"
-                     "the integer function returned without a value")
-          | Return -> (
-              let completion =
-                match (!program.required_return, !pending_return) with
-                | (Some Void_return | None), None -> Some Completed_void
-                | Some (Word_return type_), Some word when word.type_ = type_ ->
-                    Some (Completed_word word)
-                | None, Some word -> Some (Completed_word word)
-                | _ -> None
-              in
-              match completion with
-              | None ->
+                               "prepared IC_SWITCH range disagrees with its \
+                                target table")
+                      else if
+                        Int64.unsigned_compare adjusted.bits
+                          (Int64.of_int table_range)
+                        >= 0
+                      then
+                        if no_bound then
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCSW0005"
+                                 "no-bound switch index is outside its \
+                                  prepared table")
+                        else transfer targets.(0)
+                      else transfer targets.(Int64.to_int adjusted.bits + 1)
+                  | None, _ | _, None -> ())
+              | Return
+                when List.exists
+                       (fun handler ->
+                         handler.handler_snapshot.exception_execution
+                           .saved_slots == !slots)
+                       !handlers ->
                   failed :=
                     Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "function completion disagrees with its checked \
-                          return kind")
-              | Some completion -> (
-                  live_frame_bytes :=
-                    !live_frame_bytes - (8 * List.length !local_returns);
-                  local_returns := [];
-                  retire_frame !slots;
-                  match !callers with
-                  | [] -> completed := Some (Returned !pending_return)
-                  | caller :: rest -> (
-                      callers := rest;
-                      decr depth;
+                      (runtime_error ~instruction block !steps "HCEX0002"
+                         "function return retains an active exception record")
+              | Return
+                when match !program.required_return with
+                     | Some (Word_return _) -> Option.is_none !pending_return
+                     | Some Void_return | None -> false ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0013"
+                         "the integer function returned without a value")
+              | Return -> (
+                  let completion =
+                    match (!program.required_return, !pending_return) with
+                    | (Some Void_return | None), None -> Some Completed_void
+                    | Some (Word_return type_), Some word
+                      when word.type_ = type_ -> Some (Completed_word word)
+                    | None, Some word -> Some (Completed_word word)
+                    | _ -> None
+                  in
+                  match completion with
+                  | None ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "function completion disagrees with its checked \
+                              return kind")
+                  | Some completion -> (
                       live_frame_bytes :=
-                        !live_frame_bytes - !program.initial_frame_bytes;
-                      program := caller.saved_program;
-                      owner := caller.saved_owner;
-                      publication_item := caller.saved_publication_item;
-                      current_block := caller.saved_block;
-                      current_instruction := caller.saved_instruction;
-                      values := caller.saved_values;
-                      slots := caller.saved_slots;
-                      pending_return := caller.saved_return;
-                      local_returns := caller.saved_local_returns;
-                      calls :=
-                        match caller.saved_calls with
-                        | scope :: rest -> { scope with completion } :: rest
-                        | [] -> [])))
-          | End -> completed := Some Stream_end);
-          if Option.is_none !failed then
-            Option.iter
-              (fun operand ->
-                match (require_value block instruction operand, !calls) with
-                | Some word, scope :: rest ->
-                    calls :=
-                      { scope with arguments_rev = word :: scope.arguments_rev }
-                      :: rest
-                | _ ->
+                        !live_frame_bytes - (8 * List.length !local_returns);
+                      local_returns := [];
+                      retire_frame !slots;
+                      match !callers with
+                      | [] -> completed := Some (Returned !pending_return)
+                      | caller :: rest -> (
+                          callers := rest;
+                          decr depth;
+                          live_frame_bytes :=
+                            !live_frame_bytes - !program.initial_frame_bytes;
+                          program := caller.saved_program;
+                          owner := caller.saved_owner;
+                          publication_item := caller.saved_publication_item;
+                          current_block := caller.saved_block;
+                          current_instruction := caller.saved_instruction;
+                          values := caller.saved_values;
+                          slots := caller.saved_slots;
+                          pending_return := caller.saved_return;
+                          local_returns := caller.saved_local_returns;
+                          calls :=
+                            match caller.saved_calls with
+                            | scope :: rest -> { scope with completion } :: rest
+                            | [] -> [])))
+              | End ->
+                  if !handlers = [] then completed := Some Stream_end
+                  else
                     failed :=
                       Some
-                        (runtime_error ~instruction block !steps "HCIRVM0008"
-                           "prepared argument push has no active call"))
-              instruction.push_result)
-  done;
-  retire_frame !slots;
-  List.iter (fun caller -> retire_frame caller.saved_slots) !callers;
-  if Option.is_none admit then (
-    global_storage.live <- false;
-    literal_storage.live <- false);
+                        (runtime_error ~instruction block !steps "HCEX0002"
+                           "entry completed with active exception records"));
+              (match (!failed, instruction.operation) with
+              | ( Some error,
+                  ( Binary ((Divide | Remainder), _, _, _, _)
+                  | Update_slot (_, (Divide | Remainder), _, _, _, _, _)
+                  | Internal_mod_u64 _ ) )
+                when (not constant_preparation)
+                     && (error.code = "HCIRVM0009" || error.code = "HCIRVM0010")
+                ->
+                  failed := None;
+                  source_exception block instruction
+                    (packed_exception "DivZero")
+                    error
+              | _ -> ());
+              if Option.is_none !failed && not !exception_transfer then
+                Option.iter
+                  (fun operand ->
+                    match (require_value block instruction operand, !calls) with
+                    | Some word, scope :: rest ->
+                        calls :=
+                          {
+                            scope with
+                            arguments_rev = word :: scope.arguments_rev;
+                          }
+                          :: rest
+                    | _ ->
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0008"
+                               "prepared argument push has no active call"))
+                  instruction.push_result)
+      done);
   match (!failed, !completed) with
   | Some error, _ ->
+      let error = { error with executed_steps = !steps } in
       let error =
-        match !program.owner with
-        | None -> error
-        | Some (function_id, function_name) ->
+        match (error.function_id, !program.owner) with
+        | Some _, _ | None, None -> error
+        | None, Some (function_id, function_name) ->
             {
               error with
               function_id = Some function_id;
@@ -11420,10 +12415,11 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
 
 let execute_program_with_output ?task ?isolated_budget
     ?(initializer_mode = false) ?(capture_fragment_value = false)
-    ?(use_active_stream = true) ?compiler_options ?stream_exe_print
-    ?runtime_calls ~output ?globals ?initialization
-    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576) ~max_steps
-    ~max_frame_bytes ~max_call_depth ~functions checked =
+    ?(constant_preparation = false) ?(use_active_stream = true)
+    ?compiler_options ?stream_exe_print ?runtime_calls ~output ?globals
+    ?initialization ?(max_global_bytes = 1_048_576)
+    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
+    ~functions checked =
   let ( let* ) = Result.bind in
   let* () =
     let dependencies =
@@ -11534,6 +12530,16 @@ let execute_program_with_output ?task ?isolated_budget
             let saved_frame_bytes = task.resources.nested_frame_bytes in
             let saved_call_depth = task.resources.nested_call_depth in
             let saved_source_depth = task.resources.nested_source_depth in
+            let saved_child_inputs = task.resources.child_input_stack in
+            let saved_bridges = task.resources.source_exception_bridges in
+            let bridge =
+              {
+                bridge_task = task;
+                bridge_active = true;
+                bridge_exception = None;
+              }
+            in
+            task.resources.source_exception_bridges <- bridge :: saved_bridges;
             task.resources.nested_frame_bytes <- saved_frame_bytes + frame_bytes;
             task.resources.nested_call_depth <- saved_call_depth + call_depth;
             task.resources.nested_source_depth <- saved_source_depth + 1;
@@ -11541,14 +12547,47 @@ let execute_program_with_output ?task ?isolated_budget
             let result =
               Fun.protect
                 ~finally:(fun () ->
+                  bridge.bridge_active <- false;
+                  Option.iter
+                    (fun packet ->
+                      release_source_exception packet Crossing_failed)
+                    bridge.bridge_exception;
+                  bridge.bridge_exception <- None;
+                  task.resources.source_exception_bridges <- saved_bridges;
                   nested_steps := task.resources.steps - before_nested;
                   task.resources.steps <- before_nested;
                   task.resources.nested_frame_bytes <- saved_frame_bytes;
                   task.resources.nested_call_depth <- saved_call_depth;
                   task.resources.nested_source_depth <- saved_source_depth)
                 (fun () ->
-                  let* () = prepare in
-                  execute source)
+                  let result =
+                    let* () = prepare in
+                    execute source
+                  in
+                  match (result, bridge.bridge_exception) with
+                  | Error _, Some packet
+                    when packet.packet_bridge == bridge
+                         && packet.packet_state = Packet_sealed
+                         && packet.packet_crossing.crossing_state
+                            = Crossing_pending
+                         && task.resources.child_input_stack
+                            == saved_child_inputs
+                         &&
+                         match
+                           packet.packet_crossing.crossing_scope.child_phase
+                         with
+                         | Child_source_exception crossing ->
+                             crossing == packet.packet_crossing
+                         | _ -> false ->
+                      bridge.bridge_exception <- None;
+                      Nested_exception packet
+                  | result, None -> Nested_result result
+                  | Error _, Some { packet_state = Packet_released; _ } ->
+                      Nested_result result
+                  | _, Some _ ->
+                      Nested_invalid
+                        "nested source exception did not complete its original \
+                         child abort and provider return")
             in
             switch_accounted_steps := steps + !nested_steps;
             (result, !nested_steps))
@@ -12073,15 +13112,18 @@ let execute_program_with_output ?task ?isolated_budget
                     globals)
             else None)
       in
-      execute_prepared ?globals ~callees:programs
+      execute_prepared ?globals ~callees:programs ~constant_preparation
         ~aot_linked:
           (Option.fold ~none:false
              ~some:(fun context ->
                Runtime.compilation_mode context = Sema.Function_resolution.Aot)
              runtime_calls)
-        ~max_frame_bytes ~max_call_depth ?initialization ~global_words
-        ~literal_image ~output ?stream_output ?generation_output
-        ?compiler_options ?stream_exe_print:nested_stream_exe_print
+        ~max_frame_bytes ~max_call_depth ~max_global_bytes
+        ?exception_resources:
+          (Option.map (fun task -> task.resources) accounting)
+        ?exception_task:accounting ?initialization ~global_words ~literal_image
+        ~output ?stream_output ?generation_output ?compiler_options
+        ?stream_exe_print:nested_stream_exe_print
         ?resumed_step_allowance:
           (Option.map
              (fun endpoint () ->
@@ -12122,7 +13164,18 @@ let execute_program_with_output ?task ?isolated_budget
         task.resources.steps <- task.resources.steps + (steps - !accounted_steps))
       accounting;
     let* () =
-      charge_switch_steps steps |> Result.map_error (switch_errors steps)
+      match charge_switch_steps steps with
+      | Ok () -> Ok ()
+      | Error diagnostics ->
+          Option.iter
+            (fun task ->
+              Option.iter
+                (fun packet ->
+                  release_source_exception packet Crossing_failed;
+                  packet.packet_bridge.bridge_exception <- None)
+                (escaping_source_exception task))
+            accounting;
+          Error (switch_errors steps diagnostics)
     in
     match switch_endpoint with
     | Some endpoint
@@ -13249,7 +14302,8 @@ let execute_task_program ?(use_active_stream = true) ?compiler_options
         ~max_frame_bytes:available_frame_bytes
         ~max_call_depth:available_call_depth ~functions checked
   in
-  if Result.is_error result then (
+  if Result.is_error result && Option.is_none (escaping_source_exception task)
+  then (
     task.source_execution_failed <- true;
     task.failure_generation <- ref ());
   result
@@ -13350,6 +14404,44 @@ let execute_program ?runtime_calls ?globals ?initialization ?max_global_bytes
     ~max_steps ~max_frame_bytes ~max_call_depth ~functions checked
   |> report_outcome
 
+let constant_preparation_graph_is_closed checked =
+  Block_graph.blocks (X87.graph checked)
+  |> List.for_all (fun block ->
+      Block_graph.instructions block
+      |> Sequence.instructions
+      |> List.for_all (fun instruction ->
+          let description = Sequence.description instruction in
+          match (description.opcode, description.payload) with
+          | (Opcode.Ic_end | Ic_end_exp), _ -> true
+          | Ic_imm_i64, Some (Sequence.Symbol _) -> false
+          | ( ( Ic_shl
+              | Ic_shr
+              | Ic_shl_const
+              | Ic_shr_const
+              | Ic_shl_equ
+              | Ic_shr_equ ),
+              _ ) -> false
+          | opcode, _ when Integer_intrinsic.supports opcode -> false
+          | opcode, _ -> not (Opcode.info opcode).prevents_constant_folding))
+
+let execute_constant_preparation ~max_steps checked =
+  if max_steps <= 0 then
+    Error
+      [
+        make_error ~stage:Configuration ~executed_steps:0 "HCIRVM0001"
+          "constant preparation requires a positive step limit";
+      ]
+  else if not (constant_preparation_graph_is_closed checked) then
+    Error
+      [
+        make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
+          "constant preparation requires a closed pure graph";
+      ]
+  else
+    let output = Output.create ~max_output_bytes:1 ~max_output_work:1 in
+    execute_program_with_output ~constant_preparation:true ~output ~max_steps
+      ~max_frame_bytes:1 ~max_call_depth:1 ~functions:[] checked
+
 let termination execution = execution.termination_
 let executed_steps execution = execution.executed_steps_
 let final_value execution = execution.final_value_
@@ -13391,18 +14483,7 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
       ~allow_activation:(not (Integer_globals.is_isolated_default globals))
       ~activation:task.source_activation source
   in
-  let pure =
-    Block_graph.blocks (X87.graph graph)
-    |> List.concat_map (fun block ->
-        Block_graph.instructions block |> Sequence.instructions)
-    |> List.for_all (fun instruction ->
-        let description = Sequence.description instruction in
-        match description.opcode with
-        | Opcode.Ic_end | Ic_end_exp -> true
-        | Ic_shl | Ic_shr | Ic_shl_equ | Ic_shr_equ -> false
-        | opcode when Integer_intrinsic.supports opcode -> false
-        | opcode -> not (Opcode.info opcode).prevents_constant_folding)
-  in
+  let pure = constant_preparation_graph_is_closed graph in
   if max_steps < 0 then
     invalid "HCIRVM0001" "constant default allowance cannot be negative"
   else if
@@ -13454,9 +14535,7 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
         invalid "HCIRVM0007"
           "the bounded constant initializer preparation step limit was \
            exhausted"
-      else
-        execute_program ~max_steps:remaining ~max_frame_bytes:1
-          ~max_call_depth:1 ~functions:[] graph
+      else execute_constant_preparation ~max_steps:remaining graph
     in
     match outcome with
     | Error errors ->

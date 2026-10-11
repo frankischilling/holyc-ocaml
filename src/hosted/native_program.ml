@@ -630,13 +630,16 @@ let ast_errors (ast : Ast.module_) =
                       statements")
             | (Ast.Goto_statement _ | Ast.Label_statement _) when in_function ->
                 ()
+            | Ast.Try_catch_statement _ ->
+                reject
+                  (source_error (Ast.statement_location statement).span
+                     "native try/catch requires native exception unwinding")
             | ( Ast.Assembly_block_statement _
               | Ast.Inline_assembly_statement _
               | Ast.Goto_statement _
               | Ast.Label_statement _
               | Ast.Lock_statement _
-              | Ast.No_warn_statement _
-              | Ast.Try_catch_statement _ ) as statement ->
+              | Ast.No_warn_statement _ ) as statement ->
                 reject
                   (source_error (Ast.statement_location statement).span
                      "statement is outside the closed native program execution \

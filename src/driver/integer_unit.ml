@@ -113,6 +113,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 validate ~in_function loop.for_initializer;
                 Option.iter (validate ~in_function) loop.for_update;
                 validate ~in_function loop.for_body
+            | Ast.Try_catch_statement region ->
+                validate ~in_function region.try_body;
+                validate ~in_function region.catch_body
             | Ast.Switch_statement switch ->
                 let rec elements source =
                   List.iter
@@ -796,6 +799,25 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       expression item.for_condition,
                       Option.map statement item.for_update,
                       statement item.for_body )
+              | Ast.Try_catch_statement source ->
+                  let region =
+                    match
+                      Sema.Exception_region.create
+                        ?environment:
+                          (Option.map Ir.Integer_globals.task_environment
+                             task_view)
+                        ~table:(Session.semantic_symbols session)
+                        ~records:(Integer_source.records prepared)
+                        ~ast:(Integer_source.semantic_ast prepared)
+                        ~source ()
+                    with
+                    | Ok region -> region
+                    | Error diagnostics -> raise (Invalid diagnostics)
+                  in
+                  Lower.Try
+                    ( region,
+                      statement source.try_body,
+                      statement source.catch_body )
               | Ast.Switch_statement item ->
                   let prepared = prepared_switch item in
                   let remaining = ref (Switch.cases prepared) in
@@ -887,6 +909,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               | _ -> None)
           in
           let function_contexts = ref [] in
+          let function_exceptions = ref [] in
           let* definitions =
             Ast.declaration_items (Integer_source.semantic_ast prepared)
             |> List.filter_map (function
@@ -1096,6 +1119,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                    in
                    function_contexts :=
                      (body, Lower.runtime_calls lowered) :: !function_contexts;
+                   function_exceptions :=
+                     (body, Lower.exception_regions lowered)
+                     :: !function_exceptions;
                    Ok Ir.Integer_interpreter.{ frame; body })
           in
           let* preparation_ =
@@ -1257,11 +1283,14 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           in
           let entry_calls = Lower.runtime_calls lowered_entry in
           let* runtime_calls_ =
-            Ir.Runtime_call_context.create ~records
+            Ir.Runtime_call_context.create_with_exceptions ~records
+              ~entry_exceptions:(Lower.exception_regions lowered_entry)
+              ~function_exceptions:(List.rev !function_exceptions)
               ~function_sources:(Integer_source.functions prepared)
               ~top_level:typed ~initialization:initialization_ ~entry:entry_
               ~entry_calls
               ~functions:(List.rev !function_contexts)
+              ()
           in
           Ok
             {

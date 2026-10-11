@@ -23,6 +23,7 @@
  (deps
   ../../examples/compiler-warning-options.hc
   ../../examples/compiler-duplicate-types.hc
+  ../../examples/compiler-return-warnings.hc
   ../../examples/compiler-parenthesis-warnings.hc)
  (action
   (run
@@ -776,7 +777,7 @@
 (executable
  (name test_native_program_execution)
  (modules test_native_program_execution test_native_program)
- (libraries holyc_lib alcotest))
+ (libraries holyc_lib native_scalar_support alcotest))
 
 (rule
  (alias native-tests)
@@ -786,7 +787,7 @@
 (executable
  (name test_native_unwind)
  (modules test_native_unwind test_native_program)
- (libraries holyc_lib alcotest)
+ (libraries holyc_lib native_scalar_support alcotest)
  (foreign_stubs
   (language c)
   (names native_unwind_probe)))

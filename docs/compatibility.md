@@ -9,6 +9,55 @@ closed query results keep their original selections. Out-of-table bracket
 dispatch traps with HCSW0005. Nonlocal setup exits and effectful ordinary AOT
 source without task execution authority remain explicit boundaries.
 
+[HolyC exception execution](exception-execution.md) under
+[#692](https://github.com/frankischilling/holyc-ocaml/issues/692)
+supports `try`/`catch` regions, explicit `throw`, nested propagation and
+direct-call unwinding in the bounded IR program runner in both JIT and AOT
+source modes. The current thread owns the handlers. The lazy 889-byte `Fs`
+view initializes the exception code and catch flag. Other prefix bytes
+begin unknown and retain ordinary owned-memory read/write checks; the
+kernel's task queue and caller-address behavior are not modeled.
+Machine-code exception unwinding remains a separate
+[#706](https://github.com/frankischilling/holyc-ocaml/issues/706) task.
+Source-derived tests and existing arithmetic oracle evidence describe this
+increment; a fresh TempleOS exception oracle or native parity is not claimed.
+
+The layout fixture checks `offset(CTask.except_ch)`,
+`offset(CTask.except_callers)` and `offset(CTask.catch_except)` inside a
+named `I64 ExceptionLayout()` function. A reached
+`if(!ExceptionLayout())throw('Layout');` checks the result. Neither raw
+top-level `offset` nor preprocessor `#assert` can resolve this fixture's
+aggregate; the latter reports `HCPP0022`. This uses the existing checked
+function path without changing preprocessor semantics.
+
+Nested `StreamExePrint` propagation uses a private source exception
+channel. The original
+`ExePutS` catch in `Compiler/CMain.HC:589-598` accepts `'Compiler'` or
+`'Break'` and returns zero; `StreamExePrint` calls it at line 685. Other
+explicit source exceptions and a reached `'DivZero'` must reach an
+enclosing source handler through a private exception channel. Host
+resource, memory and provider faults remain fatal. The `ExePutS` boundary
+consumes authenticated parser `Compiler` receipts locally and returns zero.
+It updates `Fs->except_ch` and sets `Fs->catch_except=TRUE`, charging the
+same lazy 889-byte task view as runtime `Compiler`/`Break` handling.
+Unrelated parser diagnostics remain diagnostics.
+
+The lifetime regressions use actual frame limits. A throwing child owns
+`I64 Held[64]` (512 bytes) and saves the ordinary integer `Saved=42`.
+Inspecting it inside catch adds a 512-byte `Scratch[64]` frame while the
+child, 120-byte handler and 16-byte throw arguments are live. The
+required peak is 1160 bytes, with a failing 1159-byte control. After
+acceptance the child's frame is released, so the repeated inspection path
+needs only the earlier 648-byte peak (647 is the failing control).
+JIT and AOT tests exercise these exact bounds. The companion 800-byte nested
+`StreamExePrint` check covers child-frame retention, release and reuse.
+Passing a parent-owned local pointer to a
+throwing child preserves writes made before throw. Global/static
+data-pointer variables and escaped child-local pointers remain
+unsupported. Reached integer divide/remainder traps deliver `DivZero`, and
+a checked ordinary unresolved extern call delivers `UndefExt`. Invalid
+binding evidence fails preflight without producing a source exception.
+
 [Aggregate member `sizeof`](aggregate-member-sizeof.md) supports dot paths from
 named classes and unions, automatic objects and class parameters. Nested and
 inherited fields retain original types, their own array counts and query-time
@@ -484,7 +533,9 @@ retain explicit hosted restrictions; native HolyC warns about those forms.
 The [return warning phases](compiler-warnings.md#return-warnings) now retain
 the current class size, shared native `CCF_HAS_RETURN` bit and counted warnings
 before later failures. Native type-check interruption, full terminal behavior,
-`SysUntry` ownership and typed catches remain unfinished.
+and machine-code `SysUntry` unwinding remain outside this source-only
+exception work under #706. The bounded IR source path implements #692
+handler delivery and return unwinding with source and authority tests.
 
 [Owned string storage](integer-strings.md) in
 [#617](https://github.com/frankischilling/holyc-ocaml/issues/617) connects #490's
@@ -563,6 +614,7 @@ alone does not establish runtime compatibility.
 | --- | --- | --- |
 | Shared scalar global storage | Ordinary I64/U64 code-heap globals without declaration initializers or aliases are shared by top-level code and function calls. The source accumulator returns 42 in 50 instructions in both modes. Allocation has a separate bound; AOT initial zero and hosted JIT unknown-read diagnostics remain distinct. | [Issue #601](https://github.com/frankischilling/holyc-ocaml/issues/601), [source contract](integer-globals.md), source and malformed-IR tests plus the CLI fixture |
 | Nested integer call expressions | Checked direct call results compose in arithmetic, arguments, initializers, conditions and returns, including returned recursion and mutable loops. Argument order, caller temporary values, independent slots, comparison sharing, preflight and shared limits are preserved. | [Issue #599](https://github.com/frankischilling/holyc-ocaml/issues/599), [source contract](integer-nested-calls.md), nine focused groups and a CLI source fixture in both modes |
+| HolyC exception execution (bounded IR) | The #692 source path checks original headers, source ancestry, function ownership and graph markers. Handlers use explicit `Fs->catch_except` acceptance; source `return` unregisters handlers before its value expression, while cross-region goto and catch returns are rejected. Each live `CExcept` costs 120 frame bytes. `SysTry` adds a transient 16-byte argument peak; `throw` retains its 16 argument bytes through delivery. The 889-byte `Fs` prefix initializes only code and catch state; other prefix bytes begin unknown and retain ordinary memory checks. Reached arithmetic traps and ordinary unresolved extern calls deliver `DivZero` and `UndefExt`. Nested `StreamExePrint` forwards source exceptions after `ExePutS` selectively consumes `Compiler` and `Break`, including authenticated parser `Compiler` receipts. Host quota, pointer and provider faults remain fatal. Tests cover exact 1160/1159 and 648/647 frame limits, nested frame reuse and parent-owned pointer writes. Global/static data-pointer storage, child-local pointer escapes and native exception delivery under #706 remain outside this path. | [Issue #692](https://github.com/frankischilling/holyc-ocaml/issues/692), [source contract](exception-execution.md), shared source fixtures, public API/CLI tests, `test/test_exception_regions.ml` and `test/test_exception_source_bridge.ml`. Expectations follow the pinned source; `test/oracle/integer-division.json` supplies captured arithmetic evidence only. |
 | Integer source functions | The original Add source executes through shared semantic passes, verified bodies, real frame storage and direct calls, yielding a final 42 in 29 instructions in both modes. Arguments execute right to left and bind to formal positions; explicit continuations preserve independent frames under shared step/byte/depth limits. Nested call expressions are connected under #599; non-scalar/runtime/native domains remain unsupported. | [Issue #597](https://github.com/frankischilling/holyc-ocaml/issues/597), [source contract](integer-functions.md), `examples/integer-function.hc`, `test/test_integer_functions.ml` |
 | Integer comparison-chain values | All six comparison operators share middle operands and carry the cumulative unsigned domain in `eval` and ordinary `run` values. Grouping and precedence are preserved. Integer conditions preserve the original middle word and skip later operands after a false link. Floating and multiple-pending-reduction chains remain unsupported. The checked-in example returns 42 in ten instructions in JIT and AOT mode. | [Issue #592](https://github.com/frankischilling/holyc-ocaml/issues/592), [remaining mixed-precedence audit #593](https://github.com/frankischilling/holyc-ocaml/issues/593), [IR source rules](intermediate-representation.md#integer-comparison-chain-values), `test/test_ir_comparison_chains.ml` |
 | Raw integer division and remainder | Implemented in the bounded interpreter and `holyc eval`, including signed truncation, unsigned promotion, divide-by-zero and signed quotient-overflow faults, reachability, and exact budgets. The checked native expression gate now executes real `DIV`/`IDIV`, guards zero and signed `MIN/-1` before hardware entry, retains source sites through a private ABI-tagged status channel, and preserves fixed-register owners with bounded spills. Source optimizer rewrites are covered by the separate row below; raw expression defaults remain unchanged. | [Issue #584](https://github.com/frankischilling/holyc-ocaml/issues/584), [native execution #654](https://github.com/frankischilling/holyc-ocaml/issues/654), [native fixture and audit](integer-division.md), [remaining optimizer work #585](https://github.com/frankischilling/holyc-ocaml/issues/585) |

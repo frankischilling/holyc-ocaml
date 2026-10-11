@@ -288,6 +288,48 @@ let context_is_in_suspended_input context ~suspension =
   in
   suspension.suspension_consumed && belongs context
 
+let suspension_aborted_input_is_current suspension ~contexts =
+  let parent = suspension.suspended_context in
+  let closed context =
+    context_is_original context
+    && context.context_domain = Domain.self ()
+    && (not context.context_active)
+    && Option.is_none context.context_position
+    && Option.is_none context.context_accepted_ast
+    && context.context_event_count > 0
+    && context.context_stack == parent.context_stack
+    && context.context_sources == parent.context_sources
+    && Option.fold ~none:false
+         ~some:(( == ) context.context_source)
+         (Common.Source_manager.find context.context_sources
+            (Common.Source_file.id context.context_source))
+  in
+  let rec chain seen = function
+    | [] -> false
+    | context :: rest -> (
+        closed context
+        && (not (List.exists (( == ) context) seen))
+        &&
+        match rest with
+        | [] ->
+            Option.fold ~none:false ~some:(( == ) context)
+              suspension.suspended_input_context
+            && Option.fold ~none:false
+                 ~some:(( == ) suspension.suspended_position)
+                 context.context_parent
+            && context.context_parent_events = Some suspension.suspended_events
+        | next :: _ ->
+            Option.fold ~none:false
+              ~some:(fun position -> position_context position == next)
+              context.context_parent
+            && context.context_parent_events
+               = Some (next.context_event_count - 1)
+            && chain (context :: seen) rest)
+  in
+  suspension_input_is_current suspension
+  && Option.is_none suspension.suspended_ast
+  && chain [] contexts
+
 let failed_input_is_from_suspension failure suspension =
   let parent = suspension.suspended_context in
   let exception_ = failure.failed_exception in
@@ -521,6 +563,57 @@ let selected_lookup selection = selection.lookup
 let selected_local selection = selection.selected_local
 let selected_command selection = selection.selected_command
 let reference_selection_is_current selection = selection.reference_active
+
+type exception_arm = Try_arm | Catch_arm
+
+type exception_owner = {
+  mutable exception_owner_source : Ast.try_catch_statement option;
+}
+
+type exception_function_owner = {
+  mutable exception_function_source : Ast.function_definition option;
+}
+
+type exception_selection = {
+  exception_source : Ast.try_catch_statement;
+  exception_environment : Symbol_visibility.Environment.t;
+  exception_try_header : Symbol_visibility.entry option;
+  exception_untry_header : Symbol_visibility.entry option;
+  exception_parents : (exception_owner * exception_arm) list;
+  exception_function_owner : exception_function_owner option;
+}
+
+module Exception_selections = Ephemeron.K1.Make (struct
+  type t = Ast.try_catch_statement
+
+  let equal = ( == )
+  let hash statement = Hashtbl.hash statement.Ast.try_keyword.span
+end)
+
+let exception_selections = Exception_selections.create 16
+
+let exception_selection source =
+  Exception_selections.find_opt exception_selections source
+
+let exception_source selection = selection.exception_source
+let exception_environment selection = selection.exception_environment
+let exception_try_header selection = selection.exception_try_header
+let exception_untry_header selection = selection.exception_untry_header
+
+let exception_function selection =
+  match selection.exception_function_owner with
+  | None -> Some None
+  | Some owner -> Option.map Option.some owner.exception_function_source
+
+let exception_ancestry selection =
+  let rec originals = function
+    | [] -> Some []
+    | (owner, arm) :: rest -> (
+        match (owner.exception_owner_source, originals rest) with
+        | Some source, Some rest -> Some ((source, arm) :: rest)
+        | _ -> None)
+  in
+  originals selection.exception_parents
 
 type call_origin = { mutable original_start : call_start option }
 
@@ -1670,6 +1763,8 @@ type cursor = {
   compilation_mode : Preprocessor.compilation_mode;
   stop_on_error : bool;
   mutable break_target : unit ref option;
+  mutable exception_path : (exception_owner * exception_arm) list;
+  mutable exception_function_owner : exception_function_owner option;
   mutable expression_scope : expression_scope option;
   mutable expression_call_phase : call_activity option;
   mutable command_phases_audited : bool;
@@ -2382,6 +2477,11 @@ let with_break_target cursor target run =
   let saved = cursor.break_target in
   cursor.break_target <- target;
   Fun.protect run ~finally:(fun () -> cursor.break_target <- saved)
+
+let with_exception_arm cursor owner arm run =
+  let saved = cursor.exception_path in
+  cursor.exception_path <- (owner, arm) :: saved;
+  Fun.protect run ~finally:(fun () -> cursor.exception_path <- saved)
 
 let publish_declaration cursor at event =
   (match (event, cursor.current_command) with
@@ -11095,6 +11195,8 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
     let untry_header =
       Symbol_visibility.Environment.find_function cursor.symbols "SysUntry"
     in
+    let exception_owner = { exception_owner_source = None } in
+    let exception_parents = cursor.exception_path in
     if
       cursor.stop_on_error
       && (Option.is_none try_header || Option.is_none untry_header)
@@ -11108,11 +11210,12 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
       None)
     else
       match
-        with_break_target cursor None (fun () ->
-            parse_required_statement cursor ~boundary:body_boundary ~block_depth
-              ~conditional_depth ~loop_depth ~lock_depth
-              ~try_depth:(try_depth + 1) ~switch_depth ~code:"HCPARSE0079"
-              ~description:"a statement after 'try'")
+        with_exception_arm cursor exception_owner Try_arm (fun () ->
+            with_break_target cursor None (fun () ->
+                parse_required_statement cursor ~boundary:body_boundary
+                  ~block_depth ~conditional_depth ~loop_depth ~lock_depth
+                  ~try_depth:(try_depth + 1) ~switch_depth ~code:"HCPARSE0079"
+                  ~description:"a statement after 'try'"))
       with
       | None -> None
       | Some try_body -> (
@@ -11136,12 +11239,13 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
               None)
             else
               match
-                with_break_target cursor None (fun () ->
-                    parse_required_statement cursor ~boundary:body_boundary
-                      ~block_depth ~conditional_depth ~loop_depth ~lock_depth
-                      ~try_depth:(try_depth + 1) ~switch_depth
-                      ~code:"HCPARSE0081"
-                      ~description:"a statement after 'catch'")
+                with_exception_arm cursor exception_owner Catch_arm (fun () ->
+                    with_break_target cursor None (fun () ->
+                        parse_required_statement cursor ~boundary:body_boundary
+                          ~block_depth ~conditional_depth ~loop_depth
+                          ~lock_depth ~try_depth:(try_depth + 1) ~switch_depth
+                          ~code:"HCPARSE0081"
+                          ~description:"a statement after 'catch'"))
               with
               | None -> None
               | Some catch_body ->
@@ -11157,6 +11261,16 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
                       ~catch_body:catch_body.node
                       ~location:(location_from_expression_tokens tokens)
                   in
+                  exception_owner.exception_owner_source <- Some statement;
+                  Exception_selections.add exception_selections statement
+                    {
+                      exception_source = statement;
+                      exception_environment = cursor.symbols;
+                      exception_try_header = try_header;
+                      exception_untry_header = untry_header;
+                      exception_parents;
+                      exception_function_owner = cursor.exception_function_owner;
+                    };
                   Some { node = Ast.Try_catch_statement statement; tokens })
 
 and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
@@ -11435,31 +11549,40 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
         publish_function cursor prefix.name parsed_parameters.parameters
           parsed_parameters.variadic;
       let completed_header = ref None in
+      let exception_function_owner = { exception_function_source = None } in
+      let previous_exception_function = cursor.exception_function_owner in
       let parsed_body =
-        with_function_local_context cursor provisional
-          parsed_parameters.parameters parsed_parameters.variadic (fun () ->
-            let body_item = peek cursor in
-            completed_header :=
-              complete_function_header cursor body_item provisional
-                parsed_parameters;
-            cursor.local_function_header <- !completed_header;
-            publish_function_return_phase cursor body_item Enter_function_body;
-            let parsed =
-              match body_item.token.kind with
-              | Token_kind.Eof -> Some (None, [])
-              | _ ->
-                  parse_statement_sequence cursor ~boundary:Top_level_boundary
-                    ~block_depth:0 ~conditional_depth:0 ~loop_depth:0
-                    ~lock_depth:0 ~try_depth:0 ~switch_depth:0
-                  |> Option.map (fun (body : parsed_statement) ->
-                      (Some body.node, body.tokens))
-            in
-            Option.iter
-              (fun _ ->
-                publish_function_return_phase cursor (peek cursor)
-                  Check_function_body_return)
-              parsed;
-            parsed)
+        cursor.exception_function_owner <- Some exception_function_owner;
+        Fun.protect
+          ~finally:(fun () ->
+            cursor.exception_function_owner <- previous_exception_function)
+          (fun () ->
+            with_function_local_context cursor provisional
+              parsed_parameters.parameters parsed_parameters.variadic (fun () ->
+                let body_item = peek cursor in
+                completed_header :=
+                  complete_function_header cursor body_item provisional
+                    parsed_parameters;
+                cursor.local_function_header <- !completed_header;
+                publish_function_return_phase cursor body_item
+                  Enter_function_body;
+                let parsed =
+                  match body_item.token.kind with
+                  | Token_kind.Eof -> Some (None, [])
+                  | _ ->
+                      parse_statement_sequence cursor
+                        ~boundary:Top_level_boundary ~block_depth:0
+                        ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
+                        ~try_depth:0 ~switch_depth:0
+                      |> Option.map (fun (body : parsed_statement) ->
+                          (Some body.node, body.tokens))
+                in
+                Option.iter
+                  (fun _ ->
+                    publish_function_return_phase cursor (peek cursor)
+                      Check_function_body_return)
+                  parsed;
+                parsed))
       in
       Option.map
         (fun (body, body_tokens) ->
@@ -11473,6 +11596,7 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
               ~closing_parenthesis:parsed_parameters.closing_parenthesis ~body
               ~location:(location_from_expression_tokens definition_tokens)
           in
+          exception_function_owner.exception_function_source <- Some definition;
           Option.iter
             (fun header ->
               header.header_activity.completed_body_options <-
@@ -11770,6 +11894,8 @@ let make_cursor ?(saved_function = false) ?compiler_exception ?reference ?call
     compilation_mode;
     stop_on_error;
     break_target = None;
+    exception_path = [];
+    exception_function_owner = None;
     expression_scope = None;
     expression_call_phase = None;
     command_phases_audited = true;

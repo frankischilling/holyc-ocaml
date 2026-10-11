@@ -471,10 +471,6 @@ let unsupported_regions_reject_before_native_entry () =
     [
       ("assembly block", "U0 F(){goto done;asm {} done:return;}F();", "asm {}");
       ("lock region", "U0 F(){done:lock goto done;}F();", "lock goto done;");
-      ( "try/catch region",
-        "U0 SysTry(){}U0 SysUntry(){}U0 F(){done:try goto done;catch \
-         return;}F();",
-        "try goto done;catch return;" );
     ]
   in
   List.iter
@@ -508,6 +504,50 @@ let unsupported_regions_reject_before_native_entry () =
             None
             (Native_program.executed_steps report))
         cases)
+    modes;
+  let function_source = "I64 F(){try {goto done;}catch {}done:return 42;}" in
+  let public_contents =
+    "extern U0 SysTry(U8 *catch_start,U8 *untry_start);extern U0 SysUntry();"
+    ^ function_source ^ "F();"
+  in
+  (* These native-only bodies permit parsing to reach the AST rejection. They
+     provide no executable exception protocol. *)
+  let native_contents =
+    "U0 SysTry(){}U0 SysUntry(){}" ^ function_source ^ "F();"
+  in
+  List.iter
+    (fun mode ->
+      let public_source, public_result =
+        public_run_with_source ~mode public_contents
+      in
+      let public_error = first_public_error public_result in
+      Alcotest.(check string)
+        "protected goto public source gate" "HCRUN0001" public_error.code;
+      Alcotest.(check string)
+        "protected goto requires its original handler transition"
+        "control flow crosses a try/catch boundary without its original \
+         handler transition"
+        public_error.message;
+      check_primary "protected goto public" public_source public_contents
+        function_source 1 public_error;
+      let native_source, report =
+        native_report_with_source ~mode native_contents
+      in
+      let native_error = first_native_diagnostic report in
+      Alcotest.(check string)
+        "try/catch native source gate" "HCRUN0001" native_error.code;
+      Alcotest.(check string)
+        "try/catch native unwinding boundary"
+        "native try/catch requires native exception unwinding"
+        native_error.message;
+      check_primary "try/catch native" native_source native_contents
+        "try {goto done;}catch {}" 1 native_error;
+      Alcotest.(check bool)
+        "try/catch has no native image" true
+        (Option.is_none (Native_program.image report));
+      Alcotest.(check (option int))
+        "try/catch has no native progress" None
+        (Native_program.executed_steps report))
     modes
 
 let switch_gotos_keep_native_continuation_ownership () =

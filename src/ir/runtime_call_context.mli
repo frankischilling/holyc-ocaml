@@ -30,6 +30,7 @@ type provider =
   | Stream_exe_print
   | Get_option
   | Set_option
+  | Throw
 
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
@@ -95,6 +96,22 @@ val create :
     well. Changed comparisons, branches and copies cannot acquire that checked
     source context. *)
 
+val create_with_exceptions :
+  ?entry_exceptions:Exception_regions.t ->
+  ?function_exceptions:(Function_body.t * Exception_regions.t) list ->
+  records:Sema.Function_record_classification.t ->
+  function_sources:Sema.Function_call_expression_result.t ->
+  top_level:Sema.Function_call_expression_result.top_level_t ->
+  initialization:Global_initialization.t ->
+  entry:X87_stack.t ->
+  entry_calls:description list ->
+  functions:(Function_body.t * description list) list ->
+  unit ->
+  (t, Common.Diagnostic.t list) result
+(** Retain exception regions only with their physical original graph, source
+    record snapshot and exact entry/function owner. The ordinary [create]
+    wrapper retains its existing call-only contract. *)
+
 val matches :
   t ->
   entry:X87_stack.t ->
@@ -132,6 +149,11 @@ val matches_graph : t -> owner:owner -> Block_graph.t -> bool
 (** Require the physical original entry or function graph and every sealed
     instruction record. Equal text, copied graphs and another context do not
     establish storage ownership. *)
+
+val exception_regions : t -> owner:owner -> Exception_regions.t option
+(** Return the original sealed handler context only after complete graph and
+    source validation. A foreign body or changed marker has no exception scope.
+*)
 
 type function_address
 type function_addresses

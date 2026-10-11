@@ -14,6 +14,33 @@ val max_switch_depth : int
 val max_aggregate_depth : int
 val max_initializer_depth : int
 
+type exception_selection
+type exception_arm = Try_arm | Catch_arm
+
+val exception_selection : Ast.try_catch_statement -> exception_selection option
+val exception_source : exception_selection -> Ast.try_catch_statement
+
+val exception_environment :
+  exception_selection -> Symbol_visibility.Environment.t
+
+val exception_try_header : exception_selection -> Symbol_visibility.entry option
+
+val exception_untry_header :
+  exception_selection -> Symbol_visibility.entry option
+
+val exception_function :
+  exception_selection -> Ast.function_definition option option
+(** The completed original function owner, or [Some None] for top-level source.
+    [None] means the containing definition has not completed. *)
+
+val exception_ancestry :
+  exception_selection -> (Ast.try_catch_statement * exception_arm) list option
+(** Original function-kind selections made before either try/catch body is
+    parsed. A reconstructed statement has no selection. These immutable syntax
+    receipts do not provide a checked header, runtime binding or handler. The
+    original containing arms are retained independently of any reconstructed
+    module; an incomplete parent gives no ancestry. *)
+
 type command_context
 
 type compiler_exception
@@ -70,6 +97,13 @@ val context_is_in_suspended_input :
   command_context -> suspension:suspension -> bool
 (** The original entered input or one of its parser descendants, in the original
     domain and source stack. A copied context cannot join an input. *)
+
+val suspension_aborted_input_is_current :
+  suspension -> contexts:command_context list -> bool
+(** Inspect the original closed child-to-parent context chain after this input
+    returns to its unchanged focused parent. The caller must verify the original
+    abort event journals separately. This grants no exception, catch, accepted
+    syntax or execution authority. *)
 
 val failed_input_is_from_suspension : failed_input -> suspension -> bool
 (** Physical ownership by the original consumed suspension and registered

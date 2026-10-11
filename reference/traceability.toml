@@ -2108,11 +2108,72 @@ malformed_form_diagnostics = ["HCPARSE0079", "HCPARSE0080", "HCPARSE0081", "HCPA
 standalone_catch_diagnostic = "hosted HCPARSE0082 preserves rejection but is more specific than the pinned generic Missing expression diagnostic"
 hosted_nesting_limit = 256
 source_nesting_limit = "none identified"
-sys_try_and_untry_status = "planned"
-handler_control_flow_status = "planned"
-return_unwinding_status = "planned"
-lowering_status = "planned"
-execution_status = "planned"
+sys_try_and_untry_status = "provided by HC-SOURCE-EXCEPTION-EXECUTION"
+handler_control_flow_status = "provided by HC-SOURCE-EXCEPTION-EXECUTION"
+return_unwinding_status = "provided by HC-SOURCE-EXCEPTION-EXECUTION"
+lowering_status = "provided by HC-SOURCE-EXCEPTION-EXECUTION"
+execution_status = "provided by HC-SOURCE-EXCEPTION-EXECUTION"
+downstream_execution = "HC-SOURCE-EXCEPTION-EXECUTION (#692) supplies JIT/AOT bounded-IR source execution. This parser entry covers syntax only; native exception handling remains separate under #706."
+
+[[feature]]
+id = "HC-SOURCE-EXCEPTION-EXECUTION"
+description = "Checked HolyC try/catch regions and source throw calls transfer through owned task exception state with bounded handler and frame lifetimes."
+sources = [
+  "Compiler/PrsStmt.HC:114-117 fixed-argument Ff_RET1 derivation",
+  "Compiler/PrsStmt.HC:842-902 complete PrsTryBlk entry, untry, catch return and skip labels",
+  "Compiler/PrsStmt.HC:1089-1138 return cleanup before expression, goto and break",
+  "Compiler/CompilerA.HH:239-265 KW_CATCH and KW_TRY keyword identities",
+  "Kernel/KernelA.HH:41 STR_LEN, 3116-3121 CExcept record, 3255-3256 task constants, 3271-3325 CTask prefix and exception fields",
+  "Kernel/KernelC.HH:258-265 SysTry, SysUntry, PutExcept and throw declarations",
+  "Kernel/KExcept.HC:3-43 saved context, catch and untry transfer",
+  "Kernel/KExcept.HC:45-113 exception printing, handler record ownership, throw state and search",
+  "Kernel/KInts.HC:150-164 DivZero exception on core zero",
+  "Compiler/BackA.HC:355-439 signed and unsigned division/remainder instructions",
+  "Compiler/CExcept.HC:81-101 Compiler and UndefExt source throws",
+  "Compiler/PrsVar.HC:590-617 original automatic local placement and byte counts",
+  "Compiler/CMain.HC:77-103 ordinary compiler catches, 589-598 ExePutS selective Compiler/Break handling",
+  "Compiler/CMain.HC:673-689 StreamExePrint nested ExePutS in saved compiler context",
+  "Doc/HolyC.DD:230 exception-code and explicit acceptance contract",
+  "Demo/Exceptions.HC:1-45 return-from-catch warning, selective and outer catches"
+]
+implementation = [
+  "src/frontend/parser.ml", "src/frontend/parser.mli",
+  "src/sema/function_type_resolution.ml", "src/sema/function_type_resolution.mli",
+  "src/sema/exception_region.ml", "src/sema/exception_region.mli",
+  "src/ir/exception_regions.ml", "src/ir/exception_regions.mli",
+  "src/ir/task_exception_layout.ml", "src/ir/task_exception_layout.mli",
+  "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml",
+  "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli",
+  "src/driver/task_declarations.ml", "src/driver/task_declarations.mli",
+  "src/driver/integer_unit.ml", "src/driver/integer_task.ml",
+  "src/driver/integer_source.ml", "src/driver/integer_source_execution.ml",
+  "src/driver/integer_program_report.ml"
+]
+tests = [
+  "test/exception_execution_cases.ml",
+  "test/test_exception_execution.ml",
+  "test/test_exception_execution_cli.ml",
+  "test/test_exception_regions.ml",
+  "test/test_exception_source_bridge.ml",
+  "test/oracle/integer-division.json"
+]
+documentation = [
+  "docs/exception-execution.md", "docs/intermediate-representation.md",
+  "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"
+]
+status = "partial"
+issue = 692
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "reached ordinary HolyC source in a single current thread; public bounded IR source program in JIT/AOT compilation modes with original ordinary extern SysTry(U8 *,U8 *), SysUntry() and throw(I64 ch=0,Bool no_log=FALSE) declarations; global/static data-pointer storage and escaped child-local pointers are not admitted source paths"
+identity = "each paired original try/catch AST source binds its exact selected headers, protected-arm ancestry, generated handler/normal-untry targets and verified graph markers; active handlers belong to their invocation; current task exception fields cannot be substituted by user pointer storage"
+control = "normal path skips catch and removes one handler; throw captures a source code, resets catch_except and visits innermost handlers; a catch accepts only on Fs->catch_except=TRUE, otherwise propagation continues; conditional throw inside catch can reenter; accepted/unaccepted paths retain reached effects and release each handler once; returning from try unregisters active handlers before evaluating the return expression; goto cannot enter or leave a protected arm and returning from catch is rejected; the throwing child's frame remains charged during catch inspection and is released after accepted transfer, demonstrated through exact frame limits without escaping child pointers"
+task_fields = "Fs owns the exception code at CTask offset 816 and catch flag at 888. Reached source lazily charges an 889-byte task prefix against global storage and initializes those two fields. Other prefix bytes begin unknown and ordinary owned-memory writes can initialize them; reads retain initialization and bounds checks. Kernel queue and caller-address behavior are not modeled, later fields lie outside the allocation, and a complete CTask object model remains unsupported."
+layout_witness = "The fixture checks the three source-derived field offsets inside a named I64 ExceptionLayout() function: except_ch 816, except_callers 824, catch_except 888. It then executes if(!ExceptionLayout())throw('Layout');. The partial aggregate cannot be resolved by a raw top-level offset expression, and preprocessor #assert cannot evaluate semantic member offsets (HCPP0022). The checked function path supplies the original aggregate context without widening preprocessor evaluation."
+resources = "Each live CExcept uses two eight-byte links plus thirteen eight-byte context fields, charging 120 frame bytes. SysTry adds a transient 16-byte argument peak released on return; throw retains its 16 argument bytes through handler delivery until acceptance or the end of unwinding. Child owns I64 Held[64] (512 bytes), writes retained integer Saved=42, then throws; Inspect owns I64 Scratch[64] (512 bytes) and reads Saved. During catch the peak is 512+120+16+512=1160 bytes (1159 fails); after accepted transfer releases Child, repeated later inspections have only the earlier 512+120+16=648-byte peak (647 fails). Both compilation modes exercise those boundaries. Nested StreamExePrint cap 800 checks frame retention, release and reuse. Runtime steps, call depth, global bytes and output/work limits retain their original task ownership."
+faults = "Reached explicit throw, supported source arithmetic traps and checked ordinary UndefinedExtern calls transfer through handlers. DivZero includes integer zero divisors and signed minimum/-1 quotient overflow for division or remainder; reached ordinary unresolved extern calls deliver UndefExt, while missing binding authority and failed preflight remain diagnostics. At ExePutS, authenticated parser Compiler receipts are consumed locally, return zero and set Fs->except_ch to Compiler and Fs->catch_except=TRUE with the same lazy 889-byte allocation as runtime Compiler/Break handling. Generic parser diagnostics have no such authority. Unhandled explicit throws report HCEX0001. Host/provider failures, invalid memory and runtime limits remain structured failures."
+stream_source_exceptions = "Compiler/CMain.HC:589-598 ExePutS consumes Compiler or Break by setting catch_except and returning zero; StreamExePrint at 673-689 calls ExePutS with the saved compiler context. The hosted ExePutS boundary also consumes authenticated parser Compiler receipts locally and updates Fs code and catch flag with lazy task allocation. The private source-only channel forwards other source exceptions, including explicit throws and reached DivZero, from a nested StreamExePrint child to an enclosing source handler. Tests cover selective handling, parser Compiler state and global quota, cap-800 frame retention/release/reuse and fatal provider faults. Host limits, invalid references and provider failures stay fatal; native exception delivery is excluded under #706."
+verification = "Public library and CLI source cases cover JIT/AOT values, skipped paths, nested and recursive calls, argument evaluation, output and storage effects, early returns, illegal transfers, arithmetic traps, reached UndefinedExtern and native rejection. Exact and one-below limits cover runtime steps, owned task storage and child frames, including 1160/1159 during catch and 648/647 after acceptance. Source/graph/ABI authority tests reject foreign headers, reconstructed parameter syntax, changed owners, markers and control edges, with retained task declarations checked separately. Nested bridge tests cover selective ExePutS handling, authenticated parser receipts, source propagation and shared resource accounting."
+verification_boundary = "Exception expectations derive from pinned source and hosted regression contracts. test/oracle/integer-division.json is an existing TempleOS capture for arithmetic DivZero behavior only; no new TempleOS exception runtime capture, machine-byte comparison or native execution parity is claimed. Global/static data-pointer storage and child-local pointer escapes are unsupported, so no public pointer-dereference lifetime result is asserted. Native exception-stack unwinding remains unsupported under #706, as do full PutExcept caller-address formatting, a complete CTask model, thread migration and whole-compiler acceptance."
 
 [[feature]]
 id = "HC-PARSER-SWITCH-STATEMENTS"

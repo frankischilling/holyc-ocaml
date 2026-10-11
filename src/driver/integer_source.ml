@@ -632,6 +632,21 @@ let prepare_unit ?environment:task_environment ?declaration_command
   let* global_records =
     Global_record_classification.classify ~resolution:globals ast |> checked
   in
+  let* exception_headers =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Task_declarations.function_header_sources ~table ~ast:source_ast command
+    | None, Some command ->
+        Task_declarations.source_function_header_sources ~table ~ast:source_ast
+          command
+    | None, None -> Ok []
+    | Some _, Some _ -> assert false
+  in
+  Option.iter
+    (fun (namespace, selected_aggregate) ->
+      Sema.Exception_region.bind_headers ~table ~namespace ~selected_aggregate
+        ~records exception_headers)
+    selected_types;
   Ok
     {
       semantic_ast_ = ast;

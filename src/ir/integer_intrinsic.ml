@@ -44,7 +44,8 @@ let binary = function
   | _ -> None
 
 let arity opcode =
-  if opcode = Opcode.Ic_strlen || Option.is_some (unary opcode) then Some 1
+  if opcode = Opcode.Ic_fs then Some 0
+  else if opcode = Opcode.Ic_strlen || Option.is_some (unary opcode) then Some 1
   else if
     opcode = Opcode.Ic_mod_u64
     || Option.is_some (binary opcode)
@@ -115,6 +116,7 @@ let argument_matches opcode ~index type_ =
 
 let result_matches opcode type_ =
   match opcode with
+  | Opcode.Ic_fs -> Task_exception_layout.pointer_type type_
   | Opcode.Ic_swap_u8 | Ic_swap_u16 | Ic_swap_u32 | Ic_swap_i64 ->
       primitive type_ 0 Sema.Primitive_type.U0
   | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc ->

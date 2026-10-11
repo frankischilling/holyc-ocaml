@@ -133,6 +133,18 @@ val make_provisional_function_with_selection :
 (** The same checked projection with original named-aggregate selection proofs.
     Each proof must belong to the supplied table and namespace. *)
 
+val source_function_matches :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  ?selected_aggregate:selected_aggregate_resolver ->
+  Frontend.Parser.completed_function_header ->
+  resolved_function ->
+  bool
+(** Compare a checked header with the exact original parameter children, return
+    type, pointer children and signature delimiters. Named types require their
+    original selected-type proofs. This syntax check grants no source authority.
+*)
+
 val validate_source_callback_types :
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
