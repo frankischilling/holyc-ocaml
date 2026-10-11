@@ -1,5 +1,16 @@
 # Testing holyc-ocaml
 
+BIN tests check literal header and record bytes for every defined IET family,
+exact and one-below file/work limits, malformed input, import-group boundaries,
+source AAT conversion and ownership of returned bytes and names. The public CLI
+replays five literal modules accepted by the pinned TempleOS loader and checks
+their full reports, checksums and deterministic maps. Failed input and path
+collisions preserve existing files, including input aliases. The native payload
+and capture retain 39 observations repeated twice and four original ISO source
+files. A separate Python data model checks patching, heap metadata and deferred
+resolution without executing code. [BIN format notes](templeos-bin-format.md)
+describe the recipes, capture procedure and remaining compiler/loader boundary.
+
 [Disassembly tests](disassembly.md) compare 89 distinct native `Ui` records,
 each captured twice, including 52 compiled compiler/kernel instructions. They
 verify payload/capture checksums, exact agreement between JSON expectations

@@ -26,3 +26,9 @@ let load ?max_bytes ?display_path manager ~path =
   | Ok source -> Ok (register manager source)
 
 let find manager id = Hashtbl.find_opt manager.files (Source_id.to_int id)
+
+let sources manager =
+  Hashtbl.to_seq manager.files
+  |> List.of_seq
+  |> List.sort (fun (left, _) (right, _) -> Int.compare left right)
+  |> List.map snd

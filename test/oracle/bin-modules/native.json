@@ -1,0 +1,500 @@
+{
+  "fixture_version": 1,
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "original_iso_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b",
+  "boot_iso_sha256": "a27b20fecff387fe7090127cb559adf3de1c3b16b522425d362b0be18a240086",
+  "payload_sha256": "04b942a8f8b8d6180ceef25b4cf666ccb91f677694eae514fc92ec0782be1aa5",
+  "capture_sha256": "3eb016fb51ccbb16c284ae4ab04b6c9dcc868ebc03670beb5965c370e20b403a",
+  "source_checks": [
+    {
+      "path": "Kernel/KLoad.HC",
+      "expanded_sha256": "da0c11feab995197faf94593bf5eaebb7f110ce2aaefa1ef2583b10002c6f88b",
+      "normalized_sha256": "da0c11feab995197faf94593bf5eaebb7f110ce2aaefa1ef2583b10002c6f88b",
+      "crlf_pairs": 0,
+      "shift_spaces": 0
+    },
+    {
+      "path": "Kernel/KernelA.HH",
+      "expanded_sha256": "c26b79f6552bb4f869376a38e1a9ce42acf99166f28294c38e29dbae03bb29ac",
+      "normalized_sha256": "1b4b6d8b6aeeaedfd2b11536b84557d9d2efc05ff38200020cd7a4a94dcd7d41",
+      "crlf_pairs": 0,
+      "shift_spaces": 32
+    },
+    {
+      "path": "Compiler/CMain.HC",
+      "expanded_sha256": "318717f411327cdb5b4b4f2d4836e0e9ec69995f80403f0eb2b6d527b2a43647",
+      "normalized_sha256": "318717f411327cdb5b4b4f2d4836e0e9ec69995f80403f0eb2b6d527b2a43647",
+      "crlf_pairs": 0,
+      "shift_spaces": 0
+    },
+    {
+      "path": "Compiler/AsmResolve.HC",
+      "expanded_sha256": "0bd47938221100b8d4786979f84735f4fdd5aff8406cab75db77a05ee3226df9",
+      "normalized_sha256": "0bd47938221100b8d4786979f84735f4fdd5aff8406cab75db77a05ee3226df9",
+      "crlf_pairs": 0,
+      "shift_spaces": 0
+    }
+  ],
+  "expected": {
+    "signature": "42534F54",
+    "alignment": "0",
+    "rel8": "5F",
+    "imm8": "78",
+    "rel16": "5C",
+    "imm16": "5678",
+    "rel32": "56",
+    "imm32": "12345678",
+    "rel64": "52",
+    "imm64": "89ABCDEF",
+    "zero-width": "0",
+    "abs-duplicate": "0",
+    "abs-single": "0",
+    "code-duplicate": "0",
+    "code-single": "0",
+    "data-duplicate": "0",
+    "data-single": "0",
+    "zero-code-patch": "0",
+    "zero-data-patch": "0",
+    "zero-code-bytes": "1",
+    "zero-data-bytes": "1",
+    "rel32-export": "60",
+    "rel64-export": "68",
+    "imm32-export": "12345678",
+    "imm64-export": "89ABCDEF",
+    "no-abs": "0",
+    "just-load": "0",
+    "main-order": "19",
+    "source-abs": "0",
+    "source-export": "20",
+    "unresolved-byte": "CC",
+    "pending": "1",
+    "deferred-byte": "44",
+    "deferred-word": "11223344",
+    "resolved": "0",
+    "heap-pending": "1",
+    "heap-unpatched": "CCCCCCCCCCCCCCCC",
+    "heap-resolved": "0",
+    "heap-final-word": "55"
+  },
+  "passes": 2,
+  "model_status": "passed",
+  "modules": [
+    {
+      "name": "CODE",
+      "sha256": "da1d1826368432e691a0ae3820b123da7a6dce8504c086f02da1909bd59086d4",
+      "hex": "eb1e0400544f5342ffffffffffffff7f44000000000000009000000000000000b800000000c70011000000c3b80000000048830004c30000000000000000000000000000140100000000200000001000000000656e7472790010200000006461746100190000000000190c00000000190c000000000901000000424d4f44436f756e74657200090d0000000000000000",
+      "report": {
+        "schema": "holyc-templeos-bin-v1",
+        "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+        "file_size": 144,
+        "body_size": 36,
+        "patch_table_offset": 68,
+        "table_end": 141,
+        "alignment_bits": 4,
+        "origin": null,
+        "sha256": "da1d1826368432e691a0ae3820b123da7a6dce8504c086f02da1909bd59086d4",
+        "records": [
+          {
+            "offset": 68,
+            "type": "IET_ABS_ADDR",
+            "code": 20,
+            "value": "1",
+            "name": "",
+            "references": [
+              32
+            ]
+          },
+          {
+            "offset": 78,
+            "type": "IET_REL32_EXPORT",
+            "code": 16,
+            "value": "0",
+            "name": "entry",
+            "references": []
+          },
+          {
+            "offset": 89,
+            "type": "IET_REL32_EXPORT",
+            "code": 16,
+            "value": "32",
+            "name": "data",
+            "references": []
+          },
+          {
+            "offset": 99,
+            "type": "IET_MAIN",
+            "code": 25,
+            "value": "0",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 105,
+            "type": "IET_MAIN",
+            "code": 25,
+            "value": "12",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 111,
+            "type": "IET_MAIN",
+            "code": 25,
+            "value": "12",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 117,
+            "type": "IET_IMM_U32",
+            "code": 9,
+            "value": "1",
+            "name": "BMODCounter",
+            "references": []
+          },
+          {
+            "offset": 134,
+            "type": "IET_IMM_U32",
+            "code": 9,
+            "value": "13",
+            "name": "",
+            "references": []
+          }
+        ]
+      },
+      "source": "examples/templeos-module.asm",
+      "records": null,
+      "options": [
+        "--main=entry",
+        "--main=second",
+        "--main=second"
+      ]
+    },
+    {
+      "name": "ALL",
+      "sha256": "f1e4cd23e075424661a505703a88f10b4d0c2d8865e7ffafb91d52ec47994ea7",
+      "hex": "eb1e0400544f5342ffffffffffffff7fa000000000000000d00100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c31403000000001e000000220000001e0000001503000000424d52436f64650010000000260000002a000000260000001601000000424d525a65726f436f646500100000003e0000001703000000424d52446174610010000000000000002e000000360000002e0000001801000000424d525a65726f44617461001000000000000000420000001060000000424d5252656c3332001178563412424d52496d6d3332001268000000424d5252656c36340013efcdab89424d52496d6d363400197f00000000197f00000000027d000000424d5252656c333200037e000000000400000000000602000000000806000000000a0e000000424d5252656c3634000501000000424d52496d6d333200070400000000090a000000000b16000000424d52496d6d36340000000000000000000000",
+      "report": {
+        "schema": "holyc-templeos-bin-v1",
+        "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+        "file_size": 464,
+        "body_size": 128,
+        "patch_table_offset": 160,
+        "table_end": 455,
+        "alignment_bits": 4,
+        "origin": null,
+        "sha256": "f1e4cd23e075424661a505703a88f10b4d0c2d8865e7ffafb91d52ec47994ea7",
+        "records": [
+          {
+            "offset": 160,
+            "type": "IET_ABS_ADDR",
+            "code": 20,
+            "value": "3",
+            "name": "",
+            "references": [
+              30,
+              34,
+              30
+            ]
+          },
+          {
+            "offset": 178,
+            "type": "IET_CODE_HEAP",
+            "code": 21,
+            "value": "3",
+            "name": "BMRCode",
+            "references": [
+              38,
+              42,
+              38
+            ],
+            "heap_size": "16",
+            "zeroed": false
+          },
+          {
+            "offset": 207,
+            "type": "IET_ZEROED_CODE_HEAP",
+            "code": 22,
+            "value": "1",
+            "name": "BMRZeroCode",
+            "references": [
+              62
+            ],
+            "heap_size": "16",
+            "zeroed": true
+          },
+          {
+            "offset": 232,
+            "type": "IET_DATA_HEAP",
+            "code": 23,
+            "value": "3",
+            "name": "BMRData",
+            "references": [
+              46,
+              54,
+              46
+            ],
+            "heap_size": "16",
+            "zeroed": false
+          },
+          {
+            "offset": 265,
+            "type": "IET_ZEROED_DATA_HEAP",
+            "code": 24,
+            "value": "1",
+            "name": "BMRZeroData",
+            "references": [
+              66
+            ],
+            "heap_size": "16",
+            "zeroed": true
+          },
+          {
+            "offset": 294,
+            "type": "IET_REL32_EXPORT",
+            "code": 16,
+            "value": "96",
+            "name": "BMRRel32",
+            "references": []
+          },
+          {
+            "offset": 308,
+            "type": "IET_IMM32_EXPORT",
+            "code": 17,
+            "value": "305419896",
+            "name": "BMRImm32",
+            "references": []
+          },
+          {
+            "offset": 322,
+            "type": "IET_REL64_EXPORT",
+            "code": 18,
+            "value": "104",
+            "name": "BMRRel64",
+            "references": []
+          },
+          {
+            "offset": 336,
+            "type": "IET_IMM64_EXPORT",
+            "code": 19,
+            "value": "2309737967",
+            "name": "BMRImm64",
+            "references": []
+          },
+          {
+            "offset": 350,
+            "type": "IET_MAIN",
+            "code": 25,
+            "value": "127",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 356,
+            "type": "IET_MAIN",
+            "code": 25,
+            "value": "127",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 362,
+            "type": "IET_REL_I0",
+            "code": 2,
+            "value": "125",
+            "name": "BMRRel32",
+            "references": []
+          },
+          {
+            "offset": 376,
+            "type": "IET_IMM_U0",
+            "code": 3,
+            "value": "126",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 382,
+            "type": "IET_REL_I8",
+            "code": 4,
+            "value": "0",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 388,
+            "type": "IET_REL_I16",
+            "code": 6,
+            "value": "2",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 394,
+            "type": "IET_REL_I32",
+            "code": 8,
+            "value": "6",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 400,
+            "type": "IET_REL_I64",
+            "code": 10,
+            "value": "14",
+            "name": "BMRRel64",
+            "references": []
+          },
+          {
+            "offset": 414,
+            "type": "IET_IMM_U8",
+            "code": 5,
+            "value": "1",
+            "name": "BMRImm32",
+            "references": []
+          },
+          {
+            "offset": 428,
+            "type": "IET_IMM_U16",
+            "code": 7,
+            "value": "4",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 434,
+            "type": "IET_IMM_U32",
+            "code": 9,
+            "value": "10",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 440,
+            "type": "IET_IMM_I64",
+            "code": 11,
+            "value": "22",
+            "name": "BMRImm64",
+            "references": []
+          }
+        ]
+      },
+      "source": "test/oracle/bin-modules/all-records.asm",
+      "records": "test/oracle/bin-modules/all-records.json",
+      "options": []
+    },
+    {
+      "name": "WAIT",
+      "sha256": "98ca0814884c14d6937969878ecf5e487e65ee92a0aa89d442b7ca89112e8133",
+      "hex": "eb1e0000544f5342ffffffffffffff7f38000000000000006000000000000000cccccccccccccccccccccccccccccccccccccccccccccccc0500000000424d524c61746572000901000000000b08000000424d524c6174657248656170000000",
+      "report": {
+        "schema": "holyc-templeos-bin-v1",
+        "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+        "file_size": 96,
+        "body_size": 24,
+        "patch_table_offset": 56,
+        "table_end": 95,
+        "alignment_bits": 0,
+        "origin": null,
+        "sha256": "98ca0814884c14d6937969878ecf5e487e65ee92a0aa89d442b7ca89112e8133",
+        "records": [
+          {
+            "offset": 56,
+            "type": "IET_IMM_U8",
+            "code": 5,
+            "value": "0",
+            "name": "BMRLater",
+            "references": []
+          },
+          {
+            "offset": 70,
+            "type": "IET_IMM_U32",
+            "code": 9,
+            "value": "1",
+            "name": "",
+            "references": []
+          },
+          {
+            "offset": 76,
+            "type": "IET_IMM_I64",
+            "code": 11,
+            "value": "8",
+            "name": "BMRLaterHeap",
+            "references": []
+          }
+        ]
+      },
+      "source": "test/oracle/bin-modules/deferred.asm",
+      "records": "test/oracle/bin-modules/deferred.json",
+      "options": []
+    },
+    {
+      "name": "PROV",
+      "sha256": "492526dffa86cfdefe96cbab825121b275af176fa1b8d7dfd32c68fefc27b9dc",
+      "hex": "eb1e0000544f5342ffffffffffffff7f200000000000000050000000000000001144332211424d524c61746572001800000000424d524c61746572486561700010000000000000000000000000000000",
+      "report": {
+        "schema": "holyc-templeos-bin-v1",
+        "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+        "file_size": 80,
+        "body_size": 0,
+        "patch_table_offset": 32,
+        "table_end": 73,
+        "alignment_bits": 0,
+        "origin": null,
+        "sha256": "492526dffa86cfdefe96cbab825121b275af176fa1b8d7dfd32c68fefc27b9dc",
+        "records": [
+          {
+            "offset": 32,
+            "type": "IET_IMM32_EXPORT",
+            "code": 17,
+            "value": "287454020",
+            "name": "BMRLater",
+            "references": []
+          },
+          {
+            "offset": 46,
+            "type": "IET_ZEROED_DATA_HEAP",
+            "code": 24,
+            "value": "0",
+            "name": "BMRLaterHeap",
+            "references": [],
+            "heap_size": "16",
+            "zeroed": true
+          }
+        ]
+      },
+      "source": "test/oracle/bin-modules/provider.asm",
+      "records": "test/oracle/bin-modules/provider.json",
+      "options": []
+    },
+    {
+      "name": "RES",
+      "sha256": "254e578897f6cad5d0b34c0a580f32e23a81d7d3ffd69a39cad3f1ccf72a3652",
+      "hex": "eb1e0000544f5342ffffffffffffff7f200000000000000040000000000000001355000000424d524c6174657248656170000000000000000000000000000000",
+      "report": {
+        "schema": "holyc-templeos-bin-v1",
+        "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+        "file_size": 64,
+        "body_size": 0,
+        "patch_table_offset": 32,
+        "table_end": 51,
+        "alignment_bits": 0,
+        "origin": null,
+        "sha256": "254e578897f6cad5d0b34c0a580f32e23a81d7d3ffd69a39cad3f1ccf72a3652",
+        "records": [
+          {
+            "offset": 32,
+            "type": "IET_IMM64_EXPORT",
+            "code": 19,
+            "value": "85",
+            "name": "BMRLaterHeap",
+            "references": []
+          }
+        ]
+      },
+      "source": "test/oracle/bin-modules/provider.asm",
+      "records": "test/oracle/bin-modules/resolve.json",
+      "options": []
+    }
+  ]
+}

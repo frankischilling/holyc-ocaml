@@ -1,0 +1,23 @@
+[
+  {"type":"IET_ABS_ADDR","offsets":[30,34,30]},
+  {"type":"IET_CODE_HEAP","name":"BMRCode","size":16,"offsets":[38,42,38]},
+  {"type":"IET_ZEROED_CODE_HEAP","name":"BMRZeroCode","size":16,"offsets":[62]},
+  {"type":"IET_DATA_HEAP","name":"BMRData","size":16,"offsets":[46,54,46]},
+  {"type":"IET_ZEROED_DATA_HEAP","name":"BMRZeroData","size":16,"offsets":[66]},
+  {"type":"IET_REL32_EXPORT","name":"BMRRel32","value":96},
+  {"type":"IET_IMM32_EXPORT","name":"BMRImm32","value":"305419896"},
+  {"type":"IET_REL64_EXPORT","name":"BMRRel64","value":104},
+  {"type":"IET_IMM64_EXPORT","name":"BMRImm64","value":"2309737967"},
+  {"type":"IET_MAIN","offset":127},
+  {"type":"IET_MAIN","offset":127},
+  {"type":"IET_REL_I0","name":"BMRRel32","offset":125},
+  {"type":"IET_IMM_U0","name":"","offset":126},
+  {"type":"IET_REL_I8","name":"","offset":0},
+  {"type":"IET_REL_I16","name":"","offset":2},
+  {"type":"IET_REL_I32","name":"","offset":6},
+  {"type":"IET_REL_I64","name":"BMRRel64","offset":14},
+  {"type":"IET_IMM_U8","name":"BMRImm32","offset":1},
+  {"type":"IET_IMM_U16","name":"","offset":4},
+  {"type":"IET_IMM_U32","name":"","offset":10},
+  {"type":"IET_IMM_I64","name":"BMRImm64","offset":22}
+]

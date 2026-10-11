@@ -1893,6 +1893,7 @@ let root_command =
       preprocess_command;
       parse_command;
       assembly_command;
+      Bin_module_command.command;
       disassembly_command;
       dump_ast_command;
       dump_symbols_command;

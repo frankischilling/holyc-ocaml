@@ -1,4 +1,30 @@
 (test
+ (name test_bin_module_cli)
+ (modules test_bin_module_cli)
+ (libraries unix yojson digestif)
+ (deps
+  ../examples/templeos-module.asm
+  (glob_files oracle/bin-modules/*)
+  ../third_party/TempleOS/Kernel/KLoad.HC
+  ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Compiler/CMain.HC
+  ../third_party/TempleOS/Compiler/AsmResolve.HC)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/templeos-module.asm})))
+
+(rule
+ (alias runtest)
+ (deps ../tools/bin_loader_model.py oracle/bin-modules/native.json)
+ (action
+  (run
+   python
+   %{dep:../tools/bin_loader_model.py}
+   %{dep:oracle/bin-modules/native.json})))
+
+(test
  (name test_disassembly_cli)
  (modules test_disassembly_cli)
  (libraries unix yojson)
@@ -517,6 +543,7 @@
  (name test_main)
  (modules
   test_main
+  test_bin_module
   test_asm_instruction_forms
   test_assembly_operations
   test_disassembler
