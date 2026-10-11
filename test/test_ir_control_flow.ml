@@ -30,13 +30,14 @@ let complete_partition () =
     Opcode.all;
   let count kind = Option.value ~default:0 (Hashtbl.find_opt counts kind) in
   Alcotest.(check int) "all opcodes" 185 (List.length Opcode.all);
-  Alcotest.(check int) "fallthrough" 147 (count Flow.Fallthrough);
+  Alcotest.(check int) "fallthrough" 146 (count Flow.Fallthrough);
   Alcotest.(check int) "label" 1 (count Flow.Label);
   Alcotest.(check int)
     "unconditional branch" 1
     (count Flow.Unconditional_branch);
   Alcotest.(check int) "conditional branches" 32 (count Flow.Conditional_branch);
   Alcotest.(check int) "switches" 2 (count Flow.Switch);
+  Alcotest.(check int) "local calls" 1 (count Flow.Local_call);
   Alcotest.(check int) "returns" 1 (count Flow.Return);
   Alcotest.(check int) "end markers" 1 (count Flow.End)
 
@@ -62,12 +63,12 @@ let explicit_transfers () =
   check_kind "jump" Flow.Unconditional_branch Opcode.Ic_jmp;
   check_kind "bounded switch" Flow.Switch Opcode.Ic_switch;
   check_kind "no-bound switch" Flow.Switch Opcode.Ic_nobound_switch;
+  check_kind "local subroutine call" Flow.Local_call Opcode.Ic_sub_call;
   check_kind "return" Flow.Return Opcode.Ic_ret
 
 let source_distinctions () =
   check_kind "return value" Flow.Fallthrough Opcode.Ic_return_val;
   check_kind "top-level return value" Flow.Fallthrough Opcode.Ic_return_val2;
-  check_kind "local subroutine call" Flow.Fallthrough Opcode.Ic_sub_call;
   check_kind "ordinary call" Flow.Fallthrough Opcode.Ic_call
 
 let target_shapes () =
@@ -77,6 +78,9 @@ let target_shapes () =
     (Flow.target_shape Opcode.Ic_br_less);
   Alcotest.check target_testable "switch targets" Flow.Switch_targets
     (Flow.target_shape Opcode.Ic_switch);
+  Alcotest.check target_testable "local call entry and continuation"
+    Flow.Local_call_targets
+    (Flow.target_shape Opcode.Ic_sub_call);
   Alcotest.check target_testable "label has no outgoing target" Flow.No_target
     (Flow.target_shape Opcode.Ic_label);
   Alcotest.check target_testable "call target is not a block target"
@@ -94,6 +98,7 @@ let block_boundaries () =
       Opcode.Ic_jmp;
       Opcode.Ic_switch;
       Opcode.Ic_nobound_switch;
+      Opcode.Ic_sub_call;
       Opcode.Ic_ret;
       Opcode.Ic_br_zero;
       Opcode.Ic_br_not_btc;
@@ -127,6 +132,7 @@ let fallthrough_edges () =
       Opcode.Ic_jmp;
       Opcode.Ic_switch;
       Opcode.Ic_nobound_switch;
+      Opcode.Ic_sub_call;
       Opcode.Ic_ret;
     ]
 
@@ -139,6 +145,7 @@ let deterministic_names () =
       "unconditional-branch";
       "conditional-branch";
       "switch";
+      "local-call";
       "return";
       "end";
     ]
@@ -149,14 +156,20 @@ let deterministic_names () =
          Flow.Unconditional_branch;
          Flow.Conditional_branch;
          Flow.Switch;
+         Flow.Local_call;
          Flow.Return;
          Flow.End;
        ]);
   Alcotest.(check (list string))
     "target names"
-    [ "none"; "single"; "switch-targets" ]
+    [ "none"; "single"; "switch-targets"; "local-call-targets" ]
     (List.map Flow.target_shape_name
-       [ Flow.No_target; Flow.Single_target; Flow.Switch_targets ])
+       [
+         Flow.No_target;
+         Flow.Single_target;
+         Flow.Switch_targets;
+         Flow.Local_call_targets;
+       ])
 
 let tests =
   [

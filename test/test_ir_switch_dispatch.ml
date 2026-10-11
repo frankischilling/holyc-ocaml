@@ -73,6 +73,16 @@ let end_expression id operand =
 let jump id target =
   description ~payload:(Sequence.Block (block_id target)) id Opcode.Ic_jmp
 
+let local_call id entry continuation =
+  description
+    ~payload:(Sequence.Block_targets [ block_id entry; block_id continuation ])
+    id Opcode.Ic_sub_call
+
+let local_return id continuations =
+  description
+    ~payload:(Sequence.Block_targets (List.map block_id continuations))
+    id Opcode.Ic_ret
+
 let block id instructions : Graph.block_description =
   { block_id = block_id id; instructions }
 
@@ -84,7 +94,7 @@ let target_block ~block_id:target ~instruction_base ~value_id:result bits =
       jump (instruction_base + 2) 90;
     ]
 
-let checked_graph ~adjusted_bits ~entries =
+let checked_graph ?(opcode = Opcode.Ic_switch) ~adjusted_bits ~entries () =
   let range = List.length entries in
   let source_blocks =
     [
@@ -95,7 +105,7 @@ let checked_graph ~adjusted_bits ~entries =
           description ~operands:[ 0; 1 ] ~result:2 ~target_type:i64 2
             Opcode.Ic_sub;
           imm 3 3 (Int64.of_int range);
-          switch 4 2 3 (10 :: entries);
+          switch ~opcode 4 2 3 (10 :: entries);
         ];
       target_block ~block_id:10 ~instruction_base:10 ~value_id:10 100L;
       target_block ~block_id:20 ~instruction_base:20 ~value_id:20 200L;
@@ -105,12 +115,14 @@ let checked_graph ~adjusted_bits ~entries =
   in
   Graph.create ~entry:(block_id 0) source_blocks |> require_ok graph_errors
 
-let verified ~adjusted_bits ~entries =
-  checked_graph ~adjusted_bits ~entries |> X87.verify |> require_ok x87_errors
+let verified ?(opcode = Opcode.Ic_switch) ~adjusted_bits ~entries () =
+  checked_graph ~opcode ~adjusted_bits ~entries ()
+  |> X87.verify |> require_ok x87_errors
 
-let compile ?status_abi ?(max_code_bytes = 65_536) checked =
-  Program.compile ?status_abi ~max_stack_bytes:Program.hard_max_stack_bytes
-    ~max_blocks:4096 ~max_ir_instructions:100_000 ~max_code_bytes checked
+let compile ?status_abi ?(max_stack_bytes = Program.hard_max_stack_bytes)
+    ?(max_code_bytes = 65_536) checked =
+  Program.compile ?status_abi ~max_stack_bytes ~max_blocks:4096
+    ~max_ir_instructions:100_000 ~max_code_bytes checked
 
 let execute_vm ~max_steps checked =
   VM.execute_program ~max_steps ~max_frame_bytes:4096 ~max_call_depth:64
@@ -121,8 +133,9 @@ let check_final_bits label expected execution =
   | Some word -> Alcotest.(check int64) label expected word.bits
   | None -> Alcotest.failf "%s: execution produced no final value" label
 
-let execute label ~adjusted_bits ~entries ~expected =
-  let checked = verified ~adjusted_bits ~entries in
+let execute ?(opcode = Opcode.Ic_switch) label ~adjusted_bits ~entries ~expected
+    =
+  let checked = verified ~opcode ~adjusted_bits ~entries () in
   let execution = execute_vm ~max_steps:32 checked |> require_ok vm_errors in
   check_final_bits (label ^ " VM result") expected execution;
   ignore (compile checked |> require_ok program_errors)
@@ -141,7 +154,7 @@ let high_bit_dispatches_default () =
     ~entries:[ 20; 30 ] ~expected:100L
 
 let repeated_table_target_is_preserved () =
-  let graph = checked_graph ~adjusted_bits:1L ~entries:[ 20; 20; 30 ] in
+  let graph = checked_graph ~adjusted_bits:1L ~entries:[ 20; 20; 30 ] () in
   let entry = Graph.entry graph in
   Alcotest.(check (list int))
     "graph successors deduplicate without rewriting the switch table"
@@ -153,7 +166,7 @@ let repeated_table_target_is_preserved () =
   ignore (compile checked |> require_ok program_errors)
 
 let exact_switch_meter_and_native_site () =
-  let checked = verified ~adjusted_bits:0L ~entries:[ 20 ] in
+  let checked = verified ~adjusted_bits:0L ~entries:[ 20 ] () in
   let exact = execute_vm ~max_steps:9 checked |> require_ok vm_errors in
   Alcotest.(check int)
     "switch path reaches exactly nine IR sites" 9 (VM.executed_steps exact);
@@ -181,38 +194,223 @@ let exact_switch_meter_and_native_site () =
   | Program.Completed _ ->
       Alcotest.fail "native switch step-limit status decoded as completion"
 
-let no_bound_switch_is_explicitly_unsupported () =
+let no_bound_switch_dispatch_and_reached_faults () =
+  List.iter
+    (fun (index, expected) ->
+      execute ~opcode:Opcode.Ic_nobound_switch
+        "no-bound prepared table dispatch" ~adjusted_bits:index
+        ~entries:[ 20; 30 ] ~expected)
+    [ (0L, 200L); (1L, 300L) ];
+  List.iter
+    (fun index ->
+      let checked =
+        verified ~opcode:Opcode.Ic_nobound_switch ~adjusted_bits:index
+          ~entries:[ 20; 30 ] ()
+      in
+      (match execute_vm ~max_steps:32 checked with
+      | Error [ error ] ->
+          Alcotest.(check string)
+            "reached no-bound index faults" "HCSW0005" error.code;
+          Alcotest.(check (option int))
+            "no-bound fault points at dispatch" (Some 4) error.instruction_id;
+          Alcotest.(check int)
+            "dispatch attempt consumes five steps" 5 error.executed_steps
+      | Error errors -> Alcotest.fail (vm_errors errors)
+      | Ok _ -> Alcotest.fail "out-of-table no-bound dispatch succeeded");
+      let image = compile checked |> require_ok program_errors in
+      match
+        Program.decode_runtime_status image ~max_steps:32 ~kind:31L ~site:5L
+          ~executed_steps:5L ~value_site:0L ~bits:0L
+        |> require_ok Fun.id
+      with
+      | Program.Fault fault ->
+          Alcotest.(check bool)
+            "native fault identifies the no-bound switch" true
+            (fault.kind = Program.No_bound_switch_out_of_range);
+          Alcotest.(check int)
+            "native fault keeps the original instruction" 4 fault.instruction_id
+      | Program.Completed _ ->
+          Alcotest.fail "no-bound dispatch fault decoded as completion")
+    [ -1L; 2L; Int64.min_int ]
+
+let local_subroutine_continuation_round_trip () =
   let graph =
     Graph.create ~entry:(block_id 0)
       [
-        block 0
-          [
-            imm 0 0 0L;
-            imm 1 1 1L;
-            switch ~opcode:Opcode.Ic_nobound_switch 2 0 1 [ 10; 20 ];
-          ];
-        block 10 [ description 10 Opcode.Ic_ret ];
-        block 20 [ description 20 Opcode.Ic_ret ];
+        block 0 [ local_call 0 10 20 ];
+        block 10 [ local_return 10 [ 20 ] ];
+        block 20
+          [ imm 20 20 42L; end_expression 21 20; description 22 Opcode.Ic_end ];
       ]
     |> require_ok graph_errors
   in
-  let checked = graph |> X87.verify |> require_ok x87_errors in
-  (match execute_vm ~max_steps:8 checked with
-  | Error errors ->
+  Alcotest.(check int)
+    "one original local prefix requires one continuation" 1
+    (Graph.local_subroutine_capacity graph);
+  Alcotest.(check (list int))
+    "local-call graph keeps entry then continuation" [ 10; 20 ]
+    (Graph.successors (Graph.entry graph) |> List.map Graph.Block_id.to_int);
+  let checked = X87.verify graph |> require_ok x87_errors in
+  let result = execute_vm ~max_steps:16 checked |> require_ok vm_errors in
+  Alcotest.(check int)
+    "local call, return, word, end-expression and end" 5
+    (VM.executed_steps result);
+  check_final_bits "local call returns to its original continuation" 42L result;
+  ignore (compile checked |> require_ok program_errors)
+
+let nested_local_continuation_frame_and_code_quotas () =
+  let graph =
+    Graph.create ~entry:(block_id 0)
+      [
+        block 0 [ local_call 0 10 20 ];
+        block 10 [ local_call 10 30 40 ];
+        block 30 [ local_return 30 [ 40 ] ];
+        block 40 [ local_return 40 [ 20 ] ];
+        block 20
+          [ imm 20 20 42L; end_expression 21 20; description 22 Opcode.Ic_end ];
+      ]
+    |> require_ok graph_errors
+  in
+  Alcotest.(check int)
+    "two distinct local targets reserve two active continuations" 2
+    (Graph.local_subroutine_capacity graph);
+  let checked = X87.verify graph |> require_ok x87_errors in
+  let vm frame_bytes =
+    VM.execute_program ~max_steps:16 ~max_frame_bytes:frame_bytes
+      ~max_call_depth:64 ~functions:[] checked
+  in
+  let exact = vm 16 |> require_ok vm_errors in
+  Alcotest.(check int)
+    "nested call, call, return, return, literal, expression, end" 7
+    (VM.executed_steps exact);
+  check_final_bits "two eight-byte continuations resume in LIFO order" 42L exact;
+  (match vm 15 with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "one below the two eight-byte continuation slots" "HCIRVM0011"
+        error.code;
+      Alcotest.(check (option int))
+        "second local call exceeds the frame" (Some 10) error.instruction_id;
+      Alcotest.(check int)
+        "both attempted calls consume reached execution work" 2
+        error.executed_steps
+  | Error errors -> Alcotest.fail (vm_errors errors)
+  | Ok _ -> Alcotest.fail "15-byte VM frame admitted two continuations");
+  let expect_backend_error label code = function
+    | Error errors ->
+        Alcotest.(check bool)
+          (label ^ ": " ^ program_errors errors)
+          true
+          (List.exists
+             (fun (error : Program.error) -> error.code = code)
+             errors)
+    | Ok _ -> Alcotest.fail (label ^ " unexpectedly compiled")
+  in
+  List.iter
+    (fun status_abi ->
+      let image =
+        compile ~status_abi ~max_stack_bytes:24 checked
+        |> require_ok program_errors
+      in
+      Alcotest.(check int)
+        "native count and two eight-byte continuation entries use 24 bytes" 24
+        (Program.frame_bytes image);
+      expect_backend_error "native one-below continuation frame" "HCBACK0004"
+        (compile ~status_abi ~max_stack_bytes:23 checked);
+      let code_bytes = Program.code_bytes image in
       Alcotest.(check bool)
-        "VM retains the no-bound gate" true
-        (List.exists
-           (fun (error : VM.error) -> error.code = "HCIRVM0002")
-           errors)
-  | Ok _ -> Alcotest.fail "IC_NOBOUND_SWITCH unexpectedly executed");
-  match compile checked with
-  | Error errors ->
-      Alcotest.(check bool)
-        "native retains the no-bound gate" true
-        (List.exists
-           (fun (error : Program.error) -> error.code = "HCBACK0002")
-           errors)
-  | Ok _ -> Alcotest.fail "IC_NOBOUND_SWITCH unexpectedly compiled natively"
+        "nested local control has encoded code" true (code_bytes > 1);
+      ignore
+        (compile ~status_abi ~max_stack_bytes:24 ~max_code_bytes:code_bytes
+           checked
+        |> require_ok program_errors);
+      expect_backend_error "native one-below encoded continuation code"
+        "HCBACK0005"
+        (compile ~status_abi ~max_stack_bytes:24
+           ~max_code_bytes:(code_bytes - 1) checked))
+    [ Program.Windows_x64; Program.System_v_x64 ]
+
+let malformed_local_subroutine_ownership () =
+  let expect_graph_error label code blocks =
+    match Graph.create ~entry:(block_id 0) blocks with
+    | Error errors ->
+        Alcotest.(check bool)
+          (label ^ ": " ^ graph_errors errors)
+          true
+          (List.exists (fun (error : Graph.error) -> error.code = code) errors)
+    | Ok _ -> Alcotest.fail (label ^ " was admitted")
+  in
+  expect_graph_error "local call with one target" "HCIR0016"
+    [
+      block 0
+        [
+          description
+            ~payload:(Sequence.Block_targets [ block_id 10 ])
+            0 Opcode.Ic_sub_call;
+        ];
+      block 10 [ description 10 Opcode.Ic_ret ];
+      block 20 [ description 20 Opcode.Ic_end ];
+    ];
+  expect_graph_error "local call with three targets" "HCIR0016"
+    [
+      block 0
+        [
+          description
+            ~payload:
+              (Sequence.Block_targets [ block_id 10; block_id 20; block_id 30 ])
+            0 Opcode.Ic_sub_call;
+        ];
+      block 10 [ description 10 Opcode.Ic_ret ];
+      block 20 [ description 20 Opcode.Ic_ret ];
+      block 30 [ description 30 Opcode.Ic_end ];
+    ];
+  expect_graph_error "local call with absent continuation" "HCIR0017"
+    [
+      block 0 [ local_call 0 10 99 ];
+      block 10 [ description 10 Opcode.Ic_ret ];
+      block 20 [ description 20 Opcode.Ic_end ];
+    ];
+  expect_graph_error "local return without a continuation" "HCIR0016"
+    [
+      block 0 [ local_call 0 10 20 ];
+      block 10 [ local_return 10 [] ];
+      block 20 [ description 20 Opcode.Ic_end ];
+    ];
+  expect_graph_error "local return names an unrelated block" "HCIR0039"
+    [
+      block 0 [ local_call 0 10 20 ];
+      block 10 [ local_return 10 [ 30 ] ];
+      block 20 [ jump 20 30 ];
+      block 30 [ description 30 Opcode.Ic_end ];
+    ]
+
+let local_return_requires_the_active_call () =
+  let graph =
+    Graph.create ~entry:(block_id 0)
+      [
+        block 0 [ local_call 0 10 20 ];
+        block 10 [ local_return 10 [ 40 ] ];
+        block 20 [ jump 20 90 ];
+        block 30 [ local_call 30 10 40 ];
+        block 40 [ jump 40 90 ];
+        block 90 [ description 90 Opcode.Ic_end ];
+      ]
+    |> require_ok graph_errors
+  in
+  let checked = X87.verify graph |> require_ok x87_errors in
+  match execute_vm ~max_steps:16 checked with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "a globally registered but inactive continuation fails" "HCSW0006"
+        error.code;
+      Alcotest.(check (option int))
+        "failure identifies original local return" (Some 10)
+        error.instruction_id;
+      Alcotest.(check int)
+        "local call and mismatched return consume reached work" 2
+        error.executed_steps
+  | Error errors -> Alcotest.fail (vm_errors errors)
+  | Ok _ -> Alcotest.fail "local return used another call's continuation"
 
 let malformed_shape_and_range_evidence_are_rejected () =
   let wrong_payload =
@@ -265,7 +463,7 @@ let malformed_shape_and_range_evidence_are_rejected () =
 
 let maximum_table_hits_native_code_quota_before_plan () =
   let entries = List.init 0xffff (fun i -> if i mod 2 = 0 then 20 else 30) in
-  let checked = verified ~adjusted_bits:0L ~entries in
+  let checked = verified ~adjusted_bits:0L ~entries () in
   match compile ~max_code_bytes:65_536 checked with
   | Error errors ->
       Alcotest.(check bool)
@@ -283,9 +481,9 @@ let contiguous_targets_have_bounded_code () =
   List.iter
     (fun status_abi ->
       let compile = compile ~status_abi in
-      let small = verified ~adjusted_bits:0L ~entries:[ 20 ] in
+      let small = verified ~adjusted_bits:0L ~entries:[ 20 ] () in
       let large =
-        verified ~adjusted_bits:0L ~entries:(List.init 0xffff (fun _ -> 20))
+        verified ~adjusted_bits:0L ~entries:(List.init 0xffff (fun _ -> 20)) ()
       in
       let small_image = compile small |> require_ok program_errors in
       let large_image = compile large |> require_ok program_errors in
@@ -326,8 +524,17 @@ let tests =
       `Quick repeated_table_target_is_preserved;
     Alcotest.test_case "switch dispatch is exactly one metered IR site" `Quick
       exact_switch_meter_and_native_site;
-    Alcotest.test_case "no-bound switch remains an explicit consumer gate"
-      `Quick no_bound_switch_is_explicitly_unsupported;
+    Alcotest.test_case "no-bound switch dispatch and reached table faults"
+      `Quick no_bound_switch_dispatch_and_reached_faults;
+    Alcotest.test_case "local subroutine return preserves its continuation"
+      `Quick local_subroutine_continuation_round_trip;
+    Alcotest.test_case
+      "nested local continuations honor exact VM frames and native byte quotas"
+      `Quick nested_local_continuation_frame_and_code_quotas;
+    Alcotest.test_case "local call and return shape and ownership checks" `Quick
+      malformed_local_subroutine_ownership;
+    Alcotest.test_case "local return requires the active call's continuation"
+      `Quick local_return_requires_the_active_call;
     Alcotest.test_case "switch shape and range evidence are canonical" `Quick
       malformed_shape_and_range_evidence_are_rejected;
     Alcotest.test_case

@@ -8,7 +8,7 @@ metadata, and save an immutable result with its preparation dependencies.
 integer-constant lowering path. Builtin integer unions use the pinned generated
 member declarations selected by their canonical primitive identity. Published
 and retained scalar globals preserve their original selected class separately
-from their total storage extent. See [member sizes](docs/aggregate-member-sizeof.md).
+from their total storage extent. See [member sizes](aggregate-member-sizeof.md).
 
 `Ir.Aggregate_member_projection` retains the immutable selected member lookup,
 exact base and target pointer types, offset and checked array strides. Semantic
@@ -22,8 +22,8 @@ prefix. IR data pointer fields store address bytes and separate ownership
 metadata for the target descriptor. Overlapping writes remove that metadata,
 and frame retirement invalidates saved addresses while releasing storage.
 Native pointer fields require their own storage and lifetime implementation.
-See [owned aggregate members](docs/aggregate-members.md) and
-[pointer fields](docs/aggregate-pointer-fields.md).
+See [owned aggregate members](aggregate-members.md) and
+[pointer fields](aggregate-pointer-fields.md).
 
 `Ir.Automatic_aggregate_storage` admits nonempty automatic objects from an
 immutable frame location with a completed earlier aggregate layout. The
@@ -34,7 +34,7 @@ individual unknown byte cells; native frame descriptors use one initialization
 flag per byte. An owned class address can enter an explicit primitive pointer
 view without widening the object or converting numeric bits into ownership.
 Inherited and retained layouts require their original checked imports before
-they can supply storage. See [automatic aggregate byte views](docs/automatic-aggregate-byte-views.md).
+they can supply storage. See [automatic aggregate byte views](automatic-aggregate-byte-views.md).
 
 The executable expression parser checks an operand identifier's original
 lexer selection before consuming it or invoking reference consumers. An absent
@@ -46,7 +46,7 @@ Named and callback parameter publications capture their original default `=`
 location. JIT activation replays reached commands at that live member boundary,
 before the default's next lexer read; completion and saved-value authority
 remain separate.
-See [compiler exceptions](docs/compiler-exceptions.md).
+See [compiler exceptions](compiler-exceptions.md).
 
 `Hosted.Native_source_execution` freezes a separate directive task before AOT
 module publication. `Hosted.Native_program` supplies the original outer parser
@@ -54,14 +54,14 @@ and checked module compiler; its stream adapter executes only original task
 requests. Both use the same native instruction/output budget and cumulative
 preparation, saved-default and code allowances. The module retains a separate
 native arena and follows all directive fragments. No task graph is merged into
-the module. See [native AOT sessions](docs/native-aot-source-sessions.md).
+the module. See [native AOT sessions](native-aot-source-sessions.md).
 
 The live internal-binding adapter lowers the original typed target before its
 header is read. Native execution returns an opaque C capture rooted to that
 program and task arena, with actual result bits and work. The current source
 attempt consumes it once before publishing the saved operation. The IR driver
 activates on the original binding callback so it cannot replay that expression
-after publication. See [live internal bindings](docs/native-internal-bindings.md).
+after publication. See [live internal bindings](native-internal-bindings.md).
 
 `Ir.Saved_parameter_value` separates numeric words, executable callback owners
 and opaque data-default identities. Interpreted tasks retain the evaluated data
@@ -69,7 +69,7 @@ address under that identity. Native fragments save a four-word descriptor in
 the shared task arena; runtime completion requires the successful original
 image capture before copying miscellaneous-data defaults or publishing the
 saved value. Calls consume the exact published header receipt. See
-[saved data-pointer defaults](docs/data-pointer-defaults.md).
+[saved data-pointer defaults](data-pointer-defaults.md).
 
 `Hosted.Native_source_execution` connects original live JIT source requests to
 the backend through an internal synchronous driver dispatch. The public source
@@ -78,7 +78,7 @@ API accepts source and configuration; it exposes actual native fragment reports.
 at stable offsets in one task layout. The runtime owns one non-executable arena and one
 cumulative allowance for those fragments. Driver admission retains metadata
 without allocating interpreter cells or importing native values. The driver has
-no dependency on the backend. See [native source tasks](docs/native-source-tasks.md).
+no dependency on the backend. See [native source tasks](native-source-tasks.md).
 
 Named integer defaults lower their original typed expression directly to a
 native fragment. The live request binds the task, original attempt, graph and
@@ -130,13 +130,13 @@ values shared across blocks and supplies definition order for type preparation.
 The interpreter retains values within each invocation; the native word backend
 assigns shared words permanent private frame homes. `Ir.Runtime_call_context`
 binds the original layout and every instruction record to the checked source
-bundle. See [conditional integer chains](docs/conditional-comparison-chains.md).
+bundle. See [conditional integer chains](conditional-comparison-chains.md).
 
 `Frontend.Parser` recognizes primitive types through original token selections.
 Public primitive union entries, internal types, newer aggregates and source
 value shadows keep their distinct identities. Live post-body lookahead remains
 bound to its selected local; callback-free parsing retains its separate path.
-See [primitive type visibility](docs/primitive-type-shadowing.md).
+See [primitive type visibility](primitive-type-shadowing.md).
 
 Native global/static arrays reuse checked dimensions, cell offsets and original
 source owners in `Backend.X86_64_global_storage`. The same native indexed-object
@@ -149,7 +149,7 @@ Static initializer callbacks now occur at each original leaf. Their preceding
 delimiters advance the same layout recursion used for completed initializers.
 Prepared payloads remain bound to that receipt chain and its final declaration;
 closed-body compilation imports them without repeating source work. See
-[persistent native storage](docs/native-persistent-storage.md).
+[persistent native storage](native-persistent-storage.md).
 
 Native scalar globals use `Backend.X86_64_global_storage` to seal the exact
 initialization/entry bundle and original symbolic address producers. Callable
@@ -161,7 +161,7 @@ prepared values to the exact compiled storage, entry and call bundle.
 Uninitialized scalar statics share this arena across calls, with exact compiled
 function/frame/location ownership and eight-byte-rounded allocations. Static
 initializers retain their separate preparation boundary.
-See [native globals](docs/native-globals.md) for ownership and resource contracts.
+See [native globals](native-globals.md) for ownership and resource contracts.
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.
 
@@ -171,17 +171,22 @@ separate from source-order semantic IDs and emitted instruction order. Reserved
 label blocks precede generated control-block allocation; language labels create
 structural fallthrough boundaries, while gotos use the existing checked jump.
 Both execution targets consume the resulting verified graph. See
-[goto execution](docs/integer-goto.md) for ownership and unsupported-region limits.
+[goto execution](integer-goto.md) for ownership and unsupported-region limits.
 
-Bounded switch execution adds parser-owned endpoint and completion receipts to
-the declaration ledger. Closed case preparation retains exact original owners
-and successful values before semantic source composition; the syntax and typed
-selector/case APIs alone still provide no evaluated dispatch table. The shared
-lowerer consumes that sealed descriptor and emits canonical `IC_SWITCH` with
-checked immediate bounds and ordered targets. Interpreter dispatch and own-encoder
-native branches share graph validation and source fault sites. Numeric preparation
-and cumulative table storage are bounded across one source invocation, including
-nested source tasks. See [switch execution](docs/integer-switch.md).
+Integer switch execution uses parser-owned endpoint and completion receipts.
+Closed values and supported JIT/current-task scalar expressions prepare at the
+original source callback; an ordinary AOT nonconstant endpoint still requires
+source-image authority and fails with `HCRUN0006`. The syntax and typed
+selector/case APIs alone provide no evaluated dispatch table. The shared lowerer
+consumes the checked preparation and emits `IC_SWITCH` or
+`IC_NOBOUND_SWITCH` with immediate bounds and ordered targets. A bracketed
+dispatch outside its prepared table reports `HCSW0005`. Repeated defaults use
+their final source definition. `start:`/`end:` regions use bounded local calls
+and returns, with the original prefix identities controlling continuation
+ownership. Gotos crossing a setup prefix fail with `HCRUN0001`. Interpreter
+dispatch and native branches share graph validation and source fault sites.
+Numeric preparation, cumulative table storage and local continuation slots
+remain bounded. See [switch execution](integer-switch.md).
 
 Module-level expression binders share one immutable publication cursor. `Sema.Module_binding_environment` validates the mixed module stream, compilation mode, and outer snapshot once. `Sema.Global_binding_environment` adds the checked global-record association: initializer binding advances through the owner, while dimension binding stops immediately before it and advances afterward. Function-default binding advances through the current named header without installing its parameter namespace. These entry points expose their separate source boundaries without evaluating expressions.
 
@@ -202,7 +207,7 @@ The current slice has seven layers:
 - `Ir.Expression_statement_lowering` closes an accepted checked numeric expression with one verified `IC_END_EXP`. The terminator consumes the exact final value, produces no result, carries `ICF_RES_NOT_USED`, retains the complete statement span, and advances the instruction identity without consuming a value identity. Function statements and executable top-level expression roots share this boundary in JIT and AOT mode. Other top-level roles are rejected, and an unsupported expression returns without exposing a partial sequence.
 - `Ir.Integer_unary_folding` is the first verified optimizer seam. It accepts only `Ir.X87_stack.t`, counts uses across the checked graph, and scans each block in source order. A zero-flag internal `I64` or `U64` `IC_IMM_I64` may fold into its sole same-block zero-flag `IC_COM`, `IC_NOT`, or `IC_UNARY_MINUS` consumer. The replacement keeps the operator's instruction ID, result ID, target type, and source span while removing only the consumed producer. A replacement immediately becomes eligible for the next instruction, so nested chains reach a fixed point in one source-ordered traversal. The module reconstructs the graph through `Ir.Block_graph.create`, reruns `Ir.X87_stack.verify`, and returns the new verified graph plus a deterministic rewrite trace only if both checks succeed. Shared operands, flags, public integer types, other widths, `F64`, binary operations, cross-block propagation, dead-code elimination, and pass scheduling remain outside the interface. Dominating cross-block values can reach the pass. Its graph-wide use count preserves producers shared with another block.
 - `Ir.Integer_interpreter` accepts an already checked `Ir.X87_stack.t` and a mandatory positive `max_steps`. It preflights every source-ordered instruction, including instructions in unreachable blocks, before execution. Its closed subset contains zero-depth internal `I64` and `U64` `IC_IMM_I64` producers; `IC_COM`, `IC_NOT`, and `IC_UNARY_MINUS`; wrapping `IC_ADD`, `IC_SUB`, and `IC_MUL`; raw-word `IC_AND`, `IC_OR`, and `IC_XOR`; masked `IC_SHL` and `IC_SHR`; raw `IC_EQU_EQU`, `IC_NOT_EQU`, `IC_LESS`, `IC_GREATER_EQU`, `IC_GREATER`, and `IC_LESS_EQU`; direct-value `IC_AND_AND`, `IC_OR_OR`, and `IC_XOR_XOR`; flagged `IC_END_EXP` disposal; `IC_RETURN_VAL`; `IC_JMP`; `IC_BR_ZERO`; `IC_BR_NOT_ZERO`; `IC_RET`; and `IC_END`. Arithmetic, bitwise, and shifts use the existing common-type rule: two `I64` operands produce `I64`, while any `U64` operand promotes the result to `U64`. Shifts derive a count from the low six bits of the right word. Left shift wraps all 64 bits; right shift is arithmetic for a promoted `I64` result and logical for `U64`. Comparisons consume two internal words but always produce a normalized internal-`I64` boolean. Equality compares raw bits; ordered comparisons use signed order only for `I64` with `I64` and unsigned order for the other three type pairings. Direct logical operations also accept all four internal-word pairings and return normalized internal-`I64` booleans: zero is false and every nonzero word is true. Their two values must already have been produced, so the operation does not evaluate operand expressions or model short-circuit control flow. Preflight rejects unsupported opcodes, flags, metadata, word types, and type relationships with structured `HCIRVM` diagnostics. Execution starts at the verified entry, keeps values block-local, clears them on every transfer, and preserves the latest pending return across transfers. A taken branch uses its payload target; an untaken branch and an empty or ordinary block use the physically next source block. Every executed instruction costs one step, an empty-block transfer costs none, and termination on the last allowed step succeeds. The iterative execution loop returns no partial result after preflight, budget, or invariant failure. Successful results retain a typed optional return or stream termination and render through `holyc-ir-integer-execution-v1`. The public interface, diagnostic codes, renderer schema, and registered test inventory remain unchanged. Constant-form shifts, floating and mixed-floating comparisons or logical operations, public or narrow integer producers, pointers, aggregates, payload-bearing comparison or logical forms, every nonzero comparison or logical flag including transfer flags, `IC_PUSH_CMP`, chained comparisons, comparison-consuming and short-circuit branch forms and rewrites, operand side effects and evaluation order, source execution, optimizer work, and backend emission remain outside the allowlist. The module is an in-process library boundary. It has no source, CLI, `#exe`, native-code, memory, call, floating-point, pointer, or external-resource capability.
-- `Backend` exposes the audited TempleOS BIN header, patch-record, relocation, loader-action and AOT-adjustment specification. `Backend.X86_64_encoder` consumes generated word, comparison, shift, division, control, private-context, fixed frame and CALL/RET opcode forms. `X86_64_word_codegen` shares word preflight, computation-class checks, fixed-register transport, reusable spill allocation, branch/call planning and Windows unwind generation. `X86_64_expression` retains its opaque single-block return image, seven ordinary value registers, optional R11 fault pointer and established byte sequences. `X86_64_program` retains complete closed-block images and adds exact checked entry/function/frame/call bundles. Programs reserve R10 for cumulative steps and R11 for context, leaving five value registers. Callable owners use real RBP frames, disjoint local/init/spill/argument storage, fixed RSP, direct generated calls and per-owner epilogues. Dense source sites retain function identity as well as block/instruction IDs, while only entry expressions publish the final value. Calls reserve and restore semantic frames, call depth and separately bounded physical stack bytes; checked faults return through the complete generated chain. The source driver parses without command execution callbacks. Bounded scalar defaults prepare at original header callbacks through the existing checked constant engine; an exact source/default/call certificate authorizes saved words for native argument producers and unused headers. Separate preparation work and payload quotas retain progress after failures. The entry still requires zero global/static initialization and storage-preparation work. Native runtime modules use W^X mappings, cache synchronization and Windows function-table lifetime, boxing values only after cleanup. Callable Windows images describe every owner, including entry, in one checked unwind table. Compiler and encoding logic remain in OCaml. See [native expressions](docs/native-expressions.md), [native programs](docs/native-programs.md) and [native defaults](docs/native-defaults.md). Effectful/interleaved defaults, broader memory, full HolyC ABI, large/probed frames, relocations, object/BIN serializers and loaders remain separate gates.
+- `Backend` exposes the audited TempleOS BIN header, patch-record, relocation, loader-action and AOT-adjustment specification. `Backend.X86_64_encoder` consumes generated word, comparison, shift, division, control, private-context, fixed frame and CALL/RET opcode forms. `X86_64_word_codegen` shares word preflight, computation-class checks, fixed-register transport, reusable spill allocation, branch/call planning and Windows unwind generation. `X86_64_expression` retains its opaque single-block return image, seven ordinary value registers, optional R11 fault pointer and established byte sequences. `X86_64_program` retains complete closed-block images and adds exact checked entry/function/frame/call bundles. Programs reserve R10 for cumulative steps and R11 for context, leaving five value registers. Callable owners use real RBP frames, disjoint local/init/spill/argument storage, fixed RSP, direct generated calls and per-owner epilogues. Dense source sites retain function identity as well as block/instruction IDs, while only entry expressions publish the final value. Calls reserve and restore semantic frames, call depth and separately bounded physical stack bytes; checked faults return through the complete generated chain. The source driver parses without command execution callbacks. Bounded scalar defaults prepare at original header callbacks through the existing checked constant engine; an exact source/default/call certificate authorizes saved words for native argument producers and unused headers. Separate preparation work and payload quotas retain progress after failures. The entry still requires zero global/static initialization and storage-preparation work. Native runtime modules use W^X mappings, cache synchronization and Windows function-table lifetime, boxing values only after cleanup. Callable Windows images describe every owner, including entry, in one checked unwind table. Compiler and encoding logic remain in OCaml. See [native expressions](native-expressions.md), [native programs](native-programs.md) and [native defaults](native-defaults.md). Effectful/interleaved defaults, broader memory, full HolyC ABI, large/probed frames, relocations, object/BIN serializers and loaders remain separate gates.
 - `Driver` owns compilation sessions, AST-to-semantic orchestration, build identity, and deterministic corpus scans. `Driver.Semantic_collection` translates accepted aggregate, global, and function AST items into the dependency-free semantic batch while preserving lexical order and source provenance. `Driver.Aggregate_resolution` pairs aggregate entries with the same AST by kind, item index, name, and origin before applying the source-order reconciliation rule. `Driver.Aggregate_header_resolution` validates that reconciliation against the same declarations and AST, resolves a backing before publishing the current identity, and resolves a base afterward. `Driver.Member_collection` checks that the same AST supplied the aggregate-definition symbols, flattens recursive anonymous-union fields into the containing namespace, and hands the validated facts to `Sema`. `Driver.Member_type_resolution` then walks aggregate publications in source order, validates the header and member batches, publishes the current canonical identity before its fields, and binds each field's base and pointer layers. `Driver.Function_collection` performs the same association for function declarations, preserves unnamed parameter gaps, synthesizes `argc` and `argv` at the ellipsis, and walks recursive statements without inventing block-local namespaces. `Driver.Function_type_resolution` validates that collection with the same declarations, aggregate identities, and AST; replays canonical aggregate publication in module order; and resolves each return and recursive fixed-parameter signature at its declaration. `Driver.Local_type_resolution` follows the same aggregate timeline, matches every local AST declarator to its collected function symbol, and resolves complete object or callback shapes without changing the table. `Driver.Module_expression_binding` reconciles aggregate, function, global, and function-expression results against the original declarations, then builds one mixed source-order publication stream for immutable lookup. `Driver.Outer_expression_binding` converts the selected frontend mode, validates the supplied outer table chain, and maps low-level semantic failures to stable public errors. `Driver.Global_initializer_binding` validates the global-record batch against the same AST, collects ordinary identifier occurrences from scalar and recursive initializer trees, and retains the path to each nested value. `Driver.Label_resolution` checks the function collection against the same AST, walks every recursive statement route, and records language gotos plus structural assembly-block labels in first-occurrence order. A verified corpus scan checks the reference worktree before and after the run, enumerates the pinned Git tree, and reads committed objects so checkout line endings cannot change its result.
 
 `holyc_lib` exposes the supported high-level entry points. `preprocess_detailed` returns tokens, every diagnostic, and per-stream help metadata so callers can keep nonfatal warnings and compiler annotations together. The older `preprocess` convenience result remains available when only tokens and fatal errors matter. `parse` uses deterministic JIT preprocessing, while `parse_with_config` and `parse_detailed` accept an explicit mode. Ordered `public`, `static`, `interrupt`, `haserrcode`, `argpop`, and `noargpop` prefixes and ordinary, alternate-name, or `_intern` bindings retain their source locations but do not alter linkage, storage, or ABI behavior yet. An alternate binding stores its target as a separate source-linked identifier; `_intern` stores the unevaluated target expression. Either import spelling in JIT mode fails before its declared name is published. Each accepted global is published after its delimiter, and each accepted prototype is published as a function after its semicolon, before the parser requests the next token. A following `#ifdef` can therefore observe either declaration. A detailed parse retains warnings, but any error removes the public AST instead of returning a false success. `collect_declarations` turns that successful AST into one semantic module collection; top-level executable statements add no declaration entry. `resolve_aggregates` validates that collection against the same AST and returns its aggregate identities without mutating or renumbering the symbols. `resolve_aggregate_headers` then binds definition backings and bases at their separate publication points. `collect_members` creates aggregate scopes from the exact collection and AST, and `resolve_member_types` checks those scopes against the declarations, aggregate identities, headers, and AST before binding member type references. `collect_functions` creates function scopes and their parameter and local entries. `resolve_function_types` validates that function collection against the same AST, declarations, and aggregate identities before binding source-positioned return and recursive parameter types. `resolve_function_expressions` binds ordinary occurrences to visible parameters and locals, and `resolve_module_expressions` resolves its remaining candidates through the source-visible compilation-unit records. `resolve_top_level_expressions` applies the same publication prefix to executable module statements, while `resolve_top_level_outer_expressions` finishes their names through a supplied outer chain. `create_outer_environment` validates a caller-supplied JIT or AOT chain, and `resolve_outer_expressions` resolves the remaining function-body candidates through it. `resolve_global_initializers` binds scalar and recursively braced initializer occurrences after the owning global publication. `resolve_labels` binds function-local language gotos and label definitions after checking that the function collection came from the same AST and session. `Symbol_visibility.Environment.human` and `json` serialize the parser-owned environment in stable ID order, with an optional filter that omits the pinned seed while retaining source declarations. The schema preserves generated-source ancestry and compact direct-call shapes but deliberately makes no semantic-resolution claim. `Semantic_symbol_table` separately exposes the semantic identity and lookup substrate, including deterministic `holyc-semantic-symbol-table-v1` human and JSON renderers. No public command presents that table as a checked program yet. `Corpus.lex_reference` returns every per-file lexer result and aggregate byte, token, terminator, and payload count. The command-line program uses the same library paths exercised by the CLI golden tests.
@@ -260,11 +265,11 @@ Scaling and addition check signed overflow before final bounds checks at
 materialization or element access. Canonical reference records keep saved
 aliases stable across loop iterations and later argument effects. The image
 records which IR sites can raise scale, addition and bounds faults, and the
-public decoder validates those sites. See [native arrays](docs/native-arrays.md).
+public decoder validates those sites. See [native arrays](native-arrays.md).
 
 Native PutChars calls reuse the original checked provider and argument records.
 The shared encoder emits packed-byte iteration and separate output-work/capacity
 checks; the host bridge supplies a bounded capture buffer with an immutable
 pointer. Checked reports retain earlier bytes on reached faults. Implicit output
 preserves the original result latch through its sealed discard identity.
-See [native output](docs/native-output.md).
+See [native output](native-output.md).

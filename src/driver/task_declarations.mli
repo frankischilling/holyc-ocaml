@@ -82,6 +82,32 @@ val validate_implicit_output :
 val dimension_requires_runtime :
   Frontend.Parser.array_dimension_preparation -> bool
 
+val switch_case_requires_runtime :
+  Frontend.Parser.switch_case_preparation -> bool
+
+val defer_source_runtime_switch_case :
+  t ->
+  preparation:Frontend.Parser.switch_case_preparation ->
+  Frontend.Parser.declaration_event ->
+  (unit, Common.Diagnostic.t list) result
+
+val begin_runtime_switch_case :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.switch_case_preparation ->
+  ( Sema.Switch_case_fragment.authority
+    * Ir.Integer_interpreter.switch_case_attempt,
+    Common.Diagnostic.t list )
+  result
+
+val finish_runtime_switch_case :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  succeeded:bool ->
+  Frontend.Parser.switch_case_preparation ->
+  (unit, Common.Diagnostic.t list) result
+
 val defer_source_runtime_dimension :
   t ->
   preparation:Frontend.Parser.array_dimension_preparation ->

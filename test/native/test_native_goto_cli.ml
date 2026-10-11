@@ -529,11 +529,65 @@ let unsupported_goto_regions () =
       ( "U0 SysTry(){}U0 SysUntry(){}U0 F(){done:try goto done;catch \
          return;}F();",
         "try goto done;catch return;" );
-      ( "U0 F(I64 n){switch[n]{case 0:goto done;}done:return;}F(0);",
-        "switch[n]{case 0:goto done;}" );
-      ( "U0 F(I64 n){switch(n){start:case 0:goto done;end:}done:return;}F(0);",
-        "switch(n){start:case 0:goto done;end:}" );
     ]
+
+let switch_goto_cli_contract () =
+  let accepted =
+    [
+      ( "I64 F(I64 n){switch[n]{case 0:goto done;}return -1;done:return \
+         42;}F(0);",
+        "no-bound goto" );
+      ( "I64 F(I64 n){switch(n){start:case 0:goto done;end:}return \
+         -1;done:return 42;}F(0);",
+        "empty sub-switch setup goto" );
+      ( "I64 F(){I64 n=0;switch(0){start:n+=1;case 0:n+=40;goto \
+         done;end:n+=100;}done:return n+1;}F();",
+        "goto from selected case past its setup suffix" );
+    ]
+  in
+  let rejected =
+    [
+      ( "I64 F(){switch(0){start:goto body;case 0:body:break;end:;}return \
+         42;}F();",
+        "goto body;" );
+      ( "I64 F(){switch(0){start:setup:;case 0:goto setup;end:;}return 42;}F();",
+        "goto setup;" );
+    ]
+  in
+  List.iter
+    (fun (contents, label) ->
+      with_file ".hc" contents (fun source ->
+          List.iter
+            (fun mode ->
+              let interpreted = ir_json ~mode source in
+              let native = host_json ~mode source in
+              List.iter
+                (fun report ->
+                  check_success report;
+                  check_word report "i64" "42" "0x000000000000002a")
+                [ interpreted; native ];
+              require
+                (native |> member "native" |> member "image" <> `Null)
+                (label ^ " must execute an actual native image"))
+            [ "jit"; "aot" ]))
+    accepted;
+  List.iter
+    (fun (contents, primary) ->
+      with_file ".hc" contents (fun source ->
+          List.iter
+            (fun mode ->
+              let interpreted = ir_json ~status:1 ~mode source in
+              let native = host_json ~status:1 ~mode source in
+              List.iter
+                (fun report ->
+                  require
+                    (first_code report = "HCRUN0001")
+                    "goto across a setup prefix must reject";
+                  check_primary source contents primary 1 report)
+                [ interpreted; native ];
+              check_no_native_entry native)
+            [ "jit"; "aot" ]))
+    rejected
 
 let () =
   maintained_fixture_contract ();
@@ -541,4 +595,5 @@ let () =
   infinite_goto_budget_and_recovery ();
   invalid_label_gates ();
   goto_return_completeness ();
-  unsupported_goto_regions ()
+  unsupported_goto_regions ();
+  switch_goto_cli_contract ()

@@ -240,21 +240,9 @@ let invalid_and_unsupported_source () =
         "I64 Bad(I64 n){switch(n){case 1...3:return 1;case 3...5:return \
          2;default:return 3;}return 0;}42;",
         "HCSW0002" );
-      ( "no-bound",
-        "I64 Bad(I64 n){switch[n]{case 1:return 1;default:return 2;}return \
-         0;}42;",
-        "HCRUN0001" );
-      ( "subswitch",
-        "I64 Bad(I64 n){switch(n){start:case 1:return 1;end:default:return \
-         2;}return 0;}42;",
-        "HCRUN0001" );
       ( "effectful case",
         "I64 Bad(I64 n){switch(n){case n++:return 1;default:return 2;}return \
          0;}42;",
-        "HCRUN0001" );
-      ( "duplicate default",
-        "I64 Bad(I64 n){switch(n){case 1:return 1;default:return \
-         2;default:return 3;}return 0;}42;",
         "HCRUN0001" );
     ]
   in

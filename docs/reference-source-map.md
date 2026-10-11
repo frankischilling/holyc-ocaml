@@ -1,5 +1,16 @@
 # Reference source map
 
+[Switch execution](integer-switch.md) follows
+`Compiler/PrsStmt.HC:578-789` for shared case ownership, original endpoint
+evaluation, start/end setup prefixes, direct-entry calls, fallthrough bypasses,
+and nearest region breaks. `Compiler/PrsExp.HC:1117-1151` supplies immediate
+expression compilation and evaluation. `Compiler/BackC.HC:602-771`
+distinguishes bounded and no-bound dispatch;
+`Compiler/OptPass789A.HC:286-295` explains the final address of a repeated
+default label. `Doc/HolyC.DD:128` warns about leaving a setup prefix by return
+or goto. Checked continuation tokens, out-of-table host faults, exact source
+receipts, and resource quotas are hosted policies.
+
 [Aggregate member `sizeof`](aggregate-member-sizeof.md) follows
 `Compiler/PrsExp.HC:303-351`: validate the class at the dot, select the member
 after its token is read, and save its current class size times its original
@@ -468,21 +479,23 @@ retains each original leaf and loads its normalized bytes into fresh native
 storage. Receipt ownership and work limits are hosted checks. This adds no
 TempleOS oracle capture or loader claim. See [native globals](native-globals.md).
 
-Issue #668 connects bounded switch source execution through original case
+Issues #668 and #691 connect integer switch source execution through original case
 preparation. `PrsStmt.HC:578-789` supplies the endpoint/colon/brace phase order,
 implicit sentinel, descending inclusive ranges, small-positive lower-bound
 adjustment, late range check and overlap detection. `PrsExp.HC:1117-1151`
 compiles and calls an expression before F64-to-I64 conversion. The admitted
 closed subset uses the existing numeric engine at the original callback;
-effectful cases remain excluded. `BackC.HC:602-771` supplies unsigned adjusted
-index dispatch and the ordered default/table targets. The shared graph requires
-canonical immediate bounds; native emission uses bounded existing-encoder
-branches with one IC meter/site. Sealed receipt ownership, finite conversion
-guards, cumulative numeric work and table-slot caps are hosted policy. See
+current-task scalar effects execute through their original typed fragments.
+`BackC.HC:602-771` supplies bounded and bracket dispatch with the ordered
+default/table targets. The shared graph requires canonical immediate bounds and
+explicit setup continuations; native emission uses the existing encoder with
+one IC meter per reached operation. Original receipt ownership, finite conversion
+guards, shared preparation work, continuation limits, and table-slot caps are
+hosted policy. See
 [switch execution](integer-switch.md).
 
 Native dispatch groups adjacent equal destinations from that checked table.
-The unsigned out-of-range branch and each in-range destination follow
+The bounded form's unsigned out-of-range branch and each in-range destination follow
 `BackC.HC:ICSwitch`; group comparison/subtraction is an own-encoder optimization.
 Unsigned group branches use the `JB` rel32 form in `OpCodes.DD:600`.
 The large-range fixture tests the maximum source range without allocating a
@@ -1168,7 +1181,7 @@ The OCaml AST represents the source region as a distinct `Lock_statement` contai
 
 `Compiler/PrsStmt.HC:PrsSwitch` distinguishes `switch (expression)` from `switch [expression]`. The parenthesized form emits `IC_SWITCH`; the bracketed no-bound form emits `IC_NOBOUND_SWITCH`. Its body accepts implicit `case:`, explicit `case expression:`, and inclusive `case low...high:` labels. An implicit case starts at zero or follows the previous case value. The source swaps reversed range endpoints before adding every value to the jump table. `KW_DFT` is the compiler's internal constant for the source spelling `default`, as confirmed by `Compiler/OpCodes.DD`. `start:` opens a sub-switch region, `end:` closes the active region, and ordinary region contents return to `PrsStmt` with the region's break label. `Compiler/UAsm.HC`, `Kernel/Compress.HC`, `Kernel/StrPrint.HC`, `Demo/NullCase.HC`, and `Demo/SubSwitch.HC` provide no-bound, ranged, implicit, nested, and grouped examples. `Doc/HolyC.DD` records the same forms and the special front-porch restrictions.
 
-The OCaml AST keeps the switch keyword, delimiter mode, expression, matching delimiters, braces, and ordered body elements. A case pattern is an explicit implicit, single-expression, or ranged-expression variant. Default labels remain separate from cases, ordinary statements stay in source order, and each matched `start:`/`end:` pair becomes a recursive sub-switch node. The shared statement path permits switches in blocks, loop bodies and updates, conditionals, locks, and both sides of a try pair. Definition and include frames retain every delimiter and label origin in human and JSON dumps. The switch diagnostic codes from `HCPARSE0084` to `HCPARSE0097`, with `HCPARSE0089` unused, cover hosted depth limits and malformed switch structure. Recovery stops at the next case, default, start, end, or enclosing switch close, and any error suppresses the public AST. Break target resolution and jump fragments are implemented separately. Case evaluation, implicit numbering, endpoint swapping, duplicate and default checks, front-porch validation, jump-table construction, `IC_SWITCH`, `IC_NOBOUND_SWITCH`, `IC_SUB_CALL`, `IC_RET`, complete lowering, and execution remain pending.
+The OCaml AST keeps the switch keyword, delimiter mode, expression, matching delimiters, braces, and ordered body elements. A case pattern is an implicit, single-expression, or ranged-expression variant. Default labels remain separate from cases, ordinary statements stay in source order, and each matched `start:`/`end:` pair becomes a recursive sub-switch node. The shared statement path permits switches in blocks, loop bodies and updates, conditionals, locks, and both sides of a try pair. Definition and include frames retain every delimiter and label origin in human and JSON dumps. The switch diagnostic codes from `HCPARSE0084` to `HCPARSE0097`, with `HCPARSE0089` unused, cover hosted depth limits and malformed switch structure. Recovery stops at the next case, default, start, end, or enclosing switch close, and any error suppresses the public AST. The downstream [integer switch path](integer-switch.md) implements case preparation, implicit numbering, endpoint normalization, overlap checks, repeated defaults, setup regions, jump tables, and checked IR and native execution. It emits `IC_SWITCH`, `IC_NOBOUND_SWITCH`, `IC_SUB_CALL`, and local `IC_RET`; general floating execution and full compiler parity remain outside that path.
 
 `Compiler/PrsStmt.HC:PrsTryBlk` looks up `SysTry` and `SysUntry`, creates handler and completion labels, emits the setup call, and passes the next input to `PrsStmt` with `try_cnt + 1`. After the body it emits `SysUntry`, requires `KW_CATCH`, and parses the handler through the same ordinary statement path and incremented count. This makes braces optional on both sides and lets a nested `return` use the active count to emit the required `SysUntry` calls. `Compiler/CompilerA.HH` and `Compiler/OpCodes.DD` assign IDs 5 and 3 to `try` and `catch`. `Compiler/PrsExp.HC`, `Kernel/Job.HC`, and `Demo/Exceptions.HC` establish unbraced, braced, and nested forms. `Doc/HolyC.DD` documents the pair and identifies lowercase `throw` as a function.
 

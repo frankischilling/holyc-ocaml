@@ -97,6 +97,58 @@ type initializer_attempt
 type native_program_attempt
 type internal_binding_attempt
 type dimension_attempt
+type switch_case_attempt
+
+val begin_task_switch_case :
+  task_state ->
+  endpoint:Sema.Integer_switch_preparation.runtime_endpoint ->
+  Sema.Switch_case_fragment.authority ->
+  (switch_case_attempt, string) result
+
+val fail_task_switch_case :
+  task_state -> switch_case_attempt -> (unit, string) result
+
+val task_switch_case_bits :
+  task_state -> Frontend.Parser.switch_case_preparation -> int64 option
+
+val task_switch_case_remaining : task_state -> switch_case_attempt -> int
+
+val record_task_switch_case_preparation :
+  task_state -> switch_case_attempt -> before:int -> steps:int -> unit
+
+val execute_task_switch_case :
+  ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
+  ?stream_exe_print:stream_exe_print ->
+  task_state ->
+  switch_case_attempt ->
+  Switch_case_fragment_program.execution ->
+  (unit, error list) result
+
+val check_native_task_switch_case :
+  task_state ->
+  switch_case_attempt ->
+  Switch_case_fragment_program.t ->
+  (unit, string) result
+
+val claim_native_task_switch_case :
+  task_state ->
+  switch_case_attempt ->
+  Switch_case_fragment_program.t ->
+  (unit, string) result
+
+val record_native_switch_case_steps :
+  task_state -> switch_case_attempt -> int -> (unit, string) result
+
+val charge_native_switch_case_work :
+  task_state -> switch_case_attempt -> int -> (unit, string) result
+
+val complete_native_task_switch_case :
+  task_state ->
+  switch_case_attempt ->
+  Switch_case_fragment_program.t ->
+  Switch_case_fragment_program.t Native_scalar_capture.t ->
+  (unit, string) result
 
 val check_native_task_dimension :
   task_state ->
@@ -522,6 +574,16 @@ val native_generation_limits :
 val native_generation_byte_budget :
   native_generation -> (Integer_output.byte_budget, string) result
 
+val with_native_initializer_reservation :
+  native_generation ->
+  pending:(unit -> int) ->
+  (unit -> 'a) ->
+  ('a, string) result
+(** Reserve unpaid work from active native scalar preparations while their
+    original generation is executing. Child compiler peers share the
+    reservation. The original domain, stream and native task must still own the
+    generation; completion or an exception restores the previous reservation. *)
+
 val with_native_source_suspension :
   native_generation ->
   scope:Native_source_suspension.t ->
@@ -634,6 +696,7 @@ val promote_task_source_activation :
   ?offsets:Sema.Compiler_record.aggregate_offset list ->
   ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
   ?pending_runtime_offset:Frontend.Parser.aggregate_phase ->
+  ?pending_runtime_switch_case:Frontend.Parser.switch_case_preparation ->
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
   activation:Sema.Source_activation.t ->
@@ -871,6 +934,12 @@ val task_generated_bytes : task_state -> int
 val task_executed_steps : task_state -> int
 val task_initializer_steps : task_state -> int
 val task_initializer_limit : task_state -> int
+
+val task_initializer_remaining : task_state -> int
+(** Remaining initializer allowance after committed preparation and unpaid work
+    from active native scalar preparations. Progress counters retain only
+    committed work. *)
+
 val record_task_preparation : task_state -> before:int -> steps:int -> unit
 
 val execute_task_program :

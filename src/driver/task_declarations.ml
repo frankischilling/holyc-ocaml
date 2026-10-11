@@ -266,6 +266,19 @@ type callback_state = {
   mutable callback_header : Parser.completed_callback_signature option;
 }
 
+type switch_evaluation =
+  | Deferred_switch_case
+  | Awaiting_switch_case
+  | Executing_switch_case of VM.switch_case_attempt
+  | Completed_switch_case
+  | Failed_switch_case
+
+type pending_switch_case = {
+  switch_preparation : Parser.switch_case_preparation;
+  switch_endpoint : Switch.runtime_endpoint;
+  mutable switch_evaluation : switch_evaluation;
+}
+
 type t = {
   mutable callback_states : callback_state list;
   mutable source_callback_attempts :
@@ -325,6 +338,7 @@ type t = {
   mutable activation : Sema.Source_activation.t option;
   switch_budget : Switch.budget;
   switch_tracker : Switch.tracker;
+  mutable runtime_switch_cases : pending_switch_case list;
   max_dimension_work : int;
   max_offset_work : int;
   mutable dimension_work : int;
@@ -478,6 +492,7 @@ let create_with_authority ?enclosing_ledger ?saved_parent ?compiler_positions
                   source_events_rev = [];
                   activation_events_rev = [];
                   pending_runtime_offset = None;
+                  runtime_switch_cases = [];
                   activation = None;
                   switch_budget;
                   switch_tracker = Switch.create_tracker ~budget:switch_budget;
@@ -589,8 +604,17 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
                in
                Result.bind pending_runtime_dimension
                  (fun pending_runtime_dimension ->
+                   let pending_runtime_switch_case =
+                     List.find_map
+                       (fun pending ->
+                         if pending.switch_evaluation = Deferred_switch_case
+                         then Some pending.switch_preparation
+                         else None)
+                       ledger.runtime_switch_cases
+                   in
                    VM.promote_task_source_activation ?pending_runtime_dimension
                      ?pending_runtime_offset:ledger.pending_runtime_offset
+                     ?pending_runtime_switch_case
                      ~offsets:(List.rev ledger.offsets_rev)
                      runtime ~namespace:ledger.namespace ~activation
                      ~dimensions:(List.rev ledger.source_dimensions_rev)
@@ -2346,6 +2370,61 @@ let dimension_requires_runtime
       Sema.Initializer_source.expression_identifier_nodes expression <> [])
     preparation.dimension_expression
 
+let switch_case_requires_runtime (preparation : Parser.switch_case_preparation)
+    =
+  Sema.Initializer_source.expression_identifier_nodes
+    preparation.switch_case_expression
+  <> []
+
+let validate_switch_owner ledger (owner : Parser.switch_owner) =
+  let start = owner.switch_command in
+  let span = owner.switch_keyword.span in
+  let sequence = active_sequence ledger start.command_context in
+  (match sequence.phase with
+  | Reading saved when saved == start -> ()
+  | _ -> fail span "switch does not belong to the active parser command");
+  if owner.switch_environment != ledger.symbols then
+    fail span "switch belongs to another frontend environment"
+
+let validate_switch_runtime_references ledger preparation =
+  Sema.Initializer_source.expression_identifier_nodes
+    preparation.Parser.switch_case_expression
+  |> List.iter (fun (identifier : Ast.identifier) ->
+      match Names.find_opt ledger.references identifier with
+      | Some { target = Selected_local; _ } ->
+          fail ~code:"HCRUN0001" identifier.location.span
+            "switch case preparation cannot read an automatic local of the \
+             function being compiled"
+      | _ -> ())
+
+let prepare_runtime_switch_case ledger ~deferred
+    (preparation : Parser.switch_case_preparation) =
+  let ( let* ) = Result.bind in
+  let* () =
+    protect (fun () ->
+        validate_switch_owner ledger preparation.Parser.switch_owner;
+        validate_switch_runtime_references ledger preparation;
+        if
+          List.exists
+            (fun pending -> pending.switch_preparation == preparation)
+            ledger.runtime_switch_cases
+        then
+          fail preparation.switch_owner.switch_keyword.span
+            "switch endpoint has already been observed")
+  in
+  let* endpoint =
+    Switch.begin_runtime_endpoint ledger.switch_tracker preparation
+  in
+  ledger.runtime_switch_cases <-
+    {
+      switch_preparation = preparation;
+      switch_endpoint = endpoint;
+      switch_evaluation =
+        (if deferred then Deferred_switch_case else Awaiting_switch_case);
+    }
+    :: ledger.runtime_switch_cases;
+  Ok ()
+
 let prepare_dimension ?(defer_runtime = false) ledger
     (preparation : Parser.array_dimension_preparation) =
   let owner = preparation.dimension_owner in
@@ -3540,8 +3619,45 @@ let observe ?offset_runtime ledger event =
     Result.bind observed (fun () ->
         match ledger.authority with
         | Semantic_analysis -> Ok ()
-        | Source_compilation _ | Task_runtime _ ->
-            Switch.observe ledger.switch_tracker event)
+        | Source_compilation _ | Task_runtime _ -> (
+            match event with
+            | Parser.Switch_case_preparing preparation
+              when switch_case_requires_runtime preparation -> (
+                match ledger.authority with
+                | Task_runtime _ ->
+                    prepare_runtime_switch_case ledger ~deferred:false
+                      preparation
+                | _ ->
+                    protect (fun () ->
+                        validate_switch_runtime_references ledger preparation;
+                        fail ~code:"HCRUN0006"
+                          (Ast.expression_location
+                             preparation.switch_case_expression)
+                            .span
+                          "effectful switch cases require the current \
+                           executable task"))
+            | Parser.Switch_case_preparing preparation ->
+                let queries =
+                  Sema.Query_selection.source_queries
+                    preparation.switch_case_expression
+                  |> List.filter_map (fun expression ->
+                      Option.map
+                        (fun query -> query.query_selection)
+                        (Query_expressions.find_opt ledger.queries expression))
+                in
+                let checks =
+                  protect (fun () ->
+                      validate_switch_owner ledger preparation.switch_owner;
+                      Sema.Query_selection.validate_manifest ~table:ledger.table
+                        ~expression:preparation.switch_case_expression queries
+                      |> checked
+                           (Ast.expression_location
+                              preparation.switch_case_expression)
+                             .span)
+                in
+                Result.bind checks (fun () ->
+                    Switch.observe ~queries ledger.switch_tracker event)
+            | _ -> Switch.observe ledger.switch_tracker event))
   in
   Result.map
     (fun () ->
@@ -3575,6 +3691,34 @@ let observe ?offset_runtime ledger event =
         publication;
       record_activation_event ledger (Sema.Source_activation.Declaration event))
     observed
+
+let defer_source_runtime_switch_case ledger ~preparation event =
+  let ( let* ) = Result.bind in
+  let* () =
+    protect (fun () ->
+        let span =
+          (Ast.expression_location preparation.Parser.switch_case_expression)
+            .span
+        in
+        let context = preparation.switch_owner.switch_command.command_context in
+        if
+          (match event with
+            | Parser.Switch_case_preparing original -> original != preparation
+            | _ -> true)
+          || (match ledger.authority with
+            | Source_compilation _ -> false
+            | _ -> true)
+          || (not (switch_case_requires_runtime preparation))
+          || Parser.context_mode context <> Frontend.Preprocessor.Jit
+          || Option.is_some (Parser.context_parent context)
+          || not (Parser.switch_case_preparation_is_current preparation)
+        then
+          fail span
+            "deferred switch case requires its original live JIT callback")
+  in
+  let* () = prepare_runtime_switch_case ledger ~deferred:true preparation in
+  record_activation_event ledger (Sema.Source_activation.Declaration event);
+  Ok ()
 
 let defer_source_runtime_dimension ledger ~preparation event =
   protect (fun () ->
@@ -5147,6 +5291,84 @@ let finish_runtime_internal_binding ledger ~runtime ~succeeded receipt =
         | _ ->
             fail span "internal binding lacks its successful original execution")
 
+let runtime_switch_case_pending ledger ~runtime receipt =
+  let span =
+    (Ast.expression_location receipt.Parser.switch_case_expression).span
+  in
+  require_initializer_runtime ledger runtime span;
+  validate_switch_owner ledger receipt.switch_owner;
+  if
+    (not (Parser.switch_case_preparation_is_current receipt))
+    || not
+         (Sema.Source_activation.switch_case_admission ledger.activation receipt)
+  then fail span "runtime switch case is outside its original callback";
+  match
+    List.find_opt
+      (fun pending -> pending.switch_preparation == receipt)
+      ledger.runtime_switch_cases
+  with
+  | Some pending -> pending
+  | None -> fail span "switch case has no original pending preparation"
+
+let begin_runtime_switch_case ledger ~runtime ~task_view receipt =
+  protect (fun () ->
+      let span =
+        (Ast.expression_location receipt.Parser.switch_case_expression).span
+      in
+      let pending = runtime_switch_case_pending ledger ~runtime receipt in
+      (match pending.switch_evaluation with
+      | Awaiting_switch_case -> ()
+      | _ ->
+          fail span
+            "runtime switch case was already attempted or is not pending");
+      pending.switch_evaluation <- Failed_switch_case;
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span
+          receipt.switch_case_expression
+      in
+      let fragment =
+        Sema.Switch_case_fragment.create ~table:ledger.table
+          ~namespace:ledger.namespace ~receipt ~environment ~references ~queries
+        |> checked span
+      in
+      let authority =
+        Sema.Switch_case_fragment.authorize ?activation:ledger.activation
+          fragment
+        |> checked span
+      in
+      let attempt =
+        VM.begin_task_switch_case runtime ~endpoint:pending.switch_endpoint
+          authority
+        |> checked span
+      in
+      pending.switch_evaluation <- Executing_switch_case attempt;
+      (authority, attempt))
+
+let finish_runtime_switch_case ledger ~runtime ~succeeded receipt =
+  protect (fun () ->
+      let span =
+        (Ast.expression_location receipt.Parser.switch_case_expression).span
+      in
+      let pending = runtime_switch_case_pending ledger ~runtime receipt in
+      (match pending.switch_evaluation with
+      | Executing_switch_case _ -> ()
+      | _ -> fail span "switch completion lacks its original runtime attempt");
+      pending.switch_evaluation <- Failed_switch_case;
+      if succeeded then (
+        let bits =
+          match VM.task_switch_case_bits runtime receipt with
+          | Some bits -> bits
+          | None -> fail span "switch case has no successful original execution"
+        in
+        Switch.complete_runtime_endpoint ledger.switch_tracker
+          pending.switch_endpoint ~bits
+        |> checked span;
+        pending.switch_evaluation <- Completed_switch_case)
+      else
+        Switch.fail_runtime_endpoint ledger.switch_tracker
+          pending.switch_endpoint
+        |> checked span)
+
 let begin_runtime_dimension ledger ~runtime ~task_view receipt =
   protect (fun () ->
       let span = receipt.Parser.dimension_opening.span in
@@ -6171,6 +6393,33 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
                         else "HCRUN0004"
                       in
                       fail ~code phase.phase_location.span message)
+              | Parser.Switch_case_preparing preparation -> (
+                  match
+                    List.find_opt
+                      (fun pending -> pending.switch_preparation == preparation)
+                      ledger.runtime_switch_cases
+                  with
+                  | Some pending
+                    when pending.switch_evaluation = Deferred_switch_case ->
+                      if
+                        not
+                          (Sema.Source_activation.switch_case_preparing
+                             ledger.activation preparation)
+                      then
+                        fail
+                          (Ast.expression_location
+                             preparation.switch_case_expression)
+                            .span
+                          "deferred switch case lacks its original activation \
+                           event";
+                      pending.switch_evaluation <- Awaiting_switch_case
+                  | Some _ ->
+                      fail
+                        (Ast.expression_location
+                           preparation.switch_case_expression)
+                          .span
+                        "switch activation attempted to repeat an endpoint"
+                  | None -> ())
               | Parser.Array_dimension_preparing preparation -> (
                   let deferred =
                     Option.bind

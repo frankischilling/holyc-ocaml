@@ -40,6 +40,8 @@ type fault_kind =
   | Undefined_extern
   | Callback_owned_word_escape
   | Callback_update_owned_address
+  | No_bound_switch_out_of_range
+  | Local_subroutine_continuation_unavailable
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -205,6 +207,16 @@ val compile_task_dimension :
   Driver.Integer_task.Native_dimension.request ->
   (t, error list) result
 
+val compile_task_switch_case :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  ?max_ir_instructions:int ->
+  ?max_code_bytes:int ->
+  layout:task_layout ->
+  Driver.Integer_task.Native_switch_case.request ->
+  (t, error list) result
+
 val compile_task_offset :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
@@ -329,10 +341,12 @@ val internal_binding : t -> Ir.Internal_binding_fragment_program.t option
 type scalar_program =
   | Internal_binding of Ir.Internal_binding_fragment_program.t
   | Dimension of Ir.Dimension_fragment_program.t
+  | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
 
 val scalar_program : t -> scalar_program option
 val dimension : t -> Ir.Dimension_fragment_program.t option
+val switch_case : t -> Ir.Switch_case_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option
 val generation : t -> Ir.Integer_interpreter.native_generation option
 val source_callback : t -> Driver.Integer_task.native_source_callback option

@@ -2,6 +2,7 @@ type budget
 type tracker
 type t
 type case
+type runtime_endpoint
 
 val hard_max_table_entries : int
 val create_budget : max_work:int -> (budget, string) result
@@ -11,6 +12,7 @@ val budget_table_entries : budget -> int
 val create_tracker : budget:budget -> tracker
 
 val observe :
+  ?queries:Query_selection.t list ->
   tracker ->
   Frontend.Parser.declaration_event ->
   (unit, Common.Diagnostic.t list) result
@@ -19,6 +21,21 @@ val observe :
     ordered cases after brace lookahead. Failure keeps reached work and revokes
     that owner's preparation. Other declaration events are ignored. *)
 
+val begin_runtime_endpoint :
+  tracker ->
+  Frontend.Parser.switch_case_preparation ->
+  (runtime_endpoint, Common.Diagnostic.t list) result
+
+val runtime_endpoint_receipt :
+  runtime_endpoint -> Frontend.Parser.switch_case_preparation
+
+val runtime_remaining : runtime_endpoint -> int
+val charge_runtime_work : runtime_endpoint -> work:int -> (unit, string) result
+
+val complete_runtime_endpoint :
+  tracker -> runtime_endpoint -> bits:int64 -> (unit, string) result
+
+val fail_runtime_endpoint : tracker -> runtime_endpoint -> (unit, string) result
 val find : tracker -> Frontend.Ast.switch_statement -> t option
 
 val preparations : tracker -> t list

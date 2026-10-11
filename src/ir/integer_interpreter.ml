@@ -252,8 +252,10 @@ and prepared_operation =
   | Discard_void of Value_id.t
   | Return_value of prepared_operand * word_type
   | Jump of int
+  | Local_call of int * int
+  | Local_return of int list
   | Branch of branch_condition * prepared_operand * int
-  | Switch of prepared_operand * prepared_operand * int array
+  | Switch of prepared_operand * prepared_operand * int array * bool
   | Return
   | End
 
@@ -274,6 +276,7 @@ and prepared_block = {
 and prepared = {
   blocks : prepared_block array;
   entry_index : int;
+  local_subroutine_capacity : int;
   initial_slots : runtime_value option array;
   initial_frame_bytes : int;
   variadic_base : int option;
@@ -461,6 +464,20 @@ type dimension_attempt = {
   mutable dimension_native_work : int option;
 }
 
+type switch_case_attempt = {
+  switch_case_catalog : Integer_globals.task_catalog;
+  switch_case_authority : Sema.Switch_case_fragment.authority;
+  switch_case_receipt : Frontend.Parser.switch_case_preparation;
+  switch_case_endpoint : Sema.Integer_switch_preparation.runtime_endpoint;
+  switch_case_preparation_before : int;
+  mutable switch_case_preparation_steps : int;
+  mutable switch_case_state : initializer_attempt_state;
+  mutable switch_case_bits : int64 option;
+  mutable switch_case_native_program : Switch_case_fragment_program.t option;
+  mutable switch_case_native_work : int option;
+  mutable switch_case_native_charged_before : int;
+}
+
 type internal_binding_attempt = {
   internal_binding_catalog : Integer_globals.task_catalog;
   internal_binding_authority : Sema.Internal_binding_fragment.authority;
@@ -492,6 +509,7 @@ type task_input = {
   input_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
   input_internal_bindings : internal_binding_attempt list;
   input_dimensions : dimension_attempt list;
+  input_switch_cases : switch_case_attempt list;
   input_offsets : offset_attempt list;
   input_defaults : default_attempt list;
   input_default_constants : default_constant list;
@@ -526,7 +544,11 @@ type task_resources = {
   mutable literal_bytes : int;
   mutable steps : int;
   mutable initializer_steps : int;
+  mutable native_initializer_pending : (unit -> int) option;
   max_steps : int;
+  mutable switch_execution :
+    Sema.Integer_switch_preparation.runtime_endpoint option;
+  mutable switch_execution_steps : int;
   max_initializer_steps : int;
   max_global_bytes : int;
   max_literal_bytes : int;
@@ -581,6 +603,7 @@ and child_work = {
   work_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
   work_internal_bindings : internal_binding_attempt list;
   work_dimensions : dimension_attempt list;
+  work_switch_cases : switch_case_attempt list;
   work_offsets : offset_attempt list;
   work_defaults : default_attempt list;
   work_default_constants : default_constant list;
@@ -604,6 +627,7 @@ and task_state = {
   mutable completed_dimensions : Frontend.Parser.completed_array_dimension list;
   mutable internal_bindings : internal_binding_attempt list;
   mutable dimensions : dimension_attempt list;
+  mutable switch_cases : switch_case_attempt list;
   mutable runtime_offsets : offset_attempt list;
   mutable defaults : default_attempt list;
   mutable default_constants : default_constant list;
@@ -650,6 +674,7 @@ let make_task_state ~resources ~native_storage_authority ~table =
     saved_data_values = [];
     internal_bindings = [];
     dimensions = [];
+    switch_cases = [];
     runtime_offsets = [];
     initializers = [];
     declared_admissions = [];
@@ -682,6 +707,19 @@ let make_task_state ~resources ~native_storage_authority ~table =
     source_programs = [];
     isolated_programs = [];
   }
+
+let task_initializer_remaining task =
+  let remaining =
+    task.resources.max_initializer_steps - task.resources.initializer_steps
+  in
+  let pending =
+    match task.resources.native_initializer_pending with
+    | None -> 0
+    | Some pending -> pending ()
+  in
+  if pending < 0 then
+    invalid_arg "native initializer pending work must be nonnegative";
+  max 0 (remaining - min pending (max 0 remaining))
 
 let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
@@ -719,7 +757,10 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         literal_bytes = 0;
         steps = 0;
         initializer_steps = 0;
+        native_initializer_pending = None;
         max_steps;
+        switch_execution = None;
+        switch_execution_steps = 0;
         max_initializer_steps;
         max_global_bytes;
         max_literal_bytes;
@@ -851,6 +892,21 @@ let native_generation_byte_budget generation =
   let* () = check_native_generation generation in
   Ok (Output.byte_budget generation.generation_output)
 
+let with_native_initializer_reservation generation ~pending execute =
+  let ( let* ) = Result.bind in
+  let* () = check_native_generation generation in
+  let task = generation.generation_task in
+  if not task.native_storage_authority then
+    Error "native initializer reservation requires its original native task"
+  else if Domain.self () <> task.resources.domain then
+    Error "native initializer reservation belongs to another task domain"
+  else
+    let saved = task.resources.native_initializer_pending in
+    task.resources.native_initializer_pending <- Some pending;
+    Fun.protect
+      ~finally:(fun () -> task.resources.native_initializer_pending <- saved)
+      (fun () -> Ok (execute ()))
+
 let with_native_source_suspension generation ~scope execute =
   let ( let* ) = Result.bind in
   let* () = check_native_generation generation in
@@ -927,6 +983,7 @@ let child_work task =
     work_seen_dimensions = task.seen_dimensions;
     work_internal_bindings = task.internal_bindings;
     work_dimensions = task.dimensions;
+    work_switch_cases = task.switch_cases;
     work_offsets = task.runtime_offsets;
     work_defaults = task.defaults;
     work_default_constants = task.default_constants;
@@ -1182,6 +1239,14 @@ let input_has_active_work task =
        task.dimensions
   || List.exists
        (fun attempt ->
+         active attempt.switch_case_state
+         && not
+              (child_work_is_excluded task
+                 (fun work -> work.work_switch_cases)
+                 attempt))
+       task.switch_cases
+  || List.exists
+       (fun attempt ->
          active attempt.offset_state
          && not
               (child_work_is_excluded task
@@ -1236,6 +1301,12 @@ let completed_input task input =
          attempt.dimension_state = Successful_initializer
          || child_work_is_excluded task
               (fun work -> work.work_dimensions)
+              attempt)
+  && input_prefix_complete input.input_switch_cases task.switch_cases
+       (fun attempt ->
+         attempt.switch_case_state = Successful_initializer
+         || child_work_is_excluded task
+              (fun work -> work.work_switch_cases)
               attempt)
   && input_prefix_complete input.input_default_constants task.default_constants
        (fun result ->
@@ -1297,6 +1368,10 @@ let complete_task_child_input scope sequence =
          (done_or_excluded
             (fun work -> work.work_dimensions)
             (fun item -> item.dimension_state = Successful_initializer))
+    && input_prefix_complete before.work_switch_cases task.switch_cases
+         (done_or_excluded
+            (fun work -> work.work_switch_cases)
+            (fun item -> item.switch_case_state = Successful_initializer))
     && input_prefix_complete before.work_offsets task.runtime_offsets
          (done_or_excluded
             (fun work -> work.work_offsets)
@@ -1412,6 +1487,7 @@ let observe_task_source_event task event =
               input_seen_dimensions = task.seen_dimensions;
               input_internal_bindings = task.internal_bindings;
               input_dimensions = task.dimensions;
+              input_switch_cases = task.switch_cases;
               input_offsets = task.runtime_offsets;
               input_defaults = task.defaults;
               input_default_constants = task.default_constants;
@@ -1584,7 +1660,31 @@ let bind_source_activation task ~namespace activation =
     Ok ())
 
 let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
-    ?pending_runtime_offset task ~namespace ~activation ~dimensions =
+    ?pending_runtime_offset ?pending_runtime_switch_case task ~namespace
+    ~activation ~dimensions =
+  let pending_switch_valid =
+    let originals =
+      Sema.Source_activation.switch_case_preparations activation
+    in
+    let requires_runtime (receipt : Frontend.Parser.switch_case_preparation) =
+      Sema.Initializer_source.expression_identifier_nodes
+        receipt.switch_case_expression
+      <> []
+    in
+    match pending_runtime_switch_case with
+    | None -> not (List.exists requires_runtime originals)
+    | Some pending -> (
+        Option.is_none pending_runtime_dimension
+        && Option.is_none pending_runtime_offset
+        && Frontend.Parser.switch_case_preparation_is_current pending
+        && Option.fold ~none:false ~some:(( == ) pending)
+             (Sema.Source_activation.trailing_switch_case_preparation activation)
+        && requires_runtime pending
+        &&
+        match List.filter requires_runtime originals with
+        | [ original ] -> original == pending
+        | _ -> false)
+  in
   let originals = Sema.Source_activation.dimension_preparations activation in
   let pending_valid, closed_originals =
     match pending_runtime_dimension with
@@ -1624,6 +1724,7 @@ let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
     || (not (Sema.Source_activation.available activation))
     || (not (Sema.Source_activation.owns_namespace activation namespace))
     || (not pending_valid) || (not pending_offset_valid)
+    || (not pending_switch_valid)
     || (let phases = closed_offsets in
         List.length phases <> List.length offsets
         || not
@@ -1669,9 +1770,7 @@ let charge_source_aggregate_offset task phase =
          && Sema.Source_activation.aggregate_offset_preparing
               task.source_activation phase ->
       let work = Sema.Compiler_record.aggregate_offset_work offset in
-      let remaining =
-        task.resources.max_initializer_steps - task.resources.initializer_steps
-      in
+      let remaining = task_initializer_remaining task in
       task.resources.initializer_steps <-
         task.resources.initializer_steps + min work remaining;
       task.deferred_offsets <- rest;
@@ -1727,10 +1826,7 @@ let charge_isolated_aggregate_offsets task ~table offsets =
       | [] -> Ok ()
       | offset :: rest ->
           let work = Record.aggregate_offset_work offset in
-          let remaining =
-            task.resources.max_initializer_steps
-            - task.resources.initializer_steps
-          in
+          let remaining = task_initializer_remaining task in
           task.resources.initializer_steps <-
             task.resources.initializer_steps + min work remaining;
           if work > remaining then
@@ -1763,9 +1859,7 @@ let charge_source_dimension task preparation =
               preparation ->
       let work = Sema.Compiler_record.dimension_preparation_work next in
       task.seen_dimensions <- preparation :: task.seen_dimensions;
-      let remaining =
-        task.resources.max_initializer_steps - task.resources.initializer_steps
-      in
+      let remaining = task_initializer_remaining task in
       task.resources.initializer_steps <-
         task.resources.initializer_steps + min work remaining;
       if work > remaining then (
@@ -2990,11 +3084,7 @@ let check_native_static_copy task destination =
   match Static_initializer_destination.copy_byte_count destination with
   | None -> Error "native static copy requires an original string-copy leaf"
   | Some count ->
-      if
-        count
-        > task.resources.max_initializer_steps
-          - task.resources.initializer_steps
-      then
+      if count > task_initializer_remaining task then
         Error
           "HCIRVM0007: the bounded initializer copy work limit was exhausted"
       else Ok ()
@@ -3427,9 +3517,7 @@ let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
             task.seen_dimensions <- preparation :: task.seen_dimensions;
             let result, work =
               Record.prepare_dimension ~table ~namespace ~preparation ~queries
-                ~max_work:
-                  (task.resources.max_initializer_steps
-                 - task.resources.initializer_steps)
+                ~max_work:(task_initializer_remaining task)
             in
             task.resources.initializer_steps <-
               task.resources.initializer_steps + work;
@@ -3475,9 +3563,7 @@ let prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
         let result, work =
           Sema.Compiler_record.prepare_aggregate_offset ~table ~namespace
             ~queries
-            ~max_work:
-              (task.resources.max_initializer_steps
-             - task.resources.initializer_steps)
+            ~max_work:(task_initializer_remaining task)
             progress phase
         in
         task.resources.initializer_steps <-
@@ -3682,6 +3768,221 @@ let task_dimension_bits task receipt =
       then attempt.dimension_bits
       else None)
     task.dimensions
+
+let owns_switch_case_attempt task attempt =
+  attempt.switch_case_catalog == task.catalog
+  && List.exists (( == ) attempt) task.switch_cases
+
+let switch_case_is_current task attempt =
+  Frontend.Parser.switch_case_preparation_is_current attempt.switch_case_receipt
+  && Sema.Source_activation.switch_case_admission task.source_activation
+       attempt.switch_case_receipt
+
+let begin_task_switch_case task ~endpoint authority =
+  let ( let* ) = Result.bind in
+  let fragment = Sema.Switch_case_fragment.authorized_fragment authority in
+  let receipt = Sema.Switch_case_fragment.receipt fragment in
+  let* () =
+    require_initializer_namespace task
+      (Sema.Switch_case_fragment.namespace fragment)
+  in
+  let* () = Integer_globals.check_switch_case_source task.catalog receipt in
+  if
+    Sema.Integer_switch_preparation.runtime_endpoint_receipt endpoint != receipt
+    || (not
+          (Sema.Source_activation.switch_case_admission task.source_activation
+             receipt))
+    || (not (source_dimensions_ready task))
+    || List.exists
+         (fun attempt -> attempt.switch_case_receipt == receipt)
+         task.switch_cases
+  then Error "switch case preparation has another source or consumed boundary"
+  else
+    let attempt =
+      {
+        switch_case_catalog = task.catalog;
+        switch_case_authority = authority;
+        switch_case_receipt = receipt;
+        switch_case_endpoint = endpoint;
+        switch_case_preparation_before = task.resources.initializer_steps;
+        switch_case_preparation_steps = 0;
+        switch_case_state = Preparing_initializer;
+        switch_case_bits = None;
+        switch_case_native_program = None;
+        switch_case_native_work = None;
+        switch_case_native_charged_before =
+          task.resources.switch_execution_steps;
+      }
+    in
+    task.switch_cases <- attempt :: task.switch_cases;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let fail_task_switch_case task attempt =
+  if
+    (not (owns_switch_case_attempt task attempt))
+    || attempt.switch_case_state <> Preparing_initializer
+       && attempt.switch_case_state <> Executing_initializer
+  then Error "switch case failure has another task or inactive attempt"
+  else (
+    attempt.switch_case_state <- Failed_initializer;
+    Ok ())
+
+let task_switch_case_bits task receipt =
+  List.find_map
+    (fun attempt ->
+      if
+        attempt.switch_case_receipt == receipt
+        && attempt.switch_case_state = Successful_initializer
+      then attempt.switch_case_bits
+      else None)
+    task.switch_cases
+
+let task_switch_case_remaining task attempt =
+  if
+    owns_switch_case_attempt task attempt
+    && switch_case_is_current task attempt
+    && (attempt.switch_case_state = Preparing_initializer
+       || attempt.switch_case_state = Executing_initializer)
+  then
+    Sema.Integer_switch_preparation.runtime_remaining
+      attempt.switch_case_endpoint
+  else 0
+
+let record_task_switch_case_preparation task attempt ~before ~steps =
+  let delta = steps - attempt.switch_case_preparation_steps in
+  if
+    (not (owns_switch_case_attempt task attempt))
+    || (not (switch_case_is_current task attempt))
+    || attempt.switch_case_state <> Preparing_initializer
+    || before <> attempt.switch_case_preparation_before
+    || delta < 0
+    || task.resources.initializer_steps
+       <> before + attempt.switch_case_preparation_steps
+    || delta > task_initializer_remaining task
+  then
+    invalid_arg "switch preparation progress has another attempt or allowance";
+  (match
+     Sema.Integer_switch_preparation.charge_runtime_work
+       attempt.switch_case_endpoint ~work:delta
+   with
+  | Error message -> invalid_arg message
+  | Ok () -> ());
+  task.resources.initializer_steps <- before + steps;
+  attempt.switch_case_preparation_steps <- steps
+
+let check_native_task_switch_case task attempt program =
+  let module Program = Switch_case_fragment_program in
+  let module Destination = Switch_case_fragment_destination in
+  let destination = Program.destination program in
+  let fragment = Destination.fragment destination in
+  if
+    (not task.native_storage_authority)
+    || (not (owns_switch_case_attempt task attempt))
+    || attempt.switch_case_state <> Preparing_initializer
+    || (not (switch_case_is_current task attempt))
+    || Program.source_authority program != attempt.switch_case_authority
+    || Sema.Switch_case_fragment.receipt fragment != attempt.switch_case_receipt
+    || Sema.Switch_case_fragment.authorized_fragment
+         (Program.source_authority program)
+       != fragment
+    || (not
+          (Integer_globals.owns_task_storage task.catalog
+             (Destination.globals destination)))
+    || (not
+          (Integer_globals.is_switch_case_fragment
+             (Destination.globals destination)))
+    || Integer_globals.byte_size (Destination.globals destination) <> 0
+    || task.resources.initializer_steps
+       <> attempt.switch_case_preparation_before
+  then
+    Error
+      "native switch case requires its original live task, attempt and \
+       expression"
+  else
+    validate_dimension_dependencies (Some task)
+      (Dimension_requirements.top_level (Destination.typed destination))
+
+let claim_native_task_switch_case task attempt program =
+  Result.map
+    (fun () ->
+      attempt.switch_case_state <- Executing_initializer;
+      attempt.switch_case_native_program <- Some program;
+      attempt.switch_case_native_charged_before <-
+        task.resources.switch_execution_steps;
+      retain_native_provider_sources task
+        (Switch_case_fragment_program.runtime_calls program)
+        Runtime.Entry
+        (X87.graph (Switch_case_fragment_program.entry program)))
+    (check_native_task_switch_case task attempt program)
+
+let charge_native_switch_case_work task attempt steps =
+  let ( let* ) = Result.bind in
+  if
+    (not task.native_storage_authority)
+    || (not (owns_switch_case_attempt task attempt))
+    || (not (switch_case_is_current task attempt))
+    || attempt.switch_case_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.switch_case_native_work
+    || Option.is_none attempt.switch_case_native_program
+  then Error "native switch case work requires its original executing request"
+  else
+    let* () =
+      Sema.Integer_switch_preparation.charge_runtime_work
+        attempt.switch_case_endpoint ~work:steps
+    in
+    task.resources.switch_execution_steps <-
+      task.resources.switch_execution_steps + steps;
+    Ok ()
+
+let record_native_switch_case_steps task attempt steps =
+  if
+    (not task.native_storage_authority)
+    || (not (owns_switch_case_attempt task attempt))
+    || (not (switch_case_is_current task attempt))
+    || attempt.switch_case_state <> Executing_initializer
+    || steps < 0
+    || Option.is_some attempt.switch_case_native_work
+    || Option.is_none attempt.switch_case_native_program
+    || task.resources.switch_execution_steps
+       - attempt.switch_case_native_charged_before
+       <> steps
+    || steps
+       > task.resources.max_initializer_steps - task.resources.initializer_steps
+  then
+    Error "native switch case work has another attempt or exhausted allowance"
+  else (
+    task.resources.initializer_steps <- task.resources.initializer_steps + steps;
+    attempt.switch_case_native_work <- Some steps;
+    Ok ())
+
+let complete_native_task_switch_case task attempt program capture =
+  let ( let* ) = Result.bind in
+  if
+    (not task.native_storage_authority)
+    || (not (owns_switch_case_attempt task attempt))
+    || (not (switch_case_is_current task attempt))
+    || attempt.switch_case_state <> Executing_initializer
+    || Option.is_none attempt.switch_case_native_work
+    || not
+         (Option.fold ~none:false ~some:(( == ) program)
+            attempt.switch_case_native_program)
+  then
+    Error "native switch case completion has another task or expired expression"
+  else
+    let* bits =
+      Native_scalar_capture.consume
+        ?scope:
+          (match task.resources.native_source_scopes with
+          | [] -> None
+          | scope :: _ -> Some scope)
+        capture ~program
+        ~work:(Option.get attempt.switch_case_native_work)
+    in
+    attempt.switch_case_bits <- Some bits;
+    attempt.switch_case_state <- Successful_initializer;
+    Ok ()
 
 let check_native_task_internal_binding task attempt program =
   let module Program = Internal_binding_fragment_program in
@@ -4443,6 +4744,14 @@ let task_result task ~sequence =
          task.dimensions
     || List.exists
          (fun attempt ->
+           attempt.switch_case_state <> Successful_initializer
+           && not
+                (child_work_is_excluded task
+                   (fun work -> work.work_switch_cases)
+                   attempt))
+         task.switch_cases
+    || List.exists
+         (fun attempt ->
            attempt.offset_state <> Successful_initializer
            && not
                 (child_work_is_excluded task
@@ -4865,6 +5174,8 @@ let record_task_preparation task ~before ~steps =
     || before > task.resources.initializer_steps
     || steps > task.resources.max_initializer_steps - before
     || before + steps < task.resources.initializer_steps
+    || steps - (task.resources.initializer_steps - before)
+       > task_initializer_remaining task
   then
     invalid_arg
       "task preparation progress is inconsistent with its cumulative budget";
@@ -4888,8 +5199,7 @@ let record_isolated_preparation task preparation ~steps =
     || preparation.preparation_catalog != task.catalog
     || preparation.preparation_closed
     || steps < preparation.preparation_steps
-    || steps - preparation.preparation_steps
-       > task.resources.max_initializer_steps - task.resources.initializer_steps
+    || steps - preparation.preparation_steps > task_initializer_remaining task
   then invalid_arg "isolated preparation does not match its owning allowance";
   task.resources.initializer_steps <-
     task.resources.initializer_steps + steps - preparation.preparation_steps;
@@ -4971,8 +5281,9 @@ type opcode_kind =
   | Discard_kind
   | Return_value_kind
   | Jump_kind
+  | Local_call_kind
   | Branch_kind of branch_condition
-  | Switch_kind
+  | Switch_kind of bool
   | Return_kind
   | End_kind
 
@@ -5063,9 +5374,11 @@ let opcode_kind = function
   | Opcode.Ic_end_exp -> Some Discard_kind
   | Opcode.Ic_return_val -> Some Return_value_kind
   | Opcode.Ic_jmp -> Some Jump_kind
+  | Opcode.Ic_sub_call -> Some Local_call_kind
   | Opcode.Ic_br_zero -> Some (Branch_kind Zero)
   | Opcode.Ic_br_not_zero -> Some (Branch_kind Not_zero)
-  | Opcode.Ic_switch -> Some Switch_kind
+  | Opcode.Ic_switch -> Some (Switch_kind false)
+  | Opcode.Ic_nobound_switch -> Some (Switch_kind true)
   | Opcode.Ic_ret -> Some Return_kind
   | Opcode.Ic_end -> Some End_kind
   | _ -> None
@@ -6984,6 +7297,17 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   | Some target -> Ok (Jump target)
                   | None -> Error (malformed block_id description))
               | _ -> Error (malformed block_id description))
+          | Local_call_kind -> (
+              match Sequence.local_call_shape description with
+              | Error _ -> Error (malformed block_id description)
+              | Ok shape -> (
+                  match
+                    ( Block_map.find_opt shape.entry_target block_index,
+                      Block_map.find_opt shape.return_target block_index )
+                  with
+                  | Some entry, Some continuation ->
+                      Ok (Local_call (entry, continuation))
+                  | _ -> Error (malformed block_id description)))
           | Branch_kind condition -> (
               match
                 ( description.operands,
@@ -7001,8 +7325,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   | None, _ -> Error (invalid_type_matrix block_id description)
                   | Some _, None -> Error (malformed block_id description))
               | _ -> Error (malformed block_id description))
-          | Switch_kind -> (
-              match Sequence.bounded_switch_shape description with
+          | Switch_kind no_bound -> (
+              match Sequence.switch_shape description with
               | Error _ -> Error (malformed block_id description)
               | Ok shape -> (
                   match
@@ -7021,7 +7345,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                             | None -> Error (malformed block_id description))
                       in
                       Result.map
-                        (fun targets -> Switch (adjusted, range, targets))
+                        (fun targets ->
+                          Switch (adjusted, range, targets, no_bound))
                         (resolve_targets [] shape.targets)
                   | Some _, Some _ ->
                       Error (invalid_type_matrix block_id description)
@@ -7035,6 +7360,18 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   description.payload )
               with
               | [], None, None, None -> Ok Return
+              | [], None, None, Some (Sequence.Block_targets _) -> (
+                  match Sequence.local_return_targets description with
+                  | Error _ -> Error (malformed block_id description)
+                  | Ok targets ->
+                      let resolved =
+                        List.filter_map
+                          (fun target -> Block_map.find_opt target block_index)
+                          targets
+                      in
+                      if List.length resolved = List.length targets then
+                        Ok (Local_return resolved)
+                      else Error (malformed block_id description))
               | _ -> Error (malformed block_id description))
           | End_kind -> (
               match
@@ -8315,7 +8652,13 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
             | Ok prepared ->
                 let control_transfer =
                   match prepared.operation with
-                  | Jump _ | Branch _ | Switch _ | Return | End -> true
+                  | Jump _
+                  | Local_call _
+                  | Local_return _
+                  | Branch _
+                  | Switch _
+                  | Return
+                  | End -> true
                   | _ -> false
                 in
                 if control_transfer && (!calls <> [] || !intrinsics <> []) then
@@ -8452,6 +8795,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
             {
               blocks;
               entry_index;
+              local_subroutine_capacity = Graph.local_subroutine_capacity graph;
               initial_slots;
               initial_frame_bytes =
                 Option.fold ~none:0
@@ -8502,6 +8846,7 @@ type caller = {
   saved_values : runtime_value Value_map.t;
   saved_slots : runtime_storage;
   saved_return : word option;
+  saved_local_returns : int list;
   saved_calls : call_scope list;
   saved_publication_item : int option;
 }
@@ -8533,10 +8878,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
     ?(max_frame_bytes = Int.max_int) ?(max_call_depth = Int.max_int)
     ?(capture_last = false) ?(saved_data = []) ?on_capture ?initialization
     ?globals ?(global_words = [||]) ?literal_image ?output ?stream_output
-    ?generation_output ?compiler_options ?stream_exe_print ?admit
-    ?(retained_regions = []) ?(retained_functions = [])
-    ?(retained_provider_entries = []) ?on_provider_entry ~max_steps program =
+    ?generation_output ?compiler_options ?stream_exe_print
+    ?resumed_step_allowance ?admit ?(retained_regions = [])
+    ?(retained_functions = []) ?(retained_provider_entries = [])
+    ?on_provider_entry ~max_steps program =
   let entry_program = program in
+  let execution_limit = ref max_steps in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
@@ -8664,6 +9011,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let slots = ref (frame_storage program.initial_slots) in
   let program = ref program in
   let callers = ref [] in
+  let local_returns = ref [] in
   let calls = ref [] in
   let depth = ref 0 in
   let live_frame_bytes = ref !program.initial_frame_bytes in
@@ -9492,13 +9840,20 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     let nested, nested_steps =
                       execute ~steps:!steps ~frame_bytes ~call_depth formatted
                     in
-                    if nested_steps < 0 || nested_steps > max_steps - !steps
+                    if
+                      nested_steps < 0
+                      || nested_steps > !execution_limit - !steps
                     then
                       error "HCIRVM0007"
                         "nested source exceeded the remaining execution step \
                          limit"
                     else (
                       steps := !steps + nested_steps;
+                      Option.iter
+                        (fun remaining ->
+                          execution_limit :=
+                            min !execution_limit (!steps + remaining ()))
+                        resumed_step_allowance;
                       match nested with
                       | Ok bits -> Ok (Completed_word { type_ = I64; bits })
                       | Error [] ->
@@ -9539,7 +9894,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
             if !program == entry_program then
               publish_before instruction.instruction_id)
         in
-        if !steps >= max_steps then
+        if !steps >= !execution_limit then
           failed :=
             Some
               (runtime_error ~instruction block !steps "HCIRVM0007"
@@ -9817,7 +10172,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   let relative = ref 0L in
                   let finished = ref false in
                   while (not !finished) && Option.is_none !failed do
-                    if !relative <> 0L && !steps >= max_steps then
+                    if !relative <> 0L && !steps >= !execution_limit then
                       failed :=
                         Some
                           (runtime_error ~instruction block !steps "HCIRVM0007"
@@ -10010,6 +10365,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                             saved_values = !values;
                             saved_slots = !slots;
                             saved_return = !pending_return;
+                            saved_local_returns = !local_returns;
                             saved_calls = !calls;
                             saved_publication_item = !publication_item;
                           }
@@ -10049,6 +10405,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         slots := initialized;
                         values := Value_map.empty;
                         pending_return := None;
+                        local_returns := [];
                         calls := [];
                         current_block := body.entry_index;
                         current_instruction := 0)
@@ -10813,6 +11170,37 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               | Some word -> pending_return := Some { type_; bits = word.bits }
               | None -> ())
           | Jump target -> transfer target
+          | Local_call (entry, continuation) ->
+              if
+                List.length !local_returns >= !program.local_subroutine_capacity
+              then
+                failed :=
+                  Some
+                    (runtime_error ~instruction block !steps "HCSW0006"
+                       "local subroutine continuation is unavailable or \
+                        exceeds its stack bound")
+              else if max_frame_bytes - !live_frame_bytes < 8 then
+                failed :=
+                  Some
+                    (runtime_error ~instruction block !steps "HCIRVM0011"
+                       "local subroutine continuations exceed the active frame \
+                        byte limit")
+              else (
+                local_returns := continuation :: !local_returns;
+                live_frame_bytes := !live_frame_bytes + 8;
+                transfer entry)
+          | Local_return targets -> (
+              match !local_returns with
+              | continuation :: rest when List.mem continuation targets ->
+                  local_returns := rest;
+                  live_frame_bytes := !live_frame_bytes - 8;
+                  transfer continuation
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCSW0006"
+                         "local subroutine continuation is unavailable or \
+                          exceeds its stack bound"))
           | Branch (condition, operand, target) -> (
               match require_operand block instruction operand with
               | None -> ()
@@ -10834,7 +11222,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                "HCIRVM0008"
                                "a conditional branch has no physical \
                                 fallthrough")))
-          | Switch (adjusted, range, targets) -> (
+          | Switch (adjusted, range, targets, no_bound) -> (
               match
                 ( require_operand block instruction adjusted,
                   require_operand block instruction range )
@@ -10850,16 +11238,19 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         (runtime_error ~instruction block !steps "HCIRVM0008"
                            "prepared IC_SWITCH range disagrees with its target \
                             table")
-                  else
-                    let target =
-                      if
-                        Int64.unsigned_compare adjusted.bits
-                          (Int64.of_int table_range)
-                        >= 0
-                      then targets.(0)
-                      else targets.(Int64.to_int adjusted.bits + 1)
-                    in
-                    transfer target
+                  else if
+                    Int64.unsigned_compare adjusted.bits
+                      (Int64.of_int table_range)
+                    >= 0
+                  then
+                    if no_bound then
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCSW0005"
+                             "no-bound switch index is outside its prepared \
+                              table")
+                    else transfer targets.(0)
+                  else transfer targets.(Int64.to_int adjusted.bits + 1)
               | None, _ | _, None -> ())
           | Return
             when match !program.required_return with
@@ -10886,6 +11277,9 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                          "function completion disagrees with its checked \
                           return kind")
               | Some completion -> (
+                  live_frame_bytes :=
+                    !live_frame_bytes - (8 * List.length !local_returns);
+                  local_returns := [];
                   retire_frame !slots;
                   match !callers with
                   | [] -> completed := Some (Returned !pending_return)
@@ -10902,6 +11296,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       values := caller.saved_values;
                       slots := caller.saved_slots;
                       pending_return := caller.saved_return;
+                      local_returns := caller.saved_local_returns;
                       calls :=
                         match caller.saved_calls with
                         | scope :: rest -> { scope with completion } :: rest
@@ -11064,6 +11459,64 @@ let execute_program_with_output ?task ?isolated_budget
     | None, None -> None
     | Some _, Some _ -> invalid_arg "execution has two accounting owners"
   in
+  let switch_endpoint =
+    Option.bind accounting (fun task -> task.resources.switch_execution)
+  in
+  let switch_accounted_steps = ref 0 in
+  let charge_switch_steps steps =
+    let work = steps - !switch_accounted_steps in
+    if work < 0 then
+      invalid_arg "switch execution moved its step boundary backwards";
+    let* () =
+      match switch_endpoint with
+      | None -> Ok ()
+      | Some endpoint ->
+          Sema.Integer_switch_preparation.charge_runtime_work endpoint ~work
+          |> Result.map_error (fun message ->
+              let receipt =
+                Sema.Integer_switch_preparation.runtime_endpoint_receipt
+                  endpoint
+              in
+              [
+                Common.Diagnostic.make ~code:"HCSW0003"
+                  ~severity:Common.Diagnostic.Error ~message
+                  ~primary:
+                    (Frontend.Ast.expression_location
+                       receipt.switch_case_expression)
+                      .span ();
+              ])
+    in
+    switch_accounted_steps := steps;
+    Ok ()
+  in
+  let switch_errors steps =
+    List.map (fun (diagnostic : Common.Diagnostic.t) ->
+        make_error ~stage:Execution ~span:diagnostic.primary
+          ~executed_steps:steps diagnostic.code diagnostic.message)
+  in
+  let max_steps =
+    Option.fold ~none:max_steps
+      ~some:(fun endpoint ->
+        min max_steps
+          (Sema.Integer_switch_preparation.runtime_remaining endpoint))
+      switch_endpoint
+  in
+  let* () =
+    if Option.is_some switch_endpoint && max_steps = 0 then
+      let endpoint = Option.get switch_endpoint in
+      let receipt =
+        Sema.Integer_switch_preparation.runtime_endpoint_receipt endpoint
+      in
+      Error
+        [
+          make_error ~stage:Preflight
+            ~span:
+              (Frontend.Ast.expression_location receipt.switch_case_expression)
+                .span ~executed_steps:0 "HCSW0003"
+            "switch case preparation exhausted max_switch_work";
+        ]
+    else Ok ()
+  in
   let accounted_steps = ref 0 in
   let nested_stream_exe_print =
     match (task, stream_exe_print) with
@@ -11076,6 +11529,7 @@ let execute_program_with_output ?task ?isolated_budget
             task.resources.steps <-
               task.resources.steps + (steps - !accounted_steps);
             accounted_steps := steps;
+            let prepare = charge_switch_steps steps in
             let before_nested = task.resources.steps in
             let saved_frame_bytes = task.resources.nested_frame_bytes in
             let saved_call_depth = task.resources.nested_call_depth in
@@ -11092,8 +11546,11 @@ let execute_program_with_output ?task ?isolated_budget
                   task.resources.nested_frame_bytes <- saved_frame_bytes;
                   task.resources.nested_call_depth <- saved_call_depth;
                   task.resources.nested_source_depth <- saved_source_depth)
-                (fun () -> execute source)
+                (fun () ->
+                  let* () = prepare in
+                  execute source)
             in
+            switch_accounted_steps := steps + !nested_steps;
             (result, !nested_steps))
     | _ -> None
   in
@@ -11625,6 +12082,11 @@ let execute_program_with_output ?task ?isolated_budget
         ~max_frame_bytes ~max_call_depth ?initialization ~global_words
         ~literal_image ~output ?stream_output ?generation_output
         ?compiler_options ?stream_exe_print:nested_stream_exe_print
+        ?resumed_step_allowance:
+          (Option.map
+             (fun endpoint () ->
+               Sema.Integer_switch_preparation.runtime_remaining endpoint)
+             switch_endpoint)
         ~capture_last:((not initializer_mode) || capture_fragment_value)
         ~saved_data:
           (Option.fold ~none:[] ~some:(fun task -> task.saved_data_values) task)
@@ -11645,21 +12107,37 @@ let execute_program_with_output ?task ?isolated_budget
              task)
         ~max_steps entry
     in
+    let steps =
+      match outcome with
+      | Ok result -> result.executed_steps_
+      | Error errors ->
+          List.fold_left
+            (fun count (error : error) -> max count error.executed_steps)
+            0 errors
+    in
     Option.iter
       (fun task ->
-        let steps =
-          match outcome with
-          | Ok result -> result.executed_steps_
-          | Error errors ->
-              List.fold_left
-                (fun count (error : error) -> max count error.executed_steps)
-                0 errors
-        in
         if steps < !accounted_steps then
           invalid_arg "execution reported fewer steps than its nested boundary";
         task.resources.steps <- task.resources.steps + (steps - !accounted_steps))
       accounting;
-    outcome
+    let* () =
+      charge_switch_steps steps |> Result.map_error (switch_errors steps)
+    in
+    match switch_endpoint with
+    | Some endpoint
+      when Sema.Integer_switch_preparation.runtime_remaining endpoint = 0 ->
+        Result.map_error
+          (List.map (fun error ->
+               if error.code = "HCIRVM0007" then
+                 {
+                   error with
+                   code = "HCSW0003";
+                   message = "switch case preparation exhausted max_switch_work";
+                 }
+               else error))
+          outcome
+    | _ -> outcome
 
 let begin_interpreted_static task destination =
   let ( let* ) = Result.bind in
@@ -11734,10 +12212,8 @@ let execute_task_static_copy task destination =
     | Integer_initializer_layout.Copy_bytes bytes -> Ok bytes
     | Scalar_store -> Error "static copy requires an original byte-copy leaf"
   in
-  if
-    String.length bytes
-    > task.resources.max_initializer_steps - task.resources.initializer_steps
-  then Error "HCIRVM0007: the bounded initializer copy work limit was exhausted"
+  if String.length bytes > task_initializer_remaining task then
+    Error "HCIRVM0007: the bounded initializer copy work limit was exhausted"
   else
     let slot = Destination.storage destination in
     let* storage =
@@ -11971,10 +12447,7 @@ let save_default_data task ~destination ~entry ~executed_steps address =
     else
       let bytes = Buffer.create 32 in
       let rec copy offset =
-        if
-          task.resources.initializer_steps
-          >= task.resources.max_initializer_steps
-        then
+        if task_initializer_remaining task = 0 then
           fail "HCIRVM0007"
             "saved string default copy exceeds the initializer work limit"
         else if
@@ -12335,6 +12808,107 @@ let execute_task_dimension ?(use_active_stream = true) ?compiler_options
           (task.resources.initializer_steps
          - attempt.dimension_preparation_before);
       attempt.dimension_state <- Successful_initializer;
+      Ok ()
+
+let execute_task_switch_case ?(use_active_stream = true) ?compiler_options
+    ?stream_exe_print task attempt execution =
+  let module Program = Switch_case_fragment_program in
+  let module Destination = Switch_case_fragment_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.execution_destination execution in
+  let fragment = Destination.fragment destination in
+  let span = Destination.span destination in
+  let invalid code message =
+    Error [ make_error ~stage:Preflight ~span ~executed_steps:0 code message ]
+  in
+  let* () =
+    if
+      task.native_storage_authority
+      || (not (owns_switch_case_attempt task attempt))
+      || attempt.switch_case_state <> Preparing_initializer
+      || (not (switch_case_is_current task attempt))
+      || Program.authority execution != attempt.switch_case_authority
+      || Sema.Switch_case_fragment.receipt fragment
+         != attempt.switch_case_receipt
+      || Sema.Switch_case_fragment.authorized_fragment
+           (Program.authority execution)
+         != fragment
+      || (not
+            (Integer_globals.owns_task_storage task.catalog
+               (Destination.globals destination)))
+      || (not
+            (Integer_globals.is_switch_case_fragment
+               (Destination.globals destination)))
+      || Integer_globals.byte_size (Destination.globals destination) <> 0
+      || Program.steps execution <> attempt.switch_case_preparation_steps
+      || task.resources.initializer_steps
+         <> attempt.switch_case_preparation_before + Program.steps execution
+    then
+      invalid "HCIRVM0026"
+        "switch case execution has another task, source attempt or preparation"
+    else Ok ()
+  in
+  let remaining = task_switch_case_remaining task attempt in
+  let task_remaining = task.resources.max_steps - task.resources.steps in
+  attempt.switch_case_state <- Executing_initializer;
+  let outcome =
+    if remaining = 0 then
+      invalid "HCSW0003" "switch case preparation exhausted max_switch_work"
+    else if task_remaining <= 0 then
+      invalid "HCIRVM0007"
+        "the task cumulative execution step limit was exhausted"
+    else
+      let* () =
+        validate_dimension_dependencies (Some task)
+          (Dimension_requirements.top_level (Destination.typed destination))
+        |> Result.map_error (fun message ->
+            [
+              make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+                message;
+            ])
+      in
+      match Program.code execution with
+      | Program.Scheduled program -> (
+          let limit = min remaining task_remaining in
+          let saved_switch = task.resources.switch_execution in
+          task.resources.switch_execution <- Some attempt.switch_case_endpoint;
+          let result =
+            Fun.protect
+              ~finally:(fun () ->
+                task.resources.switch_execution <- saved_switch)
+              (fun () ->
+                execute_program_with_output ~task ~initializer_mode:true
+                  ~capture_fragment_value:true ~use_active_stream
+                  ?compiler_options ?stream_exe_print
+                  ~runtime_calls:(Program.runtime_calls program)
+                  ~output:task.resources.output
+                  ~globals:(Destination.globals destination)
+                  ~initialization:(Program.initialization program)
+                  ~max_global_bytes:task.resources.max_global_bytes
+                  ~max_literal_bytes:task.resources.max_literal_bytes
+                  ~max_steps:limit
+                  ~max_frame_bytes:
+                    (task.resources.max_frame_bytes
+                   - task.resources.nested_frame_bytes)
+                  ~max_call_depth:
+                    (task.resources.max_call_depth
+                   - task.resources.nested_call_depth)
+                  ~functions:[] (Program.entry program))
+          in
+          let* result = result in
+          match result.final_value_ with
+          | Some word -> Ok word.bits
+          | None ->
+              invalid "HCIRVM0026"
+                "switch case evaluation produced no scalar value")
+  in
+  match outcome with
+  | Error errors ->
+      ignore (fail_task_switch_case task attempt);
+      Error errors
+  | Ok bits ->
+      attempt.switch_case_bits <- Some bits;
+      attempt.switch_case_state <- Successful_initializer;
       Ok ()
 
 let execute_task_internal_binding ?(use_active_stream = true) ?compiler_options
@@ -12874,10 +13448,7 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
       }
     in
     task.default_constants <- proof :: task.default_constants;
-    let remaining =
-      min max_steps
-        (task.resources.max_initializer_steps - task.resources.initializer_steps)
-    in
+    let remaining = min max_steps (task_initializer_remaining task) in
     let outcome =
       if remaining <= 0 then
         invalid "HCIRVM0007"

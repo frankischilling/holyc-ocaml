@@ -23,13 +23,16 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 6)
     "usage: test_native_switch_cli.exe <holyc.exe> <integer-switch.hc> \
-     <integer-switch-large-range.hc>"
+     <integer-switch-large-range.hc> <switch-regions.hc> \
+     <switch-case-effects.hc>"
 
 let compiler = Sys.argv.(1)
 let switch_fixture = Sys.argv.(2)
 let large_range_fixture = Sys.argv.(3)
+let regions_fixture = Sys.argv.(4)
+let effects_fixture = Sys.argv.(5)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -102,6 +105,20 @@ let ir_json ?(status = 0) ?(options = []) ~mode source =
        "--mode=" ^ mode;
      ]
     @ options @ [ source ])
+
+let task_json ?(status = 0) ?(options = []) ~mode source =
+  let report =
+    checked_json status
+      ([ "run"; "--target=host-jit-task"; "--format=json"; "--mode=" ^ mode ]
+      @ options @ [ source ])
+  in
+  require
+    (report |> member "schema" |> to_string = "holyc-integer-program-v2"
+    && report |> member "target" |> to_string = "host-jit-task"
+    && report |> member "mode" |> to_string = mode
+    && report |> member "arithmetic" |> to_string = "runtime-native")
+    "native source-task switch report identity";
+  report
 
 let diagnostics report = report |> member "diagnostics" |> to_list
 
@@ -254,9 +271,6 @@ let invalid_limits_precede_parsing () =
 let resource_and_domain_failures () =
   let cases =
     [
-      ( "I64 Bad(I64 n){switch[n]{case 1:return 1;default:return 0;}return \
-         -1;}42;",
-        "HCRUN0001" );
       ( "I64 Bad(I64 n){switch(n){case n++:return 1;default:return 0;}return \
          -1;}42;",
         "HCRUN0001" );
@@ -286,6 +300,105 @@ let resource_and_domain_failures () =
             [ "jit"; "aot" ]))
     cases
 
+let maintained_switch_regions () =
+  (* The pinned PrsSwitch table includes zero as a hole below small positive
+     labels. Pick(1)=42, Pick(2)=41 and Pick(0)=-1, so the final word is 42. *)
+  List.iter
+    (fun mode ->
+      let interpreted = ir_json ~mode regions_fixture in
+      let native = host_json ~mode regions_fixture in
+      List.iter
+        (fun report ->
+          check_success report;
+          check_word report;
+          require
+            (switch_work report = 2)
+            "two original case labels each prepare one constant expression")
+        [ interpreted; native ];
+      require
+        (switch_work native = switch_work interpreted
+        && executed_steps native > 0
+        && executed_steps interpreted > 0)
+        "sub-switch CLI preparation differs or dispatch did not execute";
+      require
+        (native |> member "native" |> member "image" <> `Null)
+        "region dispatch must execute an actual native image")
+    [ "jit"; "aot" ]
+
+let maintained_effectful_switch () =
+  (* Both endpoints run at original JIT compilation, including an uncalled
+     function. CaseValue(5), CaseValue(3) leave counter=53; the reversed range
+     covers 3..5, then implicit case 6 returns 53-11=42. Calling Pick twice
+     must reuse that prepared result, leaving 42+42-42=42. *)
+  let interpreted = ir_json ~mode:"jit" effects_fixture in
+  let native = task_json ~mode:"jit" effects_fixture in
+  List.iter
+    (fun report ->
+      check_success report;
+      check_word report;
+      require
+        (switch_work report > 0)
+        "effectful switch source must charge reached preparation work")
+    [ interpreted; native ];
+  require
+    (native |> member "native" |> member "image" = `Null)
+    "task-native effects execute retained source fragments";
+  let fragments = native |> member "native" |> member "fragments" |> to_list in
+  let case_fragments =
+    List.filter
+      (fun fragment -> fragment |> member "kind" |> to_string = "switch-case")
+      fragments
+  in
+  require
+    (List.length case_fragments = 2)
+    "one native fragment per original effectful range endpoint";
+  List.iter
+    (fun fragment ->
+      require
+        (fragment |> member "outcome" |> to_string = "success")
+        "native effectful case endpoint actually completed")
+    case_fragments;
+  require
+    (List.exists
+       (fun fragment -> fragment |> member "kind" |> to_string = "command")
+       fragments)
+    "native task must execute the final source expression as machine code"
+
+let no_bound_dispatch_fault_is_reached () =
+  with_file ".hc"
+    "I64 F(I64 n){switch[n]{case 1:return 1;case 3:return 9;default:return \
+     42;}return -1;}F(100);" (fun source ->
+      List.iter
+        (fun mode ->
+          let interpreted = ir_json ~status:1 ~mode source in
+          let native = host_json ~status:1 ~mode source in
+          require
+            (first_code interpreted = "HCSW0005"
+            && first_code native = "HCSW0005")
+            "no-bound out-of-table index must report a reached dispatch fault";
+          (* The CLI exposes an image only for successful outcomes, even when
+             Native_program retains the compiled image of a reached fault. The
+             original execution diagnostic records the actual native fault site. *)
+          let reached_native_fault =
+            match diagnostics native with
+            | fault :: _ ->
+                let notes =
+                  fault |> member "notes" |> to_list |> List.map to_string
+                in
+                List.mem "stage=execution" notes
+                && List.mem
+                     ("executed_steps=" ^ string_of_int (executed_steps native))
+                     notes
+                && List.exists
+                     (String.starts_with ~prefix:"instruction_id=")
+                     notes
+            | [] -> false
+          in
+          require
+            (executed_steps native > 0 && reached_native_fault)
+            "out-of-range no-bound index must fault after native entry")
+        [ "jit"; "aot" ])
+
 let selected_runtime_fault () =
   with_file ".hc"
     "I64 Pick(I64 n){switch(n){case 1:return 84/0;default:return 0;}return \
@@ -308,6 +421,8 @@ let selected_runtime_fault () =
 
 let () =
   maintained_fixture_contract ();
+  maintained_switch_regions ();
+  maintained_effectful_switch ();
   List.iter
     (fun mode ->
       let interpreted = ir_json ~mode large_range_fixture in
@@ -323,4 +438,5 @@ let () =
     [ "jit"; "aot" ];
   invalid_limits_precede_parsing ();
   resource_and_domain_failures ();
+  no_bound_dispatch_fault_is_reached ();
   selected_runtime_fault ()

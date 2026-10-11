@@ -660,6 +660,9 @@
   test_integer_goto_execution
   test_integer_switch_execution
   test_integer_switch_preparation
+  switch_extension_cases
+  test_switch_extensions
+  test_switch_runtime_authority
   test_switch_callback_lifetime
   test_ir_switch_dispatch
   test_ir_break_lowering

@@ -161,12 +161,17 @@ array in its report; legacy run and IR dumping use stderr.
 Lowering can produce a graph containing a VM-unsupported type or opcode;
 execution performs the VM-domain preflight before running any instruction.
 
-Ordinary bounded integer switches use original closed case preparation and
-canonical checked dispatch; see [switch execution](integer-switch.md) for
-implicit values, ranges, fallthrough, source phases and preparation limits.
-Unsupported declarations, top-level returns and language labels/gotos,
-no-bound/sub-switch forms, exceptions and locks reject before execution,
-even inside unreachable source.
+Parenthesized and bracketed integer switches use checked case preparation
+and dispatch. Supported `start:`/`end:` regions run setup prefixes through
+local calls, and repeated defaults select the final source definition.
+Bracketed selectors outside the prepared table fail with `HCSW0005`.
+The [switch execution notes](integer-switch.md) cover implicit values,
+ranges, fallthrough, source phases and preparation limits. Supported
+JIT/current-task scalar case expressions prepare at their original source
+callbacks; ordinary AOT nonconstant endpoints remain rejected with
+`HCRUN0006`. Unsupported declarations, top-level returns, assembly labels,
+exceptions and locks still reject before execution, including in unreachable
+source.
 Function-local missing/duplicate targets and inconsistent occurrence ownership
 retain source diagnostics; supported local labels and gotos use the shared path
 described above.

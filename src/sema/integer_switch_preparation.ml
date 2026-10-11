@@ -32,6 +32,7 @@ type owner_state = {
   mutable predecessor : Parser.completed_switch_case option;
   mutable first : endpoint option;
   mutable last : endpoint option;
+  mutable pending : Parser.switch_case_preparation option;
   mutable next_value : int64;
   mutable cases_rev : case list;
   mutable own_work : int;
@@ -58,6 +59,13 @@ type tracker = {
   owners : owner_state Owners.t;
   sources : t Sources.t;
   mutable completed_rev : t list;
+}
+
+type runtime_endpoint = {
+  tracker : tracker;
+  preparation : Parser.switch_case_preparation;
+  state : owner_state;
+  mutable active : bool;
 }
 
 let hard_max_table_entries = 65_536
@@ -104,7 +112,6 @@ let fail at code message =
        ])
 
 let invalid at message = fail at "HCRUN0004" message
-let unsupported at message = fail at "HCRUN0001" message
 
 let same_option left right =
   match (left, right) with
@@ -123,6 +130,7 @@ let owner_state tracker (owner : Parser.switch_owner) =
             predecessor = None;
             first = None;
             last = None;
+            pending = None;
             next_value = Int64.min_int;
             cases_rev = [];
             own_work = 0;
@@ -161,12 +169,13 @@ let rec without_position = function
         }
   | expression -> expression
 
-let evaluate tracker state (preparation : Parser.switch_case_preparation) =
+let evaluate ~queries tracker state
+    (preparation : Parser.switch_case_preparation) =
   let original = preparation.switch_case_expression in
   let location = Ast.expression_location original in
   let expression =
-    Numeric.of_ast ~allow_floating:true ~query_expression:Fun.id ~queries:[]
-      original
+    Numeric.of_ast ~allow_floating:true
+      ~query_expression:Query_selection.expression ~queries original
     |> without_position
   in
   let consume () =
@@ -182,10 +191,11 @@ let evaluate tracker state (preparation : Parser.switch_case_preparation) =
   in
   match
     Numeric.evaluate_expression ~consume
-      ~query_origin:(fun expression ->
-        Numeric.origin (Ast.expression_location expression))
-      ~query_value:(fun _ -> None)
-      ~context:Numeric.Switch_case ~current_position:0L expression
+      ~query_origin:(fun query ->
+        Numeric.origin
+          (Ast.expression_location (Query_selection.expression query)))
+      ~query_value:Query_selection.constant ~context:Numeric.Switch_case
+      ~current_position:0L expression
   with
   | Ok value -> { original = preparation; value }
   | Error error ->
@@ -202,29 +212,91 @@ let evaluate tracker state (preparation : Parser.switch_case_preparation) =
       in
       fail at code (Numeric.error_message error)
 
-let prepare_endpoint tracker (preparation : Parser.switch_case_preparation) =
+let check_endpoint tracker (preparation : Parser.switch_case_preparation) =
   let at = (Ast.expression_location preparation.switch_case_expression).span in
   if not (Parser.switch_case_preparation_is_current preparation) then
     invalid at "switch endpoint requires its exact current parser callback";
   let state = owner_state tracker preparation.switch_owner in
+  if Option.is_some state.pending then
+    invalid at "switch endpoint already has an active runtime preparation";
   check_order state preparation.switch_case_index
     preparation.switch_case_predecessor at;
-  match preparation.switch_case_endpoint with
+  (match preparation.switch_case_endpoint with
   | Parser.Switch_case_start ->
       if
         Option.is_some state.first || Option.is_some state.last
         || Option.is_some preparation.switch_case_endpoint_predecessor
-      then invalid at "switch start endpoint is duplicated or out of order";
-      state.first <- Some (evaluate tracker state preparation)
+      then invalid at "switch start endpoint is duplicated or out of order"
   | Parser.Switch_case_end -> (
       match (state.first, state.last) with
       | Some first, None
         when same_option preparation.switch_case_endpoint_predecessor
-               (Some first.original) ->
-          state.last <- Some (evaluate tracker state preparation)
+               (Some first.original) -> ()
       | _ ->
           invalid at
-            "switch range end does not retain its successful original start")
+            "switch range end does not retain its successful original start"));
+  state
+
+let store_endpoint state preparation value =
+  let endpoint = Some { original = preparation; value } in
+  match preparation.Parser.switch_case_endpoint with
+  | Parser.Switch_case_start -> state.first <- endpoint
+  | Parser.Switch_case_end -> state.last <- endpoint
+
+let prepare_endpoint ~queries tracker preparation =
+  let state = check_endpoint tracker preparation in
+  let endpoint = evaluate ~queries tracker state preparation in
+  store_endpoint state preparation endpoint.value
+
+let begin_runtime_endpoint tracker preparation =
+  try
+    let state = check_endpoint tracker preparation in
+    state.pending <- Some preparation;
+    Ok { tracker; preparation; state; active = true }
+  with Invalid diagnostics -> Error diagnostics
+
+let runtime_endpoint_receipt endpoint = endpoint.preparation
+
+let runtime_current endpoint =
+  endpoint.active
+  && (not endpoint.state.failed)
+  && (not endpoint.state.complete)
+  && same_option endpoint.state.pending (Some endpoint.preparation)
+  && Parser.switch_case_preparation_is_current endpoint.preparation
+
+let runtime_remaining endpoint =
+  if runtime_current endpoint then
+    endpoint.tracker.budget.max_work - endpoint.tracker.budget.used_work
+  else 0
+
+let charge_runtime_work endpoint ~work =
+  if (not (runtime_current endpoint)) || work < 0 then
+    Error "switch work requires its original active endpoint"
+  else if work > runtime_remaining endpoint then
+    Error "HCSW0003: switch case preparation exhausted max_switch_work"
+  else (
+    endpoint.tracker.budget.used_work <-
+      endpoint.tracker.budget.used_work + work;
+    endpoint.state.own_work <- endpoint.state.own_work + work;
+    Ok ())
+
+let complete_runtime_endpoint tracker endpoint ~bits =
+  if endpoint.tracker != tracker || not (runtime_current endpoint) then
+    Error "switch completion requires its original active endpoint"
+  else (
+    store_endpoint endpoint.state endpoint.preparation bits;
+    endpoint.state.pending <- None;
+    endpoint.active <- false;
+    Ok ())
+
+let fail_runtime_endpoint tracker endpoint =
+  if endpoint.tracker != tracker || not endpoint.active then
+    Error "switch failure requires its original active endpoint"
+  else (
+    endpoint.state.failed <- true;
+    endpoint.state.pending <- None;
+    endpoint.active <- false;
+    Ok ())
 
 let complete_case tracker (completed : Parser.completed_switch_case) =
   let label = completed.switch_case_ast in
@@ -232,6 +304,8 @@ let complete_case tracker (completed : Parser.completed_switch_case) =
   if not (Parser.switch_case_completion_is_current completed) then
     invalid at "switch case requires its exact current completion callback";
   let state = owner_state tracker completed.completed_case_owner in
+  if Option.is_some state.pending then
+    invalid at "switch case completed before its runtime endpoint";
   check_order state completed.completed_case_index
     completed.completed_case_predecessor at;
   if
@@ -256,6 +330,9 @@ let complete_case tracker (completed : Parser.completed_switch_case) =
     | Ast.Ranged_case range, Some first, Some last
       when range.case_range_start == first.original.switch_case_expression
            && range.case_range_end == last.original.switch_case_expression ->
+        if Int64.max first.value last.value = Int64.max_int then
+          fail at "HCSW0001"
+            "inclusive switch range would wrap the source I64 iteration counter";
         (Int64.min first.value last.value, Int64.max first.value last.value)
     | _ ->
         invalid at "switch case pattern does not match its original endpoints"
@@ -286,27 +363,26 @@ let complete_switch tracker (completed : Parser.completed_switch) =
          owner.switch_opening_brace.span
        <> 0
     || Option.is_some state.first || Option.is_some state.last
+    || Option.is_some state.pending
   then invalid at "switch completion does not retain its original source owner";
-  if source.switch_mode <> Ast.Bounded_switch then
-    unsupported at "integer execution does not admit no-bound switches";
   let defaults = ref [] in
   let source_cases = ref [] in
-  List.iter
-    (function
-      | Ast.Switch_case_element label -> source_cases := label :: !source_cases
-      | Ast.Switch_default_element label -> defaults := label :: !defaults
-      | Ast.Switch_statement_element _ -> ()
-      | Ast.Switch_subswitch_element _ ->
-          unsupported at "integer execution does not admit sub-switch regions")
-    source.switch_elements;
+  let rec collect elements =
+    List.iter
+      (function
+        | Ast.Switch_case_element label ->
+            source_cases := label :: !source_cases
+        | Ast.Switch_default_element label -> defaults := label :: !defaults
+        | Ast.Switch_statement_element _ -> ()
+        | Ast.Switch_subswitch_element region ->
+            collect region.subswitch_elements)
+      elements
+  in
+  collect source.switch_elements;
   let default =
     match !defaults with
     | [] -> None
-    | [ label ] -> Some label
-    | _ ->
-        unsupported at
-          "integer execution does not admit multiple default labels in one \
-           switch"
+    | last :: _ -> Some last
   in
   let cases = List.rev state.cases_rev in
   if
@@ -369,7 +445,7 @@ let complete_switch tracker (completed : Parser.completed_switch) =
   Sources.add tracker.sources source prepared;
   tracker.completed_rev <- prepared :: tracker.completed_rev
 
-let observe tracker event =
+let observe ?(queries = []) tracker event =
   let owner =
     match event with
     | Parser.Switch_case_preparing preparation -> Some preparation.switch_owner
@@ -381,7 +457,7 @@ let observe tracker event =
   try
     (match event with
     | Parser.Switch_case_preparing preparation ->
-        prepare_endpoint tracker preparation
+        prepare_endpoint ~queries tracker preparation
     | Parser.Switch_case_completed completed -> complete_case tracker completed
     | Parser.Switch_completed completed -> complete_switch tracker completed
     | _ -> ());

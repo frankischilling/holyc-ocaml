@@ -43,6 +43,10 @@ val block_id : block -> Block_id.t
 val instructions : block -> Instruction_sequence.t
 val successors : block -> Block_id.t list
 
+val local_subroutine_capacity : t -> int
+(** Number of distinct local subroutine entries. Hosted execution reserves this
+    many private continuation words per activation and checks each push/pop. *)
+
 val human : t -> string
 (** Render the versioned, deterministic graph form used by tests and tools. *)
 

@@ -27,6 +27,12 @@ val check_internal_binding :
   Frontend.Parser.internal_binding_preparation ->
   (unit, string) result
 
+val check_switch_case :
+  t ->
+  admitted:command list ->
+  Frontend.Parser.switch_case_preparation ->
+  (unit, string) result
+
 val command_receipts : command -> Frontend.Parser.completed_command list
 
 val check_completion :

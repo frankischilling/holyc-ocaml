@@ -1420,6 +1420,16 @@ let build_dimension_fragment ~table ~expressions fragment =
     ~make_root:
       (Sema.Top_level_expression_tree.make_dimension_root ~index:0 ~fragment)
 
+let build_switch_case_fragment ~table ~expressions fragment =
+  build_fragment ~default_fragment:None ~offset_fragment:None ~table
+    ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_switch_case source))
+    ~source_expression:(Sema.Switch_case_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_switch_case_root ~index:0 ~fragment)
+
 let build_internal_binding_fragment ~table ~expressions fragment =
   build_fragment ~default_fragment:None ~offset_fragment:None ~table
     ~expressions

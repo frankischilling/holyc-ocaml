@@ -65,6 +65,19 @@ val command_events : t -> Frontend.Parser.command_event list
 val dimension_preparations :
   t -> Frontend.Parser.array_dimension_preparation list
 
+val switch_case_preparations : t -> Frontend.Parser.switch_case_preparation list
+
+val trailing_switch_case_preparation :
+  t -> Frontend.Parser.switch_case_preparation option
+
+val before_switch_case : t -> Frontend.Parser.switch_case_preparation -> bool
+
+val switch_case_preparing :
+  t option -> Frontend.Parser.switch_case_preparation -> bool
+
+val switch_case_admission :
+  t option -> Frontend.Parser.switch_case_preparation -> bool
+
 val aggregate_offset_phases : t -> Frontend.Parser.aggregate_phase list
 val offset_admission : t option -> Frontend.Parser.aggregate_phase -> bool
 

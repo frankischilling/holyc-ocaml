@@ -153,6 +153,19 @@ let prepare_dimension context fragment =
         fragment)
     bindings
 
+let prepare_switch_case context fragment =
+  let* bindings =
+    Top_level_expression_binding.resolve_switch_case_fragment
+      ~table:context.table ~parent:context.parent
+      ~module_expressions:context.expressions fragment
+  in
+  finish context
+    ~environment:(Sema.Switch_case_fragment.environment fragment)
+    ~build:(fun ~table ~expressions ->
+      Top_level_expression_tree.build_switch_case_fragment ~table ~expressions
+        fragment)
+    bindings
+
 let prepare_internal_binding context fragment =
   let* bindings =
     Top_level_expression_binding.resolve_internal_binding_fragment

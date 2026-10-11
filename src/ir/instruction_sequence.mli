@@ -66,6 +66,11 @@ type bounded_switch_shape = {
   targets : Block_id.t list;
 }
 
+type local_call_shape = {
+  entry_target : Block_id.t;
+  return_target : Block_id.t;
+}
+
 type instruction
 type t
 
@@ -84,10 +89,18 @@ val create_with_inputs :
 *)
 
 val bounded_switch_shape : description -> (bounded_switch_shape, string) result
-(** Validate the descriptor-local portion of canonical bounded [IC_SWITCH]. The
-    ordered targets retain the default first and every table entry thereafter;
-    repeated destinations are significant and are not removed. The defining
-    range value is checked against this table by [Block_graph.create]. *)
+(** Require canonical bounded [IC_SWITCH]. *)
+
+val switch_shape : description -> (bounded_switch_shape, string) result
+(** Validate canonical [IC_SWITCH] or [IC_NOBOUND_SWITCH]. Ordered targets keep
+    the default first and every table entry thereafter, including repeated
+    destinations. [Block_graph.create] checks the defining range value. *)
+
+val local_call_shape : description -> (local_call_shape, string) result
+(** Require one local entry and its original return continuation. *)
+
+val local_return_targets : description -> (Block_id.t list, string) result
+(** Require a local [IC_RET] with an explicit list of allowed continuations. *)
 
 val instructions : t -> instruction list
 val description : instruction -> description

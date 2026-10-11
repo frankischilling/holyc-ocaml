@@ -13,6 +13,7 @@ type fragment_kind =
   | Default
   | Internal_binding
   | Dimension
+  | Switch_case
   | Offset
   | Command
   | Aot_module
@@ -33,6 +34,18 @@ type fragment = {
   kind : fragment_kind;
   image : image;
   native_outcome : (Image.outcome, string) Stdlib.result option;
+}
+
+type switch_execution_meter = {
+  remaining : unit -> int;
+  charge_work : int -> (unit, string) Stdlib.result;
+  span : Common.Span.t;
+}
+
+type initializer_execution_meter = {
+  started_steps : int;
+  remaining : unit -> int;
+  initializer_span : Common.Span.t;
 }
 
 type static_copy = {
@@ -324,8 +337,129 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
           emitted_ir := !emitted_ir + Image.ir_instructions image;
           Ok image
       in
+      let active_switch_execution : switch_execution_meter option ref =
+        ref None
+      in
+      let initializer_executions = ref [] in
+      let native_steps () = (Native.budget_progress budget).executed_steps in
+      let pending_initializer_steps () =
+        let current = native_steps () in
+        List.fold_left
+          (fun work (phase : initializer_execution_meter) ->
+            let pending = current - phase.started_steps in
+            if pending < 0 || pending > max_int - work then
+              invalid_arg
+                "native initializer reservation moved its physical step \
+                 boundary";
+            work + pending)
+          0 !initializer_executions
+      in
+      let physical_initializer_remaining () =
+        match !initializer_executions with
+        | [] -> None
+        | phase :: _ ->
+            Some
+              (max 0 (phase.remaining ()) / List.length !initializer_executions)
+      in
+      let with_initializer_execution ~span ~remaining image run =
+        let phase =
+          {
+            started_steps = native_steps ();
+            remaining;
+            initializer_span = span;
+          }
+        in
+        let saved = !initializer_executions in
+        initializer_executions := phase :: saved;
+        Fun.protect
+          ~finally:(fun () -> initializer_executions := saved)
+          (fun () ->
+            match Image.generation image with
+            | None ->
+                Error
+                  [
+                    diagnostic ~span "HCIRVM0026"
+                      "native initializer has no original source generation";
+                  ]
+            | Some generation ->
+                let* result =
+                  Ir.Integer_interpreter.with_native_initializer_reservation
+                    generation ~pending:pending_initializer_steps run
+                  |> Result.map_error (fun message ->
+                      [ Driver.Integer_source.message_diagnostic ~span message ])
+                in
+                result)
+      in
       let execute ?max_activation_steps ?(arena = arena) kind image =
         let* () = check_storage () in
+        let switch_meter = !active_switch_execution in
+        let* max_activation_steps =
+          let switch_limit =
+            Option.map
+              (fun (meter : switch_execution_meter) -> meter.remaining ())
+              switch_meter
+          and initializer_limit = physical_initializer_remaining () in
+          let available =
+            match (switch_limit, initializer_limit) with
+            | None, None -> None
+            | Some limit, None | None, Some limit -> Some limit
+            | Some switch, Some preparation -> Some (min switch preparation)
+          in
+          match available with
+          | None -> Ok max_activation_steps
+          | Some available when available <= 0 ->
+              let switch_exhausted =
+                Option.fold ~none:false
+                  ~some:(fun (meter : switch_execution_meter) ->
+                    meter.remaining () = 0)
+                  switch_meter
+              in
+              let fault_span =
+                if switch_exhausted then
+                  Option.fold ~none:span
+                    ~some:(fun meter -> meter.span)
+                    switch_meter
+                else
+                  match !initializer_executions with
+                  | phase :: _ -> phase.initializer_span
+                  | [] -> span
+              in
+              Error
+                [
+                  diagnostic ~span:fault_span
+                    (if switch_exhausted then "HCSW0003" else "HCIRVM0007")
+                    (if switch_exhausted then
+                       "switch case preparation exhausted max_switch_work"
+                     else
+                       "the task initializer preparation step limit was \
+                        exhausted");
+                ]
+          | Some available ->
+              Ok
+                (Some
+                   (min available
+                      (Option.value ~default:available max_activation_steps)))
+        in
+        let accounted_steps =
+          ref (Native.budget_progress budget).executed_steps
+        in
+        let charge_switch_work () =
+          let current = (Native.budget_progress budget).executed_steps in
+          let steps = current - !accounted_steps in
+          let* () =
+            match switch_meter with
+            | None -> Ok ()
+            | Some meter ->
+                meter.charge_work steps
+                |> Result.map_error (fun message ->
+                    [
+                      Driver.Integer_source.message_diagnostic ~span:meter.span
+                        message;
+                    ])
+          in
+          accounted_steps := current;
+          Ok ()
+        in
         let scope = current_scope () in
         let metadata = describe_image image in
         let active_stream_context =
@@ -363,13 +497,46 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   Fun.protect
                     ~finally:(fun () -> source_scopes := saved)
                     (fun () ->
-                      match callback scope contents with
-                      | Ok (Ok value) -> Some value
-                      | Ok (Error diagnostics) ->
+                      let reached =
+                        Fun.protect
+                          ~finally:(fun () ->
+                            accounted_steps :=
+                              (Native.budget_progress budget).executed_steps)
+                          (fun () ->
+                            let* () = charge_switch_work () in
+                            let* result =
+                              callback scope contents
+                              |> Result.map_error host_error
+                            in
+                            result)
+                      in
+                      let limited =
+                        let switch =
+                          Option.map
+                            (fun (meter : switch_execution_meter) ->
+                              meter.remaining ())
+                            switch_meter
+                        and preparation = physical_initializer_remaining () in
+                        match (switch, preparation) with
+                        | None, None -> Ok ()
+                        | Some limit, None | None, Some limit ->
+                            Ir.Native_source_suspension.restrict_steps scope
+                              ~remaining:limit
+                            |> Result.map_error host_error
+                        | Some switch, Some preparation ->
+                            Ir.Native_source_suspension.restrict_steps scope
+                              ~remaining:(min switch preparation)
+                            |> Result.map_error host_error
+                      in
+                      let reached =
+                        let* value = reached in
+                        let* () = limited in
+                        Ok value
+                      in
+                      match reached with
+                      | Ok value -> Some value
+                      | Error diagnostics ->
                           source_errors := Some diagnostics;
-                          None
-                      | Error message ->
-                          source_errors := Some (host_error message);
                           None))
                 (Image.source_callback image)
             in
@@ -390,6 +557,7 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
               { kind; image = metadata; native_outcome = Some native_outcome }
               :: !fragments;
             let reached =
+              let* () = charge_switch_work () in
               match native_outcome with
               | Error message -> Error (host_error message)
               | Ok (Image.Fault fault) ->
@@ -412,6 +580,23 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                   Error (Option.value !source_errors ~default:[] @ [ error ])
               | Ok (Image.Completed completed) ->
                   Ok (completed, Native.value_captured execution)
+            in
+            let reached =
+              match switch_meter with
+              | Some meter when meter.remaining () = 0 ->
+                  Result.map_error
+                    (List.map (fun (item : Common.Diagnostic.t) ->
+                         if item.code = "HCIRVM0007" then
+                           {
+                             item with
+                             code = "HCSW0003";
+                             message =
+                               "switch case preparation exhausted \
+                                max_switch_work";
+                           }
+                         else item))
+                    reached
+              | _ -> reached
             in
             match (reached, !release_error) with
             | reached, None -> reached
@@ -507,7 +692,11 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             in
             let before = (Native.budget_progress budget).executed_steps in
             let outcome =
-              execute ~arena ~max_activation_steps:allowance Default image
+              with_initializer_execution ~span
+                ~remaining:(fun () -> Request.initializer_remaining request)
+                image
+                (fun () ->
+                  execute ~arena ~max_activation_steps:allowance Default image)
             in
             let steps =
               (Native.budget_progress budget).executed_steps - before
@@ -526,7 +715,10 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                     Native.finish_task_data_default ?scope:(current_scope ())
                       arena image value
                       ~max_copy_bytes:(max 0 (literal_remaining ()))
-                      ~max_copy_steps:(allowance - steps)
+                      ~max_copy_steps:
+                        (max 0
+                           (min (allowance - steps)
+                              (Request.initializer_remaining request - steps)))
                   in
                   copy_steps := work;
                   result
@@ -582,8 +774,12 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             in
             let before = (Native.budget_progress budget).executed_steps in
             let outcome =
-              execute ~arena ~max_activation_steps:allowance Internal_binding
+              with_initializer_execution ~span:binding_span
+                ~remaining:(fun () -> Request.initializer_remaining request)
                 image
+                (fun () ->
+                  execute ~arena ~max_activation_steps:allowance
+                    Internal_binding image)
             in
             let steps =
               (Native.budget_progress budget).executed_steps - before
@@ -648,7 +844,11 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             in
             let before = (Native.budget_progress budget).executed_steps in
             let outcome =
-              execute ~arena ~max_activation_steps:allowance Dimension image
+              with_initializer_execution ~span:dimension_span
+                ~remaining:(fun () -> Request.initializer_remaining request)
+                image
+                (fun () ->
+                  execute ~arena ~max_activation_steps:allowance Dimension image)
             in
             let steps =
               (Native.budget_progress budget).executed_steps - before
@@ -684,6 +884,93 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                       "native dimension produced no captured scalar expression";
                   ]
         in
+        let native_switch_case request =
+          let module Request = Task.Native_switch_case in
+          let module Destination = Ir.Switch_case_fragment_destination in
+          let module Program = Ir.Switch_case_fragment_program in
+          let* layout, arena =
+            context
+              (Request.program request |> Program.destination
+             |> Destination.globals)
+          in
+          let switch_span =
+            Request.program request |> Program.destination |> Destination.span
+          in
+          let switch_remaining = Request.switch_remaining request in
+          let initializer_remaining = Request.initializer_remaining request in
+          let allowance = min switch_remaining initializer_remaining in
+          if allowance <= 0 then
+            Error
+              [
+                diagnostic ~span:switch_span
+                  (if switch_remaining = 0 then "HCSW0003" else "HCIRVM0007")
+                  (if switch_remaining = 0 then
+                     "switch case execution exhausted max_switch_work"
+                   else
+                     "the task initializer preparation step limit was exhausted");
+              ]
+          else
+            let* image =
+              remaining (fun ~max_ir_instructions ~max_code_bytes ->
+                  Image.compile_task_switch_case ?status_abi ~max_stack_bytes
+                    ~max_blocks ~max_ir_instructions ~max_code_bytes ~layout
+                    request)
+            in
+            let before = (Native.budget_progress budget).executed_steps in
+            let outcome =
+              let saved_meter = !active_switch_execution in
+              active_switch_execution :=
+                Some
+                  {
+                    remaining = (fun () -> Request.switch_remaining request);
+                    charge_work = Request.charge_work request;
+                    span = switch_span;
+                  };
+              Fun.protect
+                ~finally:(fun () -> active_switch_execution := saved_meter)
+                (fun () ->
+                  with_initializer_execution ~span:switch_span
+                    ~remaining:(fun () -> Request.initializer_remaining request)
+                    image
+                    (fun () ->
+                      execute ~arena ~max_activation_steps:allowance Switch_case
+                        image))
+            in
+            let steps =
+              (Native.budget_progress budget).executed_steps - before
+            in
+            let* () =
+              (if steps = 0 && Result.is_error outcome then Ok ()
+               else Request.record_steps request steps)
+              |> Result.map_error (fun message ->
+                  [
+                    Driver.Integer_source.message_diagnostic ~span:switch_span
+                      message;
+                  ])
+            in
+            let* completed, captured = outcome in
+            match
+              ( captured,
+                completed.final_value,
+                completed.captured_callback,
+                completed.captured_data )
+            with
+            | true, Some _, None, None ->
+                Native.finish_task_switch_case ?scope:(current_scope ()) arena
+                  image
+                |> Result.map_error (fun message ->
+                    [
+                      Driver.Integer_source.message_diagnostic ~span:switch_span
+                        message;
+                    ])
+            | _ ->
+                Error
+                  [
+                    diagnostic ~span:switch_span "HCIRVM0026"
+                      "native switch case produced no captured scalar \
+                       expression";
+                  ]
+        in
         let native_offset request =
           let module Request = Task.Native_offset in
           let* layout, arena =
@@ -711,7 +998,11 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
             in
             let before = (Native.budget_progress budget).executed_steps in
             let outcome =
-              execute ~arena ~max_activation_steps:allowance Offset image
+              with_initializer_execution ~span:offset_span
+                ~remaining:(fun () -> Request.initializer_remaining request)
+                image
+                (fun () ->
+                  execute ~arena ~max_activation_steps:allowance Offset image)
             in
             let steps =
               (Native.budget_progress budget).executed_steps - before
@@ -800,8 +1091,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                 let report =
                   Source.run ~native_dispatch ~native_static_allocation
                     ~native_static_initializer ~native_static_copy
-                    ~native_default ~native_dimension ~native_offset
-                    ~native_internal_binding ~max_dimension_work
+                    ~native_default ~native_dimension ~native_switch_case
+                    ~native_offset ~native_internal_binding ~max_dimension_work
                     ~max_switch_work ~max_initializer_steps ~max_global_bytes
                     ~max_literal_bytes ~max_frame_bytes ~max_call_depth
                     ~max_output_bytes ~max_output_work session ~config ~source
@@ -845,8 +1136,8 @@ let evaluate ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536)
                         (Frontend.Preprocessor.Config.max_generated_bytes config)
                       ~native_dispatch ~native_static_allocation
                       ~native_static_initializer ~native_static_copy
-                      ~native_default ~native_dimension ~native_offset
-                      ~native_internal_binding task_session
+                      ~native_default ~native_dimension ~native_switch_case
+                      ~native_offset ~native_internal_binding task_session
                     |> Result.map_error (fun message ->
                         [ diagnostic ~span "HCIRVM0001" message ])
                   in

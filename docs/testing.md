@@ -1,5 +1,16 @@
 # Testing holyc-ocaml
 
+[Switch extension tests](integer-switch.md) share original source fixtures across
+IR and native targets. They cover bracket cases and holes, repeated defaults,
+direct entry and fallthrough through setup prefixes, nested region suffixes,
+nearest breaks, and function-local gotos. Graph tests mutate local call and
+return targets and reject missing continuation authority. Runtime case tests
+check once-only preparation, endpoint order, reached failures, and exact work
+allowances. Nested source cases combine closed and effectful child endpoints
+and check that shared work is charged once. Tight limits stop child effects or
+the resumed parent at the reached boundary. Public examples are `examples/switch-regions.hc` and
+`examples/switch-case-effects.hc`.
+
 [Aggregate member size tests](aggregate-member-sizeof.md) exercise original
 dot paths through named types, automatic objects, class parameters, nested
 arrays and inherited members. Source expectations cover first-match duplicate

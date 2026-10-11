@@ -33,6 +33,11 @@ val prepare_dimension :
   Sema.Dimension_fragment.t ->
   (Sema.Function_call_expression_result.top_level_t, string) result
 
+val prepare_switch_case :
+  context ->
+  Sema.Switch_case_fragment.t ->
+  (Sema.Function_call_expression_result.top_level_t, string) result
+
 val prepare_internal_binding :
   context ->
   Sema.Internal_binding_fragment.t ->

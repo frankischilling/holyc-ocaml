@@ -449,6 +449,78 @@ module Native_dimension : sig
   val record_steps : request -> int -> (unit, string) result
 end
 
+module Native_switch_case : sig
+  type request
+
+  type t =
+    request ->
+    ( Ir.Switch_case_fragment_program.t Ir.Native_scalar_capture.t,
+      Common.Diagnostic.t list )
+    result
+
+  val program : request -> Ir.Switch_case_fragment_program.t
+  val generation : request -> Ir.Integer_interpreter.native_generation
+  val source_callback : request -> native_source_callback option
+  val check : request -> (unit, string) result
+  val claim : request -> (unit, string) result
+
+  val function_source :
+    request ->
+    Ir.Retained_function.t ->
+    (Ir.Integer_interpreter.task_function_source, string) result
+
+  val slot_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (Ir.Integer_interpreter.native_slot_binding, string) result
+
+  val slot_address_binding :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.function_slot_address ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val slot_address_refresh :
+    request ->
+    Ir.Integer_interpreter.native_slot_address_binding ->
+    (Ir.Integer_interpreter.native_slot_address_binding, string) result
+
+  val provider_available :
+    request ->
+    runtime_calls:Ir.Runtime_call_context.t ->
+    owner:Ir.Runtime_call_context.owner ->
+    Ir.Runtime_call_context.call ->
+    (bool, string) result
+
+  val parameter_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    header:Sema.Function_type_resolution.resolved_function ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_parameter_default.t ->
+    (unit, string) result
+
+  val callback_default :
+    request ->
+    globals:Ir.Integer_globals.t ->
+    pointer:Sema.Function_type_resolution.function_pointer ->
+    parameter:Sema.Function_type_resolution.parameter ->
+    Ir.Prepared_callback_default.t ->
+    (unit, string) result
+
+  val switch_remaining : request -> int
+
+  val initializer_remaining : request -> int
+  (** Available initializer work after all live, not-yet-recorded native scalar
+      phase reservations; switch-work is a separate allowance. *)
+
+  val record_steps : request -> int -> (unit, string) result
+  val charge_work : request -> int -> (unit, string) result
+end
+
 module Native_offset : sig
   type request
 
@@ -589,6 +661,7 @@ val create :
   ?native_static_copy:Native_static_copy.t ->
   ?native_default:Native_default.t ->
   ?native_dimension:Native_dimension.t ->
+  ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
@@ -686,6 +759,7 @@ val adopt_source :
   ?native_static_copy:Native_static_copy.t ->
   ?native_default:Native_default.t ->
   ?native_dimension:Native_dimension.t ->
+  ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->
@@ -714,6 +788,7 @@ val adopt_source_for_activation :
   ?native_static_copy:Native_static_copy.t ->
   ?native_default:Native_default.t ->
   ?native_dimension:Native_dimension.t ->
+  ?native_switch_case:Native_switch_case.t ->
   ?native_offset:Native_offset.t ->
   ?native_internal_binding:Native_internal_binding.t ->
   Session.t ->

@@ -263,6 +263,16 @@ let resolve ~table ~environment ~expressions =
       (fun statement ->
         Option.fold ~none:false
           ~some:(fun fragment ->
+            Switch_case_fragment.environment fragment != environment)
+          (Top_level_expression_binding.statement_switch_case statement))
+      (Top_level_expression_binding.statements expressions)
+  then
+    Error (invalid_input "switch case fragment uses another outer environment")
+  else if
+    List.exists
+      (fun statement ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
             Internal_binding_fragment.environment fragment != environment)
           (Top_level_expression_binding.statement_internal_binding statement))
       (Top_level_expression_binding.statements expressions)

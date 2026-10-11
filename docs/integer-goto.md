@@ -113,14 +113,18 @@ The native instruction, block, code, per-owner frame, active semantic-frame,
 call-depth and physical-stack bounds remain in force. Checked failure unwinds
 the generated call chain, and a fresh invocation starts with fresh status.
 
-Top-level language labels and gotos remain rejected. This gate does not add
-assembly-label execution or computed/indirect goto. Issue #668 extends the shared
-builder with [ordinary bounded switches](integer-switch.md), including labels
-and gotos in supported case bodies. Jumps through lock/exception/sub-switch
-regions and no-bound switch execution remain outside the gate. Those unsupported forms
-still reject, including when unreachable. Full label-warning behavior,
-output-address validation for repeated assembly labels, general memory,
-exceptions, optimizer parity and object/BIN/loader/bootstrap work remain separate.
+Top-level language labels and gotos remain rejected, as do assembly-label
+execution and computed or indirect goto. Both integer switch header forms and
+`start:`/`end:` regions use the shared lowering path. A goto may move between
+ordinary case bodies or within one setup prefix. The lowerer compares original
+label identities and the exact enclosing prefix regions before emitting a jump.
+`HCRUN0001` rejects a jump into or out of a setup prefix, including jumps
+between sibling or nested prefixes, because it would bypass a local
+continuation. Returns from a prefix are rejected; a bare prefix `break`
+fails at its original parser phase, while a nested loop can use its own
+`break`. Lock and exception control, full label warnings, repeated
+assembly-label addresses, general memory, optimizer parity and
+object/BIN/loader/bootstrap work remain separate.
 
 ## Evidence and verification
 
@@ -135,9 +139,10 @@ source of checked scope and target identity.
 
 Ordinary tests cover public source execution, unsupported targets, exact original
 diagnostic source IDs and spans (including included files), deterministic graphs,
-initialization faults and exact step budgets. Parser-valid sources exercise each
-excluded assembly, no-bound switch, lock, exception and sub-switch region at the execution
-gate. Word-return completeness tests distinguish a reached interpreter fault
+initialization faults and exact step budgets. Switch fixtures exercise bracketed
+dispatch, sub-switch prefixes, safe gotos and rejected jumps across prefix
+boundaries. Assembly, lock and exception regions retain their execution gates.
+Word-return completeness tests distinguish a reached interpreter fault
 from native pre-entry rejection and retain positive U0 and returning-word controls.
 Separate native API and CLI tests exercise the same source families in both
 modes, with independent expected values and fresh public interpreter runs.

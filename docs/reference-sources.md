@@ -79,7 +79,7 @@ Issue #650 retains the named class selected by `PrsVar.HC:472-489` before
 following lexer effects. Pointer/name parsing and member installation use
 `:285-308,332-360,521-529`; function return publication uses
 `PrsStmt.HC:223-264,111-115`. The class allocation/forward-completion distinction
-is at `PrsStmt.HC:6-36`. The [retained type guide](docs/retained-named-types.md)
+is at `PrsStmt.HC:6-36`. The [retained type guide](retained-named-types.md)
 separates those source semantics from hosted ownership proofs and the checked
 aggregate-pointer frame boundary. The pin is unchanged, and no new TempleOS
 native execution capture is implied.
@@ -87,7 +87,7 @@ native execution capture is implied.
 The native-expression gate in #642 uses the audited opcode forms for MOV,
 wrapping arithmetic, bitwise operations, NEG, NOT, IMUL and RET. Its return
 tail follows `PrsExp.HC:1117-1127` and `OptPass789A.HC:779-782`; multiplication
-context is `BackA.HC:224-280`. [Native expressions](docs/native-expressions.md)
+context is `BackA.HC:224-280`. [Native expressions](native-expressions.md)
 maps the OCaml encoder, checked compiler, host bridge and separate native tests.
 The reference pin and generated encoding database remain unchanged. Executing
 the hosted encoder does not constitute a new TempleOS compiler capture.
@@ -106,7 +106,7 @@ temporary-value consumers. Windows unwind records follow the host ABI sources
 linked from the native guide. Neither source set establishes full allocator or
 HolyC ABI parity.
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, the six standard predefined values and their date and time formats, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, statement-position output literals and their runtime prototypes, structural switch and sub-switch statements, brace-delimited assembly blocks and labels, function-local operand-free direct assembly, function-wide language and assembly-label identity, function signature type resolution, closed aggregate byte layout, aggregate member metadata, global array dimensions, parenthesized and parenthesis-free calls, omitted argument slots, bracket index expressions, direct and pointer member expressions, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest verifies 73 individually audited Git blobs and identifies the full pinned tree used by the 528-file lexer and parser corpus reports.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, the six standard predefined values and their date and time formats, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, statement-position output literals and their runtime prototypes, structural switch and sub-switch statements, brace-delimited assembly blocks and labels, function-local operand-free direct assembly, function-wide language and assembly-label identity, function signature type resolution, closed aggregate byte layout, aggregate member metadata, global array dimensions, parenthesized and parenthesis-free calls, omitted argument slots, bracket index expressions, direct and pointer member expressions, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](reference-source-map.md) records the findings and implementation links. The manifest verifies 73 individually audited Git blobs and identifies the full pinned tree used by the 528-file lexer and parser corpus reports.
 
 ## Lexer corpus audit
 
@@ -129,7 +129,7 @@ dune exec holyc -- corpus parse --mode=aot --reference-commit=c26482bb6ad3f80106
 
 The parser scan uses the same verified Git inventory and gives each root object a fresh session. Root bytes come from Git objects. Includes are resolved inside the clean pinned checkout because the current include stream reads files; the checkout is verified again after the scan. The command never executes native `#exe` code. It records every file, diagnostic counts, and the first error location without host-specific absolute paths.
 
-The reviewed AOT report at [`reference/parser-corpus-aot.json`](reference/parser-corpus-aot.json) contains all 528 objects: 21 parse without an error, 16 have a lexer or preprocessor first error, 491 have a parser first error, and none fail to read or raise an internal exception. There are no exclusions. Its 37,414 accumulated diagnostics include parser recovery after unsupported input and are not a missing-feature count. Physical NUL ends root and included source before any trailing payload, matching the pinned lexical buffer rule; standalone hosted parsing still diagnoses embedded NUL. These figures describe the current OCaml parser at TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`; they do not establish semantic or runtime compatibility. `--require-all` turns the remaining 507 failures into a command failure when a strict gate is needed.
+The reviewed AOT report at [`reference/parser-corpus-aot.json`](../reference/parser-corpus-aot.json) contains all 528 objects: 21 parse without an error, 16 have a lexer or preprocessor first error, 491 have a parser first error, and none fail to read or raise an internal exception. There are no exclusions. Its 37,414 accumulated diagnostics include parser recovery after unsupported input and are not a missing-feature count. Physical NUL ends root and included source before any trailing payload, matching the pinned lexical buffer rule; standalone hosted parsing still diagnoses embedded NUL. These figures describe the current OCaml parser at TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`; they do not establish semantic or runtime compatibility. `--require-all` turns the remaining 507 failures into a command failure when a strict gate is needed.
 
 ## Primitive-global, modifier, binding, pointer, and declaration-list parser audit
 
@@ -321,4 +321,4 @@ dune exec tools/bin_record_gen.exe -- --reference-root third_party/TempleOS --ma
 
 The generator checks 13 pinned sources before parsing them. It validates the `CBinFile` layout, `'TOSB'` signature, all `IET_*` and `AAT_*` values, reserved numeric gaps, source status comments, import displacement formulas, writer layout, two loader passes, boot absolute patches, and core consumers. Unknown symbols, missing or duplicate records, changed formulas, and stale output fail the generated-file check.
 
-The output supplies typed metadata through `Holyc_lib.Templeos_bin_spec`; it is not a module reader or writer. [docs/templeos-bin-format.md](docs/templeos-bin-format.md) records the audited binary grammar and the work still required before loader compatibility can be claimed.
+The output supplies typed metadata through `Holyc_lib.Templeos_bin_spec`; it is not a module reader or writer. [docs/templeos-bin-format.md](templeos-bin-format.md) records the audited binary grammar and the work still required before loader compatibility can be claimed.

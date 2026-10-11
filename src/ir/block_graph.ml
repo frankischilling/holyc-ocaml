@@ -177,9 +177,17 @@ let description_targets description =
   match
     (Flow.target_shape description.Sequence.opcode, description.payload)
   with
+  | Flow.No_target, Some (Sequence.Block_targets _)
+    when description.opcode = Opcode.Ic_ret ->
+      Sequence.local_return_targets description
   | Flow.No_target, _ -> Ok []
   | Flow.Single_target, Some (Sequence.Block target) -> Ok [ target ]
   | Flow.Switch_targets, Some (Sequence.Block_targets targets) -> Ok targets
+  | Flow.Local_call_targets, _ ->
+      Result.map
+        (fun (shape : Sequence.local_call_shape) ->
+          [ shape.entry_target; shape.return_target ])
+        (Sequence.local_call_shape description)
   | Flow.Single_target, _ ->
       Error
         (Printf.sprintf "%s requires one block target"
@@ -220,7 +228,7 @@ let switch_contract_error block description message =
 
 let validate_bounded_switch block (producers : Sequence.description Int_map.t)
     description =
-  match Sequence.bounded_switch_shape description with
+  match Sequence.switch_shape description with
   | Error message -> Some (switch_contract_error block description message)
   | Ok shape ->
       let producer value =
@@ -343,7 +351,10 @@ let control_flow_errors blocks index =
                 (error ~block_id:block.checked_id
                    ~instruction_id:description.instruction_id
                    ?span:description.span "HCIR0016" message));
-          if description.opcode = Opcode.Ic_switch then
+          if
+            description.opcode = Opcode.Ic_switch
+            || description.opcode = Opcode.Ic_nobound_switch
+          then
             Option.iter add
               (validate_bounded_switch block !producers description);
           if description.opcode = Opcode.Ic_end then
@@ -584,6 +595,41 @@ let external_value_errors dominates blocks =
             description.operands))
     blocks
 
+let local_continuation_errors blocks =
+  let continuations =
+    List.fold_left
+      (fun found block ->
+        Sequence.instructions block.checked_instructions
+        |> List.fold_left
+             (fun found instruction ->
+               match
+                 Sequence.local_call_shape (Sequence.description instruction)
+               with
+               | Ok shape ->
+                   Int_set.add (block_number shape.return_target) found
+               | Error _ -> found)
+             found)
+      Int_set.empty blocks
+  in
+  List.concat_map
+    (fun block ->
+      Sequence.instructions block.checked_instructions
+      |> List.filter_map (fun instruction ->
+          let description = Sequence.description instruction in
+          match Sequence.local_return_targets description with
+          | Ok targets
+            when List.exists
+                   (fun target ->
+                     not (Int_set.mem (block_number target) continuations))
+                   targets ->
+              Some
+                (error ~block_id:block.checked_id
+                   ~instruction_id:description.instruction_id
+                   ?span:description.span "HCIR0039"
+                   "local return names a block that is not a call continuation")
+          | _ -> None))
+    blocks
+
 let create ~entry descriptions =
   let block_errors = duplicate_block_errors descriptions in
   let checked, child_errors = validate_children descriptions in
@@ -602,6 +648,7 @@ let create ~entry descriptions =
   let errors =
     block_errors @ child_errors @ identity_errors @ entry_errors @ flow_errors
     @ final_errors
+    @ local_continuation_errors checked
   in
   match errors with
   | _ :: _ -> Error errors
@@ -633,6 +680,21 @@ let find_block graph id = Block_map.find_opt id graph.index
 let block_id block = block.block_id
 let instructions block = block.instructions
 let successors block = block.successors
+
+let local_subroutine_capacity graph =
+  List.fold_left
+    (fun entries block ->
+      Sequence.instructions block.instructions
+      |> List.fold_left
+           (fun entries instruction ->
+             match
+               Sequence.local_call_shape (Sequence.description instruction)
+             with
+             | Ok shape -> Int_set.add (block_number shape.entry_target) entries
+             | Error _ -> entries)
+           entries)
+    Int_set.empty graph.blocks
+  |> Int_set.cardinal
 
 let human_body graph =
   let buffer = Buffer.create 512 in

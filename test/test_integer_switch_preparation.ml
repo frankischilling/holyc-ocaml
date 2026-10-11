@@ -152,8 +152,6 @@ let bounds_and_timing () =
           ("U0 F(){switch(0){case 17...65552:;}}", "HCSW0001");
           ("U0 F(){switch(0){case 1...3:;case 2:;}}", "HCSW0002");
           ("U0 F(){switch(0){default:;}}", "HCSW0001");
-          ("U0 F(){switch[0]{case 0:;}}", "HCRUN0001");
-          ("U0 F(){switch(0){case 0:;default:;default:;}}", "HCRUN0001");
         ])
     modes
 

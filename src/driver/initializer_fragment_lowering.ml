@@ -88,7 +88,7 @@ let prepare ~context ~authority ~runtime destination =
       ~retained_function_source:(VM.task_function_source runtime)
       ~on_progress:(fun steps ->
         VM.record_task_preparation runtime ~before ~steps)
-      ~max_steps:(VM.task_initializer_limit runtime - before)
+      ~max_steps:(VM.task_initializer_remaining runtime)
       ~top_calls ~functions:[] destination
   in
   let* code =

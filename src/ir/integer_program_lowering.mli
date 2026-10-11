@@ -40,6 +40,7 @@ and switch_element =
   | Switch_case of Sema.Integer_switch_preparation.case
   | Switch_default of Frontend.Ast.switch_default_label
   | Switch_statement of statement
+  | Switch_subswitch of Frontend.Ast.switch_subswitch * switch_element list
 
 type t
 

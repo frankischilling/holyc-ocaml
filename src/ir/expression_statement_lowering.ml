@@ -113,6 +113,7 @@ let top_level_expression_statement root =
       | Top_level_source.Initializer_fragment _
       | Top_level_source.Internal_binding_fragment _
       | Top_level_source.Dimension_fragment _
+      | Top_level_source.Switch_case_fragment _
       | Top_level_source.Offset_fragment _
       | Top_level_source.Static_initializer_fragment _
       | Top_level_source.Default_fragment _

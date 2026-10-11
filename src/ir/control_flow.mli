@@ -4,10 +4,15 @@ type kind =
   | Unconditional_branch
   | Conditional_branch
   | Switch
+  | Local_call
   | Return
   | End
 
-type target_shape = No_target | Single_target | Switch_targets
+type target_shape =
+  | No_target
+  | Single_target
+  | Switch_targets
+  | Local_call_targets
 
 val classify : Opcode.t -> kind
 val target_shape : Opcode.t -> target_shape
