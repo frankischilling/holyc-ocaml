@@ -18,6 +18,7 @@ dune exec holyc -- asm --bits=16 --format=json test/cli/assembly-operations.hc
 dune exec holyc -- asm --emit examples/assembly-encoding.asm
 dune exec holyc -- asm --emit --base=0x1003 --output=assembly-layout.bin examples/assembly-layout.asm
 dune exec holyc -- asm --emit --map=assembly-layout.map --listing=assembly-layout.lst examples/assembly-layout.asm
+dune exec holyc -- disasm --position=4096 --format=json code.bin
 ```
 
 The command accepts the same include roots, TempleOS path mapping, preprocessing
@@ -57,8 +58,10 @@ keeps its full width even when its final value is zero. Branches keep their
 selected short or near form and fail when the displacement cannot fit; the
 assembler performs no branch relaxation. The report retains the actual
 encoded selection separately from the parsed operation. Live compiler
-expressions, source assembly loading and execution remain under #715;
-disassembly remains under #716.
+expressions, source assembly loading and execution remain under #715.
+The [disassembler](disassembly.md) inspects binary streams through the pinned
+`Ui` forms and produces versioned JSON, listings and branch maps. Its source
+lookup, legacy-mode boundaries and native captures are documented separately.
 
 `--map` and `--listing` write inspection reports at raw source coordinates.
 The listing uses final unrelocated bytes and obeys `LIST` and `NOLIST`.

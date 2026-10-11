@@ -177,6 +177,7 @@ module Asm_instruction = Asm.Instruction
 module Asm_encoding = Asm.Encoding
 module Asm_relocation = Asm.Relocation
 module Asm_encoder = Asm.Encoder
+module Asm_disassembler = Asm.Disassembler
 module Assembly_encoding = Driver.Assembly_encoding
 module Assembly_binary = Frontend.Assembly_binary
 module Keyword = Frontend.Keyword

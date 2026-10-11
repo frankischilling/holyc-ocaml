@@ -1,5 +1,18 @@
 # Testing holyc-ocaml
 
+[Disassembly tests](disassembly.md) compare 89 distinct native `Ui` records,
+each captured twice, including 52 compiled compiler/kernel instructions. They
+verify payload/capture checksums, exact agreement between JSON expectations
+and raw records, complete repeat equality, byte lengths, source
+spellings, scalar/memory operand text and relative destinations. All 924
+independent encoder specimens are accounted for: one empty record, 904 decoded
+streams and nineteen checked source-lookup failures. Separate tests cover every
+interior truncation point of representative forms, prefix limits, signed
+address endpoints, exact byte/instruction budgets, 13,056 deterministic byte
+streams and immutable failure reports.
+Public CLI checks cover assembly output, deterministic JSON, listings, maps,
+binary ranges, invalid options and preservation of existing files on failure.
+
 [Assembler tests](assembler.md) compare original Compiler, Kernel and Demo
 operands through block, direct and standalone parsing. They cover USE modes,
 aliases, x87 registers, memory slots, immediate masks, source form choices and

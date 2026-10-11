@@ -1,0 +1,910 @@
+{
+  "fixture_version": 1,
+  "id": "assembly/source-disassembly-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "asset": "TOS_Distro.ISO",
+    "original_iso_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b",
+    "source_checks": [
+      {
+        "path": "Compiler/UAsm.HC",
+        "archive_sha256": "54bc5173b4fb150df527a90bdb156aee52ea2446fe6dbd272dbb195e69fb7d3b",
+        "decoded_sha256": "86eeab96951a2c3e6962dc519e35dc153b63db4d802ae6fa7efa2999a537be3d",
+        "git_blob_sha256": "ad052f39de5b1f51b7dd4f17fc669b3f0ea15a464afff4131b4dc06a71a0fe9d",
+        "crlf_pairs": 0,
+        "shift_spaces": 5,
+        "comparison": "Expanded ISO source with CRLF normalized to LF and CH_SHIFT_SPACE (0x1F) to ASCII space equals the pinned Git blob byte for byte."
+      },
+      {
+        "path": "Compiler/AsmInit.HC",
+        "archive_sha256": "37d2371d136b46400593fb1e6886af2ba31a3cd80c59707b6aa2f6866ffb543b",
+        "decoded_sha256": "f2e6a8ed27b879031b1574b8e2df01e253b71ca012f86429e7c5f47ed0a61acc",
+        "git_blob_sha256": "f2e6a8ed27b879031b1574b8e2df01e253b71ca012f86429e7c5f47ed0a61acc",
+        "crlf_pairs": 0,
+        "shift_spaces": 0,
+        "comparison": "Expanded ISO source with CRLF normalized to LF and CH_SHIFT_SPACE (0x1F) to ASCII space equals the pinned Git blob byte for byte."
+      },
+      {
+        "path": "Compiler/OpCodes.DD",
+        "archive_sha256": "523674b66dbb90e4d6b3e92ddfbde675f9430311d6d4bf85b2a4c2c108aaece5",
+        "decoded_sha256": "b814c439af73b080e7584dd32734241724d95f072b6ca7c805759fbd870f635d",
+        "git_blob_sha256": "b814c439af73b080e7584dd32734241724d95f072b6ca7c805759fbd870f635d",
+        "crlf_pairs": 0,
+        "shift_spaces": 0,
+        "comparison": "Expanded ISO source with CRLF normalized to LF and CH_SHIFT_SPACE (0x1F) to ASCII space equals the pinned Git blob byte for byte."
+      },
+      {
+        "path": "Kernel/KHashA.HC",
+        "archive_sha256": "646d2440e4867e01e2305f132284da8d49927c7f7694d1b26fb51a22c02058b4",
+        "decoded_sha256": "76780258c5faf76775a57488c0a9747bb90c5c5c7b1f3e7eceb09804598d0da3",
+        "git_blob_sha256": "76780258c5faf76775a57488c0a9747bb90c5c5c7b1f3e7eceb09804598d0da3",
+        "crlf_pairs": 0,
+        "shift_spaces": 0,
+        "comparison": "Expanded ISO source with CRLF normalized to LF and CH_SHIFT_SPACE (0x1F) to ASCII space equals the pinned Git blob byte for byte."
+      },
+      {
+        "path": "Kernel/QSort.HC",
+        "archive_sha256": "590fab0f5bdd89f209fda7bed4d2ac08e234cf8c4c1f8f268f907d027eef256d",
+        "decoded_sha256": "ec75d5d7760d968646c6ea9d12f3233a13f5ca567ef2b160dd14b93df302c3b4",
+        "git_blob_sha256": "ec75d5d7760d968646c6ea9d12f3233a13f5ca567ef2b160dd14b93df302c3b4",
+        "crlf_pairs": 0,
+        "shift_spaces": 0,
+        "comparison": "Expanded ISO source with CRLF normalized to LF and CH_SHIFT_SPACE (0x1F) to ASCII space equals the pinned Git blob byte for byte."
+      },
+      {
+        "path": "Kernel/KDefine.HC",
+        "archive_sha256": "e34d5a3a521db39bb8f8428ebf72cbbe3245d1840db036834ce72da5ca62e9be",
+        "decoded_sha256": "b975aab20bf3c693fe10c5109e923b67be83e1963e44e1e983636a1cc75bc485",
+        "git_blob_sha256": "d6176184fb06ed79e9e72ded9b276b4111df6e704217c2da7ade4dfcd3394ac7",
+        "crlf_pairs": 0,
+        "shift_spaces": 38,
+        "comparison": "Expanded ISO source with CRLF normalized to LF and CH_SHIFT_SPACE (0x1F) to ASCII space equals the pinned Git blob byte for byte."
+      },
+      {
+        "path": "Kernel/KMisc.HC",
+        "archive_sha256": "f70e43c5d22b307c75533296d452a1dfc67e83b55e0426248a5109f4dc486691",
+        "decoded_sha256": "eb55e3c256bc5dd4f7e9b9318142a687002e95e63d74b8e4fbea24bd23173117",
+        "git_blob_sha256": "d4f81f5b73f2d8f0116bcf8b50872fe20937cc7982fc2ec97f48dfbcd6ce46be",
+        "crlf_pairs": 0,
+        "shift_spaces": 4,
+        "comparison": "Expanded ISO source with CRLF normalized to LF and CH_SHIFT_SPACE (0x1F) to ASCII space equals the pinned Git blob byte for byte."
+      },
+      {
+        "path": "Kernel/BlkDev/DskDrv.HC",
+        "archive_sha256": "4de8661ef64a40cd10ad9ea639fff7d10932f83cdc2870c7e9d7b81bb85bd819",
+        "decoded_sha256": "fc8abf32b871cc0272eff577168c81ddbe6fab6359a6de309d24d212c7d6dc36",
+        "git_blob_sha256": "46661eba1f7f44dbe4fd097944270f90ec5e3e5a7ee06308c960d1831e168d6a",
+        "crlf_pairs": 0,
+        "shift_spaces": 13,
+        "comparison": "Expanded ISO source with CRLF normalized to LF and CH_SHIFT_SPACE (0x1F) to ASCII space equals the pinned Git blob byte for byte."
+      }
+    ]
+  },
+  "environment": {
+    "date": "2026-10-11",
+    "host": "Windows x86-64",
+    "hypervisor": "QEMU emulator version 9.2.0 (v9.2.0-12071-g3dd0aeb44b)",
+    "accelerator": "TCG; 32 MiB translation cache",
+    "memory_mib": 512,
+    "vcpu_count": 1,
+    "network": "disabled",
+    "persistent_disk": false,
+    "boot_iso_sha256": "63c566849b3b27d27a2d412d0790e5b7609101de7cb817ec0386cf6656d2041b",
+    "boot_media": "read-only derivative of the verified ISO; appended ORACLE.HC, one free RedSea directory entry, and volume sizes; existing compiler, kernel and boot code unchanged"
+  },
+  "capture": {
+    "payload": "test/oracle/source-disassembly.hc",
+    "payload_sha256": "ceef8ccbd938c485ca0997575ef4ee3f49e8566c405b9653e40cf10526ec413b",
+    "transport": "QEMU ISA debug console port 0xE9",
+    "raw_capture_sha256": "1654a2637cb7c540a383c87a19d01929057a5deedc414b4beb34eabf68666395",
+    "boots": 1,
+    "runs_per_instruction": 2,
+    "instruction_observations": 178,
+    "distinct_instructions": 89,
+    "comparison": "Both complete 89-record sequences are byte-identical. Ui, IsDbgMode and DrvChk supply 52 compiled compiler/kernel instruction records; 37 manually specified vectors cover USE modes, widths, x87, prefixes, memory, relative targets, interrupt annotations and source spelling."
+  },
+  "checks": [
+    {
+      "id": 0,
+      "bits": 64,
+      "position": "369094336",
+      "size": 1,
+      "bytes_hex": "55",
+      "text": "PUSH\tU64 RBP",
+      "jump_target": null
+    },
+    {
+      "id": 1,
+      "bits": 64,
+      "position": "369094336",
+      "size": 3,
+      "bytes_hex": "4889E5",
+      "text": "MOV\tU64 RBP,U64 RSP",
+      "jump_target": null
+    },
+    {
+      "id": 2,
+      "bits": 64,
+      "position": "369094336",
+      "size": 7,
+      "bytes_hex": "4881EC380B0000",
+      "text": "SUB\tU64 RSP,I32 00000B38",
+      "jump_target": null
+    },
+    {
+      "id": 3,
+      "bits": 64,
+      "position": "369094336",
+      "size": 10,
+      "bytes_hex": "48B88877665544332211",
+      "text": "MOV\tU64 RAX,I64 1122334455667788",
+      "jump_target": null
+    },
+    {
+      "id": 4,
+      "bits": 64,
+      "position": "369094336",
+      "size": 10,
+      "bytes_hex": "49B88877665544332211",
+      "text": "MOV\tU64 R8,I64 1122334455667788",
+      "jump_target": null
+    },
+    {
+      "id": 5,
+      "bits": 64,
+      "position": "369094336",
+      "size": 5,
+      "bytes_hex": "B878563412",
+      "text": "MOV\tU32 EAX,I32 12345678",
+      "jump_target": null
+    },
+    {
+      "id": 6,
+      "bits": 64,
+      "position": "369094336",
+      "size": 3,
+      "bytes_hex": "408AC4",
+      "text": "MOV\tU8 AL,U8 RSPu8",
+      "jump_target": null
+    },
+    {
+      "id": 7,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "8AC4",
+      "text": "MOV\tU8 AL,U8 AH",
+      "jump_target": null
+    },
+    {
+      "id": 8,
+      "bits": 64,
+      "position": "369094336",
+      "size": 5,
+      "bytes_hex": "488B44C8F8",
+      "text": "MOV\tU64 RAX,U64 F8[RAX+RCX*8]",
+      "jump_target": null
+    },
+    {
+      "id": 9,
+      "bits": 64,
+      "position": "369094336",
+      "size": 3,
+      "bytes_hex": "648B00",
+      "text": "MOV\tU32 EAX,U32 FS:[RAX]",
+      "jump_target": null
+    },
+    {
+      "id": 10,
+      "bits": 64,
+      "position": "369094336",
+      "size": 3,
+      "bytes_hex": "C21000",
+      "text": "RET1\tI16 0010",
+      "jump_target": null
+    },
+    {
+      "id": 11,
+      "bits": 64,
+      "position": "369094336",
+      "size": 4,
+      "bytes_hex": "C8200000",
+      "text": "ENTER\tI16 0020",
+      "jump_target": null
+    },
+    {
+      "id": 12,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "D9C1",
+      "text": "FLD\tST1",
+      "jump_target": null
+    },
+    {
+      "id": 13,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "DEC1",
+      "text": "FADDP\tST1,ST0",
+      "jump_target": null
+    },
+    {
+      "id": 14,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "D9E8",
+      "text": "FLD1",
+      "jump_target": null
+    },
+    {
+      "id": 15,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "DD18",
+      "text": "FSTP\tU64 [RAX]",
+      "jump_target": null
+    },
+    {
+      "id": 16,
+      "bits": 64,
+      "position": "369094336",
+      "size": 3,
+      "bytes_hex": "F348A5",
+      "text": "REP_MOVSQ",
+      "jump_target": null
+    },
+    {
+      "id": 17,
+      "bits": 64,
+      "position": "369094336",
+      "size": 1,
+      "bytes_hex": "F0",
+      "text": "LOCK",
+      "jump_target": null
+    },
+    {
+      "id": 18,
+      "bits": 64,
+      "position": "369094336",
+      "size": 3,
+      "bytes_hex": "490101",
+      "text": "ADD\tU64 [R9],U64 RAX",
+      "jump_target": null
+    },
+    {
+      "id": 19,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "EBFE",
+      "text": "JMP\tI8 $LK,\"15FFEEC0\",A=\"AD:0x15FFEEC0\"$ ",
+      "jump_target": "369094336"
+    },
+    {
+      "id": 20,
+      "bits": 64,
+      "position": "369094336",
+      "size": 7,
+      "bytes_hex": "488B0500000000",
+      "text": "MOV\tU64 RAX,U64 [15FFEEC7]",
+      "jump_target": null
+    },
+    {
+      "id": 21,
+      "bits": 16,
+      "position": "369094336",
+      "size": 3,
+      "bytes_hex": "B83412",
+      "text": "MOV\tU16 AX,I16 1234",
+      "jump_target": null
+    },
+    {
+      "id": 22,
+      "bits": 32,
+      "position": "369094336",
+      "size": 5,
+      "bytes_hex": "B878563412",
+      "text": "MOV\tU32 EAX,I32 12345678",
+      "jump_target": null
+    },
+    {
+      "id": 23,
+      "bits": 32,
+      "position": "369094336",
+      "size": 4,
+      "bytes_hex": "66B83412",
+      "text": "MOV\tU16 AX,I16 1234",
+      "jump_target": null
+    },
+    {
+      "id": 24,
+      "bits": 16,
+      "position": "369094336",
+      "size": 6,
+      "bytes_hex": "66B878563412",
+      "text": "MOV\tU32 EAX,I32 12345678",
+      "jump_target": null
+    },
+    {
+      "id": 25,
+      "bits": 32,
+      "position": "369094336",
+      "size": 5,
+      "bytes_hex": "A178563412",
+      "text": "MOV\tU32 EAX,U32 [12345678]",
+      "jump_target": null
+    },
+    {
+      "id": 26,
+      "bits": 64,
+      "position": "369094336",
+      "size": 1,
+      "bytes_hex": "90",
+      "text": "XCHG\tU32 EAX,U32 EAX",
+      "jump_target": null
+    },
+    {
+      "id": 27,
+      "bits": 64,
+      "position": "369094336",
+      "size": 3,
+      "bytes_hex": "4831C0",
+      "text": "XOR\tU64 RAX,U64 RAX",
+      "jump_target": null
+    },
+    {
+      "id": 28,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "0FC8",
+      "text": "BSWAP\tU32 ",
+      "jump_target": null
+    },
+    {
+      "id": 29,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "0FA2",
+      "text": "CPUID",
+      "jump_target": null
+    },
+    {
+      "id": 30,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "DC03",
+      "text": "FADD\tST0,U64 [RBX]",
+      "jump_target": null
+    },
+    {
+      "id": 31,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "DC0B",
+      "text": "FMUL\tST0,U64 [RBX]",
+      "jump_target": null
+    },
+    {
+      "id": 32,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "CD0E",
+      "text": "INT\tU8 0E Page Fault",
+      "jump_target": null
+    },
+    {
+      "id": 33,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "CD30",
+      "text": "INT\tU8 30 MP Crash",
+      "jump_target": null
+    },
+    {
+      "id": 34,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "CD20",
+      "text": "INT\tU8 20  ",
+      "jump_target": null
+    },
+    {
+      "id": 35,
+      "bits": 64,
+      "position": "369094336",
+      "size": 2,
+      "bytes_hex": "CDFF",
+      "text": "INT\tU8 FF",
+      "jump_target": null
+    },
+    {
+      "id": 36,
+      "bits": 64,
+      "position": "369094336",
+      "size": 15,
+      "bytes_hex": "646464646464646464646464648B00",
+      "text": "MOV\tU32 EAX,U32 FS:FS:FS:FS:FS:FS:FS:FS:[RAX]",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556408",
+      "size": 1,
+      "bytes_hex": "55",
+      "text": "PUSH\tU64 RBP",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556409",
+      "size": 3,
+      "bytes_hex": "488BEC",
+      "text": "MOV\tU64 RBP,U64 RSP",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556412",
+      "size": 7,
+      "bytes_hex": "4881EC380B0000",
+      "text": "SUB\tU64 RSP,I32 00000B38",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556419",
+      "size": 1,
+      "bytes_hex": "56",
+      "text": "PUSH\tU64 RSI",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556420",
+      "size": 1,
+      "bytes_hex": "57",
+      "text": "PUSH\tU64 RDI",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556421",
+      "size": 2,
+      "bytes_hex": "4952",
+      "text": "PUSH\tU64 R10",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556423",
+      "size": 2,
+      "bytes_hex": "4953",
+      "text": "PUSH\tU64 R11",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556425",
+      "size": 2,
+      "bytes_hex": "4954",
+      "text": "PUSH\tU64 R12",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556427",
+      "size": 2,
+      "bytes_hex": "4955",
+      "text": "PUSH\tU64 R13",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556429",
+      "size": 2,
+      "bytes_hex": "4956",
+      "text": "PUSH\tU64 R14",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556431",
+      "size": 2,
+      "bytes_hex": "4957",
+      "text": "PUSH\tU64 R15",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556433",
+      "size": 3,
+      "bytes_hex": "4D33FF",
+      "text": "XOR\tU64 R15,U64 R15",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556436",
+      "size": 8,
+      "bytes_hex": "48C745A800000000",
+      "text": "MOV\tU64 A8[RBP],I32 00000000",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556444",
+      "size": 8,
+      "bytes_hex": "48C74590FFFFFFFF",
+      "text": "MOV\tU64 90[RBP],I32 FFFFFFFF",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556452",
+      "size": 8,
+      "bytes_hex": "48C74588FFFFFFFF",
+      "text": "MOV\tU64 88[RBP],I32 FFFFFFFF",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556460",
+      "size": 11,
+      "bytes_hex": "48C78568FFFFFFFFFFFFFF",
+      "text": "MOV\tU64 FFFFFF68[RBP],I32 FFFFFFFF",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556471",
+      "size": 3,
+      "bytes_hex": "41B6FF",
+      "text": "MOV\tU8 R14u8,U8 FF",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556474",
+      "size": 4,
+      "bytes_hex": "4D0FBEF6",
+      "text": "MOVSX\tU64 R14,U8 R14u8",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556478",
+      "size": 11,
+      "bytes_hex": "48C78558FFFFFFFFFFFFFF",
+      "text": "MOV\tU64 FFFFFF58[RBP],I32 FFFFFFFF",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556489",
+      "size": 11,
+      "bytes_hex": "48C78550FFFFFFFFFFFFFF",
+      "text": "MOV\tU64 FFFFFF50[RBP],I32 FFFFFFFF",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556500",
+      "size": 11,
+      "bytes_hex": "48C78548FFFFFF00000000",
+      "text": "MOV\tU64 FFFFFF48[RBP],I32 00000000",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556511",
+      "size": 11,
+      "bytes_hex": "48C78540FFFFFF00000000",
+      "text": "MOV\tU64 FFFFFF40[RBP],I32 00000000",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556522",
+      "size": 11,
+      "bytes_hex": "48C78538FFFFFF00000000",
+      "text": "MOV\tU64 FFFFFF38[RBP],I32 00000000",
+      "jump_target": null
+    },
+    {
+      "id": 100,
+      "bits": 64,
+      "position": "382556533",
+      "size": 4,
+      "bytes_hex": "488B4D18",
+      "text": "MOV\tU64 RCX,U64 18[RBP]",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94350",
+      "size": 1,
+      "bytes_hex": "55",
+      "text": "PUSH\tU64 RBP",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94351",
+      "size": 3,
+      "bytes_hex": "488BEC",
+      "text": "MOV\tU64 RBP,U64 RSP",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94354",
+      "size": 2,
+      "bytes_hex": "33C0",
+      "text": "XOR\tU64 RAX,U64 RAX",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94356",
+      "size": 8,
+      "bytes_hex": "0FBA25E425FFFF00",
+      "text": "BT\tU32 [9680],I8 00",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94364",
+      "size": 3,
+      "bytes_hex": "0F92C0",
+      "text": "SETB\tU8 AL",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94367",
+      "size": 1,
+      "bytes_hex": "5D",
+      "text": "POP\tU64 RBP",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94368",
+      "size": 1,
+      "bytes_hex": "C3",
+      "text": "RET",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94369",
+      "size": 1,
+      "bytes_hex": "27",
+      "text": "DAA",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94370",
+      "size": 2,
+      "bytes_hex": "293B",
+      "text": "SUB\tU32 [RBX],U32 EDI",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94372",
+      "size": 2,
+      "bytes_hex": "0000",
+      "text": "ADD\tU8 [RAX],U8 AL",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94374",
+      "size": 1,
+      "bytes_hex": "55",
+      "text": "PUSH\tU64 RBP",
+      "jump_target": null
+    },
+    {
+      "id": 101,
+      "bits": 64,
+      "position": "94375",
+      "size": 3,
+      "bytes_hex": "488BEC",
+      "text": "MOV\tU64 RBP,U64 RSP",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153618",
+      "size": 1,
+      "bytes_hex": "55",
+      "text": "PUSH\tU64 RBP",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153619",
+      "size": 3,
+      "bytes_hex": "488BEC",
+      "text": "MOV\tU64 RBP,U64 RSP",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153622",
+      "size": 1,
+      "bytes_hex": "56",
+      "text": "PUSH\tU64 RSI",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153623",
+      "size": 1,
+      "bytes_hex": "57",
+      "text": "PUSH\tU64 RDI",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153624",
+      "size": 4,
+      "bytes_hex": "488B7510",
+      "text": "MOV\tU64 RSI,U64 10[RBP]",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153628",
+      "size": 5,
+      "bytes_hex": "480FBE7D18",
+      "text": "MOVSX\tU64 RDI,U8 18[RBP]",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153633",
+      "size": 3,
+      "bytes_hex": "4885F6",
+      "text": "TEST\tU64 RSI,U64 RSI",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153636",
+      "size": 2,
+      "bytes_hex": "7409",
+      "text": "JE\tI8 $LK,\"&DrvChk+0x001D\",A=\"FL:T:/Kernel/BlkDev/DskDrv.HC.Z,146\"$ ",
+      "jump_target": "153647"
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153638",
+      "size": 7,
+      "bytes_hex": "817E0844565356",
+      "text": "CMP\tU32 08[RSI],I32 56535644",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153645",
+      "size": 2,
+      "bytes_hex": "7417",
+      "text": "JE\tI8 $LK,\"&DrvChk+0x0034\",A=\"FL:T:/Kernel/BlkDev/DskDrv.HC.Z,151\"$ ",
+      "jump_target": "153670"
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153647",
+      "size": 3,
+      "bytes_hex": "4885FF",
+      "text": "TEST\tU64 RDI,U64 RDI",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153650",
+      "size": 2,
+      "bytes_hex": "740E",
+      "text": "JE\tI8 $LK,\"&DrvChk+0x0030\",A=\"FL:T:/Kernel/BlkDev/DskDrv.HC.Z,149\"$ ",
+      "jump_target": "153666"
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153652",
+      "size": 2,
+      "bytes_hex": "6A00",
+      "text": "PUSH\tI8 00",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153654",
+      "size": 5,
+      "bytes_hex": "6844727600",
+      "text": "PUSH\tI32 00767244",
+      "jump_target": null
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153659",
+      "size": 5,
+      "bytes_hex": "E81B3EFFFF",
+      "text": "CALL\tI32 $LK,\"&throw+0x0000\",A=\"FL:T:/Kernel/KExcept.HC.Z,84\"$ ",
+      "jump_target": "104027"
+    },
+    {
+      "id": 102,
+      "bits": 64,
+      "position": "153664",
+      "size": 2,
+      "bytes_hex": "EB07",
+      "text": "JMP\tI8 $LK,\"&DrvChk+0x0037\",A=\"FL:T:/Kernel/BlkDev/DskDrv.HC.Z,151\"$ ",
+      "jump_target": "153673"
+    }
+  ]
+}

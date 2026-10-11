@@ -3,6 +3,7 @@ let () =
     [
       ("assembler instruction forms", Test_asm_instruction_forms.tests);
       ("assembly operations", Test_assembly_operations.tests);
+      ("source disassembly", Test_disassembler.tests);
       ("assembly encoder", Test_assembly_encoder.tests);
       ("assembly encoding API", Test_assembly_encoding_api.tests);
       ("assembly fixed fields", Test_assembly_fixed_fields.tests);

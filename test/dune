@@ -1,4 +1,12 @@
 (test
+ (name test_disassembly_cli)
+ (modules test_disassembly_cli)
+ (libraries unix yojson)
+ (deps ../examples/disassembly.asm)
+ (action
+  (run %{test} %{exe:../bin/holyc.exe} %{dep:../examples/disassembly.asm})))
+
+(test
  (name test_assembly_layout_cli)
  (modules test_assembly_layout_cli)
  (libraries unix yojson)
@@ -511,6 +519,7 @@
   test_main
   test_asm_instruction_forms
   test_assembly_operations
+  test_disassembler
   test_assembly_encoder
   test_assembly_encoding_api
   test_assembly_fixed_fields
@@ -782,6 +791,10 @@
  (deps
   ../third_party/TempleOS/Compiler/OpCodes.DD
   fixtures/assembly-encoder-forms.tsv
+  oracle/source-disassembly.json
+  oracle/source-disassembly.capture
+  oracle/source-disassembly.hc
+  ../reference/manifest.json
   ../third_party/TempleOS/Compiler/CInit.HC
   ../third_party/TempleOS/Compiler/CExts.HC
   ../third_party/TempleOS/Compiler/CExcept.HC

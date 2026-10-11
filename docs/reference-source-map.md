@@ -1,5 +1,15 @@
 # Reference source map
 
+[Disassembly](disassembly.md) follows `Compiler/UAsm.HC:1-247` for table
+comparison, binary search and construction, and lines 249-659 for instruction
+prefixes, operands, addresses and output. `Compiler/AsmInit.HC:1-158` and
+`OpCodes.DD` supply the owned records. `Kernel/KHashA.HC:1-27,169-189` and
+`Kernel/QSort.HC:1-29` retain the table traversal and equal-record ordering.
+`Kernel/KDefine.HC:118-124` supplies the initial interrupt annotations.
+The hosted path checks the selected opcode before reading bounded fields.
+Native captures retain two complete observations of 89 instructions through
+the original `Ui`, including compiler and kernel bodies.
+
 [Assembler operand validation](assembler.md) follows `Compiler/Asm.HC:1-175`
 for immediates, integer sizes, segment prefixes and address register slots.
 `AsmMakeArgMask` supplies operand classes; `PrsAsmInst` at lines 395-812
