@@ -96,7 +96,7 @@ let marker_shape opcode (description : Sequence.description) =
   && Option.is_none description.result
   && Option.is_none description.target_type
   && Option.is_none description.payload
-  && description.flags = 0L
+  && Lock_semantics.clear_flag description.flags = 0L
 
 let create ~span ~graph ~blocks descriptions =
   let errors = ref [] in

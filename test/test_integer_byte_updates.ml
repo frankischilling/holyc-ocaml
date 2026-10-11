@@ -196,7 +196,7 @@ let canonical_preflight () =
              ]
             @ List.map
                 (fun flags d -> { d with Seq.flags })
-                [ 1L; 0x200L; 0x800L; 0x10000L; 0x010000000L ]);
+                [ 1L; 0x200L; 0x800L; 0x10000L; 0x10000001L ]);
           Alcotest.(check string)
             "deterministic update dump"
             (integer_program_human compiled)

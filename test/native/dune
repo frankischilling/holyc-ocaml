@@ -39,6 +39,39 @@
 (copy_files ../test_compiler_exceptions.ml)
 
 (executable
+ (name test_native_lock_execution)
+ (modules test_native_lock_execution)
+ (libraries holyc_lib alcotest lock_execution_fixture))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_lock_execution.exe})))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/lock-execution.hc)
+ (action
+  (run
+   %{exe:../test_lock_execution_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/lock-execution.hc}
+   --native)))
+
+(executable
+ (name test_native_lock_encoding)
+ (modules test_native_lock_encoding)
+ (libraries holyc_lib native_scalar_support alcotest threads)
+ (foreign_stubs
+  (language c)
+  (names native_lock_test_stubs)))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_lock_encoding.exe})))
+
+(executable
  (name test_native_compiler_exceptions)
  (modules
   test_native_compiler_exceptions

@@ -270,6 +270,7 @@ and prepared_instruction = {
   operation : prepared_operation;
   push_result : prepared_value option;
   capture_discard : bool;
+  locked : bool;
 }
 
 and prepared_block = {
@@ -7697,6 +7698,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               operation;
               push_result = None;
               capture_discard = true;
+              locked = false;
             })
           operation
 
@@ -7776,6 +7778,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     | _ -> Ok ()
   in
   let source_blocks = Graph.blocks graph in
+  let lock_validation = Lock_validation.of_graph graph in
   let block_count = List.length source_blocks in
   let block_index =
     source_blocks
@@ -7814,10 +7817,11 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               operation;
               push_result = None;
               capture_discard = true;
+              locked = false;
             }
         in
-        let prepare_call ~original_default (description : Sequence.description)
-            =
+        let prepare_call ~original_default ~original_description
+            (description : Sequence.description) =
           let no_operands =
             description.operands = [] && description.flags = 0L
           in
@@ -8079,7 +8083,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
             when List.exists
                    (fun (intrinsic, _, _) ->
                      not
-                       (Runtime.intrinsic_producer_matches intrinsic description))
+                       (Runtime.intrinsic_producer_matches intrinsic
+                          original_description))
                    !intrinsics ->
               Error
                 (call_error description
@@ -8763,10 +8768,14 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               && Int64.logand description.flags 0x2000L <> 0L
             in
             let checked_description =
-              if pushes then
+              if pushes || Lock_semantics.has_flag description.flags then
                 {
                   description with
-                  flags = Int64.logand description.flags (Int64.lognot 0x2000L);
+                  flags =
+                    Lock_semantics.clear_flag
+                      (if pushes then
+                         Int64.logand description.flags (Int64.lognot 0x2000L)
+                       else description.flags);
                 }
               else description
             in
@@ -9049,13 +9058,40 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                               if Option.is_some callees then
                                 prepare_call
                                   ~original_default:(is_default description)
+                                  ~original_description:description
                                   checked_description
                               else
                                 prepare_instruction ?frame ?globals ?literals
                                   ?initialization block_index types block_id
-                                  description)))
+                                  checked_description)))
             with
             | Ok prepared ->
+                if
+                  Lock_semantics.has_flag description.flags
+                  && Lock_validation.scalar_prefix_invalid lock_validation
+                       description
+                  &&
+                  match prepared.operation with
+                  | Binary _ -> true
+                  | _ -> false
+                then
+                  errors_rev :=
+                    preflight_error block_id description "HCLOCK0001"
+                      "lock requires a supported memory destination for this \
+                       operation"
+                    :: !errors_rev;
+                let locked =
+                  Lock_semantics.is_implicit_bit description.opcode
+                  || Lock_semantics.has_flag description.flags
+                     && (Lock_semantics.update_supported description.opcode
+                        ||
+                        match Integer_intrinsic.bit description.opcode with
+                        | Some
+                            ( Integer_intrinsic.Set_bit
+                            | Reset_bit
+                            | Complement_bit ) -> true
+                        | Some Test_bit | None -> false)
+                in
                 let control_transfer =
                   match prepared.operation with
                   | Jump _
@@ -9163,6 +9199,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                     prepared with
                     push_result;
                     capture_discard = not implicit_discard;
+                    locked;
                   }
                   :: !instructions_rev
             | Error error -> errors_rev := error :: !errors_rev);
@@ -10028,6 +10065,22 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
          (Int64.mul (Int64.of_int address.pointer_base) 8L)
          address.pointer_offset)
   in
+  let lock_aligned block instruction width location =
+    let address =
+      match location with
+      | `Cell (storage, index) ->
+          Int64.add storage.address_base (Int64.mul (Int64.of_int index) 8L)
+      | `View address -> pointer_bits address
+    in
+    if (not instruction.locked) || Int64.rem address (Int64.of_int width) = 0L
+    then true
+    else (
+      failed :=
+        Some
+          (runtime_error ~instruction block !steps "HCLOCK0002"
+             "locked memory access requires natural alignment");
+      false)
+  in
   let read_view_bits address width =
     let ( let* ) = Result.bind in
     let storage = address.pointer_storage in
@@ -10890,6 +10943,11 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                               match
                                 read_location block instruction location
                               with
+                              | Some (Runtime_word _)
+                                when not
+                                       (lock_aligned block instruction
+                                          (Scalar.byte_size scalar) location) ->
+                                  ()
                               | Some (Runtime_word word)
                                 when word.type_ = scalar_runtime_type scalar ->
                                   let bit =
@@ -11560,6 +11618,15 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                      "HCIRVM0008"
                                      "scalar update reached a pointer-valued \
                                       slot")
+                          | Some (Runtime_word _)
+                            when not
+                                   (lock_aligned block instruction
+                                      (match stored with
+                                      | Stored_narrow scalar ->
+                                          Scalar.byte_size scalar
+                                      | Stored_word _ -> 8
+                                      | Stored_pointer _ -> assert false)
+                                      location) -> ()
                           | Some (Runtime_word old) -> (
                               (* Read the original object after RHS effects, including calls through aliases. *)
                               match
@@ -11591,8 +11658,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                       Value_map.add result
                                         (Runtime_word
                                            (if old_result then old
-                                            else if Option.is_some operand then
-                                              computed
+                                            else if
+                                              Option.is_some operand
+                                              && not instruction.locked
+                                            then computed
                                             else word))
                                         !values))))
               | Immediate (result, word) ->

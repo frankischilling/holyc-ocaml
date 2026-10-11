@@ -260,6 +260,7 @@ let preflight () =
             [
               (fun d -> { d with Seq.target_type = Some H.public_u64 });
               (fun d -> { d with Seq.flags = 1L });
+              (fun d -> { d with Seq.flags = 0x10000001L });
               (fun d -> { d with Seq.payload = Some (Seq.Integer 0L) });
               (fun d ->
                 {
@@ -302,7 +303,6 @@ let unsupported () =
           "I64 G=1;(++G)++;";
           "I64 G=1;(G+=1)++;";
           "I64 G=1;(&G)[0.0]++;";
-          "I64 G=1;lock{G++;}";
         ])
     G.modes
 

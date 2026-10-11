@@ -9,6 +9,7 @@ type status_abi = Windows_x64 | System_v_x64
 type condition = E | NE | L | GE | G | LE | B | AE | A | BE
 type narrow_frame_width = Frame8 | Frame16 | Frame32
 type frame_extension = Sign_extend | Zero_extend
+type atomic_width = Atomic8 | Atomic16 | Atomic32 | Atomic64
 type stack_slot = { offset : int }
 type stack_frame = { bytes : int }
 type frame_slot = { frame_offset : int }
@@ -44,6 +45,8 @@ type instruction =
   | Load_indirect_narrow of
       register * register * narrow_frame_width * frame_extension
   | Store_indirect_narrow of register * narrow_frame_width * register
+  | Lock_binary_indirect of binary * register * atomic_width * register
+  | Lock_cmpxchg_indirect of register * atomic_width * register
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
   | Call of int64
@@ -195,6 +198,35 @@ let bit_set = source_form "BTS" 768
 let bitwise_and = source_form "AND" 353
 let bitwise_or = source_form "OR" 399
 let bitwise_xor = source_form "XOR" 501
+let lock_prefix = source_form "LOCK" 864
+
+let atomic_binary_forms =
+  List.map
+    (fun (operation, spelling, first_line) ->
+      ( operation,
+        Array.init 4 (fun width -> source_form spelling (first_line + width)) ))
+    [
+      (Add, "ADD", 327);
+      (Sub, "SUB", 442);
+      (And, "AND", 350);
+      (Or, "OR", 396);
+      (Xor, "XOR", 498);
+    ]
+
+let atomic_cmpxchg_forms =
+  Array.init 4 (fun width -> source_form "CMPXCHG" (791 + width))
+
+let atomic_width_index = function
+  | Atomic8 -> 0
+  | Atomic16 -> 1
+  | Atomic32 -> 2
+  | Atomic64 -> 3
+
+let atomic_binary_form operation width =
+  match List.assoc_opt operation atomic_binary_forms with
+  | Some forms -> forms.(atomic_width_index width)
+  | None -> invalid_arg "LOCK requires memory ADD, SUB, AND, OR or XOR"
+
 let shift_left_cl = source_form "SHL" 1107
 let shift_right_cl = source_form "SHR" 1125
 let shift_arithmetic_right_cl = source_form "SAR" 1143
@@ -298,6 +330,10 @@ let form = function
   | Load_indirect_narrow (_, _, width, extension) ->
       narrow_load_form width extension
   | Store_indirect_narrow (_, width, _) -> narrow_store_form width
+  | Lock_binary_indirect (operation, _, width, _) ->
+      atomic_binary_form operation width
+  | Lock_cmpxchg_indirect (_, width, _) ->
+      atomic_cmpxchg_forms.(atomic_width_index width)
   | Alloc_call_frame _ -> subtract_immediate
   | Free_call_frame _ -> add_immediate
   | Call _ -> call_relative
@@ -364,6 +400,8 @@ let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24
 
 let validate = function
+  | Lock_binary_indirect (Imul, _, _, _) ->
+      invalid_arg "LOCK requires memory ADD, SUB, AND, OR or XOR"
   | Load_indirect (_, _, offset) when not (valid_reference_offset offset) ->
       invalid_arg
         "reference descriptor offset must be zero, eight, sixteen or \
@@ -427,6 +465,8 @@ let size instruction =
   | Load_indirect_narrow (_, _, Frame32, _) -> 7
   | Store_indirect_narrow (_, Frame16, _) -> 8
   | Store_indirect_narrow (_, (Frame8 | Frame32), _) -> 7
+  | Lock_binary_indirect (_, _, width, _) | Lock_cmpxchg_indirect (_, width, _)
+    -> opcode_bytes + 7 + if width = Atomic16 then 1 else 0
   | Load_frame _ | Store_frame _ -> 7
   | Load_frame_narrow (_, _, (Frame8 | Frame16), _) -> 8
   | Load_frame_narrow (_, _, Frame32, _) -> 7
@@ -659,6 +699,19 @@ let write buffer position instruction =
       let base = register_number base in
       if width = Frame16 then byte 0x66;
       byte (0x40 lor ((source land 8) lsr 1) lor ((base land 8) lsr 3));
+      opcodes ();
+      byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
+      imm32 0
+  | Lock_binary_indirect (_, base, width, source)
+  | Lock_cmpxchg_indirect (base, width, source) ->
+      let source = register_number source in
+      let base = register_number base in
+      List.iter byte lock_prefix.opcode_bytes;
+      if width = Atomic16 then byte 0x66;
+      byte
+        ((if width = Atomic64 then 0x48 else 0x40)
+        lor ((source land 8) lsr 1)
+        lor ((base land 8) lsr 3));
       opcodes ();
       byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
       imm32 0

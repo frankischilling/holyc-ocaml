@@ -33,6 +33,7 @@ let () =
       ("internal source ownership", Test_internal_strlen_source.tests);
       ("integer goto execution", Test_integer_goto_execution.tests);
       ("exception execution", Test_exception_execution.tests);
+      ("lock execution", Test_lock_execution.tests);
       ("exception region authority", Test_exception_regions.tests);
       ("exception source bridge", Test_exception_source_bridge.tests);
       ("IR goto composition", Test_ir_goto_execution.tests);

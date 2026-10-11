@@ -12,6 +12,8 @@ module Print_codegen = X86_64_print_format
 module Option_codegen = X86_64_compiler_options
 module Runtime = Ir.Runtime_call_context
 module Intrinsic = Ir.Integer_intrinsic
+module Lock = Ir.Lock_semantics
+module Lock_validation = Ir.Lock_validation
 module Defaults = Driver.Native_parameter_defaults
 module Prepared_default = Ir.Prepared_parameter_default
 module Prepared_callback_default = Ir.Prepared_callback_default
@@ -414,10 +416,35 @@ type operation =
 
 type prepared_instruction = {
   operation : operation;
+  locked : bool;
   span : Common.Span.t option;
   site : int option;
   push_stage : (value * int * int option * int option) option;
 }
+
+let prepare_lock ~lock_validation (description : Sequence.description) operation
+    =
+  let scoped = Lock.has_flag description.flags in
+  let invalid message = reject ?span:description.span "HCLOCK0001" message in
+  match operation with
+  | Apply_binary _
+    when scoped
+         && Lock_validation.scalar_prefix_invalid lock_validation description ->
+      invalid
+        "LOCK requires a checked memory destination for this scalar operation"
+  | Update_frame_value _
+  | Update_arena_value _
+  | Update_indexed_object_value _
+  | Update_reference_value _
+  | Update_callback_value _ ->
+      scoped && Lock.update_supported description.opcode
+  | Internal_bit (operation, _, _, _, _) ->
+      operation <> Intrinsic.Test_bit
+      && (scoped || Lock.is_implicit_bit description.opcode)
+  | _ -> false
+
+let clear_lock (description : Sequence.description) =
+  { description with flags = Lock.clear_flag description.flags }
 
 type kind =
   | Immediate_kind
@@ -744,6 +771,7 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
       Some operation
 
 let preflight ~count instructions =
+  let lock_validation = Lock_validation.of_instructions instructions in
   if count < 3 then
     reject "HCBACK0003"
       "native expressions require a value followed by IC_RETURN_VAL and IC_RET";
@@ -754,7 +782,8 @@ let preflight ~count instructions =
   let return_type = ref None in
   List.iteri
     (fun position instruction ->
-      let description = Sequence.description instruction in
+      let raw = Sequence.description instruction in
+      let description = clear_lock raw in
       validate_identity instruction_ids description;
       if not (Int64.equal description.flags 0L) then
         unsupported description
@@ -815,8 +844,15 @@ let preflight ~count instructions =
           | `Word _ | `Return_value ->
               malformed description "last instruction must be IC_RET"
       in
+      let locked = prepare_lock ~lock_validation raw operation in
       prepared :=
-        { operation; span = description.span; site = None; push_stage = None }
+        {
+          operation;
+          locked;
+          span = description.span;
+          site = None;
+          push_stage = None;
+        }
         :: !prepared)
     instructions;
   match !return_type with
@@ -1096,6 +1132,15 @@ let narrow_frame_width ?span = function
   | 2 -> Encoder.Frame16
   | 4 -> Encoder.Frame32
   | _ -> reject ?span "HCBACK0003" "native scalar frame width is invalid"
+
+let atomic_width ?span = function
+  | 1 -> Encoder.Atomic8
+  | 2 -> Encoder.Atomic16
+  | 4 -> Encoder.Atomic32
+  | 8 -> Encoder.Atomic64
+  | _ ->
+      reject ?span "HCLOCK0001"
+        "LOCK requires an exact 8, 16, 32 or 64-bit scalar"
 
 let load_frame_scalar span destination access =
   if access.frame_bytes = 8 then
@@ -1708,6 +1753,16 @@ let allocate_body ?callable_frame ?(shared_values = [])
     emit span (Encoder.Cmp (extent, offset));
     emit_branch Below bounds_fault
   in
+  let emit_lock_alignment span site scalar address =
+    if scalar.byte_size > 1 then (
+      let unaligned = fault_label 33 site in
+      emit span (Encoder.Mov (Encoder.Rax, address));
+      emit span
+        (Encoder.Mov_imm64 (Encoder.Rcx, Int64.of_int (scalar.byte_size - 1)));
+      emit span (Encoder.Binary (Encoder.And, Encoder.Rax, Encoder.Rcx));
+      emit span (Encoder.Test Encoder.Rax);
+      emit_branch Not_equal unaligned)
+  in
   let emit_flag_check span site scalar ~flag_base ~offset =
     let initialized = fresh_label supply in
     let uninitialized = fault_label 7 site in
@@ -1847,6 +1902,40 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (Encoder.Test registers.(scratch));
           emit_branch Not_equal invalid;
           owners.(scratch) <- None)
+      in
+      let emit_locked_update ?(increment = 1L) scalar update input old_result
+          result =
+        let binary =
+          match update with
+          | Update_binary ((Encoder.Add | Sub | And | Or | Xor) as binary) ->
+              binary
+          | Update_binary Imul | Update_shift _ | Update_division _ ->
+              reject ?span:instruction.span "HCLOCK0001"
+                "LOCK update lost its checked memory operation"
+        in
+        emit_lock_alignment instruction.span
+          (Option.get instruction.site)
+          scalar Encoder.Rdx;
+        Option.iter (require_numeric_owner ~protected:[ rdx ]) input;
+        if old_result then
+          emit
+            (load_reference_scalar instruction.span Encoder.R8 Encoder.Rdx
+               scalar);
+        (match input with
+        | Some input -> copy_value_to instruction.span input rcx
+        | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, increment)));
+        emit
+          (Encoder.Lock_binary_indirect
+             ( binary,
+               Encoder.Rdx,
+               atomic_width ?span:instruction.span scalar.byte_size,
+               Encoder.Rcx ));
+        if not old_result then
+          emit
+            (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
+               scalar);
+        note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+        assign position (if old_result then r8 else rax) result
       in
       let publish_indexed_owner input result =
         (* RCX still holds the checked byte offset. Callback elements and their
@@ -2681,28 +2770,41 @@ let allocate_body ?callable_frame ?(shared_values = [])
               check_full_flag instruction.span Encoder.Rax access.frame_bytes
                 uninitialized)
             access.initialized_flag_offset;
-          emit (load_frame_scalar instruction.span Encoder.Rax access);
-          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
-          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
-          (match input with
-          | Some input -> copy_value_to instruction.span input rcx
-          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
-          let computed_index =
-            emit_update instruction.span update word arithmetic_site
-          in
-          emit
-            (store_frame_scalar instruction.span access
-               registers.(computed_index));
-          if (not old_result) && Option.is_none input && access.frame_bytes < 8
-          then
+          if instruction.locked then (
             emit
-              (load_frame_scalar instruction.span registers.(computed_index)
-                 access);
-          note_peak
-            ~temporaries:
-              (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
-            ();
-          assign position (if old_result then r8 else computed_index) result
+              (Encoder.Address_frame
+                 ( Encoder.Rdx,
+                   encoder_scalar_frame_slot instruction.span
+                     access.frame_offset ));
+            emit_locked_update
+              { word_type = access.frame_word; byte_size = access.frame_bytes }
+              update input old_result result)
+          else (
+            emit (load_frame_scalar instruction.span Encoder.Rax access);
+            if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+            Option.iter
+              (require_numeric_owner ~protected:[ rax; rdx; r8 ])
+              input;
+            (match input with
+            | Some input -> copy_value_to instruction.span input rcx
+            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+            let computed_index =
+              emit_update instruction.span update word arithmetic_site
+            in
+            emit
+              (store_frame_scalar instruction.span access
+                 registers.(computed_index));
+            if
+              (not old_result) && Option.is_none input && access.frame_bytes < 8
+            then
+              emit
+                (load_frame_scalar instruction.span registers.(computed_index)
+                   access);
+            note_peak
+              ~temporaries:
+                (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
+              ();
+            assign position (if old_result then r8 else computed_index) result)
       | Update_callback_value
           (access, update, input, old_result, result, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -2769,27 +2871,34 @@ let allocate_body ?callable_frame ?(shared_values = [])
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.R8, 0)));
           emit (Encoder.Test Encoder.Rax);
           emit_branch Not_equal owned;
-          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
-          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
-          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
-          (match input with
-          | Some input -> copy_value_to instruction.span input rcx
-          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 8L)));
-          let target =
-            match update with
-            | Update_division _ ->
-                emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
-                Encoder.R8
-            | Update_binary _ | Update_shift _ -> Encoder.Rdx
-          in
-          let computed_index =
-            emit_update instruction.span update I64 arithmetic_site
-          in
-          emit
-            (Encoder.Store_indirect_offset
-               (target, 0, registers.(computed_index)));
-          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
-          assign position (if old_result then r8 else computed_index) result
+          if instruction.locked then
+            emit_locked_update ~increment:8L
+              { word_type = I64; byte_size = 8 }
+              update input old_result result
+          else (
+            emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
+            if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+            Option.iter
+              (require_numeric_owner ~protected:[ rax; rdx; r8 ])
+              input;
+            (match input with
+            | Some input -> copy_value_to instruction.span input rcx
+            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 8L)));
+            let target =
+              match update with
+              | Update_division _ ->
+                  emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
+                  Encoder.R8
+              | Update_binary _ | Update_shift _ -> Encoder.Rdx
+            in
+            let computed_index =
+              emit_update instruction.span update I64 arithmetic_site
+            in
+            emit
+              (Encoder.Store_indirect_offset
+                 (target, 0, registers.(computed_index)));
+            note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+            assign position (if old_result then r8 else computed_index) result)
       | Update_arena_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -2801,28 +2910,40 @@ let allocate_body ?callable_frame ?(shared_values = [])
           emit (load_arena_flag instruction.span Encoder.Rax access);
           check_full_flag instruction.span Encoder.Rax access.arena_bytes
             uninitialized;
-          emit (load_arena_scalar instruction.span Encoder.Rax access);
-          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
-          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
-          (match input with
-          | Some input -> copy_value_to instruction.span input rcx
-          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
-          let computed_index =
-            emit_update instruction.span update word arithmetic_site
-          in
-          emit
-            (store_arena_scalar instruction.span access
-               registers.(computed_index));
-          if (not old_result) && Option.is_none input && access.arena_bytes < 8
-          then
+          if instruction.locked then (
             emit
-              (load_arena_scalar instruction.span registers.(computed_index)
-                 access);
-          note_peak
-            ~temporaries:
-              (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
-            ();
-          assign position (if old_result then r8 else computed_index) result
+              (Encoder.Address_arena
+                 ( Encoder.Rdx,
+                   encoder_arena_slot instruction.span access.arena_offset ));
+            emit_locked_update
+              { word_type = access.arena_word; byte_size = access.arena_bytes }
+              update input old_result result)
+          else (
+            emit (load_arena_scalar instruction.span Encoder.Rax access);
+            if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+            Option.iter
+              (require_numeric_owner ~protected:[ rax; rdx; r8 ])
+              input;
+            (match input with
+            | Some input -> copy_value_to instruction.span input rcx
+            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+            let computed_index =
+              emit_update instruction.span update word arithmetic_site
+            in
+            emit
+              (store_arena_scalar instruction.span access
+                 registers.(computed_index));
+            if
+              (not old_result) && Option.is_none input && access.arena_bytes < 8
+            then
+              emit
+                (load_arena_scalar instruction.span registers.(computed_index)
+                   access);
+            note_peak
+              ~temporaries:
+                (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
+              ();
+            assign position (if old_result then r8 else computed_index) result)
       | Update_indexed_object_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -2838,34 +2959,39 @@ let allocate_body ?callable_frame ?(shared_values = [])
             (Option.get instruction.site)
             scalar ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
           emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
-          emit
-            (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
-               scalar);
-          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
-          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
-          (match input with
-          | Some input -> copy_value_to instruction.span input rcx
-          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
-          let target =
-            match update with
-            | Update_division _ ->
-                emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
-                Encoder.R8
-            | Update_binary _ | Update_shift _ -> Encoder.Rdx
-          in
-          let computed_index =
-            emit_update instruction.span update word arithmetic_site
-          in
-          emit
-            (store_reference_scalar instruction.span target scalar
-               registers.(computed_index));
-          if (not old_result) && Option.is_none input && scalar.byte_size < 8
-          then
+          if instruction.locked then
+            emit_locked_update scalar update input old_result result
+          else (
             emit
-              (load_reference_scalar instruction.span registers.(computed_index)
-                 target scalar);
-          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
-          assign position (if old_result then r8 else computed_index) result
+              (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
+                 scalar);
+            if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+            Option.iter
+              (require_numeric_owner ~protected:[ rax; rdx; r8 ])
+              input;
+            (match input with
+            | Some input -> copy_value_to instruction.span input rcx
+            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+            let target =
+              match update with
+              | Update_division _ ->
+                  emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
+                  Encoder.R8
+              | Update_binary _ | Update_shift _ -> Encoder.Rdx
+            in
+            let computed_index =
+              emit_update instruction.span update word arithmetic_site
+            in
+            emit
+              (store_reference_scalar instruction.span target scalar
+                 registers.(computed_index));
+            if (not old_result) && Option.is_none input && scalar.byte_size < 8
+            then
+              emit
+                (load_reference_scalar instruction.span
+                   registers.(computed_index) target scalar);
+            note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+            assign position (if old_result then r8 else computed_index) result)
       | Update_reference_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -2884,36 +3010,41 @@ let allocate_body ?callable_frame ?(shared_values = [])
             (Option.get instruction.site)
             access.scalar ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
           emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
-          emit
-            (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
-               access.scalar);
-          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
-          Option.iter (require_numeric_owner ~protected:[ rax; rdx; r8 ]) input;
-          (match input with
-          | Some input -> copy_value_to instruction.span input rcx
-          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
-          let target =
-            match update with
-            | Update_division _ ->
-                emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
-                Encoder.R8
-            | Update_binary _ | Update_shift _ -> Encoder.Rdx
-          in
-          let computed_index =
-            emit_update instruction.span update word arithmetic_site
-          in
-          emit
-            (store_reference_scalar instruction.span target access.scalar
-               registers.(computed_index));
-          if
-            (not old_result) && Option.is_none input
-            && access.scalar.byte_size < 8
-          then
+          if instruction.locked then
+            emit_locked_update access.scalar update input old_result result
+          else (
             emit
-              (load_reference_scalar instruction.span registers.(computed_index)
-                 target access.scalar);
-          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
-          assign position (if old_result then r8 else computed_index) result
+              (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
+                 access.scalar);
+            if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+            Option.iter
+              (require_numeric_owner ~protected:[ rax; rdx; r8 ])
+              input;
+            (match input with
+            | Some input -> copy_value_to instruction.span input rcx
+            | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+            let target =
+              match update with
+              | Update_division _ ->
+                  emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
+                  Encoder.R8
+              | Update_binary _ | Update_shift _ -> Encoder.Rdx
+            in
+            let computed_index =
+              emit_update instruction.span update word arithmetic_site
+            in
+            emit
+              (store_reference_scalar instruction.span target access.scalar
+                 registers.(computed_index));
+            if
+              (not old_result) && Option.is_none input
+              && access.scalar.byte_size < 8
+            then
+              emit
+                (load_reference_scalar instruction.span
+                   registers.(computed_index) target access.scalar);
+            note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+            assign position (if old_result then r8 else computed_index) result)
       | Call_start | Call_cleanup -> release_through position
       | Internal_integer (operation, input, result_stage) ->
           spill_all_registers instruction.span;
@@ -3039,10 +3170,6 @@ let allocate_body ?callable_frame ?(shared_values = [])
             ~offset:Encoder.Rcx;
           emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 0));
           emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx));
-          emit
-            (load_reference_scalar instruction.span Encoder.Rdx Encoder.R8
-               scalar);
-          emit (Encoder.Load_stack (Encoder.Rcx, stage));
           let native_operation =
             match operation with
             | Intrinsic.Test_bit -> Encoder.Bt
@@ -3050,13 +3177,39 @@ let allocate_body ?callable_frame ?(shared_values = [])
             | Reset_bit -> Encoder.Btr
             | Complement_bit -> Encoder.Btc
           in
-          emit (Encoder.Bit (native_operation, Encoder.Rdx, Encoder.Rcx));
-          emit (Encoder.Mov_imm64 (Encoder.Rax, 0L));
-          emit (Encoder.Setcc (Encoder.B, Encoder.Rax));
-          if operation <> Intrinsic.Test_bit then
+          if instruction.locked then (
+            emit_lock_alignment instruction.span site scalar Encoder.R8;
             emit
-              (store_reference_scalar instruction.span Encoder.R8 scalar
-                 Encoder.Rdx);
+              (load_reference_scalar instruction.span Encoder.Rax Encoder.R8
+                 scalar);
+            emit (Encoder.Load_stack (Encoder.Rcx, stage));
+            let retry = fresh_label supply in
+            mark retry;
+            emit (Encoder.Mov (Encoder.Rdx, Encoder.Rax));
+            emit (Encoder.Bit (native_operation, Encoder.Rdx, Encoder.Rcx));
+            emit
+              (Encoder.Lock_cmpxchg_indirect
+                 ( Encoder.R8,
+                   atomic_width ?span:instruction.span scalar.byte_size,
+                   Encoder.Rdx ));
+            emit_branch Not_equal retry;
+            (* The successful accumulator is the value actually replaced.
+               Width-exact CMPXCHG keeps byte objects inside their owned extent. *)
+            emit (Encoder.Bit (Encoder.Bt, Encoder.Rax, Encoder.Rcx));
+            emit (Encoder.Mov_imm64 (Encoder.Rax, 0L));
+            emit (Encoder.Setcc (Encoder.B, Encoder.Rax)))
+          else (
+            emit
+              (load_reference_scalar instruction.span Encoder.Rdx Encoder.R8
+                 scalar);
+            emit (Encoder.Load_stack (Encoder.Rcx, stage));
+            emit (Encoder.Bit (native_operation, Encoder.Rdx, Encoder.Rcx));
+            emit (Encoder.Mov_imm64 (Encoder.Rax, 0L));
+            emit (Encoder.Setcc (Encoder.B, Encoder.Rax));
+            if operation <> Intrinsic.Test_bit then
+              emit
+                (store_reference_scalar instruction.span Encoder.R8 scalar
+                   Encoder.Rdx));
           emit (Encoder.Store_stack (stage, Encoder.Rax));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           release_through position
@@ -4121,6 +4274,7 @@ type program_site = {
   index_scale_site : bool;
   index_addition_site : bool;
   address_bounds_site : bool;
+  lock_alignment_site : bool;
   pointer_ordering_site : bool;
   pointer_difference_site : bool;
   output_site : bool;
@@ -4302,6 +4456,7 @@ let shared_runtime_values ~external_ids ~extra values =
       value)
 
 let preflight_program graph =
+  let lock_validation = Lock_validation.of_graph graph in
   let blocks = Graph.blocks graph in
   let next_blocks, positions, instruction_count = source_layout blocks in
   let values = ref Value_map.empty in
@@ -4318,7 +4473,8 @@ let preflight_program graph =
         let descriptions = Graph.instructions block |> Sequence.instructions in
         List.iteri
           (fun position instruction ->
-            let description = Sequence.description instruction in
+            let raw = Sequence.description instruction in
+            let description = clear_lock raw in
             global_position :=
               Instruction_map.find description.instruction_id positions;
             validate_identity instruction_ids description;
@@ -4442,6 +4598,7 @@ let preflight_program graph =
                     unsupported description
                       "opcode is outside the native program subset"
             in
+            let locked = prepare_lock ~lock_validation raw operation in
             let arithmetic =
               match operation with
               | Apply_division (operation, word, _, _, _, _) ->
@@ -4487,6 +4644,7 @@ let preflight_program graph =
                 index_scale_site = false;
                 index_addition_site = false;
                 address_bounds_site = false;
+                lock_alignment_site = false;
                 pointer_ordering_site = false;
                 pointer_difference_site = false;
                 output_site = false;
@@ -4499,6 +4657,7 @@ let preflight_program graph =
             prepared_rev :=
               {
                 operation;
+                locked;
                 span = description.span;
                 site = Some site;
                 push_stage = None;
@@ -5608,6 +5767,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     ~global_storage ~literal_storage ~runtime_owner ~owner
     ~(frame_slots : callable_slot Int_map.t) ~variadic ~expected_return
     ~source_item_index ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+  let lock_validation = Lock_validation.of_graph graph in
   let function_addresses =
     match
       Runtime.original_function_addresses runtime_calls ~owner:runtime_owner
@@ -5918,8 +6078,12 @@ let preflight_callable_graph ~runtime_calls ~source_globals
         let pushes = Int64.logand raw.flags 0x2000L <> 0L in
         let description =
           if pushes then
-            { raw with flags = Int64.logand raw.flags (Int64.lognot 0x2000L) }
-          else raw
+            {
+              raw with
+              flags =
+                Int64.logand (Lock.clear_flag raw.flags) (Int64.lognot 0x2000L);
+            }
+          else clear_lock raw
         in
         Option.iter
           (fun result ->
@@ -7643,7 +7807,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   malformed description
                     "native undefined default lost its original callback value")
           | Opcode.Ic_imm_i64
-            when raw.flags = 0x2000L
+            when Lock.clear_flag raw.flags = 0x2000L
                  &&
                  match !calls with
                  | scope :: _ when scope.phase = Collecting ->
@@ -9163,6 +9327,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               unsupported description
                 "opcode is outside the native callable source subset"
         in
+        let locked = prepare_lock ~lock_validation raw operation in
         (match operation with
         | Load_immediate (value, 0L) ->
             zero_values := Value_set.add value.value_id !zero_values
@@ -9252,7 +9417,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                        its sealed native source authority");
                                 if
                                   raw.opcode <> Opcode.Ic_imm_i64
-                                  || raw.operands <> [] || raw.flags <> 0x2000L
+                                  || raw.operands <> []
+                                  || Lock.clear_flag raw.flags <> 0x2000L
                                   || (not
                                         (match
                                            ( Prepared_default.word_bits prepared,
@@ -9307,7 +9473,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                    native source authority");
                             if
                               raw.opcode <> Opcode.Ic_imm_i64
-                              || raw.operands <> [] || raw.flags <> 0x2000L
+                              || raw.operands <> []
+                              || Lock.clear_flag raw.flags <> 0x2000L
                               || (not
                                     (match
                                        ( Prepared_callback_default.word_bits
@@ -9408,7 +9575,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                         | Runtime.Variadic_count ->
                             if
                               raw.opcode <> Opcode.Ic_imm_i64
-                              || raw.operands <> [] || raw.flags <> 0x2000L
+                              || raw.operands <> []
+                              || Lock.clear_flag raw.flags <> 0x2000L
                               || raw.payload
                                  <> Option.map
                                       (fun count -> Sequence.Integer count)
@@ -9650,6 +9818,21 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Materialize_reference (_, _, None, _)
               | Materialize_existing_reference ({ offset = None; _ }, _)
               | _ -> false);
+            lock_alignment_site =
+              (locked
+              &&
+              match operation with
+              | Update_frame_value (access, _, _, _, _, _, _) ->
+                  access.frame_bytes > 1
+              | Update_arena_value (access, _, _, _, _, _, _) ->
+                  access.arena_bytes > 1
+              | Update_indexed_object_value (access, _, _, _, _, _, _) ->
+                  (reference_scalar access.origin).byte_size > 1
+              | Update_reference_value (access, _, _, _, _, _, _) ->
+                  access.scalar.byte_size > 1
+              | Update_callback_value _ -> true
+              | Internal_bit (_, _, _, scalar, _) -> scalar.byte_size > 1
+              | _ -> false);
             pointer_ordering_site =
               (match operation with
               | Apply_reference_ordering _ -> true
@@ -9689,7 +9872,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
           }
           :: !sites_rev;
         prepared_rev :=
-          { operation; span = raw.span; site = Some site; push_stage }
+          { operation; locked; span = raw.span; site = Some site; push_stage }
           :: !prepared_rev)
       descriptions;
     if !calls <> [] then

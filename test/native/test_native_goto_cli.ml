@@ -523,10 +523,7 @@ let unsupported_goto_regions () =
                 [ interpreted; native ];
               check_no_native_entry native)
             [ "jit"; "aot" ]))
-    [
-      ("U0 F(){goto done;asm {} done:return;}F();", "asm {}");
-      ("U0 F(){done:lock goto done;}F();", "lock goto done;");
-    ];
+    [ ("U0 F(){goto done;asm {} done:return;}F();", "asm {}") ];
   let function_source = "I64 F(){try {goto done;}catch {}done:return 42;}" in
   let public_contents =
     "extern U0 SysTry(U8 *catch_start,U8 *untry_start);extern U0 SysUntry();"

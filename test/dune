@@ -1,3 +1,16 @@
+(library
+ (name lock_execution_fixture)
+ (wrapped false)
+ (modules lock_execution_cases))
+
+(test
+ (name test_lock_execution_cli)
+ (modules test_lock_execution_cli)
+ (libraries unix yojson lock_execution_fixture)
+ (deps ../examples/lock-execution.hc)
+ (action
+  (run %{test} %{exe:../bin/holyc.exe} %{dep:../examples/lock-execution.hc})))
+
 (test
  (name test_unused_extern_cli)
  (modules test_unused_extern_cli)
@@ -649,6 +662,7 @@
   test_compiler_option_source
   test_compiler_exceptions
   test_exception_execution
+  test_lock_execution
   test_exception_regions
   test_exception_source_bridge
   test_compiler_option
@@ -697,6 +711,7 @@
   compiler_option_tools
   compiler_exception_fixture
   exception_execution_fixture
+  lock_execution_fixture
   function_flag_tools
   global_record_flag_tools
   member_flag_tools

@@ -20,9 +20,9 @@ let swap_size = function
 
 let bit = function
   | Opcode.Ic_bt -> Some Test_bit
-  | Ic_bts -> Some Set_bit
-  | Ic_btr -> Some Reset_bit
-  | Ic_btc -> Some Complement_bit
+  | Ic_bts | Ic_lbts -> Some Set_bit
+  | Ic_btr | Ic_lbtr -> Some Reset_bit
+  | Ic_btc | Ic_lbtc -> Some Complement_bit
   | _ -> None
 
 let unary = function
@@ -94,7 +94,7 @@ let argument_matches opcode ~index type_ =
       (index = 0 || index = 1) && primitive type_ 1 Sema.Primitive_type.U32
   | Ic_swap_i64 ->
       (index = 0 || index = 1) && primitive type_ 1 Sema.Primitive_type.I64
-  | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc ->
+  | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc | Ic_lbts | Ic_lbtr | Ic_lbtc ->
       if index = 0 then primitive type_ 1 Sema.Primitive_type.U8
       else index = 1 && primitive type_ 0 Sema.Primitive_type.I64
   | Opcode.Ic_mod_u64 ->
@@ -119,7 +119,7 @@ let result_matches opcode type_ =
   | Opcode.Ic_fs -> Task_exception_layout.pointer_type type_
   | Opcode.Ic_swap_u8 | Ic_swap_u16 | Ic_swap_u32 | Ic_swap_i64 ->
       primitive type_ 0 Sema.Primitive_type.U0
-  | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc ->
+  | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc | Ic_lbts | Ic_lbtr | Ic_lbtc ->
       primitive type_ 0 Sema.Primitive_type.Bool
   | Opcode.Ic_mod_u64 -> primitive type_ 0 Sema.Primitive_type.U64
   | Opcode.Ic_to_bool ->

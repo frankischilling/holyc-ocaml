@@ -192,6 +192,37 @@ let conservative_barriers () =
       Opcode.Ic_get_rflags;
       Opcode.Ic_rdtsc;
     ];
+  List.iter
+    (fun opcode ->
+      let name = Opcode.to_source_name opcode in
+      let classification = Effects.classify opcode in
+      check_access
+        (name ^ " reads and writes memory")
+        Effects.Read_write classification.memory;
+      Alcotest.(check bool)
+        (name ^ " blocks reordering")
+        true
+        (Effects.is_reorder_barrier classification);
+      Alcotest.(check bool)
+        (name ^ " prevents constant folding")
+        true classification.prevents_constant_folding)
+    [
+      Opcode.Ic_add_equ;
+      Opcode.Ic_sub_equ;
+      Opcode.Ic_and_equ;
+      Opcode.Ic_or_equ;
+      Opcode.Ic_xor_equ;
+      Opcode.Ic__pp;
+      Opcode.Ic__mm;
+      Opcode.Ic_pp_;
+      Opcode.Ic_mm_;
+      Opcode.Ic_bts;
+      Opcode.Ic_btr;
+      Opcode.Ic_btc;
+      Opcode.Ic_lbts;
+      Opcode.Ic_lbtr;
+      Opcode.Ic_lbtc;
+    ];
   Alcotest.(check bool)
     "integer multiplication can move" false
     (Effects.is_reorder_barrier (Effects.classify Opcode.Ic_mul))

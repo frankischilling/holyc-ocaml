@@ -286,7 +286,6 @@ let unsupported_regions_remain_outside_execution_gate () =
   let cases =
     [
       ("assembly block", "U0 F(){goto done;asm {} done:return;}F();", "asm {}");
-      ("lock region", "U0 F(){done:lock goto done;}F();", "lock goto done;");
     ]
   in
   List.iter
@@ -584,8 +583,8 @@ let tests =
       `Quick resolution_failures_cover_every_definition;
     Alcotest.test_case "goto preserves word-return completeness" `Quick
       word_return_completeness_across_goto;
-    Alcotest.test_case "assembly, lock and exception goto remain unsupported"
-      `Quick unsupported_regions_remain_outside_execution_gate;
+    Alcotest.test_case "assembly and exception goto remain unsupported" `Quick
+      unsupported_regions_remain_outside_execution_gate;
     Alcotest.test_case
       "switch goto keeps valid targets and refuses unsafe setup transfers"
       `Quick switch_gotos_keep_local_continuation_ownership;

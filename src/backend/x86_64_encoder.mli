@@ -6,6 +6,7 @@ type bit = Bt | Bts | Btr | Btc
 type status_abi = Windows_x64 | System_v_x64
 type narrow_frame_width = Frame8 | Frame16 | Frame32
 type frame_extension = Sign_extend | Zero_extend
+type atomic_width = Atomic8 | Atomic16 | Atomic32 | Atomic64
 type stack_slot
 type stack_frame
 type frame_slot
@@ -86,6 +87,16 @@ type instruction =
   | Store_indirect_narrow of register * narrow_frame_width * register
       (** Indirect object accesses use zero displacement and exact scalar width.
           The encoder checks instruction shape, not source object authority. *)
+  | Lock_binary_indirect of binary * register * atomic_width * register
+      (** Operation, memory base, exact width and source register. ADD, SUB,
+          AND, OR and XOR use one LOCK-prefixed memory read/modify/write. IMUL
+          is rejected. The caller checks ownership, extent and natural
+          alignment. *)
+  | Lock_cmpxchg_indirect of register * atomic_width * register
+      (** Memory base, exact width and desired value. The low-width accumulator
+          contains the expected value and receives the observed value on
+          failure. ZF reports success. The caller owns retry control and checked
+          storage. *)
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
       (** Allocate/free a fixed 16-byte-aligned callable frame while keeping RSP

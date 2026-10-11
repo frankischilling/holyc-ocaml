@@ -56,6 +56,7 @@ let status_kind = function
   | Program.Index_scale_overflow -> 8L
   | Program.Index_addition_overflow -> 9L
   | Program.Address_out_of_bounds -> 10L
+  | Program.Locked_address_unaligned -> 33L
   | Program.Output_limit_exceeded -> 11L
   | Program.Generated_limit_exceeded -> 26L
   | Program.Stream_context_required -> 27L

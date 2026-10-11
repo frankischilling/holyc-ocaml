@@ -50,6 +50,7 @@ type statement =
   | Publish_array of Global_initialization.prepared_root
   | Return of Typed.return_result
   | Block of statement list
+  | Lock of statement
   | If of Typed.expression_result * statement * statement option
   | While of Typed.expression_result * statement
   | Do_while of statement * Typed.expression_result
@@ -141,6 +142,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     let local_returns = ref Int_map.empty in
     let local_call_count = ref 0 in
     let prefix_depth = ref 0 in
+    let lock_depth = ref 0 in
     let publications = ref [] in
     let checked_id = function
       | Ok value -> value
@@ -218,6 +220,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     let rec emits_prefix_ic = function
       | Empty _ | Publish_array _ -> false
       | Block statements -> List.exists emits_prefix_ic statements
+      | Lock body -> emits_prefix_ic body
       | _ -> true
     in
     let needs_prefix leading body =
@@ -257,6 +260,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                 gotos := (at, occurrence, prefixes) :: !gotos
             | Block statements ->
                 List.iter (inspect_statement prefixes) statements
+            | Lock body -> inspect_statement prefixes body
             | If (_, yes, no) ->
                 inspect_statement prefixes yes;
                 Option.iter (inspect_statement prefixes) no
@@ -393,8 +397,86 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
             "cannot start a block before terminating its predecessor"
     in
     let ensure_open () = if !current = None then start (block ()) in
-    let append description =
+    let lock_constants = ref Int_map.empty in
+    let constant_word (description : Sequence.description) =
+      Int64.logand
+        (Lock_semantics.clear_flag description.flags)
+        (Int64.lognot 0x2000L)
+      = 0L
+      && Option.fold ~none:false
+           ~some:(fun type_ ->
+             Sema.Type.pointer_depth type_ = 0
+             &&
+             match Sema.Type.base type_ with
+             | Sema.Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+             | _ -> false)
+           description.target_type
+    in
+    let fold_locked_constant (description : Sequence.description) =
+      let lookup value =
+        Int_map.find_opt (Sequence.Value_id.to_int value) !lock_constants
+      in
+      let bits =
+        if !lock_depth = 0 || not (constant_word description) then None
+        else
+          match (description.opcode, description.operands) with
+          | (Opcode.Ic_add | Ic_sub | Ic_and | Ic_or | Ic_xor), [ left; right ]
+            -> (
+              match (lookup left, lookup right) with
+              | Some left, Some right ->
+                  Some
+                    (match description.opcode with
+                    | Opcode.Ic_add -> Int64.add left right
+                    | Ic_sub -> Int64.sub left right
+                    | Ic_and -> Int64.logand left right
+                    | Ic_or -> Int64.logor left right
+                    | _ -> Int64.logxor left right)
+              | _ -> None)
+          | (Opcode.Ic_unary_minus | Ic_com | Ic_not), [ value ] ->
+              Option.map
+                (fun bits ->
+                  match description.opcode with
+                  | Opcode.Ic_unary_minus -> Int64.neg bits
+                  | Ic_com -> Int64.lognot bits
+                  | _ -> if bits = 0L then 1L else 0L)
+                (lookup value)
+          | _ -> None
+      in
+      let description =
+        match bits with
+        | None -> description
+        | Some bits ->
+            {
+              description with
+              opcode = Opcode.Ic_imm_i64;
+              operands = [];
+              payload = Some (Sequence.Integer bits);
+            }
+      in
+      (match (description.result, description.opcode, description.payload) with
+      | Some result, Opcode.Ic_imm_i64, Some (Sequence.Integer bits)
+        when constant_word description ->
+          lock_constants :=
+            Int_map.add
+              (Sequence.Value_id.to_int result.value_id)
+              bits !lock_constants
+      | _ -> ());
+      description
+    in
+    let lock_description (description : Sequence.description) =
+      if !lock_depth > 0 && not (Lock_semantics.has_flag description.flags) then
+        {
+          description with
+          flags = Int64.logor description.flags Lock_semantics.flag;
+        }
+      else description
+    in
+    let append ?(source_lock = true) description =
       ensure_open ();
+      let description = fold_locked_constant description in
+      let description =
+        if source_lock then lock_description description else description
+      in
       match !current with
       | Some (id, rev) -> current := Some (id, description :: rev)
       | None -> assert false
@@ -436,7 +518,10 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
         | Ok type_ -> type_
         | Error message -> fail at "HCRUN0004" message
       in
-      append
+      (* These words implement switch dispatch after the source selector is
+         lowered. They model backend bookkeeping, which does not inherit the
+         source expression's LOCK prefix. *)
+      append ~source_lock:false
         {
           Sequence.instruction_id;
           opcode;
@@ -464,6 +549,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           flags = 0L;
           span = Some at;
         }
+        |> lock_description
       in
       append description;
       description
@@ -1088,6 +1174,11 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
             ~at:(span_of_result span value)
             ~operands:[ operand ] ~flags:0x200L Opcode.Ic_end_exp
       | Block body -> List.iter (statement break_target) body
+      | Lock body ->
+          incr lock_depth;
+          Fun.protect
+            ~finally:(fun () -> decr lock_depth)
+            (fun () -> statement break_target body)
       | Break at -> (
           match break_target with
           | Some target -> jump ~at target
