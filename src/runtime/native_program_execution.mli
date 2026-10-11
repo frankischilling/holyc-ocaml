@@ -341,6 +341,12 @@ val finish_task_dimension :
   task_arena ->
   Backend.X86_64_program.t ->
   (Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t, string) result
+
+val finish_task_switch_case :
+  ?scope:Ir.Native_source_suspension.t ->
+  task_arena ->
+  Backend.X86_64_program.t ->
+  (Ir.Switch_case_fragment_program.t Ir.Native_scalar_capture.t, string) result
 (** Take this original image's actual scalar capture once while its arena lives.
 *)
 

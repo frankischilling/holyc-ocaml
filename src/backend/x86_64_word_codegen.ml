@@ -407,7 +407,9 @@ type operation =
   | Jump_to of Sequence.Block_id.t
   | Branch_zero of value * Sequence.Block_id.t
   | Branch_not_zero of value * Sequence.Block_id.t
-  | Switch_to of value * value * Sequence.Block_id.t list
+  | Switch_to of value * value * Sequence.Block_id.t list * bool
+  | Local_call_to of Sequence.Block_id.t * Sequence.Block_id.t
+  | Local_return_to of Sequence.Block_id.t list
   | End_stream
 
 type prepared_instruction = {
@@ -1074,6 +1076,11 @@ let encoder_frame_slot span offset =
   | Ok slot -> slot
   | Error message -> reject ?span "HCBACK0003" message
 
+let encoder_stack_slot span offset =
+  match Encoder.stack_slot ~offset with
+  | Ok slot -> slot
+  | Error message -> reject ?span "HCBACK0003" message
+
 let encoder_scalar_frame_slot span offset =
   match Encoder.scalar_frame_slot ~offset with
   | Ok slot -> slot
@@ -1169,9 +1176,10 @@ let print_argument_kind type_ =
     | _ -> Print_codegen.Other_pointer
 
 let allocate_body ?callable_frame ?(shared_values = [])
-    ?(provider_entry_start = Int.max_int) ?(function_code_owners = [||])
-    ?undefined_code_owner ?(status_abi = Encoder.System_v_x64) ~max_stack_bytes
-    ~reserved_registers ~supply ~mode prepared =
+    ?(local_subroutine_capacity = 0) ?(provider_entry_start = Int.max_int)
+    ?(function_code_owners = [||]) ?undefined_code_owner
+    ?(status_abi = Encoder.System_v_x64) ~max_stack_bytes ~reserved_registers
+    ~supply ~mode prepared =
   let function_owner index =
     if index < Array.length function_code_owners then
       function_code_owners.(index)
@@ -1236,17 +1244,21 @@ let allocate_body ?callable_frame ?(shared_values = [])
     in
     find 0
   in
-  let fixed_stack_slots =
+  let source_fixed_stack_slots =
     Option.fold ~none:0
       ~some:(fun layout -> layout.fixed_stack_slots)
       callable_frame
   in
+  let local_subroutine_slots =
+    if local_subroutine_capacity = 0 then 0 else local_subroutine_capacity + 1
+  in
+  let fixed_stack_slots = source_fixed_stack_slots + local_subroutine_slots in
   let frame_size_for_spills spill_slots =
     match callable_frame with
-    | None -> frame_bytes_for_slots spill_slots
+    | None -> frame_bytes_for_slots (fixed_stack_slots + spill_slots)
     | Some layout ->
         let bytes =
-          layout.rbp_bytes + ((layout.fixed_stack_slots + spill_slots) * 8)
+          layout.rbp_bytes + ((fixed_stack_slots + spill_slots) * 8)
         in
         if bytes = 0 then 0 else align_up bytes 16
   in
@@ -1273,6 +1285,18 @@ let allocate_body ?callable_frame ?(shared_values = [])
     match Encoder.stack_slot ~offset:(index * 8) with
     | Ok slot -> slot
     | Error message -> reject ?span "HCBACK0003" message
+  in
+  let local_count_slot span =
+    if local_subroutine_capacity = 0 then
+      reject ?span "HCBACK0003"
+        "native local subroutine has no private continuation frame";
+    fixed_stack_slot span source_fixed_stack_slots
+  in
+  let local_tokens_slot span =
+    if local_subroutine_capacity = 0 then
+      reject ?span "HCBACK0003"
+        "native local subroutine has no private continuation frame";
+    fixed_stack_slot span (source_fixed_stack_slots + 1)
   in
   let staged_stack_slot span stage =
     match mode with
@@ -3734,7 +3758,78 @@ let allocate_body ?callable_frame ?(shared_values = [])
                 | _ -> assert false)
                 (target_label target);
               release_through position)
-      | Switch_to (adjusted, range, targets) -> (
+      | Local_call_to (entry, resume) -> (
+          match mode with
+          | Expression_control _ ->
+              reject ?span:instruction.span "HCBACK0003"
+                "native expression contains local subroutine call"
+          | Program_control _ | Callable_control _ ->
+              spill_all_registers instruction.span;
+              let fault = fault_label 32 (Option.get instruction.site) in
+              emit
+                (Encoder.Load_stack
+                   (Encoder.Rax, local_count_slot instruction.span));
+              emit
+                (Encoder.Mov_imm64
+                   (Encoder.Rcx, Int64.of_int local_subroutine_capacity));
+              emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+              emit (Encoder.Setcc (Encoder.AE, Encoder.Rcx));
+              emit (Encoder.Movzx8 (Encoder.Rcx, Encoder.Rcx));
+              emit (Encoder.Test Encoder.Rcx);
+              emit_branch Not_equal fault;
+              emit
+                (Encoder.Address_stack
+                   (Encoder.Rdx, local_tokens_slot instruction.span));
+              emit (Encoder.Mov (Encoder.Rcx, Encoder.Rax));
+              emit (Encoder.Shift_immediate (Encoder.Shl, Encoder.Rcx, 3L));
+              emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
+              emit
+                (Encoder.Mov_imm64
+                   (Encoder.Rcx, Int64.of_int (Sequence.Block_id.to_int resume)));
+              emit (Encoder.Store_indirect (Encoder.Rdx, Encoder.Rcx));
+              emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L));
+              emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
+              emit
+                (Encoder.Store_stack
+                   (local_count_slot instruction.span, Encoder.Rax));
+              emit_branch Unconditional (target_label entry);
+              release_through position)
+      | Local_return_to targets -> (
+          match mode with
+          | Expression_control _ ->
+              reject ?span:instruction.span "HCBACK0003"
+                "native expression contains local subroutine return"
+          | Program_control _ | Callable_control _ ->
+              spill_all_registers instruction.span;
+              let fault = fault_label 32 (Option.get instruction.site) in
+              emit
+                (Encoder.Load_stack
+                   (Encoder.Rax, local_count_slot instruction.span));
+              emit (Encoder.Test Encoder.Rax);
+              emit_branch Equal fault;
+              emit (Encoder.Dec Encoder.Rax);
+              emit
+                (Encoder.Store_stack
+                   (local_count_slot instruction.span, Encoder.Rax));
+              emit
+                (Encoder.Address_stack
+                   (Encoder.Rdx, local_tokens_slot instruction.span));
+              emit (Encoder.Mov (Encoder.Rcx, Encoder.Rax));
+              emit (Encoder.Shift_immediate (Encoder.Shl, Encoder.Rcx, 3L));
+              emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 0));
+              List.iter
+                (fun target ->
+                  emit
+                    (Encoder.Mov_imm64
+                       ( Encoder.Rcx,
+                         Int64.of_int (Sequence.Block_id.to_int target) ));
+                  emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+                  emit_branch Equal (target_label target))
+                targets;
+              emit_branch Unconditional fault;
+              release_through position)
+      | Switch_to (adjusted, range, targets, nobound) -> (
           match mode with
           | Expression_control _ ->
               reject ?span:instruction.span "HCBACK0003"
@@ -3749,14 +3844,17 @@ let allocate_body ?callable_frame ?(shared_values = [])
               let range_register = registers.(range_register) in
               match targets with
               | default_target :: (_ :: _ as entries) ->
-                  (* Match the pinned bounded switch: compare the already-adjusted
-                     selector as an unsigned word, then dispatch only in-range
-                     values. Reuse the dead range register for the bounds bit. *)
+                  (* Compare the adjusted selector as an unsigned word. A
+                     no-bound source switch preserves in-table holes, but the
+                     hosted native runtime diagnoses unsafe table overreads. *)
                   emit (Encoder.Cmp (adjusted_register, range_register));
                   emit (Encoder.Setcc (Encoder.AE, range_register));
                   emit (Encoder.Movzx8 (range_register, range_register));
                   emit (Encoder.Test range_register);
-                  emit_branch Not_equal (target_label default_target);
+                  emit_branch Not_equal
+                    (if nobound then
+                       fault_label 31 (Option.get instruction.site)
+                     else target_label default_target);
                   fold_switch_runs
                     (fun () target count last ->
                       if last then
@@ -4008,6 +4106,8 @@ type program_site = {
   arithmetic : (arithmetic_operation * bool) option;
   value_type : word_type option;
   call_site : bool;
+  nobound_switch_site : bool;
+  local_subroutine_site : bool;
   callback_call_site : bool;
   undefined_extern_site : bool;
   extern_signature_site : bool;
@@ -4088,7 +4188,7 @@ let checked_target graph description =
 
 let checked_switch_shape graph description =
   let shape =
-    match Sequence.bounded_switch_shape description with
+    match Sequence.switch_shape description with
     | Ok shape -> shape
     | Error message -> malformed description message
   in
@@ -4098,6 +4198,32 @@ let checked_switch_shape graph description =
         malformed description "IC_SWITCH targets an unknown block")
     shape.targets;
   shape
+
+let checked_local_call_shape graph description =
+  let shape =
+    match Sequence.local_call_shape description with
+    | Ok shape -> shape
+    | Error message -> malformed description message
+  in
+  List.iter
+    (fun target ->
+      if Option.is_none (Graph.find_block graph target) then
+        malformed description "local subroutine targets an unknown block")
+    [ shape.entry_target; shape.return_target ];
+  shape
+
+let checked_local_return_targets graph description =
+  let targets =
+    match Sequence.local_return_targets description with
+    | Ok targets -> targets
+    | Error message -> malformed description message
+  in
+  List.iter
+    (fun target ->
+      if Option.is_none (Graph.find_block graph target) then
+        malformed description "local subroutine return targets an unknown block")
+    targets;
+  targets
 
 let source_layout blocks =
   let position = ref 0 in
@@ -4268,7 +4394,7 @@ let preflight_program graph =
                     | _ ->
                         malformed description
                           "invalid operands, result, target type, or payload")
-                | Opcode.Ic_switch ->
+                | Opcode.Ic_switch | Opcode.Ic_nobound_switch ->
                     let shape = checked_switch_shape graph description in
                     let adjusted =
                       operand values description position shape.adjusted_index
@@ -4283,7 +4409,21 @@ let preflight_program graph =
                     if checked_word description range.declared_type <> I64 then
                       malformed description
                         "IC_SWITCH range must be internal I64";
-                    (Switch_to (adjusted, range, shape.targets), None)
+                    ( Switch_to
+                        ( adjusted,
+                          range,
+                          shape.targets,
+                          description.opcode = Opcode.Ic_nobound_switch ),
+                      None )
+                | Opcode.Ic_sub_call ->
+                    let shape = checked_local_call_shape graph description in
+                    ( Local_call_to (shape.entry_target, shape.return_target),
+                      None )
+                | Opcode.Ic_ret when Option.is_some description.payload ->
+                    let targets =
+                      checked_local_return_targets graph description
+                    in
+                    (Local_return_to targets, None)
                 | Opcode.Ic_end -> (
                     if description.flags <> 0L then
                       malformed description
@@ -4321,6 +4461,14 @@ let preflight_program graph =
                 arithmetic;
                 value_type;
                 call_site = false;
+                nobound_switch_site =
+                  (match operation with
+                  | Switch_to (_, _, _, true) -> true
+                  | _ -> false);
+                local_subroutine_site =
+                  (match operation with
+                  | Local_call_to _ | Local_return_to _ -> true
+                  | _ -> false);
                 extern_signature_site = false;
                 undefined_extern_site = false;
                 callback_call_site = false;
@@ -4374,13 +4522,22 @@ let preflight_program graph =
         in
         let switch_targets =
           match final_operation with
-          | Some (Switch_to (_, _, targets)) ->
+          | Some (Switch_to (_, _, targets, _)) ->
+              Some (ordered_unique_block_ids targets)
+          | Some (Local_call_to (entry, resume)) ->
+              Some (ordered_unique_block_ids [ entry; resume ])
+          | Some (Local_return_to targets) ->
               Some (ordered_unique_block_ids targets)
           | _ -> None
         in
         let fallthrough =
           match final_operation with
-          | Some (Jump_to _ | Switch_to _ | End_stream) -> None
+          | Some
+              ( Jump_to _
+              | Switch_to _
+              | Local_call_to _
+              | Local_return_to _
+              | End_stream ) -> None
           | Some (Branch_zero _ | Branch_not_zero _) | Some _ | None -> next
         in
         let expected_successors =
@@ -5425,11 +5582,12 @@ let validate_callable_returns graph return_kind =
             let description = Sequence.description instruction in
             match description.opcode with
             | Opcode.Ic_return_val -> has_value := true
-            | Opcode.Ic_ret ->
+            | Opcode.Ic_ret when Option.is_none description.payload ->
                 if not !has_value then
                   reject ?span:description.span "HCBACK0002"
                     "native source function has a reachable return without its \
                      own word value"
+            | Opcode.Ic_ret -> has_value := false
             | Opcode.Ic_jmp -> ()
             | _ ->
                 (* Only empty blocks and unconditional transfers may carry RAX from
@@ -8911,7 +9069,7 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                      else Branch_not_zero (input, target)),
                     None )
               | _ -> malformed description "invalid native branch shape")
-          | Opcode.Ic_switch ->
+          | Opcode.Ic_switch | Opcode.Ic_nobound_switch ->
               let shape = checked_switch_shape graph description in
               let adjusted =
                 operand values description position shape.adjusted_index
@@ -8924,7 +9082,18 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                   "IC_SWITCH adjusted index must be internal I64";
               if checked_word description range.declared_type <> I64 then
                 malformed description "IC_SWITCH range must be internal I64";
-              (Switch_to (adjusted, range, shape.targets), None)
+              ( Switch_to
+                  ( adjusted,
+                    range,
+                    shape.targets,
+                    description.opcode = Opcode.Ic_nobound_switch ),
+                None )
+          | Opcode.Ic_sub_call ->
+              let shape = checked_local_call_shape graph description in
+              (Local_call_to (shape.entry_target, shape.return_target), None)
+          | Opcode.Ic_ret when Option.is_some description.payload ->
+              let targets = checked_local_return_targets graph description in
+              (Local_return_to targets, None)
           | Opcode.Ic_return_val when not is_entry -> (
               if
                 description.flags <> 0L
@@ -9331,6 +9500,14 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | Compiler_option _
               | Print_output _ -> true
               | _ -> false);
+            nobound_switch_site =
+              (match operation with
+              | Switch_to (_, _, _, true) -> true
+              | _ -> false);
+            local_subroutine_site =
+              (match operation with
+              | Local_call_to _ | Local_return_to _ -> true
+              | _ -> false);
             extern_signature_site =
               (match operation with
               | Extern_signature_fault -> true
@@ -9531,13 +9708,23 @@ let preflight_callable_graph ~runtime_calls ~source_globals
     in
     let switch_targets =
       match final_operation with
-      | Some (Switch_to (_, _, targets)) ->
+      | Some (Switch_to (_, _, targets, _)) ->
+          Some (ordered_unique_block_ids targets)
+      | Some (Local_call_to (entry, resume)) ->
+          Some (ordered_unique_block_ids [ entry; resume ])
+      | Some (Local_return_to targets) ->
           Some (ordered_unique_block_ids targets)
       | _ -> None
     in
     let fallthrough =
       match final_operation with
-      | Some (Jump_to _ | Switch_to _ | End_stream | Return) -> None
+      | Some
+          ( Jump_to _
+          | Switch_to _
+          | Local_call_to _
+          | Local_return_to _
+          | End_stream
+          | Return ) -> None
       | _ -> next
     in
     let expected_successors =
@@ -10188,7 +10375,16 @@ let validate_switch_code_floor ~max_code_bytes ~label block_groups =
           List.iter
             (fun instruction ->
               match instruction.operation with
-              | Switch_to (_, _, targets) -> charge targets
+              | Switch_to (_, _, targets, _) -> charge targets
+              | Local_return_to targets ->
+                  let count = List.length targets in
+                  let available = max_code_bytes - !used in
+                  if available < 5 || count > (available - 5) / 16 then
+                    reject "HCBACK0005"
+                      (label
+                     ^ " local continuation dispatch exceeds max_code_bytes \
+                        before allocation");
+                  used := !used + 5 + (16 * count)
               | Indirect_call call ->
                   let count = List.length !(call.owned_targets) in
                   let available = max_code_bytes - !used in
@@ -10291,6 +10487,9 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                 let prepared_blocks, sites, preflight_ir_count, shared_values =
                   preflight_program graph
                 in
+                let local_subroutine_capacity =
+                  Graph.local_subroutine_capacity graph
+                in
                 if preflight_ir_count <> ir_count then
                   reject "HCBACK0003"
                     "native program preflight instruction count is inconsistent";
@@ -10325,7 +10524,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                     in
                     let allocation =
                       allocate_body ~status_abi:abi ~shared_values
-                        ~max_stack_bytes
+                        ~local_subroutine_capacity ~max_stack_bytes
                         ~reserved_registers:[ Encoder.R10; Encoder.R11 ]
                         ~supply
                         ~mode:
@@ -10370,6 +10569,15 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                       Planned_instruction (Encoder.Capture_status abi);
                       Planned_instruction
                         (Encoder.Load_context (Encoder.R10, 16));
+                    ]
+                  @
+                  if local_subroutine_capacity = 0 then []
+                  else
+                    [
+                      Planned_instruction (Encoder.Mov_imm64 (Encoder.Rax, 0L));
+                      Planned_instruction
+                        (Encoder.Store_stack
+                           (encoder_stack_slot None 0, Encoder.Rax));
                     ]
                 in
                 let entry_id = Graph.entry graph |> Graph.block_id in
@@ -11048,7 +11256,14 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
         let fixed_stack_slots =
           prepared.callable_home_slots + prepared.callable_stage_slots
         in
-        let base_bytes = rbp_bytes + (fixed_stack_slots * 8) in
+        let local_subroutine_capacity = Graph.local_subroutine_capacity graph in
+        let local_subroutine_slots =
+          if local_subroutine_capacity = 0 then 0
+          else local_subroutine_capacity + 1
+        in
+        let base_bytes =
+          rbp_bytes + ((fixed_stack_slots + local_subroutine_slots) * 8)
+        in
         let base_frame = if base_bytes = 0 then 0 else align_up base_bytes 16 in
         if base_frame > max_stack_bytes || base_frame > 4080 then
           reject "HCBACK0004"
@@ -11077,7 +11292,7 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                     "native callable block has no machine label"
             in
             let allocation =
-              allocate_body ~status_abi:abi
+              allocate_body ~status_abi:abi ~local_subroutine_capacity
                 ~shared_values:prepared.callable_shared_values
                 ~function_code_owners ?undefined_code_owner
                 ~provider_entry_start:(Array.length function_infos)
@@ -11138,6 +11353,15 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
             | None -> []
             | Some frame ->
                 [ Planned_instruction (Encoder.Alloc_call_frame frame) ])
+          @ (if local_subroutine_capacity = 0 then []
+             else
+               [
+                 Planned_instruction (Encoder.Mov_imm64 (Encoder.Rax, 0L));
+                 Planned_instruction
+                   (Encoder.Store_stack
+                      ( encoder_stack_slot None (fixed_stack_slots * 8),
+                        Encoder.Rax ));
+               ])
           @ (if is_entry then
                [
                  Planned_instruction (Encoder.Capture_status abi);

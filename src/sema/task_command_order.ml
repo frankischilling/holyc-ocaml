@@ -363,6 +363,15 @@ let check_internal_binding ?(require_admitted = true) order ~admitted
       ~predecessor:
         (if require_admitted then start.command_predecessor else None)
 
+let check_switch_case order ~admitted (receipt : Parser.switch_case_preparation)
+    =
+  let start = receipt.switch_owner.switch_command in
+  if not (Parser.switch_case_preparation_is_current receipt) then
+    Error "switch case source callback is not current"
+  else
+    check_preparation order ~admitted ~start
+      ~predecessor:start.command_predecessor
+
 let check_offset ?(require_admitted = true) order ~admitted
     (receipt : Parser.aggregate_phase) =
   let start = receipt.phase_aggregate.aggregate_header.declaration_command in

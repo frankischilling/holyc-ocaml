@@ -73,6 +73,11 @@ type bounded_switch_shape = {
   targets : Block_id.t list;
 }
 
+type local_call_shape = {
+  entry_target : Block_id.t;
+  return_target : Block_id.t;
+}
+
 type instruction = description
 type t = instruction list
 
@@ -99,9 +104,11 @@ let expected_argument_count = function
   | Opcode.Two -> Some 2
   | Opcode.Variable -> None
 
-let bounded_switch_shape description =
-  if description.opcode <> Opcode.Ic_switch then
-    Error "descriptor is not canonical bounded IC_SWITCH"
+let switch_shape description =
+  if
+    description.opcode <> Opcode.Ic_switch
+    && description.opcode <> Opcode.Ic_nobound_switch
+  then Error "descriptor is not a canonical switch"
   else if description.flags <> 0L then Error "IC_SWITCH requires zero flags"
   else if Option.is_some description.result then
     Error "IC_SWITCH cannot produce a result"
@@ -125,6 +132,40 @@ let bounded_switch_shape description =
         Error
           "IC_SWITCH requires adjusted-index/range operands and ordered block \
            targets"
+
+let bounded_switch_shape description =
+  if description.opcode <> Opcode.Ic_switch then
+    Error "descriptor is not canonical bounded IC_SWITCH"
+  else switch_shape description
+
+let local_control_shape description =
+  description.operands = []
+  && Option.is_none description.result
+  && Option.is_none description.target_type
+  && description.flags = 0L
+
+let local_call_shape description =
+  match description.payload with
+  | Some (Block_targets [ entry_target; return_target ])
+    when description.opcode = Opcode.Ic_sub_call
+         && local_control_shape description ->
+      Ok { entry_target; return_target }
+  | _ ->
+      Error
+        "IC_SUB_CALL requires an entry and continuation with no values or flags"
+
+let local_return_targets description =
+  match description.payload with
+  | Some (Block_targets (_ :: _ as targets))
+    when description.opcode = Opcode.Ic_ret && local_control_shape description
+    ->
+      if List.length targets > 65_536 then
+        Error "local IC_RET continuation list exceeds the bounded allowance"
+      else Ok targets
+  | _ ->
+      Error
+        "local IC_RET requires its nonempty continuation list with no values \
+         or flags"
 
 let validate_shape description =
   let info = Opcode.info description.opcode in

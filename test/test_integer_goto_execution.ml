@@ -291,12 +291,6 @@ let unsupported_regions_remain_outside_execution_gate () =
         "U0 SysTry(){}U0 SysUntry(){}U0 F(){done:try goto done;catch \
          return;}F();",
         "try goto done;catch return;" );
-      ( "no-bound switch region",
-        "U0 F(I64 n){switch[n]{case 0:goto done;}done:return;}F(0);",
-        "switch[n]{case 0:goto done;}" );
-      ( "sub-switch region",
-        "U0 F(I64 n){switch(n){start:case 0:goto done;end:}done:return;}F(0);",
-        "switch(n){start:case 0:goto done;end:}" );
     ]
   in
   List.iter
@@ -311,6 +305,53 @@ let unsupported_regions_remain_outside_execution_gate () =
             (label ^ " source gate") "HCRUN0001" error.code;
           check_original_primary label source contents primary 1 error)
         cases)
+    modes
+
+let switch_gotos_keep_local_continuation_ownership () =
+  let accepted =
+    [
+      ( "no-bound case jumps to its function label",
+        "I64 F(I64 n){switch[n]{case 0:goto done;}return -1;done:return \
+         42;}F(0);" );
+      ( "empty sub-switch prefix does not invent a continuation",
+        "I64 F(I64 n){switch(n){start:case 0:goto done;end:}return \
+         -1;done:return 42;}F(0);" );
+      ( "a selected case can leave its completed setup prefix",
+        "I64 F(){I64 n=0;switch(0){start:n+=1;case 0:n+=40;goto \
+         done;end:n+=100;}done:return n+1;}F();" );
+    ]
+  in
+  let rejected =
+    [
+      ( "goto out of the active setup prefix",
+        "I64 F(){switch(0){start:goto body;case 0:body:break;end:;}return \
+         42;}F();",
+        "goto body;" );
+      ( "goto into the active setup prefix",
+        "I64 F(){switch(0){start:setup:;case 0:goto setup;end:;}return 42;}F();",
+        "goto setup;" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, contents) ->
+          let _, _, result =
+            run ~mode ~path:"integer-goto-switch-supported.hc" contents
+          in
+          ignore (expect_word label 42L result))
+        accepted;
+      List.iter
+        (fun (label, contents, primary) ->
+          let _, source, result =
+            run ~mode ~path:"integer-goto-switch-unsafe.hc" contents
+          in
+          let error = first_error result in
+          Alcotest.(check string)
+            (label ^ " rejects the unsafe source goto")
+            "HCRUN0001" error.code;
+          check_original_primary label source contents primary 1 error)
+        rejected)
     modes
 
 let skipped_initialization_faults () =
@@ -525,8 +566,11 @@ let tests =
       `Quick resolution_failures_cover_every_definition;
     Alcotest.test_case "goto preserves word-return completeness" `Quick
       word_return_completeness_across_goto;
-    Alcotest.test_case "unsupported goto regions remain outside execution"
+    Alcotest.test_case "assembly, lock and exception goto remain unsupported"
       `Quick unsupported_regions_remain_outside_execution_gate;
+    Alcotest.test_case
+      "switch goto keeps valid targets and refuses unsafe setup transfers"
+      `Quick switch_gotos_keep_local_continuation_ownership;
     Alcotest.test_case "goto can expose skipped local initialization faults"
       `Quick skipped_initialization_faults;
     Alcotest.test_case "infinite goto has an exact budget and fresh recovery"

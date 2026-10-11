@@ -55,7 +55,7 @@ values retain an exact successful VM attempt; copied source facts and foreign
 tasks cannot admit them. Reached effects and charges survive later type or
 header errors. Unsupported target domains fail before function publication.
 
-The hosted source execution path runs supported `#exe` blocks through checked semantic passes, verified IR and `Ir.Integer_interpreter`. Blocks can retain task declarations, call supported functions, update bounded storage and generate source with `StreamPrint`. This applies during both JIT and outer AOT compilation; the AOT output namespace remains separate from the directive task. See [integer task execution](docs/integer-task.md) for the supported domain and remaining compatibility work.
+The hosted source execution path runs supported `#exe` blocks through checked semantic passes, verified IR and `Ir.Integer_interpreter`. Blocks can retain task declarations, call supported functions, update bounded storage and generate source with `StreamPrint`. This applies during both JIT and outer AOT compilation; the AOT output namespace remains separate from the directive task. See [integer task execution](integer-task.md) for the supported domain and remaining compatibility work.
 
 Runtime services require checked declarations and original retained call authority. The hosted VM supplies bounded output and source generation; it grants no process spawning, host commands, network access, unrestricted filesystem access or raw host pointers. Includes still use the configured frontend roots. Provider installation during a suspended parse uses its original task environments and a single-use parser token, temporarily clears caller locals, and verifies the accepted child sequence and admitted commands.
 
@@ -68,22 +68,22 @@ before access. The terminating zero is charged; scanning stops there. Native
 emission uses the same bounded probes through its checked descriptors and keeps
 its result in a private frame slot. Function names grant no operation authority,
 and this path exposes no host library call or raw address. See
-[internal byte-string length](docs/internal-strlen.md).
+[internal byte-string length](internal-strlen.md).
 
 The checked `IC_TOUPPER` operation shares this original declaration and call
 authority. It compares a supplied word within the ASCII lowercase range and
 uses bounded private native staging. It adds no host locale, memory access,
 output work or callee activation. Argument loads retain their own storage
-checks. See [internal ASCII conversion](docs/internal-toupper.md).
+checks. See [internal ASCII conversion](internal-toupper.md).
 
 Retained tasks admit numeric internal targets only through the original native
 header installation. The installed executable receipt remains separate from
 the current member owner during nested headers. Original selected publications
 must share the actual native allocation and forward revision history; copied
 metadata and repeated source events cannot grant call authority.
-See [retained internal calls](docs/retained-internal.md).
+See [retained internal calls](retained-internal.md).
 
-Failure does not roll back effects already reached by earlier admitted work. Public reports retain captured ordinary output and cumulative progress on parse, compilation and runtime errors, without reporting a successful final result. A failed `StreamPrint` block injects no partial generated source. Ordinary `Print` publishes a complete formatted call only on success; `PutChars` can retain bytes emitted before a later fault. Failed source replay revokes call authority for commands that were not admitted. See [runtime output](docs/integer-output.md) for byte and work accounting.
+Failure does not roll back effects already reached by earlier admitted work. Public reports retain captured ordinary output and cumulative progress on parse, compilation and runtime errors, without reporting a successful final result. A failed `StreamPrint` block injects no partial generated source. Ordinary `Print` publishes a complete formatted call only on success; `PutChars` can retain bytes emitted before a later fault. Failed source replay revokes call authority for commands that were not admitted. See [runtime output](integer-output.md) for byte and work accounting.
 
 The six standard predefined values also have dedicated expansion of their audited definitions. Their generated text shares frontend nesting and byte limits. Native executable-memory execution is not provided by this hosted interpreter; the separate `eval-native` capability has its own explicit checked platform contract below.
 
@@ -124,7 +124,7 @@ subset contains no loops or calls and bounds the emitted instruction sequence;
 there is no CPU timeout or fault recovery for an encoder defect. The explicit
 `@native-tests` target runs maintained fixtures and deterministic differential
 cases on disposable CI runners with read-only permissions and no persisted
-checkout credentials. See [native expressions](docs/native-expressions.md).
+checkout credentials. See [native expressions](native-expressions.md).
 
 ## Explicit native program execution
 
@@ -133,7 +133,7 @@ sealed original producers. Nonnegative indexes select bytes within the original
 owned integer/Bool extent; bounds precede the selected cell initialization check.
 Native mutation uses that cell's declared width and existing private descriptors.
 Pointer metadata and reached work remain checked. Concurrent/locked semantics
-are outside this domain. See [owned pointer bit calls](docs/pointer-bit-internals.md).
+are outside this domain. See [owned pointer bit calls](pointer-bit-internals.md).
 
 Bool objects use their audited signed one-byte backing without changing public
 type or pointer identity. Parameter bounds expose one byte despite eight-byte
@@ -141,35 +141,35 @@ ABI slots. Canonical ToBool calls require the original numeric declaration,
 exact signature and sealed producer. Storage does not normalize arbitrary
 values to truth; the explicit operation tests the full word. Existing bounds,
 initialization and instruction/image quotas apply. See
-[canonical Bool execution](docs/canonical-bool.md).
+[canonical Bool execution](canonical-bool.md).
 
 ModU64 calls require an original numeric binding, exact asymmetric signature
 and both original producers. The pointed value must identify a live owned
 I64/U64 cell within its original extent. Bounds and initialization are checked
 before unsigned division; zero divisors stop before a quotient store. This
 operation preserves pointer metadata and introduces no raw host addresses or
-general pointer cast capability. See [owned ModU64 calls](docs/internal-mod-u64.md).
+general pointer cast capability. See [owned ModU64 calls](internal-mod-u64.md).
 
 Unary integer internal calls require their original numeric declaration, exact
 fixed signature, source phase and unpushed producer. Source names and equal
 metadata cannot authorize an operation. VM and native preflight reject foreign
 contexts and changed instructions before execution. Runtime admission keeps
 closed constant preparation separate; native default/initializer calls remain
-unsupported. See [unary integer internal calls](docs/internal-integers.md).
+unsupported. See [unary integer internal calls](internal-integers.md).
 
 Source-owned Bsf/Bsr calls validate the original numeric binding, I64 signature
 and argument producer. The interpreter examines at most 64 positions; native
 code uses checked qword encoder forms with explicit zero handling. These scalar
 operations add no host capability and retain existing instruction/image limits.
 Retained defaults use their owning source activation; closed preparation keeps
-its separate gate. See [bit-scan calls](docs/internal-bitscan.md).
+its separate gate. See [bit-scan calls](internal-bitscan.md).
 
 Source-owned signed and unsigned Min/Max calls validate both original argument
 producers, parameter roles and right-to-left order before execution. They expose
 only full-word selection, use the existing instruction and native image quotas,
 and add no host capability. Retained scalar defaults run in their owning source
 activation; broader closed preparation and native retained publication keep
-their separate gates. See [Min/Max internal calls](docs/internal-minmax.md).
+their separate gates. See [Min/Max internal calls](internal-minmax.md).
 
 `holyc run --target=host-jit` and `Native_program.evaluate` additionally execute
 structured control flow, fixed direct scalar integer functions and U0 procedures with automatic
@@ -202,9 +202,15 @@ statement and resolved occurrence identities. Every occurrence is consumed once;
 targets come from the checked label mapping. Empty label blocks only fall through,
 while every goto cycle reaches a metered jump. Jumps preserve invocation-local
 initialization flags, so skipping a store cannot expose uninitialized host stack
-data. Unsupported assembly, no-bound/sub-switch, lock and exception regions remain rejected.
+data. Assembly, lock and exception control still require separate execution
+support. For supported switch regions, the lowerer compares the original label
+identity and full setup-prefix ancestry before admitting a goto. It rejects a
+jump into or out of any prefix at its source location with `HCRUN0001`, and a
+return from a prefix also fails before execution. A bare setup-prefix `break`
+fails at the parser with `HCPARSE0170`; a nested loop retains its own break
+target.
 
-Ordinary bounded switches retain original parser-time case preparation and
+Parenthesized and bracketed integer switches retain original parser-time case preparation and
 exact sealed command/table/AST ownership. Lowering cannot substitute a later
 evaluation or borrow equal source text as preparation evidence. A positive
 100,000-node default allowance bounds reached case preparation; nested source
@@ -212,10 +218,16 @@ tasks share it. Dispatch tables additionally share a hard 65,536-slot invocation
 cap, checked before expansion, including defaults and unused definitions. This
 prevents small endpoint expressions from producing unbounded dense tables.
 Checked graphs require immediate I64 bounds, a canonical adjusted selector,
-matching table cardinality and valid targets. Native dispatch performs the
-unsigned bounds check before its bounded machine branches and charges one IR
-site. Existing code-size and stack limits still apply. The closed evaluator and
-these limits do not provide a sandbox for arbitrary HolyC code.
+matching table cardinality and valid targets. Bounded dispatch routes an
+out-of-range index to its default; bracketed dispatch reports `HCSW0005`.
+Each reached switch still charges one IR instruction. Setup prefixes use
+`IC_SUB_CALL` and `IC_RET` with graph-checked entry and continuation targets.
+A return without its active continuation fails with `HCSW0006`, and the
+native executor reserves private continuation storage within its stack bounds.
+Supported JIT/current-task scalar endpoints may have source-time effects, which
+remain charged to their owning preparation budget. Ordinary AOT nonconstant
+case endpoints fail with `HCRUN0006`. Existing code-size and stack limits
+still apply. These limits do not sandbox arbitrary HolyC code.
 
 Generated code checks and consumes a positive budget before each reached IR
 instruction. R10 owns the remaining count and R11 a fresh private context;
@@ -242,7 +254,7 @@ loops and call chains but supplies no CPU deadline or recovery from an encoder
 defect or arbitrary host-stack exhaustion outside the controlled call chain.
 There is no interpreter fallback, external call or arbitrary-byte constructor
 in this gate. Checked scalar reference access is described below. See
-[native programs](docs/native-programs.md) for exact source and reporting limits.
+[native programs](native-programs.md) for exact source and reporting limits.
 
 Native scalar globals and statics allocate a separate RW,
 non-executable arena for each
@@ -251,7 +263,7 @@ accesses; arbitrary integers cannot supply arena addresses. Logical declared
 bytes are capped at 16 MiB and private data plus initialization flags at 32 MiB,
 with checked sizes before allocation. The context's arena pointer is read-only
 to emitted code. Checked success/fault paths release the arena and code mapping
-before status allocation. See [native globals](docs/native-globals.md). Static
+before status allocation. See [native globals](native-globals.md). Static
 addresses also require their exact compiled function, frame and location;
 other functions and entry cannot borrow that symbol. Unused statics consume
 their padded allocation before native entry, and per-object initialization flags
@@ -274,7 +286,7 @@ pointer arithmetic reject before entry. Recursive frames remain distinct, and in
 accesses use the original object's width. Passing a static reference does not
 authorize materializing another owner's static symbol. Any future escape path
 must add a lifetime mechanism before admission. See
-[native pointers](docs/native-pointers.md).
+[native pointers](native-pointers.md).
 
 Native automatic arrays validate original closed dimensions and the full owned
 frame range. They charge per-element initialization flags and reference tables
@@ -283,7 +295,7 @@ overflow faults precede host address calculation. Final materialization permits
 aligned one-past references; element reads and writes reject one-past or other
 out-of-range offsets before inspecting flags or object bytes. Runtime-dependent
 extents, automatic array initializers and pointer/aggregate elements
-remain excluded. See [native arrays](docs/native-arrays.md).
+remain excluded. See [native arrays](native-arrays.md).
 
 Native persistent arrays retain exact global/static owners and full declared
 extents; static padding and neighboring objects cannot be addressed. Original
@@ -299,7 +311,7 @@ The executor and C bridge require the complete image length to equal the sum of
 global, literal and private metadata bytes and enforce the 32 MiB arena cap
 before host allocation. Every execution receives a fresh image. Literal records
 are arena-owned; array reference records still consume their owning activation's
-physical-frame quota. See [persistent storage](docs/native-persistent-storage.md).
+physical-frame quota. See [persistent storage](native-persistent-storage.md).
 
 Native PutChars and Print output require exact sealed provider calls. Their
 capture buffer is bounded before allocation, and generated code cannot replace
@@ -314,7 +326,7 @@ padding. Numeric conversion uses a fixed buffer large enough for a grouped
 64-bit binary word. String truncation still requires the complete owned NUL scan;
 it cannot suppress an unknown or out-of-bounds byte. Work and capacity checks
 bound padding independently of field width. See
-[integer and byte formatting](docs/integer-formatting.md).
+[integer and byte formatting](integer-formatting.md).
 
 Quoted conversions keep at most four transformed bytes at a time. The complete
 first input scan still runs after a decoded NUL, and every decoder lookahead or
@@ -326,19 +338,19 @@ Auxiliary counts use fixed I64 state and never allocate a repeated buffer. Each
 positive packed copy retains its original byte visits, including an empty word's
 NUL or a zero-width measurement. Huge counts cannot bypass the formatting-work
 limit by producing no bytes. A zero or negative count still requires a valid
-packed argument. See [auxiliary formatting](docs/auxiliary-formatting.md).
+packed argument. See [auxiliary formatting](auxiliary-formatting.md).
 
 Indexed `%z` lists retain owned-pointer checks for every reached probe. Negative
 indices still perform the first list read; selected entries must terminate
 before output begins. An internal missing-entry result grants no raw-null input
 authority. Selection and copying use bounded work and fixed state, with no
-allocation proportional to an index. See [list formatting](docs/list-formatting.md).
+allocation proportional to an index. See [list formatting](list-formatting.md).
 
 The host validates immutable context pointers, output counters and restored
 callable quotas before projecting capture. Status decoding accepts output faults
 only at sealed provider sites and accepts format-specific status kinds only at an
 original Print site. Integrity failures expose no successful capture. See
-[native output](docs/native-output.md) and [native Print](docs/native-print.md).
+[native output](native-output.md) and [native Print](native-print.md).
 
 ## Supported versions
 

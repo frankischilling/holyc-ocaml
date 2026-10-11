@@ -104,6 +104,33 @@ type task_admission = Integer_interpreter.task_admission
 type initializer_attempt = Integer_interpreter.initializer_attempt
 type internal_binding_attempt = Integer_interpreter.internal_binding_attempt
 type dimension_attempt = Integer_interpreter.dimension_attempt
+type switch_case_attempt = Integer_interpreter.switch_case_attempt
+
+val begin_task_switch_case :
+  task_state ->
+  endpoint:Sema.Integer_switch_preparation.runtime_endpoint ->
+  Sema.Switch_case_fragment.authority ->
+  (switch_case_attempt, string) result
+
+val fail_task_switch_case :
+  task_state -> switch_case_attempt -> (unit, string) result
+
+val task_switch_case_bits :
+  task_state -> Frontend.Parser.switch_case_preparation -> int64 option
+
+val task_switch_case_remaining : task_state -> switch_case_attempt -> int
+
+val record_task_switch_case_preparation :
+  task_state -> switch_case_attempt -> before:int -> steps:int -> unit
+
+val execute_task_switch_case :
+  ?use_active_stream:bool ->
+  ?compiler_options:compiler_options ->
+  ?stream_exe_print:stream_exe_print ->
+  task_state ->
+  switch_case_attempt ->
+  Switch_case_fragment_program.execution ->
+  (unit, error list) result
 
 val prepare_task_closed_dimension :
   task_state ->
@@ -391,6 +418,7 @@ val promote_task_source_activation :
   ?offsets:Sema.Compiler_record.aggregate_offset list ->
   ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
   ?pending_runtime_offset:Frontend.Parser.aggregate_phase ->
+  ?pending_runtime_switch_case:Frontend.Parser.switch_case_preparation ->
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
   activation:Sema.Source_activation.t ->

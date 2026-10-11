@@ -39,10 +39,14 @@ type task_view
 val dimension_context :
   task_view -> Sema.Dimension_fragment.t -> (t, string) result
 
+val switch_case_context :
+  task_view -> Sema.Switch_case_fragment.t -> (t, string) result
+
 val internal_binding_context :
   task_view -> Sema.Internal_binding_fragment.t -> (t, string) result
 
 val is_dimension_fragment : t -> bool
+val is_switch_case_fragment : t -> bool
 val is_internal_binding_fragment : t -> bool
 
 type task_publication = private
@@ -105,6 +109,11 @@ val check_dimension_source :
   ?require_admitted:bool ->
   task_catalog ->
   Frontend.Parser.array_dimension_preparation ->
+  (unit, string) result
+
+val check_switch_case_source :
+  task_catalog ->
+  Frontend.Parser.switch_case_preparation ->
   (unit, string) result
 
 val check_internal_binding_source :

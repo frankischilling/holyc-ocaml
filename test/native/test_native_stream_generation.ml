@@ -808,7 +808,7 @@ let capture_authority () =
            error))
 
 let native_source_callback_scope ?(failure = `None)
-    ?(on_callback = fun () -> ())
+    ?(on_callback = fun () -> ()) ?(on_live_scope = fun _ -> ())
     ?(fixture =
       {|#exe {I64 Emit(){Print("before;");StreamPrint("40;");Print("%d;%d;after;",StreamExePrint("payload%d",42),StreamExePrint("payload%d",42));StreamPrint("42;");return 42;}Emit;}42;|})
     () =
@@ -949,6 +949,7 @@ let native_source_callback_scope ?(failure = `None)
       Alcotest.(check bool)
         "live caller limits" true
         (steps > 0 && steps < 100_000 && frame > 0 && depth > 0 && stack > 0);
+      on_live_scope scope;
       rejects "foreign domain cannot borrow native suspension"
         (Domain.join (Domain.spawn (fun () -> Scope.check scope)));
       rejects "scope is not a callback bridge"
@@ -1145,6 +1146,69 @@ let native_source_callbacks () =
     [ `None; `Reject; `Raise ];
   ()
 
+let native_source_scope_step_restriction () =
+  let module Scope = Holyc_lib__Ir.Native_source_suspension in
+  let expired = ref [] in
+  let calls = ref 0 in
+  let previously_withheld = ref 0 in
+  let check_live scope =
+    incr calls;
+    expired := scope :: !expired;
+    let before, _, _, _ = Scope.limits scope |> unwrap in
+    Alcotest.(check bool)
+      "current native caller has room for a scope reduction" true (before > 11);
+    Alcotest.(check int)
+      "second callback retains the activation's earlier restriction"
+      !previously_withheld
+      (Scope.restricted_steps scope |> unwrap);
+    Scope.restrict_steps scope ~remaining:(before - 4) |> unwrap;
+    let after_first, _, _, _ = Scope.limits scope |> unwrap in
+    Alcotest.(check int)
+      "first reduction lowers only the current physical allowance" (before - 4)
+      after_first;
+    Alcotest.(check int)
+      "first reduction records additional unexecuted work"
+      (!previously_withheld + 4)
+      (Scope.restricted_steps scope |> unwrap);
+    Scope.restrict_steps scope ~remaining:(before - 11) |> unwrap;
+    let after_second, _, _, _ = Scope.limits scope |> unwrap in
+    Alcotest.(check int)
+      "second reduction accumulates the lowered boundary" (before - 11)
+      after_second;
+    Alcotest.(check int)
+      "withheld instructions are cumulative, not counted twice"
+      (!previously_withheld + 11)
+      (Scope.restricted_steps scope |> unwrap);
+    Scope.restrict_steps scope ~remaining:before |> unwrap;
+    Scope.restrict_steps scope ~remaining:(before - 11) |> unwrap;
+    let after_repeated, _, _, _ = Scope.limits scope |> unwrap in
+    Alcotest.(check int)
+      "a larger or repeated allowance cannot increase the bound" (before - 11)
+      after_repeated;
+    rejects "negative remaining instructions cannot change a live scope"
+      (Scope.restrict_steps scope ~remaining:(-1));
+    rejects "foreign domain cannot restrict the current native scope"
+      (Domain.join
+         (Domain.spawn (fun () ->
+              Scope.restrict_steps scope ~remaining:(before - 12))));
+    rejects "foreign domain cannot read the current restriction"
+      (Domain.join (Domain.spawn (fun () -> Scope.restricted_steps scope)));
+    Alcotest.(check int)
+      "invalid mutations leave the original restriction intact"
+      (!previously_withheld + 11)
+      (Scope.restricted_steps scope |> unwrap);
+    previously_withheld := !previously_withheld + 11
+  in
+  native_source_callback_scope ~on_live_scope:check_live ();
+  Alcotest.(check int) "both real source callbacks were restricted" 2 !calls;
+  List.iter
+    (fun scope ->
+      rejects "expired native scope cannot be restricted"
+        (Scope.restrict_steps scope ~remaining:0);
+      rejects "expired native scope cannot reveal its restriction"
+        (Scope.restricted_steps scope))
+    !expired
+
 let checkpoint_quotas () =
   let text =
     {|#exe {Print("before;");StreamPrint("40;");StreamExePrint("class Made {I64 n;};");Print("after;");StreamPrint("42;");}42;|}
@@ -1253,6 +1317,8 @@ let () =
             capture_authority;
           Alcotest.test_case "native source callback scope and collection"
             `Quick native_source_callbacks;
+          Alcotest.test_case "native source scope step restriction authority"
+            `Quick native_source_scope_step_restriction;
           Alcotest.test_case "source checkpoints preserve quota faults" `Quick
             checkpoint_quotas;
           Alcotest.test_case "discarded native callback closures collect" `Quick

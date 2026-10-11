@@ -7,7 +7,7 @@ description = "Builtin integer-union member sizeof queries preserve original fie
 sources = ["Kernel/KernelA.HH:67-113 complete builtin integer unions", "Compiler/PrsExp.HC:303-351 complete PrsSizeOf", "Compiler/LexLib.HC:67-85 complete MemberFind", "Compiler/PrsVar.HC:521-532,660-669 selected member classes and dimensions", "Compiler/PrsLib.HC:40-59 complete PrsClassNew"]
 implementation = ["tools/primitive_type_source.ml", "tools/primitive_type_source.mli", "tools/primitive_type_gen.ml", "src/generated/primitive_raw_types.ml", "src/generated/primitive_raw_types.mli", "src/common/primitive_type.ml", "src/common/primitive_type.mli", "src/sema/primitive_type.mli", "src/sema/compiler_record.ml", "src/sema/compiler_record.mli"]
 tests = ["test/test_primitive_type_source.ml", "test/aggregate_member_sizeof_cases.ml", "test/test_aggregate_member_sizeof.ml", "test/test_aggregate_member_sizeof_authority.ml", "test/native/test_native_aggregate_member_sizeof.ml", "test/test_aggregate_member_sizeof_cli.ml", "examples/builtin-union-sizeof.hc"]
-documentation = ["docs/aggregate-member-sizeof.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "ROADMAP.md", "CHANGELOG.md"]
+documentation = ["docs/aggregate-member-sizeof.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/architecture.md", "docs/roadmap.md", "docs/changelog.md"]
 status = "implemented"
 issue = 824
 source_identity = "The generator reads and validates all 24 ordered fields from the six pinned integer unions, retaining each original type spelling, array count and source line. The query selects those immutable declarations through the original canonical primitive type. Published and retained scalar globals preserve their original class separately from their array extent; pointer and callback declarations retain the pointer companion. Current source spelling lookup cannot replace a previously selected builtin class."
@@ -21,7 +21,7 @@ description = "Original dot-member sizeof queries retain selected field types, p
 sources = ["Compiler/PrsExp.HC:303-351 complete PrsSizeOf", "Compiler/LexLib.HC:67-85,103-148 complete MemberFind and MemberAdd", "Compiler/PrsVar.HC:247-283,285-371,521-532,660-669 dimensions, selected types, member publication and placement", "Compiler/PrsLib.HC:40-59 complete PrsClassNew", "Compiler/PrsStmt.HC:1-60 complete PrsClass"]
 implementation = ["src/frontend/parser.ml", "src/frontend/parser.mli", "src/sema/compiler_record.ml", "src/sema/compiler_record.mli", "src/sema/aggregate_layout.ml", "src/sema/aggregate_layout.mli", "src/sema/aggregate_layout_core.ml", "src/sema/aggregate_layout_core.mli", "src/driver/task_declarations.ml", "src/driver/task_declarations.mli", "src/driver/aggregate_layout.ml", "src/driver/aggregate_layout.mli", "src/driver/integer_source.ml"]
 tests = ["test/aggregate_member_sizeof_cases.ml", "test/test_aggregate_member_sizeof.ml", "test/test_aggregate_member_sizeof_authority.ml", "test/native/test_native_aggregate_member_sizeof.ml", "test/test_aggregate_member_sizeof_cli.ml", "examples/aggregate-member-sizeof.hc"]
-documentation = ["docs/aggregate-member-sizeof.md", "docs/local-aggregate-sizeof.md", "docs/classes-and-layout.md", "docs/aggregate-members.md", "docs/retained-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "ROADMAP.md", "CHANGELOG.md"]
+documentation = ["docs/aggregate-member-sizeof.md", "docs/local-aggregate-sizeof.md", "docs/classes-and-layout.md", "docs/aggregate-members.md", "docs/retained-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/architecture.md", "docs/roadmap.md", "docs/changelog.md"]
 status = "implemented"
 issue = 822
 source_identity = "Each field retains its original live declaration phase, selected type, checked dimension count and placement size. The semantic layout adapter authenticates that saved extent against its original class, source children and exact semantic member input, preserving the nominal type. Later forward completion changes query-time size without changing the containing object's earlier layout. Dot and member callbacks authenticate their root, ordinal, table and namespace. Member lookup resolves the exact selected canonical class at that callback, including original inherited base identities; foreign and stale records cannot replace it. Completed queries require their full original member path."
@@ -35,7 +35,7 @@ description = "Named class and union local sizeof queries read the original sele
 sources = ["Compiler/PrsExp.HC:303-350 complete PrsSizeOf", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsVar.HC:521-532,590-628 object size, automatic placement and fixed parameter slots", "Compiler/PrsStmt.HC:1-60 complete PrsClass"]
 implementation = ["src/sema/compiler_record.ml", "src/sema/compiler_record.mli", "src/driver/task_declarations.ml"]
 tests = ["test/local_aggregate_sizeof_cases.ml", "test/test_local_aggregate_sizeof.ml", "test/test_local_aggregate_sizeof_authority.ml", "test/native/test_native_local_aggregate_sizeof.ml", "test/test_local_aggregate_sizeof_cli.ml", "examples/local-aggregate-sizeof.hc"]
-documentation = ["docs/local-aggregate-sizeof.md", "docs/classes-and-layout.md", "docs/retained-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "README.md"]
+documentation = ["docs/local-aggregate-sizeof.md", "docs/classes-and-layout.md", "docs/retained-aggregates.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compiler-status.md"]
 status = "implemented"
 issue = 820
 source_identity = "The original local and function publication retain their exact selected type occurrence. Named value queries authenticate the semantic table, namespace, canonical class identity and current layout at the live query callback. Same-name replacement cannot substitute another class. Earlier query results remain immutable after a selected forward completes."
@@ -49,7 +49,7 @@ description = "Completed earlier selected base chains supply automatic inherited
 sources = ["Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/PrsVar.HC:407-721 complete PrsVarLst", "Compiler/LexLib.HC:67-86 complete MemberFind", "Compiler/LexLib.HC:103-148 complete MemberAdd", "Compiler/PrsExp.HC:960-1115 complete member and index producers", "Compiler/BackLib.HC:693-707 complete ICDeref", "Compiler/BackC.HC:159-204 complete ICAssign"]
 implementation = ["src/sema/compiler_record.ml", "src/driver/inherited_metadata.ml", "src/driver/integer_source.ml", "src/sema/aggregate_pointee_layout.ml", "src/sema/aggregate_member_index.ml", "src/ir/aggregate_member_projection.ml", "src/ir/automatic_aggregate_storage.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/inherited_aggregate_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/native/test_native_aggregate_members.ml", "test/test_source_inherited_layout_authority.ml", "test/test_source_inherited_layouts.ml", "examples/inherited-aggregates.hc"]
-documentation = ["docs/inherited-aggregates.md", "docs/aggregate-members.md", "docs/class-pointers.md", "docs/classes-and-layout.md", "docs/retained-aggregates.md", "docs/source-inherited-layouts.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "README.md"]
+documentation = ["docs/inherited-aggregates.md", "docs/aggregate-members.md", "docs/class-pointers.md", "docs/classes-and-layout.md", "docs/retained-aggregates.md", "docs/source-inherited-layouts.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compiler-status.md"]
 status = "implemented"
 issue = 686
 source_identity = "The original completed child retains the exact selected completed base snapshot. Object admission requires both original AST definitions and canonical identities in source order in the current compilation, with every ancestor admitted. Before member publication, computed child size, base size, base identity and zero offset must match that snapshot. Partial/forward/self and out-of-compilation bases retain metadata-only behavior."
@@ -143,7 +143,7 @@ verification_boundary = "Source-derived hosted IR/native tests are distinct from
 id = "HC-COMPILER-ASSEMBLY-ORDER"
 description = "Compiler phases follow the include order in Compiler.PRJ."
 sources = ["Compiler/Compiler.PRJ"]
-implementation = ["ARCHITECTURE.md"]
+implementation = ["docs/architecture.md"]
 tests = ["tools/verify-reference.ps1"]
 status = "audited"
 
@@ -7976,10 +7976,10 @@ tests = [
   "test/golden/integer-interpreter.txt"
 ]
 documentation = [
-  "README.md",
-  "ARCHITECTURE.md",
-  "CHANGELOG.md",
-  "SECURITY.md",
+  "docs/compiler-status.md",
+  "docs/architecture.md",
+  "docs/changelog.md",
+  "docs/SECURITY.md",
   "docs/intermediate-representation.md",
   "docs/optimizer.md",
   "docs/compatibility.md",
@@ -8052,7 +8052,7 @@ sources = [
 implementation = ["src/ir/integer_interpreter.ml"]
 tests = ["test/test_ir_integer_interpreter.ml"]
 documentation = [
-  "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "SECURITY.md",
+  "docs/compiler-status.md", "docs/architecture.md", "docs/changelog.md", "docs/SECURITY.md",
   "docs/intermediate-representation.md", "docs/compatibility.md",
   "docs/reference-source-map.md", "docs/testing.md"
 ]
@@ -8096,7 +8096,7 @@ sources = [
 implementation = ["src/ir/integer_interpreter.ml"]
 tests = ["test/test_ir_integer_interpreter.ml"]
 documentation = [
-  "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "SECURITY.md",
+  "docs/compiler-status.md", "docs/architecture.md", "docs/changelog.md", "docs/SECURITY.md",
   "docs/intermediate-representation.md", "docs/compatibility.md",
   "docs/reference-source-map.md", "docs/testing.md"
 ]
@@ -8152,7 +8152,7 @@ sources = [
 implementation = ["src/ir/integer_interpreter.ml"]
 tests = ["test/test_ir_integer_interpreter.ml"]
 documentation = [
-  "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "SECURITY.md",
+  "docs/compiler-status.md", "docs/architecture.md", "docs/changelog.md", "docs/SECURITY.md",
   "docs/intermediate-representation.md", "docs/compatibility.md",
   "docs/reference-source-map.md", "docs/testing.md"
 ]
@@ -8212,7 +8212,7 @@ sources = [
 implementation = ["src/ir/integer_interpreter.ml"]
 tests = ["test/test_ir_integer_interpreter.ml"]
 documentation = [
-  "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "SECURITY.md",
+  "docs/compiler-status.md", "docs/architecture.md", "docs/changelog.md", "docs/SECURITY.md",
   "docs/intermediate-representation.md", "docs/compatibility.md",
   "docs/reference-source-map.md", "docs/testing.md"
 ]
@@ -11060,8 +11060,8 @@ tests = [
   "test/test_ir_expression_lowering.ml"
 ]
 documentation = [
-  "README.md",
-  "ARCHITECTURE.md",
+  "docs/compiler-status.md",
+  "docs/architecture.md",
   "docs/holyc-language.md",
   "docs/intermediate-representation.md",
   "docs/optimizer.md",
@@ -11094,7 +11094,7 @@ sources = [
 ]
 implementation = ["src/driver/integer_expression.ml", "src/driver/integer_expression.mli", "src/holyc_lib.ml", "src/holyc_lib.mli", "bin/holyc.ml"]
 tests = ["test/test_integer_expression.ml", "test/cli/integer-expression.ir", "test/cli/integer-expression.json", "test/cli/integer-expression-unsigned.json", "test/cli/integer-expression-invalid.human", "test/cli/integer-expression-budget.human", "test/cli/integer-expression-help.human", "test/dune"]
-documentation = ["README.md", "CHANGELOG.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md"]
+documentation = ["docs/compiler-status.md", "docs/changelog.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md"]
 status = "implemented"
 issue = 581
 ir_epic = 396
@@ -11124,7 +11124,7 @@ sources = [
 ]
 implementation = ["src/ir/integer_interpreter.ml", "src/ir/integer_interpreter.mli", "src/driver/integer_expression.ml"]
 tests = ["test/test_ir_integer_division.ml", "test/test_integer_expression.ml", "test/cli/integer-division.hc", "test/cli/integer-division-unsigned.json", "test/cli/integer-division-zero.human", "test/cli/integer-division-zero.json", "test/cli/integer-division-overflow.human", "test/dune"]
-documentation = ["docs/integer-division.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-division.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 584
 ir_epic = 396
@@ -11177,7 +11177,7 @@ description = "Integer top-level statements and structured control flow run thro
 sources = ["Compiler/PrsStmt.HC:459-565", "Compiler/OptLib.HC:229-484", "Compiler/PrsExp.HC:49-52,225-230,728-759"]
 implementation = ["src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "bin/holyc.ml"]
 tests = ["test/test_integer_program.ml", "test/test_integer_program_cli.ml", "test/cli/integer-program.hc"]
-documentation = ["docs/integer-programs.md", "README.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md"]
+documentation = ["docs/integer-programs.md", "docs/compiler-status.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md"]
 status = "implemented"
 issue = 590
 ir_epic = 396
@@ -11256,7 +11256,7 @@ implementation = [
   "src/ir/integer_interpreter.ml", "src/holyc_lib.ml", "bin/holyc.ml"
 ]
 tests = ["test/test_integer_functions.ml", "test/test_integer_program_cli.ml", "test/test_ir_direct_call_lowering.ml", "examples/integer-function.hc", "test/dune"]
-documentation = ["docs/integer-functions.md", "docs/integer-programs.md", "docs/integer-function-frames.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-functions.md", "docs/integer-programs.md", "docs/integer-function-frames.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 597
 ir_epic = 396
@@ -11284,7 +11284,7 @@ description = "Checked returned integer words compose in source arithmetic, argu
 sources = ["Compiler/PrsExp.HC:438-586 independent argument trees, conversions, selected calls, cleanup and caller results", "Compiler/PrsLib.HC:107-111 COC stack insertion", "Compiler/PrsVar.HC:592-619 initializer restoration", "Compiler/PrsStmt.HC:1114-1117 declared return class"]
 implementation = ["src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_integer_nested_calls.ml", "test/test_integer_program_cli.ml", "examples/integer-nested-calls.hc", "test/dune"]
-documentation = ["docs/integer-nested-calls.md", "docs/integer-functions.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-nested-calls.md", "docs/integer-functions.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 599
 ir_epic = 396
@@ -11308,7 +11308,7 @@ description = "Ordinary scalar I64/U64 code-heap globals share persistent storag
 sources = ["Compiler/PrsExp.HC:867-902 global address forms and scalar class", "Compiler/PrsStmt.HC:334-410 allocation, initial bytes and publication", "Kernel/KStart32.HC:17-29 configurable JIT variable fill", "Compiler/PrsVar.HC:51-112 initializer phase boundary", "Kernel/KLoad.HC:153-181 main entry order"]
 implementation = ["src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "bin/holyc.ml"]
 tests = ["test/test_integer_globals.ml", "test/test_integer_program_cli.ml", "examples/integer-globals.hc", "test/dune"]
-documentation = ["docs/integer-globals.md", "docs/integer-functions.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-globals.md", "docs/integer-functions.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 601
 ir_epic = 396
@@ -11332,7 +11332,7 @@ description = "Scalar I64/U64 declaration initializers retain checked roots, bou
 sources = ["Compiler/PrsStmt.HC:409-433 publication before initialization", "Compiler/PrsVar.HC:51-112 constant preparation and nonconstant AOT IET_MAIN", "Compiler/CInit.HC:27-108 original-opcode constantness metadata", "Compiler/OptPass012.HC:66-68 constantness before rewrites", "Compiler/OptPass012.HC:403-430 constant division and divide-to-shift distinction", "Kernel/KLoad.HC:153-181 ordered main entries"]
 implementation = ["src/sema/top_level_expression_binding.ml", "src/sema/top_level_expression_tree.ml", "src/driver/global_initializer_binding.ml", "src/driver/top_level_expression_binding.ml", "src/driver/top_level_expression_tree.ml", "src/driver/integer_source.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/global_initialization.ml", "src/ir/integer_interpreter.ml", "bin/holyc.ml"]
 tests = ["test/test_integer_global_initializers.ml", "test/test_integer_globals.ml", "test/test_integer_program_cli.ml", "examples/integer-global-initializers.hc", "test/dune"]
-documentation = ["docs/integer-global-initializers.md", "docs/integer-globals.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-global-initializers.md", "docs/integer-globals.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 603
 ir_epic = 396
@@ -11358,7 +11358,7 @@ description = "Scalar I64/U64 compound assignments and prefix/postfix increment/
 sources = ["Compiler/PrsExp.HC:98-118,201-208 opcode selection and compound destination load removal", "Compiler/BackB.HC:304-385 prefix/postfix result order", "Compiler/BackA.HC:372-431,442-595,603-658 read/modify/write and destination-owned signedness", "Compiler/CInit.HC:54-59,88-97 update constant barriers", "Compiler/OptPass012.HC:827-854 compound strength reductions"]
 implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml"]
 tests = ["test/test_integer_updates.ml", "test/test_integer_program_cli.ml", "examples/integer-updates.hc", "test/dune"]
-documentation = ["docs/integer-updates.md", "docs/integer-programs.md", "docs/integer-global-initializers.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-updates.md", "docs/integer-programs.md", "docs/integer-global-initializers.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 605
 ir_epic = 396
@@ -11380,7 +11380,7 @@ description = "Persistent scalar I64/U64 static locals and constant initial imag
 sources = ["Compiler/PrsVar.HC:534-588 definition-time static code-heap allocation and AOT zero image", "Compiler/PrsExp.HC:776-784 canonical static addresses", "Compiler/PrsVar.HC:53-112,215-244 constant preparation and nonconstant phase boundary", "Compiler/PrsStmt.HC:160-184 containing-function publication"]
 implementation = ["src/ir/integer_statics.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/global_initialization.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/holyc_lib.mli"]
 tests = ["test/test_integer_statics.ml", "test/test_integer_functions.ml", "test/test_integer_globals.ml", "test/test_integer_updates.ml", "test/test_integer_program_cli.ml", "examples/integer-statics.hc", "test/dune"]
-documentation = ["docs/integer-statics.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-global-initializers.md", "docs/integer-updates.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-statics.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-global-initializers.md", "docs/integer-updates.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 607
 ir_epic = 396
@@ -11401,7 +11401,7 @@ description = "Nonconstant scalar static initializers execute at their declarati
 sources = ["Kernel/KTask.HC:338-351 JIT statement execution", "Compiler/PrsVar.HC:53-112,215-244 initializer phase and AOT option deferral", "Compiler/CMain.HC:82-90,513-531 MAIN ordering", "Kernel/KLoad.HC:158-165 MAIN calls", "Compiler/PrsStmt.HC:160-184 function publication"]
 implementation = ["src/ir/global_initialization.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml"]
 tests = ["test/test_integer_static_initializers.ml", "test/test_integer_statics.ml", "test/test_integer_program_cli.ml", "examples/integer-static-initializers.hc", "test/dune"]
-documentation = ["docs/integer-static-initializers.md", "docs/integer-statics.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-global-initializers.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-static-initializers.md", "docs/integer-statics.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-global-initializers.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 609
 ir_epic = 396
@@ -11421,7 +11421,7 @@ description = "Checked one-level I64/U64 pointer locals and fixed parameters ali
 sources = ["Compiler/PrsExp.HC:151-161 address/dereference cancellation", "Compiler/OptPass789A.HC:461-464 address forwarding", "Compiler/PrsExp.HC:776-784,800-802,877-896 static/frame/global addresses", "Compiler/OptPass3.HC:519-543 escaped addresses prevent register promotion", "Compiler/BackLib.HC:693-707 loads", "Compiler/BackC.HC:159-204 stores", "Compiler/PrsExp.HC:201-208 and Compiler/BackA.HC:555-566 update order", "Compiler/PrsExp.HC:40-45 pointer scaling", "Compiler/CInit.HC:49 constant barrier"]
 implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/expression_lowering.mli", "src/ir/integer_interpreter.mli", "src/holyc_lib.mli"]
 tests = ["test/test_integer_pointers.ml", "test/test_integer_program_cli.ml", "examples/integer-pointers.hc", "test/dune"]
-documentation = ["docs/integer-pointers.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-globals.md", "docs/integer-statics.md", "docs/integer-static-initializers.md", "docs/integer-global-initializers.md", "docs/integer-updates.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-pointers.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-globals.md", "docs/integer-statics.md", "docs/integer-static-initializers.md", "docs/integer-global-initializers.md", "docs/integer-updates.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 611
 ir_epic = 396
@@ -11442,7 +11442,7 @@ description = "Automatic I64/U64 arrays and indexed lvalues share the source exe
 sources = ["Compiler/PrsVar.HC:247-281,532,590-615", "Compiler/PrsExp.HC:72,97-118,151-161,201-208,470-484,739-746,766-774,1055-1098", "Compiler/BackA.HC:555-566"]
 implementation = ["src/driver/function_call_resolution.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_integer_arrays.ml", "test/test_function_call_expression_result.ml", "test/test_integer_program_cli.ml", "examples/integer-arrays.hc"]
-documentation = ["docs/integer-arrays.md", "docs/integer-pointers.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-function-frames.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-arrays.md", "docs/integer-pointers.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-function-frames.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 613
 ir_epic = 396
@@ -11461,7 +11461,7 @@ description = "Automatic U8 scalars, arrays and exact pointer aliases use byte-w
 sources = ["Compiler/CInit.HC:3-14", "Compiler/PrsVar.HC:247-281,532,590-606", "Compiler/PrsExp.HC:72,97-118,151-161,201-208,470-484,739-746,766-774,1055-1098", "Compiler/BackLib.HC:453-572", "Compiler/BackC.HC:159-204", "Compiler/OptLib.HC:96-179", "Compiler/OptPass012.HC:180-192,866-896"]
 implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_integer_bytes.ml", "test/test_integer_program_cli.ml", "examples/integer-bytes.hc"]
-documentation = ["docs/integer-bytes.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-bytes.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 615
 ir_epic = 396
@@ -11483,7 +11483,7 @@ description = "Canonical string literal IR owns mutable terminated byte objects 
 sources = ["Compiler/CInit.HC:9", "Compiler/AsmInit.HC:197-206", "Compiler/PrsExp.HC:693-694", "Compiler/LexLib.HC:248-274", "Compiler/PrsLib.HC:143,298-308", "Compiler/PrsStmt.HC:150-189", "Compiler/OptPass789A.HC:1098-1105"]
 implementation = ["src/sema/type.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "bin/holyc.ml"]
 tests = ["test/test_integer_strings.ml", "test/test_integer_program_cli.ml", "examples/integer-strings.hc"]
-documentation = ["docs/integer-strings.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-strings.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 617
 ir_epic = 396
@@ -11506,7 +11506,7 @@ description = "Checked U0 source calls preserve effects and caller continuation 
 sources = ["Compiler/PrsExp.HC:530-588", "Compiler/PrsStmt.HC:150-169,1110-1119", "Kernel/KExts.HC:83-84"]
 implementation = ["src/ir/integer_interpreter.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml"]
 tests = ["test/test_integer_u0.ml", "test/test_integer_program_cli.ml", "examples/integer-u0.hc"]
-documentation = ["docs/integer-u0.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-u0.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 619
 ir_epic = 396
@@ -11527,7 +11527,7 @@ description = "Checked Print/PutChars calls and implicit statements capture byte
 sources = ["Kernel/KExts.HC:83-84", "Compiler/PrsExp.HC:530-588", "Kernel/StrPrint.HC:364-365,390-411,433-434,869-895", "Kernel/KeyDev.HC:1-25"]
 implementation = ["src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/driver/integer_program_report.ml", "src/driver/integer_execution_diagnostics.ml", "src/ir/direct_call_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_output.ml", "src/ir/integer_statics.ml", "src/holyc_lib.ml", "bin/holyc.ml", "bin/run_report.ml"]
 tests = ["test/test_integer_output.ml", "test/test_integer_program.ml", "test/test_integer_program_cli.ml", "examples/integer-output.hc", "examples/integer-putchars.hc"]
-documentation = ["docs/integer-output.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-output.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 621
 ir_epic = 396
@@ -11550,7 +11550,7 @@ description = "Canonical callable identities execute checked source definitions 
 sources = ["Compiler/PrsStmt.HC:62-109,110-137,151-190", "Compiler/PrsExp.HC:545-586", "Compiler/LexLib.HC:157-180", "Compiler/PrsStmt.HC:124-135"]
 implementation = ["src/ir/function_body.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/driver/integer_initializers.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_conversion_policy.ml", "src/sema/function_call_expression_result.ml", "src/sema/function_frame_layout.ml"]
 tests = ["test/test_integer_joined_definitions.ml", "test/test_integer_program_cli.ml", "examples/integer-joined-definitions.hc"]
-documentation = ["docs/integer-joined-definitions.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/intermediate-representation.md", "docs/integer-output.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-joined-definitions.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/intermediate-representation.md", "docs/integer-output.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 623
 ir_epic = 396
@@ -11572,7 +11572,7 @@ description = "Scalar U8 globals and static locals share checked persistent imag
 sources = ["Compiler/CInit.HC:3-14", "Compiler/PrsStmt.HC:285-296,334-385,390-435", "Compiler/PrsVar.HC:101-107,200-204,530-588", "Compiler/BackC.HC:159-204", "Compiler/BackLib.HC:453-572"]
 implementation = ["src/ir/integer_scalar_storage.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_integer_persistent_bytes.ml", "test/test_integer_program_cli.ml", "examples/integer-persistent-bytes.hc"]
-documentation = ["docs/integer-persistent-bytes.md", "docs/integer-programs.md", "docs/integer-bytes.md", "docs/integer-globals.md", "docs/integer-statics.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-persistent-bytes.md", "docs/integer-programs.md", "docs/integer-bytes.md", "docs/integer-globals.md", "docs/integer-statics.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 625
 ir_epic = 396
@@ -11593,7 +11593,7 @@ description = "Fixed I64/U64/U8 global and static arrays retain checked shapes, 
 sources = ["Compiler/PrsVar.HC:1-113,123-204,247-281,530-588", "Compiler/PrsStmt.HC:285-296,334-435", "Compiler/PrsExp.HC:679-685,1069-1098,1140-1151", "Compiler/LexLib.HC:248-275", "Compiler/OptLib.HC:96-179", "Compiler/OptPass012.HC:153-191,211-217,403-445,809-822"]
 implementation = ["src/sema/initializer_source.ml", "src/sema/global_array_layout.ml", "src/sema/closed_layout_expression.ml", "src/sema/function_frame_layout.ml", "src/sema/top_level_expression_tree.ml", "src/sema/function_call_resolution.ml", "src/driver/global_array_layout.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/ir/integer_storage_shape.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_array_initializers.ml", "src/ir/initializer_publication.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/global_initialization.ml", "src/ir/global_address_lowering.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_integer_persistent_arrays.ml", "test/test_integer_array_safety.ml", "test/test_initializer_leaf_evidence.ml", "test/test_persistent_extent_values.ml", "test/test_global_array_layout.ml", "test/test_function_frame_layout.ml", "test/test_integer_program_cli.ml", "examples/integer-persistent-arrays.hc"]
-documentation = ["docs/integer-persistent-arrays.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-persistent-arrays.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 627
 ir_epic = 396
@@ -11614,7 +11614,7 @@ description = "Checked U8 compound and prefix/postfix execution separates full r
 sources = ["Compiler/PrsExp.HC:98-118,201-208,235-241", "Compiler/BackA.HC:285-423,442-658", "Compiler/BackB.HC:304-380", "Compiler/BackLib.HC:285-296,509-535", "Compiler/BackC.HC:539-600", "Compiler/OptPass012.HC:630-637,828-853", "Compiler/OptPass3.HC:29-35,187-198,238-243,524-610", "Compiler/OptPass4.HC:243-275,348-434,541-545", "Compiler/PrsVar.HC:492-494", "Compiler/CInit.HC:54-59,88-97"]
 implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/integer_update_initializers.ml", "src/sema/function_frame_layout.ml"]
 tests = ["test/test_integer_byte_updates.ml", "test/test_integer_updates.ml", "test/test_integer_program_cli.ml", "examples/integer-byte-updates.hc"]
-documentation = ["docs/integer-byte-updates.md", "docs/integer-updates.md", "docs/integer-bytes.md", "docs/integer-persistent-bytes.md", "docs/integer-persistent-arrays.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-byte-updates.md", "docs/integer-updates.md", "docs/integer-bytes.md", "docs/integer-persistent-bytes.md", "docs/integer-persistent-arrays.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 629
 ir_epic = 396
@@ -11636,7 +11636,7 @@ description = "Checked U8 numeric parameters narrow at entry within eight-byte A
 sources = ["Compiler/PrsExp.HC:468-483", "Compiler/BackLib.HC:312-347,528-530", "Compiler/OptPass789A.HC:710-717,779-782,1026-1030", "Compiler/OptPass3.HC:29-35,249-258,524-610"]
 implementation = ["src/ir/integer_interpreter.ml", "src/driver/integer_update_initializers.ml"]
 tests = ["test/test_integer_byte_signatures.ml", "test/test_integer_program_cli.ml", "examples/integer-byte-signatures.hc"]
-documentation = ["docs/integer-byte-signatures.md", "docs/integer-functions.md", "docs/integer-bytes.md", "docs/integer-byte-updates.md", "docs/testing.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-byte-signatures.md", "docs/integer-functions.md", "docs/integer-bytes.md", "docs/integer-byte-updates.md", "docs/testing.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 631
 ir_epic = 396
@@ -11658,7 +11658,7 @@ description = "Public AOT source execution connects real task streams to a compl
 sources = ["Kernel/KTask.HC:337-344", "Compiler/PrsStmt.HC:805-841,1182-1211", "Compiler/PrsExp.HC:810-812", "Compiler/CMisc.HC:68-80"]
 implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_program.ml", "src/driver/integer_program_report.ml", "src/driver/integer_task.ml", "src/driver/integer_unit.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml", "bin/run_report.ml"]
 tests = ["test/test_aot_source_execution.ml", "test/test_task_progress.ml", "test/test_integer_program_cli.ml", "examples/stateful-exe-aot.hc"]
-documentation = ["docs/integer-task.md", "CHANGELOG.md"]
+documentation = ["docs/integer-task.md", "docs/changelog.md"]
 status = "implemented"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11674,7 +11674,7 @@ description = "A retained task implements the parser's stream callback with real
 sources = ["Kernel/KTask.HC:337-344", "Compiler/PrsStmt.HC:805-841,1182-1211", "Compiler/PrsExp.HC:810-812", "Compiler/CMisc.HC:68-80"]
 implementation = ["src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_task_parser_executor.ml", "test/test_task_stream.ml", "test/test_task_command_order.ml"]
-documentation = ["docs/integer-task.md", "CHANGELOG.md"]
+documentation = ["docs/integer-task.md", "docs/changelog.md"]
 status = "implemented"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11690,7 +11690,7 @@ description = "Checked StreamExePrint formats source and executes it through the
 sources = ["Compiler/CMain.HC:673-690", "Compiler/CompilerB.HH:21", "Compiler/CMain.HC:572-604", "Compiler/PrsStmt.HC:805-840"]
 implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_output.ml", "src/ir/runtime_call_context.ml"]
 tests = ["test/test_stateful_exe.ml", "test/test_stateful_exe_cli.ml", "test/test_task_parser_executor.ml", "test/test_task_command_order.ml"]
-documentation = ["docs/integer-task.md", "docs/retained-aggregates.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+documentation = ["docs/integer-task.md", "docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/changelog.md"]
 status = "implemented"
 issue = 684
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11707,7 +11707,7 @@ description = "Task source commands retain parser resume order and exact compile
 sources = ["Kernel/KTask.HC:337-344", "Compiler/PrsStmt.HC:805-841,1209-1211"]
 implementation = ["src/sema/task_command_order.ml", "src/driver/task_declarations.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_task_command_order.ml", "test/test_task_declarations.ml", "test/test_integer_task.ml"]
-documentation = ["docs/integer-task.md", "CHANGELOG.md"]
+documentation = ["docs/integer-task.md", "docs/changelog.md"]
 status = "implemented"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11722,7 +11722,7 @@ description = "I8/I16/U16/I32/U32 share generated storage descriptors, full regi
 sources = ["Kernel/KernelA.HH:1566-1571", "Compiler/BackLib.HC:281-309,509-534,550-572", "Compiler/OptPass789A.HC:710-717,779-782,1026-1030", "Compiler/PrsVar.HC:132-134,314", "Compiler/PrsExp.HC:116,149-161,586", "Compiler/OptLib.HC:9-14,101-122,196-202", "Compiler/OptPass012.HC:151-191", "Compiler/BackA.HC:373-423,447-453,604-658", "Compiler/BackB.HC:304-380", "Compiler/BackC.HC:539-600", "Compiler/OptPass3.HC:29-35,524-610", "Compiler/OptPass4.HC:389-397"]
 implementation = ["src/ir/integer_scalar_storage.ml", "src/ir/integer_storage_shape.ml", "src/ir/integer_array_initializers.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_unary_folding.ml", "src/driver/integer_update_initializers.ml", "src/sema/integer_computation_class.ml", "src/sema/function_call_expression_result.ml"]
 tests = ["test/test_integer_narrow.ml", "test/test_integer_expression.ml", "test/test_ir_integer_unary_folding.ml", "test/test_integer_program_cli.ml", "examples/integer-narrow.hc"]
-documentation = ["docs/integer-narrow.md", "docs/integer-functions.md", "docs/testing.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+documentation = ["docs/integer-narrow.md", "docs/integer-functions.md", "docs/testing.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/changelog.md"]
 status = "implemented"
 issue = 633
 ir_epic = 396
@@ -11761,7 +11761,7 @@ description = "Original named aggregate publications retain completed primitive-
 sources = ["Compiler/PrsStmt.HC:1-59", "Compiler/PrsVar.HC:660-682"]
 implementation = ["src/frontend/parser.ml", "src/sema/declaration_collection.ml", "src/sema/compiler_record.ml", "src/sema/aggregate_layout_core.ml", "src/sema/aggregate_layout.ml", "src/sema/source_aggregate_layout.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/aggregate_layout.ml", "src/driver/integer_source.ml", "src/driver/integer_task.ml", "src/driver/integer_unit.ml"]
 tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregates.hc"]
-documentation = ["docs/retained-aggregates.md", "docs/integer-task.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+documentation = ["docs/retained-aggregates.md", "docs/integer-task.md", "docs/reference-source-map.md", "docs/changelog.md"]
 status = "partial"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11777,7 +11777,7 @@ description = "Original member phases advance retained class/union size snapshot
 sources = ["Compiler/PrsStmt.HC:1-59", "Compiler/PrsVar.HC:408-494,660-721", "Compiler/PrsExp.HC:303-348"]
 implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/aggregate_layout_core.ml", "src/sema/source_aggregate_layout.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml"]
 tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregate-phases.hc"]
-documentation = ["docs/retained-aggregates.md", "docs/integer-task.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+documentation = ["docs/retained-aggregates.md", "docs/integer-task.md", "docs/reference-source-map.md", "docs/changelog.md"]
 status = "partial"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11793,7 +11793,7 @@ description = "Prepare original closed aggregate offset expressions once and adv
 sources = ["Compiler/PrsVar.HC:408-449", "Compiler/PrsStmt.HC:50-57", "Compiler/PrsExp.HC:303-348,1117-1178"]
 implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/source_aggregate_layout.ml", "src/sema/aggregate_layout_core.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/aggregate_layout.ml", "src/driver/integer_source.ml", "src/driver/integer_unit.ml", "src/driver/integer_source_execution.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregate-offsets.hc"]
-documentation = ["docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/integer-task.md", "CHANGELOG.md"]
+documentation = ["docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/integer-task.md", "docs/changelog.md"]
 status = "partial"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11809,7 +11809,7 @@ description = "Execute original typed integer aggregate offset fragments in thei
 sources = ["Compiler/PrsVar.HC:408-449", "Compiler/PrsVar.HC:526-618", "Compiler/PrsVar.HC:701-724", "Compiler/LexLib.HC:103-149", "Compiler/PrsStmt.HC:1158-1164", "Compiler/PrsExp.HC:707-721", "Compiler/PrsLib.HC:62-77", "Compiler/LexLib.HC:209-220", "Compiler/PrsStmt.HC:67-143", "Compiler/PrsExp.HC:1117-1178", "Compiler/PrsStmt.HC:805-841", "Compiler/OptPass012.HC:693-706"]
 implementation = ["src/frontend/parser.ml", "src/sema/function_record_phase.ml", "src/sema/offset_fragment.ml", "src/sema/compiler_record.ml", "src/driver/initializer_fragment_typing.ml", "src/driver/offset_fragment_lowering.ml", "src/driver/integer_initializers.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/offset_fragment_destination.ml", "src/ir/offset_fragment_program.ml", "src/ir/offset_requirements.ml", "src/ir/integer_interpreter.ml"]
 tests = ["examples/stateful-exe-frame-positions.hc", "test/test_function_record_phase.ml", "test/test_provisional_function_parser.ml", "examples/stateful-exe-function-positions.hc", "test/test_retained_aggregates.ml", "test/runtime_offset_authority/test_runtime_offset_authority.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-runtime-aggregate-offsets.hc", "examples/stateful-exe-runtime-offset-positions.hc", "examples/stateful-exe-shared-positions.hc"]
-documentation = ["docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/integer-task.md", "CHANGELOG.md"]
+documentation = ["docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/integer-task.md", "docs/changelog.md"]
 status = "partial"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11825,7 +11825,7 @@ description = "Retain original runtime array-dimension dependencies through name
 sources = ["Compiler/PrsVar.HC:247-283", "Compiler/PrsVar.HC:423-449", "Compiler/PrsVar.HC:526-618", "Compiler/PrsVar.HC:701-724", "Compiler/PrsStmt.HC:1158-1164", "Compiler/PrsExp.HC:707-721"]
 implementation = ["src/sema/compiler_record.ml", "src/sema/offset_fragment.ml", "src/ir/dimension_requirements.ml", "src/ir/integer_interpreter.ml"]
 tests = ["examples/stateful-exe-runtime-frame-positions.hc", "test/test_runtime_frame_positions.ml", "test/test_stateful_exe_cli.ml", "test/dimension_authority/test_dimension_activation.ml", "test/runtime_offset_authority/test_runtime_offset_authority.ml"]
-documentation = ["docs/retained-aggregates.md", "docs/integer-runtime-dimensions.md", "docs/integer-task.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+documentation = ["docs/retained-aggregates.md", "docs/integer-runtime-dimensions.md", "docs/integer-task.md", "docs/reference-source-map.md", "docs/changelog.md"]
 status = "partial"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11847,7 +11847,7 @@ sources = [
 ]
 implementation = ["src/frontend/parser.ml", "src/frontend/parser.mli", "src/frontend/symbol_visibility.ml", "src/frontend/symbol_visibility.mli", "src/driver/session.ml", "src/sema/declaration_collection.ml", "src/sema/declaration_collection.mli", "src/sema/aggregate_resolution.ml", "src/sema/aggregate_resolution.mli", "src/driver/aggregate_resolution.ml", "src/driver/aggregate_resolution.mli", "src/driver/aggregate_layout.ml", "src/driver/member_type_resolution.ml", "src/sema/source_type_reference.ml", "src/sema/source_type_reference.mli", "src/sema/function_type_resolution.ml", "src/sema/function_type_resolution.mli", "src/driver/function_type_resolution.ml", "src/driver/function_type_resolution.mli", "src/driver/task_declarations.ml", "src/driver/task_declarations.mli", "src/driver/integer_source.ml", "src/sema/compiler_record.ml", "src/ir/integer_interpreter.ml", "src/holyc_lib.ml", "src/holyc_lib.mli"]
 tests = ["test/test_retained_named_aggregate.ml", "test/test_provisional_function_types.ml", "test/test_completed_function_header.ml", "test/test_aggregate_resolution.ml", "test/test_module_expression_binding.ml", "test/test_symbol_visibility.ml", "test/test_stateful_exe_cli.ml", "test/test_main.ml", "test/dune", "examples/stateful-exe-named-type-selection.hc"]
-documentation = ["docs/retained-named-types.md", "docs/completed-function-headers.md", "docs/provisional-function-members.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "README.md", "REFERENCE_SOURCES.md", "CHANGELOG.md"]
+documentation = ["docs/retained-named-types.md", "docs/completed-function-headers.md", "docs/provisional-function-members.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/reference-sources.md", "docs/changelog.md"]
 status = "partial"
 issue = 650
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11875,7 +11875,7 @@ sources = [
 ]
 implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "src/hosted/native_expression.ml", "src/hosted/native_expression.mli", "src/holyc_lib.ml", "src/holyc_lib.mli", "bin/holyc.ml", "bin/native_report.ml"]
 tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "test/dune", "examples/native-integer-expression.hc", "tools/test-version-metadata.ps1", ".github/workflows/ci.yml"]
-documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/architecture.md", "docs/reference-sources.md", "docs/roadmap.md", "docs/SECURITY.md", "docs/changelog.md"]
 status = "implemented"
 issue = 642
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11901,7 +11901,7 @@ sources = [
 ]
 implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli"]
 tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "examples/native-integer-predicates.hc"]
-documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "CHANGELOG.md"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/reference-sources.md", "docs/roadmap.md", "docs/changelog.md"]
 status = "implemented"
 issue = 644
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11926,7 +11926,7 @@ sources = [
 ]
 implementation = ["src/ir/expression_lowering.ml", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli"]
 tests = ["test/test_ir_comparison_chains.ml", "test/test_integer_nested_calls.ml", "test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "examples/native-integer-logical.hc"]
-documentation = ["docs/native-expressions.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "CHANGELOG.md"]
+documentation = ["docs/native-expressions.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/architecture.md", "docs/reference-sources.md", "docs/roadmap.md", "docs/changelog.md"]
 status = "implemented"
 issue = 646
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11951,7 +11951,7 @@ sources = [
 ]
 implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/hosted/native_expression.ml", "src/hosted/native_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "bin/holyc.ml", "bin/native_report.ml"]
 tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/native/dune", "examples/native-integer-spills.hc"]
-documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/architecture.md", "docs/reference-sources.md", "docs/roadmap.md", "docs/SECURITY.md", "docs/changelog.md"]
 status = "implemented"
 issue = 648
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -11975,7 +11975,7 @@ sources = [
 ]
 implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli"]
 tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "examples/native-integer-shifts.hc"]
-documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "REFERENCE_SOURCES.md", "CHANGELOG.md"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/reference-sources.md", "docs/changelog.md"]
 status = "implemented"
 issue = 652
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -12031,12 +12031,12 @@ documentation = [
   "docs/testing.md",
   "docs/compatibility.md",
   "docs/reference-source-map.md",
-  "README.md",
-  "ARCHITECTURE.md",
-  "REFERENCE_SOURCES.md",
-  "ROADMAP.md",
-  "SECURITY.md",
-  "CHANGELOG.md"
+  "docs/compiler-status.md",
+  "docs/architecture.md",
+  "docs/reference-sources.md",
+  "docs/roadmap.md",
+  "docs/SECURITY.md",
+  "docs/changelog.md"
 ]
 status = "implemented"
 issue = 654
@@ -12088,7 +12088,7 @@ tests = [
 documentation = [
   "docs/native-programs.md", "docs/native-expressions.md", "docs/integer-programs.md",
   "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md",
-  "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+  "docs/compiler-status.md", "docs/architecture.md", "docs/reference-sources.md", "docs/roadmap.md", "docs/SECURITY.md", "docs/changelog.md"
 ]
 status = "implemented"
 issue = 657
@@ -12136,7 +12136,7 @@ tests = [
 documentation = [
   "docs/native-programs.md", "docs/native-expressions.md", "docs/integer-programs.md",
   "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md",
-  "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+  "docs/compiler-status.md", "docs/architecture.md", "docs/reference-sources.md", "docs/roadmap.md", "docs/SECURITY.md", "docs/changelog.md"
 ]
 status = "implemented"
 issue = 659
@@ -12189,8 +12189,8 @@ tests = [
 ]
 documentation = [
   "docs/native-defaults.md", "docs/native-programs.md", "docs/testing.md",
-  "docs/compatibility.md", "docs/reference-source-map.md", "README.md",
-  "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+  "docs/compatibility.md", "docs/reference-source-map.md", "docs/compiler-status.md",
+  "docs/architecture.md", "docs/reference-sources.md", "docs/roadmap.md", "docs/SECURITY.md", "docs/changelog.md"
 ]
 status = "implemented"
 issue = 660
@@ -12234,7 +12234,7 @@ tests = [
 documentation = [
   "docs/native-scalars.md", "docs/native-programs.md", "docs/native-defaults.md",
   "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md",
-  "README.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+  "docs/compiler-status.md", "docs/roadmap.md", "docs/SECURITY.md", "docs/changelog.md"
 ]
 status = "implemented"
 issue = 663
@@ -12281,7 +12281,7 @@ tests = [
 documentation = [
   "docs/integer-goto.md", "docs/integer-programs.md", "docs/native-programs.md",
   "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md",
-  "README.md", "ARCHITECTURE.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+  "docs/compiler-status.md", "docs/architecture.md", "docs/roadmap.md", "docs/SECURITY.md", "docs/changelog.md"
 ]
 status = "implemented"
 issue = 664
@@ -12335,7 +12335,7 @@ tests = [
 documentation = [
   "docs/integer-switch.md", "docs/integer-programs.md", "docs/native-programs.md",
   "docs/integer-goto.md", "docs/reference-source-map.md", "docs/compatibility.md",
-  "docs/testing.md", "README.md", "ARCHITECTURE.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+  "docs/testing.md", "docs/compiler-status.md", "docs/architecture.md", "docs/roadmap.md", "docs/SECURITY.md", "docs/changelog.md"
 ]
 status = "implemented"
 issue = 668
@@ -12346,8 +12346,70 @@ identity = "private parser receipts retain exact switch/endpoint/predecessor/sou
 dispatch = "single-evaluated selector normalized to internal I64 via zero addition or U64 word view; internal I64 immediate low, subtraction, immediate range and canonical IC_SWITCH(adjusted,range) with ordered payload default plus range entries; graph checks producer shape, cardinality and targets, retaining repeated destinations; unsigned bounds select default before indexing or bounded native branches; native emission groups consecutive equal destinations, with allocation-free group counting before machine planning and exact encoded-byte quotas"
 resources = "positive max_switch_work defaults100000 and counts reached numeric node visits independently of initializer/dimension/runtime work; nested source tasks share the invocation budget; total dense dispatch slots including defaults are capped at65536 before expansion, separately from per-switch source range65535; existing native code/block/frame/depth/stack bounds remain in force"
 reporting = "source/native report getters preserve reached switch work on failure; v2 switch_work_limit and switch_preparation_work are additive fields; each reached dispatch retains one IC instruction meter and original source/fault site despite machine expansion"
-excluded = ["no-bound bracket dispatch", "sub-switch front porch/start/end execution", "multiple-default execution", "effectful case evaluation and unsupported reference/query forms", "floating selectors and general conversion/optimizer parity", "native declaration/#exe execution and full HolyC ABI", "object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
+excluded = ["floating selectors and general conversion/optimizer parity", "full HolyC ABI", "object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
 verification_boundary = "source-derived expected values, private ownership/phase checks, canonical graph validation and explicit own-encoder native API/CLI tests; finite numeric conversion guards, preparation meters, table limits and checked faults are hosted policy, not new TempleOS oracle captures"
+
+[[feature]]
+id = "HC-SWITCH-REGIONS-AND-RUNTIME-CASES"
+description = "Bracket dispatch, repeated defaults, source-owned setup regions and current-task scalar case preparation execute through checked IR and native code."
+sources = [
+  "Compiler/PrsStmt.HC:578-789 bracket selection, shared case/default ownership, original endpoint evaluation, start/end local calls, fallthrough bypasses and nearest region breaks",
+  "Compiler/PrsExp.HC:1117-1151 compile and call the original case expression before following delimiter validation",
+  "Compiler/BackC.HC:602-771 bounded and no-bound table dispatch",
+  "Compiler/OptPass789A.HC:286-295 final emitted address of a shared label",
+  "Compiler/OpCodes.DD:164 default keyword and KW_DFT enum",
+  "Doc/HolyC.DD:128 warning against nonlocal exits from setup prefixes"
+]
+implementation = [
+  "src/frontend/parser.ml", "src/driver/break_resolution.ml",
+  "src/sema/integer_switch_preparation.ml", "src/sema/integer_switch_preparation.mli",
+  "src/sema/switch_case_fragment.ml", "src/sema/switch_case_fragment.mli",
+  "src/sema/source_activation.ml", "src/sema/task_command_order.ml",
+  "src/sema/top_level_expression_tree.ml", "src/sema/top_level_expression_binding.ml",
+  "src/driver/task_declarations.ml", "src/driver/integer_unit.ml",
+  "src/driver/integer_task.ml", "src/driver/integer_source_execution.ml",
+  "src/driver/initializer_fragment_typing.ml", "src/driver/integer_initializers.ml",
+  "src/driver/switch_case_fragment_lowering.ml",
+  "src/driver/default_fragment_lowering.ml", "src/driver/dimension_fragment_lowering.ml",
+  "src/driver/internal_binding_fragment_lowering.ml", "src/driver/offset_fragment_lowering.ml",
+  "src/driver/initializer_fragment_lowering.ml",
+  "src/ir/switch_case_fragment_destination.ml", "src/ir/switch_case_fragment_program.ml",
+  "src/ir/integer_globals.ml", "src/ir/integer_program_lowering.ml",
+  "src/ir/control_flow.ml", "src/ir/instruction_sequence.ml", "src/ir/block_graph.ml",
+  "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml",
+  "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml",
+  "src/ir/native_source_suspension.ml", "src/ir/native_source_suspension.mli",
+  "src/native_execution_stubs.c",
+  "src/hosted/native_program.ml", "src/hosted/native_source_execution.ml", "bin/run_report.ml"
+]
+tests = [
+  "test/switch_extension_cases.ml", "test/test_switch_extensions.ml",
+  "test/test_switch_runtime_authority.ml",
+  "test/test_ir_control_flow.ml", "test/test_ir_switch_dispatch.ml",
+  "test/test_integer_switch_preparation.ml", "test/test_integer_switch_execution.ml",
+  "test/test_switch_callback_lifetime.ml", "test/native/test_native_switch_extensions.ml",
+  "test/native/test_native_switch_execution.ml", "test/native/test_native_switch_cli.ml",
+  "test/native/test_native_stream_generation.ml",
+  "examples/switch-regions.hc", "examples/switch-case-effects.hc"
+]
+documentation = [
+  "docs/integer-switch.md", "docs/compiler-status.md", "docs/integer-programs.md",
+  "docs/native-programs.md", "docs/integer-goto.md", "docs/architecture.md",
+  "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md",
+  "docs/changelog.md", "docs/roadmap.md", "docs/SECURITY.md"
+]
+status = "implemented"
+issue = 691
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "scalar bracket and bounded selectors, repeated default labels and nested start/end regions in JIT/AOT; current-task scalar case effects and original selected query values; isolated native and ordinary AOT effectful cases require their own source execution authority"
+identity = "original switch/case/default/subswitch AST objects and exact parser endpoint/predecessor receipts; runtime endpoints bind one tracker, namespace, task environment, selected references and queries; once-only native requests and captures bind the exact program, image and arena"
+control = "one setup body with explicit entry/continuation calls; direct case/default entry calls outer-to-inner prefixes; textual fallthrough bypasses setup calls at subsequent labels; nearest region break reaches end suffix; repeated defaults dispatch to the last source placement"
+representation = "canonical IC_NOBOUND_SWITCH shares checked table shape with IC_SWITCH; IC_SUB_CALL carries exact entry and continuation targets; local IC_RET carries allowed continuations; graph rejects malformed or unowned targets; interpreter and native per-activation stacks enforce active continuation identity"
+preparation = "runtime scalar endpoints execute at their current original callback before colon validation and are captured once, including unused definitions; activation evaluates only the trailing pending endpoint and never reexecutes earlier closed results; failures retain reached work and effects and stop later endpoints"
+resources = "shared switch preparation allowance counts reached closed nodes or runtime preparation and execution; nested source instructions charge once at live fragment and source callback boundaries, and resumed callers receive the reduced allowance without inflating executed instruction counters; native scalar preparation reserves unpaid inclusive phase work before child compilation and divides physical instruction allowance across active paid phases; original C suspension scopes can only reduce physical remaining steps and expire before resumption; independent cumulative table slots, native bytes, graph blocks, frame and runtime limits remain checked; native local continuations use fixed-frame tokens without changing RSP after prologue"
+hosted_boundaries = ["HCSW0005 for bracket selectors outside the prepared table", "HCSW0006 for unavailable local continuation", "HCRUN0001 for nonlocal setup exits or current automatic locals in case preparation", "HCSW0001 for inclusive ranges ending at I64_MAX", "HCRUN0006 for effectful endpoints without current-task execution authority", "unsupported current compiler position in case expressions"]
+excluded = ["general floating selectors or effectful floating case expressions", "general conversions and full ABI/optimizer parity", "object/BIN writing, loader acceptance, whole-tree compilation and bootstrap"]
+verification_boundary = "pinned source-derived expectations and public checked-IR/native execution; source receipt checks, private continuation storage and checked host faults are explicit hosted policies, with no new TempleOS oracle capture"
 
 [[feature]]
 id = "HC-NATIVE-SCALAR-GLOBALS"
@@ -12355,7 +12417,7 @@ description = "Ordinary scalar globals execute through checked symbolic addresse
 sources = ["Compiler/PrsExp.HC:867-902", "Compiler/PrsStmt.HC:285-435", "Compiler/BackLib.HC:281-309,453-572", "Compiler/BackC.HC:159-204"]
 implementation = ["src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml", "src/ir/integer_globals.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "bin/run_report.ml"]
 tests = ["test/test_native_expression.ml", "test/test_native_program.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-scalar-globals.hc"]
-documentation = ["docs/native-globals.md", "docs/native-programs.md", "SECURITY.md", "docs/testing.md"]
+documentation = ["docs/native-globals.md", "docs/native-programs.md", "docs/SECURITY.md", "docs/testing.md"]
 status = "implemented"
 issue = 667
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -12370,7 +12432,7 @@ description = "Closed scalar globals prepare once at their original leaf callbac
 sources = ["Compiler/PrsVar.HC:1-115,206-212", "Compiler/PrsStmt.HC:285-435"]
 implementation = ["src/driver/task_declarations.ml", "src/driver/native_default_preparation.ml", "src/driver/integer_initializers.ml", "src/driver/integer_unit.ml", "src/driver/native_global_initializers.ml", "src/sema/initializer_fragment.ml", "src/backend/x86_64_global_storage.ml", "src/hosted/native_program.ml"]
 tests = ["test/native_initializer_authority/test_native_initializer_authority.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-scalar-initializers.hc"]
-documentation = ["docs/native-globals.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "SECURITY.md"]
+documentation = ["docs/native-globals.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "docs/SECURITY.md"]
 status = "implemented"
 issue = 673
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -12388,7 +12450,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsVar.HC:492-495", "Compiler/PrsVar.HC:534-589", "Compiler/PrsStmt.HC:1067-1068", "Compiler/PrsStmt.HC:1160-1161"]
 implementation = ["src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml", "src/driver/native_global_initializers.ml", "src/ir/integer_globals.ml"]
 tests = ["test/test_native_program.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-scalar-statics.hc"]
-documentation = ["docs/native-globals.md", "docs/native-defaults.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "SECURITY.md"]
+documentation = ["docs/native-globals.md", "docs/native-defaults.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "docs/SECURITY.md"]
 semantics = "Uninitialized scalar statics share exact owned arena objects across direct and recursive calls; separate executions restore AOT zero or hosted JIT unknown state. Declared widths control accesses and each static allocation rounds to eight bytes."
 authority = "Exact symbol, checked type, frame/location and unique supplied definition; complete static location coverage; address access restricted to the owning compiled body."
 resources = "Padded unused statics count toward max_global_bytes before native entry; one flag per object counts toward the separate arena cap; semantic activation frames and instruction work remain independent."
@@ -12403,7 +12465,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsVar.HC:51-112", "Compiler/PrsVar.HC:215-228", "Compiler/PrsVar.HC:555-585"]
 implementation = ["src/frontend/parser.ml", "src/sema/static_initializer_fragment.ml", "src/driver/task_declarations.ml", "src/driver/integer_initializers.ml", "src/driver/native_default_preparation.ml", "src/driver/native_global_initializers.ml", "src/backend/x86_64_global_storage.ml", "src/hosted/native_program.ml"]
 tests = ["test/native_initializer_authority/test_native_initializer_authority.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-static-initializers.hc"]
-documentation = ["docs/native-globals.md", "docs/native-defaults.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "SECURITY.md"]
+documentation = ["docs/native-globals.md", "docs/native-defaults.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "docs/SECURITY.md"]
 authority = "Exact original allocation, function, initializer AST and completed local declarator; ordered successful preparation; checked scalar type and final storage, entry, initialization and callable bundle."
 resources = "Static expressions share the global/default preparation budget and retain reached work on failure. Saved bytes occupy eight-byte-padded static storage with one initialized flag per object. Runtime steps and activation frames remain independent."
 excluded = ["value references and calls", "strings and floating values", "unresolved shift optimizer behavior", "arrays and pointers", "explicit registers and data-heap options", "initializers after executable top-level statements", "retained tasks", "full ABI and object/BIN loading"]
@@ -12415,7 +12477,7 @@ description = "One-level scalar pointer locals and fixed parameters retain check
 sources = ["Compiler/PrsExp.HC:151-161", "Compiler/BackLib.HC:693-707", "Compiler/BackC.HC:159-204", "Compiler/OpCodes.DD:830-833"]
 implementation = ["src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_native_expression.ml", "test/test_native_scalar_functions.ml", "test/test_native_program.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_pointer_cli.ml", "examples/native-scalar-pointers.hc"]
-documentation = ["docs/native-pointers.md", "docs/reference-source-map.md", "docs/testing.md", "SECURITY.md"]
+documentation = ["docs/native-pointers.md", "docs/reference-source-map.md", "docs/testing.md", "docs/SECURITY.md"]
 status = "implemented"
 issue = 679
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -12434,7 +12496,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsVar.HC:247-281", "Compiler/PrsVar.HC:590-606", "Compiler/PrsExp.HC:151-161", "Compiler/PrsExp.HC:201-208", "Compiler/PrsExp.HC:1055-1098", "Compiler/BackA.HC:555-566", "Compiler/OpCodes.DD:589-592", "Compiler/OpCodes.DD:637-640"]
 implementation = ["src/hosted/native_program.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_encoder.ml", "src/ir/runtime_call_context.ml", "src/driver/task_declarations.ml", "src/sema/function_frame_layout.ml", "bin/run_report.ml"]
 tests = ["test/test_integer_arrays.ml", "test/test_native_expression.ml", "test/test_native_program.ml", "test/test_native_scalar_functions.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_array_execution.ml", "test/native/test_native_index_faults.ml", "test/native/test_native_array_cli.ml", "examples/native-array-layout.hc", "examples/native-array-aliases.hc", "examples/integer-arrays.hc"]
-documentation = ["docs/native-arrays.md", "docs/native-pointers.md", "docs/reference-source-map.md", "docs/testing.md", "SECURITY.md"]
+documentation = ["docs/native-arrays.md", "docs/native-pointers.md", "docs/reference-source-map.md", "docs/testing.md", "docs/SECURITY.md"]
 resources = "Original dimension callbacks consume independently bounded work retained after failure; full aligned object frames, per-element flags and canonical reference tables are bounded before metadata expansion. Table size is independent of execution length."
 identity = "Original body, frame, dimension, call and indexed-child ownership controls native admission. Every canonical record retains one root object, signed offset and full extent; copied pointer values cannot be retargeted by later evaluations."
 faults = "Signed scale and addition overflow are checked at their own IR instructions; final materialization permits aligned one-past references, while reads and writes require initialized elements. Public status decoding requires the matching compiled fault site and consumed instruction."
@@ -12450,7 +12512,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsVar.HC:123-215", "Compiler/PrsVar.HC:247-281", "Compiler/PrsVar.HC:555-585", "Compiler/PrsExp.HC:692-704", "Compiler/PrsExp.HC:1055-1098", "Compiler/LexLib.HC:248-275", "Compiler/OptPass789A.HC:1098-1106"]
 implementation = ["src/frontend/parser.ml", "src/sema/static_initializer_fragment.ml", "src/driver/task_declarations.ml", "src/driver/integer_initializers.ml", "src/driver/native_default_preparation.ml", "src/driver/native_global_initializers.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_globals.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_literal_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_program.ml", "bin/run_report.ml"]
 tests = ["test/test_native_persistent_storage.ml", "test/test_native_literal_storage.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/native/test_native_persistent_execution.ml", "test/native/test_native_literal_execution.ml", "test/native/test_native_storage_bridge.ml", "test/native/test_native_array_cli.ml", "examples/native-persistent-arrays.hc"]
-documentation = ["docs/native-persistent-storage.md", "docs/native-globals.md", "docs/native-arrays.md", "docs/native-programs.md", "docs/testing.md", "docs/reference-source-map.md", "SECURITY.md"]
+documentation = ["docs/native-persistent-storage.md", "docs/native-globals.md", "docs/native-arrays.md", "docs/native-programs.md", "docs/testing.md", "docs/reference-source-map.md", "docs/SECURITY.md"]
 identity = "Original static allocation and ordered parser leaf receipts join exact completed destinations, preparation completions and callable storage; literal regions require exact owner, graph and producer, with original argument metadata for pushed values. Prepared JIT publications retain their lowerer receipt and all precede the first entry instruction."
 resources = "Global bytes include padded static allocations; literal bytes include NUL terminators; private flags and canonical reference tables have a separate checked sum under the 32 MiB arena cap. Layout and C entry guards reject overflows before execution arena allocation. Exported mutable images are copies."
 source_gate = "examples/native-persistent-arrays.hc returns I64 42 in both modes with 101 runtime instructions, 21 native initializer steps, 4 dimension steps, 19 global bytes and 3 literal bytes. Ordinary interpreter static preparation retains its own 23-step count."
@@ -12466,7 +12528,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KExts.HC:84", "Kernel/KeyDev.HC:1-27", "Compiler/PrsExp.HC:383-413"]
 implementation = ["src/ir/runtime_call_context.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_program.ml", "bin/holyc.ml", "bin/run_report.ml"]
 tests = ["test/test_native_program.ml", "test/native/test_native_output_execution.ml", "test/native/test_native_output_cli.ml", "test/native/test_native_output_bridge.ml", "examples/integer-putchars.hc"]
-documentation = ["docs/native-output.md", "docs/integer-output.md", "docs/testing.md", "docs/reference-source-map.md", "SECURITY.md"]
+documentation = ["docs/native-output.md", "docs/integer-output.md", "docs/testing.md", "docs/reference-source-map.md", "docs/SECURITY.md"]
 identity = "Original provider declaration, fixed U64 argument, JIT/AOT call opcode and sealed entry/initialization/function context control emission. Same-name source definitions execute ordinary source bodies; mixed provider/body publication remains excluded."
 resources = "Separate positive output byte/work limits apply before allocation and every emitted byte. A 16 MiB capture cap bounds host storage. The inline provider checks one semantic call depth and eight ABI bytes without allocating a native callee frame. Output pointer fields are immutable; status and counter checks precede public capture projection."
 faults = "HCIRVM0022 and HCIRVM0023 retain preceding output and charged work at the original call instruction. Each packed-byte visit and attempted append consumes output work; byte iteration adds no IR steps. Invalid configuration and integrity failures expose no successful capture."
@@ -12484,7 +12546,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KExts.HC:83", "Compiler/PrsExp.HC:383-413,430-511,530-588", "Kernel/StrPrint.HC:208-873,890-895"]
 implementation = ["src/ir/runtime_call_context.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_program.ml", "bin/run_report.ml"]
 tests = ["test/test_native_program.ml", "test/native/test_native_print_execution.ml", "test/native/test_native_print_cli.ml", "test/native/test_native_output_bridge.ml", "test/native/test_native_index_faults.ml", "examples/integer-persistent-arrays.hc"]
-documentation = ["docs/native-print.md", "docs/native-output.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/native-programs.md", "docs/integer-output.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/native-print.md", "docs/native-output.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/native-programs.md", "docs/integer-output.md", "docs/compiler-status.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original provider declaration, format producer, hidden variadic count, ordered argument producers/types/roles, JIT/AOT call opcode and sealed entry/initialization/function context control emission. The exact implicit discard preserves its prior result latch. Same-name source definitions execute ordinary source bodies; mixed provider/body publication remains excluded."
 formatting = "Owned dynamic formats support percent, signed/unsigned decimal, hexadecimal, binary, strings, quoted bytes and packed characters with optional ASCII uppercase. HC-INTEGER-FORMATTING and HC-QUOTED-FORMATTING record the shared field grammar and byte/work contracts. Narrow stored values arrive through their checked loads, while source-function returns preserve full register bits. Packed fields stop at the first zero; extra supplied arguments are evaluated even when the format does not consume them."
 resources = "Positive output byte/work limits are independent. Every format or string byte read, packed-byte visit and attempted append charges work at its defined point. The inline provider checks one semantic call depth and eight frame bytes for the format, hidden count and each variadic slot; formatter scratch storage is bounded by the native private-frame/code quotas. The shared capture allocation remains capped at 16 MiB."
@@ -12502,7 +12564,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/StrPrint.HC:20-40,236-323,390-411,432-522,787-895", "Compiler/CMisc.HC:68-80"]
 implementation = ["src/ir/integer_output.ml", "src/ir/integer_output.mli", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_print_format.mli"]
 tests = ["test/integer_format_fixture.ml", "test/test_integer_output.ml", "test/test_task_stream.ml", "test/test_stateful_exe.ml", "test/native/test_native_print_execution.ml", "test/native/test_native_print_cli.ml", "examples/integer-formatting.hc"]
-documentation = ["docs/integer-formatting.md", "docs/integer-output.md", "docs/native-print.md", "docs/integer-task.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/integer-formatting.md", "docs/integer-output.md", "docs/native-print.md", "docs/integer-task.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/changelog.md", "docs/SECURITY.md"]
 grammar = "Optional minus then zero, decimal width with optional overriding star, optional dot/decimal precision with optional overriding star, repeated comma/t/l/dollar/slash modifiers, then percent/d/u/x/X/b/B/s/c. Precision consumes its captured argument but has no effect in this domain. Literal fields must fit nonnegative signed I64; invalid or missing stars fail before subsequent format bytes are read."
 formatting = "Numeric fields align right, retain a negative sign before zero padding, group decimal digits by three and hexadecimal/binary digits by four, and truncate low payload digits including commas. Grouped zero padding retains the source group phase. String/packed fields use spaces and source left/right prefix rules; nonpositive untruncated fields retain the existing interleaved read/visit and append path."
 resources = "Numeric payload storage is fixed at 79 bytes maximum plus native buffer slack. Width never allocates proportional storage. Decorated strings charge the full first NUL scan and selected-prefix rereads; decorated packed fields charge up to eight measurement visits. Every attempted append checks shared work before capacity; successful Print or generated drafts publish atomically."
@@ -12520,7 +12582,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/StrPrint.HC:20-40,56-197,337-360,390-411", "Kernel/KernelA.HH:3456", "Kernel/StrA.HC:353-354", "Compiler/BackB.HC:266-275", "Compiler/Lex.HC:93-104", "Compiler/CMisc.HC:68-80"]
 implementation = ["src/ir/integer_output.ml", "src/ir/integer_output.mli", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_print_format.mli"]
 tests = ["test/quoted_format_fixture.ml", "test/test_integer_output.ml", "test/test_task_stream.ml", "test/test_stateful_exe.ml", "test/test_integer_program_cli.ml", "test/native/test_native_print_execution.ml", "test/native/test_native_print_cli.ml", "examples/quoted-formatting.hc"]
-documentation = ["docs/quoted-formatting.md", "docs/integer-formatting.md", "docs/integer-output.md", "docs/native-print.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/quoted-formatting.md", "docs/integer-formatting.md", "docs/integer-output.md", "docs/native-print.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/changelog.md", "docs/SECURITY.md"]
 formatting = "Q escapes dollars, selected controls, quotes and backslashes without adding surrounding quotes; slash doubles percent and dollar selects backslash-d. The control threshold is 0x1f and DEL is escaped. q decodes named escapes and up to two ASCII hex digits, preserves unknown escapes and rejected hex candidates, always collapses dollar pairs and conditionally collapses percent pairs. C uppercases only ASCII a through z within the first eight packed bytes before NUL."
 fields = "Width, justification and truncation apply to the converted visible prefix; truncation can split an escape. Precision is consumed and ignored. Flags reset between fields."
 resources = "Quoted conversion retains at most four bytes per chunk. A complete first pass measures the visible prefix; a second pass reconstructs only selected bytes. Each source or lookahead read, including failed attempts and terminating NUL, charges work before access. A decoded NUL stops visible output but does not skip the remaining encoded source scan. Appends charge work before checking capacity; width and input length do not allocate proportional temporary storage."
@@ -12539,7 +12601,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/StrPrint.HC:20-40,236-323,337-360,390-411,441-445,518-522,787-867", "Compiler/AsmLib.HC:147-165", "Compiler/CMisc.HC:68-80"]
 implementation = ["src/ir/integer_output.ml", "src/ir/integer_output.mli", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_print_format.mli"]
 tests = ["test/aux_format_fixture.ml", "test/test_integer_output.ml", "test/test_task_stream.ml", "test/test_stateful_exe.ml", "test/native/test_native_print_execution.ml", "test/native/test_native_print_cli.ml", "examples/auxiliary-formatting.hc"]
-documentation = ["docs/auxiliary-formatting.md", "docs/integer-formatting.md", "docs/quoted-formatting.md", "docs/integer-output.md", "docs/native-print.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/auxiliary-formatting.md", "docs/integer-formatting.md", "docs/quoted-formatting.md", "docs/integer-output.md", "docs/native-print.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/changelog.md", "docs/SECURITY.md"]
 grammar = "h marks auxiliary presence. Immediate star replaces the accumulator after checking a captured Word; question preserves accumulator/sign state. Literal digits append to the current I64 accumulator with wrapping multiply/add. Optional minus sets a sticky sign applied after each literal or bare h. Star/question preserve that sign without applying it. There is no trailing-star override after literal digits. Each field resets auxiliary state; existing width/precision overflow checks stay unchanged."
 formatting = "Packed c/C validates its word once, repeats the original word for positive counts, and applies width/alignment/truncation per copy. Nonpositive counts produce no copies after validation. Auxiliary state is otherwise inert for percent,s,Q,q,x,X,b,B. Any h on d/u selects unsupported engineering formatting after numeric argument validation."
 resources = "Each repeated packed body retains all existing visits and appends, with no extra repeat unit or hoisted scan. Empty or zero-width copies still visit their packed bytes and exhaust bounded work. Native scratch grows by two fixed slots for auxiliary state and the original packed word. Counts and widths allocate no proportional buffer."
@@ -12557,7 +12619,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/StrA.HC:397-414", "Kernel/StrPrint.HC:20-40,373-386", "Compiler/UAsm.HC:578-581,617-620", "Compiler/CMisc.HC:68-80"]
 implementation = ["src/ir/integer_output.ml", "src/ir/integer_output.mli", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_print_format.mli"]
 tests = ["test/list_format_fixture.ml", "test/test_integer_output.ml", "test/test_task_stream.ml", "test/test_stateful_exe.ml", "test/native/test_native_print_execution.ml", "test/native/test_native_print_cli.ml", "examples/list-formatting.hc"]
-documentation = ["docs/list-formatting.md", "docs/integer-formatting.md", "docs/integer-output.md", "docs/native-print.md", "docs/auxiliary-formatting.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/list-formatting.md", "docs/integer-formatting.md", "docs/integer-output.md", "docs/native-print.md", "docs/auxiliary-formatting.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/changelog.md", "docs/SECURITY.md"]
 grammar = "After width/precision/auxiliary stars, z requires both argument slots before checking Word index and Pointer list kinds in order. Indices are signed zero-based I64; an empty entry ends the list. An at-sign reached after a skipped entry marks an alias that does not consume an index. Initial at-sign bytes remain ordinary entry data."
 selection = "Preserve every LstSub read: outer byte before positive-index comparison, duplicated inner first byte through NUL, post-NUL alias probe and final existence read only when the remaining index is zero. Negative indices still perform their initial checked read. A selected final entry needs its own NUL but does not require a following list sentinel."
 formatting = "Found entries always undergo complete selected-string measurement before field layout and copied-prefix reads, even bare z. Misses become an internal empty payload with ordinary space padding and no fake source read. Zero padding, comma, length, dollar, slash, precision and auxiliary state are otherwise inert after their argument consumption. Define-dependent uppercase Z stays unsupported."
@@ -12576,7 +12638,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KernelB.HH:61", "Compiler/CompilerA.HH:177", "Compiler/CInit.HC:149", "Compiler/PrsStmt.HC:244-249,1055-1061", "Compiler/PrsExp.HC:544-586", "Compiler/OptPass789A.HC:905-908", "Compiler/Templates.HC:87-94", "Compiler/UAsm.HC:293-303"]
 implementation = ["src/driver/semantic_collection.ml", "src/sema/declaration_collection.ml", "src/driver/function_resolution.ml", "src/sema/function_resolution.ml", "src/sema/function_record_phase.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_internal_strlen.ml", "test/test_internal_strlen_authority.ml", "test/test_internal_strlen_source.ml", "test/test_function_record_phase.ml", "test/native/test_internal_strlen_execution.ml", "test/native/test_internal_strlen_cli.ml", "examples/internal-strlen.hc"]
-documentation = ["docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "The original expanded numeric binding target selects IC_STRLEN; a function name or unresolved opcode spelling grants no authority. The selected declaration, header, U8 pointer argument and I64 result retain source ownership. The supported completed header establishes a non-extern internal operation without installing a host function address."
 lowering = "The canonical non-template call uses IC_CALL_START, an unpushed argument producer, operand-bearing IC_STRLEN and IC_CALL_END with its scalar result. Internal records use separate owner-indexed maps; ordinary call cleanup and runtime provider contracts remain unchanged."
 execution = "The scan begins at the owned pointer's captured offset, returns the byte count before the first zero, and reads no byte after that terminator. Dynamic mutation, interior pointers and results consumed by ordinary source functions use the same path as literals."
@@ -12594,7 +12656,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KernelB.HH:58", "Compiler/CompilerA.HH:52", "Compiler/CInit.HC:47", "Compiler/PrsExp.HC:440-586", "Compiler/BackB.HC:266-275", "Compiler/OptPass789A.HC:826-827", "Compiler/Lex.HC:409,519-522,656", "Kernel/StrPrint.HC:164,403"]
 implementation = ["src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_internal_toupper.ml", "test/test_internal_strlen_authority.ml", "test/test_internal_strlen_source.ml", "test/native/test_internal_toupper_execution.ml", "test/native/test_internal_toupper_cli.ml", "examples/internal-toupper.hc"]
-documentation = ["docs/internal-toupper.md", "docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/internal-toupper.md", "docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "The exact retained numeric target, original declaration, I64 return and one U8 scalar formal select the operation. Names and later macro replacement grant no authority. Foreign contexts and changed intrinsic phases reject."
 lowering = "IC_CALL_START, the unpushed argument producer, operand-bearing IC_TOUPPER with no direct result, then IC_CALL_END with its I64 result. There is no ordinary call, cleanup or invented host address."
 execution = "Signed full-word comparison changes ASCII a through z to A through Z; other words retain their bits. The U8 formal does not truncate an internal argument. Declared-width storage loads and full computed narrow return bits remain distinct."
@@ -12611,7 +12673,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsStmt.HC:62-146,244-249,1055-1061", "Compiler/PrsExp.HC:440-586", "Kernel/KernelB.HH:58,61"]
 implementation = ["src/driver/task_declarations.ml", "src/sema/function_record_phase.ml", "src/sema/function_resolution.ml", "src/sema/function_record_classification.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_retained_internal.ml", "test/test_provisional_function_authority.ml", "test/native/test_internal_toupper_cli.ml", "examples/stream-internal.hc"]
-documentation = ["docs/retained-internal.md", "docs/internal-toupper.md", "docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/retained-internal.md", "docs/internal-toupper.md", "docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original live or activated publications advance the exact retained allocation. Internal installation requires the original completed numeric header. Selected parser entries and admitted references retain their native identity and forward revision history; metadata copies and replay grant no authority."
 timing = "Fresh incomplete headers remain undefined externs through parameter/default/closing lookahead. Completed numeric internal headers install before command completion. Nested installed target receipts remain independent from current member ownership; resumed ordinary headers preserve the installed operation and later internal completion installs its own target."
 execution = "Supported calls reuse checked IC_TOUPPER and IC_STRLEN paths, including retained function bodies and generated source. Complete non-extern records cause later JIT headers to allocate fresh shadows."
@@ -12628,7 +12690,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsStmt.HC:1055-1061,244-249", "Compiler/PrsExp.HC:1116-1154"]
 implementation = ["src/frontend/parser.ml", "src/sema/internal_binding_fragment.ml", "src/sema/prepared_internal_binding.ml", "src/sema/function_record_phase.ml", "src/driver/task_declarations.ml", "src/driver/internal_binding_fragment_lowering.ml", "src/ir/internal_binding_fragment_program.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml"]
 tests = ["test/test_retained_internal.ml", "test/internal_binding_authority/test_internal_binding_authority.ml", "test/native/test_internal_toupper_cli.ml", "examples/stream-internal-binding.hc"]
-documentation = ["docs/retained-internal.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/retained-internal.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 timing = "Original expression lookahead precedes target execution. Type validation and function publication follow successful evaluation. The saved value remains separate from current shared header state and installs after the original completed join."
 identity = "Original expression, ordered reference/query/call selections, typed root, task environment, private lowering result, executed graph and once-only VM attempt retain physical ownership. Native admission requires the exact successful prepared value registered by its owning VM; copied or foreign source facts and unrelated IR grant no authority."
 resources = "Target preparation and execution share cumulative task budgets, including callee preparation, output, literals, storage, frames and depth. Effects and charges reached before a later type/header failure remain observable."
@@ -12644,7 +12706,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsVar.HC:255-265,628-648", "Compiler/PrsExp.HC:1116-1154"]
 implementation = ["src/ir/dimension_fragment_program.ml", "src/ir/default_fragment_program.ml", "src/driver/dimension_fragment_lowering.ml", "src/driver/default_fragment_lowering.ml", "src/ir/integer_program_lowering.ml"]
 tests = ["test/runtime_dimension_authority/test_runtime_dimension_authority.ml", "test/runtime_default_authority/test_runtime_default_authority.ml", "test/aot_default_authority/test_aot_default_authority.ml", "test/test_jit_source_execution.ml", "test/test_parameter_default_execution.ml"]
-documentation = ["docs/integer-runtime-dimensions.md", "docs/integer-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+documentation = ["docs/integer-runtime-dimensions.md", "docs/integer-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "docs/changelog.md"]
 identity = "The original lowering result owns the exact typed expression and globals; its graph is the graph executed. Runtime call context retains the exact original typed root set, including call-free defaults. Equal copied values, substituted graphs and foreign storage contexts grant no authority."
 resources = "Rejected program substitutions execute no VM instructions. Original callee prerequisites, preparation, execution, effects, task budgets, source order and once-only attempt lifetimes remain enforced by their existing consumers."
 verification_boundary = "Original dimensions publish 2 and 3 and ordered scheduled defaults publish 42 and 7. Empty graphs, changed integer payloads, another lowering, copied typed values, foreign globals and typed contexts reject before execution. Closed-constant and native default preparation paths remain separate; no new TempleOS oracle capture."
@@ -12658,7 +12720,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsVar.HC:628-648", "Compiler/PrsExp.HC:1116-1154"]
 implementation = ["src/ir/integer_interpreter.ml", "src/ir/default_fragment_program.ml", "src/driver/integer_initializers.ml", "src/driver/default_fragment_lowering.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/native_default_preparation.ml", "src/driver/native_parameter_defaults.ml"]
 tests = ["test/aot_default_authority/test_aot_default_authority.ml", "test/runtime_default_authority/test_runtime_default_authority.ml", "test/native_default_authority/test_native_default_authority.ml", "test/test_parameter_default_execution.ml", "test/native/test_native_program_execution.ml", "examples/integer-aot-defaults.hc", "examples/integer-jit-defaults.hc", "examples/native-integer-defaults.hc"]
-documentation = ["docs/integer-defaults.md", "docs/native-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+documentation = ["docs/integer-defaults.md", "docs/native-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "docs/changelog.md"]
 identity = "The opaque successful result retains its owning VM catalog, original authority and destination, exact typed expression/globals/private lowering, actual evaluated bits and measured work. Original source callback or retained activation and exact owning work must be current at single-use consumption. Native saved values must match that consumed result."
 execution = "One existing bounded VM evaluation produces the saved full word. Raw integer completions are unavailable; equal-valued foreign expressions or invocations cannot replace the original result. Ordinary AOT output namespaces remain separate from directive task storage. Later omitted arguments reuse the saved word and existing declared-width entry conversion."
 resources = "Constant work charges the shared declaration preparation budget without ordinary runtime ticks. Failed evaluations retain reached work and claim the original receipt against restart; rejected substitutions charge no work. Existing callee/default/query prerequisites, shift exclusion and scheduled-effect paths remain enforced."
@@ -12674,7 +12736,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KernelB.HH:95-121", "Compiler/CompilerA.HH:51,221-229", "Compiler/PrsExp.HC:440-586", "Compiler/OptPass789A.HC:820-824,835-837,859-865,881-886", "Compiler/Templates.HC:101-108", "Compiler/BackB.HC:289-303", "Compiler/BackC.HC:456-462", "Compiler/OptPass012.HC:1069-1088"]
 implementation = ["src/ir/integer_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_internal_integers.ml", "test/test_internal_integers_cli.ml", "test/native/test_internal_integers_execution.ml", "examples/internal-integers.hc", "examples/stream-internal-integers.hc"]
-documentation = ["docs/internal-integers.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/internal-integers.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "The exact original numeric internal target, publication, fixed parameter/return signature and source-call phase select the operation. Unpushed arguments retain their exact typed producer and source origin. Renamed numeric operations work; ordinary same-name functions retain their own bodies. Foreign contexts and mutated instructions reject."
 execution = "IC_CALL_START, original unpushed argument computation, operand-bearing IC_TO_BOOL/IC_ABS_I64/IC_SIGN_I64/IC_SQR_I64/IC_SQR_U64 and IC_CALL_END with its declared result. ToBool tests the full word, signed minimum absolute value retains its bits, and each square retains the wrapping low 64 product bits. Computed narrow words remain distinct from declared-width storage."
 resources = "Each operation consumes one ordinary IC tick without a semantic callee activation, scan or formatting charge. Native staging and code use existing quotas. Exact/one-below runtime, code and frame limits preserve reached output/work. Retained defaults execute in their original once-only callback and reuse saved values."
@@ -12691,7 +12753,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KernelB.HH:99-102", "Compiler/CompilerA.HH:223-226", "Compiler/PrsExp.HC:440-586", "Compiler/OptPass789A.HC:867-878", "Compiler/BackC.HC:418-454"]
 implementation = ["src/ir/integer_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_internal_minmax.ml", "test/test_internal_minmax_cli.ml", "test/native/test_internal_minmax_execution.ml", "examples/internal-minmax.hc", "examples/stream-internal-minmax.hc"]
-documentation = ["docs/internal-minmax.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/internal-minmax.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "The original numeric binding, publication, exact two-parameter/result signature and call phase select the operation. Both unpushed arguments retain exact producers, source origins, types and parameter roles. Renamed numeric operations work; ordinary same-name functions keep their bodies. Foreign contexts and changed operands/order/result/type/flags/payload/opcode reject."
 execution = "IC_CALL_START, original right-to-left argument computations, parameter-ordered operands on IC_MIN_I64/IC_MIN_U64/IC_MAX_I64/IC_MAX_U64 and IC_CALL_END. Signed operations compare complete I64 words; unsigned operations compare complete U64 words. The selected bits retain the declared result class. Computed narrow words remain distinct from stored narrowing."
 resources = "Each operation consumes one IC tick without an ordinary callee activation or stack cleanup. Arguments, call markers, private native stages, code, frames and named-call depth retain existing quotas. Runtime/preparation/code/frame exact and one-below controls preserve reached work and output; argument load faults preserve right-to-left effects."
@@ -12708,7 +12770,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KernelB.HH:9-12", "Compiler/CompilerA.HH:169-170", "Compiler/PrsExp.HC:440-586", "Compiler/OptPass789A.HC:806-819", "Compiler/OpCodes.DD:724-731", "Compiler/Asm.HC:959-966", "Compiler/OptPass012.HC:333-356,426-428,451,832-853,912-933"]
 implementation = ["src/ir/integer_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_internal_bitscan.ml", "test/test_internal_bitscan_cli.ml", "test/native/test_internal_bitscan_execution.ml", "examples/internal-bitscan.hc", "examples/stream-internal-bitscan.hc"]
-documentation = ["docs/internal-bitscan.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/internal-bitscan.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original numeric bindings 0x7E/0x7F, publication, exact I64 signatures and call phases retain authority. The unpushed argument retains its exact producer, source origin and type. Renamed declarations work; ordinary same-name functions keep their bodies. Foreign contexts and changed operand/result/type/flags/payload/opcode reject."
 execution = "IC_CALL_START, original argument computation, operand-bearing IC_BSF/IC_BSR and IC_CALL_END return the full-word index as I64. The interpreter scans at most 64 positions. Native code uses the pinned qword BSF/BSR forms and explicitly returns -1 for zero before scanning. Computed narrow words stay distinct from stored narrowing."
 resources = "Each scan consumes one IC tick without an ordinary callee activation or stack cleanup. Arguments, call markers, private stages, code, frames and named-call depth keep existing quotas. Exact/one-below runtime/preparation/code/frame controls retain reached work and output; argument faults retain original effects."
@@ -12725,7 +12787,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KernelB.HH:103", "Compiler/CompilerA.HH:227", "Compiler/PrsExp.HC:440-586", "Compiler/BackC.HC:463-488", "Compiler/OptPass789A.HC:878-879", "Kernel/StrPrint.HC:217-219,449,489,657,764", "Kernel/KDate.HC:40-68"]
 implementation = ["src/ir/integer_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_internal_mod_u64.ml", "test/test_internal_mod_u64_cli.ml", "test/native/test_internal_mod_u64_execution.ml", "examples/internal-mod-u64.hc", "examples/stream-internal-mod-u64.hc"]
-documentation = ["docs/internal-mod-u64.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/internal-mod-u64.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original numeric 0xAF publication, exact U64(U64*,U64) signature and canonical call phases seal both original producers, parameter roles, source types/origins and right-to-left effects. Foreign contexts and changed instructions reject; ordinary same-name bodies remain ordinary calls."
 execution = "IC_CALL_START, unpushed original arguments, operand-bearing IC_MOD_U64 and IC_CALL_END preserve the pointer object and return U64. Live owned I64/U64 words provide raw unsigned bits; the quotient is stored through the original reference and the remainder completes the call. Native code uses checked load/store and unsigned DIV forms."
 resources = "One IC tick pays for division; argument/marker work, pointer descriptor pools, extents, initialization, code/frame and private staging quotas remain checked. The pointed read precedes division. A zero divisor faults before store/completion; reached work and output remain visible."
@@ -12742,7 +12804,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/CInit.HC:1-15", "Kernel/KernelB.HH:119", "Compiler/CompilerA.HH:51", "Compiler/PrsExp.HC:440-586", "Compiler/BackB.HC:289-303", "Compiler/OptPass789A.HC:779-782,835-837", "Compiler/BackLib.HC:281-309,509-534,550-572", "Compiler/PrsVar.HC:619-657", "Compiler/OptPass012.HC:1069-1088"]
 implementation = ["src/common/primitive_type.ml", "src/sema/integer_computation_class.ml", "src/sema/static_initializer_fragment.ml", "src/ir/integer_scalar_storage.ml", "src/ir/integer_intrinsic.ml", "src/driver/native_default_preparation.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_canonical_bool.ml", "test/test_canonical_bool_cli.ml", "test/native/test_canonical_bool_execution.ml", "examples/canonical-bool.hc", "examples/stream-canonical-bool.hc"]
-documentation = ["docs/canonical-bool.md", "docs/integer-narrow.md", "docs/native-scalars.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/canonical-bool.md", "docs/integer-narrow.md", "docs/native-scalars.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Bool remains a distinct public Boolean type with RT_I8, one byte and I8i backing. No internal Bool spelling or Bool/I8/U8 type equality is introduced. Original numeric ToBool publication, exact signature, call phases and immutable producer records retain authority."
 execution = "Bool locals, globals, statics, arrays, parameters and saved defaults share existing signed byte storage and I64 computation. Stores narrow; loads sign-extend; computed returns and assignment expressions retain full words. Canonical ToBool tests all input bits and returns I64 zero/one; the supported U8 signature keeps U64."
 resources = "Declared object extents, eight-byte parameter charges, initialization, original pointer/activation ownership, IC work, output and image/frame quotas remain checked. Retained defaults execute once in their original activation. Native default runtime work is compared with its isolated checked batch."
@@ -12759,7 +12821,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KernelB.HH:13-26", "Compiler/CompilerA.HH:162-168", "Compiler/PrsExp.HC:440-586", "Compiler/OptPass789A.HC:787-804", "Compiler/BackB.HC:202-264", "Compiler/OpCodes.DD:738,748,758,768", "Compiler/Asm.HC:397-423", "Compiler/PrsLib.HC:88,232-243,309", "Compiler/OptLib.HC:539-553", "Doc/Bit.DD"]
 implementation = ["src/ir/integer_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_pointer_bit_internals.ml", "test/test_pointer_bit_cli.ml", "test/native/test_pointer_bit_execution.ml", "examples/pointer-bit-internals.hc", "examples/stream-pointer-bit-internals.hc"]
-documentation = ["docs/pointer-bit-internals.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/pointer-bit-internals.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original numeric targets 0x77-0x7A, exact Bool(U8*,I64) signatures, call phases and both immutable argument producers retain authority. Original pointee type, extent, offset, initialization and lifetime survive the operation-specific pointer admission. Renamed declarations work; ordinary same-name functions execute their bodies."
 execution = "Nonnegative indexes select a byte and bit within the original owned integer/Bool object. Bt returns the prior bit unchanged; Bts/Btr/Btc set/reset/complement it and return I64 zero/one. Native code uses declared-width checked cell loads/stores, qword register bit forms and SETC. Other bits remain unchanged."
 resources = "Bounds precede the selected cell initialization check. Each operation consumes one IC tick; original arguments, call phases, private staging, code/frame/storage/output and preparation limits retain their existing controls. Reached effects and work survive faults."
@@ -12776,7 +12838,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Kernel/KernelB.HH:110-117", "Compiler/CompilerA.HH:216-219", "Compiler/PrsExp.HC:440-586", "Compiler/OptPass789A.HC:887-892", "Compiler/BackC.HC:490-537", "Compiler/OptPass012.HC:1231-1234", "Compiler/OptPass3.HC:455-458", "Compiler/BackA.HC:8-10,173-175", "Compiler/Asm.HC:157-158", "Compiler/BackFA.HC:483-486", "Compiler/BackC.HC:283", "Compiler/BackB.HC:479", "Compiler/PrsStmt.HC:705", "Kernel/QSort.HC:21,46"]
 implementation = ["src/ir/integer_intrinsic.ml", "src/ir/runtime_call_context.ml", "src/ir/direct_call_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
 tests = ["test/test_swap_internals.ml", "test/test_swap_cli.ml", "test/native/test_swap_execution.ml", "examples/swap-internals.hc", "examples/stream-swap-internals.hc"]
-documentation = ["docs/swap-internals.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/swap-internals.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original numeric targets 0xA5-0xA8, exact canonical U0 pointer-pair signatures, call phases and both immutable argument producers retain authority. The operation-specific width admission preserves original pointee type, extent, offset, initialization, lifetime and alias storage."
 execution = "Right-to-left argument effects precede original left then right reads. Both reads succeed before storing the old left bits into the right cell and then the old right bits into the left. Matching-width signed/unsigned/Bool objects retain destination types and other cells. The operation is non-atomic and completes real void through IC_CALL_END, including the outer latch."
 resources = "Bounds precede initialization for each original read; the first failing read stops the operation. Each swap consumes one IC tick and no callee activation. Native staging reserves two bounded slots and uses existing declared-width checked loads/stores. Reached effects, output and work retain existing limits."
@@ -12793,7 +12855,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/Compiler.PRJ:1-46", "Kernel/Kernel.PRJ:1-61", "reference/manifest.json"]
 implementation = ["reference/manifest.json", "tools/verify-reference.ps1"]
 tests = ["tools/test-release-contract.ps1", ".github/workflows/ci.yml"]
-documentation = ["docs/release-contract.md", "ROADMAP.md", "docs/compatibility.md"]
+documentation = ["docs/release-contract.md", "docs/roadmap.md", "docs/compatibility.md"]
 identity = "The existing manifest fixes each source set by canonical Git revision, exact path prefix/extension, count, byte size and an ordinal path/blob membership digest. Inventory order does not replace project include order."
 resources = "All required language, runtime, target, actual-loader, bootstrap and release gates remain independently blocking under #682 and #736; a passing inventory check establishes source membership only."
 verification_boundary = "This feature implements the release definition and membership guards. It does not implement missing artifact, loader, corpus-phase or bootstrap consumers, qualify an untested host, or establish compiler completion."
@@ -12807,7 +12869,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsExp.HC:14-62,165-185", "Compiler/OptLib.HC:9-14,96-179,483-509", "Compiler/LexLib.HC:249-271", "Compiler/CMain.HC:128-141"]
 implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli"]
 tests = ["test/test_pointer_addition.ml", "test/native/test_pointer_addition_execution.ml", "test/test_pointer_addition_cli.ml", "examples/pointer-addition.hc", "examples/stream-pointer-addition.hc"]
-documentation = ["docs/pointer-addition.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/intermediate-representation.md", "docs/holyc-language.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/pointer-addition.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/intermediate-representation.md", "docs/holyc-language.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original one-level integer/Bool pointer types, checked producers and live owned object/extent/offset/initialization/lifetime survive addition. The left reference is captured before right-side effects. Original pointer scale/add records and their transitive producers are sealed with the completed source bundle. Foreign contexts, copies and type-compatible operand replacement reject."
 execution = "Checked original pointee stride, multiplication, byte-offset addition and reference materialization reuse the shared IR/native owned model. Full computed offset words remain distinct from stored narrowing. One-past formation is valid; access requires a real original cell."
 resources = "Scale/add overflow, negative/beyond-extent offsets, unknown pointers/words/cells and original fault work remain checked. Native evaluation reuses stable 32-byte canonical records with no per-evaluation allocation. Existing runtime/preparation/storage/frame/code/call/output limits remain."
@@ -12824,7 +12886,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsExp.HC:14-62,165-185", "Compiler/OptLib.HC:9-14,96-179,483-509", "Compiler/OptPass789A.HC:559-566", "Compiler/BackA.HC:166-222", "Compiler/LexLib.HC:249-271"]
 implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/test_pointer_subtraction.ml", "test/native/test_pointer_subtraction_execution.ml", "test/test_pointer_subtraction_cli.ml", "examples/pointer-subtraction.hc", "examples/stream-pointer-subtraction.hc"]
-documentation = ["docs/pointer-subtraction.md", "docs/pointer-addition.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/pointer-subtraction.md", "docs/pointer-addition.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original one-level integer/Bool pointer types, object/extent/offset/initialization/lifetime and left-before-right capture survive subtraction. Original scale/add/subtract records and transitive producers are sealed with the completed source bundle; copies, type-compatible replacements and subtraction-to-addition changes reject."
 execution = "Original pointee scaling precedes IC_SUB and owned reference materialization. Stored narrowing and full computed offset words remain distinct. VM subtraction uses direct signed overflow bounds; native qword SUB checks overflow without wrapping negation. One-past formation is valid; access requires an original element."
 resources = "Scale/subtraction overflow, negative/beyond-extent offsets, initialization and original fault work remain checked. Existing stable canonical records, descriptor/frame/code/storage/arena/runtime/preparation/call/output limits remain. Native subtraction retains the existing Index_addition_overflow status kind at its original IC_SUB site."
@@ -12841,7 +12903,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsExp.HC:14-62,218-229", "Compiler/OptLib.HC:96-179", "Compiler/OptPass012.HC:724-740,808-827", "Compiler/OptPass789A.HC:567-572", "Compiler/BackB.HC:102-200"]
 implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/test_pointer_equality.ml", "test/native/test_pointer_equality_execution.ml", "test/test_pointer_equality_cli.ml", "examples/pointer-equality.hc", "examples/stream-pointer-equality.hc"]
-documentation = ["docs/pointer-equality.md", "docs/pointer-addition.md", "docs/pointer-subtraction.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/pointer-equality.md", "docs/pointer-addition.md", "docs/pointer-subtraction.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Matching original scalar pointees and the existing U8 literal spelling contract retain live object identity, extent and offset. Comparison captures source-left before right effects without reading pointees. Different owned objects remain distinct, including one-past versus another object's base."
 execution = "Original IC_EQU_EQU/IC_NOT_EQU return I64 0/1. VM compares validated original storage/base/count/width/offset; native compares data-base/initialization-region/offset/extent fields across separate descriptor tables. Stable aliases survive repeated sites, loops and recursion."
 authority = "Original pointer comparison and transitive producer records are sealed; copied, foreign, altered and type-compatible substituted records reject. Current graph matching also rejects introduced pointer comparisons from originally numeric producers."
@@ -12859,7 +12921,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsExp.HC:14-62,218-229", "Compiler/OptLib.HC:96-179", "Compiler/OptPass012.HC:741-827", "Compiler/OptPass789A.HC:573-596", "Compiler/BackB.HC:102-200", "Kernel/KernelA.HH:1573"]
 implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_word_codegen.mli", "src/backend/x86_64_program.ml", "src/backend/x86_64_program.mli", "src/hosted/native_program.ml"]
 tests = ["test/test_pointer_ordering.ml", "test/native/test_pointer_ordering_execution.ml", "test/test_pointer_ordering_cli.ml", "test/native/test_native_index_faults.ml", "test/native/test_internal_strlen_execution.ml", "test/test_native_program.ml", "examples/pointer-ordering.hc", "examples/stream-pointer-ordering.hc"]
-documentation = ["docs/pointer-ordering.md", "docs/pointer-equality.md", "docs/pointer-addition.md", "docs/pointer-subtraction.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/pointer-ordering.md", "docs/pointer-equality.md", "docs/pointer-addition.md", "docs/pointer-subtraction.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original matching integer/Bool pointees and compatible U8 literal spellings preserve live object identity, extent and aligned offsets. Left snapshots precede right-side effects. Different objects/extents fault after reached operands; unknown pointees need not be read. Rows/flattened/multi-rank addresses keep their original full extent."
 execution = "Original IC_LESS/IC_LESS_EQU/IC_GREATER/IC_GREATER_EQU return I64 0/1. VM validates storage/base/count/width identity before signed offset order. Native compares data-base/initialization-region/extent fields across canonical tables before offset order; unrelated host addresses are not ordered."
 authority = "Original comparisons and transitive producers are sealed; foreign/copied/altered/type-compatible substitutions and numeric-to-pointer rewrites reject before entry. Native Pointer_object_mismatch status 17 requires an original ordering site in the sealed image and attempted instruction work; numeric/equality sites and zero-step statuses reject."
@@ -12877,7 +12939,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsExp.HC:14-62", "Compiler/OptLib.HC:96-179", "Compiler/OptPass012.HC:403-440,619-695", "Compiler/OptPass789A.HC:524-530,559-566", "Compiler/BackA.HC:166-222,355-370", "Kernel/KernelA.HH:1573"]
 implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_word_codegen.mli", "src/backend/x86_64_program.ml", "src/backend/x86_64_program.mli", "src/hosted/native_program.ml"]
 tests = ["test/test_pointer_difference.ml", "test/native/test_pointer_difference_execution.ml", "test/test_pointer_difference_cli.ml", "examples/pointer-difference.hc", "examples/stream-pointer-difference.hc"]
-documentation = ["docs/pointer-difference.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/pointer-difference.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Original matching integer/Bool scalar references and compatible U8 literal spellings retain live storage, base, extent, width and aligned interior/one-past offsets. Capture left before right effects without reading cells; different objects fault after reached work."
 execution = "Original IC_SUB returns byte-offset difference; original IMM_I64/IC_DIV follows only above byte size. Signed I64 element counts grant no reference authority. Native compares canonical data-base/initialization-region/extent then subtracts offsets. Pointer-minus-integer and numeric subtraction remain checked."
 authority = "Original subtraction, size/division and transitive producer records are sealed; foreign/copied/changed/type-compatible substitutions reject. Current numeric-to-pointer rewrites cannot acquire difference authority. Native mismatch kind 18 requires an original difference site and attempted instruction."
@@ -12895,7 +12957,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsExp.HC:14-62", "Compiler/OptPass012.HC:403-440", "Compiler/OptPass789A.HC:682-688", "Compiler/BackA.HC:573-601"]
 implementation = ["src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/driver/integer_initializers.ml"]
 tests = ["test/test_prepared_pointer_difference.ml", "test/test_prepared_pointer_difference_cli.ml", "test/test_pointer_difference.ml", "examples/stream-pointer-difference-wide.hc"]
-documentation = ["docs/prepared-pointer-difference.md", "docs/pointer-difference.md", "docs/integer-defaults.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+documentation = ["docs/prepared-pointer-difference.md", "docs/pointer-difference.md", "docs/integer-defaults.md", "docs/holyc-language.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md", "docs/SECURITY.md"]
 identity = "Validate current original/transitive graph records and collect original descriptions once per retained callee. Exact original I64 division/subtraction and size producer records, zero flags, matching one-level integer/Bool pointer types and original width 2/4/8 are required. Copies, foreign owners/contexts, changed sizes/flags/targets and compatible operands reject. Execution rechecks the original source bundle; collection does not reseal it."
 execution = "Valid same-object aligned offsets differ by an exact multiple of their scalar width, so signed division and the source arithmetic-shift rewrite agree for positive, negative and zero results. Retained defaults execute once, preserving saved numeric words after later changes, without pointee reads or reference authority."
 resources = "Original unknown/bounds/overflow/object-mismatch phases, left-before-right effects, reached output and attempted work remain. Size constant/division count as callee runtime instructions. Runtime/preparation/output/storage/descriptor/call/frame/code limits remain bounded."
@@ -12911,7 +12973,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsVar.HC:1-108", "Compiler/OptPass012.HC:403-455,838-854", "Compiler/OptLib.HC:96-225", "Compiler/OptPass789A.HC:615-630", "Compiler/BackA.HC:573-661"]
 implementation = ["src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/driver/integer_initializers.ml", "src/driver/integer_update_initializers.ml"]
 tests = ["test/oracle/prepared-integer-shifts.json", "test/test_prepared_integer_shifts.ml", "test/test_prepared_integer_shifts_cli.ml", "test/test_prepared_pointer_difference.ml", "test/test_prepared_pointer_difference_cli.ml", "test/test_source_constant_shifts.ml", "test/test_source_division_strength_reductions.ml", "examples/stream-prepared-integer-shifts.hc", "test/dune"]
-documentation = ["docs/prepared-integer-shifts.md", "docs/prepared-pointer-difference.md", "docs/integer-defaults.md", "docs/integer-division.md", "docs/constant-shifts.md", "docs/optimizer.md", "docs/testing.md", "docs/oracle-fixtures.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md"]
+documentation = ["docs/prepared-integer-shifts.md", "docs/prepared-pointer-difference.md", "docs/integer-defaults.md", "docs/integer-division.md", "docs/constant-shifts.md", "docs/optimizer.md", "docs/testing.md", "docs/oracle-fixtures.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md"]
 identity = "Validate current original and transitive source producers before collecting exact zero-flag full-word SHL_CONST/SHR_CONST or scalar SHR_EQ with original internal-I64 literal count 0..63. Use the published retained callee context without reconstructing or resealing it. Copied/foreign/changed/new-after-seal records reject; actual execution rechecks the original bundle."
 execution = "Canonical payloads retain full counts and original computation classes. Addressed updates narrow stored values. Narrow register candidates require every graph write to preserve the declared range; bounded right shifts preserve it, while unbounded writes and explicit hardware registers do not qualify. Saved defaults/global/static values and original effects occur once."
 resources = "Reached output, original division faults and attempted work retain their preparation phase and callee context. Existing runtime, preparation, call, storage, frame, output and code limits remain bounded. The maintained example uses 200 runtime instructions, seven preparation and seven formatting-work units in both modes after connecting original live static initializer execution."
@@ -12950,7 +13012,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/OptLib.HC:96-179,196-225", "Compiler/OptPass012.HC:193-266,741-827", "Compiler/OptPass789A.HC:676-687", "Compiler/BackA.HC:573-601", "Compiler/BackB.HC:158,193"]
 implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/return_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_source_constant_shifts.ml", "test/source_constant_shift_cases.ml", "test/native/test_source_constant_shift_execution.ml", "test/test_constant_shift_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/native_default_authority/test_native_default_authority.ml", "test/oracle/constant-shifts.json", "examples/constant-shifts.hc", "examples/stream-constant-shifts.hc"]
-documentation = ["docs/constant-shifts.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/native-programs.md", "docs/testing.md", "README.md"]
+documentation = ["docs/constant-shifts.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/native-programs.md", "docs/testing.md", "docs/compiler-status.md"]
 ordering = "Pure constant children fold with their common class before same-direction variable-word counts merge by full wrapping addition. Calls and reads retain their original order and execute once. Opposite directions and variable counts stay separate."
 classes = "Surviving operand computation classes reach unary/arithmetic/return consumers. Earlier unsigned comparison decisions retain a word view. Checked call boundaries preserve original source class/span through a charged full-width view."
 authority = "Rewrite before IR identities and source sealing. Original canonical shifts and transitive producers are retained; changed/copy/foreign/new-after-seal records reject. Folded initializer/default leaves require original declaration and completion proofs."
@@ -12965,7 +13027,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/Lex.HC:493-509", "Compiler/PrsStmt.HC:140-207,915-939,1156-1193", "Compiler/PrsExp.HC:728-743,774-812,1018-1057"]
 implementation = ["src/frontend/parser.ml"]
 tests = ["test/test_primitive_type_shadowing.ml", "test/test_primitive_type_shadowing_cli.ml", "test/oracle/primitive-type-shadowing.json", "examples/primitive-type-shadowing.hc", "test/dune", "test/native/dune"]
-documentation = ["docs/primitive-type-shadowing.md", "docs/holyc-language.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "docs/oracle-fixtures.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md", "CHANGELOG.md"]
+documentation = ["docs/primitive-type-shadowing.md", "docs/holyc-language.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "docs/oracle-fixtures.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md"]
 identity = "A selected public primitive union or internal-type entry supplies the primitive. Original local, function and global selections cannot regain type status by matching its spelling. A newer named class retains its own aggregate identity."
 execution = "Functions, globals, locals and parameters with primitive names execute through shared IR and hosted native code in both source modes. Live post-body lookahead preserves its original local selection; callback-free parsing retains its separate contract."
 resources = "No new allocation or resource class. Existing runtime and initializer limits remain; the maintained example needs 42 runtime and three initializer instructions."
@@ -12982,7 +13044,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 sources = ["Compiler/PrsExp.HC:49-52,225-230", "Compiler/OptPass012.HC:141-150,809-822", "Compiler/OptPass4.HC:516-527", "Compiler/OptPass789A.HC:158-242,286-292"]
 implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/instruction_sequence.ml", "src/ir/block_graph.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_literal_storage.ml"]
 tests = ["test/test_conditional_comparison_chains.ml", "test/test_conditional_comparison_chains_cli.ml", "test/test_ir_comparison_chains.ml", "test/test_ir_block_graph.ml", "test/test_native_program.ml", "test/native/test_native_program_execution.ml", "test/oracle/conditional-comparison-chains.json", "examples/conditional-comparison-chains.hc", "test/dune", "test/native/dune"]
-documentation = ["docs/conditional-comparison-chains.md", "docs/optimizer.md", "docs/intermediate-representation.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/native-programs.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/oracle-fixtures.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md", "CHANGELOG.md"]
+documentation = ["docs/conditional-comparison-chains.md", "docs/optimizer.md", "docs/intermediate-representation.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/native-programs.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/oracle-fixtures.md", "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md", "docs/changelog.md"]
 identity = "Original checked operands and operator spans survive private planning. The exact graph layout and every instruction record retain their source context; copies and changed branches or comparisons fail preflight."
 execution = "All six integer comparison operators compose with if/while/do/for conditions, logical AND/OR/not, cumulative unsigned classes, calls and storage in both source modes and IR/native targets. Grouped comparisons and chains inside value expressions retain eager behavior."
 resources = "Unique dominating cross-block definitions, fresh invocation maps, native permanent shared-word homes under existing stack bounds, dense IDs, atomic allocation exhaustion, exact runtime/IR/block/code/frame limits."
@@ -13505,7 +13567,7 @@ description = "Original live scalar JIT initializer leaves and resumed commands 
 sources = ["Compiler/PrsVar.HC:53-107 original initializer compile, call and destination store", "Compiler/CMain.HC:1-32 original statement code and final expression", "docs/native-source-tasks.md hosted storage and resource policy"]
 implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_globals.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "src/holyc_lib.mli", "bin/holyc.ml", "bin/run_report.ml"]
 tests = ["test/native/test_native_source_execution.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_cli.ml", "test/test_jit_source_execution.ml", "test/native/dune", "examples/native-source-initializers.hc"]
-documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/native-retained-images.md", "docs/native-programs.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "ROADMAP.md", "README.md"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/native-retained-images.md", "docs/native-programs.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/roadmap.md", "docs/compiler-status.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13537,7 +13599,7 @@ description = "Original retained direct function bodies execute in caller fragme
 sources = ["Compiler/PrsStmt.HC:62-137 original function records and extern reuse", "Compiler/PrsStmt.HC:140-207 original body compilation and publication", "Compiler/PrsExp.HC:544-586 original argument order, JIT unresolved call form and cleanup", "Compiler/PrsVar.HC:53-107 live initializer expression execution", "Compiler/CMain.HC:1-32 original statement compilation"]
 implementation = ["src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_global_storage.ml", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
 tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_function_cli.ml", "test/native/test_native_source_authority.ml", "examples/native-source-functions.hc"]
-documentation = ["docs/native-source-tasks.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/native-source-tasks.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13553,7 +13615,7 @@ description = "Retained native source functions call checked Print and PutChars 
 sources = ["Compiler/PrsExp.HC:544-586 original call occurrence, argument order and cleanup", "Compiler/PrsStmt.HC:62-137 original extern record reuse", "Kernel/KeyDev.HC:20-27 packed PutChars bytes", "Kernel/StrPrint.HC:890-896 completed Print publication"]
 implementation = ["src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-output.hc"]
-documentation = ["docs/native-source-tasks.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/native-source-tasks.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13569,7 +13631,7 @@ description = "Original task string producers keep stable mutable bytes and cano
 sources = ["Compiler/PrsExp.HC:692-697 original string object, internal U8-pointer producer and combined byte payload", "Compiler/OptPass789A.HC:296-304 original string address within generated storage"]
 implementation = ["src/ir/block_graph.ml", "src/ir/runtime_call_context.ml", "src/backend/x86_64_literal_storage.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
 tests = ["test/native/test_native_source_literals.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_execution.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-literals.hc"]
-documentation = ["docs/native-source-tasks.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/native-source-tasks.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13586,7 +13648,7 @@ description = "Original private integer static allocations and live initializer 
 sources = ["Compiler/PrsVar.HC:534-589 original static allocation and padding", "Compiler/PrsVar.HC:53-107,123-244 original leaf execution and PrsStaticInit", "Compiler/PrsExp.HC:776-784 static address selection", "Compiler/PrsStmt.HC:160-184 completed function publication"]
 implementation = ["src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/static_initializer_lowering.ml", "src/sema/static_reference.ml", "src/sema/static_initializer_fragment.ml", "src/ir/integer_static_allocation.ml", "src/ir/static_initializer_destination.ml", "src/ir/static_initializer_program.ml", "src/ir/global_initialization.ml", "src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/hosted/native_source_execution.ml"]
 tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-statics.hc"]
-documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/integer-statics.md", "docs/integer-static-initializers.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/integer-statics.md", "docs/integer-static-initializers.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13603,7 +13665,7 @@ description = "The original parser literal-copy branch writes checked native tas
 sources = ["Compiler/PrsVar.HC:123-145 direct fixed byte-array literal MemCpy", "Compiler/PrsVar.HC:215-244 PrsStaticInit uses the original array traversal", "Kernel/KernelB.HH:168-169 original MemCpy declaration", "Kernel/KUtils.HC:54-68 REP_MOVSB implementation"]
 implementation = ["src/ir/static_initializer_destination.ml", "src/ir/integer_static_allocation.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_task.ml", "src/driver/integer_source_execution.ml", "src/backend/x86_64_global_storage.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
 tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-static-copies.hc"]
-documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/integer-static-initializers.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/native-source-tasks.md", "docs/integer-task.md", "docs/integer-static-initializers.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13619,7 +13681,7 @@ description = "Named integer defaults execute in original live native task fragm
 sources = ["Compiler/PrsVar.HC:629-656 declaration-time LexExpression2Bin/Call and full dft_val", "Compiler/PrsExp.HC:455-469 selected original saved-default argument"]
 implementation = ["src/driver/default_fragment_lowering.ml", "src/driver/integer_task.ml", "src/driver/native_parameter_defaults.ml", "src/ir/default_fragment_program.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_globals.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
 tests = ["test/native/test_native_source_functions.ml", "test/native/test_native_source_authority.ml", "test/native/test_native_source_function_cli.ml", "examples/native-source-defaults.hc"]
-documentation = ["docs/native-source-tasks.md", "docs/native-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/native-source-tasks.md", "docs/native-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13781,7 +13843,7 @@ description = "Original integer JIT bounds and aggregate offsets execute in IR a
 sources = ["Compiler/PrsVar.HC:247-283 array bounds before closing bracket", "Compiler/PrsVar.HC:408-449 offsets before semicolon", "Compiler/PrsVar.HC:660-721 class and union member placement and completion"]
 implementation = ["src/driver/integer_source_execution.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/integer_initializers.ml", "src/driver/dimension_fragment_lowering.ml", "src/driver/offset_fragment_lowering.ml", "src/sema/compiler_record.ml", "src/sema/source_activation.ml", "src/ir/integer_interpreter.ml", "src/ir/dimension_fragment_program.ml", "src/ir/offset_fragment_program.ml", "src/ir/native_scalar_capture.ml", "src/backend/x86_64_program.ml", "src/backend/x86_64_word_codegen.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_source_execution.ml", "bin/run_report.ml"]
 tests = ["test/runtime_layout_cases.ml", "test/test_runtime_layout_expressions.ml", "test/native/test_native_runtime_layout.ml", "test/test_runtime_layout_cli.ml", "examples/runtime-layout-expressions.hc"]
-documentation = ["docs/runtime-layout-expressions.md", "docs/integer-runtime-dimensions.md", "docs/retained-aggregates.md", "docs/native-source-tasks.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "ROADMAP.md"]
+documentation = ["docs/runtime-layout-expressions.md", "docs/integer-runtime-dimensions.md", "docs/retained-aggregates.md", "docs/native-source-tasks.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13797,7 +13859,7 @@ description = "Classes and unions in function and statement bodies publish origi
 sources = ["Compiler/PrsStmt.HC:1-60 class publication", "Compiler/PrsStmt.HC:1143-1159 statement declarations", "Compiler/PrsStmt.HC:1208-1218 statement delimiters", "Compiler/PrsVar.HC:286-368 backed inline local declarations"]
 implementation = ["src/frontend/parser.ml", "src/frontend/ast.ml", "src/driver/task_declarations.ml", "src/sema/compiler_record.ml"]
 tests = ["test/local_aggregate_cases.ml", "test/test_local_aggregates.ml", "test/native/test_native_local_aggregates.ml", "test/test_local_aggregates_cli.ml", "examples/local-aggregate-declarations.hc"]
-documentation = ["docs/local-aggregate-declarations.md", "docs/runtime-layout-expressions.md", "docs/testing.md", "README.md"]
+documentation = ["docs/local-aggregate-declarations.md", "docs/runtime-layout-expressions.md", "docs/testing.md", "docs/compiler-status.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13813,7 +13875,7 @@ description = "Original inherited size metadata copies the selected base's reach
 sources = ["Compiler/PrsStmt.HC:46-57 base selection before following lookahead and size copy after it", "Compiler/PrsVar.HC:408 root union base zero", "Compiler/PrsVar.HC:660-721 original member placement and padding"]
 implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/declaration_collection.ml", "src/sema/source_aggregate_layout.ml", "src/sema/aggregate_layout_core.ml", "src/driver/task_declarations.ml", "src/driver/inherited_metadata.ml", "src/driver/integer_source.ml"]
 tests = ["test/source_inherited_layout_cases.ml", "test/test_source_inherited_layouts.ml", "test/test_source_inherited_layout_authority.ml", "test/native/test_native_source_inherited_layouts.ml", "test/test_source_inherited_layouts_cli.ml", "examples/source-inherited-layouts.hc"]
-documentation = ["docs/source-inherited-layouts.md", "docs/local-aggregate-declarations.md", "docs/runtime-layout-expressions.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/source-inherited-layouts.md", "docs/local-aggregate-declarations.md", "docs/runtime-layout-expressions.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13829,7 +13891,7 @@ description = "Original native JIT directive tasks generate source during AOT pa
 sources = ["Compiler/PrsStmt.HC:805-840 stream task tables, JIT flags and restored source injection", "Compiler/Lex.HC:1031-1035 exe directive dispatch", "Compiler/CMisc.HC:68-81 formatting and active buffer", "Compiler/CMain.HC:673-690 separate synchronous StreamExePrint consumer"]
 implementation = ["src/hosted/native_source_execution.ml", "src/hosted/native_program.ml", "src/driver/integer_source_execution.ml", "src/driver/integer_task.ml", "src/driver/native_default_preparation.ml", "src/driver/task_declarations.ml", "src/backend/x86_64_global_storage.ml", "src/runtime/native_program_execution.ml", "bin/holyc.ml", "bin/run_report.ml"]
 tests = ["test/aot_source_cases.ml", "test/test_aot_source_sessions.ml", "test/native/test_native_aot_source.ml", "test/native/test_native_aot_source_cli.ml", "test/native/test_native_source_execution.ml", "test/native/test_native_source_cli.ml", "examples/native-aot-streams.hc"]
-documentation = ["docs/native-aot-source-sessions.md", "docs/native-source-tasks.md", "docs/native-stream-generation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/native-aot-source-sessions.md", "docs/native-source-tasks.md", "docs/native-stream-generation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13845,7 +13907,7 @@ description = "Original StreamExePrint suspensions select the saved enclosing co
 sources = ["Compiler/PrsStmt.HC:805-840 saved enclosing tables, task switch and active flag", "Compiler/CMain.HC:673-690 formatted source and htc.next selection", "Compiler/CMain.HC:572-604 child JIT context and saved tables", "Kernel/KTask.HC:302-357 reached child command compilation and execution"]
 implementation = ["src/frontend/parser.ml", "src/frontend/symbol_visibility.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/integer_source_execution.ml", "src/driver/public_integer_task.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_direct_call_phases.ml", "test/test_stateful_exe.ml", "test/test_stateful_exe_cli.ml", "examples/stream-exe-compiler-context.hc"]
-documentation = ["docs/integer-task.md", "docs/provider-callback-entries.md", "docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/native-aot-source-sessions.md", "docs/testing.md", "CHANGELOG.md"]
+documentation = ["docs/integer-task.md", "docs/provider-callback-entries.md", "docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/native-aot-source-sessions.md", "docs/testing.md", "docs/changelog.md"]
 status = "implemented"
 issue = 704
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
@@ -13861,7 +13923,7 @@ description = "Original integer backings supply whole scalar prefix reads, assig
 sources = ["Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/OptLib.HC:9-15 complete OptClassFwd", "Compiler/OptLib.HC:509-525 complete raw class forwarding", "Compiler/PrsExp.HC:81-154,183-201 dereference, update and assignment producers", "Compiler/PrsExp.HC:761-807,830-904 local and global address producers", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/BackLib.HC:693-707 complete ICDeref", "Compiler/BackC.HC:159-204 complete ICAssign", "Compiler/OptPass012.HC:865-889 fused postfix assignment rewrite", "Compiler/BackB.HC:429-466 complete ICAssignPostIncDec"]
 implementation = ["src/sema/aggregate_backing_storage.ml", "src/sema/function_call_expression_result.ml", "src/ir/aggregate_member_projection.ml", "src/ir/expression_lowering.ml", "src/ir/instruction_sequence.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/backed_aggregate_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/backed-aggregate-values.hc"]
-documentation = ["docs/backed-aggregate-values.md", "docs/aggregate-members.md", "docs/inherited-aggregates.md", "docs/class-pointers.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/retained-aggregates.md", "docs/testing.md", "docs/reference-source-map.md", "README.md"]
+documentation = ["docs/backed-aggregate-values.md", "docs/aggregate-members.md", "docs/inherited-aggregates.md", "docs/class-pointers.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/retained-aggregates.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compiler-status.md"]
 status = "implemented"
 issue = 686
 source_identity = "Opaque selections retain the exact completed earlier nominal class, original source-visible backing chain, compiler table and namespace, and owning function identity, scope and source position. Field and pointer layout identities remain separate. A later same-name class cannot change the selected scalar."
@@ -13876,7 +13938,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source = ["Compiler/PrsLib.HC:40-60 complete PrsClassNew", "Compiler/PrsStmt.HC:1-60 complete PrsClass", "Kernel/KernelA.HH:1572-1573 signed RT_PTR alias", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/OptLib.HC:9-15 complete OptClassFwd", "Compiler/OptLib.HC:508-525 complete CmpRawType and CmpRawTypePointed", "Compiler/PrsExp.HC:81-154,183-201 dereference, update and assignment producers", "Compiler/PrsExp.HC:761-807,830-904 local and global address producers", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/BackLib.HC:693-707 complete ICDeref", "Compiler/BackC.HC:159-204 complete ICAssign", "Compiler/BackB.HC:304-427 complete ICPreIncDec, ICPostIncDec and ICDerefPostIncDec", "Compiler/OptPass012.HC:865-889 fused postfix assignment rewrite", "Compiler/BackB.HC:429-466 complete ICAssignPostIncDec"]
 implementation = ["src/sema/aggregate_backing_storage.ml", "src/sema/function_call_expression_result.ml", "src/ir/aggregate_member_projection.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/default_aggregate_cases.ml", "test/test_function_call_expression_result.ml", "test/test_callback_storage.ml", "test/aggregate_member_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/default-aggregate-values.hc"]
-documentation = ["docs/default-aggregate-values.md", "docs/backed-aggregate-values.md", "docs/aggregate-members.md", "docs/inherited-aggregates.md", "docs/class-pointers.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/retained-aggregates.md", "docs/testing.md", "docs/reference-source-map.md", "README.md"]
+documentation = ["docs/default-aggregate-values.md", "docs/backed-aggregate-values.md", "docs/aggregate-members.md", "docs/inherited-aggregates.md", "docs/class-pointers.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/retained-aggregates.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compiler-status.md"]
 status = "implemented"
 issue = 686
 source_identity = "Opaque selections retain the completed earlier nominal class and terminal default class, the original source-visible backing chain, compiler table and namespace, and exact owning function identity, scope and source position. A later same-name declaration cannot change the selected signed word. Inheritance preserves its base layout without inheriting the base backing."
@@ -13891,7 +13953,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source = ["Compiler/PrsVar.HC:408-721 complete PrsVarLst, fixed parameters at 620-659", "Compiler/PrsExp.HC:383-591 complete PrsFunCall", "Compiler/BackLib.HC:312-348 complete ICPush", "Compiler/BackLib.HC:445-659 complete ICMov", "Compiler/PrsLib.HC:40-60 complete PrsClassNew", "Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/OptLib.HC:9-15,508-525 complete forwarding and raw-type consumers"]
 implementation = ["src/driver/function_type_resolution.ml", "src/sema/function_type_resolution.ml", "src/sema/aggregate_backing_storage.ml", "src/sema/function_call_expression_result.ml", "src/ir/function_body.ml", "src/ir/automatic_aggregate_storage.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/hosted/native_program.ml", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/class_parameter_cases.ml", "test/test_completed_function_header.ml", "test/test_provisional_function_types.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/class-value-parameters.hc"]
-documentation = ["docs/class-value-parameters.md", "docs/default-aggregate-values.md", "docs/backed-aggregate-values.md", "docs/holy-abi.md", "docs/aggregate-members.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/intermediate-representation.md", "README.md"]
+documentation = ["docs/class-value-parameters.md", "docs/default-aggregate-values.md", "docs/backed-aggregate-values.md", "docs/holy-abi.md", "docs/aggregate-members.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/intermediate-representation.md", "docs/compiler-status.md"]
 status = "implemented"
 issue = 702
 source_identity = "Original selected class receipts, completed layout and forwarding tables, exact bound source definition and frame, physical parameter members and nominal call targets supply the class view and full-word carrier. Raw bodies and foreign members cannot acquire class parameter roots. Later same-name classes do not replace original parameter views."
@@ -13906,7 +13968,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source = ["Compiler/PrsStmt.HC:1089-1122 original return branch", "Compiler/OptPass3.HC:249-260 return conversion cases", "Compiler/OptPass4.HC:415-435 return raw-type cases", "Compiler/OptPass789A.HC:779-786 RAX return cases", "Compiler/BackLib.HC:445-659 complete ICMov", "Compiler/PrsExp.HC:383-591 complete PrsFunCall"]
 implementation = ["src/sema/source_aggregate_layout.ml", "src/sema/function_call_expression_result.ml", "src/ir/function_body.ml", "src/ir/return_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/hosted/native_program.ml", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/class_return_cases.ml", "test/test_return_warnings.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/class-value-returns.hc"]
-documentation = ["docs/class-value-returns.md", "docs/class-value-parameters.md", "docs/default-aggregate-values.md", "docs/backed-aggregate-values.md", "docs/holy-abi.md", "docs/aggregate-members.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/intermediate-representation.md", "README.md"]
+documentation = ["docs/class-value-returns.md", "docs/class-value-parameters.md", "docs/default-aggregate-values.md", "docs/backed-aggregate-values.md", "docs/holy-abi.md", "docs/aggregate-members.md", "docs/classes-and-layout.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/intermediate-representation.md", "docs/compiler-status.md"]
 status = "implemented"
 issue = 702
 source_identity = "Original selected headers and bound definitions supply separate nominal class and qualified scalar return views. Original direct call regions retain both views; declaration matching uses nominal types. Raw bodies cannot acquire a class return convention. Returned words grant no aggregate extent or executable ownership."
@@ -13921,7 +13983,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source = ["Compiler/PrsVar.HC:609-674 complete fixed argument/default case", "Compiler/PrsExp.HC:453-470 saved word materialization"]
 implementation = ["src/sema/compiler_record.ml", "src/sema/default_fragment.ml", "src/sema/function_call_conversion_policy.ml", "src/sema/aggregate_backing_storage.ml", "src/sema/function_call_expression_result.ml", "src/driver/aggregate_header_resolution.ml", "src/driver/initializer_fragment_typing.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/native_default_preparation.ml", "src/driver/native_parameter_defaults.ml", "src/ir/default_fragment_destination.ml", "src/ir/prepared_parameter_default.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/class_default_cases.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/class-default-words.hc"]
-documentation = ["docs/class-default-words.md", "docs/class-value-parameters.md", "docs/class-value-returns.md", "docs/default-aggregate-values.md", "docs/native-defaults.md", "docs/integer-defaults.md", "docs/aggregate-members.md", "docs/class-pointers.md", "README.md"]
+documentation = ["docs/class-default-words.md", "docs/class-value-parameters.md", "docs/class-value-returns.md", "docs/default-aggregate-values.md", "docs/native-defaults.md", "docs/integer-defaults.md", "docs/aggregate-members.md", "docs/class-pointers.md", "docs/compiler-status.md"]
 status = "implemented-narrow-source-gate"
 source_identity = "Original parameter selections retain their nominal class. Immutable original completed definitions supply raw class metadata without layout authority. Default fragments validate their namespace; saved values require the exact publication, completed header and default receipt. Full-word producers remain separate from nominal member types and must match original preparation in call regions and native validation."
 execution_boundary = "Closed integer-backed and ordinary signed RT_PTR class/union defaults prepare at declaration time in AOT IR and native JIT/AOT source compilation. Saved words and argument slots retain all eight bytes; memory reads select only the raw prefix. Empty and larger classes keep the same argument word. Original declaration work and native saved-byte limits remain enforced."
@@ -13935,7 +13997,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source = ["Compiler/PrsStmt.HC:1-60 complete PrsClass and selected base", "Compiler/PrsVar.HC:609-674 fixed argument/default preparation", "Compiler/PrsExp.HC:453-470 saved default materialization", "Compiler/BackLib.HC:445-659 complete ICMov", "Compiler/LexLib.HC:154-177 MemberLstCmp saved default comparison"]
 implementation = ["src/sema/compiler_record.ml", "src/sema/declaration_collection.ml", "src/sema/function_collection.ml", "src/sema/function_type_resolution.ml", "src/sema/function_resolution.ml", "src/sema/function_call_expression_result.ml", "src/sema/task_command_order.ml", "src/driver/task_declarations.ml", "src/driver/inherited_metadata.ml", "src/driver/integer_source.ml", "src/driver/integer_unit.ml", "src/driver/integer_update_initializers.ml", "src/ir/integer_globals.ml", "src/ir/runtime_call_context.ml"]
 tests = ["test/class_default_cases.ml", "test/inherited_aggregate_cases.ml", "test/test_task_declarations.ml", "test/test_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/native/test_native_aggregate_members.ml", "examples/retained-class-defaults.hc"]
-documentation = ["docs/retained-class-context.md", "docs/native-source-tasks.md", "docs/class-default-words.md", "docs/class-value-parameters.md", "docs/inherited-aggregates.md", "README.md"]
+documentation = ["docs/retained-class-context.md", "docs/native-source-tasks.md", "docs/class-default-words.md", "docs/class-value-parameters.md", "docs/inherited-aggregates.md", "docs/compiler-status.md"]
 status = "implemented-source-owned-jit"
 source_identity = "Opaque imports retain exact completed definitions, original publications and sizes in the consuming namespace. Both ledger and task lifecycle journals require earlier source commands. Semantic class wrappers omit attached globals. Function headers preserve their original identity and source index; context indices and global joins retain the original command admission receipts."
 execution_boundary = "Retained JIT IR and native source tasks reuse original prepared dimensions and offsets for class layouts, parameter storage, member and prefix reads and return words. Closed class defaults execute in both IR modes. Checked class-returning calls prepare JIT defaults once, including declaration-time effects even when every argument is provided. Member/backing projections and bound callee ABI checks remain required."
@@ -13949,7 +14011,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source = ["Compiler/PrsVar.HC:285-317 retain selected class as inline backing", "Compiler/PrsVar.HC:521-535 member class selection and size times dimension count", "Compiler/PrsVar.HC:661-674 packed class and union member placement", "Compiler/PrsStmt.HC:1-60 class publication and original base selection"]
 implementation = ["src/frontend/parser.ml", "src/sema/source_type_reference.ml", "src/sema/compiler_record.ml", "src/sema/source_aggregate_layout.ml", "src/sema/task_command_order.ml", "src/driver/task_declarations.ml", "src/driver/aggregate_header_resolution.ml", "src/driver/member_type_resolution.ml", "src/driver/inherited_metadata.ml", "src/driver/integer_source.ml", "src/ir/integer_globals.ml"]
 tests = ["test/aggregate_member_cases.ml", "test/test_source_inherited_layout_authority.ml", "test/test_retained_aggregates.ml", "test/test_retained_named_aggregate.ml", "test/test_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "test/native/test_native_aggregate_members.ml", "examples/retained-nested-members.hc"]
-documentation = ["docs/retained-class-context.md", "README.md"]
+documentation = ["docs/retained-class-context.md", "docs/compiler-status.md"]
 status = "implemented-source-owned-jit"
 source_identity = "Original parser member phases retain their exact selected class and pointer children. Opaque member snapshots require the owning table, namespace and current original record. Named scalar backings retain the selection made before class publication. Imported child definitions require original admitted command receipts and follow their completion order. Completed inherited definitions keep the original selected base."
 execution_boundary = "Retained JIT IR and native tasks admit nested class and union members, arrays and class defaults using original sizes, runtime dimensions and offsets. Imported layouts carry their original preparation dependencies without rerunning expressions. Named pointer members preserve their original metadata; their IR execution is described in HC-IR-AGGREGATE-POINTER-FIELDS. The metadata byte-count adapter supplies no executable layout or storage authority."
@@ -13963,7 +14025,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source = ["Compiler/PrsStmt.HC:1-60 complete PrsClass", "Compiler/PrsStmt.HC:1143-1164 class statements and local declaration dispatch", "Compiler/PrsVar.HC:285-371 complete PrsType", "Compiler/PrsVar.HC:408-721 complete PrsVarLst, allocation at 521-617", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/PrsExp.HC:15-63 complete PrsAddOp", "Compiler/PrsStmt.HC:805-840 complete PrsStreamBlk and namespace restoration"]
 implementation = ["src/sema/function_aggregate_visibility.ml", "src/sema/compiler_record.ml", "src/sema/function_frame_layout.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/sema/aggregate_pointee_layout.ml", "src/sema/aggregate_backing_storage.ml", "src/driver/task_declarations.ml", "src/driver/function_frame_layout.ml", "src/driver/function_call_resolution.ml", "src/driver/integer_source.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml"]
 tests = ["test/local_aggregate_cases.ml", "test/test_local_aggregates.ml", "test/native/test_native_local_aggregates.ml", "test/test_local_aggregate_allocation.ml", "test/test_function_call_resolution.ml", "test/aggregate_member_cases.ml", "test/aggregate_array_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_local_aggregates_cli.ml", "examples/function-local-aggregate-objects.hc"]
-documentation = ["docs/function-local-aggregate-objects.md", "docs/local-aggregate-declarations.md", "docs/aggregate-members.md", "docs/class-pointers.md", "docs/backed-aggregate-values.md", "docs/default-aggregate-values.md", "docs/inherited-aggregates.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "ROADMAP.md"]
+documentation = ["docs/function-local-aggregate-objects.md", "docs/local-aggregate-declarations.md", "docs/aggregate-members.md", "docs/class-pointers.md", "docs/backed-aggregate-values.md", "docs/default-aggregate-values.md", "docs/inherited-aggregates.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "docs/compiler-status.md", "docs/roadmap.md"]
 status = "implemented-automatic-layouts"
 issue = 818
 source_identity = "Original completed function bodies supply immutable lexical layout positions for exact expression and local nodes. Selected references retain which canonical classes were complete at their original parser callbacks. Automatic allocation receipts capture the selected class size after declarator lookahead and dimensions, including zero, and bind the original local, function, table and namespace. Function identity remains separate from the layout frontier. Reconstructed expressions, later completions and foreign proofs cannot supply these selections."
@@ -13978,7 +14040,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source = ["Compiler/PrsLib.HC:40-60 complete PrsClassNew pointer records", "Compiler/PrsExp.HC:15-63 complete PrsAddOp", "Compiler/PrsExp.HC:65-262 complete PrsExpression2", "Compiler/PrsExp.HC:593-958 complete PrsUnaryTerm", "Compiler/PrsExp.HC:960-1115 complete PrsUnaryModifier", "Compiler/BackLib.HC:445-659 complete ICMov", "Compiler/BackLib.HC:693-708 complete ICDeref", "Compiler/BackC.HC:159-206 complete ICAssign"]
 implementation = ["src/ir/aggregate_member_projection.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/aggregate_member_cases.ml", "test/aggregate_member_fixture.ml", "test/test_aggregate_members.ml", "test/native/test_native_aggregate_members.ml", "test/test_aggregate_members_cli.ml", "examples/aggregate-pointer-fields.hc"]
-documentation = ["docs/aggregate-pointer-fields.md", "docs/aggregate-members.md", "docs/classes-and-layout.md", "docs/native-pointers.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "ROADMAP.md"]
+documentation = ["docs/aggregate-pointer-fields.md", "docs/aggregate-members.md", "docs/classes-and-layout.md", "docs/native-pointers.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compiler-status.md", "docs/architecture.md", "docs/roadmap.md"]
 status = "implemented-ir-owned-pointer-fields"
 issue = 686
 source_identity = "Exact member proofs retain the original class, member type, offset, array dimensions and function publication. Shape helpers grant no selected member or storage ownership. Typed field stores retain the existing target descriptor, original extent and invocation lifetime."

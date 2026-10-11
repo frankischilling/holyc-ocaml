@@ -2,26 +2,38 @@
 
 ## Unreleased
 
+- Added bracket switches, repeated defaults, and nested start/end setup regions
+  to IR and native execution. Prefixes run once on direct case entry, ordinary
+  fallthrough skips their setup calls, and region breaks reach the proper end
+  suffix. Checked private continuations preserve calls and recursion.
+- Added current-task scalar case evaluation at the original parser callback,
+  retaining selected queries, reached effects, and once-only captured results.
+  Switch work limits cover reached preparation and execution, counting nested
+  source instructions once and stopping the parent at its revised allowance. See
+  [integer switches](integer-switch.md) for the supported domain.
+- Moved detailed project documentation into `docs/` and shortened the README to
+  build instructions, examples, status, and documentation links.
+
 - Added owned integer and class pointer fields to IR execution, including
   member arrays, captured assignment destinations, pointer updates and retained
   class selections. Pointer bytes remain visible to numeric views; overlapping
   writes invalidate ownership and expired target frames stay inaccessible.
   Function-local field proofs and builtin member size queries share regression
   fixtures. Native pointer-field execution remains explicitly rejected. See
-  [pointer fields](docs/aggregate-pointer-fields.md).
+  [pointer fields](aggregate-pointer-fields.md).
 
 - Added member `sizeof` queries for the six builtin integer unions, including
   nested fields, primitive locals and parameters, and supported scalar global
   and static objects and arrays. Generated metadata preserves all 24 original
   field declarations; later type replacements leave earlier selections intact.
-  See [member sizes](docs/aggregate-member-sizeof.md).
+  See [member sizes](aggregate-member-sizeof.md).
 
 - Added original dot-member `sizeof` queries for named classes and unions,
   automatic objects and class parameters. Nested and inherited fields retain
   their selected types and dimensions; later forward completion preserves
   earlier query results. Pointer and callback fields, trailing stars and
   original runtime preparation dependencies work through IR and native paths.
-  See [member sizes](docs/aggregate-member-sizeof.md).
+  See [member sizes](aggregate-member-sizeof.md).
 
 - Added automatic arrays of classes and unions in IR and native programs.
   Original dimensions use the exact earlier element layout, while storage and

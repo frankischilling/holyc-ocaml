@@ -462,6 +462,7 @@ let literals_and_module_values () =
             | Semantic_top_level_expression_tree.Condition _
             | Semantic_top_level_expression_tree.Switch_selector _
             | Semantic_top_level_expression_tree.Switch_case_value _
+            | Semantic_top_level_expression_tree.Switch_case_fragment _
             | Semantic_top_level_expression_tree.Local_array_dimension _
             | Semantic_top_level_expression_tree.Local_initializer _
             | Semantic_top_level_expression_tree.Return_value _ -> None

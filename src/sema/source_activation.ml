@@ -68,6 +68,13 @@ let dimension_preparations t =
       | _ -> None)
     t.events
 
+let switch_case_preparations t =
+  List.filter_map
+    (function
+      | Declaration (Parser.Switch_case_preparing p) -> Some p
+      | _ -> None)
+    t.events
+
 let aggregate_offset_phases t =
   List.filter_map
     (function
@@ -81,6 +88,12 @@ let aggregate_offset_phases t =
 let trailing_dimension_preparation t =
   match List.rev t.events with
   | Declaration (Parser.Array_dimension_preparing preparation) :: _ ->
+      Some preparation
+  | _ -> None
+
+let trailing_switch_case_preparation t =
+  match List.rev t.events with
+  | Declaration (Parser.Switch_case_preparing preparation) :: _ ->
       Some preparation
   | _ -> None
 
@@ -111,6 +124,12 @@ let before_event t matches =
 let before_dimension t preparation =
   before_event t (function
     | Declaration (Parser.Array_dimension_preparing original) ->
+        original == preparation
+    | _ -> false)
+
+let before_switch_case t preparation =
+  before_event t (function
+    | Declaration (Parser.Switch_case_preparing original) ->
         original == preparation
     | _ -> false)
 
@@ -498,6 +517,11 @@ let dimension_preparing activation receipt =
         original == receipt
     | _ -> false)
 
+let switch_case_preparing activation receipt =
+  allows activation (function
+    | Declaration (Parser.Switch_case_preparing original) -> original == receipt
+    | _ -> false)
+
 let aggregate_offset_preparing activation receipt =
   allows activation (function
     | Declaration (Parser.Aggregate_advanced original) -> original == receipt
@@ -548,6 +572,12 @@ let global_admission activation publication =
 let dimension_admission activation preparation =
   admission activation (function
     | Declaration (Parser.Array_dimension_preparing original) ->
+        original == preparation
+    | _ -> false)
+
+let switch_case_admission activation preparation =
+  admission activation (function
+    | Declaration (Parser.Switch_case_preparing original) ->
         original == preparation
     | _ -> false)
 

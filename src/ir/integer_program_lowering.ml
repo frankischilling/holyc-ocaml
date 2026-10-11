@@ -20,6 +20,20 @@ module Switches = Hashtbl.Make (struct
   let hash prepared = Hashtbl.hash (Switch.source prepared).switch_keyword.span
 end)
 
+module Switch_defaults = Hashtbl.Make (struct
+  type t = Frontend.Ast.switch_default_label
+
+  let equal = ( == )
+  let hash label = Hashtbl.hash label.Frontend.Ast.switch_default_location.span
+end)
+
+module Switch_regions = Hashtbl.Make (struct
+  type t = Frontend.Ast.switch_subswitch
+
+  let equal = ( == )
+  let hash region = Hashtbl.hash region.Frontend.Ast.subswitch_location.span
+end)
+
 type statement =
   | Empty of Common.Span.t
   | Expression of Typed.expression_result
@@ -49,6 +63,12 @@ and switch_element =
   | Switch_case of Switch.case
   | Switch_default of Frontend.Ast.switch_default_label
   | Switch_statement of statement
+  | Switch_subswitch of Frontend.Ast.switch_subswitch * switch_element list
+
+type switch_prefix = {
+  prefix_entry : Sequence.Block_id.t;
+  mutable prefix_continuations : Sequence.Block_id.t list;
+}
 
 type t = {
   expression_source_ : (Integer_globals.t * Typed.expression_result) option;
@@ -102,6 +122,9 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     let runtime_calls = ref [] in
     let switches = Switches.create 16 in
     let switch_table_entries = ref 0 in
+    let local_returns = ref Int_map.empty in
+    let local_call_count = ref 0 in
+    let prefix_depth = ref 0 in
     let publications = ref [] in
     let checked_id = function
       | Ok value -> value
@@ -166,6 +189,118 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                 Goto_label_lowering.next_block_id lowered
                 |> Sequence.Block_id.to_int;
               Some lowered)
+    in
+    let rec split_prefix reversed = function
+      | Switch_statement body :: rest -> split_prefix (body :: reversed) rest
+      | rest -> (List.rev reversed, rest)
+    in
+    (* PrsSwitch only creates an IC_SUB_CALL when PrsStmt emitted IC after the
+       start: label. Empty statements and empty blocks leave that label as the
+       last IC; array publication records metadata without emitting a site. *)
+    let rec emits_prefix_ic = function
+      | Empty _ | Publish_array _ -> false
+      | Block statements -> List.exists emits_prefix_ic statements
+      | _ -> true
+    in
+    let needs_prefix leading body =
+      body <> [] && List.exists emits_prefix_ic leading
+    in
+    (* A goto must preserve the exact stack of active local continuations.
+       Compare source-owned subswitch identities, since equal nesting depths
+       can still belong to different porches. *)
+    let () =
+      match label_lowering with
+      | None -> ()
+      | Some _ ->
+          let definitions = ref Int_map.empty in
+          let gotos = ref [] in
+          let symbol_id occurrence =
+            Sema.Label_resolution.occurrence_symbol occurrence
+            |> Sema.Symbol.id |> Sema.Symbol.Id.to_int
+          in
+          let rec same_prefixes left right =
+            match (left, right) with
+            | [], [] -> true
+            | first :: left, second :: right ->
+                first == second && same_prefixes left right
+            | [], _ :: _ | _ :: _, [] -> false
+          in
+          let rec inspect_statement prefixes = function
+            | Label (at, occurrence) ->
+                let symbol =
+                  Sema.Label_resolution.occurrence_symbol occurrence
+                in
+                let key = symbol_id occurrence in
+                if Int_map.mem key !definitions then
+                  fail at "HCRUN0004"
+                    "function label has more than one original definition";
+                definitions := Int_map.add key (symbol, prefixes) !definitions
+            | Goto (at, occurrence) ->
+                gotos := (at, occurrence, prefixes) :: !gotos
+            | Block statements ->
+                List.iter (inspect_statement prefixes) statements
+            | If (_, yes, no) ->
+                inspect_statement prefixes yes;
+                Option.iter (inspect_statement prefixes) no
+            | While (_, body) | Do_while (body, _) ->
+                inspect_statement prefixes body
+            | For (initial, _, update, body) ->
+                inspect_statement prefixes initial;
+                Option.iter (inspect_statement prefixes) update;
+                inspect_statement prefixes body
+            | Switch (_, _, elements) -> inspect_elements prefixes elements
+            | Empty _
+            | Expression _
+            | Function_output _
+            | Top_level_output _
+            | Initialize _
+            | Initialize_global _
+            | Initialize_fragment _
+            | Initialize_static_fragment _
+            | Initialize_static _
+            | Initialize_static_leaf _
+            | Publish_array _
+            | Return _
+            | Break _ -> ()
+          and inspect_elements prefixes elements =
+            List.iter
+              (function
+                | Switch_statement statement ->
+                    inspect_statement prefixes statement
+                | Switch_subswitch (region, children) ->
+                    let leading, body = split_prefix [] children in
+                    let leading_prefixes =
+                      if needs_prefix leading body then region :: prefixes
+                      else prefixes
+                    in
+                    List.iter (inspect_statement leading_prefixes) leading;
+                    inspect_elements prefixes body
+                | Switch_case _ | Switch_default _ -> ())
+              elements
+          in
+          List.iter (inspect_statement []) statements;
+          List.iter
+            (fun (at, occurrence, source_prefixes) ->
+              let target_symbol =
+                Sema.Label_resolution.occurrence_symbol occurrence
+              in
+              match Int_map.find_opt (symbol_id occurrence) !definitions with
+              | Some (defined_symbol, destination_prefixes)
+                when defined_symbol == target_symbol ->
+                  if not (same_prefixes source_prefixes destination_prefixes)
+                  then
+                    fail at "HCRUN0001"
+                      "goto crosses a switch setup region and bypasses its \
+                       local continuation"
+              | Some _ ->
+                  fail at "HCRUN0004"
+                    "goto resolved to another source label identity"
+              | None when source_prefixes <> [] ->
+                  fail at "HCRUN0001"
+                    "goto from a switch setup region has no same-region \
+                     language label"
+              | None -> ())
+            (List.rev !gotos)
     in
     let expected_label_occurrences =
       match labels with
@@ -290,6 +425,24 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     in
     let jump ~at target =
       instruction ~at ~payload:(Sequence.Block target) Opcode.Ic_jmp;
+      finish ()
+    in
+    let local_call ~at prefix return_target =
+      if !local_call_count >= 100_000 then
+        fail at "HCRUN0001"
+          "local subroutine call sites exceed the bounded allowance";
+      incr local_call_count;
+      prefix.prefix_continuations <-
+        return_target :: prefix.prefix_continuations;
+      instruction ~at
+        ~payload:(Sequence.Block_targets [ prefix.prefix_entry; return_target ])
+        Opcode.Ic_sub_call;
+      finish ()
+    in
+    let local_return ~at prefix =
+      let identity = !instruction_count in
+      instruction ~at ~payload:(Sequence.Block_targets []) Opcode.Ic_ret;
+      local_returns := Int_map.add identity prefix !local_returns;
       finish ()
     in
     let append_fragment sequence next_instruction next_value result_value =
@@ -781,6 +934,10 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                   instruction ~at ~operands:[ operand ] ~flags:0x200L
                     Opcode.Ic_end_exp))
       | Return returned -> (
+          if !prefix_depth > 0 then
+            fail span "HCRUN0001"
+              "return from a switch setup region bypasses its local \
+               continuation";
           match leave with
           | None -> fail span "HCRUN0001" "return has no named function body"
           | Some leave -> (
@@ -884,23 +1041,19 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
             fail at "HCRUN0001"
               "bounded switch execution requires a scalar integer selector";
           let done_ = block () in
-          let default = Switch.default prepared in
-          let default_target =
-            match default with
-            | None -> done_
-            | Some _ -> block ()
-          in
           let cases = Switch.cases prepared in
           let targets = Switch_cases.create (List.length cases) in
+          let default_targets = Switch_defaults.create 8 in
+          let regions = Switch_regions.create 8 in
           List.iter
             (fun case ->
               if Switch_cases.mem targets case then
                 fail at "HCRUN0004"
                   "prepared switch repeats an original case identity";
-              Switch_cases.add targets case (block ()))
+              Switch_cases.add targets case (block (), ref None))
             cases;
-          let exact_elements =
-            List.length source.switch_elements = List.length elements
+          let rec exact_elements originals lowered =
+            List.length originals = List.length lowered
             && List.for_all2
                  (fun original lowered ->
                    match (original, lowered) with
@@ -909,18 +1062,69 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                        Switch_cases.mem targets case
                        && original == Switch.case_source case
                    | ( Frontend.Ast.Switch_default_element original,
-                       Switch_default label ) ->
-                       original == label
-                       && Option.fold ~none:false ~some:(( == ) label) default
+                       Switch_default label ) -> original == label
+                   | ( Frontend.Ast.Switch_subswitch_element original,
+                       Switch_subswitch (region, children) ) ->
+                       original == region
+                       && exact_elements original.subswitch_elements children
                    | Frontend.Ast.Switch_statement_element _, Switch_statement _
                      -> true
                    | _ -> false)
-                 source.switch_elements elements
+                 originals lowered
           in
-          if not exact_elements then
+          if not (exact_elements source.switch_elements elements) then
             fail at "HCRUN0004"
               "switch body does not retain its original ordered case and \
                default identities";
+          let rec allocate_elements active elements =
+            List.iter
+              (function
+                | Switch_case case ->
+                    let entry, body = Switch_cases.find targets case in
+                    if Option.is_some !body then
+                      fail at "HCRUN0004"
+                        "switch source repeats a prepared case";
+                    body := Some (if active then block () else entry)
+                | Switch_default label ->
+                    if Switch_defaults.mem default_targets label then
+                      fail at "HCRUN0004"
+                        "switch source repeats a default identity";
+                    let entry = block () in
+                    Switch_defaults.add default_targets label
+                      (entry, if active then block () else entry)
+                | Switch_statement _ -> ()
+                | Switch_subswitch (region, children) ->
+                    if Switch_regions.mem regions region then
+                      fail at "HCRUN0004"
+                        "switch source repeats a region identity";
+                    let leading, body = split_prefix [] children in
+                    let prefix =
+                      if not (needs_prefix leading body) then None
+                      else
+                        Some
+                          { prefix_entry = block (); prefix_continuations = [] }
+                    in
+                    Switch_regions.add regions region
+                      (prefix, leading, body, block ());
+                    allocate_elements (active || Option.is_some prefix) body)
+              elements
+          in
+          allocate_elements false elements;
+          Switch_cases.iter
+            (fun _ (_, body) ->
+              if Option.is_none !body then
+                fail at "HCRUN0004" "switch source omitted a prepared case")
+            targets;
+          let default_target =
+            match Switch.default prepared with
+            | None -> done_
+            | Some label -> (
+                match Switch_defaults.find_opt default_targets label with
+                | Some (entry, _) -> entry
+                | None ->
+                    fail at "HCRUN0004"
+                      "switch source lost its selected default")
+          in
           let range = Switch.range prepared in
           if range <= 0 || range > 0xFFFF then
             fail at "HCRUN0004" "prepared switch range is outside 1..65535";
@@ -943,7 +1147,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
               then
                 fail at "HCRUN0004"
                   "prepared case is outside its owning switch range";
-              let target = Switch_cases.find targets case in
+              let target, _ = Switch_cases.find targets case in
               for index = Int64.to_int first to Int64.to_int last do
                 table.(index) <- target
               done)
@@ -982,18 +1186,64 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           instruction ~at ~operands:[ adjusted; range_value ]
             ~payload:
               (Sequence.Block_targets (default_target :: Array.to_list table))
-            Opcode.Ic_switch;
+            (match source.switch_mode with
+            | Frontend.Ast.Bounded_switch -> Opcode.Ic_switch
+            | Frontend.Ast.No_bound_switch -> Opcode.Ic_nobound_switch);
           finish ();
-          List.iter
-            (function
-              | Switch_statement body -> statement (Some done_) body
-              | Switch_case case ->
-                  Option.iter (fun _ -> finish ()) !current;
-                  start (Switch_cases.find targets case)
-              | Switch_default _ ->
-                  Option.iter (fun _ -> finish ()) !current;
-                  start default_target)
-            elements;
+          let rec dispatch_prefixes prefixes target =
+            match prefixes with
+            | [] -> ()
+            | prefix :: rest ->
+                let continuation = if rest = [] then target else block () in
+                local_call ~at prefix continuation;
+                start continuation;
+                dispatch_prefixes rest target
+          in
+          let label prefixes (entry, body) =
+            (match !current with
+            | Some _ when prefixes <> [] -> jump ~at body
+            | Some _ -> finish ()
+            | None -> ());
+            start entry;
+            dispatch_prefixes prefixes body
+          in
+          let rec emit_elements prefixes break_target elements =
+            List.iter
+              (function
+                | Switch_statement body -> statement (Some break_target) body
+                | Switch_case case ->
+                    let entry, body = Switch_cases.find targets case in
+                    label prefixes (entry, Option.get !body)
+                | Switch_default default ->
+                    label prefixes
+                      (Switch_defaults.find default_targets default)
+                | Switch_subswitch (region, _) ->
+                    let prefix, leading, body, region_done =
+                      Switch_regions.find regions region
+                    in
+                    (match prefix with
+                    | None ->
+                        List.iter (statement None) leading;
+                        emit_elements prefixes region_done body
+                    | Some prefix ->
+                        let forward = block () in
+                        jump ~at forward;
+                        start prefix.prefix_entry;
+                        incr prefix_depth;
+                        Fun.protect
+                          ~finally:(fun () -> decr prefix_depth)
+                          (fun () -> List.iter (statement None) leading);
+                        local_return ~at prefix;
+                        start forward;
+                        let continuation = block () in
+                        local_call ~at prefix continuation;
+                        start continuation;
+                        emit_elements (prefixes @ [ prefix ]) region_done body);
+                    Option.iter (fun _ -> finish ()) !current;
+                    start region_done)
+              elements
+          in
+          emit_elements [] done_ elements;
           Option.iter (fun _ -> finish ()) !current;
           start done_
       | If (value, then_branch, else_branch) ->
@@ -1060,7 +1310,34 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
         instruction ~at:span Opcode.Ic_ret);
     finish ();
     let graph =
-      match Block_graph.create ~entry (List.rev !blocks) with
+      let blocks =
+        List.rev !blocks
+        |> List.map (fun (block : Block_graph.block_description) ->
+            {
+              block with
+              instructions =
+                List.map
+                  (fun (description : Sequence.description) ->
+                    match
+                      Int_map.find_opt
+                        (Sequence.Instruction_id.to_int
+                           description.instruction_id)
+                        !local_returns
+                    with
+                    | None -> description
+                    | Some prefix ->
+                        {
+                          description with
+                          payload =
+                            Some
+                              (Sequence.Block_targets
+                                 (List.sort_uniq Sequence.Block_id.compare
+                                    prefix.prefix_continuations));
+                        })
+                  block.instructions;
+            })
+      in
+      match Block_graph.create ~entry blocks with
       | Ok graph -> graph
       | Error errors ->
           raise

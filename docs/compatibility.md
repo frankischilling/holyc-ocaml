@@ -1,5 +1,14 @@
 # holyc-ocaml compatibility status
 
+[Integer switches](integer-switch.md) support bracket dispatch, repeated defaults,
+and nested start/end setup regions through IR and native execution in both
+preprocessing modes. Setup prefixes run once on direct case entry and preserve
+ordinary fallthrough. Supported scalar case expressions execute at their
+original callbacks in a current JIT task, with retained globals and functions;
+closed query results keep their original selections. Out-of-table bracket
+dispatch traps with HCSW0005. Nonlocal setup exits and effectful ordinary AOT
+source without task execution authority remain explicit boundaries.
+
 [Aggregate member `sizeof`](aggregate-member-sizeof.md) supports dot paths from
 named classes and unions, automatic objects and class parameters. Nested and
 inherited fields retain original types, their own array counts and query-time
@@ -319,13 +328,14 @@ validation. Equal-text literal producers retain distinct objects, and each
 execution restores its own data and initialization state. Logical global and
 literal byte limits remain separate from the private arena metadata limit.
 
-[Bounded integer switch execution](integer-switch.md) connects #668's original
-closed case preparation to canonical `IC_SWITCH`, checked tables and both
-execution targets. Endpoint values prepare at their original parser callbacks;
-final range/overlap validation follows closing-brace lookahead. Implicit values,
-reversed inclusive ranges, holes, defaults, fallthrough and nested breaks are
-admitted under separate preparation and cumulative table bounds. No-bound,
-sub-switch, multiple-default and effectful-case execution remain explicit gates.
+[Integer switch execution](integer-switch.md) connects original case preparation
+to bounded or bracket dispatch, checked tables, and both execution targets.
+Endpoint values prepare at their original parser callbacks; final range and
+overlap validation follows closing-brace lookahead. Implicit values, reversed
+inclusive ranges, holes, repeated defaults, setup regions, fallthrough, and
+nested breaks share the same representation. Current-task scalar effects also
+run during original case preparation. Nested source execution counts each
+instruction once against the shared switch allowance.
 
 [Native scalar globals](native-globals.md) support ordinary integer declarations
 and closed scalar initializers in the hosted native target. Initializers prepare

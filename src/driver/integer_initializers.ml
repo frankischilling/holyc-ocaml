@@ -11,6 +11,7 @@ module Destination = Ir.Initializer_fragment_destination
 module Default = Ir.Default_fragment_destination
 module Internal_binding = Ir.Internal_binding_fragment_destination
 module Dimension = Ir.Dimension_fragment_destination
+module Switch_case = Ir.Switch_case_fragment_destination
 module Offset = Ir.Offset_fragment_destination
 module Runtime = Ir.Runtime_call_context
 
@@ -88,6 +89,7 @@ type owner =
   | Default of Default.t
   | Internal_binding of Internal_binding.t
   | Dimension of Dimension.t
+  | Switch_case of Switch_case.t
   | Offset of Offset.t
 
 type t = {
@@ -99,6 +101,7 @@ type t = {
   default_items_ : Default.t prepared_item list;
   internal_binding_items_ : Internal_binding.t prepared_item list;
   dimension_items_ : Dimension.t prepared_item list;
+  switch_case_items_ : Switch_case.t prepared_item list;
   offset_items_ : Offset.t prepared_item list;
   native_items_ : owner prepared_item list;
   native_evidence_ : native_preparation list;
@@ -135,12 +138,12 @@ let value_instructions graph =
       | _ -> true)
 
 let prepare_internal ?fragment ?default ?default_execution ?internal_binding
-    ?dimension ?offset ?native_global ?native_static ?(already_prepared = [])
-    ?(statics_prepared = []) ?(function_calls = []) ?(callback_calls = [])
-    ?(top_callback_calls = []) ?(allow_zero_budget = false)
-    ?(check_only = false) ?(retained_function_source = fun _ -> None)
-    ?(on_progress = fun _ -> ()) ~max_steps ~span ~globals ~top_calls ~functions
-    () =
+    ?dimension ?switch_case ?offset ?native_global ?native_static
+    ?(already_prepared = []) ?(statics_prepared = []) ?(function_calls = [])
+    ?(callback_calls = []) ?(top_callback_calls = [])
+    ?(allow_zero_budget = false) ?(check_only = false)
+    ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
+    ~max_steps ~span ~globals ~top_calls ~functions () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -158,6 +161,11 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
       | None, Some (fragment, root, destination) ->
           [ Native_static (fragment, root, destination) ]
       | Some _, Some _ -> invalid_arg "conflicting native preparation owners"
+      | None, None when Option.is_some switch_case -> (
+          match (fragment, default, internal_binding, dimension, offset) with
+          | None, None, None, None, None ->
+              [ Switch_case (Option.get switch_case) ]
+          | _ -> invalid_arg "conflicting switch case preparation owners")
       | None, None -> (
           match offset with
           | Some destination
@@ -206,6 +214,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                         | Default _
                         | Internal_binding _
                         | Dimension _
+                        | Switch_case _
                         | Offset _ -> 0
                         | Global (slot, _) ->
                             Globals.slot_record slot
@@ -244,7 +253,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
             if
               Option.is_some fragment || Option.is_some default
               || Option.is_some internal_binding
-              || Option.is_some dimension || Option.is_some offset
+              || Option.is_some dimension || Option.is_some switch_case
+              || Option.is_some offset
               || Option.is_some native_global
               || Option.is_some native_static
             then Ok globals
@@ -274,7 +284,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
             if
               Option.is_some fragment || Option.is_some default
               || Option.is_some internal_binding
-              || Option.is_some dimension || Option.is_some offset
+              || Option.is_some dimension || Option.is_some switch_case
+              || Option.is_some offset
               || Option.is_some native_global
               || Option.is_some native_static
             then Ok globals_
@@ -295,6 +306,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Default _
                 | Internal_binding _
                 | Dimension _
+                | Switch_case _
                 | Offset _ -> None)
               prepared
           in
@@ -318,6 +330,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Default _
                 | Internal_binding _
                 | Dimension _
+                | Switch_case _
                 | Offset _ -> None)
               prepared
           in
@@ -367,6 +380,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                     | Dimension root_ -> Some { item with root_ }
                     | _ -> None)
                   prepared;
+              switch_case_items_ =
+                List.filter_map
+                  (fun item ->
+                    match item.root_ with
+                    | Switch_case root_ -> Some { item with root_ }
+                    | _ -> None)
+                  prepared;
               internal_binding_items_ =
                 List.filter_map
                   (fun item ->
@@ -401,6 +421,10 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
             | Dimension destination ->
                 ( None,
                   Typed.top_level_root_value (Dimension.root destination),
+                  None )
+            | Switch_case destination ->
+                ( None,
+                  Typed.top_level_root_value (Switch_case.root destination),
                   None )
             | Internal_binding destination ->
                 ( None,
@@ -437,6 +461,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   [ "aggregate-offset=runtime-expression" ]
                 else if Option.is_some internal_binding then
                   [ "internal-binding=runtime-expression" ]
+                else if Option.is_some switch_case then
+                  [ "switch-case=runtime-expression" ]
                 else [ "dimension=runtime-expression" ]
             | Some symbol ->
                 [
@@ -449,7 +475,11 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
             match root_ with
             | Native_static (_, _, destination)
             | Native_global (_, _, destination) -> Some destination.operation
-            | Default _ | Internal_binding _ | Dimension _ | Offset _ -> None
+            | Default _
+            | Internal_binding _
+            | Dimension _
+            | Switch_case _
+            | Offset _ -> None
             | Fragment destination ->
                 Some (Layout.operation (Destination.layout destination))
             | Global (slot, root) ->
@@ -496,6 +526,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                     | Default _
                     | Internal_binding _
                     | Dimension _
+                    | Switch_case _
                     | Offset _ -> errors
                     | Static _ ->
                         List.map
@@ -544,14 +575,19 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   | [] -> Ok ()
                   | (item : Seq.description) :: rest ->
                       let* () =
-                        if Option.is_some offset then
+                        if Option.is_some offset || Option.is_some switch_case
+                        then
                           match item.opcode with
                           | Ir.Opcode.Ic_rip ->
                               invalid
                                 ~at:(Option.value item.span ~default:at)
                                 ~notes "HCRUN0006"
-                                "runtime offset preparation requires checked \
-                                 current-position lowering"
+                                (if Option.is_some switch_case then
+                                   "switch case preparation does not admit \
+                                    current-position code"
+                                 else
+                                   "runtime offset preparation requires \
+                                    checked current-position lowering")
                           | _ -> Ok ()
                         else Ok ()
                       in
@@ -647,6 +683,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Internal_binding destination ->
                     Ok (Internal_binding.type_ destination, 0L)
                 | Dimension destination -> Ok (Dimension.type_ destination, 0L)
+                | Switch_case destination ->
+                    Ok (Switch_case.type_ destination, 0L)
                 | Default destination -> Ok (Default.type_ destination, 0L)
                 | Fragment destination ->
                     Ok
@@ -733,6 +771,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       | Default _
                       | Internal_binding _
                       | Dimension _
+                      | Switch_case _
                       | Offset _ -> None
                     in
                     let find source_globals source_functions =
@@ -910,6 +949,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 | Default _
                 | Internal_binding _
                 | Dimension _
+                | Switch_case _
                 | Offset _ -> false
               then
                 invalid ~at ~notes "HCRUN0006"
@@ -1726,6 +1766,20 @@ let prepare_dimension ?top_callback_calls ?retained_function_source ?on_progress
       Ok (item.classification_, prepared.steps)
   | _ -> invalid_arg "dimension preparation lost its original work item"
 
+let prepare_switch_case ?top_callback_calls ?retained_function_source
+    ?on_progress ~max_steps ~top_calls destination =
+  let* prepared =
+    prepare_internal ~switch_case:destination ~allow_zero_budget:true
+      ?top_callback_calls ?retained_function_source ?on_progress ~max_steps
+      ~span:(Switch_case.span destination)
+      ~globals:(Switch_case.globals destination)
+      ~top_calls ~functions:[] ()
+  in
+  match prepared.switch_case_items_ with
+  | [ item ] when item.root_ == destination ->
+      Ok (item.classification_, prepared.steps)
+  | _ -> invalid_arg "switch case preparation lost its original work item"
+
 let prepare_internal_binding ?top_callback_calls ?retained_function_source
     ?on_progress ~max_steps ~top_calls destination =
   let* prepared =
@@ -1825,6 +1879,7 @@ let human prepared =
                  | Native_global _
                  | Internal_binding _
                  | Dimension _
+                 | Switch_case _
                  | Offset _ -> invalid_arg "dimension cannot own copied bytes"
                  | Default destination -> Default.symbol destination
                  | Fragment destination ->

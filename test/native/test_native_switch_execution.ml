@@ -340,21 +340,9 @@ let invalid_source_rejects_before_native_entry () =
         "I64 Bad(I64 n){switch(n){case 1:return 1;case 1:return \
          2;default:return 0;}return -1;}42;",
         "HCSW0002" );
-      ( "no-bound",
-        "I64 Bad(I64 n){switch[n]{case 1:return 1;default:return 0;}return \
-         -1;}42;",
-        "HCRUN0001" );
-      ( "subswitch",
-        "I64 Bad(I64 n){switch(n){start:case 1:return 1;end:default:return \
-         0;}return -1;}42;",
-        "HCRUN0001" );
       ( "effectful",
         "I64 Bad(I64 n){switch(n){case n++:return 1;default:return 0;}return \
          -1;}42;",
-        "HCRUN0001" );
-      ( "duplicate default",
-        "I64 Bad(I64 n){switch(n){case 1:return 1;default:return \
-         0;default:return 2;}return -1;}42;",
         "HCRUN0001" );
       ( "range",
         "I64 Bad(I64 n){switch(n){case 0...65535:return 1;default:return \

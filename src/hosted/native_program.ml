@@ -570,29 +570,21 @@ let ast_errors (ast : Ast.module_) =
                   :: Gate_expression (in_function, loop.for_condition)
                   :: rest
             | Ast.Switch_statement switch ->
-                if switch.switch_mode <> Ast.Bounded_switch then
-                  reject
-                    (source_error switch.switch_location.span
-                       "native programs do not admit no-bound switches")
-                else
-                  let body =
-                    List.filter_map
-                      (function
-                        | Ast.Switch_statement_element statement ->
-                            Some statement
-                        | Ast.Switch_case_element _
-                        | Ast.Switch_default_element _ -> None
-                        | Ast.Switch_subswitch_element subswitch ->
-                            reject
-                              (source_error subswitch.subswitch_location.span
-                                 "native programs do not admit sub-switch \
-                                  regions");
-                            None)
-                      switch.switch_elements
-                  in
-                  work :=
-                    Gate_expression (in_function, switch.switch_expression)
-                    :: prepend_statements in_function body !work
+                let rec collect_elements elements =
+                  List.concat_map
+                    (function
+                      | Ast.Switch_statement_element statement -> [ statement ]
+                      | Ast.Switch_case_element _ | Ast.Switch_default_element _
+                        -> []
+                      | Ast.Switch_subswitch_element subswitch ->
+                          collect_elements subswitch.subswitch_elements)
+                    elements
+                in
+                work :=
+                  Gate_expression (in_function, switch.switch_expression)
+                  :: prepend_statements in_function
+                       (collect_elements switch.switch_elements)
+                       !work
             | Ast.Implicit_output_statement statement -> (
                 match statement.target with
                 | Ast.Put_chars_target | Ast.Print_target ->
@@ -1089,6 +1081,12 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
           "opaque function address cannot escape as an integer word" )
     | Image.Callback_update_owned_address ->
         ("HCIRVM0024", "opaque function address has no numeric callback update")
+    | Image.No_bound_switch_out_of_range ->
+        ("HCSW0005", "no-bound switch index is outside its prepared table")
+    | Image.Local_subroutine_continuation_unavailable ->
+        ( "HCSW0006",
+          "local subroutine continuation is unavailable or exceeds its stack \
+           bound" )
     | Image.Pointer_difference_object_mismatch ->
         ("HCIRVM0018", "pointer difference requires the same live object extent")
   in

@@ -10726,6 +10726,8 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
 and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
     ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth
     ~switch_owner ~switch_cases : parsed_switch_region option =
+  let in_prefix = ref expect_end in
+  let region_break = cursor.break_target in
   let finish elements_rev tokens_rev end_ ending_tokens had_error =
     Some
       {
@@ -10781,6 +10783,7 @@ and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
         in
         collect elements_rev (List.rev_append consumed tokens_rev) true
     | Token_kind.Keyword Keyword.Case -> (
+        in_prefix := false;
         match parse_switch_case_element cursor ~switch_owner ~switch_cases with
         | Some element ->
             collect
@@ -10789,6 +10792,7 @@ and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
               had_error
         | None -> collect elements_rev tokens_rev true)
     | Token_kind.Keyword Keyword.Default -> (
+        in_prefix := false;
         match parse_switch_default_element cursor with
         | Some element ->
             collect
@@ -10797,6 +10801,7 @@ and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
               had_error
         | None -> collect elements_rev tokens_rev true)
     | Token_kind.Keyword Keyword.Start -> (
+        in_prefix := false;
         match
           parse_switch_subswitch_element cursor ~subswitch_depth ~block_depth
             ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth
@@ -10810,8 +10815,12 @@ and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
         | None -> collect elements_rev tokens_rev true)
     | _ -> (
         match
-          parse_statement_sequence cursor ~boundary:Switch_boundary ~block_depth
-            ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth
+          with_break_target cursor
+            (if !in_prefix then None else region_break)
+            (fun () ->
+              parse_statement_sequence cursor ~boundary:Switch_boundary
+                ~block_depth ~conditional_depth ~loop_depth ~lock_depth
+                ~try_depth ~switch_depth)
         with
         | Some statement ->
             let element = Ast.Switch_statement_element statement.node in

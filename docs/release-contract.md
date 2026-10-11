@@ -46,7 +46,7 @@ execute with the System V x64 status ABI. The backend may encode the other ABI
 for inspection, but a foreign ABI image is not executable evidence for that
 host. See [native programs](native-programs.md),
 [native expressions](native-expressions.md), and
-[the security policy](../SECURITY.md).
+[the security policy](SECURITY.md).
 
 macOS x86-64, macOS ARM64, Linux ARM64, Windows ARM64, ARM64EC and other host
 combinations are unqualified for 1.0. The OCaml package's portability does not

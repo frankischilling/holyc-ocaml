@@ -183,6 +183,8 @@ type scalar_capture =
   | Binding_capture of Ir.Native_internal_binding_capture.t
   | Dimension_capture of
       Ir.Dimension_fragment_program.t Ir.Native_scalar_capture.t
+  | Switch_case_capture of
+      Ir.Switch_case_fragment_program.t Ir.Native_scalar_capture.t
   | Offset_capture of Ir.Offset_fragment_program.t Ir.Native_scalar_capture.t
 
 type task_arena = {
@@ -290,8 +292,8 @@ let release_arena_lease arena borrowed =
   if not borrowed then release_lease arena.arena_lease_
 
 let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
-    ?source_callback_state ?consumed_after_source ?(max_frame_bytes = 1_048_576)
-    ?(max_call_depth = 128)
+    ?source_callback_state ?consumed_after_source ?activation_step_restriction
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_active_stack_bytes = hard_max_active_stack_bytes)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~max_steps
@@ -562,6 +564,17 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                                     (fun value -> Dimension_capture value)
                                     capture;
                                 report
+                            | Some (Image.Switch_case program) ->
+                                let report, capture =
+                                  execute_retained_budget_scalar_program
+                                    (Option.get retained) task limits consumed
+                                    (Option.get entered, program)
+                                in
+                                scalar_capture :=
+                                  Option.map
+                                    (fun value -> Switch_case_capture value)
+                                    capture;
+                                report
                             | Some (Image.Offset program) ->
                                 let report, capture =
                                   execute_retained_budget_scalar_program
@@ -630,9 +643,21 @@ let execute_report_internal ?scope ?retained ?consumed ?entered ?task_binding
                         (status, "", 0)
                     in
                     let kind, site, executed_steps, value_site, bits = status in
+                    let restricted =
+                      Option.fold ~none:0
+                        ~some:(fun get -> get ())
+                        activation_step_restriction
+                    in
                     let decoded =
-                      Image.decode_runtime_status image ~max_steps ~kind ~site
-                        ~executed_steps ~value_site ~bits
+                      if restricted < 0 || restricted > max_steps - prior_steps
+                      then
+                        Error
+                          "native source step restriction exceeds its original \
+                           budget"
+                      else
+                        Image.decode_runtime_status image
+                          ~max_steps:(max_steps - restricted) ~kind ~site
+                          ~executed_steps ~value_site ~bits
                     in
                     let atomic_fault =
                       match decoded with
@@ -986,6 +1011,25 @@ let finish_task_dimension ?scope arena image =
       | _ ->
           Error
             "native scalar capture has another original image, kind or arena")
+
+let finish_task_switch_case ?scope arena image =
+  let ( let* ) = Result.bind in
+  let* borrowed = acquire_arena_lease ?scope arena in
+  Fun.protect
+    ~finally:(fun () -> release_arena_lease arena borrowed)
+    (fun () ->
+      let reached = Atomic.get arena.scalar_capture_ in
+      match (Image.task_snapshot image, Image.switch_case image, reached) with
+      | Some snapshot, Some _, Some (entered, Switch_case_capture captured)
+        when (not (Atomic.get arena.arena_revoked_))
+             && entered == image
+             && Task_storage.task_snapshot_matches_layout snapshot arena.layout_
+             && Atomic.compare_and_set arena.scalar_capture_ reached None ->
+          Ok captured
+      | _ ->
+          Error
+            "native switch case capture has another original image, kind or \
+             arena")
 
 let finish_task_offset ?scope arena image =
   let ( let* ) = Result.bind in
@@ -1411,6 +1455,7 @@ let execute_retained_budget_report ?scope ?max_activation_steps ?max_frame_bytes
     ?source_callback budget retained =
   let callback_exception_seen = ref false in
   let callback_exception_value = ref Not_found in
+  let activation_step_restriction = ref 0 in
   let source_callback_state =
     Option.map
       (fun callback ->
@@ -1449,7 +1494,16 @@ let execute_retained_budget_report ?scope ?max_activation_steps ?max_frame_bytes
                 chunks_ = append_capture output state.chunks_;
                 error_ = state.error_;
               };
-            callback scope contents),
+            Fun.protect
+              ~finally:(fun () ->
+                match Ir.Native_source_suspension.restricted_steps scope with
+                | Ok restricted when restricted >= !activation_step_restriction
+                  -> activation_step_restriction := restricted
+                | Ok _ ->
+                    invalid_arg
+                      "native source step restriction moved its bound backwards"
+                | Error message -> invalid_arg message)
+              (fun () -> callback scope contents)),
           callback_exception_seen,
           callback_exception_value,
           budget.identity_ ))
@@ -1512,6 +1566,8 @@ let execute_retained_budget_report ?scope ?max_activation_steps ?max_frame_bytes
                     let report =
                       execute_report_internal ?scope ~retained:retained.handle_
                         ?source_callback_state
+                        ~activation_step_restriction:(fun () ->
+                          !activation_step_restriction)
                         ~consumed_after_source:(fun () ->
                           let current = Atomic.get budget.state_ in
                           (current.steps_, current.bytes_, current.work_))

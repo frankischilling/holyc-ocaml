@@ -114,19 +114,18 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 Option.iter (validate ~in_function) loop.for_update;
                 validate ~in_function loop.for_body
             | Ast.Switch_statement switch ->
-                if switch.switch_mode <> Ast.Bounded_switch then
-                  fail switch.switch_location.span "HCRUN0001"
-                    "integer execution does not admit no-bound switches";
-                List.iter
-                  (function
-                    | Ast.Switch_statement_element body ->
-                        validate ~in_function body
-                    | Ast.Switch_case_element _ | Ast.Switch_default_element _
-                      -> ()
-                    | Ast.Switch_subswitch_element subswitch ->
-                        fail subswitch.subswitch_location.span "HCRUN0001"
-                          "integer execution does not admit sub-switch regions")
-                  switch.switch_elements
+                let rec elements source =
+                  List.iter
+                    (function
+                      | Ast.Switch_statement_element body ->
+                          validate ~in_function body
+                      | Ast.Switch_case_element _ | Ast.Switch_default_element _
+                        -> ()
+                      | Ast.Switch_subswitch_element subswitch ->
+                          elements subswitch.subswitch_elements)
+                    source
+                in
+                elements switch.switch_elements
             | Ast.Local_declaration_statement _
             | Ast.Return_statement _
             | Ast.No_warn_statement _
@@ -800,7 +799,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               | Ast.Switch_statement item ->
                   let prepared = prepared_switch item in
                   let remaining = ref (Switch.cases prepared) in
-                  let elements =
+                  let rec lower_elements elements =
                     List.map
                       (function
                         | Ast.Switch_case_element label -> (
@@ -819,11 +818,11 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                         | Ast.Switch_statement_element body ->
                             Lower.Switch_statement (statement body)
                         | Ast.Switch_subswitch_element nested ->
-                            fail nested.subswitch_location.span "HCRUN0001"
-                              "integer execution does not admit sub-switch \
-                               regions")
-                      item.switch_elements
+                            Lower.Switch_subswitch
+                              (nested, lower_elements nested.subswitch_elements))
+                      elements
                   in
+                  let elements = lower_elements item.switch_elements in
                   if !remaining <> [] then
                     fail item.switch_location.span "HCRUN0004"
                       "switch source did not consume every prepared case";
@@ -1352,12 +1351,11 @@ let compile_source_in_task_budget ~task ~source_command session ~config parsed =
             ~span:(Option.get parsed.Frontend.Parser.ast).span message;
         ])
   in
-  let before = VM.task_initializer_steps task in
   let preparation = VM.begin_isolated_preparation task in
   let compiled =
     compile_parsed_with_limit ~source_command
       ~allow_zero_initializer_budget:true
-      ~max_initializer_steps:(VM.task_initializer_limit task - before)
+      ~max_initializer_steps:(VM.task_initializer_remaining task)
       ~initializer_progress:(fun steps ->
         VM.record_isolated_preparation task preparation ~steps)
       session ~config parsed
@@ -1425,7 +1423,7 @@ let compile_task_ast ~task ?declaration_command session ~config
           [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
     in
     let before = VM.task_initializer_steps task in
-    let max_initializer_steps = VM.task_initializer_limit task - before in
+    let max_initializer_steps = VM.task_initializer_remaining task in
     let* task_view =
       match declaration_command with
       | None -> Ok task_view

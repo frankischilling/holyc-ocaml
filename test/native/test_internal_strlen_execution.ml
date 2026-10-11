@@ -197,6 +197,8 @@ let status_kind = function
   | Program.Stream_exe_context_required -> 28L
   | Program.Stream_exe_source_failed -> 29L
   | Program.Compiler_option_failed -> 30L
+  | Program.No_bound_switch_out_of_range -> 31L
+  | Program.Local_subroutine_continuation_unavailable -> 32L
   | Program.Output_work_limit_exceeded -> 12L
   | Program.Output_invalid_format -> 13L
   | Program.Output_invalid_argument -> 14L

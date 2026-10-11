@@ -44,6 +44,8 @@ type fault_kind =
   | Undefined_extern
   | Callback_owned_word_escape
   | Callback_update_owned_address
+  | No_bound_switch_out_of_range
+  | Local_subroutine_continuation_unavailable
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -76,6 +78,7 @@ type task_layout = Task_storage.task_layout
 type scalar_program =
   | Internal_binding of Ir.Internal_binding_fragment_program.t
   | Dimension of Ir.Dimension_fragment_program.t
+  | Switch_case of Ir.Switch_case_fragment_program.t
   | Offset of Ir.Offset_fragment_program.t
 
 type t = {
@@ -89,6 +92,7 @@ type t = {
   data_default_ : Ir.Saved_parameter_value.t option;
   data_default_misc_ : bool;
   dimension_ : Ir.Dimension_fragment_program.t option;
+  switch_case_ : Ir.Switch_case_fragment_program.t option;
   offset_ : Ir.Offset_fragment_program.t option;
   internal_binding_ : Ir.Internal_binding_fragment_program.t option;
 }
@@ -97,13 +101,20 @@ let generation value = value.generation_
 let source_callback value = value.source_callback_
 let internal_binding value = value.internal_binding_
 let dimension value = value.dimension_
+let switch_case value = value.switch_case_
 let offset value = value.offset_
 
 let scalar_program value =
-  match (value.internal_binding_, value.dimension_, value.offset_) with
-  | Some program, None, None -> Some (Internal_binding program)
-  | None, Some program, None -> Some (Dimension program)
-  | None, None, Some program -> Some (Offset program)
+  match
+    ( value.internal_binding_,
+      value.dimension_,
+      value.switch_case_,
+      value.offset_ )
+  with
+  | Some program, None, None, None -> Some (Internal_binding program)
+  | None, Some program, None, None -> Some (Dimension program)
+  | None, None, Some program, None -> Some (Switch_case program)
+  | None, None, None, Some program -> Some (Offset program)
   | _ -> None
 
 let data_default value = value.data_default_
@@ -143,6 +154,7 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
         data_default_ = None;
         data_default_misc_ = false;
         dimension_ = None;
+        switch_case_ = None;
         offset_ = None;
         internal_binding_ = None;
       })
@@ -168,6 +180,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
         data_default_ = None;
         data_default_misc_ = false;
         dimension_ = None;
+        switch_case_ = None;
         offset_ = None;
         internal_binding_ = None;
       })
@@ -187,9 +200,9 @@ let create_task_layout_with_literals ~max_literal_bytes ~max_global_bytes =
   |> Result.map_error project_storage_errors
 
 let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
-    ?callback_default ?data_default ?dimension ?offset ?internal_binding
-    ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim ~generation
-    ~source_callback ~runtime_calls ~retained_function_source
+    ?callback_default ?data_default ?dimension ?switch_case ?offset
+    ?internal_binding ~max_ir_instructions ~max_code_bytes ~layout ~check ~claim
+    ~generation ~source_callback ~runtime_calls ~retained_function_source
     ~retained_slot_binding ~retained_slot_address_binding
     ~retained_slot_address_refresh ~retained_parameter_default
     ~retained_callback_default ~initialization ~entry ~functions () =
@@ -239,6 +252,7 @@ let compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
         callback_default_ = callback_default;
         data_default_ = data_default;
         dimension_ = dimension;
+        switch_case_ = switch_case;
         offset_ = offset;
         internal_binding_ = internal_binding;
         data_default_misc_ =
@@ -377,6 +391,27 @@ let compile_task_dimension ?status_abi ?max_stack_bytes ?max_blocks
   let program = Request.program request in
   compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
     ~dimension:program ~max_ir_instructions ~max_code_bytes ~layout
+    ~check:(fun () -> Request.check request)
+    ~claim:(fun () -> Request.claim request)
+    ~generation:(fun () -> Request.generation request)
+    ~source_callback:(Request.source_callback request)
+    ~runtime_calls:(Program.runtime_calls program)
+    ~retained_function_source:(Request.function_source request)
+    ~retained_slot_binding:(Request.slot_binding request)
+    ~retained_slot_address_binding:(Request.slot_address_binding request)
+    ~retained_slot_address_refresh:(Request.slot_address_refresh request)
+    ~retained_parameter_default:(Request.parameter_default request)
+    ~retained_callback_default:(Request.callback_default request)
+    ~initialization:(Program.initialization program)
+    ~entry:(Program.entry program) ~functions:[] ()
+
+let compile_task_switch_case ?status_abi ?max_stack_bytes ?max_blocks
+    ?(max_ir_instructions = 4096) ?(max_code_bytes = 65_536) ~layout request =
+  let module Request = Driver.Integer_task.Native_switch_case in
+  let module Program = Ir.Switch_case_fragment_program in
+  let program = Request.program request in
+  compile_task_request ?status_abi ?max_stack_bytes ?max_blocks
+    ~switch_case:program ~max_ir_instructions ~max_code_bytes ~layout
     ~check:(fun () -> Request.check request)
     ~claim:(fun () -> Request.claim request)
     ~generation:(fun () -> Request.generation request)
@@ -936,6 +971,25 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                     Error
                       "native code-word escape fault names another reached site"
                   else make_fault Callback_owned_word_escape None
+                else if kind = 31L then
+                  if not candidate.nobound_switch_site then
+                    Error
+                      "native no-bound switch fault names another instruction"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native no-bound switch fault did not consume its \
+                       instruction"
+                  else make_fault No_bound_switch_out_of_range None
+                else if kind = 32L then
+                  if not candidate.local_subroutine_site then
+                    Error
+                      "native local continuation fault names another \
+                       instruction"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native local continuation fault did not consume its \
+                       instruction"
+                  else make_fault Local_subroutine_continuation_unavailable None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =

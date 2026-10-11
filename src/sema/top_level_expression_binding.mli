@@ -52,6 +52,9 @@ val make_initializer_fragment :
 val make_dimension_fragment :
   fragment:Dimension_fragment.t -> event list -> (input, string) result
 
+val make_switch_case_fragment :
+  fragment:Switch_case_fragment.t -> event list -> (input, string) result
+
 val make_internal_binding_fragment :
   fragment:Internal_binding_fragment.t -> event list -> (input, string) result
 
@@ -114,6 +117,7 @@ val statement_initializer :
 
 val statement_fragment : statement -> Initializer_fragment.t option
 val statement_dimension : statement -> Dimension_fragment.t option
+val statement_switch_case : statement -> Switch_case_fragment.t option
 val statement_internal_binding : statement -> Internal_binding_fragment.t option
 val statement_default : statement -> Default_fragment.t option
 val initializer_bindings : t -> Global_initializer_binding.t option

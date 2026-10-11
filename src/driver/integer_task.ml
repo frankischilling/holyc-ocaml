@@ -586,9 +586,7 @@ module Native_default = struct
     VM.task_native_callback_default request.task ~globals ~pointer ~parameter
       prepared
 
-  let initializer_remaining request =
-    VM.task_initializer_limit request.task
-    - VM.task_initializer_steps request.task
+  let initializer_remaining request = VM.task_initializer_remaining request.task
 
   let record_steps request steps =
     if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
@@ -723,9 +721,7 @@ module Native_internal_binding = struct
     VM.task_native_callback_default request.task ~globals ~pointer ~parameter
       prepared
 
-  let initializer_remaining request =
-    VM.task_initializer_limit request.task
-    - VM.task_initializer_steps request.task
+  let initializer_remaining request = VM.task_initializer_remaining request.task
 
   let record_steps request steps =
     if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
@@ -862,14 +858,153 @@ module Native_dimension = struct
     VM.task_native_callback_default request.task ~globals ~pointer ~parameter
       prepared
 
-  let initializer_remaining request =
-    VM.task_initializer_limit request.task
-    - VM.task_initializer_steps request.task
+  let initializer_remaining request = VM.task_initializer_remaining request.task
 
   let record_steps request steps =
     if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
     then Error "native dimension work requires its entered original request"
     else VM.record_native_dimension_steps request.task request.attempt steps
+
+  let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
+      task attempt program_ =
+    {
+      task;
+      attempt;
+      program_;
+      generation_ = VM.native_task_generation ~use_active_stream task;
+      source_handler = stream_exe_print;
+      compiler_options_handler = compiler_options;
+      domain = Domain.self ();
+      phase = Atomic.make Offered;
+    }
+
+  let entered request = Atomic.get request.phase = Entered
+
+  let source_callback request =
+    native_source_callback ?compiler_options:request.compiler_options_handler
+      ~generation:request.generation_
+      ~valid:(fun () -> Domain.self () = request.domain && entered request)
+      request.source_handler
+
+  let close request = Atomic.set request.phase Closed
+end
+
+module Native_switch_case = struct
+  module Program = Ir.Switch_case_fragment_program
+
+  type phase = Offered | Claiming | Entered | Closed
+
+  type request = {
+    task : VM.task_state;
+    attempt : VM.switch_case_attempt;
+    program_ : Program.t;
+    generation_ : VM.native_generation;
+    source_handler : VM.stream_exe_print option;
+    compiler_options_handler : VM.compiler_options option;
+    domain : Domain.id;
+    phase : phase Atomic.t;
+  }
+
+  type t =
+    request ->
+    (Program.t Ir.Native_scalar_capture.t, Common.Diagnostic.t list) result
+
+  let generation request = request.generation_
+  let program request = request.program_
+
+  let check request =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Offered
+    then
+      Error
+        "native switch case belongs to another domain or was already claimed"
+    else
+      VM.check_native_task_switch_case request.task request.attempt
+        request.program_
+
+  let claim request =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    if Atomic.compare_and_set request.phase Offered Claiming then (
+      match
+        VM.claim_native_task_switch_case request.task request.attempt
+          request.program_
+      with
+      | Ok () ->
+          Atomic.set request.phase Entered;
+          Ok ()
+      | Error _ as error ->
+          Atomic.set request.phase Closed;
+          error)
+    else Error "native switch case was already claimed"
+
+  let function_source request link =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    match VM.task_native_function_source request.task link with
+    | Some source -> Ok source
+    | None -> Error "native switch case lacks its admitted original callee"
+
+  let slot_binding request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_binding request.task
+      ~root_runtime_calls:(Program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Program.initialization request.program_))
+      ~runtime_calls ~owner call
+
+  let slot_address_binding request ~runtime_calls ~owner address =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_slot_address_binding request.task
+      ~root_runtime_calls:(Program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Program.initialization request.program_))
+      ~runtime_calls ~owner address
+
+  let slot_address_refresh request binding =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.refresh_native_slot_address_binding request.task
+      ~root_runtime_calls:(Program.runtime_calls request.program_)
+      ~root_globals:
+        (Ir.Global_initialization.globals
+           (Program.initialization request.program_))
+      binding
+
+  let provider_available request ~runtime_calls ~owner call =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_provider_available request.task ~runtime_calls ~owner call
+
+  let parameter_default request ~globals ~header ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_parameter_default request.task ~globals ~header ~parameter
+      prepared
+
+  let callback_default request ~globals ~pointer ~parameter prepared =
+    let ( let* ) = Result.bind in
+    let* () = check request in
+    VM.task_native_callback_default request.task ~globals ~pointer ~parameter
+      prepared
+
+  let switch_remaining request =
+    VM.task_switch_case_remaining request.task request.attempt
+
+  let initializer_remaining request = VM.task_initializer_remaining request.task
+
+  let record_steps request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native switch case work requires its entered original request"
+    else VM.record_native_switch_case_steps request.task request.attempt steps
+
+  let charge_work request steps =
+    if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
+    then Error "native switch case work requires its entered original request"
+    else VM.charge_native_switch_case_work request.task request.attempt steps
 
   let create ?(use_active_stream = true) ?compiler_options ?stream_exe_print
       task attempt program_ =
@@ -997,9 +1132,7 @@ module Native_offset = struct
     VM.task_native_callback_default request.task ~globals ~pointer ~parameter
       prepared
 
-  let initializer_remaining request =
-    VM.task_initializer_limit request.task
-    - VM.task_initializer_steps request.task
+  let initializer_remaining request = VM.task_initializer_remaining request.task
 
   let record_steps request steps =
     if Domain.self () <> request.domain || Atomic.get request.phase <> Entered
@@ -1091,6 +1224,7 @@ type t = {
   native_static_copy : Native_static_copy.t option;
   native_default : Native_default.t option;
   native_dimension : Native_dimension.t option;
+  native_switch_case : Native_switch_case.t option;
   native_offset : Native_offset.t option;
   native_internal_binding : Native_internal_binding.t option;
   mutable commands : (Frontend.Ast.module_ * command) list;
@@ -1126,7 +1260,8 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
     ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
     ?max_stream_depth ?native_dispatch ?native_static_allocation
     ?native_static_initializer ?native_static_copy ?native_default
-    ?native_dimension ?native_offset ?native_internal_binding session =
+    ?native_dimension ?native_switch_case ?native_offset
+    ?native_internal_binding session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -1156,6 +1291,7 @@ let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
             native_static_copy;
             native_default;
             native_dimension;
+            native_switch_case;
             native_offset;
             native_internal_binding;
             commands = [];
@@ -1216,8 +1352,8 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
     ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
     ?native_dispatch ?native_static_allocation ?native_static_initializer
-    ?native_static_copy ?native_default ?native_dimension ?native_offset
-    ?native_internal_binding session ~source ~ledger =
+    ?native_static_copy ?native_default ?native_dimension ?native_switch_case
+    ?native_offset ?native_internal_binding session ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
@@ -1242,6 +1378,7 @@ let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
       native_static_copy;
       native_default;
       native_dimension;
+      native_switch_case;
       native_offset;
       native_internal_binding;
       commands = [];
@@ -1264,8 +1401,11 @@ let initializer_steps task = VM.task_initializer_steps task.state
 
 let synchronize_preparation_work task ~work =
   let before = VM.task_initializer_steps task.state in
-  if work < before || work > VM.task_initializer_limit task.state then
-    Error "source task work exceeds its cumulative preparation allowance"
+  if work < before || work - before > VM.task_initializer_remaining task.state
+  then
+    Error
+      "HCIRVM0007: source task work exceeds its cumulative preparation \
+       allowance"
   else (
     VM.record_task_preparation task.state ~before ~steps:(work - before);
     Ok ())
@@ -1423,7 +1563,7 @@ let prepare_source_default task ~session ~ledger receipt =
     Integer_initializers.prepare_default ~runtime:task.state ~authority
       ~on_progress:(fun steps ->
         VM.record_task_preparation task.state ~before ~steps)
-      ~max_steps:(VM.task_initializer_limit task.state - before)
+      ~max_steps:(VM.task_initializer_remaining task.state)
       ~top_calls:[] destination
   in
   let* result =
@@ -1477,7 +1617,7 @@ let prepare_source_callback_default task ~session ~ledger receipt =
     Integer_initializers.prepare_default ~runtime:task.state ~authority
       ~on_progress:(fun steps ->
         VM.record_task_preparation task.state ~before ~steps)
-      ~max_steps:(VM.task_initializer_limit task.state - before)
+      ~max_steps:(VM.task_initializer_remaining task.state)
       ~top_calls:[] destination
   in
   let* result =
@@ -1789,6 +1929,91 @@ let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
   let* () = outcome in
   finished
 
+let execute_runtime_switch_case ?(use_active_stream = true) ?stream_exe_print
+    task receipt =
+  let ( let* ) = Result.bind in
+  let span =
+    (Frontend.Ast.expression_location
+       receipt.Frontend.Parser.switch_case_expression)
+      .span
+  in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* task_view = VM.task_snapshot task.state |> diagnose in
+  let* authority, attempt =
+    Task_declarations.begin_runtime_switch_case task.declarations
+      ~runtime:task.state ~task_view receipt
+  in
+  let outcome =
+    let fragment = Sema.Switch_case_fragment.authorized_fragment authority in
+    let* context =
+      Initializer_fragment_typing.create_context
+        ~table:(Session.semantic_symbols task.session)
+        ~parent:(Task_declarations.initializer_scope task.declarations)
+      |> diagnose
+    in
+    let* typed =
+      Initializer_fragment_typing.prepare_switch_case context fragment
+      |> diagnose
+    in
+    let* destination =
+      Ir.Switch_case_fragment_destination.create ~task_view typed |> diagnose
+    in
+    match task.native_switch_case with
+    | Some evaluate ->
+        let* program =
+          Switch_case_fragment_lowering.lower_native ~context ~authority
+            destination
+        in
+        let request =
+          Native_switch_case.create
+            ~compiler_options:(compiler_options task ~span)
+            ~use_active_stream ?stream_exe_print task.state attempt program
+        in
+        Fun.protect
+          ~finally:(fun () -> Native_switch_case.close request)
+          (fun () ->
+            let* capture = evaluate request in
+            if Native_switch_case.entered request then
+              VM.complete_native_task_switch_case task.state attempt program
+                capture
+              |> diagnose
+            else
+              Error
+                [
+                  Integer_source.diagnostic ~span "HCIRVM0026"
+                    "native switch case returned without claiming its original \
+                     endpoint";
+                ])
+    | None when Option.is_some task.native_dispatch ->
+        Error
+          [
+            Integer_source.diagnostic ~span "HCRUN0006"
+              "native task execution requires its switch case adapter";
+          ]
+    | None ->
+        let* execution =
+          Switch_case_fragment_lowering.prepare ~context ~authority
+            ~runtime:task.state ~attempt destination
+        in
+        VM.execute_task_switch_case
+          ~compiler_options:(compiler_options task ~span)
+          ~use_active_stream ?stream_exe_print task.state attempt execution
+        |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+  in
+  (match outcome with
+  | Error _ -> ignore (VM.fail_task_switch_case task.state attempt)
+  | Ok () -> ());
+  let finished =
+    Task_declarations.finish_runtime_switch_case task.declarations
+      ~runtime:task.state ~succeeded:(Result.is_ok outcome) receipt
+  in
+  let* () = outcome in
+  finished
+
 let execute_runtime_internal_binding ?(use_active_stream = true)
     ?stream_exe_print task receipt =
   let ( let* ) = Result.bind in
@@ -2062,6 +2287,10 @@ let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     | Frontend.Parser.Array_dimension_preparing receipt
       when Task_declarations.dimension_requires_runtime receipt ->
         execute_runtime_dimension ~use_active_stream ?stream_exe_print task
+          receipt
+    | Frontend.Parser.Switch_case_preparing receipt
+      when Task_declarations.switch_case_requires_runtime receipt ->
+        execute_runtime_switch_case ~use_active_stream ?stream_exe_print task
           receipt
     | Frontend.Parser.Function_local_allocated receipt
       when receipt.allocation_storage = Frontend.Ast.Static_local -> (

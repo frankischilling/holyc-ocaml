@@ -971,6 +971,18 @@
  (action
   (run %{exe:test_native_switch_execution.exe})))
 
+(copy_files ../switch_extension_cases.ml)
+
+(executable
+ (name test_native_switch_extensions)
+ (modules test_native_switch_extensions switch_extension_cases)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_switch_extensions.exe})))
+
 (executable
  (name test_native_switch_cli)
  (modules test_native_switch_cli)
@@ -980,13 +992,17 @@
  (alias native-tests)
  (deps
   ../../examples/integer-switch.hc
-  ../../examples/integer-switch-large-range.hc)
+  ../../examples/integer-switch-large-range.hc
+  ../../examples/switch-regions.hc
+  ../../examples/switch-case-effects.hc)
  (action
   (run
    %{exe:test_native_switch_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/integer-switch.hc}
-   %{dep:../../examples/integer-switch-large-range.hc})))
+   %{dep:../../examples/integer-switch-large-range.hc}
+   %{dep:../../examples/switch-regions.hc}
+   %{dep:../../examples/switch-case-effects.hc})))
 
 (executable
  (name test_native_global_execution)

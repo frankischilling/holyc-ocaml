@@ -475,12 +475,6 @@ let unsupported_regions_reject_before_native_entry () =
         "U0 SysTry(){}U0 SysUntry(){}U0 F(){done:try goto done;catch \
          return;}F();",
         "try goto done;catch return;" );
-      ( "no-bound switch region",
-        "U0 F(I64 n){switch[n]{case 0:goto done;}done:return;}F(0);",
-        "switch[n]{case 0:goto done;}" );
-      ( "sub-switch region",
-        "U0 F(I64 n){switch(n){start:case 0:goto done;end:}done:return;}F(0);",
-        "switch(n){start:case 0:goto done;end:}" );
     ]
   in
   List.iter
@@ -514,6 +508,68 @@ let unsupported_regions_reject_before_native_entry () =
             None
             (Native_program.executed_steps report))
         cases)
+    modes
+
+let switch_gotos_keep_native_continuation_ownership () =
+  let accepted =
+    [
+      ( "no-bound goto exits a case body",
+        "I64 F(I64 n){switch[n]{case 0:goto done;}return -1;done:return \
+         42;}F(0);" );
+      ( "sub-switch with empty setup has no continuation",
+        "I64 F(I64 n){switch(n){start:case 0:goto done;end:}return \
+         -1;done:return 42;}F(0);" );
+      ( "case-body goto leaves a completed setup prefix",
+        "I64 F(){I64 n=0;switch(0){start:n+=1;case 0:n+=40;goto \
+         done;end:n+=100;}done:return n+1;}F();" );
+    ]
+  in
+  let rejected =
+    [
+      ( "goto exits its active setup prefix",
+        "I64 F(){switch(0){start:goto body;case 0:body:break;end:;}return \
+         42;}F();",
+        "goto body;" );
+      ( "goto enters an active setup prefix",
+        "I64 F(){switch(0){start:setup:;case 0:goto setup;end:;}return 42;}F();",
+        "goto setup;" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, contents) ->
+          compare_word ~mode ~label ~expected_type:"I64" ~expected_bits:42L
+            contents)
+        accepted;
+      List.iter
+        (fun (label, contents, primary) ->
+          let public_source, public_result =
+            public_run_with_source ~mode contents
+          in
+          let public_error = first_public_error public_result in
+          Alcotest.(check string)
+            (label ^ " checked IR guard")
+            "HCRUN0001" public_error.code;
+          check_primary (label ^ " checked IR") public_source contents primary 1
+            public_error;
+          let native_source, report =
+            native_report_with_source ~mode contents
+          in
+          let native_error = first_native_diagnostic report in
+          Alcotest.(check string)
+            (label ^ " native guard") "HCRUN0001" native_error.code;
+          check_primary (label ^ " native") native_source contents primary 1
+            native_error;
+          Alcotest.(check bool)
+            (label ^ " has no native image")
+            true
+            (Option.is_none (Native_program.image report));
+          Alcotest.(check (option int))
+            (label ^ " fails before native entry")
+            None
+            (Native_program.executed_steps report))
+        rejected)
     modes
 
 let skipped_initialization_faults_match_checked_ir () =
@@ -627,8 +683,11 @@ let () =
                 "goto preserves native word-return completeness" `Quick
                 goto_word_return_completeness;
               Alcotest.test_case
-                "unsupported goto regions reject before native entry" `Quick
-                unsupported_regions_reject_before_native_entry;
+                "assembly, lock and exception goto reject before native entry"
+                `Quick unsupported_regions_reject_before_native_entry;
+              Alcotest.test_case
+                "switch goto retains local continuation ownership" `Quick
+                switch_gotos_keep_native_continuation_ownership;
               Alcotest.test_case
                 "skipped initialization faults match exact checked IR" `Quick
                 skipped_initialization_faults_match_checked_ir;

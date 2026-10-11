@@ -187,6 +187,9 @@ let kind_name = function
   | Program.Undefined_extern -> "undefined-extern"
   | Program.Callback_owned_word_escape -> "callback-owned-word-escape"
   | Program.Callback_update_owned_address -> "callback-update-owned-address"
+  | Program.No_bound_switch_out_of_range -> "no-bound-switch-out-of-range"
+  | Program.Local_subroutine_continuation_unavailable ->
+      "local-subroutine-continuation-unavailable"
   | Program.Pointer_difference_object_mismatch ->
       "pointer-difference-object-mismatch"
 

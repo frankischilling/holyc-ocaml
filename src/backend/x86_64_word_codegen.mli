@@ -29,6 +29,8 @@ type program_site = {
   arithmetic : (arithmetic_operation * bool) option;
   value_type : word_type option;
   call_site : bool;
+  nobound_switch_site : bool;
+  local_subroutine_site : bool;
   callback_call_site : bool;
   undefined_extern_site : bool;
   extern_signature_site : bool;

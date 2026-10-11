@@ -7,6 +7,7 @@ type fragment_kind =
   | Default
   | Internal_binding
   | Dimension
+  | Switch_case
   | Offset
   | Command
   | Aot_module
@@ -126,9 +127,13 @@ val evaluate :
     preparation, saved-default, code/IR and combined logical storage allowances
     cover both contexts. [source_progress] observes only the directive task; the
     native report retains actual work and output for the complete invocation.
-    Successful synchronous StreamExePrint in either outer mode, AOT saved-table
-    selection, runtime AOT dimensions, general outer aggregates and
-    reference-default relocation remain open. *)
+    Supported synchronous StreamExePrint callbacks retain the original suspended
+    parser and native source scope. Runtime switch-case endpoints execute once
+    in their own native fragments, including nested source compilation inside
+    [#exe] in either outer mode. Their shared switch allowance counts reached
+    instructions once and tightens the suspended caller after child preparation.
+    AOT saved-table selection, runtime AOT dimensions, general outer aggregates
+    and reference-default relocation remain open. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val fragments : report -> fragment list

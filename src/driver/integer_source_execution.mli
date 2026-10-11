@@ -40,6 +40,7 @@ val compile_report :
   ?native_static_copy:Integer_task.Native_static_copy.t ->
   ?native_default:Integer_task.Native_default.t ->
   ?native_dimension:Integer_task.Native_dimension.t ->
+  ?native_switch_case:Integer_task.Native_switch_case.t ->
   ?native_offset:Integer_task.Native_offset.t ->
   ?native_internal_binding:Integer_task.Native_internal_binding.t ->
   Session.t ->
@@ -72,6 +73,7 @@ val run :
   ?native_static_copy:Integer_task.Native_static_copy.t ->
   ?native_default:Integer_task.Native_default.t ->
   ?native_dimension:Integer_task.Native_dimension.t ->
+  ?native_switch_case:Integer_task.Native_switch_case.t ->
   ?native_offset:Integer_task.Native_offset.t ->
   ?native_internal_binding:Integer_task.Native_internal_binding.t ->
   Session.t ->

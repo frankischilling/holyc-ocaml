@@ -57,11 +57,17 @@ through fixed callback parameters of indirect signatures, including variadic
 parents and recursive forwarding.
 Function-local language labels and direct gotos use the same checked block
 lowering as the interpreter; [goto execution](integer-goto.md) records their
-source identity, empty-block fallthrough and initialization behavior. Ordinary
-bounded integer switches add original closed case preparation, ranges, defaults,
-fallthrough and nearest breaks; [switch execution](integer-switch.md) defines
-their separate preparation and dispatch bounds. No-bound/sub-switch,
-assembly-label and protected-region control flow remain outside this gate.
+source identity, empty-block fallthrough and initialization behavior.
+Parenthesized and bracketed integer switches use checked dispatch tables,
+implicit and ranged cases, fallthrough, and nearest-region breaks. A bounded
+switch dispatches an out-of-range selector to its default; a bracketed switch
+reports `HCSW0005` when the reached index is outside its prepared table.
+`start:`/`end:` prefixes use local calls with checked continuations, and a
+repeated `default:` selects its last source definition. Closed endpoints and
+supported JIT/current-task scalar expressions prepare at their original source
+callbacks. Ordinary AOT nonconstant endpoints still reject with `HCRUN0006`.
+[Switch execution](integer-switch.md) records the limits. Assembly-label and
+protected-region control flow remain unsupported.
 Direct calls bind to checked definitions in the same compilation unit, including
 self-recursion. Function locals persist across the function's control transfers
 and are separate in every recursive invocation.

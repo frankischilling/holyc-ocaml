@@ -25,6 +25,17 @@ val limits : t -> (int * int * int * int, string) result
     bytes at this original suspended call. Foreign domains and expired scopes
     are rejected. *)
 
+val restrict_steps : t -> remaining:int -> (unit, string) result
+(** Restrict the current native caller to at most [remaining] additional
+    instructions after its suspended callback. A nonnegative request can only
+    lower the physical allowance; a larger request keeps the existing limit.
+    Withheld allowance is not executed work. Only the original live C-created
+    scope may make this change. *)
+
+val restricted_steps : t -> (int, string) result
+(** Cumulative unexecuted instruction allowance withheld from this native
+    activation. Read while its original source callback is still active. *)
+
 val open_raw : 'bridge -> t * request
 (** Open this actual callback once. Runtime callback adapters alone receive the
     opaque C bridge argument. Other values, duplicates and replay are rejected.

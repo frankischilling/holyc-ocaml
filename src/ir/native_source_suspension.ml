@@ -22,6 +22,12 @@ let owns_request scope request =
 external limits_raw : t -> int * int * int * int
   = "holyc_native_source_suspension_limits"
 
+external restrict_steps_raw : t -> int -> unit
+  = "holyc_native_source_suspension_restrict_steps"
+
+external restricted_steps_raw : t -> int
+  = "holyc_native_source_suspension_restricted_steps"
+
 external owns_generation_raw : t -> 'target -> bool
   = "holyc_native_source_suspension_owns_generation"
 
@@ -31,6 +37,14 @@ let check scope =
 
 let limits scope =
   try Ok (limits_raw scope)
+  with Failure message | Invalid_argument message -> Error message
+
+let restrict_steps scope ~remaining =
+  try Ok (restrict_steps_raw scope remaining)
+  with Failure message | Invalid_argument message -> Error message
+
+let restricted_steps scope =
+  try Ok (restricted_steps_raw scope)
   with Failure message | Invalid_argument message -> Error message
 
 let owns_generation scope target =

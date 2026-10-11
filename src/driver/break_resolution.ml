@@ -151,14 +151,14 @@ and sequence_elements state target values =
   in
   collect state values
 
-and switch_elements state target values =
-  let rec collect state = function
+and switch_elements ?(prefix = false) state target values =
+  let rec collect state in_prefix = function
     | [] -> Ok state
     | value :: rest -> (
         let current =
           match value with
           | Ast.Switch_statement_element statement_ ->
-              statement state target statement_
+              statement state (if in_prefix then None else target) statement_
           | Ast.Switch_subswitch_element subswitch -> (
               match
                 add_region state Resolution.Subswitch_region
@@ -166,16 +166,24 @@ and switch_elements state target values =
               with
               | Error _ as error -> error
               | Ok (state, region) ->
-                  switch_elements state (Some region)
+                  switch_elements ~prefix:true state (Some region)
                     subswitch.subswitch_elements)
           | Ast.Switch_case_element _ -> Ok state
           | Ast.Switch_default_element _ -> Ok state
         in
         match current with
         | Error _ as error -> error
-        | Ok state -> collect state rest)
+        | Ok state ->
+            let in_prefix =
+              match value with
+              | Ast.Switch_statement_element _ -> in_prefix
+              | Ast.Switch_case_element _
+              | Ast.Switch_default_element _
+              | Ast.Switch_subswitch_element _ -> false
+            in
+            collect state in_prefix rest)
   in
-  collect state values
+  collect state prefix values
 
 let body_facts = function
   | None -> Ok ([], [])

@@ -30,6 +30,12 @@ val build_dimension_fragment :
   Sema.Dimension_fragment.t ->
   (Sema.Top_level_expression_tree.t, string) result
 
+val build_switch_case_fragment :
+  table:Sema.Symbol_table.t ->
+  expressions:Sema.Top_level_outer_expression_binding.t ->
+  Sema.Switch_case_fragment.t ->
+  (Sema.Top_level_expression_tree.t, string) result
+
 val build_internal_binding_fragment :
   table:Sema.Symbol_table.t ->
   expressions:Sema.Top_level_outer_expression_binding.t ->

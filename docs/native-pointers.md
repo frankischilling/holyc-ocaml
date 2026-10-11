@@ -111,7 +111,7 @@ pointer-argument channel, and its result remains an optional I64/U64 word.
 Every invocation gets fresh stack state and a restored arena image. Checked
 faults unwind through the existing generated frames before those resources are
 released. This is an in-process native executor, with the limitations documented
-in [SECURITY.md](../SECURITY.md).
+in [SECURITY.md](SECURITY.md).
 
 Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals

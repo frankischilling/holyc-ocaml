@@ -1774,6 +1774,7 @@ struct native_source_bridge {
   uint64_t checkpoint_output, checkpoint_work, checkpoint_generation;
   uint64_t consumed_output, consumed_work;
   uint64_t child_steps, child_output, child_work, child_generation;
+  uint64_t restricted_steps;
   int live;
 };
 
@@ -2277,6 +2278,36 @@ CAMLprim value holyc_native_source_suspension_limits(value handle)
   CAMLreturn(result);
 }
 
+CAMLprim value holyc_native_source_suspension_restrict_steps(value handle, value requested)
+{
+  CAMLparam2(handle, requested);
+  native_collect_deferred();
+  struct native_source_bridge *bridge = native_source_scope_get(handle)->frame->bridge;
+  uint64_t *context = bridge->context;
+  if (!Is_long(requested) || Long_val(requested) < 0)
+    caml_invalid_argument("native source step restriction must be nonnegative");
+  if (context[3] > context[2])
+    caml_invalid_argument("native source step restriction has invalid physical progress");
+  uint64_t remaining = context[2] - context[3];
+  uint64_t proposed = (uint64_t)Long_val(requested);
+  if (proposed < remaining) {
+    uint64_t withheld = remaining - proposed;
+    if (withheld > UINT64_MAX - bridge->restricted_steps)
+      caml_invalid_argument("native source step restriction exceeds its original allowance");
+    context[2] -= withheld;
+    bridge->restricted_steps += withheld;
+  }
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_source_suspension_restricted_steps(value handle)
+{
+  CAMLparam1(handle);
+  native_collect_deferred();
+  struct native_source_bridge *bridge = native_source_scope_get(handle)->frame->bridge;
+  CAMLreturn(Val_long((intnat)bridge->restricted_steps));
+}
+
 CAMLprim value holyc_native_source_suspension_owns_generation(value handle, value target)
 {
   CAMLparam2(handle, target);
@@ -2699,10 +2730,12 @@ static value native_execute_program_output(value code, value functions,
         context[23] != (bridge == NULL ? 0 : (uint64_t)(uintptr_t)&native_option_callback))
       caml_failwith("native source callback status integrity failure: owner was modified");
     uint64_t child_steps = bridge == NULL ? 0 : bridge->child_steps;
+    uint64_t restricted_steps = bridge == NULL ? 0 : bridge->restricted_steps;
     uint64_t child_output = bridge == NULL ? 0 : bridge->child_output;
     uint64_t child_work = bridge == NULL ? 0 : bridge->child_work;
     uint64_t child_generation = bridge == NULL ? 0 : bridge->child_generation;
-    if (context[2] > remaining_steps || child_steps != remaining_steps - context[2])
+    if (context[2] > remaining_steps || child_steps > remaining_steps - context[2] ||
+        restricted_steps != remaining_steps - context[2] - child_steps)
       caml_failwith("native program status integrity failure: budget was modified");
     if (context[3] > context[2])
       caml_failwith("native program status integrity failure: steps exceed the remaining budget");
