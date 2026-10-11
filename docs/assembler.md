@@ -15,6 +15,7 @@ standalone assembly stream, with USE64 as its default initial mode:
 dune exec holyc -- parse examples/assembly-operands.hc
 dune exec holyc -- asm test/cli/assembly-operations.hc
 dune exec holyc -- asm --bits=16 --format=json test/cli/assembly-operations.hc
+dune exec holyc -- asm --emit examples/assembly-encoding.asm
 ```
 
 The command accepts the same include roots, TempleOS path mapping, preprocessing
@@ -28,12 +29,17 @@ mode, matching-form count and warnings. The standalone JSON schema is
 `holyc-assembly-v1`. HolyC AST dumps retain `holyc-ast-v1` and add the ordered
 `items` of each assembly block. Source-line groups remain available for display.
 
-This phase checks assembly syntax and selects instruction forms. Symbolic
-expressions keep their original tokens and are marked unresolved; their selected
-forms and byte counts remain provisional until expression evaluation and layout.
-The command does not produce a machine-code file. Instruction emission, data and
-file directives, symbol relocation, disassembly and execution have separate
-requirements under issues #712 through #716.
+The ordinary command checks assembly syntax and selects instruction forms.
+`--emit` also produces bytes when every operand value and address category is
+known. It accepts instructions, USE mode changes and separators; its optional
+`--output` path receives the raw byte string. The
+[instruction encoding guide](instruction-encoder.md) describes positions,
+output limits, reports and checked operand boundaries.
+
+Symbolic expressions keep their original tokens and remain explicitly
+unresolved. Their forms and byte counts stay provisional until expression
+evaluation and layout. Data and file directives, symbol relocation,
+disassembly and execution remain under issues #713 through #716.
 
 ## Operation boundaries and source identity
 
@@ -100,6 +106,11 @@ the previous size, and a direct register then supplies its own size.
 Missing brackets, missing scale tokens and duplicate immediate components
 produce diagnostics.
 
+The checked emitter rejects a scale that cannot be represented by the source's
+SIB bits. It also checks register families, REX/high-byte interactions and
+integer data widths before producing bytes. These emission checks preserve
+the original parsed operands and their form-selection metadata.
+
 Expressions retain the compiler's source grammar and operator precedence.
 Symbol, call, query and address expressions that need a later compiler phase
 remain visibly unresolved. The operand model does not turn an unresolved
@@ -147,8 +158,8 @@ A blanket rejection of every ambiguous unsized operand would disagree with
 The source's comparison count excludes operand/address/segment prefixes and
 the final zero emitted by `ENTER`. Dumps therefore distinguish
 `comparison_bytes` from `estimated_bytes`. Neither field is a loaded address.
-Relative target distances and unresolved symbol values require later layout
-before a final encoding can be certified.
+Emission checks a known relative target against the supplied output position.
+Unresolved symbol values require later evaluation and layout.
 
 Each HolyC assembly block or direct run begins in USE64, matching line 914.
 An optional semicolon after a direct opcode, `USE` or listing directive ends
@@ -196,9 +207,9 @@ dune exec tools/opcode_table_gen.exe -- --source third_party/TempleOS/Compiler/O
 dune build @generated-check
 ```
 
-The separate checked native compiler encoder continues to serve its existing
-source-program consumers. The assembler parser's form selections do not grant
-those consumers permission to execute arbitrary source assembly.
+The source assembler and native compiler share the checked byte writer in
+`Asm.Encoding`. Each consumer supplies its own selected forms and operands.
+Emitted source assembly remains data; loading and execution belong to #715.
 
 ## Verification
 
@@ -212,12 +223,29 @@ The public command uses the shared parser diagnostics:
 | HCPARSE0178 | A local `@@label` cannot use the exported `::` delimiter |
 | HCPARSE0179 | Invalid ALIGN power, JIT alignment limit or missing fill separator |
 
+Byte emission adds these diagnostics:
+
+| Code | Meaning |
+| --- | --- |
+| HCASM0001 | An operand, field value or address shape cannot be emitted |
+| HCASM0002 | The requested or aggregate output exceeds the byte limit |
+| HCASM0003 | The output position is negative or outside the signed 64-bit range |
+| HCASM0004 | An item requires directive execution or symbol layout |
+| HCASM0005 | Operation, operand, mode or directive metadata does not belong to the retained selection |
+| HCASM0006 | The raw output file could not be written |
+
 The tests use original Compiler, Kernel and Demo instruction patterns, cover
 all three modes, check aliases and x87 operands, and distinguish source quirks
 from malformed syntax. Public parser and command fixtures check ordered items,
 deterministic dumps, same-line labels, include and macro provenance, and
 source-expansion limits. Exact expected masks and form choices are derived from
 the pinned source.
+
+The byte inventory in `test/fixtures/assembly-encoder-forms.tsv` includes all
+924 original records. It fixes expected bytes for 923 nonempty forms and
+records the malformed empty REP_OUTSB form as an explicit rejection. The
+[encoding guide](instruction-encoder.md#fixed-regression-inventory) describes
+its independent source derivation and external assembler comparison.
 
 The checked raw-token inventory in `reference/assembly-blocks.json` still
 records 45 brace blocks in 40 files under Compiler, Kernel, Adam and Demo:

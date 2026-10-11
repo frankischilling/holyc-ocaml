@@ -14225,7 +14225,53 @@ selection = "shortest original comparison count; first source form wins ties"
 unspecified_size = "original warning, retained with deterministic selected form"
 source_locations = "item and operand spans, include sources and definition/expansion provenance"
 label_collection = "ordered items, independent of physical lines"
-symbolic_values = "retained explicitly unresolved; final evaluation and relative distance checks belong to later phases"
+symbolic_values = "retained explicitly unresolved; known relative values are checked during emission, while symbol evaluation and layout remain later phases"
 expression_grammar = "source modifier states, known function call shapes, typed indexing, named postfix declarators and inline aggregate definitions"
 standalone_schema = "holyc-assembly-v1"
-remaining = ["instruction byte emission", "directive execution", "symbol layout and fixups", "disassembly", "assembly execution"]
+remaining = ["directive execution", "symbol layout and fixups", "disassembly", "assembly execution"]
+
+[[feature]]
+id = "HC-SHARED-INSTRUCTION-ENCODING"
+description = "Shared checked byte construction for source assembly and the native compiler, with complete pinned-form specimens."
+sources = [
+  "Compiler/Asm.HC:AsmStoreNum and PrsAsmInst",
+  "Compiler/AsmInit.HC:AsmPrsInsFlags and AsmHashLoad",
+  "Compiler/OpCodes.DD",
+  "Kernel/KernelA.HH:CInst, IEF_*, OM_* and ARGT_*"
+]
+implementation = [
+  "src/asm/encoding.ml",
+  "src/asm/encoder.ml",
+  "src/asm/instruction.ml",
+  "src/backend/x86_64_encoder.ml",
+  "src/driver/assembly_encoding.ml",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_assembly_encoder.ml",
+  "test/test_assembly_encoder_cli.ml",
+  "test/test_assembly_encoding_api.ml",
+  "test/test_shared_native_encoder.ml",
+  "test/fixtures/assembly-encoder-forms.tsv",
+  "test/fixtures/assembly-encoder-forms.py",
+  "test/fixtures/assembly-encoder-forms.clang.py",
+  "test/fixtures/assembly-encoder-forms.clang.json",
+  "examples/assembly-encoding.asm",
+  "test/native/test_native_lock_encoding.ml"
+]
+status = "implemented"
+issue = 712
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+documentation = ["docs/assembler.md", "docs/instruction-encoder.md", "docs/reference-source-map.md"]
+assembly_modes = ["USE16", "USE32", "USE64"]
+standalone_schema = "holyc-assembly-encoding-v1"
+form_inventory = "924 original records: 923 fixed byte specimens and the empty REP_OUTSB record at OpCodes.DD:920"
+expected_bytes = "fixed independently from original OpCodes.DD and Asm.HC; fixture construction never executes the production encoder"
+external_comparison = "Clang 21.1.5, x86_64-pc-windows-msvc: 821 identical, 75 different, 27 rejected translated specimens; empty source record separate"
+source_quirks = ["original prefix order", "backtick REX.W omission", "x87 add versus OR opcode patches", "USE16 displacement width", "BSWAP opcode register bits", "INS ModRM byte", "REP_LODS F2", "FSAVE/FSTCW/FSTSW without WAIT", "CHPXCHG8B spelling and slash value"]
+preflight = "exact instruction and aggregate sizes, owned original forms, complete numeric ranges and checked relative coordinate arithmetic before allocation"
+hosted_checks = ["unresolved values", "nonrepresentable narrowing", "invalid scales and empty addresses", "discarded RSP index", "high-byte registers with REX", "MMX/XMM general-register masquerade", "extended registers and integer qword operands outside USE64"]
+public_ownership = "retained selection, operands, operation modes, USE metadata and original assembly unit are checked before emission and reporting"
+native_consumers = "existing checked backend selection and execution consumers use the shared writer; source byte output remains data"
+remaining = ["directive execution (#713)", "symbol layout and fixups (#714)", "assembly execution (#715)", "disassembly (#716)"]
