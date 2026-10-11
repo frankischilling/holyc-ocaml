@@ -1,0 +1,19 @@
+{
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "original_iso_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b",
+  "boot_iso_sha256": "af04dcfda70f07abf322ef62d9ff73b6be88b408f6adccb379d26b5bea86cba3",
+  "payload_sha256": "149e35d8348b55838c55076bd79815fb54ca18ccff3e1e7427f526c005110ef2",
+  "capture_sha256": "97f05cc2cd6185bc569f4de587c8ae780ca9e52b1ab08cb62afc43f3880d4669",
+  "artifacts": [
+    {
+      "name": "ASM",
+      "sha256": "e64bc3d62332cb798136d2c69e9d42433e4bed3b7c5fcf2bff60d696bacca0d4",
+      "source_sha256": "32b4b41bc2545935898b67395ad1aeb44cd2c7d8bf7cda0677816d29720306da"
+    },
+    {
+      "name": "HOLYC",
+      "sha256": "67518875ba8e60877cde1079edde254587bd7a0f4ba85bf29e573f1b5262ef7f",
+      "source_sha256": "9204e715b31df4823436e6ba6ddacdcb948f5332c8347924641a1058c0168923"
+    }
+  ]
+}

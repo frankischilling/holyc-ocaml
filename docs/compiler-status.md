@@ -808,7 +808,7 @@ operations that do not consume the prefix, including proven immediate ADD/SUB
 and conditional AND tests. The linked contract records its source authority,
 verified local coverage, and optimizer boundaries.
 
-Execution beyond the bounded integer program domain, optimization beyond the verified integer-unary pass, general x86-64 program emission and native execution, general hosted runtime services, the integrated assembler, and the TempleOS `.BIN` writer remain unfinished. The native expression gate already emits and executes its checked subset through the project's encoder. The opcode and BIN specification APIs alone do not provide a general assembler or loader. Unsupported parser input reports an `HCPARSE` diagnostic and prevents a successful public AST; there is no raw-token fallback.
+Execution beyond the bounded integer program domain, optimization beyond the verified integer-unary pass, general x86-64 program emission and native execution, general hosted runtime services, live compiler assembly integration and general HolyC-to-BIN emission remain unfinished. The native expression gate already emits and executes its checked subset through the project's encoder. Standalone assembly emission, the BIN writer and the independent validator have their own checked public commands; executable host loading remains separate. Unsupported parser input reports an `HCPARSE` diagnostic and prevents a successful public AST; there is no raw-token fallback.
 
 Native TempleOS can execute nonconstant directive expressions and `#exe` code.
 The standalone `preprocess` command accepts the bounded constant expression
@@ -916,6 +916,14 @@ dune exec holyc -- corpus parse --mode=aot --require-all --reference-root=third_
 ## TempleOS modules
 
 `holyc bin` emits complete uncompressed TempleOS modules from standalone AOT assembly and typed patch metadata. `--inspect` validates an existing artifact; reports retain exact records and SHA-256. The writer supports every defined IET shape, grouped imports, heaps, exports, absolute patches and ordered MAIN entries. Five public-command modules passed the pinned ISO's original loader, with 39 observations repeated twice, and an independent data model checks their relocation and deferred-resolution behavior. [The format notes](templeos-bin-format.md) describe the command, metadata and source quirks. General HolyC function/global emission into BIN, the full target ABI, native F64 and aggregate integration, host loading and complete bootstrap remain unfinished.
+
+`holyc verify-bin` independently validates complete uncompressed artifacts.
+`holyc dump-relocs` predicts the original loader's two passes, modular patches,
+deferred imports, heap metadata and MAIN addresses without executing code.
+Loads commit only after validation and preserve prior world snapshots.
+Handcrafted tests and public command replay cover all record kinds, limits,
+flags and failure atomicity. Two original-compiler artifacts are retained
+alongside the five writer modules. See [BIN validation](bin-validator.md).
 
 ## Reference source
 

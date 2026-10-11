@@ -1743,7 +1743,17 @@ Issue #578 adds the direct-value forms of `IC_AND_AND`, `IC_OR_OR`, and `IC_XOR_
 
 `tools/bin_record_source.ml` requires that exact 13-file source set. It validates checksums, table order, numeric gaps, status comments, header fields, writer behavior, loader formulas, both passes, boot handling, and source consumers while ignoring comments and literals. `tools/bin_record_gen.ml` emits typed entries, adjustments, record shapes, relocation metadata, loader actions, checksums, and line references to `src/generated/bin_records.ml`. `Backend.Bin_spec` exposes that data through `Holyc_lib.Templeos_bin_spec`.
 
-This slice is an executable format specification, not format compatibility. It has no serializer, parser, loader model, generated module, or actual TempleOS loader result. [The BIN format notes](templeos-bin-format.md) describe the byte grammar and the validation still required for M8.
+The generated registry is consumed by the [BIN writer](templeos-bin-format.md).
+The [independent validator](bin-validator.md) derives its literal record
+grammar and two-pass model directly from `Kernel/KLoad.HC`, with header checks
+from `Kernel/KernelA.HH` and `Compiler/CMain.HC`. It covers every defined type,
+modular stores, named heap publication, deferred groups and loader flags.
+`Kernel/KStart32.HC:96-103` remains the separate boot absolute-address pass;
+`LoadKernel` uses `LDF_NO_ABSS` because boot has already applied those fields.
+The hosted model predicts MAIN addresses and heap metadata without performing
+boot patches, host allocation or calls. Literal negative cases, original
+compiler artifacts, writer artifacts and normalized native-loader observations
+provide separate checks of the grammar and interpretation.
 
 ## Literals
 

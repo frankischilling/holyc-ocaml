@@ -1894,6 +1894,8 @@ let root_command =
       parse_command;
       assembly_command;
       Bin_module_command.command;
+      Bin_validator_command.command false;
+      Bin_validator_command.command true;
       disassembly_command;
       dump_ast_command;
       dump_symbols_command;

@@ -1,5 +1,16 @@
 # Testing holyc-ocaml
 
+The independent BIN validator tests use literal wire builders without the
+writer's decoder. They check all twenty nonterminal IET types, malformed
+headers and payloads, exact budgets, one-below failures, two virtual bases,
+overlapping patches, duplicate exports, deferred resolution, flags and owned
+snapshots. The CLI harness checks original `Cmp` artifacts from
+`test/oracle/bin-validator`, regenerates the five public-writer fixtures and
+compares normalized fields with original-loader observations. Both public
+commands are exercised with input protection and failed-output preservation.
+The capture generator must reproduce its committed payload and source inputs.
+See [BIN validation](bin-validator.md) for recipes and evidence limits.
+
 BIN tests check literal header and record bytes for every defined IET family,
 exact and one-below file/work limits, malformed input, import-group boundaries,
 source AAT conversion and ownership of returned bytes and names. The public CLI

@@ -3,6 +3,8 @@
 # Preserve the original debug-console bytes and their operand-ending spaces.
 test/oracle/source-disassembly.capture -text whitespace=-blank-at-eol
 test/oracle/bin-modules/native.capture -text
+test/oracle/bin-validator/*.BIN -text
+test/oracle/bin-validator/native.capture -text
 
 *.bat text eol=crlf
 *.cmd text eol=crlf
