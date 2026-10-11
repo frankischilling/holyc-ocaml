@@ -114,7 +114,7 @@ let limits_and_positions () =
   let last = List.nth (operations assembly) 1 in
   let over_limit =
     reject ~max_code_bytes:3 "aggregate limit one byte short" ~code:"HCASM0002"
-      ~message:"sequence exceeds" assembly
+      ~message:"assembly output exceeds its code byte limit" assembly
   in
   Alcotest.(check bool)
     "aggregate limit identifies the first instruction that does not fit" true
@@ -292,16 +292,43 @@ let use_directive_ownership () =
           directive );
     ]
 
-let layout_refusals () =
+let directive_layout_and_linkage () =
+  List.iter
+    (fun (contents, expected) ->
+      let _, assembly = parse contents in
+      let encoded = encode assembly in
+      Alcotest.(check string) contents expected encoded.bytes)
+    [
+      ("NOP; entry_label: RET;", "\x90\xc3");
+      ("NOP; DU8 1; RET;", "\x90\x01\xc3");
+      ("NOP; LIST; RET;", "\x90\xc3");
+    ];
+  let _, assembly = parse "NOP; DU8 1; entry_label: LIST; RET;" in
+  let encoded = encode assembly in
+  Alcotest.(check (list int))
+    "instruction offsets account for intervening data" [ 0; 2 ]
+    (List.map
+       (fun (entry : Encoding.instruction) -> entry.offset)
+       encoded.instructions);
+  Alcotest.(check (list (pair string int64)))
+    "a label after data retains the emitted position"
+    [ ("entry_label", 2L) ]
+    (List.map
+       (fun (symbol : Encoding.symbol) -> (symbol.name, symbol.position))
+       encoded.symbols);
+  Alcotest.(check (list bool))
+    "listing directives change later output ranges" [ false; false; true ]
+    (encoded.entries
+    |> List.filter (fun (entry : Encoding.entry) -> entry.size > 0)
+    |> List.map (fun (entry : Encoding.entry) -> entry.listing));
   List.iter
     (fun (label, contents, message) ->
       let _, assembly = parse contents in
       ignore (reject label ~code:"HCASM0004" ~message assembly))
     [
-      ("label after an instruction", "NOP; entry_label: RET;", "label layout");
-      ("data after an instruction", "NOP; DU8 1; RET;", "directive execution");
-      ("origin after an instruction", "NOP; ORG 16; RET;", "directive execution");
-      ("listing directive", "NOP; LIST; RET;", "directive execution");
+      ("origin after an instruction", "NOP; ORG 16; RET;", "ORG");
+      ("unresolved external target", "MOV RAX,UnknownTarget;", "UnknownTarget");
+      ("imported target requires linkage", "IMPORT F; CALL F;", "import");
     ]
 
 let retained_source_metadata () =
@@ -376,8 +403,8 @@ let tests =
       operation_ownership;
     Alcotest.test_case "ordered USE directives retain their mode tokens" `Quick
       use_directive_ownership;
-    Alcotest.test_case "labels and directives require layout" `Quick
-      layout_refusals;
+    Alcotest.test_case "directives share layout and imports require linkage"
+      `Quick directive_layout_and_linkage;
     Alcotest.test_case "encoding reports retain their exact parsed source"
       `Quick retained_source_metadata;
   ]

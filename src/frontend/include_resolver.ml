@@ -130,7 +130,7 @@ let source_paths path =
 
 type search = Candidates of string list | Search_error of error
 
-let candidates resolver spelling =
+let candidates ?(paths = source_paths) resolver spelling =
   if starts_with ~prefix:"~/" spelling then
     Search_error (Home_path_requires_mapping spelling)
   else if starts_with ~prefix:"::/" spelling then
@@ -138,23 +138,23 @@ let candidates resolver spelling =
     | None -> Search_error (Templeos_root_requires_mapping spelling)
     | Some root ->
         let relative = String.sub spelling 3 (String.length spelling - 3) in
-        Candidates (source_paths relative |> List.map (Filename.concat root))
+        Candidates (paths relative |> List.map (Filename.concat root))
   else if starts_with ~prefix:"/" spelling then
     match resolver.templeos_root with
     | None -> Search_error (Templeos_root_requires_mapping spelling)
     | Some root ->
         let relative = String.sub spelling 1 (String.length spelling - 1) in
-        Candidates (source_paths relative |> List.map (Filename.concat root))
+        Candidates (paths relative |> List.map (Filename.concat root))
   else if has_drive_prefix spelling then
-    if Sys.win32 then Candidates (source_paths spelling)
+    if Sys.win32 then Candidates (paths spelling)
     else Search_error (Drive_path_unsupported spelling)
   else if Filename.is_relative spelling then
     let roots = resolver.working_directory :: resolver.include_roots in
     Candidates
       (List.concat_map
-         (fun root -> source_paths spelling |> List.map (Filename.concat root))
+         (fun root -> paths spelling |> List.map (Filename.concat root))
          roots)
-  else Candidates (source_paths spelling)
+  else Candidates (paths spelling)
 
 let io_error path error operation argument =
   Io_error
@@ -190,11 +190,11 @@ let inspect resolver ~spelling path =
       Error (io_error path error operation argument)
   | Sys_error message -> Error (Io_error { path; message })
 
-let resolve resolver ~spelling =
+let resolve_with paths resolver ~spelling =
   if String.equal spelling "" then Error Empty_path
   else if String.contains spelling '\x00' then Error Path_contains_nul
   else
-    match candidates resolver spelling with
+    match candidates ~paths resolver spelling with
     | Search_error problem -> Error problem
     | Candidates candidates ->
         let rec find searched = function
@@ -206,6 +206,11 @@ let resolve resolver ~spelling =
               | Ok None -> find (path :: searched) rest)
         in
         find [] candidates
+
+let resolve resolver ~spelling = resolve_with source_paths resolver ~spelling
+
+let resolve_file resolver ~spelling =
+  resolve_with (fun path -> [ path ]) resolver ~spelling
 
 let normalize_lexical path =
   let path =

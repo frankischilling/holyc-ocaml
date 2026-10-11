@@ -27,6 +27,10 @@ val create :
 
 val resolve : t -> spelling:string -> (resolution, error) result
 
+val resolve_file : t -> spelling:string -> (resolution, error) result
+(** Resolve an exact regular-file name within the configured input roots,
+    without inferring HolyC source extensions. *)
+
 val resolve_metadata :
   t -> spelling:string -> (metadata_resolution, error) result
 (** Resolve a metadata path inside the configured roots without requiring the

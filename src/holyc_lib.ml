@@ -70,6 +70,7 @@ module Asm_instruction = Asm.Instruction
 module Asm_encoding = Asm.Encoding
 module Asm_encoder = Asm.Encoder
 module Assembly_encoding = Driver.Assembly_encoding
+module Assembly_binary = Frontend.Assembly_binary
 module Keyword = Frontend.Keyword
 module Operator = Frontend.Operator
 module Trivia = Frontend.Trivia

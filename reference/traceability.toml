@@ -2,6 +2,95 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-ASSEMBLY-DIRECTIVE-EMISSION"
+description = "Standalone TempleOS instruction and directive emission with ordered metadata, closed scalar expressions and explicitly rooted binary input."
+sources = [
+  "Compiler/Asm.HC:268-390 AsmStoreNum",
+  "Compiler/Asm.HC:815-902 PrsAsmDefine and PrsBinFile",
+  "Compiler/Asm.HC:928-1004 imports, origin, alignment, data, binary, listing and mode directives",
+  "Compiler/Asm.HC:1039-1098 label publication and local scope",
+  "Compiler/Asm.HC:1106-1109 direct-run exit keeps the current token",
+  "Compiler/PrsStmt.HC:944-958,1170-1173 CmpJoin contexts for function and top-level JIT assembly",
+  "Compiler/CMain.HC:60-76,114-115,148-153 child hash-table creation, disposal and parent restoration",
+  "Compiler/Lex.HC:38 ordinary import-system symbols excluded from source lookup",
+  "Compiler/Lex.HC:493-514 identifiers retain the selected hash entry",
+  "Compiler/PrsExp.HC:680-721 inserted-binary size, pointer and current-position terms",
+  "Compiler/PrsExp.HC:830-861,908-954 export and keyword/query branches follow the selected symbol kind",
+  "Compiler/CInit.HC:288-317 operator precedence table",
+  "Compiler/OptPass012.HC:87-96 primitive raw-type casts",
+  "Compiler/BackLib.HC:454-505 full-width immediate materialization",
+  "Compiler/AsmLib.HC:listing state and output",
+  "Kernel/BlkDev/DskFile.HC:1-76 FileRead",
+  "Kernel/BlkDev/DskStrA.HC:FileExtDot, IsDotZ, ExtDft and ToggleZorNotZ",
+  "Kernel/KernelA.HH:3684-3721 compression types, code limits and CArcCompress",
+  "Kernel/KMathA.HC:461-512 SYS_POW",
+  "Kernel/Compress.HC:ArcExpandBuf and ExpandBuf"
+]
+implementation = [
+  "src/asm/operand.ml",
+  "src/asm/operand.mli",
+  "src/asm/value_expression.ml",
+  "src/asm/value_expression.mli",
+  "src/frontend/assembly_binary.ml",
+  "src/frontend/assembly_binary.mli",
+  "src/frontend/include_resolver.ml",
+  "src/frontend/include_resolver.mli",
+  "src/frontend/parser.ml",
+  "src/frontend/symbol_visibility.ml",
+  "src/frontend/symbol_visibility.mli",
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/driver/assembly_directives.ml",
+  "src/driver/assembly_encoding.ml",
+  "src/driver/assembly_encoding.mli",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_assembly_directives.ml",
+  "test/test_assembly_directives_cli.ml",
+  "test/test_assembly_binary.ml",
+  "test/test_assembly_encoding_api.ml",
+  "examples/assembly-directives.asm"
+]
+documentation = [
+  "docs/assembly-directives.md",
+  "docs/assembler.md",
+  "docs/instruction-encoder.md",
+  "docs/reference-source-map.md",
+  "docs/compatibility.md",
+  "docs/compiler-status.md",
+  "docs/holyc-language.md",
+  "docs/roadmap.md",
+  "docs/testing.md"
+]
+status = "implemented"
+issue = 713
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+contexts = ["standalone assembly in JIT mode", "standalone assembly in AOT mode"]
+directives = ["DU8", "DU16", "DU32", "DU64", "scalar postfix DUP", "ORG", "ALIGN", "BINFILE", "IMPORT", "LIST", "NOLIST", "USE16", "USE32", "USE64"]
+scalar_values = "Closed integer, floating and boolean expressions retain original precedence, signedness and primitive bitcasts. Primitive source identity must authorize a cast. DU fields store their low 1, 2, 4 or 8 bytes; instruction fields keep checked ranges. Quoted strings retain every byte without an implicit terminator or element-width padding."
+repetition = "A scalar expression is captured once at its output position. Nonpositive counts emit no bytes but still require a valid inner expression. Positive counts are bounded before multiplication and allocation, and repeated absolute fields receive separate relocation records."
+positions = "The raw coordinate is the starting position plus emitted bytes. ORG requires raw position zero and records an independent origin; I64_MAX keeps the original unset sentinel. ALIGN rounds the raw coordinate, stores the low fill byte and tracks the largest exponent. The high-bit alignment retains the original signed zero-fill behavior."
+symbols = "Same-unit data labels may resolve forward, repeated definitions must keep the same position, and a newly defined exported label starts a local @@ scope. Uppercase IMPORT publishes HTT_EXPORT_SYS_SYM with HTF_UNRESOLVED and HTF_IMPORT, which remains visible under the Lex.HC mask that excludes HTT_IMPORT_SYS_SYM. The hosted parser preserves this distinction through its assembly-import identity and retains duplicate declarations in source order. Reading an imported value requires linkage."
+import_spelling = "Imported keyword and query spellings retain the selected export identity through operand classification and expression parsing; reading their values requires linkage."
+import_lifetime = "Function assembly blocks, direct instruction runs and top-level JIT blocks remove their newly published imports on every exit, including parser recovery, while retaining older bindings and the lookup identities of tokens already read. This follows CmpJoin child hash-table lifetime and the direct-run current-token boundary. Top-level AOT blocks keep imports in the enclosing context. The hosted import scope does not implement the full child compiler execution path."
+instruction_expressions = "Closed values are evaluated at the current raw position before form selection and byte reservation. Deferred forward values must fit the reserved source form without changing its size. Instruction reports retain the actual encoded selection separately from the original parsed operation."
+relocations = "Current-position and absolute-label occurrence parity records AAT_ADD_U8, AAT_ADD_U16, AAT_ADD_U32 or AAT_ADD_U64 fields. Output bytes retain their raw values; origin and load-base relocation application remain separate."
+binary_input = "BINFILE resolves only through an explicit Include_resolver configuration, applies the original default extension and alternate .Z spelling, and reads bounded regular files. CT_NONE, CT_7_BIT and CT_8_BIT archives use the original 17-byte header. The compressed types retain variable code widths and 12-bit leaf replacement. Malformed compression never falls back to raw input."
+binary_provenance = ["source spelling", "resolved path", "display path", "raw size", "decoded size", "raw SHA-256", "decoded SHA-256", "raw or CT_NONE/CT_7_BIT/CT_8_BIT compression"]
+preflight = "Checks item and expression-token work, multiplication, output size, signed coordinates, cumulative raw binary bytes, archive headers and dictionary traversal before allocating the final output string. Decoded binary output must fit the remaining output and work allowance. Errors return no partial encoding; CLI output paths are changed only after successful preflight."
+default_work_limit = 1000000
+default_binary_input_byte_limit = 16777216
+diagnostics = ["HCASM0001 instruction operand or field", "HCASM0002 output limit", "HCASM0003 output position", "HCASM0004 unsupported scalar or linkage/layout context", "HCASM0005 source ownership", "HCASM0006 output-file write", "HCASM0007 directive work limit", "HCASM0008 binary authority, path, read, size or compression failure", "HCPARSE0180 unresolved assembler import in ordinary HolyC"]
+standalone_schema = "holyc-assembly-encoding-v1"
+output_metadata = ["ordered item entries and source locations", "actual encoded instruction forms", "listing state", "origin", "maximum alignment exponent", "imports", "label positions and scopes", "relocation records", "binary provenance", "work", "raw input bytes", "original parsed assembly"]
+verification = "Source-derived cases cover both compilation modes, low-byte stores, exact strings, typed expressions, primitive spelling shadowing, instruction value timing, repetition, origin and alignment, labels, imports, listing, relocation parity and provenance. Independent archive packets cover all supported types, width growth, dictionary replacement, malformed headers, truncated streams, invalid or cyclic codes, exact limits and hashes. File cases cover explicit roots, mapping, escapes and regular-file requirements; Unix symlink and FIFO cases are conditional. Public CLI and API checks cover ordered metadata, binary accounting, diagnostics and preservation of existing output after failure."
+verification_boundary = "This feature contains no TempleOS runtime capture, source assembly loading or execution, or intact DolDoc oracle evidence. General x87 precision and rounding equivalence remains outside these source-derived expectations. Saved $IS tokens supply their size and retain record metadata; $IB pointers require compiler-owned storage. Original terminal listing columns and delayed line flushing are not reproduced."
+remaining = ["general label/import linkage fixups and branch layout (#714)", "live compiler expressions, compiler-owned $IB pointers and source assembly loading/execution (#715)", "disassembly (#716)", "intact DolDoc oracle evidence (#375)"]
+
+[[feature]]
 id = "HC-BUILTIN-UNION-SIZEOF"
 description = "Builtin integer-union member sizeof queries preserve original field classes and counts across nested paths and later type replacements."
 sources = ["Kernel/KernelA.HH:67-113 complete builtin integer unions", "Compiler/PrsExp.HC:303-351 complete PrsSizeOf", "Compiler/LexLib.HC:67-85 complete MemberFind", "Compiler/PrsVar.HC:521-532,660-669 selected member classes and dimensions", "Compiler/PrsLib.HC:40-59 complete PrsClassNew"]
@@ -14225,10 +14314,10 @@ selection = "shortest original comparison count; first source form wins ties"
 unspecified_size = "original warning, retained with deterministic selected form"
 source_locations = "item and operand spans, include sources and definition/expansion provenance"
 label_collection = "ordered items, independent of physical lines"
-symbolic_values = "retained explicitly unresolved; known relative values are checked during emission, while symbol evaluation and layout remain later phases"
+symbolic_values = "retained explicitly unresolved in the parsed operation; HC-ASSEMBLY-DIRECTIVE-EMISSION evaluates closed values before byte reservation and permits deferred same-unit values that preserve the reserved form and size"
 expression_grammar = "source modifier states, known function call shapes, typed indexing, named postfix declarators and inline aggregate definitions"
 standalone_schema = "holyc-assembly-v1"
-remaining = ["directive execution", "symbol layout and fixups", "disassembly", "assembly execution"]
+remaining = ["general label/import fixups and branch layout (#714)", "live compiler expressions and source assembly loading/execution (#715)", "disassembly (#716)"]
 
 [[feature]]
 id = "HC-SHARED-INSTRUCTION-ENCODING"
@@ -14274,4 +14363,5 @@ preflight = "exact instruction and aggregate sizes, owned original forms, comple
 hosted_checks = ["unresolved values", "nonrepresentable narrowing", "invalid scales and empty addresses", "discarded RSP index", "high-byte registers with REX", "MMX/XMM general-register masquerade", "extended registers and integer qword operands outside USE64"]
 public_ownership = "retained selection, operands, operation modes, USE metadata and original assembly unit are checked before emission and reporting"
 native_consumers = "existing checked backend selection and execution consumers use the shared writer; source byte output remains data"
-remaining = ["directive execution (#713)", "symbol layout and fixups (#714)", "assembly execution (#715)", "disassembly (#716)"]
+directive_emission = "HC-ASSEMBLY-DIRECTIVE-EMISSION extends the standalone byte stream with ordered data and binary input while preserving checked instruction fields"
+remaining = ["general label/import fixups and branch layout (#714)", "live compiler expressions and source assembly loading/execution (#715)", "disassembly (#716)"]

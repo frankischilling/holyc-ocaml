@@ -7,6 +7,38 @@ malformed inputs. Public CLI checks inspect exact JSON fields and deterministic
 dumps, while include and macro cases preserve original locations and limits.
 Same-line assembly labels remain visible to language goto resolution.
 
+The [directive emission tests](assembly-directives.md) cover standalone byte
+output in JIT and AOT modes. `test/test_assembly_directives.ml` checks low-byte
+stores, exact string bytes at every data width, scalar `DUP`, closed typed
+expressions, primitive identity, `ORG`, `ALIGN`, `$$` and relocation records.
+It also checks instruction expressions before form selection, same-unit data
+labels, exported local scopes, import declarations, listing state and source
+locations. Resource cases exercise exact output and work allowances and
+reject excessive repetition and invalid positions before final allocation.
+
+`test/test_assembly_binary.ml` uses independent small archive packets for
+`CT_NONE`, `CT_7_BIT` and `CT_8_BIT`, including code-width growth and the
+original 12-bit leaf replacement. Malformed headers, truncated streams,
+invalid codes and dictionary cycles have explicit failure cases. File tests
+check exact bytes, independent SHA-256 values, extension selection, inclusive
+input and output bounds, explicit include roots and TempleOS mapping. Relative
+escapes and non-file inputs fail; symlink escapes and FIFO cases run on hosts
+that provide those Unix operations.
+
+`test/test_assembly_directives_cli.ml` checks the mixed
+`examples/assembly-directives.asm` stream, JSON metadata, human output length
+and raw output files. The CLI cases cover repeated binary input accounting,
+malformed directives, unsupported live expressions and
+macro provenance. Failed preflight must preserve an existing output file or
+leave a missing destination absent. `test/test_assembly_encoding_api.ml`
+checks the same ordered output contract through the public library.
+
+These expectations derive from the pinned TempleOS source and independent
+byte fixtures. They provide no TempleOS runtime capture, loader execution or
+intact DolDoc oracle evidence. General linkage and layout remain under #714,
+live compiler expressions and source assembly execution under #715, and the
+intact DolDoc oracle under #375.
+
 [Switch extension tests](integer-switch.md) share original source fixtures across
 IR and native targets. They cover bracket cases and holes, repeated defaults,
 direct entry and fallthrough through setup prefixes, nested region suffixes,

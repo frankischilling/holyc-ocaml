@@ -1,4 +1,15 @@
 (test
+ (name test_assembly_directives_cli)
+ (modules test_assembly_directives_cli)
+ (libraries unix yojson)
+ (deps ../examples/assembly-directives.asm)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/assembly-directives.asm})))
+
+(test
  (name test_assembly_encoder_cli)
  (modules test_assembly_encoder_cli)
  (libraries unix yojson)
@@ -491,6 +502,8 @@
   test_assembly_operations
   test_assembly_encoder
   test_assembly_encoding_api
+  test_assembly_directives
+  test_assembly_binary
   test_shared_native_encoder
   test_conditional_recovery
   test_retained_aggregates

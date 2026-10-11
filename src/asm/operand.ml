@@ -11,6 +11,7 @@ type token =
   | Expression_open_bracket
   | Expression_close_bracket
   | Symbol of string
+  | Import_symbol of string
   | Value_symbol of string
   | Address_symbol of { name : string; absolute : bool option }
   | Variable_symbol of {
@@ -45,6 +46,9 @@ type t = {
   indirect_ : bool;
   just_segment_ : bool;
   immediate_ : immediate option;
+  immediate_direct_ : bool;
+  immediate_size_ : int;
+  relative_ : bool;
 }
 
 let mode_bits = function
@@ -62,6 +66,30 @@ let scale operand = operand.scale_
 let indirect operand = operand.indirect_
 let just_segment operand = operand.just_segment_
 let immediate operand = operand.immediate_
+
+let resolve_immediate ~value ~absolute operand =
+  match operand.immediate_ with
+  | None -> operand
+  | Some immediate ->
+      let size_ =
+        if not operand.immediate_direct_ then operand.size_
+        else if
+          operand.immediate_size_ <= 1 && (not operand.relative_) && absolute
+        then if operand.mode_ = Use16 then 2 else 4
+        else operand.immediate_size_
+      in
+      {
+        operand with
+        size_;
+        immediate_ =
+          Some
+            {
+              immediate with
+              value = Some value;
+              absolute;
+              absolute_known = true;
+            };
+      }
 
 let unresolved operand =
   match operand.immediate_ with
@@ -99,6 +127,7 @@ let token_spelling = function
   | Type_definition { name; _ }
   | Address_symbol { name; _ } -> name
   | Symbol name
+  | Import_symbol name
   | Value_symbol name
   | Function_symbol name
   | Type_name name
@@ -327,6 +356,7 @@ let expression ~offset ~complete expression =
             (match peek () with
             | Some
                 ( Symbol name
+                | Import_symbol name
                 | Value_symbol name
                 | Function_symbol name
                 | Type_name name ) ->
@@ -375,6 +405,9 @@ let expression ~offset ~complete expression =
       | Some (Symbol name) ->
           incr cursor;
           symbolic name
+      | Some (Import_symbol name) ->
+          incr cursor;
+          symbolic ~absolute_count:0 name
       | Some (Value_symbol name) ->
           incr cursor;
           {
@@ -638,6 +671,7 @@ let expression ~offset ~complete expression =
     if depth > 256 then fail "assembler type nesting exceeds 256 levels";
     let is_name = function
       | Symbol _
+      | Import_symbol _
       | Value_symbol _
       | Address_symbol _
       | Variable_symbol _
@@ -873,6 +907,7 @@ let parse ~mode ~relative tokens =
     let register1 = ref None and register2 = ref None in
     let scale = ref 1L and indirect = ref false and just_segment = ref false in
     let immediate = ref None in
+    let immediate_direct = ref false and immediate_size = ref 0 in
     let at () = if !cursor < length then Some source.(!cursor) else None in
     let fail message = invalid !cursor message in
     let slice first last =
@@ -888,6 +923,8 @@ let parse ~mode ~relative tokens =
         expression ~offset:first ~complete:direct (slice first last)
       in
       immediate := Some parsed;
+      immediate_direct := direct;
+      immediate_size := !size;
       cursor := first + consumed;
       if
         direct && !size <= 1 && (not relative) && parsed.absolute_known
@@ -1001,6 +1038,9 @@ let parse ~mode ~relative tokens =
         indirect_ = !indirect;
         just_segment_ = !just_segment;
         immediate_ = !immediate;
+        immediate_direct_ = !immediate_direct;
+        immediate_size_ = !immediate_size;
+        relative_ = relative;
       }
   with Invalid error -> Error error
 

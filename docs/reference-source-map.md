@@ -18,8 +18,32 @@ defines the flags and forms in the pinned `Compiler/OpCodes.DD` database.
 prepares native compiler instructions; both use the checked byte writer in
 `Asm.Encoding`. Fixed specimens cover all 924 source records, including the
 empty record's rejection. Clang comparisons provide independent byte checks.
-Narrowing refusals, operand ownership and output limits are hosted rules;
-symbol layout, directive execution and source assembly execution remain separate.
+Instruction-field narrowing refusals, operand ownership and output limits are
+hosted rules. Directive data stores preserve the original low bytes instead.
+
+[Standalone directive emission](assembly-directives.md) follows
+`Compiler/Asm.HC:815-1004,1039-1098` for data, repetition, binary files,
+imports, origin, alignment, listing state and labels. The ordered output
+entries retain raw positions, byte ranges, listing flags and source-item
+identity and source locations. `ORG` stays separate from the raw coordinate,
+while `$$` and `AAT_ADD_U*` records follow `AsmStoreNum` at
+`Compiler/Asm.HC:268-390` and `PrsTerm` at
+`Compiler/PrsExp.HC:680-721`. Closed scalar expressions preserve the
+original operator precedence and primitive bitcasts.
+
+`BINFILE` follows `PrsBinFile`, `Kernel/BlkDev/DskFile.HC:FileRead` and
+the extension rules in `Kernel/BlkDev/DskStrA.HC`. Packed-file decoding
+follows `Kernel/Compress.HC` and the 17-byte `CArcCompress` header in
+`Kernel/KernelA.HH:3684-3721`. The hosted loader requires explicit roots,
+bounded regular-file reads and checked expansion. Reports retain paths,
+raw and decoded sizes, SHA-256 digests and the selected compression type.
+Work and cumulative binary-input limits report `HCASM0007` and
+`HCASM0008`; malformed compressed files never fall back to raw bytes.
+
+General label/import fixups and branch layout remain under #714. Live
+compiler expressions, compiler-owned `$IB` pointers, source assembly
+loading and execution remain under #715. The source-derived directive
+fixtures do not replace the intact DolDoc oracle work under #375.
 
 [Switch execution](integer-switch.md) follows
 `Compiler/PrsStmt.HC:578-789` for shared case ownership, original endpoint
@@ -1014,7 +1038,7 @@ Shift assignments are not ordinary entries in those arrays. After recognizing `<
 
 `AsmPrsInsFlags` accepts the eight opcode modifiers, operand-size markers 16 and 32, `+` and `/` selectors, eight punctuation flags, and `$$`. Each form has no more than four opcode bytes and two `ST_ARG_TYPES` operands. Argument sizes come from the five masks initialized by `AsmHashLoad`. The pinned file contains 106 registers, 48 language keywords with IDs 0 through 47, 25 assembler directives with IDs 64 through 88, 325 canonical opcodes, 49 aliases, and 924 forms. The leading comma on `REP_OUTSB` causes the source loader to create an empty first form; the checked data keeps it.
 
-`tools/opcode_table_source.ml` tokenizes and validates that complete grammar. It rejects missing semicolons, duplicate names or IDs, unexpected and reordered records, incomplete keyword ranges, malformed aliases, unknown arguments, out-of-range numeric fields, excess bytes, and excess forms. `tools/opcode_table_gen.ml` writes the deterministic OCaml table with the reference commit, `Compiler/OpCodes.DD` checksum, original source lines, and every parsed field. The lexer and `Asm_directive` use the keyword subsets, while `Driver.Session` publishes registers, canonical opcodes, and aliases with their source hash kinds. [The assembler notes](assembler.md) give the field-level map. `Asm.Operand` and `Asm.Instruction` now match parsed operands against the complete form list. Assembler byte emission remains future work.
+`tools/opcode_table_source.ml` tokenizes and validates that complete grammar. It rejects missing semicolons, duplicate names or IDs, unexpected and reordered records, incomplete keyword ranges, malformed aliases, unknown arguments, out-of-range numeric fields, excess bytes, and excess forms. `tools/opcode_table_gen.ml` writes the deterministic OCaml table with the reference commit, `Compiler/OpCodes.DD` checksum, original source lines, and every parsed field. The lexer and `Asm_directive` use the keyword subsets, while `Driver.Session` publishes registers, canonical opcodes, and aliases with their source hash kinds. [The assembler notes](assembler.md) give the field-level map. `Asm.Operand` and `Asm.Instruction` now match parsed operands against the complete form list. `Asm.Encoder` emits checked instruction fields, and `Assembly_encoding` combines them with the ordered directive output described in [assembler directives](assembly-directives.md).
 
 ## Assembly block dispatch and structure
 
@@ -1022,13 +1046,13 @@ Shift assignments are not ordinary entries in those arrays. After recognizing `<
 
 `Frontend.Parser` retains this boundary as an `assembly_block_statement`. `Frontend.Ast` keeps the keyword, braces, source-line display groups, labels, and classified body tokens. `Asm.Opcode`, `Asm.Directive`, and `Asm.Register` resolve spellings through the checked generated data rather than a second handwritten list. Canonical and alias opcodes remain distinct while sharing one canonical identity. Human and JSON AST dumps retain include, expansion, and definition provenance.
 
-`reference/assembly-blocks.json` records a raw-token audit of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. The pinned tree has 45 brace-delimited blocks in 40 files, including six blocks inside another source block. Tests rescan those roots with the streaming lexer and compare every path, source line, and context with the checked inventory. They also parse the top-level and nested blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC` in both compilation modes. Ordered operand grammar and form validation are now shared with standalone assembly under #711. Directive execution, fixups, encoding and execution remain separate phases.
+`reference/assembly-blocks.json` records a raw-token audit of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. The pinned tree has 45 brace-delimited blocks in 40 files, including six blocks inside another source block. Tests rescan those roots with the streaming lexer and compare every path, source line, and context with the checked inventory. They also parse the top-level and nested blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC` in both compilation modes. Ordered operand grammar and form validation are now shared with standalone assembly under #711. Standalone instruction and directive emission are covered by #712 and #713. General label/import fixups and branch layout remain under #714; integration with live compiler expressions and source assembly loading and execution remains under #715.
 
 ## Direct assembly dispatch
 
 `Compiler/PrsStmt.HC:PrsStmt` recognizes `HTT_OPCODE` and `HTT_ASM_KEYWORD` hash entries before ordinary expression dispatch. Without an active function it reports `Use Asm Blk`. With a function it joins compilation through `CMPF_ASM_BLK | CMPF_ONE_ASM_INS`; `Compiler/CompilerA.HH` assigns that second flag bit value 2. In `Compiler/Asm.HC:PrsAsmBlk`, the flag skips the opening-brace path. The routine consults `tmpo->ins[0].arg1` and `arg2` for operand parsing, dispatches assembler keywords by ID, and can continue when the next hash entry is another opcode or assembler keyword.
 
-`Frontend.Parser` implements direct runs as a source-ordered `inline_assembly_statement` item stream. It derives zero-, one-, or two-operand instruction arity from the first checked `OpCodes.DD` form and retains adjacent items without using physical newlines as delimiters. `Compiler/Asm.HC:PrsAsmArg` grounds the public register, immediate, and memory forms, including size and segment prefixes. Each operand keeps its classified tokens, comma, span, and include or definition origin. `Compiler/Asm.HC:PrsAsmDefine`, `PrsBinFile`, and the `PrsAsmBlk` switch ground syntax for `IMPORT`, `DU8`, `DU16`, `DU32`, `DU64`, postfix `DUP`, `BINFILE`, `LIST`, `NOLIST`, `USE16`, `USE32`, and `USE64`. Directive nodes retain optional commas, semicolons, arguments, spans, and provenance without evaluating them or reading a file. The parser also preserves the source restrictions on function-local `ORG`, `ALIGN`, type-sized prefixes, and standalone `DUP`. Visible compiler symbols can shadow opcode, register, and directive spellings. Tests cover exact instruction excerpts from Adam, Kernel, and Demo sources plus mixed directive runs in both compilation modes. `HCPARSE0147` records the top-level restriction; `HCPARSE0149` through `HCPARSE0156` record malformed operands, forbidden direct directives, and malformed directive arguments. Operand validation and USE-mode state now share the block and standalone paths. The ordered items also supply function assembly labels independently of physical lines. Directive execution, output-address checks, lowering, encoding and execution remain pending.
+`Frontend.Parser` implements direct runs as a source-ordered `inline_assembly_statement` item stream. It derives zero-, one-, or two-operand instruction arity from the first checked `OpCodes.DD` form and retains adjacent items without using physical newlines as delimiters. `Compiler/Asm.HC:PrsAsmArg` grounds the public register, immediate, and memory forms, including size and segment prefixes. Each operand keeps its classified tokens, comma, span, and include or definition origin. `Compiler/Asm.HC:PrsAsmDefine`, `PrsBinFile`, and the `PrsAsmBlk` switch ground syntax for `IMPORT`, `DU8`, `DU16`, `DU32`, `DU64`, postfix `DUP`, `BINFILE`, `LIST`, `NOLIST`, `USE16`, `USE32`, and `USE64`. Directive nodes retain optional commas, semicolons, arguments, spans, and provenance without evaluating them or reading a file. The parser also preserves the source restrictions on function-local `ORG`, `ALIGN`, type-sized prefixes, and standalone `DUP`. Visible compiler symbols can shadow opcode, register, and directive spellings. Tests cover exact instruction excerpts from Adam, Kernel, and Demo sources plus mixed directive runs in both compilation modes. `HCPARSE0147` records the top-level restriction; `HCPARSE0149` through `HCPARSE0156` record malformed operands, forbidden direct directives, and malformed directive arguments. Operand validation and USE-mode state now share the block and standalone paths. The ordered items also supply function assembly labels independently of physical lines. The standalone `Assembly_encoding` path emits checked instruction and directive bytes with ordered output metadata. Function-assembly address validation, lowering and execution remain separate from that byte-output path.
 
 ## Whole-tree parser measurement
 

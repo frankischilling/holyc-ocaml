@@ -16,4 +16,4 @@
  (foreign_stubs
   (language c)
   (names native_execution_stubs compiler_hash_stubs compiler_control_stubs))
- (libraries dune-build-info unix yojson))
+ (libraries dune-build-info unix yojson digestif))
