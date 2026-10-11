@@ -91,6 +91,20 @@ let resolve_immediate ~value ~absolute operand =
             };
       }
 
+let resolve_address ~absolute operand =
+  match operand.immediate_ with
+  | None -> operand
+  | Some immediate ->
+      let resolved =
+        resolve_immediate
+          ~value:(Option.value ~default:0L immediate.value)
+          ~absolute operand
+      in
+      {
+        resolved with
+        immediate_ = Some { immediate with absolute; absolute_known = true };
+      }
+
 let unresolved operand =
   match operand.immediate_ with
   | Some { value = None; _ } -> true

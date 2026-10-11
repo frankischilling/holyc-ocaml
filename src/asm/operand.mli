@@ -75,6 +75,11 @@ val resolve_immediate : value:int64 -> absolute:bool -> t -> t
     absolute-address width rule from their explicit prefix and relative role. *)
 
 val unresolved : t -> bool
+
+val resolve_address : absolute:bool -> t -> t
+(** Supply the original address-count category without resolving an unknown
+    word. Forward displacements remain unresolved during instruction layout. *)
+
 val immediate_present : t -> bool
 val parse : mode:mode -> relative:bool -> token list -> (t, error) result
 

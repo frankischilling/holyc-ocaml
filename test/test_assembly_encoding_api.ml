@@ -328,7 +328,6 @@ let directive_layout_and_linkage () =
     [
       ("origin after an instruction", "NOP; ORG 16; RET;", "ORG");
       ("unresolved external target", "MOV RAX,UnknownTarget;", "UnknownTarget");
-      ("imported target requires linkage", "IMPORT F; CALL F;", "import");
     ]
 
 let retained_source_metadata () =
@@ -403,8 +402,9 @@ let tests =
       operation_ownership;
     Alcotest.test_case "ordered USE directives retain their mode tokens" `Quick
       use_directive_ownership;
-    Alcotest.test_case "directives share layout and imports require linkage"
-      `Quick directive_layout_and_linkage;
+    Alcotest.test_case
+      "directives share layout and reject required unknown symbols" `Quick
+      directive_layout_and_linkage;
     Alcotest.test_case "encoding reports retain their exact parsed source"
       `Quick retained_source_metadata;
   ]

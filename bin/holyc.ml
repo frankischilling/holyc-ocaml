@@ -426,22 +426,43 @@ let write_assembly_bytes path bytes =
         Ok ())
   with Sys_error message -> Error message
 
+let validate_assembly_outputs files =
+  let rec validate seen = function
+    | [] -> Ok ()
+    | (path, _) :: rest ->
+        let directory = Unix.realpath (Filename.dirname path) in
+        let canonical = Filename.concat directory (Filename.basename path) in
+        if List.exists (Holyc_lib.Include_resolver.equal_path canonical) seen
+        then Error "assembly output, map and listing paths must be distinct"
+        else validate (canonical :: seen) rest
+  in
+  try validate [] files with
+  | Sys_error message | Invalid_argument message -> Error message
+  | Unix.Unix_error (error, operation, argument) ->
+      Error
+        (Printf.sprintf "%s: %s: %s" operation argument
+           (Unix.error_message error))
+
 let assembly_file assembly_mode emit position code_byte_limit
-    directive_work_limit binary_input_byte_limit output_path format
-    include_roots templeos_root max_include_depth max_source_bytes
-    max_definition_depth max_generated_bytes max_conditional_depth
-    max_expression_nodes compilation_mode conditional_recovery predefined_date
-    predefined_time command_line_source path =
+    directive_work_limit binary_input_byte_limit base symbols map_path
+    listing_path output_path format include_roots templeos_root
+    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
+    max_conditional_depth max_expression_nodes compilation_mode
+    conditional_recovery predefined_date predefined_time command_line_source
+    path =
   let session = Holyc_lib.Session.create () in
   if
     (not emit)
     && (position <> None || code_byte_limit <> None || output_path <> None
        || directive_work_limit <> None
-       || binary_input_byte_limit <> None)
+       || binary_input_byte_limit <> None
+       || base <> None || symbols <> [] || map_path <> None
+       || listing_path <> None)
   then (
     print_command_error format ~command:"asm"
       "--position, --code-byte-limit, --directive-work-limit, \
-       --binary-input-byte-limit and --output require --emit";
+       --binary-input-byte-limit, --base, --symbol, --map, --listing and \
+       --output require --emit";
     1)
   else
     match Holyc_lib.Session.load_source session ~path with
@@ -478,7 +499,7 @@ let assembly_file assembly_mode emit position code_byte_limit
                   in
                   match
                     Holyc_lib.Assembly_encoding.encode ?position ~config
-                      ?max_work:directive_work_limit
+                      ~symbols ?max_work:directive_work_limit
                       ?max_binary_input_bytes:binary_input_byte_limit
                       ~max_code_bytes assembly
                   with
@@ -487,33 +508,105 @@ let assembly_file assembly_mode emit position code_byte_limit
                         (output.diagnostics @ [ diagnostic ]);
                       1
                   | Ok encoded -> (
-                      let written =
-                        match output_path with
-                        | None -> Ok ()
-                        | Some path -> write_assembly_bytes path encoded.bytes
+                      let linked =
+                        if base <> None || symbols <> [] then
+                          Holyc_lib.Assembly_encoding.link ~symbols
+                            ?max_work:directive_work_limit
+                            ~base:(Option.value ~default:0L base)
+                            encoded
+                          |> Result.map Option.some
+                        else if
+                          output_path <> None
+                          && List.exists
+                               (fun (relocation :
+                                      Holyc_lib.Assembly_encoding.relocation) ->
+                                 Option.is_some relocation.symbol)
+                               encoded.relocations
+                        then
+                          Error
+                            (Holyc_lib.Diagnostic.make ~code:"HCASM0009"
+                               ~severity:Holyc_lib.Diagnostic.Error
+                               ~message:
+                                 "raw assembly output has unresolved imports; \
+                                  supply --symbol bindings"
+                               ~primary:assembly.assembly_unit_location.span ())
+                        else Ok None
                       in
-                      match written with
-                      | Error message ->
-                          let diagnostic =
-                            Holyc_lib.Diagnostic.make ~code:"HCASM0006"
-                              ~severity:Holyc_lib.Diagnostic.Error ~message
-                              ~primary:assembly.assembly_unit_location.span ()
-                          in
+                      match linked with
+                      | Error diagnostic ->
                           print_diagnostics format session
                             (output.diagnostics @ [ diagnostic ]);
                           1
-                      | Ok () ->
-                          if output.diagnostics <> [] then
-                            print_diagnostics format session output.diagnostics;
-                          (match format with
-                          | Human ->
-                              Holyc_lib.Assembly_encoding.human encoded
-                              |> output_string stdout
-                          | Json ->
-                              Holyc_lib.Assembly_encoding.to_yojson sources
-                                encoded
-                              |> Yojson.Safe.pretty_to_string |> print_endline);
-                          0)
+                      | Ok linked -> (
+                          let bytes =
+                            match linked with
+                            | None -> encoded.bytes
+                            | Some image -> image.bytes
+                          in
+                          let files =
+                            List.filter_map Fun.id
+                              [
+                                Option.map
+                                  (fun path -> (path, bytes))
+                                  output_path;
+                                Option.map
+                                  (fun path ->
+                                    ( path,
+                                      Holyc_lib.Assembly_encoding.map encoded ))
+                                  map_path;
+                                Option.map
+                                  (fun path ->
+                                    ( path,
+                                      Holyc_lib.Assembly_encoding.listing
+                                        sources encoded ))
+                                  listing_path;
+                              ]
+                          in
+                          let rec save = function
+                            | [] -> Ok ()
+                            | (path, bytes) :: rest -> (
+                                match write_assembly_bytes path bytes with
+                                | Error message -> Error message
+                                | Ok () -> save rest)
+                          in
+                          let written =
+                            Result.bind (validate_assembly_outputs files)
+                              (fun () -> save files)
+                          in
+                          match written with
+                          | Error message ->
+                              let diagnostic =
+                                Holyc_lib.Diagnostic.make ~code:"HCASM0006"
+                                  ~severity:Holyc_lib.Diagnostic.Error ~message
+                                  ~primary:assembly.assembly_unit_location.span
+                                  ()
+                              in
+                              print_diagnostics format session
+                                (output.diagnostics @ [ diagnostic ]);
+                              1
+                          | Ok () ->
+                              if output.diagnostics <> [] then
+                                print_diagnostics format session
+                                  output.diagnostics;
+                              (match (format, linked) with
+                              | Human, None ->
+                                  Holyc_lib.Assembly_encoding.human encoded
+                                  |> output_string stdout
+                              | Human, Some linked ->
+                                  Holyc_lib.Assembly_encoding.linked_human
+                                    linked
+                                  |> output_string stdout
+                              | Json, None ->
+                                  Holyc_lib.Assembly_encoding.to_yojson sources
+                                    encoded
+                                  |> Yojson.Safe.pretty_to_string
+                                  |> print_endline
+                              | Json, Some linked ->
+                                  Holyc_lib.Assembly_encoding.linked_to_yojson
+                                    sources linked
+                                  |> Yojson.Safe.pretty_to_string
+                                  |> print_endline);
+                              0))
                 else (
                   if output.diagnostics <> [] then
                     print_diagnostics format session output.diagnostics;
@@ -575,8 +668,9 @@ let assembly_command =
       & opt (some int) None
       & info [ "directive-work-limit" ] ~docv:"WORK"
           ~doc:
-            "Bound assembly items, expression tokens and output bytes (default \
-             1000000). Requires --emit.")
+            "Bound encoding and linking work independently, including items, \
+             expressions, fields and bytes (default 1000000 per phase). \
+             Requires --emit.")
   in
   let binary_input_byte_limit =
     Arg.(
@@ -595,8 +689,45 @@ let assembly_command =
       & opt (some string) None
       & info [ "o"; "output" ] ~docv:"FILE"
           ~doc:
-            "Write the checked unrelocated bytes to this file after all \
-             assembly items pass. Requires --emit.")
+            "Write checked raw bytes, or linked bytes with --base/--symbol. \
+             Every used import must resolve before writing. Requires --emit.")
+  in
+  let base =
+    Arg.(
+      value
+      & opt (some int64) None
+      & info [ "base" ] ~docv:"ADDRESS"
+          ~doc:
+            "Apply raw-image fixups with this nonnegative load bias. Requires \
+             --emit.")
+  in
+  let symbol =
+    Arg.(
+      value
+      & opt_all (pair ~sep:'=' string int64) []
+      & info [ "symbol" ] ~docv:"NAME=ADDRESS"
+          ~doc:
+            "Supply a loaded external address and an import binding. Repeat \
+             for separate names. Implies linking at base 0 unless --base is \
+             given. Requires --emit.")
+  in
+  let map_argument =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "map" ] ~docv:"FILE"
+          ~doc:
+            "Write symbols and relocations in deterministic source order at \
+             raw coordinates. Requires --emit.")
+  in
+  let listing =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "listing" ] ~docv:"FILE"
+          ~doc:
+            "Write final unrelocated bytes and source positions for \
+             LIST-enabled items. Requires --emit.")
   in
   let documentation =
     "Parse TempleOS assembly, inspect selected forms, or emit checked \
@@ -608,7 +739,7 @@ let assembly_command =
        Term.(
          const assembly_file $ assembly_mode_argument $ emit $ position
          $ code_byte_limit $ directive_work_limit $ binary_input_byte_limit
-         $ output))
+         $ base $ symbol $ map_argument $ listing $ output))
 
 let print_integer_result format result =
   let module VM = Holyc_lib.Ir_integer_interpreter in

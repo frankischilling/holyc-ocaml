@@ -113,9 +113,19 @@ is tracked in #715.
 Instruction immediates and displacements use the same closed value evaluation
 before their byte ranges are fixed. At raw position zero,
 `MOV RAX,[RBX+$$];` emits `48 8b 03`, and `MOV RAX,1.0;` selects a
-full eight-byte immediate containing the F64 payload. A forward label whose
-resolved value would resize an instruction still requires the separate layout
-work in #714 and produces a diagnostic.
+full eight-byte immediate containing the F64 payload. An instruction with an
+unresolved forward reference reserves the original numeric field. In USE64,
+`MOV RAX,[RBX+Later]; Later: RET;` emits `48 8b 83 07 00 00 00 c3`.
+The displacement remains four bytes when `Later-Later` resolves to zero.
+These fixed-width rules follow
+[`Compiler/Asm.HC:203-205`](../third_party/TempleOS/Compiler/Asm.HC#L203-L205)
+and [`Compiler/Asm.HC:689-701`](../third_party/TempleOS/Compiler/Asm.HC#L689-L701).
+
+Forward and backward branches use the selected source form. A short branch
+must fit -128 through 127, and explicit `I16` or `I32` forms retain their
+selected width. An out-of-range branch produces a diagnostic. Resolution
+does not widen or shorten a branch. The original field patching is in
+[`Compiler/AsmResolve.HC:19-39`](../third_party/TempleOS/Compiler/AsmResolve.HC#L19-L39).
 
 ## Origin, alignment and current position
 
@@ -151,27 +161,37 @@ relocation record. This follows
 [`Compiler/PrsExp.HC:707-721`](../third_party/TempleOS/Compiler/PrsExp.HC#L707-L721)
 and `AsmStoreNum`.
 
-The returned bytes contain the raw field values. Applying an origin or load
-base belongs to the relocation and object-output stages. The report makes
-those required patches visible; `--output` writes the raw stream.
+The returned encoding contains raw field values. `Assembly_encoding.link`
+applies an explicit base to a fresh byte string. `ORG` remains metadata and
+does not select that base automatically. AAT add/subtract patches store their
+low field-width bits, following
+[`CmpFixUpJITAsm`, `Compiler/CMain.HC:174-196`](../third_party/TempleOS/Compiler/CMain.HC#L174-L196).
 
 ## Labels, imports and listing
 
-Data expressions can refer to a label defined later in the same assembly
-unit. A repeated label at the same raw position is accepted; assigning it
-another position fails. Local `@@` labels retain the scope introduced by
-the preceding exported `name::` label. An ordinary `name:` label does not
-reset that local scope. These rules follow the label branches in
-[`Compiler/Asm.HC:1039-1098`](../third_party/TempleOS/Compiler/Asm.HC#L1039-L1098).
+Instruction fields and data expressions can refer to a label defined later
+in the same assembly unit. Each binding has one identity and retains every
+definition site. A repeated label at the same raw position is accepted;
+assigning it another position fails. A newly defined exported `name::`
+resolves the preceding local references and starts a new `@@` scope.
+An ordinary `name:` label and a same-position repeated `::` definition
+preserve that scope. A repeated definition also preserves the original
+binding's export status, including a supplied external binding. These rules
+follow the label branches in
+[`Compiler/Asm.HC:1032-1098`](../third_party/TempleOS/Compiler/Asm.HC#L1032-L1098).
+An unresolved local cannot acquire a definition from a later export's scope.
+Missing required labels fail at their original use.
 
 `IMPORT` records unresolved external names and emits no bytes. Empty lists,
 duplicate names, optional commas and a trailing comma are accepted.
 Declarations remain in source order in the report. An unused import creates
 no relocation. An imported name such as `if`, `sizeof`, `offset` or `defined`
 keeps its symbol meaning in later expressions. Reading an imported value or
-using an imported call target
-requires external linkage and produces an explicit diagnostic until that
-stage is available under #714 and #717. The source behavior is in
+using an imported call target creates an `IET_*` record for its actual field
+width. The encoded image can retain these unresolved records for inspection.
+Linking requires a supplied value for every used import. Two imported
+occurrences in one expression are rejected, including `F+F`. The source
+behavior is in
 [`Compiler/Asm.HC:928-947`](../third_party/TempleOS/Compiler/Asm.HC#L928-L947)
 and [`Compiler/AsmResolve.HC`](../third_party/TempleOS/Compiler/AsmResolve.HC).
 
@@ -197,10 +217,72 @@ and retains its absolute data relocation. With no earlier local binding,
 
 Listing starts disabled. `LIST` enables it for subsequent emitted ranges,
 and `NOLIST` disables it. Every report entry retains the state that was active
-when its bytes were emitted. This is a structured listing contract. It does
-not reproduce TempleOS's terminal columns, delayed source-line flushing or
-word-group formatting from
+when its bytes were emitted. `--listing FILE` prints final unrelocated bytes
+and original source locations for enabled entries. `--map FILE` lists raw
+symbol positions, repeated definition item indices, imports and relocations. Both
+files remain at raw coordinates when linked output is requested.
+`initial_bytes` is a normalized pre-fixup image. Each deferred absolute field
+contains zero, and each deferred relative field contains the negated relative
+base. The original `PrsAsmDefine` keeps its local `i` between values: it assigns
+`i` only when an expression resolves, then uses it for the numeric store.
+For `DU32 42,F; F:`, the original provisional values are therefore `42,42`,
+while this normalized image contains `42,0`. A first unresolved data value
+may read an uninitialized `i`. See
+[`Compiler/Asm.HC:817-852`](../third_party/TempleOS/Compiler/Asm.HC#L817-L852)
+and [`Compiler/Asm.HC:875-877`](../third_party/TempleOS/Compiler/Asm.HC#L875-L877).
+`initial_bytes` does not provide a byte-perfect TempleOS runtime listing or
+capture. The inspection listing also omits the terminal columns,
+delayed source-line flushing and word-group formatting in
 [`Compiler/AsmLib.HC`](../third_party/TempleOS/Compiler/AsmLib.HC).
+
+## Linking a raw image
+
+`Assembly_encoding.encode ~symbols` accepts already-resolved external symbol
+values. They retain the original immediate-address category, so a relative
+use receives an `AAT_SUB_U*` patch. An explicit `IMPORT` declaration shadows
+an encode-time value and remains deferred. The encoding records supplied
+values as provenance; `Assembly_encoding.link ~symbols ~base` receives its
+own import bindings.
+
+These external bindings arrive after parsing. A supplied name that conflicts
+with an active opcode, register, size, type, query or `DUP` role produces a
+diagnostic because the parsed operation already retains that syntax choice.
+Unused name collisions and explicit `IMPORT` symbol uses are accepted.
+
+The linker applies AAT records first, then import stores. An absolute import
+overwrites the low 1, 2, 4 or 8 bytes of its field. A relative import stores
+the supplied value minus the loaded field end, with signed range checks.
+This preserves the source behavior when another immediate follows an
+imported displacement. Import expression addends are provisional values:
+the unlinked image for `IMPORT F; DU32 F+7;` contains `07 00 00 00`. Linking `F`
+to `0x1234` writes `34 12 00 00`. The loader overwrites the addend.
+The source stores are in
+[`Compiler/CMain.HC:251-287`](../third_party/TempleOS/Compiler/CMain.HC#L251-L287)
+and [`Kernel/KLoad.HC:32-49`](../third_party/TempleOS/Kernel/KLoad.HC#L32-L49).
+
+The [layout example](../examples/assembly-layout.asm) emits these 16 raw bytes:
+
+```text
+eb06aa9090909090488b830f000000c3
+```
+
+`Tail` is at raw offset 8 and `After` at 15. Its first branch skips the data
+and alignment fill. The later memory operand retains its four-byte forward
+displacement. Linking at base `0x1003` changes that absolute displacement to
+`0x1012` and leaves the relative branch unchanged:
+
+```sh
+dune exec holyc -- asm --emit --base=0x1003 --output=assembly-layout.bin examples/assembly-layout.asm
+dune exec holyc -- asm --emit --map=assembly-layout.map --listing=assembly-layout.lst examples/assembly-layout.asm
+```
+
+The command accepts repeated `--symbol NAME=ADDRESS` options and passes the
+values to both phases. A symbol option without `--base` links at base zero.
+Duplicate supplied names, missing used imports, invalid loaded coordinates
+and out-of-range relative fields fail before output. Linking allocates a
+fresh image and preserves the original encoding for another base or symbol
+set. It constructs raw linked bytes; TempleOS BIN serialization remains
+under #717, and executable source-assembly loading remains under #715.
 
 ## Binary files and inserted binary tokens
 
@@ -241,7 +323,8 @@ inputs:
 | --- | --- |
 | `position` | Optional initial nonnegative signed 64-bit raw coordinate |
 | `config` | Optional original JIT/AOT mode and permitted binary-file resolution roots |
-| `max_work` | Optional cumulative item, expression-token and emitted-byte work allowance |
+| `symbols` | Optional resolved external values; explicit IMPORT declarations still defer their fields |
+| `max_work` | Optional cumulative allowance for items, expression tokens, emitted bytes, final field records and the normalized pre-fixup snapshot |
 | `max_binary_input_bytes` | Optional cumulative raw bytes read by `BINFILE` |
 | `max_code_bytes` | Required bound on the complete emitted stream |
 
@@ -249,13 +332,15 @@ Without a configuration, the API uses JIT rules and provides no binary-file
 resolution authority. The default work allowance is 1,000,000 and the default
 binary-input allowance is 16 MiB. The corresponding command options are
 `--directive-work-limit` and `--binary-input-byte-limit`; emission options
-require `--emit`.
+require `--emit`. The command passes the work limit independently to encoding
+and linking. Each phase receives the full allowance; their work is not added
+into one combined counter.
 
 Output planning checks multiplication for `DUP`, alignment growth and each
 signed output-position advance before allocating the final string. Binary
 decoding checks both raw input and expanded output sizes. These limits are
-hosted resource policy. An error returns no partial encoding, and the CLI
-preserves an existing output file or leaves a missing output path absent.
+hosted resource policy. A planning or linkage error returns no partial image
+and leaves output paths untouched.
 
 The `holyc-assembly-encoding-v1` report retains `assembly`, `instructions`
 and the complete hexadecimal `bytes`. Ordered `entries` add source locations,
@@ -263,9 +348,27 @@ item indices, raw positions, offsets, sizes and listing state for directives
 and instructions. Instruction records retain the actual encoding selection;
 the embedded assembly preserves the original parsed operations. JSON item
 indices connect emitted ranges to that source representation.
-`origin`, `max_align_bits`, `imports`, `symbols`,
-`relocations`, `binary_inputs`, `work` and `input_bytes` expose the remaining
-layout and accounting information.
+`initial_bytes` contains the normalized pre-fixup image described above.
+`fixups` retain field offsets, widths, relative bases, symbol names and
+identities, resolved values and original locations. Symbol records include
+every repeated definition item index. Relocations include their original
+numeric type, raw field position and source location. `origin`,
+`max_align_bits`, `imports`, `external_symbols`, `binary_inputs`, `work`
+and `input_bytes` expose the other layout and accounting information.
+
+The linked JSON schema is `holyc-linked-assembly-v1`. It contains the base,
+loaded start and end positions, linked bytes and loaded symbol positions,
+with the complete original encoding nested under `image`. Human linked
+output retains the raw inspection report and adds the loaded coordinates
+and bytes. A raw `--output` request with used imports requires successful
+linking; missing bindings fail before the output path is changed.
+
+`Assembly_encoding.link` has an independent `max_work` allowance. Its
+default is 1,000,000. The image size, relocation records, supplied symbol
+names and import lookup names contribute to that allowance. Duplicate
+supplied names are invalid even if no field uses them. Invalid link inputs,
+unresolved required imports, coordinate or relative-field overflow and
+link-work failures produce `HCASM0009`.
 
 The regression fixtures in
 [`test_assembly_directives.ml`](../test/test_assembly_directives.ml) and
@@ -273,6 +376,10 @@ The regression fixtures in
 use expected bytes derived from the pinned source. They cover mixed
 instruction/data output, primitive bit casts, raw strings, repetition,
 relative alignment, label scopes, imports, source provenance and exact
-resource boundaries. CLI checks compare the actual file with the reported
-bytes and check preservation after failures. These fixtures do not add a
-TempleOS runtime capture or establish executable-loader acceptance.
+resource boundaries. [`test_assembly_layout.ml`](../test/test_assembly_layout.ml)
+adds complete instruction fragments from `Compiler/Templates.HC:87-94` and
+`Kernel/KMathA.HC:370-373`, fixed forward fields, branch boundaries, repeated
+definitions, final raw maps/listings and explicit linking. CLI checks compare
+the actual file with the reported bytes and check preservation after failures.
+These fixtures do not add a TempleOS runtime capture or establish
+executable-loader acceptance.

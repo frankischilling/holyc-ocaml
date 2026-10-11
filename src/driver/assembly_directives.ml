@@ -26,11 +26,13 @@ type entry = {
 }
 
 type symbol = {
+  id : int;
   name : string;
   scope : string option;
   exported : bool;
   position : int64;
   item_index : int;
+  definition_item_indices : int list;
 }
 
 type relocation = {
@@ -38,6 +40,24 @@ type relocation = {
   width : int;
   kind : string;
   symbol : string option;
+  type_id : int;
+  position : int64;
+  relative_base : int64 option;
+  value : int64;
+  location : Ast.location;
+}
+
+type fixup = {
+  item_index : int;
+  offset : int;
+  position : int64;
+  width : int;
+  relative_base : int64 option;
+  value : int64;
+  symbols : string list;
+  symbol_ids : int list;
+  imported : string option;
+  location : Ast.location;
 }
 
 type binary_input = {
@@ -48,6 +68,7 @@ type binary_input = {
 type t = {
   assembly : Ast.assembly_unit;
   bytes : string;
+  initial_bytes : string;
   position : int64;
   end_position : int64;
   instructions : instruction list;
@@ -57,6 +78,8 @@ type t = {
   imports : string list;
   symbols : symbol list;
   relocations : relocation list;
+  fixups : fixup list;
+  external_symbols : (string * int64) list;
   binary_inputs : binary_input list;
   work : int;
   input_bytes : int;
@@ -150,9 +173,12 @@ let validate_directive (directive : Ast.inline_assembly_directive) =
       "assembly type-definition expressions require source compilation"
 
 type cell = {
+  cell_id : int;
   cell_name : string;
   cell_scope : string option;
   imported : bool;
+  external_value : int64 option;
+  mutable definition_indices_rev : int list;
   mutable definition : symbol option;
 }
 
@@ -164,12 +190,20 @@ type expression = {
   expression_location : Ast.location;
 }
 
-type value_plan = Fixed of Value.value | Deferred of expression
+type resolved_value = {
+  word : int64;
+  absolute : bool;
+  constant_address : bool;
+  import : cell option;
+}
+
+type value_plan = Fixed of resolved_value | Deferred of expression
 
 type piece =
   | Bytes of int * string
   | Fill of int * int * char
   | Data of {
+      item_index : int;
       offset : int;
       width : int;
       count : int;
@@ -209,14 +243,72 @@ let value_token (token : Ast.assembly_token) =
       reject ~code:"HCASM0004" token.assembly_token_location
         "this assembly expression requires source compilation"
 
+let token_matches_source model (token : Ast.assembly_token) =
+  let source = token.assembly_source_token in
+  let named name =
+    source.raw = name
+    &&
+    match source.kind with
+    | Token_kind.Identifier | Token_kind.Keyword _ -> true
+    | _ -> false
+  in
+  match model with
+  | Asm.Operand.Register register -> named (Asm.Register.spelling register)
+  | Size width ->
+      List.exists named
+        [ Printf.sprintf "I%d" (width * 8); Printf.sprintf "U%d" (width * 8) ]
+  | Integer value -> (
+      match (source.kind, source.value) with
+      | ( ( Token_kind.Integer
+          | Token_kind.Character
+          | Token_kind.Inserted_binary_size ),
+          Token.Int64 actual ) -> value = actual
+      | _ -> false)
+  | Floating value -> (
+      match (source.kind, source.value) with
+      | Token_kind.Float, Token.Float64 actual ->
+          value = Int64.bits_of_float actual
+      | _ -> false)
+  | String_literal value -> (
+      match (source.kind, source.value) with
+      | Token_kind.String, Token.Bytes actual -> value = actual
+      | _ -> false)
+  | Type_name name
+  | Symbol name
+  | Import_symbol name
+  | Value_symbol name
+  | Function_symbol name -> named name
+  | Address_symbol { name; _ }
+  | Variable_symbol { name; _ }
+  | Function_call { name; _ } -> named name
+  | Type_definition _ -> named "class" || named "union"
+  | Expression_open_bracket -> source.kind = Token_kind.Punctuation '['
+  | Expression_close_bracket -> source.kind = Token_kind.Punctuation ']'
+  | Punctuation byte -> source.kind = Token_kind.Punctuation byte
+  | Operator spelling -> (
+      source.raw = spelling
+      &&
+      match source.kind with
+      | Token_kind.Operator _ -> true
+      | _ -> false)
+  | Opaque spelling -> source.raw = spelling
+
+let validate_operand_source (original : Ast.inline_assembly_operand) =
+  let location = original.inline_assembly_operand_location in
+  let models = Asm.Operand.tokens original.inline_assembly_operand in
+  let sources = original.inline_assembly_operand_tokens in
+  if
+    List.length models <> List.length sources
+    || not (List.for_all2 token_matches_source models sources)
+  then
+    reject ~code:"HCASM0005" location
+      "assembly operand does not own its original source tokens"
+
 let immediate_source_tokens (original : Ast.inline_assembly_operand)
     (immediate : Asm.Operand.immediate) =
   let location = original.inline_assembly_operand_location in
   let models = Asm.Operand.tokens original.inline_assembly_operand in
   let sources = original.inline_assembly_operand_tokens in
-  if List.length models <> List.length sources then
-    reject ~code:"HCASM0005" location
-      "assembly operand does not own its original source tokens";
   let rec consume expression owned result =
     match (expression, owned) with
     | [], _ -> List.rev result
@@ -237,18 +329,59 @@ let immediate_source_tokens (original : Ast.inline_assembly_operand)
   in
   find immediate.expression (List.combine models sources)
 
-let evaluate expression =
+let expression_cells expression =
+  List.filter_map
+    (function
+      | Value.Name name -> Names.find_opt name expression.bindings
+      | _ -> None)
+    expression.model_tokens
+
+let expression_absolute expression =
+  List.fold_left
+    (fun parity -> function
+      | Value.Operator "$$" -> not parity
+      | Value.Name name -> (
+          match Names.find_opt name expression.bindings with
+          | Some cell ->
+              parity
+              <> ((not cell.imported) && Option.is_none cell.external_value)
+          | None -> parity)
+      | _ -> parity)
+    false expression.model_tokens
+
+let evaluate ?(allow_imports = false) expression =
   let resolve name =
     match Names.find_opt name expression.bindings with
+    | Some { external_value = Some value; _ } -> Some (value, false)
+    | Some { imported = true; _ } when allow_imports -> Some (0L, false)
     | Some { imported = false; definition = Some definition; _ } ->
         Some (definition.position, true)
     | _ -> None
   in
-  Value.evaluate ~position:expression.expression_position ~resolve
-    expression.model_tokens
+  match
+    Value.evaluate ~position:expression.expression_position ~resolve
+      expression.model_tokens
+  with
+  | Error error -> Error error
+  | Ok value ->
+      let cells = expression_cells expression in
+      let imports = List.filter (fun cell -> cell.imported) cells in
+      if allow_imports && List.length imports > 1 then
+        reject ~code:"HCASM0009" expression.expression_location
+          "two imports in the same assembly expression are not allowed";
+      Ok
+        {
+          word = value.word;
+          absolute = value.absolute;
+          constant_address =
+            List.fold_left
+              (fun parity cell -> parity <> Option.is_some cell.external_value)
+              false cells;
+          import = (if allow_imports then List.nth_opt imports 0 else None);
+        }
 
-let evaluate_required expression =
-  match evaluate expression with
+let evaluate_required ?allow_imports expression =
+  match evaluate ?allow_imports expression with
   | Ok value -> value
   | Error error ->
       let location =
@@ -264,7 +397,7 @@ let evaluate_required expression =
            "an imported assembly value requires symbol linkage and fixup output"
          else error.message)
 
-let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
+let encode ?(position = 0L) ?config ?(symbols = []) ?(max_work = 1_000_000)
     ?(max_binary_input_bytes = 16 * 1024 * 1024) ~max_code_bytes
     (assembly : Ast.assembly_unit) =
   let root = assembly.assembly_unit_location in
@@ -288,6 +421,7 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
     let listing = ref false and origin = ref None and max_align_bits = ref 0 in
     let pieces = ref [] and instructions = ref [] and entries = ref [] in
     let imports = ref [] and binary_inputs = ref [] and cells = ref [] in
+    let next_cell_id = ref 0 and local_expressions = ref [] in
     let globals = ref Names.empty and locals = ref Names.empty in
     let local_scope = ref None in
     let current () = Int64.add position (Int64.of_int !offset) in
@@ -309,21 +443,35 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
       offset := !offset + size;
       start
     in
-    let fresh_cell name imported =
+    let fresh_cell ?external_value name imported =
       let cell =
         {
+          cell_id = !next_cell_id;
           cell_name = name;
           cell_scope =
             (if (not imported) && String.starts_with ~prefix:"@@" name then
                !local_scope
              else None);
           imported;
+          external_value;
+          definition_indices_rev = [];
           definition = None;
         }
       in
+      incr next_cell_id;
       cells := cell :: !cells;
       cell
     in
+    List.iter
+      (fun (name, value) ->
+        charge root 1;
+        charge root (String.length name);
+        if name = "" || Names.mem name !globals then
+          reject ~code:"HCASM0009" root
+            "external assembly symbol names must be nonempty and unique";
+        let cell = fresh_cell ~external_value:value name false in
+        globals := Names.add name cell !globals)
+      symbols;
     let cell_for name =
       let table =
         if String.starts_with ~prefix:"@@" name then locals else globals
@@ -348,23 +496,61 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
             | _ -> found)
           Names.empty model_tokens
       in
-      {
-        expression_tokens = source_tokens;
-        model_tokens;
-        bindings;
-        expression_position = current ();
-        expression_location = location;
-      }
-    in
-    let capture_tokens location tokens =
-      capture location tokens (List.map value_token tokens)
+      let expression =
+        {
+          expression_tokens = source_tokens;
+          model_tokens;
+          bindings;
+          expression_position = current ();
+          expression_location = location;
+        }
+      in
+      if
+        Names.exists
+          (fun _ cell ->
+            (not cell.imported)
+            && Option.is_none cell.external_value
+            && String.starts_with ~prefix:"@@" cell.cell_name
+            && Option.is_none cell.definition)
+          bindings
+      then local_expressions := expression :: !local_expressions;
+      expression
     in
     let require_active_keyword (token : Ast.assembly_token) =
       match Names.find_opt token.assembly_source_token.raw !globals with
-      | Some { imported = true; _ } ->
+      | Some cell when cell.imported || Option.is_some cell.external_value ->
           reject ~code:"HCASM0004" token.assembly_token_location
-            "an imported name no longer denotes an assembly keyword"
+            (Printf.sprintf
+               "assembly symbol %S shadows a parsed keyword, register or type"
+               token.assembly_source_token.raw)
       | _ -> ()
+    in
+    let require_active_expression_role (token : Ast.assembly_token) =
+      if Option.is_some token.assembly_token_primitive then
+        require_active_keyword token;
+      match token.assembly_source_token.kind with
+      | Token_kind.Keyword _
+        when List.mem token.assembly_source_token.raw
+               [ "sizeof"; "offset"; "defined" ] -> (
+          match Names.find_opt token.assembly_source_token.raw !globals with
+          | Some { imported = true; _ } -> ()
+          | _ -> require_active_keyword token)
+      | _ -> ()
+    in
+    let capture_tokens location tokens =
+      List.iter require_active_expression_role tokens;
+      capture location tokens (List.map value_token tokens)
+    in
+    let require_active_operand_roles (operand : Ast.inline_assembly_operand) =
+      List.iter2
+        (fun model token ->
+          require_active_expression_role token;
+          match model with
+          | Asm.Operand.Register _ | Size _ | Type_name _ ->
+              require_active_keyword token
+          | _ -> ())
+        (Asm.Operand.tokens operand.inline_assembly_operand)
+        operand.inline_assembly_operand_tokens
     in
     let plan_value expression =
       match evaluate expression with
@@ -426,7 +612,17 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
           reject ~code:"HCASM0005" location
             "assembly directive has unexpected argument tokens"
     in
-    let process_data (directive : Ast.inline_assembly_directive) width =
+    let resolve_locals () =
+      List.iter
+        (fun expression ->
+          charge expression.expression_location
+            (List.length expression.model_tokens);
+          ignore (evaluate_required expression))
+        (List.rev !local_expressions);
+      local_expressions := []
+    in
+    let process_data item_index (directive : Ast.inline_assembly_directive)
+        width =
       let location = directive.inline_assembly_directive_location in
       if not (List.mem width [ 1; 2; 4; 8 ]) then
         reject ~code:"HCASM0005" location
@@ -460,6 +656,7 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
               match rest with
               | dup :: opening :: rest
                 when is_raw "DUP" dup && is_raw "(" opening -> (
+                  require_active_keyword dup;
                   let count = (evaluate_required expression).word in
                   let repeated, rest = take_expression rest in
                   let value = Fixed (evaluate_required repeated) in
@@ -482,7 +679,8 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
             in
             let start = reserve location (count * width) in
             pieces :=
-              Data { offset = start; width; count; value; location } :: !pieces;
+              Data { item_index; offset = start; width; count; value; location }
+              :: !pieces;
             following rest
       and following = function
         | comma :: rest when is_raw "," comma -> data rest
@@ -526,6 +724,13 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
             if cell.imported then
               reject ~code:"HCASM0004" location
                 "an imported assembly symbol cannot be defined";
+            (match cell.external_value with
+            | Some value when value <> at ->
+                reject ~code:"HCASM0004" location
+                  "assembly label redefines a supplied external symbol"
+            | Some _ | None -> ());
+            cell.definition_indices_rev <-
+              item_index :: cell.definition_indices_rev;
             (match cell.definition with
             | Some existing when existing.position <> at ->
                 reject ~code:"HCASM0004" location
@@ -534,17 +739,21 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
                       position"
                      name)
             | Some _ -> ()
+            | None when Option.is_some cell.external_value -> ()
             | None ->
                 cell.definition <-
                   Some
                     {
+                      id = cell.cell_id;
                       name;
                       scope = cell.cell_scope;
                       exported;
                       position = at;
                       item_index;
+                      definition_item_indices = [ item_index ];
                     };
                 if exported then (
+                  resolve_locals ();
                   locals := Names.empty;
                   local_scope := Some name));
             record "label" location
@@ -563,6 +772,8 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
             let values =
               List.map
                 (fun (original : Ast.inline_assembly_operand) ->
+                  validate_operand_source original;
+                  require_active_operand_roles original;
                   let operand = original.inline_assembly_operand in
                   let planned =
                     match Asm.Operand.immediate operand with
@@ -590,14 +801,18 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
                   | Some (Fixed value) ->
                       Asm.Operand.resolve_immediate ~value:value.word
                         ~absolute:value.absolute operand
-                  | None | Some (Deferred _) -> operand)
+                  | Some (Deferred expression) ->
+                      Asm.Operand.resolve_address
+                        ~absolute:(expression_absolute expression)
+                        operand
+                  | None -> operand)
                 values
             in
             let selection =
               if
                 List.exists
                   (function
-                    | _, Some (Fixed _) -> true
+                    | _, Some _ -> true
                     | _ -> false)
                   values
               then
@@ -760,7 +975,7 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
                           Char.chr (Int64.to_int (Int64.logand fill 255L)) )
                       :: !pieces
                 | Ast.Inline_assembly_data_directive { element_width_bytes } ->
-                    process_data directive element_width_bytes
+                    process_data item_index directive element_width_bytes
                 | Ast.Inline_assembly_binfile_directive -> (
                     let spelling =
                       match directive.inline_assembly_directive_arguments with
@@ -807,63 +1022,158 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
               (directive_kind directive.inline_assembly_directive_kind)
               location)
       assembly.assembly_unit_items;
+    resolve_locals ();
     if !mode <> assembly.assembly_unit_final_mode then
       reject ~code:"HCASM0005" root
         "assembly final mode does not match its ordered operations";
-    let relocations = ref [] in
+    let relocations = ref [] and fixups = ref [] in
     let resolve_value = function
       | Fixed value -> value
-      | Deferred expression -> evaluate_required expression
+      | Deferred expression ->
+          charge expression.expression_location
+            (List.length expression.model_tokens);
+          evaluate_required ~allow_imports:true expression
+    in
+    let type_width width =
+      match width with
+      | 1 -> 0
+      | 2 -> 2
+      | 4 -> 4
+      | 8 -> 6
+      | _ -> assert false
+    in
+    let record_field ~item_index ~offset ~width ~relative_base ~location planned
+        (value : resolved_value) =
+      charge location 1;
+      let position = Int64.add position (Int64.of_int offset) in
+      let imported = Option.map (fun cell -> cell.cell_name) value.import in
+      let relocate kind type_id symbol =
+        relocations :=
+          {
+            offset;
+            width;
+            kind;
+            symbol;
+            type_id;
+            position;
+            relative_base;
+            value = value.word;
+            location;
+          }
+          :: !relocations
+      in
+      (match relative_base with
+      | None when value.absolute ->
+          relocate
+            (Printf.sprintf "AAT_ADD_U%d" (width * 8))
+            (type_width width) None
+      | Some _ when value.constant_address ->
+          relocate
+            (Printf.sprintf "AAT_SUB_U%d" (width * 8))
+            (type_width width + 1)
+            None
+      | _ -> ());
+      Option.iter
+        (fun name ->
+          let relative = Option.is_some relative_base in
+          let kind =
+            if relative then Printf.sprintf "IET_REL_I%d" (width * 8)
+            else if width = 8 then "IET_IMM_I64"
+            else Printf.sprintf "IET_IMM_U%d" (width * 8)
+          in
+          relocate kind
+            (type_width width + if relative then 4 else 5)
+            (Some name))
+        imported;
+      match planned with
+      | Some (Deferred expression) ->
+          let cells = expression_cells expression in
+          fixups :=
+            {
+              item_index;
+              offset;
+              position;
+              width;
+              relative_base;
+              value = value.word;
+              symbols = List.map (fun cell -> cell.cell_name) cells;
+              symbol_ids = List.map (fun cell -> cell.cell_id) cells;
+              imported;
+              location = expression.expression_location;
+            }
+            :: !fixups
+      | None | Some (Fixed _) -> ()
     in
     let data_plans = ref [] and instruction_plans = ref [] in
+    let imported_fields = ref [] in
     List.iter
       (function
-        | Data { offset; width; count; value; location = _ } ->
-            let value = resolve_value value in
+        | Data { item_index; offset; width; count; value = planned; location }
+          ->
+            let value = resolve_value planned in
             data_plans := (offset, width, count, value.word) :: !data_plans;
-            if value.absolute then
-              for index = 0 to count - 1 do
-                relocations :=
-                  {
-                    offset = offset + (index * width);
-                    width;
-                    kind = Printf.sprintf "AAT_ADD_U%d" (8 * width);
-                    symbol = None;
-                  }
-                  :: !relocations
-              done
+            for index = 0 to count - 1 do
+              record_field ~item_index
+                ~offset:(offset + (index * width))
+                ~width ~relative_base:None ~location (Some planned) value
+            done
         | Instruction { receipt; values } ->
             let location =
               receipt.operation.inline_assembly_operation_location
             in
             let original = receipt.selection in
-            let operands =
+            let resolved =
               List.map
                 (fun (operand, planned) ->
                   match planned with
-                  | None -> operand
-                  | Some value ->
-                      let value = resolve_value value in
-                      Asm.Operand.resolve_immediate ~value:value.word
-                        ~absolute:value.absolute operand)
+                  | None ->
+                      Option.map
+                        (fun immediate ->
+                          {
+                            word = Option.get immediate.Asm.Operand.value;
+                            absolute = immediate.absolute;
+                            constant_address = false;
+                            import = None;
+                          })
+                        (Asm.Operand.immediate operand)
+                  | Some value -> Some (resolve_value value))
                 values
             in
+            let trailing =
+              if original.form.flags land 0x400 <> 0 then 1 else 0
+            in
+            let relative_end =
+              Int64.add receipt.position
+                (Int64.of_int (receipt.size - trailing))
+            in
+            let displacement, immediate =
+              Asm.Instruction.numeric_fields original
+            in
+            let relative_operand index =
+              List.exists
+                (function
+                  | Some (field : Asm.Instruction.numeric_field) ->
+                      field.relative && field.operand_index = Some index
+                  | None -> false)
+                [ displacement; immediate ]
+            in
+            let supplied =
+              List.mapi
+                (fun index -> function
+                  | None -> None
+                  | Some value ->
+                      let word =
+                        if Option.is_none value.import then value.word
+                        else if relative_operand index then relative_end
+                        else 0L
+                      in
+                      Some (word, value.absolute))
+                resolved
+            in
             let selection =
-              if List.for_all (fun (_, value) -> Option.is_none value) values
-              then original
-              else
-                match
-                  Asm.Instruction.select_form ~mode:original.mode
-                    ~opcode:original.opcode ~operands
-                    ~entry_index:original.form.entry_index
-                with
-                | Error error -> reject ~code:"HCASM0004" location error.message
-                | Ok selection ->
-                    if selection.encoded_bytes <> receipt.size then
-                      reject ~code:"HCASM0004" location
-                        "resolved assembly instruction requires a separate \
-                         layout pass";
-                    selection
+              match Asm.Instruction.resolve_values original supplied with
+              | Error error -> reject ~code:"HCASM0004" location error.message
+              | Ok selection -> selection
             in
             (match Encoder.plan ~position:receipt.position selection with
             | Error error ->
@@ -882,17 +1192,6 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
                 instructions := { receipt with selection } :: !instructions;
                 instruction_plans :=
                   (receipt.offset, plan) :: !instruction_plans);
-            let displacement, immediate =
-              Asm.Instruction.numeric_fields selection
-            in
-            let trailing =
-              if
-                Asm.Opcode.spelling
-                  (Asm.Opcode.resolved_opcode selection.opcode)
-                = "ENTER"
-              then 1
-              else 0
-            in
             let size_field =
               Option.fold ~none:0 ~some:(fun field ->
                   field.Asm.Instruction.bytes)
@@ -906,28 +1205,45 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
               (fun field ->
                 Option.iter
                   (fun (field : Asm.Instruction.numeric_field) ->
-                    let absolute =
-                      Option.bind
-                        (Option.bind field.operand_index (List.nth_opt operands))
-                        Asm.Operand.immediate
-                      |> Option.fold ~none:false ~some:(fun immediate ->
-                          immediate.Asm.Operand.absolute)
-                    in
-                    if (not field.relative) && absolute then
-                      relocations :=
-                        {
-                          offset = !field_offset;
-                          width = field.bytes;
-                          kind = Printf.sprintf "AAT_ADD_U%d" (8 * field.bytes);
-                          symbol = None;
-                        }
-                        :: !relocations;
+                    (match field.operand_index with
+                    | None -> ()
+                    | Some index ->
+                        let value = List.nth resolved index in
+                        Option.iter
+                          (fun value ->
+                            let planned = snd (List.nth values index) in
+                            let operand_location =
+                              (List.nth
+                                 receipt.operation.inline_assembly_operands
+                                 index)
+                                .inline_assembly_operand_location
+                            in
+                            record_field ~item_index:receipt.item_index
+                              ~offset:!field_offset ~width:field.bytes
+                              ~relative_base:
+                                (if field.relative then Some relative_end
+                                 else None)
+                              ~location:operand_location planned value;
+                            if Option.is_some value.import then
+                              imported_fields :=
+                                (!field_offset, field.bytes, value.word)
+                                :: !imported_fields)
+                          value);
                     field_offset := !field_offset + field.bytes)
                   field)
               [ displacement; immediate ]
         | Bytes _ | Fill _ -> ())
       (List.rev !pieces);
+    charge root !offset;
     let bytes = Bytes.create !offset in
+    let store_word bytes offset width word =
+      for byte = 0 to width - 1 do
+        Bytes.set bytes (offset + byte)
+          (Char.chr
+             (Int64.to_int
+                (Int64.logand (Int64.shift_right_logical word (8 * byte)) 255L)))
+      done
+    in
     List.iter
       (function
         | Bytes (offset, source) ->
@@ -954,13 +1270,35 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
         let source = Encoder.emit plan in
         Bytes.blit_string source 0 bytes offset (String.length source))
       !instruction_plans;
+    List.iter
+      (fun (offset, width, value) -> store_word bytes offset width value)
+      !imported_fields;
+    let initial_bytes = Bytes.copy bytes in
+    List.iter
+      (fun (fixup : fixup) ->
+        let value = Option.fold ~none:0L ~some:Int64.neg fixup.relative_base in
+        store_word initial_bytes fixup.offset fixup.width value)
+      !fixups;
+    let external_symbols = symbols in
     let symbols =
-      List.filter_map (fun cell -> cell.definition) (List.rev !cells)
+      List.filter_map
+        (fun cell ->
+          Option.map
+            (fun symbol ->
+              {
+                symbol with
+                definition_item_indices = List.rev cell.definition_indices_rev;
+              })
+            cell.definition)
+        (List.rev !cells)
+      |> List.sort (fun (left : symbol) right ->
+          compare left.item_index right.item_index)
     in
     Ok
       {
         assembly;
         bytes = Bytes.unsafe_to_string bytes;
+        initial_bytes = Bytes.unsafe_to_string initial_bytes;
         position;
         end_position = current ();
         instructions = List.rev !instructions;
@@ -970,6 +1308,8 @@ let encode ?(position = 0L) ?config ?(max_work = 1_000_000)
         imports = List.rev !imports;
         symbols;
         relocations = List.rev !relocations;
+        fixups = List.rev !fixups;
+        external_symbols;
         binary_inputs = List.rev !binary_inputs;
         work = !work;
         input_bytes = !input_bytes;

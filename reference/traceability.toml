@@ -2,6 +2,62 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-ASSEMBLY-LAYOUT-FIXUPS"
+description = "Standalone fixed instruction layout, scoped label resolution and explicit raw-image relocation with original field identities."
+sources = [
+  "Compiler/Asm.HC:203-205 resolved zero displacements",
+  "Compiler/Asm.HC:268-390 AsmStoreNum and original field widths",
+  "Compiler/Asm.HC:544-554,689-701 full unresolved displacement fields",
+  "Compiler/Asm.HC:817,841-852,875-877 retained or uninitialized provisional data value",
+  "Compiler/Asm.HC:1032-1098 label identity, repeated definitions and new export scopes",
+  "Compiler/AsmResolve.HC:1-75 field resolution and local table closure",
+  "Compiler/AsmResolve.HC:90-149,189-217 required symbols and import records",
+  "Compiler/AsmLib.HC:106-125 patch stores and 147-175 source listing",
+  "Compiler/CMain.HC:174-196 modular AAT stores and 251-287 import field stores",
+  "Kernel/KLoad.HC:32-49 field-end relative imports and overwriting stores",
+  "Kernel/KernelA.HH:408-415,1979-1986 IET and AAT numeric identities",
+  "Compiler/Templates.HC:87-94 complete StrLen template",
+  "Kernel/KMathA.HC:370-373 FPATAN retry loop"
+]
+implementation = [
+  "src/asm/operand.ml",
+  "src/asm/instruction.ml",
+  "src/asm/encoder.ml",
+  "src/asm/encoder.mli",
+  "src/asm/relocation.ml",
+  "src/asm/relocation.mli",
+  "src/driver/assembly_directives.ml",
+  "src/driver/assembly_encoding.ml",
+  "src/driver/assembly_encoding.mli",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_assembly_layout.ml",
+  "test/test_assembly_layout_cli.ml",
+  "test/test_assembly_layout_ownership.ml",
+  "test/test_assembly_fixed_fields.ml",
+  "test/test_assembly_relocations.ml",
+  "test/test_assembly_encoding_api.ml",
+  "test/test_assembly_directives.ml",
+  "examples/assembly-layout.asm"
+]
+documentation = ["docs/assembler.md", "docs/assembly-directives.md", "docs/scoping-and-linkage.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 714
+contexts = ["standalone assembly in JIT mode", "standalone assembly in AOT mode"]
+selection = "Closed values are evaluated before reservation. Deferred fields keep the selected instruction form, numeric width and relative base through resolution. Unresolved base displacements retain their full source width even when they resolve to zero. Branches are never relaxed and must fit the selected signed field."
+symbols = "Each binding retains a stable identity and every same-position definition item. A new export closes and replaces the local scope; ordinary definitions and repeats preserve it. An ordinary or supplied external binding repeated with :: retains its original export status. Required missing labels fail at their original use."
+imports = "Each used declared import creates an IET field record. Two imported occurrences in one expression, including the same spelling twice, are rejected. Encode-time external values have immediate-address semantics; explicit IMPORT shadows them. Link import bindings are supplied separately."
+external_syntax = "External values arrive after parsing. A supplied name conflicting with an active opcode, register, size, type, query or DUP role is diagnosed. Unused name collisions and explicit IMPORT symbol uses are accepted."
+linking = "The explicit nonnegative base is added to raw coordinates. AAT add/subtract stores run first modulo their original field width. Import stores then overwrite provisional values and addends; relative imports subtract the loaded field end and undergo checked signed range validation. Duplicate supplied names, unresolved used imports, invalid coordinates and exhausted work return no partial image."
+reports = "The encoding keeps initial_bytes as a normalized pre-fixup image with zero absolute or negated relative-base placeholders, final unrelocated bytes, fixup fields, symbol identities, repeated definitions, source locations and relocation numeric types. Map and LIST/NOLIST inspection reports use final raw coordinates and unrelocated bytes. Linked reports use holyc-linked-assembly-v1 with loaded coordinates and bytes and the original encoding nested under image."
+cli = "--base selects linking; repeatable --symbol NAME=ADDRESS supplies values to encoding and linking and defaults the base to zero when used alone. --map and --listing retain raw coordinates. Used imports require successful explicit linkage before raw --output is written. --directive-work-limit applies independently to encoding and linking; each phase receives the full allowance."
+diagnostics = ["HCASM0001 checked instruction field", "HCASM0002 output bound", "HCASM0003 raw coordinate", "HCASM0004 expression, required symbol or definition", "HCASM0005 source ownership", "HCASM0007 layout work", "HCASM0009 link input, import, coordinate, relative range or work"]
+verification = "Literal Compiler and Kernel fragments, forward and backward ordinary/local branches, full deferred displacements in USE16/32/64, zero displacements, exact short/near signed boundaries, same-address repeated and external definitions, new-export scope closure, alignment, final maps/listings, source and macro provenance, exact work limits, import identities and overwrite semantics, field-end relative import bases, modular AAT stores, immutable reusable images and linked JSON are covered by public API tests."
+verification_boundary = "Expected final bytes derive from pinned source, not a TempleOS runtime capture. initial_bytes uses deterministic normalized placeholders instead of the retained or uninitialized local data value in PrsAsmDefine; it is not a byte-perfect TempleOS runtime listing or capture. Checked field narrowing and signed coordinate limits are hosted output policy. Original terminal listing columns and delayed line flushing are not reproduced. Standalone layout does not connect function semantic labels to final function addresses, serialize TempleOS BIN files or execute source assembly."
+remaining = ["function-assembly semantic integration (#174)", "live compiler expressions and source assembly loading/execution (#715)", "TempleOS BIN serialization (#717)", "disassembly (#716)", "intact DolDoc oracle evidence (#375)"]
+
+[[feature]]
 id = "HC-ASSEMBLY-DIRECTIVE-EMISSION"
 description = "Standalone TempleOS instruction and directive emission with ordered metadata, closed scalar expressions and explicitly rooted binary input."
 sources = [
@@ -76,8 +132,8 @@ positions = "The raw coordinate is the starting position plus emitted bytes. ORG
 symbols = "Same-unit data labels may resolve forward, repeated definitions must keep the same position, and a newly defined exported label starts a local @@ scope. Uppercase IMPORT publishes HTT_EXPORT_SYS_SYM with HTF_UNRESOLVED and HTF_IMPORT, which remains visible under the Lex.HC mask that excludes HTT_IMPORT_SYS_SYM. The hosted parser preserves this distinction through its assembly-import identity and retains duplicate declarations in source order. Reading an imported value requires linkage."
 import_spelling = "Imported keyword and query spellings retain the selected export identity through operand classification and expression parsing; reading their values requires linkage."
 import_lifetime = "Function assembly blocks, direct instruction runs and top-level JIT blocks remove their newly published imports on every exit, including parser recovery, while retaining older bindings and the lookup identities of tokens already read. This follows CmpJoin child hash-table lifetime and the direct-run current-token boundary. Top-level AOT blocks keep imports in the enclosing context. The hosted import scope does not implement the full child compiler execution path."
-instruction_expressions = "Closed values are evaluated at the current raw position before form selection and byte reservation. Deferred forward values must fit the reserved source form without changing its size. Instruction reports retain the actual encoded selection separately from the original parsed operation."
-relocations = "Current-position and absolute-label occurrence parity records AAT_ADD_U8, AAT_ADD_U16, AAT_ADD_U32 or AAT_ADD_U64 fields. Output bytes retain their raw values; origin and load-base relocation application remain separate."
+instruction_expressions = "Closed values are evaluated at the current raw position before form selection and byte reservation. HC-ASSEMBLY-LAYOUT-FIXUPS resolves deferred fields while retaining the selected source form and its original full displacement width. Instruction reports retain the actual encoded selection separately from the original parsed operation."
+relocations = "Current-position and absolute-label occurrence parity records AAT_ADD_U8, AAT_ADD_U16, AAT_ADD_U32 or AAT_ADD_U64 fields. Output bytes retain their raw values; HC-ASSEMBLY-LAYOUT-FIXUPS applies their explicit load-base relocation to a fresh image. ORG remains metadata."
 binary_input = "BINFILE resolves only through an explicit Include_resolver configuration, applies the original default extension and alternate .Z spelling, and reads bounded regular files. CT_NONE, CT_7_BIT and CT_8_BIT archives use the original 17-byte header. The compressed types retain variable code widths and 12-bit leaf replacement. Malformed compression never falls back to raw input."
 binary_provenance = ["source spelling", "resolved path", "display path", "raw size", "decoded size", "raw SHA-256", "decoded SHA-256", "raw or CT_NONE/CT_7_BIT/CT_8_BIT compression"]
 preflight = "Checks item and expression-token work, multiplication, output size, signed coordinates, cumulative raw binary bytes, archive headers and dictionary traversal before allocating the final output string. Decoded binary output must fit the remaining output and work allowance. Errors return no partial encoding; CLI output paths are changed only after successful preflight."
@@ -88,7 +144,7 @@ standalone_schema = "holyc-assembly-encoding-v1"
 output_metadata = ["ordered item entries and source locations", "actual encoded instruction forms", "listing state", "origin", "maximum alignment exponent", "imports", "label positions and scopes", "relocation records", "binary provenance", "work", "raw input bytes", "original parsed assembly"]
 verification = "Source-derived cases cover both compilation modes, low-byte stores, exact strings, typed expressions, primitive spelling shadowing, instruction value timing, repetition, origin and alignment, labels, imports, listing, relocation parity and provenance. Independent archive packets cover all supported types, width growth, dictionary replacement, malformed headers, truncated streams, invalid or cyclic codes, exact limits and hashes. File cases cover explicit roots, mapping, escapes and regular-file requirements; Unix symlink and FIFO cases are conditional. Public CLI and API checks cover ordered metadata, binary accounting, diagnostics and preservation of existing output after failure."
 verification_boundary = "This feature contains no TempleOS runtime capture, source assembly loading or execution, or intact DolDoc oracle evidence. General x87 precision and rounding equivalence remains outside these source-derived expectations. Saved $IS tokens supply their size and retain record metadata; $IB pointers require compiler-owned storage. Original terminal listing columns and delayed line flushing are not reproduced."
-remaining = ["general label/import linkage fixups and branch layout (#714)", "live compiler expressions, compiler-owned $IB pointers and source assembly loading/execution (#715)", "disassembly (#716)", "intact DolDoc oracle evidence (#375)"]
+remaining = ["live compiler expressions, compiler-owned $IB pointers and source assembly loading/execution (#715)", "TempleOS BIN serialization (#717)", "disassembly (#716)", "intact DolDoc oracle evidence (#375)"]
 
 [[feature]]
 id = "HC-BUILTIN-UNION-SIZEOF"
@@ -14314,10 +14370,10 @@ selection = "shortest original comparison count; first source form wins ties"
 unspecified_size = "original warning, retained with deterministic selected form"
 source_locations = "item and operand spans, include sources and definition/expansion provenance"
 label_collection = "ordered items, independent of physical lines"
-symbolic_values = "retained explicitly unresolved in the parsed operation; HC-ASSEMBLY-DIRECTIVE-EMISSION evaluates closed values before byte reservation and permits deferred same-unit values that preserve the reserved form and size"
+symbolic_values = "retained explicitly unresolved in the parsed operation; HC-ASSEMBLY-DIRECTIVE-EMISSION evaluates closed values before byte reservation and HC-ASSEMBLY-LAYOUT-FIXUPS resolves same-unit numeric fields without changing their original reserved width"
 expression_grammar = "source modifier states, known function call shapes, typed indexing, named postfix declarators and inline aggregate definitions"
 standalone_schema = "holyc-assembly-v1"
-remaining = ["general label/import fixups and branch layout (#714)", "live compiler expressions and source assembly loading/execution (#715)", "disassembly (#716)"]
+remaining = ["function-assembly semantic integration (#174)", "live compiler expressions and source assembly loading/execution (#715)", "TempleOS BIN serialization (#717)", "disassembly (#716)"]
 
 [[feature]]
 id = "HC-SHARED-INSTRUCTION-ENCODING"
@@ -14364,4 +14420,4 @@ hosted_checks = ["unresolved values", "nonrepresentable narrowing", "invalid sca
 public_ownership = "retained selection, operands, operation modes, USE metadata and original assembly unit are checked before emission and reporting"
 native_consumers = "existing checked backend selection and execution consumers use the shared writer; source byte output remains data"
 directive_emission = "HC-ASSEMBLY-DIRECTIVE-EMISSION extends the standalone byte stream with ordered data and binary input while preserving checked instruction fields"
-remaining = ["general label/import fixups and branch layout (#714)", "live compiler expressions and source assembly loading/execution (#715)", "disassembly (#716)"]
+remaining = ["live compiler expressions and source assembly loading/execution (#715)", "TempleOS BIN serialization (#717)", "disassembly (#716)"]

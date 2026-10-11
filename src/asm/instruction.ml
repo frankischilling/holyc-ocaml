@@ -25,6 +25,8 @@ type selection = {
   sib : int option;
   immediate_bytes : int;
   displacement_bytes : int;
+  displacement_field : numeric_field option;
+  immediate_field : numeric_field option;
   unresolved : bool;
 }
 
@@ -54,6 +56,9 @@ let in_range lower upper value = lower <= value && value <= upper
 let rm argument = in_range 16 23 argument
 let qword argument = argument = 15 || argument = 19 || argument = 23
 let immediate_kind argument = in_range 4 11 argument
+
+let numeric_field bytes operand_index relative address =
+  if bytes = 0 then None else Some { bytes; operand_index; relative; address }
 
 type plan = {
   form_ : Generated.Opcode_keywords.instruction;
@@ -415,6 +420,13 @@ let select_from ~mode ~opcode ~operands forms =
                 sib = (if plan.has_sib then Some plan.sib_ else None);
                 immediate_bytes = plan.immediate_bytes_;
                 displacement_bytes = plan.displacement_bytes_;
+                displacement_field =
+                  numeric_field plan.displacement_bytes_
+                    plan.displacement_operand_ plan.displacement_relative_
+                    plan.displacement_address_;
+                immediate_field =
+                  numeric_field plan.immediate_bytes_ plan.immediate_operand_
+                    plan.immediate_relative_ false;
                 unresolved = List.exists Operand.unresolved operands;
               })
 
@@ -440,12 +452,63 @@ let select_form ~mode ~opcode ~operands ~entry_index =
         }
   | Some form -> select_from ~mode ~opcode ~operands [ form ]
 
+(* PrsAsmInst reserves unknown displacements at their full width. AsmResolve
+   patches those fields without revisiting the instruction selection. *)
 let numeric_fields selection =
-  let plan = build_plan selection.mode selection.form selection.operands in
-  let field bytes operand_index relative address =
-    if bytes = 0 then None else Some { bytes; operand_index; relative; address }
-  in
-  ( field plan.displacement_bytes_ plan.displacement_operand_
-      plan.displacement_relative_ plan.displacement_address_,
-    field plan.immediate_bytes_ plan.immediate_operand_ plan.immediate_relative_
-      false )
+  (selection.displacement_field, selection.immediate_field)
+
+let resolve_values selection values =
+  let reject ?operand_index message = Error { operand_index; message } in
+  let expected = List.length selection.operands in
+  if List.length values <> expected then
+    reject
+      (Printf.sprintf "selected instruction requires %d operand value slots"
+         expected)
+  else
+    let owns_field operand_index =
+      let owns = function
+        | Some field -> field.operand_index = Some operand_index
+        | None -> false
+      in
+      owns selection.displacement_field || owns selection.immediate_field
+    in
+    let rec resolve operand_index operands values =
+      match (operands, values) with
+      | [], [] -> Ok []
+      | operand :: operands, supplied :: values -> (
+          let resolved =
+            match supplied with
+            | None -> Ok operand
+            | Some (value, absolute) -> (
+                match Operand.immediate operand with
+                | None ->
+                    reject ~operand_index
+                      "selected operand has no immediate expression to resolve"
+                | Some immediate
+                  when (not (owns_field operand_index))
+                       && (immediate.value <> Some value
+                          || (not immediate.absolute_known)
+                          || immediate.absolute <> absolute) ->
+                    reject ~operand_index
+                      "selected operand has no numeric field for a changed \
+                       value"
+                | Some _ ->
+                    Ok (Operand.resolve_immediate ~value ~absolute operand))
+          in
+          match resolved with
+          | Error _ as error -> error
+          | Ok operand -> (
+              match resolve (operand_index + 1) operands values with
+              | Error _ as error -> error
+              | Ok operands -> Ok (operand :: operands)))
+      | _ -> assert false
+    in
+    match resolve 0 selection.operands values with
+    | Error _ as error -> error
+    | Ok operands ->
+        Ok
+          {
+            selection with
+            operands;
+            unresolved = List.exists Operand.unresolved operands;
+          }
