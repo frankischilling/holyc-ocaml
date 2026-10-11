@@ -289,3 +289,4 @@ val extent_bytes : slot -> int
 val data_offset : slot -> int
 val flag_offset : slot -> int
 val initially_initialized : slot -> bool
+val section_symbols : t -> (Sema.Symbol.t * int * int) list

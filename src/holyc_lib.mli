@@ -178,6 +178,7 @@ module Asm_register = Asm.Register
 module Asm_operand = Asm.Operand
 module Asm_instruction = Asm.Instruction
 module Asm_encoding = Asm.Encoding
+module Native_sections = Asm.Native_sections
 module Asm_relocation = Asm.Relocation
 module Asm_encoder = Asm.Encoder
 module Asm_disassembler = Asm.Disassembler

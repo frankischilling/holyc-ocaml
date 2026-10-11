@@ -66,3 +66,19 @@ val records_of_yojson :
 (** Read the explicit record-array input used by the public BIN command. Each
     object uses the original IET type name, with its category-specific fields.
     Unknown keys and types fail. Body bounds are checked by [create]. *)
+
+val of_sections :
+  ?max_bytes:int ->
+  ?max_work:int ->
+  ?origin:int64 option ->
+  ?main:int list ->
+  ?records:record list ->
+  Native_sections.t ->
+  (t, error) result
+(** Serialize a checked AOT object. Symbol IDs select MAIN entries. Exports
+    follow symbol order and import groups follow first use. Compiler AAT add
+    records become the original ABS_ADDR U32 table in reverse order regardless
+    of the original compiler field width; subtract records are compiler-only and
+    do not become loader records. BIN body bounds are checked at that U32 width.
+    Relative imports must use field-end anchors and have zero addends.
+    Hosted/JIT objects and private runtime data are rejected before output. *)

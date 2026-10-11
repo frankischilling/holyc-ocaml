@@ -67,6 +67,7 @@ type binary_input = {
 
 type t = {
   assembly : Ast.assembly_unit;
+  compilation_mode : Frontend.Preprocessor.compilation_mode;
   bytes : string;
   initial_bytes : string;
   position : int64;
@@ -99,6 +100,173 @@ exception Rejected of Common.Diagnostic.t
 
 let reject ?(code = "HCASM0001") location message =
   raise (Rejected (diagnostic ~code location message))
+
+let native_sections ?mode (image : t) =
+  let mode =
+    Option.value mode
+      ~default:
+        (match image.compilation_mode with
+        | Frontend.Preprocessor.Jit -> Asm.Native_sections.Jit
+        | Frontend.Preprocessor.Aot -> Asm.Native_sections.Aot)
+  in
+  let module Sections = Asm.Native_sections in
+  let address coordinate =
+    Sections.
+      {
+        section = 0;
+        offset = Int64.to_int (Int64.sub coordinate image.position);
+      }
+  in
+  let definitions =
+    List.map
+      (fun (s : symbol) ->
+        Sections.
+          {
+            id = s.id;
+            name = s.name;
+            scope =
+              (if
+                 (not s.exported) && s.scope = None
+                 && String.starts_with ~prefix:"@@" s.name
+               then Some "<assembler-local-root>"
+               else s.scope);
+            source_identity = Some s.id;
+            binding = (if s.exported then Export else Local);
+            definition = Defined (address s.position);
+            source = { item = Some s.item_index; span = None };
+          })
+      image.symbols
+  in
+  let ids = Hashtbl.create 16 in
+  let next =
+    ref
+      (List.fold_left (fun n (s : symbol) -> max n s.id) (-1) image.symbols + 1)
+  in
+  let import_names =
+    image.imports
+    @ List.filter_map (fun (r : relocation) -> r.symbol) image.relocations
+  in
+  let imported =
+    List.filter_map
+      (fun name ->
+        if Hashtbl.mem ids name then None
+        else
+          let id = !next in
+          incr next;
+          Hashtbl.add ids name id;
+          Some
+            Sections.
+              {
+                id;
+                name;
+                scope = None;
+                source_identity = None;
+                binding = Import;
+                definition = Undefined;
+                source = no_source;
+              })
+      import_names
+  in
+  let records =
+    List.map
+      (fun (r : relocation) ->
+        let intent =
+          match r.symbol with
+          | None ->
+              if r.type_id land 1 = 0 then Sections.Add_bias
+              else Sections.Subtract_bias
+          | Some name ->
+              Sections.Set
+                {
+                  target = Symbol (Hashtbl.find ids name);
+                  addend = 0L;
+                  relative_to =
+                    (if r.relative_base = None then None
+                     else Some { section = 0; offset = r.offset + r.width });
+                  range = (if r.relative_base = None then Modulo else Signed);
+                }
+        in
+        Sections.
+          {
+            field = { section = 0; offset = r.offset };
+            width = r.width;
+            intent;
+            phase = Load;
+            source = { item = None; span = Some r.location.span };
+          })
+      image.relocations
+  in
+  let fixed =
+    List.filter_map
+      (fun (f : fixup) ->
+        if f.imported <> None then None
+        else
+          let target, addend =
+            match f.symbol_ids with
+            | [ id ] -> (
+                match
+                  List.find_opt (fun (s : symbol) -> s.id = id) image.symbols
+                with
+                | Some s -> (Sections.Symbol id, Int64.sub f.value s.position)
+                | None -> (Sections.Value f.value, 0L))
+            | _ -> (Sections.Value f.value, 0L)
+          in
+          Some
+            Sections.
+              {
+                field = { section = 0; offset = f.offset };
+                width = f.width;
+                intent =
+                  Set
+                    {
+                      target;
+                      addend;
+                      relative_to = Option.map address f.relative_base;
+                      range =
+                        (if f.relative_base = None then Modulo else Signed);
+                    };
+                phase = Compile;
+                source =
+                  { item = Some f.item_index; span = Some f.location.span };
+              })
+      image.fixups
+  in
+  let mappings =
+    List.map
+      (fun (e : entry) ->
+        Sections.
+          {
+            address = { section = 0; offset = e.offset };
+            size = e.size;
+            source = { item = Some e.item_index; span = Some e.location.span };
+          })
+      image.entries
+  in
+  match
+    Sections.create ~position:image.position
+      ~image_alignment_bits:image.max_align_bits ~mode
+      ~sections:
+        [
+          {
+            id = 0;
+            name = ".assembly";
+            kind = Code;
+            alignment_bits = 0;
+            bytes = image.bytes;
+          };
+        ]
+      ~symbols:(definitions @ imported) ~relocations:(fixed @ records) ~mappings
+      ()
+  with
+  | Ok object_ -> Ok object_
+  | Error e ->
+      let primary =
+        Option.bind e.source (fun source -> source.span)
+        |> Option.value ~default:image.assembly.assembly_unit_location.span
+      in
+      Error
+        (Common.Diagnostic.make ~code:"HCASM0009"
+           ~severity:Common.Diagnostic.Error ~message:e.message ~primary ())
 
 let operation_matches_selection (operation : Ast.inline_assembly_operation) =
   let selection = operation.inline_assembly_selection in
@@ -1294,9 +1462,12 @@ let encode ?(position = 0L) ?config ?(symbols = []) ?(max_work = 1_000_000)
       |> List.sort (fun (left : symbol) right ->
           compare left.item_index right.item_index)
     in
-    Ok
+    let image =
       {
         assembly;
+        compilation_mode =
+          Option.fold ~none:Frontend.Preprocessor.Jit
+            ~some:Config.compilation_mode config;
         bytes = Bytes.unsafe_to_string bytes;
         initial_bytes = Bytes.unsafe_to_string initial_bytes;
         position;
@@ -1314,4 +1485,12 @@ let encode ?(position = 0L) ?config ?(symbols = []) ?(max_work = 1_000_000)
         work = !work;
         input_bytes = !input_bytes;
       }
+    in
+    match native_sections image with
+    | Error diagnostic -> Error diagnostic
+    | Ok object_ -> (
+        match Asm.Native_sections.link ~compile_only:true ~base:0L object_ with
+        | Ok linked ->
+            Ok { image with bytes = Asm.Native_sections.bytes linked }
+        | Error e -> Error (diagnostic ~code:"HCASM0009" root e.message))
   with Rejected diagnostic -> Error diagnostic

@@ -351,3 +351,8 @@ val switch_case : t -> Ir.Switch_case_fragment_program.t option
 val offset : t -> Ir.Offset_fragment_program.t option
 val generation : t -> Ir.Integer_interpreter.native_generation option
 val source_callback : t -> Driver.Integer_task.native_source_callback option
+
+val native_sections : t -> Asm.Native_sections.t
+(** The address-independent hosted object used for native label resolution.
+    Inspecting or linking this object conveys no executable or storage
+    authority. *)

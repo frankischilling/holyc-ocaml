@@ -1,6 +1,7 @@
 let () =
   Alcotest.run "holyc"
     [
+      ("shared native sections", Test_native_sections.tests);
       ("assembler instruction forms", Test_asm_instruction_forms.tests);
       ("assembly operations", Test_assembly_operations.tests);
       ("source disassembly", Test_disassembler.tests);

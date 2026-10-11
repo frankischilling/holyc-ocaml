@@ -217,6 +217,10 @@ let to_yojson sources (encoded : t) =
   `Assoc
     [
       ("schema", `String schema);
+      ( "native_sections",
+        match native_sections encoded with
+        | Ok object_ -> Asm.Native_sections.to_yojson object_
+        | Error _ -> `Null );
       ("reference_commit", `String Generated.Opcode_keywords.reference_commit);
       ("opcode_source_sha256", `String Generated.Opcode_keywords.source_sha256);
       ("position", `String (address encoded.position));

@@ -96,3 +96,5 @@ let decode_runtime_status (compiled : t) ~kind ~site =
                        position = candidate.position;
                        span = candidate.span;
                      }))
+
+let native_sections = Codegen.expression_sections

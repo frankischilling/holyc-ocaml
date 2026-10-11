@@ -59,6 +59,7 @@ type binary_input = private {
 
 type t = private {
   assembly : Frontend.Ast.assembly_unit;
+  compilation_mode : Frontend.Preprocessor.compilation_mode;
   bytes : string;
   initial_bytes : string;
   position : int64;
@@ -130,3 +131,11 @@ val linked_to_yojson : Common.Source_manager.t -> linked -> Yojson.Safe.t
 val linked_human : linked -> string
 val map : t -> string
 val listing : Common.Source_manager.t -> t -> string
+
+val native_sections :
+  ?mode:Asm.Native_sections.mode ->
+  t ->
+  (Asm.Native_sections.t, Common.Diagnostic.t) result
+(** Project the checked assembly into ordered symbols, fields and source maps.
+    Loader relative imports use field ends; compiler fixups retain their own
+    resolved source values. *)

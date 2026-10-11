@@ -1895,3 +1895,9 @@ let owns_address ?source_globals slot runtime_owner =
   | Some expected, _, Ir.Runtime_call_context.Function actual ->
       expected == actual
   | Some _, _, _ -> false
+
+let section_symbols layout =
+  Symbol_map.bindings layout.slots
+  |> List.map (fun (_, slot) ->
+      (slot.symbol, slot.data_offset, slot.extent_bytes))
+  |> List.sort (fun (_, left, _) (_, right, _) -> Int.compare left right)

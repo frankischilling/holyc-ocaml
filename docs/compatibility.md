@@ -1,5 +1,7 @@
 # holyc-ocaml compatibility status
 
+[Native sections](native-sections.md) now provide the common checked layout and patch model for own-encoder native objects, assembly linking and AOT BIN serialization. Native source compilation retains semantic function/global identities and resolves forward machine references through that model. Signed field overflow fails before output; explicit modulo fields retain their source behavior. Hosted objects retain their runtime ownership boundary.
+
 [Assembler operands](assembler.md) now use one ordered parser for HolyC blocks,
 direct function instructions and standalone `holyc asm` input. USE16/32/64,
 register families, address slots, size prefixes and immediate masks feed the

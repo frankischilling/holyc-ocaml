@@ -1,5 +1,13 @@
 (rule
  (alias native-tests)
+ (action
+  (run
+   %{exe:../test_native_sections_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   --native)))
+
+(rule
+ (alias native-tests)
  (deps ../../examples/compiler-unused-extern.hc)
  (action
   (run

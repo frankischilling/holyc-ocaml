@@ -51,6 +51,7 @@ type program_owner =
 
 type expression_image = {
   encoded : bytes;
+  sections : Asm.Native_sections.t;
   word_type : word_type;
   ir_count : int;
   machine_count : int;
@@ -861,6 +862,7 @@ let preflight ~count instructions =
 
 type allocation = {
   instructions : Encoder.instruction list;
+  sections : Asm.Native_sections.t;
   code_size : int;
   machine_count : int;
   peak : int;
@@ -911,100 +913,193 @@ let planned_size = function
       Encoder.size (Encoder.Mov_imm64 (register, 0L))
   | Planned_label _ -> 0
 
-let resolve_plan ?(callee_labels = [||]) ?(callee_stack_bytes = [||]) plan =
-  let labels = Hashtbl.create (List.length plan) in
+let resolve_plan ~max_code_bytes ?(callee_labels = [||])
+    ?(callee_stack_bytes = [||]) plan =
+  let module Sections = Asm.Native_sections in
+  let labels = Hashtbl.create 16 in
   let offset = ref 0 in
-  List.iter
-    (function
+  let definitions = ref [] and mappings = ref [] in
+  List.iteri
+    (fun item planned ->
+      let source = Sections.{ item = Some item; span = None } in
+      match planned with
       | Planned_label label ->
           if Hashtbl.mem labels label then
             reject "HCBACK0003" "native expression plan defines a label twice";
-          Hashtbl.add labels label !offset
-      | item -> offset := !offset + planned_size item)
+          Hashtbl.add labels label !offset;
+          definitions :=
+            Sections.
+              {
+                id = label;
+                name = Printf.sprintf "label:%d" label;
+                scope = None;
+                source_identity = None;
+                binding = Local;
+                definition = Defined { section = 0; offset = !offset };
+                source;
+              }
+            :: !definitions
+      | planned ->
+          let instruction_size = planned_size planned in
+          if instruction_size > max_code_bytes - !offset then
+            reject "HCBACK0005" "native plan exceeds max_code_bytes";
+          mappings :=
+            Sections.
+              {
+                address = { section = 0; offset = !offset };
+                size = instruction_size;
+                source;
+              }
+            :: !mappings;
+          offset := !offset + instruction_size)
     plan;
   let code_size = !offset in
-  let offset = ref 0 in
-  let machine_count = ref 0 in
-  let reversed = ref [] in
-  List.iter
-    (function
-      | Planned_label _ -> ()
-      | Planned_instruction instruction ->
-          reversed := instruction :: !reversed;
-          incr machine_count;
-          offset := !offset + Encoder.size instruction
-      | Planned_branch (kind, label) ->
-          let size = Encoder.size (branch_instruction kind 0L) in
-          let target =
-            match Hashtbl.find_opt labels label with
-            | Some target -> target
-            | None ->
+  offset := 0;
+  let records = ref [] and provisional = ref [] in
+  let label callee_index =
+    if callee_index < 0 || callee_index >= Array.length callee_labels then
+      reject "HCBACK0003" "native call targets an unknown function";
+    callee_labels.(callee_index)
+  in
+  List.iteri
+    (fun item planned ->
+      let target, instruction =
+        match planned with
+        | Planned_label _ -> (None, None)
+        | Planned_instruction instruction -> (None, Some instruction)
+        | Planned_branch (kind, target) ->
+            (Some target, Some (branch_instruction kind 0L))
+        | Planned_call index -> (Some (label index), Some (Encoder.Call 0L))
+        | Planned_function_address (register, index) ->
+            ( Some (label index),
+              Some (Encoder.Address_code_relative (register, 0L)) )
+        | Planned_callee_stack (register, index) ->
+            if index < 0 || index >= Array.length callee_stack_bytes then
+              reject "HCBACK0003"
+                "native call stack accounting names an unknown function";
+            ( None,
+              Some
+                (Encoder.Mov_imm64
+                   (register, Int64.of_int callee_stack_bytes.(index))) )
+      in
+      Option.iter
+        (fun instruction ->
+          let instruction_size = Encoder.size instruction in
+          Option.iter
+            (fun target ->
+              if not (Hashtbl.mem labels target) then
                 reject "HCBACK0003"
-                  "native expression branch targets an undefined label"
-          in
-          let displacement = Int64.of_int (target - (!offset + size)) in
-          if
-            Int64.compare displacement (-0x80000000L) < 0
-            || Int64.compare displacement 0x7fffffffL > 0
-          then
-            reject "HCBACK0005" "native expression branch exceeds rel32 range";
-          reversed := branch_instruction kind displacement :: !reversed;
-          incr machine_count;
-          offset := !offset + size
-      | Planned_call callee_index ->
-          if callee_index < 0 || callee_index >= Array.length callee_labels then
-            reject "HCBACK0003" "native call targets an unknown function";
-          let size = Encoder.size (Encoder.Call 0L) in
-          let target_label = callee_labels.(callee_index) in
-          let target =
-            match Hashtbl.find_opt labels target_label with
-            | Some target -> target
-            | None ->
-                reject "HCBACK0003"
-                  "native call targets a function with no machine label"
-          in
-          let displacement = Int64.of_int (target - (!offset + size)) in
-          if
-            Int64.compare displacement (-0x80000000L) < 0
-            || Int64.compare displacement 0x7fffffffL > 0
-          then reject "HCBACK0005" "native call exceeds rel32 range";
-          reversed := Encoder.Call displacement :: !reversed;
-          incr machine_count;
-          offset := !offset + size
-      | Planned_callee_stack (register, callee_index) ->
-          if callee_index < 0 || callee_index >= Array.length callee_stack_bytes
-          then
-            reject "HCBACK0003"
-              "native call stack accounting names an unknown function";
-          let instruction =
-            Encoder.Mov_imm64
-              (register, Int64.of_int callee_stack_bytes.(callee_index))
-          in
-          reversed := instruction :: !reversed;
-          incr machine_count;
-          offset := !offset + Encoder.size instruction
-      | Planned_function_address (register, callee_index) ->
-          if callee_index < 0 || callee_index >= Array.length callee_labels then
-            reject "HCBACK0003" "native code address names an unknown function";
-          let target =
-            match Hashtbl.find_opt labels callee_labels.(callee_index) with
-            | Some offset -> offset
-            | None ->
-                reject "HCBACK0003"
-                  "native code address has no owned function label"
-          in
-          let size =
-            Encoder.size (Encoder.Address_code_relative (register, 0L))
-          in
-          let displacement = Int64.of_int (target - (!offset + size)) in
-          if displacement < -0x80000000L || displacement > 0x7fffffffL then
-            reject "HCBACK0005" "native code address exceeds RIP disp32 range";
-          reversed :=
-            Encoder.Address_code_relative (register, displacement) :: !reversed;
-          incr machine_count;
-          offset := !offset + size)
+                  "native branch or call targets an undefined label";
+              records :=
+                Sections.
+                  {
+                    field =
+                      { section = 0; offset = !offset + instruction_size - 4 };
+                    width = 4;
+                    intent =
+                      Set
+                        {
+                          target = Symbol target;
+                          addend = 0L;
+                          relative_to =
+                            Some
+                              {
+                                section = 0;
+                                offset = !offset + instruction_size;
+                              };
+                          range = Signed;
+                        };
+                    phase = Compile;
+                    source = { item = Some item; span = None };
+                  }
+                :: !records)
+            target;
+          provisional := (planned, !offset, instruction) :: !provisional;
+          offset := !offset + instruction_size)
+        instruction)
     plan;
-  (List.rev !reversed, code_size, !machine_count)
+  let provisional = List.rev !provisional in
+  let skeleton =
+    match
+      Encoder.encode_all ~max_code_bytes:(max 1 code_size)
+        (List.map (fun (_, _, instruction) -> instruction) provisional)
+    with
+    | Ok bytes -> bytes
+    | Error message -> reject "HCBACK0005" message
+  in
+  let object_ =
+    match
+      Sections.create ~mode:Sections.Hosted
+        ~sections:
+          [
+            {
+              id = 0;
+              name = ".text";
+              kind = Code;
+              alignment_bits = 0;
+              bytes = skeleton;
+            };
+          ]
+        ~symbols:(List.rev !definitions) ~relocations:(List.rev !records)
+        ~mappings:(List.rev !mappings) ()
+    with
+    | Ok object_ -> object_
+    | Error e -> reject "HCBACK0005" e.message
+  in
+  let linked =
+    match Sections.link ~base:0L object_ with
+    | Ok linked -> linked
+    | Error e -> reject "HCBACK0005" e.message
+  in
+  let bytes = Bytes.of_string (Sections.bytes linked) in
+  let instructions =
+    List.map
+      (fun (planned, offset, instruction) ->
+        let displacement () =
+          Int64.of_int32
+            (Bytes.get_int32_le bytes (offset + Encoder.size instruction - 4))
+        in
+        match planned with
+        | Planned_branch (kind, _) -> branch_instruction kind (displacement ())
+        | Planned_call _ -> Encoder.Call (displacement ())
+        | Planned_function_address (register, _) ->
+            Encoder.Address_code_relative (register, displacement ())
+        | _ -> instruction)
+      provisional
+  in
+  (instructions, code_size, List.length instructions, object_)
+
+let extend_sections ?(symbols = []) ?(mappings = []) ~code_suffix ~data object_
+    =
+  let module Sections = Asm.Native_sections in
+  let sections =
+    List.map
+      (fun (s : Sections.section) ->
+        if s.id = 0 then { s with bytes = s.bytes ^ code_suffix } else s)
+      (Sections.sections object_)
+    @
+    if data = "" then []
+    else
+      [
+        Sections.
+          {
+            id = 1;
+            name = ".private_arena";
+            kind = Private_data;
+            alignment_bits = 3;
+            bytes = data;
+          };
+      ]
+  in
+  match
+    Sections.create ~max_bytes:100_000_000 ~mode:Sections.Hosted ~sections
+      ~symbols:(Sections.symbols object_ @ symbols)
+      ~relocations:(Sections.relocations object_)
+      ~mappings:(Sections.mappings object_ @ mappings)
+      ()
+  with
+  | Ok object_ -> object_
+  | Error e -> reject "HCBACK0005" e.message
 
 let align_up value alignment = (value + alignment - 1) / alignment * alignment
 
@@ -4168,7 +4263,7 @@ let allocate_body ?callable_frame ?(shared_values = [])
     fault_blocks = List.rev !fault_blocks;
   }
 
-let allocate ~max_stack_bytes ~status_abi prepared =
+let allocate ~max_code_bytes ~max_stack_bytes ~status_abi prepared =
   let supply = make_label_supply () in
   let epilogue_label = Option.map (fun _ -> fresh_label supply) status_abi in
   let reserved_registers =
@@ -4238,9 +4333,12 @@ let allocate ~max_stack_bytes ~status_abi prepared =
         reject "HCBACK0003"
           "native expression fault epilogue state is inconsistent"
   in
-  let instructions, code_size, machine_count = resolve_plan plan in
+  let instructions, code_size, machine_count, sections =
+    resolve_plan ~max_code_bytes plan
+  in
   {
     instructions;
+    sections;
     code_size;
     machine_count;
     peak = body.peak;
@@ -4286,6 +4384,7 @@ type program_site = {
 
 type program_image = {
   encoded : bytes;
+  sections : Asm.Native_sections.t;
   ir_count : int;
   machine_count : int;
   peak : int;
@@ -10631,7 +10730,8 @@ let compile_expression ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
             in
             (* Allocation runs only after the entire IR has passed preflight. *)
             let allocation =
-              allocate ~max_stack_bytes ~status_abi:image_status_abi prepared
+              allocate ~max_code_bytes ~max_stack_bytes
+                ~status_abi:image_status_abi prepared
             in
             if allocation.code_size > max_code_bytes then
               reject "HCBACK0005" "native expression exceeds max_code_bytes";
@@ -10646,6 +10746,7 @@ let compile_expression ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                 Ok
                   {
                     encoded = Bytes.of_string encoded;
+                    sections = allocation.sections;
                     word_type;
                     ir_count;
                     machine_count = allocation.machine_count;
@@ -10813,8 +10914,8 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                       ]
                 in
                 let plan = prefix @ body_plan @ fault_plan @ suffix in
-                let instructions, code_size, machine_count =
-                  resolve_plan plan
+                let instructions, code_size, machine_count, sections =
+                  resolve_plan ~max_code_bytes plan
                 in
                 if code_size > max_code_bytes then
                   reject "HCBACK0005" "native program exceeds max_code_bytes";
@@ -10827,6 +10928,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                     Ok
                       {
                         encoded = Bytes.of_string encoded;
+                        sections;
                         ir_count;
                         machine_count;
                         peak = max 3 !peak;
@@ -11980,8 +12082,9 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
           |> List.concat_map (fun body -> body.body_plan))
       in
       let label_offsets, planned_code_size = plan_label_offsets plan in
-      let instructions, code_size, machine_count =
-        resolve_plan ~callee_labels:function_labels ~callee_stack_bytes plan
+      let instructions, code_size, machine_count, sections =
+        resolve_plan ~max_code_bytes ~callee_labels:function_labels
+          ~callee_stack_bytes plan
       in
       if code_size <> planned_code_size then
         reject "HCBACK0003"
@@ -11997,6 +12100,73 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
                 reject "HCBACK0003"
                   "native callable function has no resolved start offset")
           function_labels
+      in
+      let section_symbols, section_mappings =
+        let module Sections = Asm.Native_sections in
+        let next =
+          ref
+            (List.fold_left
+               (fun n (s : Sections.symbol) -> max n s.id)
+               (-1)
+               (Sections.symbols sections)
+            + 1)
+        in
+        let maps = ref [] in
+        let define ~scope ~source ~extent section offset symbol =
+          if source.Asm.Native_sections.span <> None then
+            maps :=
+              Asm.Native_sections.
+                { address = { section; offset }; size = extent; source }
+              :: !maps;
+          let id = !next in
+          incr next;
+          Sections.
+            {
+              id;
+              name = Symbol.name symbol;
+              scope = Some scope;
+              source_identity = Some (Symbol.Id.to_int (Symbol.id symbol));
+              binding = Local;
+              definition = Defined { section; offset };
+              source;
+            }
+        in
+        let functions =
+          Array.to_list
+            (Array.mapi
+               (fun index info ->
+                 let body = info.definition.body in
+                 define
+                   ~scope:
+                     (Printf.sprintf "body:%d;scope:%d" index
+                        (Symbol.Scope_id.to_int (Function.function_scope body)))
+                   ~source:{ item = None; span = Function.span body }
+                   ~extent:
+                     ((if index + 1 < Array.length function_starts then
+                         function_starts.(index + 1)
+                       else code_size)
+                     - function_starts.(index))
+                   0 function_starts.(index) (Function.symbol body))
+               function_infos)
+        in
+        let globals =
+          if task_snapshot <> None then []
+          else
+            List.map
+              (fun (symbol, offset, extent) ->
+                let span =
+                  match Symbol.origin symbol with
+                  | Symbol.Source_location origin -> Some origin.span
+                  | _ -> None
+                in
+                define
+                  ~scope:
+                    (Printf.sprintf "data:scope:%d"
+                       (Symbol.Scope_id.to_int (Symbol.scope_id symbol)))
+                  ~source:{ item = None; span } ~extent 1 offset symbol)
+              (Global_storage.section_symbols global_storage)
+        in
+        (functions @ globals, List.rev !maps)
       in
       let code_owner_bindings =
         Array.to_list
@@ -12197,6 +12367,16 @@ let compile_callable_internal ?task_snapshot ?retained_parameter_default
               encoded =
                 Bytes.concat Bytes.empty
                   [ Bytes.of_string encoded; undefined_bytes; leaf_bytes ];
+              sections =
+                extend_sections ~symbols:section_symbols
+                  ~mappings:section_mappings
+                  ~code_suffix:
+                    (Bytes.to_string undefined_bytes
+                    ^ Bytes.to_string leaf_bytes)
+                  ~data:
+                    (if Option.is_some task_snapshot then ""
+                     else global_image ^ Literal_storage.image literal_storage)
+                  sections;
               ir_count;
               machine_count =
                 machine_count
@@ -12338,3 +12518,6 @@ let program_private_function_count (compiled : program_image) =
 
 let program_function_slot_bindings (compiled : program_image) =
   compiled.function_slot_bindings
+
+let expression_sections (compiled : expression_image) = compiled.sections
+let program_sections (compiled : program_image) = compiled.sections

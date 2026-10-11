@@ -160,3 +160,7 @@ The [independent validator and loader model](bin-validator.md) now provide
 writer's decoder. Transactions preserve older module snapshots while resolving
 pending imports, and check allocation limits before applying patches. Tests
 also consume two modules produced by the original TempleOS compiler.
+
+## Shared object input
+
+`Templeos_bin.of_sections` and `Assembly_bin.emit` use the [shared native section model](native-sections.md). Compiler fields resolve before serialization; source-ordered exports, first-use import groups and the original reversed ABS_ADDR table feed the existing checked BIN writer. MAIN entries select object symbol IDs. Hosted/JIT objects and private runtime data are rejected before serialization. General HolyC compiler BIN emission remains under #723.
