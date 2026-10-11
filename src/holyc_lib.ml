@@ -55,6 +55,7 @@ module Ir_direct_call_lowering = Ir.Direct_call_lowering
 module Ir_frame_address_lowering = Ir.Frame_address_lowering
 module Templeos_bin_spec = Backend.Bin_spec
 module Templeos_bin = Asm.Bin_module
+module Bin_validator = Asm.Bin_validator
 module Assembly_bin = Driver.Assembly_bin
 module X86_64_encoder = Backend.X86_64_encoder
 module X86_64_expression = Backend.X86_64_expression

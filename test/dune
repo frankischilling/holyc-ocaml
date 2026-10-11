@@ -1,4 +1,24 @@
 (test
+ (name test_bin_validator_cli)
+ (modules test_bin_validator_cli)
+ (libraries holyc_lib unix yojson digestif)
+ (deps
+  (glob_files oracle/bin-validator/*)
+  (glob_files oracle/bin-modules/*)
+  ../examples/templeos-module.asm)
+ (action
+  (run %{test} %{exe:../bin/holyc.exe})))
+
+(rule
+ (alias runtest)
+ (deps
+  ../tools/native-bin-oracle.py
+  ../tools/bin-oracle.py
+  (glob_files oracle/bin-validator/*))
+ (action
+  (run python %{dep:../tools/native-bin-oracle.py} --check-fixtures)))
+
+(test
  (name test_bin_module_cli)
  (modules test_bin_module_cli)
  (libraries unix yojson digestif)
@@ -544,6 +564,7 @@
  (modules
   test_main
   test_bin_module
+  test_bin_validator
   test_asm_instruction_forms
   test_assembly_operations
   test_disassembler

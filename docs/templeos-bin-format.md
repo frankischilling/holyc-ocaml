@@ -154,3 +154,9 @@ qemu-system-x86_64 -m 512 -smp 1 -accel tcg,tb-size=32 -nic none -cdrom capture.
 Decline installation and the tour, then run `#include "T:/ORACLE.HC"`. The payload writes generated modules to the RAM drive and calls the original loader. The verified original ISO SHA-256 is `3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b`. The preparation helper preserves the original image and modifies only an unused directory entry, appended payload and volume sizes.
 
 This delivers BIN serialization and checked inspection. General HolyC function/global emission into this format, the full target ABI, native F64 and aggregate integration, host allocation and executable loading, compressed output, arbitrary origin placement and complete compiler/bootstrap parity remain separate work. The existing native host bridge is not serialized as TempleOS code. The independent model supplies explicit addresses and does not implement host allocation or run MAIN routines; native evidence covers the named fixture cases.
+
+The [independent validator and loader model](bin-validator.md) now provide
+`holyc verify-bin` and `holyc dump-relocs`. Their reader is separate from this
+writer's decoder. Transactions preserve older module snapshots while resolving
+pending imports, and check allocation limits before applying patches. Tests
+also consume two modules produced by the original TempleOS compiler.
