@@ -526,10 +526,40 @@ let unsupported_goto_regions () =
     [
       ("U0 F(){goto done;asm {} done:return;}F();", "asm {}");
       ("U0 F(){done:lock goto done;}F();", "lock goto done;");
-      ( "U0 SysTry(){}U0 SysUntry(){}U0 F(){done:try goto done;catch \
-         return;}F();",
-        "try goto done;catch return;" );
-    ]
+    ];
+  let function_source = "I64 F(){try {goto done;}catch {}done:return 42;}" in
+  let public_contents =
+    "extern U0 SysTry(U8 *catch_start,U8 *untry_start);extern U0 SysUntry();"
+    ^ function_source ^ "F();"
+  in
+  (* These native-only bodies permit parsing to reach the AST rejection. They
+     provide no executable exception protocol. *)
+  let native_contents =
+    "U0 SysTry(){}U0 SysUntry(){}" ^ function_source ^ "F();"
+  in
+  with_file ".hc" public_contents (fun public_source ->
+      with_file ".hc" native_contents (fun native_source ->
+          List.iter
+            (fun mode ->
+              let interpreted = ir_json ~status:1 ~mode public_source in
+              require
+                (first_code interpreted = "HCRUN0001"
+                && first_message interpreted
+                   = "control flow crosses a try/catch boundary without its \
+                      original handler transition")
+                "protected goto must retain its original handler transition";
+              check_primary public_source public_contents function_source 1
+                interpreted;
+              let native = host_json ~status:1 ~mode native_source in
+              require
+                (first_code native = "HCRUN0001"
+                && first_message native
+                   = "native try/catch requires native exception unwinding")
+                "native try/catch must identify its unwinding boundary";
+              check_primary native_source native_contents
+                "try {goto done;}catch {}" 1 native;
+              check_no_native_entry native)
+            [ "jit"; "aot" ]))
 
 let switch_goto_cli_contract () =
   let accepted =

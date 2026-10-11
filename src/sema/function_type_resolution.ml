@@ -1036,6 +1036,21 @@ let rec source_signature_matches ?owner ~selected_aggregate ~opening ~parameters
        parameters
        (signature_parameters signature)
 
+let source_function_matches ~table ~namespace
+    ?(selected_aggregate : selected_aggregate_resolver = fun _ -> None)
+    (source : Frontend.Parser.completed_function_header) function_ =
+  let publication = source.function_publication in
+  Declaration_collection.namespace_owns_table namespace table
+  && source_type_matches ~owner:(table, namespace) ~selected_aggregate
+       publication.function_header.type_specifier
+       publication.function_pointer_layers
+       (function_return_type function_)
+  && source_signature_matches ~owner:(table, namespace) ~selected_aggregate
+       ~opening:publication.function_opening_parenthesis
+       ~parameters:source.parameters ~variadic:source.variadic
+       ~closing:source.closing_parenthesis
+       (function_signature function_)
+
 let validate_source_callback_types ~table ~namespace
     ?(selected_aggregate : selected_aggregate_resolver = fun _ -> None) pointer
     =

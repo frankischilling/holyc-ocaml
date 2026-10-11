@@ -364,6 +364,13 @@ val function_body_sources :
 (** Original completed headers and their exact accepted bodies in this sealed
     command. Equal copied bodies and commands cannot obtain these witnesses. *)
 
+val function_header_sources :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  (Sema.Compiler_record.declared_function list, Common.Diagnostic.t list) result
+(** Original live completed-header witnesses from this exact sealed command. *)
+
 val automatic_aggregate_resolver :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -429,6 +436,12 @@ val source_function_body_sources :
     list,
     Common.Diagnostic.t list )
   result
+
+val source_function_header_sources :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Sema.Compiler_record.declared_function list, Common.Diagnostic.t list) result
 
 val source_automatic_aggregate_resolver :
   table:Sema.Symbol_table.t ->

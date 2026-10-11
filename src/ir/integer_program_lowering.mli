@@ -32,6 +32,7 @@ type statement =
       Sema.Integer_switch_preparation.t
       * Sema.Function_call_expression_result.expression_result
       * switch_element list
+  | Try of Sema.Exception_region.t * statement * statement
   | Break of Common.Span.t
   | Goto of Common.Span.t * Sema.Label_resolution.resolved_occurrence
   | Label of Common.Span.t * Sema.Label_resolution.resolved_occurrence
@@ -79,6 +80,10 @@ val runtime_calls : t -> Runtime_call_context.description list
 (** Complete lowering retains checked call origins and implicit-output discard
     identities for graph-owned runtime validation. The graph-only wrappers do
     not provide implicit-output execution authority. *)
+
+val exception_regions : t -> Exception_regions.t
+(** Original try/catch handler scopes sealed to this complete lowering's graph.
+    Graph-only wrappers do not retain executable exception authority. *)
 
 val lower_with_storage_initializers :
   ?frame:Sema.Function_frame_layout.function_layout ->

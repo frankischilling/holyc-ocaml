@@ -287,10 +287,6 @@ let unsupported_regions_remain_outside_execution_gate () =
     [
       ("assembly block", "U0 F(){goto done;asm {} done:return;}F();", "asm {}");
       ("lock region", "U0 F(){done:lock goto done;}F();", "lock goto done;");
-      ( "try/catch region",
-        "U0 SysTry(){}U0 SysUntry(){}U0 F(){done:try goto done;catch \
-         return;}F();",
-        "try goto done;catch return;" );
     ]
   in
   List.iter
@@ -305,6 +301,28 @@ let unsupported_regions_remain_outside_execution_gate () =
             (label ^ " source gate") "HCRUN0001" error.code;
           check_original_primary label source contents primary 1 error)
         cases)
+    modes;
+  let protected_function = "I64 F(){try {goto done;}catch {}done:return 42;}" in
+  let contents =
+    "extern U0 SysTry(U8 *catch_start,U8 *untry_start);extern U0 SysUntry();"
+    ^ protected_function ^ "F();"
+  in
+  List.iter
+    (fun mode ->
+      let _, source, result =
+        run ~mode ~path:"integer-goto-protected-boundary.hc" contents
+      in
+      let error = first_error result in
+      Alcotest.(check string)
+        "goto leaves try without its original handler transition" "HCRUN0001"
+        error.code;
+      Alcotest.(check string)
+        "protected goto reports the handler transition failure"
+        "control flow crosses a try/catch boundary without its original \
+         handler transition"
+        error.message;
+      check_original_primary "protected goto" source contents protected_function
+        1 error)
     modes
 
 let switch_gotos_keep_local_continuation_ownership () =

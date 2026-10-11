@@ -1012,9 +1012,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                             VM.default_constant_steps proof ))
                   | _ -> (
                       let* result =
-                        VM.execute_program ~max_steps:(max_steps - total)
-                          ~max_frame_bytes:1 ~max_call_depth:1 ~functions:[]
-                          value_graph_
+                        VM.execute_constant_preparation
+                          ~max_steps:(max_steps - total) value_graph_
                         |> diagnose
                       in
                       match VM.final_value result with

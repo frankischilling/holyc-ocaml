@@ -192,6 +192,7 @@ type command = {
   function_compiler_options : (Sema.Symbol.t * int64) list;
   function_body_sources :
     (Parser.completed_function_header * Ast.function_definition) list;
+  function_header_sources : Sema.Compiler_record.declared_function list;
   automatic_aggregate_allocations :
     Sema.Compiler_record.automatic_aggregate_allocation list;
   namespace : Collection.namespace;
@@ -4378,6 +4379,14 @@ let seal ledger (ast : Ast.module_) =
                         -> Some (header, body)
                       | _ -> None)
                     !claimed;
+                function_header_sources =
+                  List.filter_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Function { declared_header = Some source; _ } ->
+                          Some source
+                      | _ -> None)
+                    !claimed;
                 automatic_aggregate_allocations =
                   List.concat_map
                     (fun assigned ->
@@ -5497,6 +5506,15 @@ let function_body_sources ~table ~ast (command : command) =
 
 let source_function_body_sources ~table ~ast (Source_command command) =
   function_body_sources ~table ~ast command
+
+let function_header_sources ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "function headers belong to another source command";
+      command.function_header_sources)
+
+let source_function_header_sources ~table ~ast (Source_command command) =
+  function_header_sources ~table ~ast command
 
 let automatic_aggregate_resolver ~table ~ast (command : command) =
   protect (fun () ->

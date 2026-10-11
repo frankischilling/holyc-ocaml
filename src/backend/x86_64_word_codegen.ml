@@ -6406,6 +6406,10 @@ let preflight_callable_graph ~runtime_calls ~source_globals
               | _ ->
                   malformed description
                     "internal call start changed its selected symbol");
+              if Runtime.intrinsic_opcode intrinsic = Opcode.Ic_fs then
+                unsupported description
+                  "native task exception state requires native exception \
+                   unwinding";
               if not (Intrinsic.supports (Runtime.intrinsic_opcode intrinsic))
               then
                 unsupported description
@@ -6571,6 +6575,9 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                     0 ))
                 else
                   match provider with
+                  | Some Runtime.Throw ->
+                      unsupported description
+                        "native throw requires native exception unwinding"
                   | Some ((Runtime.Get_option | Runtime.Set_option) as provider)
                     ->
                       if
@@ -7227,7 +7234,8 @@ let preflight_callable_graph ~runtime_calls ~source_globals
                                   Print_codegen.Formatted_source
                               | Runtime.Put_chars
                               | Runtime.Get_option
-                              | Runtime.Set_option -> assert false);
+                              | Runtime.Set_option
+                              | Runtime.Throw -> assert false);
                             format_stage = scope.argument_stages.(0);
                             arguments_stage = scope.stage_base + 2;
                             argument_kinds = kinds;

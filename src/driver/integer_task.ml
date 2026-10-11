@@ -3117,22 +3117,32 @@ and run_stream_exe_source ?saved_compiler task ~active ~span contents =
             let* () = active () in
             Ok final_value
         | Error diagnostics -> (
-            match Frontend.Parser.suspension_failed_input suspension with
-            | Some failure when catch_compiler ->
+            let* source_exception =
+              VM.finish_task_child_source_exception scope ~catch_compiler
+              |> Result.map_error diagnose
+            in
+            match source_exception with
+            | Some VM.Source_exception_caught ->
                 let* () = active () in
-                let* () =
-                  Task_declarations.check_failed_compiler_input
-                    ~directive_ledger:task.declarations target.declarations
-                    ~session:target.session ~runtime:target.state ~suspension
-                    failure
-                  |> Result.map_error diagnose
-                in
-                let* () =
-                  VM.catch_task_child_compiler scope failure
-                  |> Result.map_error diagnose
-                in
                 Ok (Some (Native_dispatch.I64 0L))
-            | _ -> Error diagnostics))
+            | Some VM.Source_exception_propagating -> Error diagnostics
+            | None -> (
+                match Frontend.Parser.suspension_failed_input suspension with
+                | Some failure when catch_compiler ->
+                    let* () = active () in
+                    let* () =
+                      Task_declarations.check_failed_compiler_input
+                        ~directive_ledger:task.declarations target.declarations
+                        ~session:target.session ~runtime:target.state
+                        ~suspension failure
+                      |> Result.map_error diagnose
+                    in
+                    let* () =
+                      VM.catch_task_child_compiler scope failure
+                      |> Result.map_error diagnose
+                    in
+                    Ok (Some (Native_dispatch.I64 0L))
+                | _ -> Error diagnostics)))
   in
   let* suspension =
     if target == task then Ok suspension

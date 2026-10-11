@@ -789,6 +789,89 @@ let source_gate_is_compile_only () =
         [ "F();"; "F(1);"; "42;" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let native_exception_admission () =
+  let headers =
+    "extern U0 SysTry(U8 *catch_start,U8 *untry_start);\n\
+     extern U0 SysUntry();\n"
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, boundary) ->
+          let unit = integer_unit ~mode source in
+          let errors =
+            compile_callable unit |> reject ~code:"HCBACK0002" label
+          in
+          Option.iter
+            (fun expected ->
+              Alcotest.(check bool)
+                (label ^ " identifies its native boundary")
+                true
+                (List.exists
+                   (fun (error : Program.error) ->
+                     String.ends_with ~suffix:expected error.message)
+                   errors))
+            boundary)
+        [
+          ("protected entry", headers ^ "try {42;} catch {43;}", None);
+          ( "uncalled protected function",
+            headers ^ "U0 F(){try {1;} catch {2;}}42;",
+            None );
+          ( "unreached throw provider",
+            "extern U0 throw(I64 ch,Bool no_log);if(0) throw(7,1);42;",
+            Some "native throw requires native exception unwinding" );
+        ];
+      let fixture =
+        Native_scalar_fixture.compile ~mode
+          ~path:"native-exception-intrinsic.hc"
+          ~contents:
+            "class CTask {I64 except_ch;Bool catch_except;};public _intern \
+             0x15 CTask *Fs();Fs();"
+          ()
+        |> require_ok (fun diagnostics ->
+            diagnostics
+            |> List.map (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+            |> String.concat "; ")
+      in
+      let module Unit = Holyc_lib__Driver.Integer_unit in
+      let unit = fixture.Native_scalar_fixture.unit_ in
+      let errors =
+        Program.compile_callable ~max_stack_bytes:4088 ~max_blocks:4096
+          ~max_ir_instructions:4096 ~max_code_bytes:65536
+          ~runtime_calls:(Unit.runtime_calls unit)
+          ~initialization:(Unit.initialization unit) ~entry:(Unit.entry unit)
+          ~functions:(Unit.functions unit) ()
+        |> reject ~code:"HCBACK0002" "task intrinsic"
+      in
+      Alcotest.(check bool)
+        ("task intrinsic identifies its native boundary: "
+       ^ program_errors errors)
+        true
+        (List.exists
+           (fun (error : Program.error) ->
+             String.ends_with
+               ~suffix:
+                 "native task exception state requires native exception \
+                  unwinding"
+               error.message)
+           errors);
+      (* Local helper bodies permit parsing; native AST rejection precedes
+         their eligibility as source exception providers. *)
+      match
+        source_program_compile ~mode
+          "U0 SysTry(U8 *a,U8 *b){}U0 SysUntry(){}U0 F(){try {} catch {}}42;"
+      with
+      | Ok _ -> Alcotest.fail "native source accepted a protected function"
+      | Error diagnostics ->
+          Alcotest.(check bool)
+            "native source identifies unsupported exception unwinding" true
+            (List.exists
+               (fun (error : Diagnostic.t) ->
+                 error.message
+                 = "native try/catch requires native exception unwinding")
+               diagnostics))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let callable_ownership_joins_are_exact () =
   let closed = integer_unit "42;" in
   let left = integer_unit "I64 Left(I64 n){return n+1;}\nLeft(41);" in
@@ -2023,6 +2106,8 @@ let tests =
     Alcotest.test_case
       "source gate compiles control without VM or #exe execution" `Quick
       source_gate_is_compile_only;
+    Alcotest.test_case "native exception paths reject before execution" `Quick
+      native_exception_admission;
     Alcotest.test_case "callable frame and call ownership joins are exact"
       `Quick callable_ownership_joins_are_exact;
     Alcotest.test_case "word-tail frames retain original bundle authority"
