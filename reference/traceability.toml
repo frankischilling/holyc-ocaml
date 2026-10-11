@@ -2,6 +2,26 @@ schema_version = 1
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 
 [[feature]]
+id = "HC-TEMPLEOS-BIN-WRITER"
+description = "Complete checked uncompressed BIN serialization and inspection, with standalone AOT assembly integration."
+sources = [
+  "Kernel/KernelA.HH:375-436 original IET registry and CBinFile header",
+  "Compiler/CMain.HC:174-435 distinct JIT and AOT adjustments",
+  "Compiler/CMain.HC:437-568 original patch table, header and file producer",
+  "Compiler/AsmResolve.HC:1-217 import, export and unresolved-field producers",
+  "Kernel/KLoad.HC:1-248 original import groups, exports, allocations and two loader passes"
+]
+implementation = ["src/asm/bin_module.ml", "src/asm/bin_module.mli", "src/driver/assembly_bin.ml", "src/driver/assembly_bin.mli", "src/common/source_manager.ml", "src/common/source_manager.mli", "bin/bin_module_command.ml", "src/holyc_lib.ml", "src/holyc_lib.mli"]
+tests = ["test/test_bin_module.ml", "test/test_bin_module_cli.ml", "test/oracle/bin-modules/native.json", "test/oracle/bin-modules/native.capture", "test/oracle/bin-modules/native.hc", "tools/bin-oracle.py", "tools/bin_loader_model.py", "examples/templeos-module.asm"]
+documentation = ["docs/templeos-bin-format.md", "docs/compatibility.md", "docs/compiler-status.md", "docs/testing.md", "docs/assembly-directives.md", "docs/reference-source-map.md"]
+status = "implemented"
+issue = 717
+diagnostics = ["HCBIN0001 invalid assembly module or metadata", "bin command errors for malformed files, invalid bounds and input/output collisions"]
+verification = "Literal bytes cover every defined record shape. Five public-command artifacts passed the original pinned ISO loader with 39 observations repeated twice. Four expanded ISO source files match the pinned Git files after lexer-compatible normalization. Public recipes reproduce full artifacts/reports/maps, and an independent data model checks their relocation and deferred resolution."
+verification_boundary = "Native loading covers the named fixture cases. The independent model uses explicit addresses and never executes code. Even AAT types become source-defined U32 absolute patches regardless of original width; odd AAT types remain compiler adjustments. Body bounds and work/file quotas are hosted validation policy."
+remaining = ["general HolyC function/global BIN integration (#723)", "shared native section integration (#707)", "full target ABI (#702)", "native aggregates (#700)", "native F64 (#701)", "full independent loader validation (#718)", "broader actual-loader acceptance (#721)", "compressed BIN output", "arbitrary origin placement", "bootstrap and release parity"]
+
+[[feature]]
 id = "HC-SOURCE-DISASSEMBLY"
 description = "Bounded original Ui table lookup and instruction inspection through public CLI and library reports."
 sources = [
@@ -20,7 +40,7 @@ status = "implemented"
 diagnostics = ["disasm command errors for truncated, unrelated, overlong or over-budget input"]
 verification = "Native Ui lengths, text and branch targets match 89 distinct instructions observed twice. All 924 independent form specimens have reviewed decoded, empty or checked-rejection outcomes. CLI tests verify complete reports and unchanged files on failure."
 verification_boundary = "Hosted validation rejects unrelated lookup fallbacks and truncated input; legacy Ui address quirks and incomplete operand text remain visible. This is not general Intel disassembly, inline assembly execution or BIN loading."
-remaining = ["inline assembly execution (#715)", "BIN serialization/loading (#717)"]
+remaining = ["inline assembly execution (#715)", "broader BIN loader acceptance (#721)"]
 
 [[feature]]
 id = "HC-ASSEMBLY-LAYOUT-FIXUPS"
@@ -76,7 +96,7 @@ cli = "--base selects linking; repeatable --symbol NAME=ADDRESS supplies values 
 diagnostics = ["HCASM0001 checked instruction field", "HCASM0002 output bound", "HCASM0003 raw coordinate", "HCASM0004 expression, required symbol or definition", "HCASM0005 source ownership", "HCASM0007 layout work", "HCASM0009 link input, import, coordinate, relative range or work"]
 verification = "Literal Compiler and Kernel fragments, forward and backward ordinary/local branches, full deferred displacements in USE16/32/64, zero displacements, exact short/near signed boundaries, same-address repeated and external definitions, new-export scope closure, alignment, final maps/listings, source and macro provenance, exact work limits, import identities and overwrite semantics, field-end relative import bases, modular AAT stores, immutable reusable images and linked JSON are covered by public API tests."
 verification_boundary = "Expected final bytes derive from pinned source, not a TempleOS runtime capture. initial_bytes uses deterministic normalized placeholders instead of the retained or uninitialized local data value in PrsAsmDefine; it is not a byte-perfect TempleOS runtime listing or capture. Checked field narrowing and signed coordinate limits are hosted output policy. Original terminal listing columns and delayed line flushing are not reproduced. Standalone layout does not connect function semantic labels to final function addresses, serialize TempleOS BIN files or execute source assembly."
-remaining = ["function-assembly semantic integration (#174)", "live compiler expressions and source assembly loading/execution (#715)", "TempleOS BIN serialization (#717)", "intact DolDoc oracle evidence (#375)"]
+remaining = ["function-assembly semantic integration (#174)", "live compiler expressions and source assembly loading/execution (#715)", "general HolyC-to-BIN integration (#723)", "intact DolDoc oracle evidence (#375)"]
 
 [[feature]]
 id = "HC-ASSEMBLY-DIRECTIVE-EMISSION"
@@ -165,7 +185,7 @@ standalone_schema = "holyc-assembly-encoding-v1"
 output_metadata = ["ordered item entries and source locations", "actual encoded instruction forms", "listing state", "origin", "maximum alignment exponent", "imports", "label positions and scopes", "relocation records", "binary provenance", "work", "raw input bytes", "original parsed assembly"]
 verification = "Source-derived cases cover both compilation modes, low-byte stores, exact strings, typed expressions, primitive spelling shadowing, instruction value timing, repetition, origin and alignment, labels, imports, listing, relocation parity and provenance. Independent archive packets cover all supported types, width growth, dictionary replacement, malformed headers, truncated streams, invalid or cyclic codes, exact limits and hashes. File cases cover explicit roots, mapping, escapes and regular-file requirements; Unix symlink and FIFO cases are conditional. Public CLI and API checks cover ordered metadata, binary accounting, diagnostics and preservation of existing output after failure."
 verification_boundary = "This feature contains no TempleOS runtime capture, source assembly loading or execution, or intact DolDoc oracle evidence. General x87 precision and rounding equivalence remains outside these source-derived expectations. Saved $IS tokens supply their size and retain record metadata; $IB pointers require compiler-owned storage. Original terminal listing columns and delayed line flushing are not reproduced."
-remaining = ["live compiler expressions, compiler-owned $IB pointers and source assembly loading/execution (#715)", "TempleOS BIN serialization (#717)", "intact DolDoc oracle evidence (#375)"]
+remaining = ["live compiler expressions, compiler-owned $IB pointers and source assembly loading/execution (#715)", "general HolyC-to-BIN integration (#723)", "intact DolDoc oracle evidence (#375)"]
 
 [[feature]]
 id = "HC-BUILTIN-UNION-SIZEOF"
@@ -14394,7 +14414,7 @@ label_collection = "ordered items, independent of physical lines"
 symbolic_values = "retained explicitly unresolved in the parsed operation; HC-ASSEMBLY-DIRECTIVE-EMISSION evaluates closed values before byte reservation and HC-ASSEMBLY-LAYOUT-FIXUPS resolves same-unit numeric fields without changing their original reserved width"
 expression_grammar = "source modifier states, known function call shapes, typed indexing, named postfix declarators and inline aggregate definitions"
 standalone_schema = "holyc-assembly-v1"
-remaining = ["function-assembly semantic integration (#174)", "live compiler expressions and source assembly loading/execution (#715)", "TempleOS BIN serialization (#717)"]
+remaining = ["function-assembly semantic integration (#174)", "live compiler expressions and source assembly loading/execution (#715)", "general HolyC-to-BIN integration (#723)"]
 
 [[feature]]
 id = "HC-SHARED-INSTRUCTION-ENCODING"
@@ -14441,4 +14461,4 @@ hosted_checks = ["unresolved values", "nonrepresentable narrowing", "invalid sca
 public_ownership = "retained selection, operands, operation modes, USE metadata and original assembly unit are checked before emission and reporting"
 native_consumers = "existing checked backend selection and execution consumers use the shared writer; source byte output remains data"
 directive_emission = "HC-ASSEMBLY-DIRECTIVE-EMISSION extends the standalone byte stream with ordered data and binary input while preserving checked instruction fields"
-remaining = ["live compiler expressions and source assembly loading/execution (#715)", "TempleOS BIN serialization (#717)"]
+remaining = ["live compiler expressions and source assembly loading/execution (#715)", "general HolyC-to-BIN integration (#723)"]

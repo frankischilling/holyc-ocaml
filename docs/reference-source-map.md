@@ -1,5 +1,14 @@
 # Reference source map
 
+[BIN serialization](templeos-bin-format.md) follows the header and IET registry
+in `Kernel/KernelA.HH:375-436`, the AOT adjustments and final writer in
+`Compiler/CMain.HC:302-568`, and the import/export producers in
+`Compiler/AsmResolve.HC`. `Kernel/KLoad.HC` supplies grouped imports,
+deferred resolution, heap publication, patch widths and ordered MAIN calls.
+Five public-command artifacts passed that original loader. The capture also
+retains four ISO source files that match the pinned Git files after the original
+lexer-compatible space and newline normalization.
+
 [Disassembly](disassembly.md) follows `Compiler/UAsm.HC:1-247` for table
 comparison, binary search and construction, and lines 249-659 for instruction
 prefixes, operands, addresses and output. `Compiler/AsmInit.HC:1-158` and
@@ -80,7 +89,9 @@ Literal test fragments come from `Compiler/Templates.HC:87-94` and
 
 Function-assembly semantic integration remains under #174. Live compiler
 expressions, compiler-owned `$IB` pointers, source assembly loading and
-execution remain under #715; TempleOS BIN serialization remains under #717.
+execution remain under #715. Complete BIN serialization is available through
+the standalone module command; general HolyC-to-BIN integration remains under
+#723, and broader original-loader acceptance under #721.
 The source-derived fixtures do not replace the intact DolDoc oracle work
 under #375.
 

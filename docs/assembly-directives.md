@@ -281,8 +281,9 @@ values to both phases. A symbol option without `--base` links at base zero.
 Duplicate supplied names, missing used imports, invalid loaded coordinates
 and out-of-range relative fields fail before output. Linking allocates a
 fresh image and preserves the original encoding for another base or symbol
-set. It constructs raw linked bytes; TempleOS BIN serialization remains
-under #717, and executable source-assembly loading remains under #715.
+set. It constructs raw linked bytes. [The BIN command](templeos-bin-format.md)
+serializes assembly in complete TempleOS modules; executable source-assembly
+loading in the hosted compiler remains under #715.
 
 ## Binary files and inserted binary tokens
 

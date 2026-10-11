@@ -915,7 +915,7 @@ dune exec holyc -- corpus parse --mode=aot --require-all --reference-root=third_
 
 ## TempleOS modules
 
-TempleOS `.BIN` output belongs to milestone M8 and is currently unavailable. [The format notes](templeos-bin-format.md) record the pinned header, records, and loader formulas. An emission command will be documented after generated modules pass both the independent loader model and the actual TempleOS loader procedure.
+`holyc bin` emits complete uncompressed TempleOS modules from standalone AOT assembly and typed patch metadata. `--inspect` validates an existing artifact; reports retain exact records and SHA-256. The writer supports every defined IET shape, grouped imports, heaps, exports, absolute patches and ordered MAIN entries. Five public-command modules passed the pinned ISO's original loader, with 39 observations repeated twice, and an independent data model checks their relocation and deferred-resolution behavior. [The format notes](templeos-bin-format.md) describe the command, metadata and source quirks. General HolyC function/global emission into BIN, the full target ABI, native F64 and aggregate integration, host loading and complete bootstrap remain unfinished.
 
 ## Reference source
 

@@ -1,0 +1,4 @@
+USE64;
+ALIGN 16,0;
+DU8 127 DUP(0);
+RET;

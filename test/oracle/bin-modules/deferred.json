@@ -1,0 +1,5 @@
+[
+  {"type":"IET_IMM_U8","name":"BMRLater","offset":0},
+  {"type":"IET_IMM_U32","name":"","offset":1},
+  {"type":"IET_IMM_I64","name":"BMRLaterHeap","offset":8}
+]
