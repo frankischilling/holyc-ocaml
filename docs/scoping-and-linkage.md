@@ -234,7 +234,3 @@ The following conversion pass accepts only results from the same policy traversa
 ## Native object identities
 
 The [shared section model](native-sections.md) keeps object IDs separate from semantic source symbol IDs and loaded addresses. Native functions retain their original semantic ID, source name, function scope and span; private global slots retain their source identity and arena offset. Object symbols and sections preserve producer order. Local names may repeat in separate scopes, while duplicate IDs or names in one scope fail. Undefined root imports remain explicit and cannot become local or export definitions. Assembly and BIN consumers preserve their original compiler and loader field distinctions.
-
-## Native object identities
-
-The [shared section model](native-sections.md) keeps object IDs separate from semantic source symbol IDs and loaded addresses. Native functions retain their original semantic ID, source name, function scope and span; private global slots retain their source identity and arena offset. Object symbols and sections preserve producer order. Local names may repeat in separate scopes, while duplicate IDs or names in one scope fail. Undefined root imports remain explicit and cannot become local or export definitions. Assembly and BIN consumers preserve their original compiler and loader field distinctions.
