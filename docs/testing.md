@@ -16,6 +16,21 @@ labels, exported local scopes, import declarations, listing state and source
 locations. Resource cases exercise exact output and work allowances and
 reject excessive repetition and invalid positions before final allocation.
 
+`test/test_assembly_layout.ml` covers fixed instruction fields and explicit
+linking in both modes. Literal fixtures retain the complete StrLen fragment
+from `Compiler/Templates.HC:87-94` and the FPATAN retry loop from
+`Kernel/KMathA.HC:370-373`. Other cases cover ordinary and local forward and
+backward branches, zero-valued forward displacements, explicit near forms,
+exact signed branch boundaries, same-position definitions, and local scopes
+that end only at a new export. External same-address repeats retain their
+original binding. Import checks cover source-width records, required values,
+duplicate occurrences, provisional addend replacement, field-end relative
+stores, modular AAT fields, reusable images and loaded coordinate bounds.
+Map, listing and JSON checks compare final raw offsets and bytes, original
+source identities, the normalized pre-fixup image and the nested linked report.
+The normalized image uses deterministic deferred-field placeholders and does
+not reproduce a byte-perfect TempleOS runtime listing or capture.
+
 `test/test_assembly_binary.ml` uses independent small archive packets for
 `CT_NONE`, `CT_7_BIT` and `CT_8_BIT`, including code-width growth and the
 original 12-bit leaf replacement. Malformed headers, truncated streams,
@@ -35,9 +50,10 @@ checks the same ordered output contract through the public library.
 
 These expectations derive from the pinned TempleOS source and independent
 byte fixtures. They provide no TempleOS runtime capture, loader execution or
-intact DolDoc oracle evidence. General linkage and layout remain under #714,
-live compiler expressions and source assembly execution under #715, and the
-intact DolDoc oracle under #375.
+intact DolDoc oracle evidence. Function-assembly semantic integration remains
+under #174, live compiler expressions and source assembly execution under
+#715, TempleOS BIN serialization under #717, and the intact DolDoc oracle
+under #375.
 
 [Switch extension tests](integer-switch.md) share original source fixtures across
 IR and native targets. They cover bracket cases and holes, repeated defaults,

@@ -5,6 +5,10 @@ let () =
       ("assembly operations", Test_assembly_operations.tests);
       ("assembly encoder", Test_assembly_encoder.tests);
       ("assembly encoding API", Test_assembly_encoding_api.tests);
+      ("assembly fixed fields", Test_assembly_fixed_fields.tests);
+      ("assembly relocations", Test_assembly_relocations.tests);
+      ("assembly layout", Test_assembly_layout.tests);
+      ("assembly layout ownership", Test_assembly_layout_ownership.tests);
       ("assembly directives", Test_assembly_directives.tests);
       ("assembly binary input", Test_assembly_binary.tests);
       ("shared native encoder", Test_shared_native_encoder.tests);

@@ -40,10 +40,39 @@ raw and decoded sizes, SHA-256 digests and the selected compression type.
 Work and cumulative binary-input limits report `HCASM0007` and
 `HCASM0008`; malformed compressed files never fall back to raw bytes.
 
-General label/import fixups and branch layout remain under #714. Live
-compiler expressions, compiler-owned `$IB` pointers, source assembly
-loading and execution remain under #715. The source-derived directive
-fixtures do not replace the intact DolDoc oracle work under #375.
+Standalone layout and fixups follow `Compiler/Asm.HC:203-205,544-554,689-701`
+for full unresolved displacement fields and `Compiler/AsmResolve.HC:1-75`
+for fixed field patches and local-scope closure. Repeated definitions follow
+`Compiler/Asm.HC:1032-1098`; a same-position repeat preserves the existing
+binding and only a newly defined export clears the local table. Import
+occurrence checks and patch records follow `AsmResolve.HC:90-149,189-217`.
+`Assembly_encoding` retains symbol identities, definition sites, source
+locations, a normalized pre-fixup image and final unrelocated bytes for those
+fields. External values supplied after parsing are checked against active
+opcode, register, size, type, query and `DUP` roles. A conflicting syntax use
+produces a diagnostic; unused collisions and explicit `IMPORT` symbol uses
+are accepted.
+
+Explicit raw-image linking follows the modular AAT stores in
+`Compiler/CMain.HC:174-196` and the checked import stores at lines 251-287.
+`Kernel/KLoad.HC:32-49` confirms the field-end relative base and overwriting
+import stores. `Kernel/KernelA.HH:408-415,1979-1986` supplies the exact IET
+and AAT numeric identities. `Asm.Relocation` applies AAT records before
+imports to a fresh image. Map and listing reports use raw coordinates and
+final unrelocated values. `initial_bytes` reconstructs deferred fields with
+zero absolute or negated relative-base placeholders. This normalization is
+distinct from the original `PrsAsmDefine` stores: `Compiler/Asm.HC:817,841-852,875-877`
+retains the preceding local `i` for a deferred data value and may read it before
+initialization for the first value. The normalized image does not reproduce a
+byte-perfect TempleOS runtime listing or capture.
+Literal test fragments come from `Compiler/Templates.HC:87-94` and
+`Kernel/KMathA.HC:370-373`.
+
+Function-assembly semantic integration remains under #174. Live compiler
+expressions, compiler-owned `$IB` pointers, source assembly loading and
+execution remain under #715; TempleOS BIN serialization remains under #717.
+The source-derived fixtures do not replace the intact DolDoc oracle work
+under #375.
 
 [Switch execution](integer-switch.md) follows
 `Compiler/PrsStmt.HC:578-789` for shared case ownership, original endpoint
@@ -1046,7 +1075,7 @@ Shift assignments are not ordinary entries in those arrays. After recognizing `<
 
 `Frontend.Parser` retains this boundary as an `assembly_block_statement`. `Frontend.Ast` keeps the keyword, braces, source-line display groups, labels, and classified body tokens. `Asm.Opcode`, `Asm.Directive`, and `Asm.Register` resolve spellings through the checked generated data rather than a second handwritten list. Canonical and alias opcodes remain distinct while sharing one canonical identity. Human and JSON AST dumps retain include, expansion, and definition provenance.
 
-`reference/assembly-blocks.json` records a raw-token audit of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. The pinned tree has 45 brace-delimited blocks in 40 files, including six blocks inside another source block. Tests rescan those roots with the streaming lexer and compare every path, source line, and context with the checked inventory. They also parse the top-level and nested blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC` in both compilation modes. Ordered operand grammar and form validation are now shared with standalone assembly under #711. Standalone instruction and directive emission are covered by #712 and #713. General label/import fixups and branch layout remain under #714; integration with live compiler expressions and source assembly loading and execution remains under #715.
+`reference/assembly-blocks.json` records a raw-token audit of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. The pinned tree has 45 brace-delimited blocks in 40 files, including six blocks inside another source block. Tests rescan those roots with the streaming lexer and compare every path, source line, and context with the checked inventory. They also parse the top-level and nested blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC` in both compilation modes. Ordered operand grammar and form validation are shared with standalone assembly under #711. Standalone instruction and directive emission are covered by #712 and #713, with fixed layout, label/import fixups and explicit raw-image linking under #714. Function-assembly semantic integration remains under #174; live compiler expressions and source assembly loading and execution remain under #715, and TempleOS BIN serialization remains under #717.
 
 ## Direct assembly dispatch
 

@@ -1,4 +1,15 @@
 (test
+ (name test_assembly_layout_cli)
+ (modules test_assembly_layout_cli)
+ (libraries unix yojson)
+ (deps ../examples/assembly-layout.asm)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/assembly-layout.asm})))
+
+(test
  (name test_assembly_directives_cli)
  (modules test_assembly_directives_cli)
  (libraries unix yojson)
@@ -502,6 +513,10 @@
   test_assembly_operations
   test_assembly_encoder
   test_assembly_encoding_api
+  test_assembly_fixed_fields
+  test_assembly_relocations
+  test_assembly_layout
+  test_assembly_layout_ownership
   test_assembly_directives
   test_assembly_binary
   test_shared_native_encoder

@@ -221,8 +221,7 @@ let preflight_failures mode =
           ("DU8 2 DUP(1,2);", "HCPARSE");
           ("DU32 2 DUP();", "HCPARSE");
           ("DU8 0 DUP(MissingValue);", "");
-          ("MOV RAX,[RBX+Later]; Later: RET;", "HCASM0004");
-          ("IMPORT ExternalValue; DU64 ExternalValue;", "HCASM0004");
+          ("IMPORT ExternalValue; DU64 ExternalValue;", "HCASM0009");
           ("IMPORT @@x; @@x: DU8 1;", "HCASM0004");
           ("IMPORT DU8; DU8 1;", "HCPARSE");
           ("BINFILE \"no-such-directive-fixture-713\";", "BINFILE");

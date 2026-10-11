@@ -161,7 +161,7 @@ let preflight_failures mode =
         [
           ("NOP MOV RAX,UnknownTarget", "HCASM0004");
           ("NOP ORG 16;", "HCASM0004");
-          ("IMPORT ExternalTarget; CALL ExternalTarget;", "HCASM0004");
+          ("IMPORT ExternalTarget; CALL ExternalTarget;", "HCASM0009");
           ("NOP MOV AH,R8u8", "HCASM0001");
         ]);
   temporary ".asm" "NOP" (fun path ->

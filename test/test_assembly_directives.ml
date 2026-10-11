@@ -155,13 +155,9 @@ let instruction_expression_layout () =
       Alcotest.(check int)
         "an evaluated F64 payload selects the complete immediate field" 10
         (List.hd floating.instructions).size;
-      let _, config, forward =
-        parse ~compilation_mode "MOV RAX,[RBX+Later]; Later: RET;"
-      in
       ignore
-        (reject ~code:"HCASM0004"
-           "a forward displacement requiring a resized instruction needs layout"
-           config forward))
+        (check_bytes compilation_mode "MOV RAX,[RBX+Later]; Later: RET;"
+           "488b8307000000c3"))
     modes
 
 let repetition_and_current_position () =
@@ -474,9 +470,13 @@ let imports_and_forward_data () =
       List.iter
         (fun source ->
           let _, config, assembly = parse ~compilation_mode source in
-          ignore
-            (reject ~code:"HCASM0004" "import use requires external linkage"
-               config assembly))
+          let encoded = emit config assembly in
+          Alcotest.(check int)
+            "import use records one deferred fixup" 1
+            (List.length encoded.fixups);
+          match Encoding.link ~base:0L encoded with
+          | Error _ -> ()
+          | Ok _ -> Alcotest.fail "an imported field linked without a binding")
         [
           "IMPORT ExternalValue; DU64 ExternalValue;";
           "IMPORT F; CALL F;";
