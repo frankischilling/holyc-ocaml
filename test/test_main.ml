@@ -3,6 +3,9 @@ let () =
     [
       ("assembler instruction forms", Test_asm_instruction_forms.tests);
       ("assembly operations", Test_assembly_operations.tests);
+      ("assembly encoder", Test_assembly_encoder.tests);
+      ("assembly encoding API", Test_assembly_encoding_api.tests);
+      ("shared native encoder", Test_shared_native_encoder.tests);
       ("source", Test_source.tests);
       ("constant shift policy", Test_constant_shifts.tests);
       ("source constant shifts", Test_source_constant_shifts.tests);

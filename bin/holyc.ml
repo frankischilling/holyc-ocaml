@@ -408,46 +408,117 @@ let source_parser_options run =
 
 let source_parser_term run = source_parser_options Term.(const run)
 
-let assembly_file assembly_mode format include_roots templeos_root
-    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode
-    conditional_recovery predefined_date predefined_time command_line_source
-    path =
+let write_assembly_bytes path bytes =
+  try
+    let temporary, channel =
+      Filename.open_temp_file ~mode:[ Open_binary ]
+        ~temp_dir:(Filename.dirname path) ".holyc-assembly-" ".tmp"
+    in
+    Fun.protect
+      ~finally:(fun () ->
+        close_out_noerr channel;
+        if Sys.file_exists temporary then
+          try Sys.remove temporary with Sys_error _ -> ())
+      (fun () ->
+        output_string channel bytes;
+        close_out channel;
+        Sys.rename temporary path;
+        Ok ())
+  with Sys_error message -> Error message
+
+let assembly_file assembly_mode emit position code_byte_limit output_path format
+    include_roots templeos_root max_include_depth max_source_bytes
+    max_definition_depth max_generated_bytes max_conditional_depth
+    max_expression_nodes compilation_mode conditional_recovery predefined_date
+    predefined_time command_line_source path =
   let session = Holyc_lib.Session.create () in
-  match Holyc_lib.Session.load_source session ~path with
-  | Error message ->
-      print_command_error format ~command:"asm" message;
-      1
-  | Ok source -> (
-      match
-        make_preprocessor_config include_roots templeos_root max_include_depth
-          max_source_bytes max_definition_depth max_generated_bytes
-          max_conditional_depth max_expression_nodes compilation_mode
-          conditional_recovery predefined_date predefined_time
-          command_line_source
-      with
-      | Error message ->
-          print_command_error format ~command:"asm" message;
-          1
-      | Ok config -> (
-          let output =
-            Holyc_lib.parse_assembly_detailed ~mode:assembly_mode session
-              ~config ~source
-          in
-          if output.diagnostics <> [] then
-            print_diagnostics format session output.diagnostics;
-          match output.assembly with
-          | None -> 1
-          | Some assembly ->
-              let sources = Holyc_lib.Session.sources session in
-              (match format with
-              | Human ->
-                  Holyc_lib.Ast_dump.assembly_human sources assembly
-                  |> output_string stdout
-              | Json ->
-                  Holyc_lib.Ast_dump.assembly_json sources assembly
-                  |> print_endline);
-              0))
+  if
+    (not emit)
+    && (position <> None || code_byte_limit <> None || output_path <> None)
+  then (
+    print_command_error format ~command:"asm"
+      "--position, --code-byte-limit and --output require --emit";
+    1)
+  else
+    match Holyc_lib.Session.load_source session ~path with
+    | Error message ->
+        print_command_error format ~command:"asm" message;
+        1
+    | Ok source -> (
+        match
+          make_preprocessor_config include_roots templeos_root max_include_depth
+            max_source_bytes max_definition_depth max_generated_bytes
+            max_conditional_depth max_expression_nodes compilation_mode
+            conditional_recovery predefined_date predefined_time
+            command_line_source
+        with
+        | Error message ->
+            print_command_error format ~command:"asm" message;
+            1
+        | Ok config -> (
+            let output =
+              Holyc_lib.parse_assembly_detailed ~mode:assembly_mode session
+                ~config ~source
+            in
+            match output.assembly with
+            | None ->
+                if output.diagnostics <> [] then
+                  print_diagnostics format session output.diagnostics;
+                1
+            | Some assembly ->
+                let sources = Holyc_lib.Session.sources session in
+                if emit then
+                  let max_code_bytes =
+                    Option.value ~default:Holyc_lib.Asm_encoder.max_code_bytes
+                      code_byte_limit
+                  in
+                  match
+                    Holyc_lib.Assembly_encoding.encode ?position ~max_code_bytes
+                      assembly
+                  with
+                  | Error diagnostic ->
+                      print_diagnostics format session
+                        (output.diagnostics @ [ diagnostic ]);
+                      1
+                  | Ok encoded -> (
+                      let written =
+                        match output_path with
+                        | None -> Ok ()
+                        | Some path -> write_assembly_bytes path encoded.bytes
+                      in
+                      match written with
+                      | Error message ->
+                          let diagnostic =
+                            Holyc_lib.Diagnostic.make ~code:"HCASM0006"
+                              ~severity:Holyc_lib.Diagnostic.Error ~message
+                              ~primary:assembly.assembly_unit_location.span ()
+                          in
+                          print_diagnostics format session
+                            (output.diagnostics @ [ diagnostic ]);
+                          1
+                      | Ok () ->
+                          if output.diagnostics <> [] then
+                            print_diagnostics format session output.diagnostics;
+                          (match format with
+                          | Human ->
+                              Holyc_lib.Assembly_encoding.human encoded
+                              |> output_string stdout
+                          | Json ->
+                              Holyc_lib.Assembly_encoding.to_yojson sources
+                                encoded
+                              |> Yojson.Safe.pretty_to_string |> print_endline);
+                          0)
+                else (
+                  if output.diagnostics <> [] then
+                    print_diagnostics format session output.diagnostics;
+                  (match format with
+                  | Human ->
+                      Holyc_lib.Ast_dump.assembly_human sources assembly
+                      |> output_string stdout
+                  | Json ->
+                      Holyc_lib.Ast_dump.assembly_json sources assembly
+                      |> print_endline);
+                  0)))
 
 let assembly_mode_argument =
   let modes =
@@ -466,13 +537,49 @@ let assembly_mode_argument =
            the stream.")
 
 let assembly_command =
+  let emit =
+    Arg.(
+      value & flag
+      & info [ "emit" ]
+          ~doc:"Emit checked bytes for instructions with known operands.")
+  in
+  let position =
+    Arg.(
+      value
+      & opt (some int64) None
+      & info [ "position" ] ~docv:"ADDRESS"
+          ~doc:
+            "Start emitted instructions at this nonnegative address (default \
+             0). Requires --emit.")
+  in
+  let code_byte_limit =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "code-byte-limit" ] ~docv:"BYTES"
+          ~doc:
+            "Bound the complete emitted instruction sequence (default 16 MiB). \
+             Requires --emit.")
+  in
+  let output =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "o"; "output" ] ~docv:"FILE"
+          ~doc:
+            "Write the checked raw bytes to this file after all instructions \
+             pass. Requires --emit.")
+  in
   let documentation =
-    "Parse and validate TempleOS assembly operands and print selected \
-     instruction forms."
+    "Parse TempleOS assembly, inspect selected forms, or emit checked \
+     instruction bytes."
   in
   Cmd.v
     (Cmd.info "asm" ~doc:documentation)
-    (source_parser_options Term.(const assembly_file $ assembly_mode_argument))
+    (source_parser_options
+       Term.(
+         const assembly_file $ assembly_mode_argument $ emit $ position
+         $ code_byte_limit $ output))
 
 let print_integer_result format result =
   let module VM = Holyc_lib.Ir_integer_interpreter in

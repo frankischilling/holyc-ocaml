@@ -7,9 +7,19 @@ matches the generated forms and keeps the shortest original comparison count,
 with source-order ties and unsized warnings. The final prefix rules at
 lines 753-808 distinguish comparison cost from emitted length.
 `PrsAsmBlk` at lines 904-1114 supplies operation boundaries, labels, mode
-reset and directive grammar. The new `Asm.Operand` and `Asm.Instruction`
-modules keep those rules separate from frontend source locations and later
-symbol evaluation, emission and relocation.
+reset and directive grammar. `Asm.Operand` and `Asm.Instruction` retain
+those rules and the selected source operands.
+
+[Instruction byte encoding](instruction-encoder.md) follows
+`Compiler/Asm.HC:268-390,395-812` for numeric stores, opcode register patches,
+prefix order, ModRM/SIB fields and relative bases. `Compiler/AsmInit.HC:1-153`
+defines the flags and forms in the pinned `Compiler/OpCodes.DD` database.
+`Asm.Encoder` prepares source instructions and `Backend.X86_64_encoder`
+prepares native compiler instructions; both use the checked byte writer in
+`Asm.Encoding`. Fixed specimens cover all 924 source records, including the
+empty record's rejection. Clang comparisons provide independent byte checks.
+Narrowing refusals, operand ownership and output limits are hosted rules;
+symbol layout, directive execution and source assembly execution remain separate.
 
 [Switch execution](integer-switch.md) follows
 `Compiler/PrsStmt.HC:578-789` for shared case ownership, original endpoint

@@ -151,8 +151,8 @@ let register_numbers =
 
 let register_number register = List.assoc register register_numbers
 
-(* Select existing generated facts by their pinned source locations. The
-   encoder owns REX/ModR/M construction, not a second opcode database. *)
+(* Select generated forms by their pinned source locations. Native recipes
+   retain fixed layouts and use Asm.Encoding for validation and byte emission. *)
 let source_form spelling source_line =
   let opcode =
     List.find
@@ -446,444 +446,260 @@ let validate = function
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
 
-let size instruction =
-  validate instruction;
-  let opcode_bytes = List.length (form instruction).opcode_bytes in
-  match instruction with
-  | Mov_imm64 _ -> opcode_bytes + 1 + 8
-  | Load_stack _ | Store_stack _ | Address_stack _ -> 8
-  | Address_code_relative _ | Call_stack _ -> 7
-  | Alloc_stack _ | Free_stack _ -> 7
-  | Push_rbp | Pop_rbp -> 1
-  | Mov_rbp_rsp -> 3
-  | Address_frame _
-  | Address_arena _
-  | Load_indirect _
-  | Store_indirect _
-  | Store_indirect_offset _ -> 7
-  | Load_indirect_narrow (_, _, (Frame8 | Frame16), _) -> 8
-  | Load_indirect_narrow (_, _, Frame32, _) -> 7
-  | Store_indirect_narrow (_, Frame16, _) -> 8
-  | Store_indirect_narrow (_, (Frame8 | Frame32), _) -> 7
-  | Lock_binary_indirect (_, _, width, _) | Lock_cmpxchg_indirect (_, width, _)
-    -> opcode_bytes + 7 + if width = Atomic16 then 1 else 0
-  | Load_frame _ | Store_frame _ -> 7
-  | Load_frame_narrow (_, _, (Frame8 | Frame16), _) -> 8
-  | Load_frame_narrow (_, _, Frame32, _) -> 7
-  | Store_frame_narrow (_, Frame16, _) -> 8
-  | Store_frame_narrow (_, (Frame8 | Frame32), _) -> 7
-  | Load_arena _ | Store_arena _ -> 7
-  | Load_arena_narrow (_, _, (Frame8 | Frame16), _) -> 8
-  | Load_arena_narrow (_, _, Frame32, _) -> 7
-  | Store_arena_narrow (_, Frame16, _) -> 8
-  | Store_arena_narrow (_, (Frame8 | Frame32), _) -> 7
-  | Alloc_call_frame _ | Free_call_frame _ -> 7
-  | Call _ -> 5
-  | Capture_status _ | Source_arguments _ | Div_rcx | Idiv_rcx -> 3
-  | Compiler_option_arguments Windows_x64 -> 3
-  | Compiler_option_arguments System_v_x64 -> 9
-  | Zero_edx | Cqo -> 2
-  | Cmp_imm8 _ -> 4
-  | Jump _ -> 5
-  | Jump_equal _
-  | Jump_not_equal _
-  | Jump_below _
-  | Jump_less _
-  | Jump_overflow _ -> 6
-  | Store_status_kind _ | Store_status_site _ -> 8
-  | Load_context (_, offset) | Store_context (offset, _) ->
-      if offset <= 127 then 4 else 7
-  | Store_context_imm (offset, _) -> if offset <= 127 then 8 else 11
-  | Dec _ -> 3
-  | Shift_immediate (_, _, count) ->
-      opcode_bytes + 2 + if count = 1L then 0 else 1
-  | Mov _
-  | Unary _
-  | Binary _
-  | Bsf _
-  | Bsr _
-  | Bit _
-  | Shift_cl _
-  | Cmp _
-  | Test _
-  | Movzx8 _ -> opcode_bytes + 1 + 1
-  | Setcc (_, destination) ->
-      opcode_bytes + 1 + if register_number destination < 8 then 0 else 1
-  | Ret -> opcode_bytes
+module Encoding = Asm.Encoding
 
-let write buffer position instruction =
+let checked = function
+  | Ok value -> value
+  | Error message -> invalid_arg message
+
+let signed bytes value =
+  Encoding.field ~bytes ~range:Encoding.Signed value |> checked
+
+let plans instruction =
   validate instruction;
-  let byte value =
-    Bytes.set buffer !position (Char.chr value);
-    incr position
-  in
   let selected = form instruction in
-  let opcodes () = List.iter byte selected.opcode_bytes in
-  let imm32 value =
-    for index = 0 to 3 do
-      byte ((value lsr (index * 8)) land 0xff)
-    done
+  let one ?prefixes ?opcode_patch ?modrm ?sib ?displacement ?immediate () =
+    [
+      Encoding.plan ~mode:Asm.Operand.Use64 ~form:selected ?prefixes
+        ?opcode_patch ?modrm ?sib ?displacement ?immediate ()
+      |> checked;
+    ]
   in
-  let imm32_int64 value =
-    for index = 0 to 3 do
-      byte
-        (Int64.to_int
-           (Int64.logand (Int64.shift_right_logical value (index * 8)) 0xffL))
-    done
+  (* BackA.HC:44-51 and Asm.HC:580-638 assign register extensions to REX.R/B.
+     The fixed native layout keeps disp32 even when a shorter form would fit. *)
+  let register ?immediate ~reg ~rm () =
+    one
+      ~prefixes:[ 0x48 lor ((reg land 8) lsr 1) lor ((rm land 8) lsr 3) ]
+      ~modrm:(0xc0 lor ((reg land 7) lsl 3) lor (rm land 7))
+      ?immediate ()
   in
-  (* Asm.HC:580-605,615-638 places the high register bits in REX.R/B.
-     Mod=11 selects registers, so no SIB or displacement is emitted. *)
-  let modrm ~reg ~rm =
-    byte (0x48 lor ((reg land 8) lsr 1) lor ((rm land 8) lsr 3));
-    opcodes ();
-    byte (0xc0 lor ((reg land 7) lsl 3) lor (rm land 7))
+  let memory ?(prefixes = []) ?(wide = true) ~reg ~base displacement =
+    let rex =
+      (if wide then 0x48 else 0x40)
+      lor ((reg land 8) lsr 1)
+      lor ((base land 8) lsr 3)
+    in
+    one ~prefixes:(prefixes @ [ rex ])
+      ~modrm:(0x80 lor ((reg land 7) lsl 3) lor (base land 7))
+      ?sib:(if base land 7 = 4 then Some 0x24 else None)
+      ~displacement:(signed 4 (Int64.of_int displacement))
+      ()
+  in
+  let wide_load width extension =
+    width <> Frame32 || extension <> Zero_extend
+  in
+  let store_prefixes width = if width = Frame16 then [ 0x66 ] else [] in
+  let context ~reg ?immediate displacement =
+    one
+      ~prefixes:[ 0x49 lor ((reg land 8) lsr 1) ]
+      ~modrm:
+        ((if displacement <= 127 then 0x43 else 0x83) lor ((reg land 7) lsl 3))
+      ~displacement:
+        (signed
+           (if displacement <= 127 then 1 else 4)
+           (Int64.of_int displacement))
+      ?immediate ()
   in
   match instruction with
   | Mov_imm64 (destination, immediate) ->
       let destination = register_number destination in
-      byte (0x48 lor ((destination land 8) lsr 3));
-      (* The selected MOV form has one opcode byte and an eight-byte
-         immediate. Never shorten this to a sign/zero-extending form. *)
-      List.iter
-        (fun opcode -> byte (opcode lor (destination land 7)))
-        selected.opcode_bytes;
-      for index = 0 to 7 do
-        byte
-          (Int64.to_int
-             (Int64.logand
-                (Int64.shift_right_logical immediate (index * 8))
-                0xffL))
-      done
+      one
+        ~prefixes:[ 0x48 lor ((destination land 8) lsr 3) ]
+        ~opcode_patch:(Encoding.Or_low3 (destination land 7))
+        ~immediate:(signed 8 immediate) ()
   | Mov (destination, source) ->
-      modrm ~reg:(register_number source) ~rm:(register_number destination)
+      register ~reg:(register_number source)
+        ~rm:(register_number destination)
+        ()
   | Address_code_relative (destination, displacement) ->
       let destination = register_number destination in
-      byte (0x48 lor ((destination land 8) lsr 1));
-      opcodes ();
-      byte (0x05 lor ((destination land 7) lsl 3));
-      imm32_int64 displacement
+      one
+        ~prefixes:[ 0x48 lor ((destination land 8) lsr 1) ]
+        ~modrm:(0x05 lor ((destination land 7) lsl 3))
+        ~displacement:(signed 4 displacement) ()
   | Load_stack (destination, slot) | Address_stack (destination, slot) ->
-      let destination = register_number destination in
-      (* Fixed disp32 SIB form: RSP cannot be the ModR/M base without a SIB.
-         REX.R carries the high destination bit; REX.B/X remain clear. *)
-      byte (0x48 lor ((destination land 8) lsr 1));
-      opcodes ();
-      byte (0x84 lor ((destination land 7) lsl 3));
-      byte 0x24;
-      imm32 slot.offset
+      memory ~reg:(register_number destination) ~base:4 slot.offset
   | Store_stack (slot, source) ->
-      let source = register_number source in
-      byte (0x48 lor ((source land 8) lsr 1));
-      opcodes ();
-      byte (0x84 lor ((source land 7) lsl 3));
-      byte 0x24;
-      imm32 slot.offset
+      memory ~reg:(register_number source) ~base:4 slot.offset
   | Alloc_stack frame | Free_stack frame ->
-      byte 0x48;
-      opcodes ();
-      byte (0xc0 lor (selected.slash_value lsl 3) lor 4);
-      imm32 frame.bytes
-  | Push_rbp ->
-      List.iter (fun opcode -> byte (opcode lor 5)) selected.opcode_bytes
+      register ~reg:selected.slash_value ~rm:4
+        ~immediate:(signed 4 (Int64.of_int frame.bytes))
+        ()
+  | Push_rbp | Pop_rbp -> one ~opcode_patch:(Encoding.Or_low3 5) ()
   | Mov_rbp_rsp ->
-      (* MOV RBP,RSP uses the ordinary RM64,R64 form without making either
-         architectural stack register allocator-visible. *)
-      byte 0x48;
-      opcodes ();
-      byte 0xe5
+      (* RSP and RBP remain outside the allocator-visible register type. *)
+      register ~reg:4 ~rm:5 ()
   | Address_frame (destination, slot) | Load_frame (destination, slot) ->
-      let destination = register_number destination in
-      (* Fixed disp32 RBP form. RBP as a ModR/M base requires an explicit
-         displacement; using disp32 keeps every accepted slot one exact shape. *)
-      byte (0x48 lor ((destination land 8) lsr 1));
-      opcodes ();
-      byte (0x85 lor ((destination land 7) lsl 3));
-      imm32 slot.frame_offset
+      memory ~reg:(register_number destination) ~base:5 slot.frame_offset
   | Store_frame (slot, source) ->
-      let source = register_number source in
-      byte (0x48 lor ((source land 8) lsr 1));
-      opcodes ();
-      byte (0x85 lor ((source land 7) lsl 3));
-      imm32 slot.frame_offset
+      memory ~reg:(register_number source) ~base:5 slot.frame_offset
   | Load_frame_narrow (destination, slot, width, extension) ->
-      let destination = register_number destination in
-      (* Every narrow load writes the complete 64-bit destination. MOVSX/MOVZX
-         use REX.W; unsigned 32-bit MOV intentionally writes r32 and therefore
-         clears the upper half architecturally. *)
-      byte
-        ((match (width, extension) with
-           | Frame32, Zero_extend -> 0x40
-           | Frame8, (Sign_extend | Zero_extend)
-           | Frame16, (Sign_extend | Zero_extend)
-           | Frame32, Sign_extend -> 0x48)
-        lor ((destination land 8) lsr 1));
-      opcodes ();
-      byte (0x85 lor ((destination land 7) lsl 3));
-      imm32 slot.frame_offset
+      memory
+        ~wide:(wide_load width extension)
+        ~reg:(register_number destination)
+        ~base:5 slot.frame_offset
   | Store_frame_narrow (slot, width, source) ->
-      let source = register_number source in
-      (* A REX prefix is emitted even for legacy low registers. That selects the
-         low-byte register family for byte stores and avoids AH/CH/DH/BH. *)
-      if width = Frame16 then byte 0x66;
-      byte (0x40 lor ((source land 8) lsr 1));
-      opcodes ();
-      byte (0x85 lor ((source land 7) lsl 3));
-      imm32 slot.frame_offset
+      memory ~prefixes:(store_prefixes width) ~wide:false
+        ~reg:(register_number source) ~base:5 slot.frame_offset
   | Address_arena (destination, slot) | Load_arena (destination, slot) ->
-      let destination = register_number destination in
-      (* R9 is the sealed private arena base. Mod=10 with RM=001 selects
-         [R9+disp32]; REX.B is therefore always set while REX.R extends the
-         destination. The base register is not caller-selectable. *)
-      byte (0x49 lor ((destination land 8) lsr 1));
-      opcodes ();
-      byte (0x81 lor ((destination land 7) lsl 3));
-      imm32 slot.arena_offset
+      memory ~reg:(register_number destination) ~base:9 slot.arena_offset
   | Store_arena (slot, source) ->
-      let source = register_number source in
-      byte (0x49 lor ((source land 8) lsr 1));
-      opcodes ();
-      byte (0x81 lor ((source land 7) lsl 3));
-      imm32 slot.arena_offset
+      memory ~reg:(register_number source) ~base:9 slot.arena_offset
   | Load_arena_narrow (destination, slot, width, extension) ->
-      let destination = register_number destination in
-      byte
-        ((match (width, extension) with
-           | Frame32, Zero_extend -> 0x41
-           | Frame8, (Sign_extend | Zero_extend)
-           | Frame16, (Sign_extend | Zero_extend)
-           | Frame32, Sign_extend -> 0x49)
-        lor ((destination land 8) lsr 1));
-      opcodes ();
-      byte (0x81 lor ((destination land 7) lsl 3));
-      imm32 slot.arena_offset
+      memory
+        ~wide:(wide_load width extension)
+        ~reg:(register_number destination)
+        ~base:9 slot.arena_offset
   | Store_arena_narrow (slot, width, source) ->
-      let source = register_number source in
-      if width = Frame16 then byte 0x66;
-      byte (0x41 lor ((source land 8) lsr 1));
-      opcodes ();
-      byte (0x81 lor ((source land 7) lsl 3));
-      imm32 slot.arena_offset
+      memory ~prefixes:(store_prefixes width) ~wide:false
+        ~reg:(register_number source) ~base:9 slot.arena_offset
   | Load_indirect (destination, base, offset) ->
-      let destination = register_number destination in
-      let base = register_number base in
-      byte (0x48 lor ((destination land 8) lsr 1) lor ((base land 8) lsr 3));
-      opcodes ();
-      byte (0x80 lor ((destination land 7) lsl 3) lor (base land 7));
-      imm32 offset
+      memory
+        ~reg:(register_number destination)
+        ~base:(register_number base) offset
   | Store_indirect (base, source) ->
-      let source = register_number source in
-      let base = register_number base in
-      byte (0x48 lor ((source land 8) lsr 1) lor ((base land 8) lsr 3));
-      opcodes ();
-      byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
-      imm32 0
+      memory ~reg:(register_number source) ~base:(register_number base) 0
   | Store_indirect_offset (base, offset, source) ->
-      let source = register_number source in
-      let base = register_number base in
-      byte (0x48 lor ((source land 8) lsr 1) lor ((base land 8) lsr 3));
-      opcodes ();
-      byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
-      imm32 offset
+      memory ~reg:(register_number source) ~base:(register_number base) offset
   | Load_indirect_narrow (destination, base, width, extension) ->
-      let destination = register_number destination in
-      let base = register_number base in
-      byte
-        ((if width = Frame32 && extension = Zero_extend then 0x40 else 0x48)
-        lor ((destination land 8) lsr 1)
-        lor ((base land 8) lsr 3));
-      opcodes ();
-      byte (0x80 lor ((destination land 7) lsl 3) lor (base land 7));
-      imm32 0
+      memory
+        ~wide:(wide_load width extension)
+        ~reg:(register_number destination)
+        ~base:(register_number base) 0
   | Store_indirect_narrow (base, width, source) ->
-      let source = register_number source in
-      let base = register_number base in
-      if width = Frame16 then byte 0x66;
-      byte (0x40 lor ((source land 8) lsr 1) lor ((base land 8) lsr 3));
-      opcodes ();
-      byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
-      imm32 0
+      memory ~prefixes:(store_prefixes width) ~wide:false
+        ~reg:(register_number source) ~base:(register_number base) 0
   | Lock_binary_indirect (_, base, width, source)
   | Lock_cmpxchg_indirect (base, width, source) ->
-      let source = register_number source in
-      let base = register_number base in
-      List.iter byte lock_prefix.opcode_bytes;
-      if width = Atomic16 then byte 0x66;
-      byte
-        ((if width = Atomic64 then 0x48 else 0x40)
-        lor ((source land 8) lsr 1)
-        lor ((base land 8) lsr 3));
-      opcodes ();
-      byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
-      imm32 0
+      memory
+        ~prefixes:
+          (lock_prefix.opcode_bytes @ if width = Atomic16 then [ 0x66 ] else [])
+        ~wide:(width = Atomic64) ~reg:(register_number source)
+        ~base:(register_number base) 0
   | Alloc_call_frame frame | Free_call_frame frame ->
-      byte 0x48;
-      opcodes ();
-      byte (0xc0 lor (selected.slash_value lsl 3) lor 4);
-      imm32 frame.call_bytes
-  | Call displacement ->
-      opcodes ();
-      imm32_int64 displacement
+      register ~reg:selected.slash_value ~rm:4
+        ~immediate:(signed 4 (Int64.of_int frame.call_bytes))
+        ()
+  | Call displacement -> one ~immediate:(signed 4 displacement) ()
   | Call_stack slot ->
-      (* CALL RM64 is implicitly a qword; no REX.W prefix is needed. *)
-      opcodes ();
-      byte (0x84 lor (selected.slash_value lsl 3));
-      byte 0x24;
-      imm32 slot.offset
-  | Pop_rbp ->
-      List.iter (fun opcode -> byte (opcode lor 5)) selected.opcode_bytes
+      (* CALL RM64 uses its implicit qword width without a REX prefix. *)
+      one
+        ~modrm:(0x84 lor (selected.slash_value lsl 3))
+        ~sib:0x24
+        ~displacement:(signed 4 (Int64.of_int slot.offset))
+        ()
   | Unary (_, destination) ->
-      modrm ~reg:selected.slash_value ~rm:(register_number destination)
+      register ~reg:selected.slash_value ~rm:(register_number destination) ()
   | Bsf (destination, source) | Bsr (destination, source) ->
-      (* OpCodes.DD:727/731 are R64,RM64; REX.R extends the destination. *)
-      modrm ~reg:(register_number destination) ~rm:(register_number source)
+      register
+        ~reg:(register_number destination)
+        ~rm:(register_number source) ()
   | Bit (_, field, index) ->
-      (* The pinned qword forms are RM64,R64; REX.R extends the index. *)
-      modrm ~reg:(register_number index) ~rm:(register_number field)
+      register ~reg:(register_number index) ~rm:(register_number field) ()
   | Binary (Imul, destination, source) ->
-      (* IMUL2 is R64,RM64; the other binary forms are RM64,R64. *)
-      modrm ~reg:(register_number destination) ~rm:(register_number source)
+      register
+        ~reg:(register_number destination)
+        ~rm:(register_number source) ()
   | Binary (_, destination, source) ->
-      modrm ~reg:(register_number source) ~rm:(register_number destination)
+      register ~reg:(register_number source)
+        ~rm:(register_number destination)
+        ()
   | Shift_cl (_, destination) ->
-      (* OpCodes.DD:1107/1125/1143 are the 64-bit RM64,CL forms. The slash
-         value selects SHL/SHR/SAR; RCX is implicit and REX.B extends RM64. *)
-      modrm ~reg:selected.slash_value ~rm:(register_number destination)
+      register ~reg:selected.slash_value ~rm:(register_number destination) ()
   | Shift_immediate (_, destination, count) ->
-      modrm ~reg:selected.slash_value ~rm:(register_number destination);
-      if count <> 1L then byte (Int64.to_int (Int64.logand count 0xffL))
+      (* Native shift counts intentionally use their low byte, matching ICU8 in
+         BackA.HC. The checked field receives that explicit byte value. *)
+      let immediate =
+        if count = 1L then None
+        else
+          Some
+            (Encoding.field ~bytes:1 ~range:Encoding.Unsigned
+               (Int64.logand count 0xffL)
+            |> checked)
+      in
+      register ~reg:selected.slash_value
+        ~rm:(register_number destination)
+        ?immediate ()
   | Capture_status abi ->
-      (* MOV R11,RCX on Windows x64; MOV R11,RDI on System V x86-64. R11 is
-         fixed private state for fault-capable images and RDI is intentionally
-         absent from the public allocator register set. *)
-      byte 0x49;
-      opcodes ();
-      byte
-        (match abi with
-        | Windows_x64 -> 0xcb
-        | System_v_x64 -> 0xfb)
+      register
+        ~reg:
+          (match abi with
+          | Windows_x64 -> 1
+          | System_v_x64 -> 7)
+        ~rm:11 ()
   | Source_arguments abi ->
-      (* Reverse the context capture into the host's first pointer argument.
-         RDI remains outside the allocator and is only written for System V. *)
-      byte 0x4c;
-      opcodes ();
-      byte
-        (match abi with
-        | Windows_x64 -> 0xd9
-        | System_v_x64 -> 0xdf)
+      register ~reg:11
+        ~rm:
+          (match abi with
+          | Windows_x64 -> 1
+          | System_v_x64 -> 7)
+        ()
   | Compiler_option_arguments abi ->
-      (* Index and operation are staged in RDX and R8. System V also needs
-         RSI, which is outside the allocator, for its second argument. *)
-      (match abi with
-      | Windows_x64 -> ()
-      | System_v_x64 ->
-          byte 0x48;
-          opcodes ();
-          byte 0xd6;
-          byte 0x4c;
-          opcodes ();
-          byte 0xc2);
-      byte 0x4c;
-      opcodes ();
-      byte
-        (match abi with
-        | Windows_x64 -> 0xd9
-        | System_v_x64 -> 0xdf)
-  | Zero_edx ->
-      (* BackLib.HC:404-411 uses XOR r32,r32 to zero the complete register. *)
-      opcodes ();
-      byte 0xd2
-  | Cqo ->
-      byte 0x48;
-      opcodes ()
+      (* System V stages the index and operation in RSI/RDX before passing the
+         private R11 context in RDI. Every MOV uses its own shared plan. *)
+      let arguments =
+        match abi with
+        | Windows_x64 -> []
+        | System_v_x64 -> register ~reg:2 ~rm:6 () @ register ~reg:8 ~rm:2 ()
+      in
+      arguments
+      @ register ~reg:11
+          ~rm:
+            (match abi with
+            | Windows_x64 -> 1
+            | System_v_x64 -> 7)
+          ()
+  | Zero_edx -> one ~modrm:0xd2 ()
+  | Cqo -> one ~prefixes:[ 0x48 ] ()
   | Div_rcx | Idiv_rcx ->
-      byte 0x48;
-      opcodes ();
-      byte (0xc0 lor (selected.slash_value lsl 3) lor register_number Rcx)
-  | Cmp_imm8 (register, immediate) ->
-      let register = register_number register in
-      byte (0x48 lor ((register land 8) lsr 3));
-      opcodes ();
-      byte (0xc0 lor (selected.slash_value lsl 3) lor (register land 7));
-      byte (immediate land 0xff)
+      register ~reg:selected.slash_value ~rm:(register_number Rcx) ()
+  | Cmp_imm8 (destination, immediate) ->
+      register ~reg:selected.slash_value
+        ~rm:(register_number destination)
+        ~immediate:(signed 1 (Int64.of_int immediate))
+        ()
   | Jump displacement
   | Jump_equal displacement
   | Jump_not_equal displacement
   | Jump_below displacement
   | Jump_less displacement
-  | Jump_overflow displacement ->
-      opcodes ();
-      imm32_int64 displacement
-  | Store_status_kind _ | Store_status_site _ ->
-      let displacement, immediate =
-        match instruction with
-        | Store_status_kind value -> (0, value)
-        | Store_status_site value -> (8, value)
-        | _ -> assert false
-      in
-      (* MOV qword ptr [R11+disp8],imm32. Only the two private status fields are
-         expressible by this API; the positive immediate is sign-extended to the
-         same 64-bit value. *)
-      byte 0x49;
-      opcodes ();
-      byte 0x43;
-      byte displacement;
-      imm32 immediate
+  | Jump_overflow displacement -> one ~immediate:(signed 4 displacement) ()
+  | Store_status_kind immediate ->
+      context ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) 0
+  | Store_status_site immediate ->
+      context ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) 8
   | Load_context (destination, displacement) ->
-      let destination = register_number destination in
-      (* R11 requires REX.B; REX.R carries the high destination bit. Generation
-         fields beyond signed disp8 use the ordinary disp32 memory form. *)
-      byte (0x49 lor ((destination land 8) lsr 1));
-      opcodes ();
-      byte
-        ((if displacement <= 127 then 0x43 else 0x83)
-        lor ((destination land 7) lsl 3));
-      if displacement <= 127 then byte displacement else imm32 displacement
+      context ~reg:(register_number destination) displacement
   | Store_context (displacement, source) ->
-      let source = register_number source in
-      (* MOV [R11+disp8],r64. R11 requires REX.B; REX.R carries the high source
-         bit. *)
-      byte (0x49 lor ((source land 8) lsr 1));
-      opcodes ();
-      byte
-        ((if displacement <= 127 then 0x43 else 0x83)
-        lor ((source land 7) lsl 3));
-      if displacement <= 127 then byte displacement else imm32 displacement
+      context ~reg:(register_number source) displacement
   | Store_context_imm (displacement, immediate) ->
-      (* MOV qword ptr [R11+disp8],imm32. *)
-      byte 0x49;
-      opcodes ();
-      byte (if displacement <= 127 then 0x43 else 0x83);
-      if displacement <= 127 then byte displacement else imm32 displacement;
-      imm32 immediate
-  | Dec register ->
-      let register = register_number register in
-      byte (0x48 lor ((register land 8) lsr 3));
-      opcodes ();
-      byte (0xc0 lor (selected.slash_value lsl 3) lor (register land 7))
+      context ~reg:0 ~immediate:(signed 4 (Int64.of_int immediate)) displacement
+  | Dec destination ->
+      register ~reg:selected.slash_value ~rm:(register_number destination) ()
   | Cmp (left, right) ->
-      (* CMP RM64,R64 sets flags for left-right without changing either input. *)
-      modrm ~reg:(register_number right) ~rm:(register_number left)
-  | Test register ->
-      let register = register_number register in
-      modrm ~reg:register ~rm:register
+      register ~reg:(register_number right) ~rm:(register_number left) ()
+  | Test destination ->
+      let destination = register_number destination in
+      register ~reg:destination ~rm:destination ()
   | Setcc (_, destination) ->
       let destination = register_number destination in
-      (* SETcc takes RM8, not a slash-group extension. Its generated slash
-         value is SV_NONE; the ModR/M reg field is zero. Asm.HC:484-502
-         supplies REX.B for extended byte registers. AL/CL/DL need no prefix. *)
-      if destination >= 8 then byte 0x41;
-      opcodes ();
-      byte (0xc0 lor (destination land 7))
+      one
+        ~prefixes:(if destination >= 8 then [ 0x41 ] else [])
+        ~modrm:(0xc0 lor (destination land 7))
+        ()
   | Movzx8 (destination, source) ->
-      (* MOVZX R64,RM8 reads only the source byte and clears all higher bits. *)
-      modrm ~reg:(register_number destination) ~rm:(register_number source)
-  | Ret -> opcodes ()
+      register
+        ~reg:(register_number destination)
+        ~rm:(register_number source) ()
+  | Ret -> one ()
+
+let size instruction =
+  List.fold_left
+    (fun total plan -> total + Encoding.size plan)
+    0 (plans instruction)
 
 let encode instruction =
-  let buffer = Bytes.create (size instruction) in
-  let position = ref 0 in
-  write buffer position instruction;
-  Bytes.to_string buffer
+  Encoding.encode_all ~max_bytes:max_code_bytes (plans instruction) |> checked
 
 let encode_all ~max_code_bytes:limit instructions =
   if limit <= 0 || limit > max_code_bytes then
@@ -891,19 +707,21 @@ let encode_all ~max_code_bytes:limit instructions =
       (Printf.sprintf "max_code_bytes must be between 1 and %d" max_code_bytes)
   else
     try
-      let rec measure total = function
-        | [] -> Ok total
+      let rec prepare total reversed = function
+        | [] -> Encoding.encode_all ~max_bytes:limit (List.rev reversed)
         | instruction :: remaining ->
-            let length = size instruction in
+            let current = plans instruction in
+            let length =
+              List.fold_left
+                (fun total plan -> total + Encoding.size plan)
+                0 current
+            in
             if length > limit - total then
               Error "encoded instructions exceed max_code_bytes"
-            else measure (total + length) remaining
+            else
+              prepare (total + length)
+                (List.rev_append current reversed)
+                remaining
       in
-      match measure 0 instructions with
-      | Error message -> Error message
-      | Ok length ->
-          let buffer = Bytes.create length in
-          let position = ref 0 in
-          List.iter (write buffer position) instructions;
-          Bytes.to_string buffer |> Result.ok
+      prepare 0 [] instructions
     with Invalid_argument message -> Error message

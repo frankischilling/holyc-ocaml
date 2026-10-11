@@ -1,6 +1,13 @@
 type error = { operand_index : int option; message : string }
 type warning = Unspecified_size
 
+type numeric_field = {
+  bytes : int;
+  operand_index : int option;
+  relative : bool;
+  address : bool;
+}
+
 type selection = {
   opcode : Opcode.resolved;
   mode : Operand.mode;
@@ -60,6 +67,11 @@ type plan = {
   mutable address_prefix_ : bool;
   mutable displacement_bytes_ : int;
   mutable immediate_bytes_ : int;
+  mutable displacement_operand_ : int option;
+  mutable immediate_operand_ : int option;
+  mutable displacement_relative_ : bool;
+  immediate_relative_ : bool;
+  mutable displacement_address_ : bool;
   mutable rm_operand : Operand.t option;
   mutable other_operand : Operand.t option;
   mutable cost : int;
@@ -105,6 +117,11 @@ let build_plan mode form operands =
         | 2 | 6 -> 2
         | 3 | 7 -> 4
         | _ -> 0);
+      displacement_operand_ = None;
+      immediate_operand_ = None;
+      displacement_relative_ = false;
+      immediate_relative_ = in_range 1 3 form.opcode_modifier;
+      displacement_address_ = false;
       rm_operand = List.nth_opt operands 0;
       other_operand = List.nth_opt operands 1;
       cost = 0;
@@ -113,7 +130,7 @@ let build_plan mode form operands =
   if form.slash_value < 8 then (
     plan.modrm_ <- form.slash_value lsl 3;
     plan.has_modrm <- true);
-  let memory_shape operand ~single =
+  let memory_shape operand ~operand_index ~single =
     let reg1 = reg1 operand and reg2 = reg2 operand in
     let indirect = Operand.indirect operand in
     let present = Operand.immediate_present operand in
@@ -125,6 +142,9 @@ let build_plan mode form operands =
     if single && present && indirect && reg1 = -1 then (
       plan.modrm_ <- plan.modrm_ + 5;
       plan.displacement_bytes_ <- 4;
+      plan.displacement_operand_ <- Some operand_index;
+      plan.displacement_relative_ <- mode64;
+      plan.displacement_address_ <- true;
       complete := true)
     else (
       if reg2 = -1 && Operand.scale operand = 1L then (
@@ -144,7 +164,9 @@ let build_plan mode form operands =
           complete := true;
           plan.sib_ <- plan.sib_ lor ((reg1 land 7) lsl 3) lor 5;
           register_rex plan reg1 2;
-          plan.displacement_bytes_ <- 4)
+          plan.displacement_bytes_ <- 4;
+          plan.displacement_operand_ <- Some operand_index;
+          plan.displacement_address_ <- true)
         else (
           plan.sib_ <- plan.sib_ lor ((reg1 land 7) lsl 3) lor (reg2 land 7);
           register_rex plan reg1 2;
@@ -156,8 +178,12 @@ let build_plan mode form operands =
       if not !complete then
         if (not single) && present && indirect && reg1 = -1 then (
           plan.modrm_ <- (plan.modrm_ land 0xF8) + 5;
-          plan.displacement_bytes_ <- 4)
-        else if present then
+          plan.displacement_bytes_ <- 4;
+          plan.displacement_operand_ <- Some operand_index;
+          plan.displacement_relative_ <- mode64;
+          plan.displacement_address_ <- true)
+        else if present then (
+          plan.displacement_operand_ <- Some operand_index;
           if
             (not (Operand.unresolved operand))
             && value operand >= -128L
@@ -167,7 +193,7 @@ let build_plan mode form operands =
             plan.displacement_bytes_ <- 1)
           else (
             plan.modrm_ <- plan.modrm_ lor 0x80;
-            plan.displacement_bytes_ <- (if mode16 then 2 else 4))
+            plan.displacement_bytes_ <- (if mode16 then 2 else 4)))
         else if not indirect then (
           plan.address_prefix_ <- false;
           plan.modrm_ <- plan.modrm_ lor 0xC0)
@@ -181,10 +207,12 @@ let build_plan mode form operands =
         if form.slash_value = 8 then register_rex plan (reg1 operand) 1
         else if floating_register operand then ();
       if qword form.argument1 then plan.rex_ <- plan.rex_ lor 8;
-      if rm form.argument1 then memory_shape operand ~single:true
-      else if in_range 1 3 form.argument1 || immediate_kind form.argument1 then
+      if rm form.argument1 then
+        memory_shape operand ~operand_index:0 ~single:true
+      else if in_range 1 3 form.argument1 || immediate_kind form.argument1 then (
+        plan.immediate_operand_ <- Some 0;
         if form.argument1 = 7 || form.argument2 = 11 then
-          plan.rex_ <- plan.rex_ lor 8
+          plan.rex_ <- plan.rex_ lor 8)
   | [ first; second ] ->
       if flag form 0x004 then
         if form.slash_value = 8 then
@@ -210,12 +238,18 @@ let build_plan mode form operands =
           else (
             plan.modrm_ <- plan.modrm_ lor ((reg1 other land 7) lsl 3);
             register_rex plan (reg1 other) 4);
-        memory_shape memory ~single:false)
+        memory_shape memory
+          ~operand_index:(if rm form.argument2 then 1 else 0)
+          ~single:false)
       else if in_range 28 31 form.argument1 || in_range 28 31 form.argument2
       then (
         plan.displacement_bytes_ <- (if mode16 then 2 else 4);
+        plan.displacement_operand_ <-
+          Some (if in_range 28 31 form.argument1 then 0 else 1);
+        plan.displacement_address_ <- true;
         plan.address_prefix_ <- false)
       else if immediate_kind form.argument1 then (
+        plan.immediate_operand_ <- Some 0;
         plan.immediate_bytes_ <-
           (match form.argument1 with
           | 4 | 8 -> 1
@@ -225,6 +259,7 @@ let build_plan mode form operands =
         if form.argument1 = 7 || form.argument1 = 11 then
           plan.rex_ <- plan.rex_ lor 8);
       if immediate_kind form.argument2 then (
+        plan.immediate_operand_ <- Some 1;
         plan.immediate_bytes_ <-
           (match form.argument2 with
           | 4 | 8 -> 1
@@ -251,7 +286,7 @@ let build_plan mode form operands =
     else 0);
   plan
 
-let select ~mode ~opcode ~operands =
+let select_from ~mode ~opcode ~operands forms =
   let reject ?operand_index message = Error { operand_index; message } in
   let canonical = Opcode.resolved_opcode opcode in
   let expected = Opcode.first_form_argument_count canonical in
@@ -309,7 +344,7 @@ let select ~mode ~opcode ~operands =
                 match !best with
                 | Some previous when previous.cost <= plan.cost -> ()
                 | _ -> best := Some plan)))
-          (Opcode.forms canonical);
+          forms;
         match !best with
         | Some plan when plan.form_.opcode_bytes = [] ->
             reject
@@ -382,3 +417,35 @@ let select ~mode ~opcode ~operands =
                 displacement_bytes = plan.displacement_bytes_;
                 unresolved = List.exists Operand.unresolved operands;
               })
+
+let select ~mode ~opcode ~operands =
+  select_from ~mode ~opcode ~operands
+    (Opcode.forms (Opcode.resolved_opcode opcode))
+
+let select_form ~mode ~opcode ~operands ~entry_index =
+  match
+    List.find_opt
+      (fun (form : Generated.Opcode_keywords.instruction) ->
+        form.entry_index = entry_index)
+      (Opcode.forms (Opcode.resolved_opcode opcode))
+  with
+  | None ->
+      Error
+        {
+          operand_index = None;
+          message =
+            Printf.sprintf "opcode %s has no pinned instruction form %d"
+              (Opcode.resolved_source_spelling opcode)
+              entry_index;
+        }
+  | Some form -> select_from ~mode ~opcode ~operands [ form ]
+
+let numeric_fields selection =
+  let plan = build_plan selection.mode selection.form selection.operands in
+  let field bytes operand_index relative address =
+    if bytes = 0 then None else Some { bytes; operand_index; relative; address }
+  in
+  ( field plan.displacement_bytes_ plan.displacement_operand_
+      plan.displacement_relative_ plan.displacement_address_,
+    field plan.immediate_bytes_ plan.immediate_operand_ plan.immediate_relative_
+      false )

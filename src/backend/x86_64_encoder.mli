@@ -159,7 +159,7 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 176. Arena, output, generation, temporary-buffer and
+          from zero through 184. Arena, output, generation, temporary-buffer and
           source callback pointers and generation activity are immutable. Output
           counters occupy offsets 88, 96 and 104; generation counters occupy 120
           and 128. *)
@@ -247,7 +247,9 @@ val size : instruction -> int
     immediate, branch or private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
-(** Encode one instruction into a fresh string using the pinned opcode facts. *)
+(** Build checked [Asm.Encoding] recipes from the pinned opcode facts and emit
+    them into a fresh string. Private native operand restrictions remain in this
+    adapter. *)
 
 val encode_all :
   max_code_bytes:int -> instruction list -> (string, string) result

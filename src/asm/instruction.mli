@@ -3,6 +3,16 @@ type error = { operand_index : int option; message : string }
 
 type warning = Unspecified_size
 
+type numeric_field = private {
+  bytes : int;
+  operand_index : int option;
+  relative : bool;
+  address : bool;
+}
+(** A missing [operand_index] denotes the source routine's implicit zero.
+    [address] distinguishes an absolute address from a base displacement.
+    [relative] fields contain targets and require a position before emission. *)
+
 type selection = private {
   opcode : Opcode.resolved;
   mode : Operand.mode;
@@ -35,3 +45,19 @@ val select :
     Relative range checks still require the eventual instruction position. *)
 
 val warning_message : warning -> string
+
+val select_form :
+  mode:Operand.mode ->
+  opcode:Opcode.resolved ->
+  operands:Operand.t list ->
+  entry_index:int ->
+  (selection, error) result
+(** Selects one original form by its opcode-local index after the same operand
+    count, argument-mask and mode checks as [select]. The form is retrieved from
+    the pinned opcode database. This explicit path does not search alternative
+    forms or inherit the last candidate's emission state. *)
+
+val numeric_fields : selection -> numeric_field option * numeric_field option
+(** Returns the selected displacement and immediate descriptions, in emission
+    order. Their operand ownership follows [PrsAsmInst], including implicit zero
+    displacements and the source's single-argument and SIB distinctions. *)

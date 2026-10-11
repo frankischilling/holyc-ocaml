@@ -1,4 +1,15 @@
 (test
+ (name test_assembly_encoder_cli)
+ (modules test_assembly_encoder_cli)
+ (libraries unix yojson)
+ (deps ../examples/assembly-encoding.asm)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/assembly-encoding.asm})))
+
+(test
  (name test_assembly_operations_cli)
  (modules test_assembly_operations_cli)
  (libraries unix yojson)
@@ -478,6 +489,9 @@
   test_main
   test_asm_instruction_forms
   test_assembly_operations
+  test_assembly_encoder
+  test_assembly_encoding_api
+  test_shared_native_encoder
   test_conditional_recovery
   test_retained_aggregates
   test_retained_named_aggregate
@@ -739,6 +753,7 @@
   qcheck-alcotest)
  (deps
   ../third_party/TempleOS/Compiler/OpCodes.DD
+  fixtures/assembly-encoder-forms.tsv
   ../third_party/TempleOS/Compiler/CInit.HC
   ../third_party/TempleOS/Compiler/CExts.HC
   ../third_party/TempleOS/Compiler/CExcept.HC
