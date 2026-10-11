@@ -60,6 +60,7 @@ type entry = {
   variable_call_shape : function_call_shape option option;
   alias_original : entry option;
   definition_payload : Definition.t option;
+  assembly_import : bool;
 }
 
 let id entry = entry.id
@@ -72,6 +73,7 @@ let function_address_flags entry = entry.function_address_flags
 let variable_call_shape entry = entry.variable_call_shape
 let function_alias_original entry = entry.alias_original
 let definition_payload entry = entry.definition_payload
+let is_assembly_import entry = entry.assembly_import
 
 let kind_name = function
   | Export_system_symbol -> "export-system-symbol"
@@ -241,7 +243,8 @@ module Environment = struct
 
   let add_entry ?(origin = Session_registration) ?function_call_shape
       ?function_address_flags ?variable_call_shape ?alias_original
-      ?public_primitive ?definition_payload environment ~name ~kind () =
+      ?public_primitive ?definition_payload ?(assembly_import = false)
+      environment ~name ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
     if Option.is_some function_call_shape && kind <> Function then
       invalid_arg "only function symbols may carry a function call shape";
@@ -264,6 +267,7 @@ module Environment = struct
         variable_call_shape;
         alias_original;
         definition_payload;
+        assembly_import;
       }
     in
     environment.store.next_entry_id <- environment.store.next_entry_id + 1;
@@ -280,6 +284,40 @@ module Environment = struct
       ?variable_call_shape environment ~name ~kind () =
     add_entry ?origin ?function_call_shape ?function_address_flags
       ?variable_call_shape environment ~name ~kind ()
+
+  let add_assembly_import environment ~name ~origin =
+    add_entry ~origin ~assembly_import:true environment ~name
+      ~kind:Export_system_symbol ()
+
+  let with_assembly_import_scope environment run =
+    let first_entry_id = environment.store.next_entry_id in
+    let temporary (entry : entry) =
+      entry.assembly_import && entry.id >= first_entry_id
+      && same_owner environment.owner entry.owner
+    in
+    Fun.protect run ~finally:(fun () ->
+        let names =
+          List.fold_left
+            (fun names entry ->
+              if temporary entry then String_set.add entry.name names else names)
+            String_set.empty environment.store.entries_rev
+        in
+        if not (String_set.is_empty names) then (
+          environment.store.entries_rev <-
+            List.filter
+              (fun entry -> not (temporary entry))
+              environment.store.entries_rev;
+          String_set.iter
+            (fun name ->
+              let entries =
+                Hashtbl.find environment.store.entries_by_name name
+                |> List.filter (fun entry -> not (temporary entry))
+              in
+              if entries = [] then
+                Hashtbl.remove environment.store.entries_by_name name
+              else
+                Hashtbl.replace environment.store.entries_by_name name entries)
+            names))
 
   let function_address_flags environment entry =
     if

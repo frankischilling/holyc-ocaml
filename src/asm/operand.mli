@@ -1,10 +1,12 @@
 type mode = Use16 | Use32 | Use64
 
 (** Tokens retain the source lookup category. [Symbol] denotes an export or
-    unresolved label; [Value_symbol] denotes a visible value; [Type_name]
-    denotes a visible class or internal type. [Function_call.parameters] records
-    whether each fixed parameter has a default. [Function_symbol] has no
-    available parameter shape and therefore requires parentheses.
+    unresolved label; [Import_symbol] preserves an assembler import even when
+    its spelling is also a query keyword, and contributes no absolute-address
+    count. [Value_symbol] denotes a visible value; [Type_name] denotes a visible
+    class or internal type. [Function_call.parameters] records whether each
+    fixed parameter has a default. [Function_symbol] has no available parameter
+    shape and therefore requires parentheses.
     [Variable_symbol.parameters = None] proves a variable is not callable;
     [Some parameters] supplies its function-pointer call shape.
     [Address_symbol.absolute] records a known absolute-address category, or
@@ -25,6 +27,7 @@ type token =
   | Expression_open_bracket
   | Expression_close_bracket
   | Symbol of string
+  | Import_symbol of string
   | Value_symbol of string
   | Address_symbol of { name : string; absolute : bool option }
   | Variable_symbol of {
@@ -65,6 +68,12 @@ val scale : t -> int64
 val indirect : t -> bool
 val just_segment : t -> bool
 val immediate : t -> immediate option
+
+val resolve_immediate : value:int64 -> absolute:bool -> t -> t
+(** Retain the parsed source expression and addressing path while supplying its
+    resolved word and address category. Direct expressions apply the original
+    absolute-address width rule from their explicit prefix and relative role. *)
+
 val unresolved : t -> bool
 val immediate_present : t -> bool
 val parse : mode:mode -> relative:bool -> token list -> (t, error) result

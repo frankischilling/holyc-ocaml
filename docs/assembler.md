@@ -30,16 +30,22 @@ mode, matching-form count and warnings. The standalone JSON schema is
 `items` of each assembly block. Source-line groups remain available for display.
 
 The ordinary command checks assembly syntax and selects instruction forms.
-`--emit` also produces bytes when every operand value and address category is
-known. It accepts instructions, USE mode changes and separators; its optional
-`--output` path receives the raw byte string. The
-[instruction encoding guide](instruction-encoder.md) describes positions,
-output limits, reports and checked operand boundaries.
+`--emit` processes instructions and directives in source order. It writes
+data and binary-file bytes, applies alignment, and records origin, listing,
+label and import metadata. The optional `--output` path receives the complete
+raw byte string after preflight. The [instruction encoding
+guide](instruction-encoder.md) covers checked instruction fields;
+[assembler directives](assembly-directives.md) covers data, files and ordered
+output metadata.
 
-Symbolic expressions keep their original tokens and remain explicitly
-unresolved. Their forms and byte counts stay provisional until expression
-evaluation and layout. Data and file directives, symbol relocation,
-disassembly and execution remain under issues #713 through #716.
+The parsed source keeps symbolic expressions and their original selections.
+Emission evaluates closed instruction expressions at the current raw position
+before selecting the form and reserving its bytes. Same-unit forward labels
+can fill a reserved instruction when its selected form and size remain valid.
+The report retains the actual encoded selection separately from the parsed
+operation. General label/import fixups and branch layout remain under #714.
+Live compiler expressions, source assembly loading and execution remain under
+#715; disassembly remains under #716.
 
 ## Operation boundaries and source identity
 
@@ -61,9 +67,11 @@ example, the original dialect uses `RET1 8` and `IMUL2 RAX,10`.
 Blocks and standalone streams retain ordinary `name:`, exported `name::` and
 local `@@name:` labels at their actual operation positions. Function label
 collection consumes these ordered items, so a label after an instruction on the
-same line remains visible to language `goto` resolution. Output addresses,
-repeated-definition equality and local assembler fixup scopes remain part of
-the layout work in #174 and #714.
+same line remains visible to language `goto` resolution. Standalone emission
+records label positions and accepts repeated definitions at the same position.
+A newly defined exported label starts a local `@@` scope. These same-unit
+records do not provide external linkage or general branch layout under #714,
+or function-assembly address validation under #174.
 
 Every item and operand retains its source span, component spans, include source,
 definition site and expansion site. Classification does not replace a source
@@ -108,7 +116,7 @@ produce diagnostics.
 
 The checked emitter rejects a scale that cannot be represented by the source's
 SIB bits. It also checks register families, REX/high-byte interactions and
-integer data widths before producing bytes. These emission checks preserve
+integer operand widths before producing instruction bytes. These checks preserve
 the original parsed operands and their form-selection metadata.
 
 Expressions retain the compiler's source grammar and operator precedence.
@@ -176,13 +184,54 @@ postfix `DUP`, `BINFILE`, `LIST`, `NOLIST` and the three `USE` directives.
 `PrsAsmBlk`. `DUP` cannot start an operation.
 
 The parser records directive arguments and separators without reading a
-`BINFILE` path or publishing imported symbols. USE directives change parser
-mode; data emission and output-position changes belong to #713 and #714.
+`BINFILE` path. `IMPORT` publishes unresolved external names in source
+lookup, and USE directives change parser mode. `Assembly_encoding.encode`
+consumes the retained items for standalone emission, using their original
+expression boundaries and source locations.
+
+Reading an unresolved assembler import as an ordinary HolyC value produces
+`HCPARSE0180`, following `Compiler/PrsExp.HC:837-839`. Assembly expressions
+retain the selected import for deferred linkage.
+
+`DU8`, `DU16`, `DU32` and `DU64` store the low bytes of a scalar in
+little-endian order. Quoted strings contribute their exact bytes at every
+width, with no implicit terminator or padding. `count DUP(value)` repeats
+one scalar word; counts at or below zero emit nothing but still require a
+valid value. Closed scalar expressions, same-unit data labels and `$$` use
+the original numeric rules. Instruction operands retain checked field ranges.
+
+`ORG` records an origin at raw position zero without adding a hole or
+relocating the returned bytes. `$$` observes the current raw coordinate.
+Absolute-address occurrence parity produces `AAT_ADD_U*` relocation records
+for affected fields. Imports remain ordered declarations; using an imported
+value requires the linkage and fixup work in #714. `LIST` and `NOLIST`
+control the listing flag on subsequent output ranges.
 
 `ALIGN` checks the original signed `I64` value. Positive JIT alignments are
 limited to 8; the single high-bit value also passes the source's power-of-two
-and signed-limit checks. The parser preserves that syntax without advancing
-an output position.
+and signed-limit checks. Emission fills to the next boundary of the raw
+coordinate and records `max_align_bits`. The high-bit boundary records 63
+and follows the original signed loop's zero-fill behavior.
+
+`BINFILE` requires an explicit preprocessing configuration in the library
+API. It resolves regular files within the working directory, include roots
+and TempleOS root mapping. Raw bytes and supported `.Z` archives retain
+resolved/display paths, raw and decoded sizes, SHA-256 hashes and compression
+kind. Malformed archives produce a diagnostic. Their bytes never become a
+raw fallback. The detailed [binary input rules](assembly-directives.md#binary-files-and-inserted-binary-tokens)
+describe default extensions and compressed-file selection.
+
+Ordered `entries` report each item's raw coordinate, byte range, listing
+state and source location. The report also includes `origin`, `imports`, `symbols`, `relocations`
+and `binary_inputs`. `--directive-work-limit` bounds item, expression-token
+and emitted-byte work; `--binary-input-byte-limit` bounds cumulative raw
+binary input. Repeated file directives count their input again. Included
+output must fit the remaining output and work allowances before expansion.
+
+Saved DolDoc `$IS` tokens retain their integer size and source record
+metadata. `$IB` yields a compiler-owned pointer and remains under #715;
+it does not act as a data string. The intact DolDoc oracle requirement in
+#375 remains separate from hosted synthetic-token and archive tests.
 
 ## Checked opcode database
 
@@ -222,6 +271,7 @@ The public command uses the shared parser diagnostics:
 | HCPARSE0177 | Invalid operation start, conflicting label identity or unexpected standalone closing brace |
 | HCPARSE0178 | A local `@@label` cannot use the exported `::` delimiter |
 | HCPARSE0179 | Invalid ALIGN power, JIT alignment limit or missing fill separator |
+| HCPARSE0180 | An ordinary HolyC expression reads an unresolved assembler import |
 
 Byte emission adds these diagnostics:
 
@@ -230,9 +280,11 @@ Byte emission adds these diagnostics:
 | HCASM0001 | An operand, field value or address shape cannot be emitted |
 | HCASM0002 | The requested or aggregate output exceeds the byte limit |
 | HCASM0003 | The output position is negative or outside the signed 64-bit range |
-| HCASM0004 | An item requires directive execution or symbol layout |
+| HCASM0004 | Unsupported scalar evaluation, invalid directive context, or a value requiring source compilation, linkage or another layout pass |
 | HCASM0005 | Operation, operand, mode or directive metadata does not belong to the retained selection |
 | HCASM0006 | The raw output file could not be written |
+| HCASM0007 | The directive work allowance is invalid or exhausted |
+| HCASM0008 | Invalid binary-input allowance, missing BINFILE root authority, or a file-resolution, reading, size or decompression failure |
 
 The tests use original Compiler, Kernel and Demo instruction patterns, cover
 all three modes, check aliases and x87 operands, and distinguish source quirks
@@ -240,6 +292,14 @@ from malformed syntax. Public parser and command fixtures check ordered items,
 deterministic dumps, same-line labels, include and macro provenance, and
 source-expansion limits. Exact expected masks and form choices are derived from
 the pinned source.
+
+`test/test_assembly_directives.ml` covers ordered directive behavior and
+source metadata. `test/test_assembly_binary.ml` checks independent archive
+packets, malformed inputs, exact limits and file-root boundaries. Public
+checks in `test/test_assembly_directives_cli.ml` compare reported bytes with
+the output file and check that a failed emission preserves an existing file.
+These tests cover the standalone unrelocated output contract; they do not
+establish TempleOS loader acceptance or a fresh runtime capture.
 
 The byte inventory in `test/fixtures/assembly-encoder-forms.tsv` includes all
 924 original records. It fixes expected bytes for 923 nonempty forms and

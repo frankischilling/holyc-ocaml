@@ -1,176 +1,4 @@
-module Ast = Frontend.Ast
-module Encoder = Asm.Encoder
-
-type instruction = {
-  item_index : int;
-  operation : Ast.inline_assembly_operation;
-  position : int64;
-  offset : int;
-  size : int;
-}
-
-type t = {
-  assembly : Ast.assembly_unit;
-  bytes : string;
-  position : int64;
-  end_position : int64;
-  instructions : instruction list;
-}
-
-let diagnostic ~code (location : Ast.location) message =
-  let related message span = Common.Diagnostic.{ span; message } in
-  let secondary =
-    Option.to_list
-      (Option.map (related "expanded from here") location.generated_from)
-    @ Option.to_list (Option.map (related "defined here") location.defined_at)
-  in
-  Common.Diagnostic.make ~code ~severity:Common.Diagnostic.Error ~message
-    ~primary:location.span ~secondary ()
-
-let operation_matches_selection (operation : Ast.inline_assembly_operation) =
-  let selection = operation.inline_assembly_selection in
-  let opcode = operation.inline_assembly_opcode in
-  operation.inline_assembly_mode = selection.mode
-  && opcode.assembly_source_token.raw
-     = Asm.Opcode.resolved_source_spelling selection.opcode
-  && (match opcode.assembly_token_kind with
-    | Ast.Assembly_opcode_token { canonical_spelling; source_is_alias } ->
-        canonical_spelling
-        = Asm.Opcode.spelling (Asm.Opcode.resolved_opcode selection.opcode)
-        && source_is_alias = Asm.Opcode.resolved_is_alias selection.opcode
-    | _ -> false)
-  && List.length operation.inline_assembly_operands
-     = List.length selection.operands
-  && List.for_all2
-       (fun (operand : Ast.inline_assembly_operand) selected ->
-         operand.inline_assembly_operand == selected)
-       operation.inline_assembly_operands selection.operands
-
-let use_directive_matches (directive : Ast.inline_assembly_directive) bits =
-  let token = directive.inline_assembly_directive_token in
-  let spelling = Printf.sprintf "USE%d" bits in
-  token.assembly_source_token.raw = spelling
-  && directive.inline_assembly_directive_arguments = []
-  && directive.inline_assembly_directive_type_definitions = []
-  &&
-  match (token.assembly_token_kind, Asm.Directive.find spelling) with
-  | Ast.Assembly_directive_token { templeos_id }, Some original ->
-      templeos_id = Asm.Directive.templeos_id original
-  | _ -> false
-
-let encode ?(position = 0L) ~max_code_bytes (assembly : Ast.assembly_unit) =
-  let reject ?(code = "HCASM0001") location message =
-    Error (diagnostic ~code location message)
-  in
-  let root = assembly.assembly_unit_location in
-  if max_code_bytes <= 0 || max_code_bytes > Encoder.max_code_bytes then
-    reject ~code:"HCASM0002" root
-      (Printf.sprintf "assembly code byte limit must be between 1 and %d"
-         Encoder.max_code_bytes)
-  else if position < 0L then
-    reject ~code:"HCASM0003" root
-      "assembly output position must be a nonnegative signed 64-bit value"
-  else
-    let rec prepare item_index offset current mode reversed_plans
-        reversed_entries = function
-      | [] -> (
-          let plans = List.rev reversed_plans in
-          if mode <> assembly.assembly_unit_final_mode then
-            reject ~code:"HCASM0005" root
-              "assembly final mode does not match its ordered operations"
-          else
-            match Encoder.encode_all ~max_bytes:max_code_bytes plans with
-            | Error error -> reject root error.message
-            | Ok bytes ->
-                Ok
-                  {
-                    assembly;
-                    bytes;
-                    position;
-                    end_position = current;
-                    instructions = List.rev reversed_entries;
-                  })
-      | Ast.Inline_assembly_empty _ :: rest ->
-          prepare (item_index + 1) offset current mode reversed_plans
-            reversed_entries rest
-      | Ast.Inline_assembly_directive directive :: rest -> (
-          match directive.inline_assembly_directive_kind with
-          | Ast.Inline_assembly_use_directive { segment_width_bits } -> (
-              let mode =
-                match segment_width_bits with
-                | 16 -> Some Asm.Operand.Use16
-                | 32 -> Some Asm.Operand.Use32
-                | 64 -> Some Asm.Operand.Use64
-                | _ -> None
-              in
-              match mode with
-              | Some _
-                when not (use_directive_matches directive segment_width_bits) ->
-                  reject ~code:"HCASM0005"
-                    directive.inline_assembly_directive_location
-                    "assembly USE directive does not own its mode token"
-              | Some mode ->
-                  prepare (item_index + 1) offset current mode reversed_plans
-                    reversed_entries rest
-              | None ->
-                  reject ~code:"HCASM0005"
-                    directive.inline_assembly_directive_location
-                    "assembly USE directive has an invalid mode")
-          | _ ->
-              reject ~code:"HCASM0004"
-                directive.inline_assembly_directive_location
-                "this assembly directive requires directive execution or layout"
-          )
-      | Ast.Inline_assembly_label label :: _ ->
-          reject ~code:"HCASM0004" label.assembly_label_location
-            "assembly labels require label layout and fixup resolution"
-      | Ast.Inline_assembly_instruction operation :: rest -> (
-          let location = operation.inline_assembly_operation_location in
-          if
-            operation.inline_assembly_mode <> mode
-            || not (operation_matches_selection operation)
-          then
-            reject ~code:"HCASM0005" location
-              "assembly operation does not own its selected opcode and operands"
-          else
-            let selection = operation.inline_assembly_selection in
-            if selection.encoded_bytes > max_code_bytes - offset then
-              reject ~code:"HCASM0002" location
-                "assembly instruction sequence exceeds its code byte limit"
-            else if
-              current
-              > Int64.sub Int64.max_int (Int64.of_int selection.encoded_bytes)
-            then
-              reject ~code:"HCASM0003" location
-                "assembly output position exceeds the signed 64-bit range"
-            else
-              match Encoder.plan ~position:current selection with
-              | Error error ->
-                  let location =
-                    match error.operand_index with
-                    | Some index -> (
-                        match
-                          List.nth_opt operation.inline_assembly_operands index
-                        with
-                        | Some operand ->
-                            operand.inline_assembly_operand_location
-                        | None -> location)
-                    | None -> location
-                  in
-                  reject location error.message
-              | Ok plan ->
-                  let size = Encoder.size plan in
-                  let entry =
-                    { item_index; operation; position = current; offset; size }
-                  in
-                  prepare (item_index + 1) (offset + size)
-                    (Int64.add current (Int64.of_int size))
-                    mode (plan :: reversed_plans)
-                    (entry :: reversed_entries)
-                    rest)
-    in
-    prepare 0 0 position assembly.assembly_unit_initial_mode [] []
-      assembly.assembly_unit_items
+include Assembly_directives
 
 let schema = "holyc-assembly-encoding-v1"
 
@@ -184,9 +12,37 @@ let hex bytes =
 
 let address position = Printf.sprintf "0x%016Lx" position
 
+let compression_name = function
+  | Frontend.Assembly_binary.Raw -> "raw"
+  | Frontend.Assembly_binary.Ct_none -> "CT_NONE"
+  | Frontend.Assembly_binary.Ct_7_bit -> "CT_7_BIT"
+  | Frontend.Assembly_binary.Ct_8_bit -> "CT_8_BIT"
+
 let to_yojson sources encoded =
+  let location (location : Ast.location) =
+    let span = location.span in
+    let fields =
+      [
+        ("source_id", `Int (Common.Source_id.to_int span.source));
+        ("start", `Int span.start);
+        ("stop", `Int span.stop);
+      ]
+    in
+    match Common.Source_manager.find sources span.source with
+    | None -> `Assoc fields
+    | Some source ->
+        let position =
+          match Common.Source_file.position source span.start with
+          | Error _ -> []
+          | Ok position ->
+              [ ("line", `Int position.line); ("column", `Int position.column) ]
+        in
+        `Assoc
+          ((("path", `String (Common.Source_file.display_path source)) :: fields)
+          @ position)
+  in
   let instruction (entry : instruction) =
-    let selection = entry.operation.inline_assembly_selection in
+    let selection = entry.selection in
     `Assoc
       [
         ("item_index", `Int entry.item_index);
@@ -202,6 +58,60 @@ let to_yojson sources encoded =
         ("form_source_line", `Int selection.form.source_line);
       ]
   in
+  let entry (entry : entry) =
+    `Assoc
+      [
+        ("item_index", `Int entry.item_index);
+        ("kind", `String entry.kind);
+        ("position", `String (address entry.position));
+        ("offset", `Int entry.offset);
+        ("size", `Int entry.size);
+        ("listing", `Bool entry.listing);
+        ("location", location entry.location);
+        ( "bytes",
+          `String (hex (String.sub encoded.bytes entry.offset entry.size)) );
+      ]
+  in
+  let symbol (symbol : symbol) =
+    `Assoc
+      [
+        ("name", `String symbol.name);
+        ( "scope",
+          Option.fold ~none:`Null
+            ~some:(fun scope -> `String scope)
+            symbol.scope );
+        ("exported", `Bool symbol.exported);
+        ("position", `String (address symbol.position));
+        ("item_index", `Int symbol.item_index);
+      ]
+  in
+  let relocation (relocation : relocation) =
+    `Assoc
+      [
+        ("offset", `Int relocation.offset);
+        ("width", `Int relocation.width);
+        ("kind", `String relocation.kind);
+        ( "symbol",
+          Option.fold ~none:`Null
+            ~some:(fun name -> `String name)
+            relocation.symbol );
+      ]
+  in
+  let binary_input (input : binary_input) =
+    let value = input.provenance in
+    `Assoc
+      [
+        ("item_index", `Int input.item_index);
+        ("spelling", `String value.spelling);
+        ("resolved_path", `String value.resolved_path);
+        ("display_path", `String value.display_path);
+        ("raw_size", `Int value.raw_size);
+        ("decoded_size", `Int value.decoded_size);
+        ("raw_sha256", `String value.raw_sha256);
+        ("decoded_sha256", `String value.decoded_sha256);
+        ("compression", `String (compression_name value.compression));
+      ]
+  in
   `Assoc
     [
       ("schema", `String schema);
@@ -212,6 +122,18 @@ let to_yojson sources encoded =
       ("code_size", `Int (String.length encoded.bytes));
       ("bytes", `String (hex encoded.bytes));
       ("instructions", `List (List.map instruction encoded.instructions));
+      ("entries", `List (List.map entry encoded.entries));
+      ( "origin",
+        Option.fold ~none:`Null
+          ~some:(fun origin -> `String (address origin))
+          encoded.origin );
+      ("max_align_bits", `Int encoded.max_align_bits);
+      ("imports", `List (List.map (fun name -> `String name) encoded.imports));
+      ("symbols", `List (List.map symbol encoded.symbols));
+      ("relocations", `List (List.map relocation encoded.relocations));
+      ("binary_inputs", `List (List.map binary_input encoded.binary_inputs));
+      ("work", `Int encoded.work);
+      ("input_bytes", `Int encoded.input_bytes);
       ("assembly", Frontend.Ast_dump.assembly_to_yojson sources encoded.assembly);
     ]
 
@@ -222,14 +144,31 @@ let human encoded =
     Generated.Opcode_keywords.reference_commit (address encoded.position)
     (address encoded.end_position)
     (String.length encoded.bytes);
+  let instructions = ref encoded.instructions in
   List.iter
-    (fun (entry : instruction) ->
-      let selection = entry.operation.inline_assembly_selection in
-      Printf.bprintf buffer "%s  %-30s  %s USE%d OpCodes.DD:%d\n"
-        (address entry.position)
-        (hex (String.sub encoded.bytes entry.offset entry.size))
-        (Asm.Opcode.resolved_source_spelling selection.opcode)
-        (Asm.Operand.mode_bits selection.mode)
-        selection.form.source_line)
-    encoded.instructions;
+    (fun (entry : entry) ->
+      match !instructions with
+      | (instruction : instruction) :: rest
+        when instruction.item_index = entry.item_index ->
+          instructions := rest;
+          let selection = instruction.selection in
+          Printf.bprintf buffer "%s  %-30s  %s USE%d OpCodes.DD:%d listing=%b\n"
+            (address entry.position)
+            (hex (String.sub encoded.bytes entry.offset entry.size))
+            (Asm.Opcode.resolved_source_spelling selection.opcode)
+            (Asm.Operand.mode_bits selection.mode)
+            selection.form.source_line entry.listing
+      | _ ->
+          Printf.bprintf buffer "%s  %s bytes=%d offset=%d listing=%b\n"
+            (address entry.position) entry.kind entry.size entry.offset
+            entry.listing)
+    encoded.entries;
+  Option.iter
+    (fun origin ->
+      Printf.bprintf buffer "origin %s (unrelocated image)\n" (address origin))
+    encoded.origin;
+  Printf.bprintf buffer
+    "directive-work %d\nbinary-input-bytes %d\nrelocations %d\n" encoded.work
+    encoded.input_bytes
+    (List.length encoded.relocations);
   Buffer.contents buffer

@@ -613,6 +613,7 @@ type assembly_token_kind =
 type assembly_token = {
   assembly_token_kind : assembly_token_kind;
   assembly_source_token : Token.t;
+  assembly_token_primitive : Common.Primitive_type.t option;
   assembly_token_location : location;
 }
 
@@ -675,6 +676,8 @@ type inline_assembly_directive = {
   inline_assembly_directive_kind : inline_assembly_directive_kind;
   inline_assembly_directive_token : assembly_token;
   inline_assembly_directive_arguments : assembly_token list;
+  inline_assembly_directive_expressions :
+    (assembly_token list * Asm.Operand.t) list;
   inline_assembly_directive_type_definitions : aggregate_definition list;
   inline_assembly_directive_separators : location list;
   inline_assembly_directive_semicolon : location option;
@@ -1507,12 +1510,18 @@ let make_local_declaration ~storage ~modifiers ~type_specifier ~declarators
     local_declaration_location = location;
   }
 
-let make_assembly_token ~kind ~source_token ~location =
+let make_assembly_token_with_primitive ~primitive ~kind ~source_token ~location
+    =
   {
     assembly_token_kind = kind;
     assembly_source_token = source_token;
+    assembly_token_primitive = primitive;
     assembly_token_location = location;
   }
+
+let make_assembly_token ~kind ~source_token ~location =
+  make_assembly_token_with_primitive ~primitive:None ~kind ~source_token
+    ~location
 
 let make_assembly_label ~kind ~name ~delimiter_spelling ~delimiter ~location =
   {
@@ -1566,17 +1575,23 @@ let make_inline_assembly_operation ~opcode ~mode ~selection ~operands ~separator
     inline_assembly_operation_location = location;
   }
 
-let make_inline_assembly_directive ~kind ~directive ~arguments ~type_definitions
-    ~separators ~semicolon ~location =
+let make_inline_assembly_directive_with_expressions ~expressions ~kind
+    ~directive ~arguments ~type_definitions ~separators ~semicolon ~location =
   {
     inline_assembly_directive_kind = kind;
     inline_assembly_directive_token = directive;
     inline_assembly_directive_arguments = arguments;
+    inline_assembly_directive_expressions = expressions;
     inline_assembly_directive_type_definitions = type_definitions;
     inline_assembly_directive_separators = separators;
     inline_assembly_directive_semicolon = semicolon;
     inline_assembly_directive_location = location;
   }
+
+let make_inline_assembly_directive ~kind ~directive ~arguments ~type_definitions
+    ~separators ~semicolon ~location =
+  make_inline_assembly_directive_with_expressions ~expressions:[] ~kind
+    ~directive ~arguments ~type_definitions ~separators ~semicolon ~location
 
 let make_inline_assembly_statement ~items ~location =
   { inline_assembly_items = items; inline_assembly_location = location }

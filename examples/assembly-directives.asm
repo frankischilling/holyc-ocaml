@@ -1,0 +1,17 @@
+// Mixed directive output. ALIGN uses the raw offset even with this origin.
+ORG 0x1003;
+IMPORT ExternalAddress;
+NOLIST;
+DU8 0x123,-1,"A\0B";
+ALIGN 8,0x190;
+LIST;
+USE16;
+MOV AX,0x1234;
+USE32;
+MOV EAX,0x12345678;
+USE64;
+DU16 0x1234,2 DUP(0xCAFE),"";
+DU32 0x12345678;
+DU64 0x1122334455667788;
+DU8 2 DUP(0x5A);
+RET;

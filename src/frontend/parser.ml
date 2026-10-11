@@ -2030,6 +2030,16 @@ let max_aggregate_depth = 256
 let max_initializer_depth = 256
 let max_unbraced_initializer_elements = 1_000_000
 
+let lookup_is_assembly_import = function
+  | Symbol_visibility.Present entry ->
+      Symbol_visibility.is_assembly_import entry
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local -> false
+
+let item_selects_assembly_import item =
+  match item.selection with
+  | Some (_, lookup) -> lookup_is_assembly_import lookup
+  | None -> false
+
 let resolve_assembly_opcode token =
   match token.Token.kind with
   | Token_kind.Identifier -> Asm.Opcode.resolve token.raw
@@ -2166,7 +2176,20 @@ let rec pull cursor =
             ( cursor.symbols,
               Symbol_visibility.Environment.find_preprocessor cursor.symbols
                 token.raw )
-        else None
+        else
+          match token.kind with
+          | Token_kind.Identifier | Token_kind.Keyword _ ->
+              let lookup =
+                Symbol_visibility.Environment.find_preprocessor cursor.symbols
+                  token.raw
+              in
+              (* CmpJoin restores its hash context without re-lexing the direct
+                 assembly run's boundary token (CMain.HC:148-153). Preserve
+                 imports selected there even in the recovering parser. *)
+              if lookup_is_assembly_import lookup then
+                Some (cursor.symbols, lookup)
+              else None
+          | _ -> None
       in
       let local_selection =
         match selection with
@@ -4122,6 +4145,19 @@ and parse_expression_atom cursor ~parenthesis_phase ~context ~depth :
         : parsed_expression)
   in
   match (item.token.Token.kind, item.token.value) with
+  | (Token_kind.Identifier | Token_kind.Keyword _), _
+    when item_selects_assembly_import item ->
+      let code = "HCPARSE0180" in
+      let message =
+        Printf.sprintf "illegal forward reference to assembly import %S"
+          item.token.raw
+      in
+      (* PrsExp.HC:837-839 rejects unresolved exports outside assembler
+         expressions before consuming the already selected identifier. *)
+      if cursor.stop_on_error then
+        matched_lex_except ?call_phase:cursor.expression_call_phase cursor item
+          ~code ~message;
+      expression_failure cursor item ~code ~message
   | Token_kind.Integer, Token.Int64 value ->
       take_literal (Ast.Integer_value value) (fun literal ->
           Ast.Integer_literal literal)
@@ -9645,6 +9681,17 @@ let classified_assembly_token source_token =
     ~source_token
     ~location:(token_location source_token)
 
+let classified_assembly_item cursor item =
+  let primitive =
+    match primitive_type_of_item cursor item with
+    | Some _ as primitive -> primitive
+    | None -> internal_type_of_item cursor item
+  in
+  Ast.make_assembly_token_with_primitive ~primitive
+    ~kind:(assembly_token_kind item.token)
+    ~source_token:item.token
+    ~location:(token_location item.token)
+
 let resolve_visible_assembly_register cursor token =
   match token.Token.kind with
   | Token_kind.Identifier -> (
@@ -9767,6 +9814,10 @@ let assembly_operand_model_token cursor item =
         Symbol_visibility.Environment.find_preprocessor cursor.symbols token.raw
   in
   match (token.Token.kind, lookup) with
+  | ( (Token_kind.Identifier | Token_kind.Keyword _),
+      Symbol_visibility.Present entry )
+    when Symbol_visibility.is_assembly_import entry ->
+      Asm.Operand.Import_symbol token.raw
   | Token_kind.Identifier, Symbol_visibility.Present entry
     when Symbol_visibility.kind entry = Symbol_visibility.Register -> (
       match Asm.Register.find token.raw with
@@ -9948,6 +9999,14 @@ let parse_assembly_expression_tokens cursor ~owner =
                     let closing = take cursor in
                     postfix depth ~allow_index:true
                       ((opening :: tokens) @ [ closing ]))
+          | Token_kind.Keyword _
+            when match visibility item with
+                 | Symbol_visibility.Present entry ->
+                     Symbol_visibility.is_assembly_import entry
+                 | Symbol_visibility.Absent
+                 | Symbol_visibility.Shadowed_by_local -> false ->
+              let atom = take cursor in
+              postfix depth ~allow_index:false ~callable:false [ atom ]
           | Token_kind.Keyword
               ((Keyword.Sizeof | Keyword.Offset | Keyword.Defined) as kind) ->
               let keyword = take cursor in
@@ -10476,7 +10535,7 @@ let parse_inline_assembly_operand cursor ~mode ~relative opcode_item
   let make_operand ?(overrides = []) ?(type_definitions = []) size_prefix
       segment_prefix items =
     let tokens = List.map (fun item -> item.token) items in
-    let classified_tokens = List.map classified_assembly_token tokens in
+    let classified_tokens = List.map (classified_assembly_item cursor) items in
     match
       Asm.Operand.parse ~mode ~relative
         (assembly_operand_model_tokens ~overrides cursor items)
@@ -10592,6 +10651,7 @@ let parse_assembly_items cursor ~boundary ~mode ~direct =
     else None
   in
   let directive_type_definitions = ref [] in
+  let directive_expressions = ref [] in
   let make_directive directive_item ~kind ~arguments ~separators ~semicolon_item
       =
     let directive_tokens =
@@ -10602,7 +10662,8 @@ let parse_assembly_items cursor ~boundary ~mode ~direct =
       | Some semicolon -> [ semicolon.token ]
     in
     let directive =
-      Ast.make_inline_assembly_directive ~kind
+      Ast.make_inline_assembly_directive_with_expressions ~kind
+        ~expressions:(List.rev !directive_expressions)
         ~directive:(classified_assembly_token directive_item.token)
         ~arguments:(List.map classified_assembly_token arguments)
         ~type_definitions:(List.rev !directive_type_definitions)
@@ -10639,6 +10700,9 @@ let parse_assembly_items cursor ~boundary ~mode ~direct =
               when (not (Asm.Operand.indirect operand))
                    && Option.is_none (Asm.Operand.register1 operand)
                    && Option.is_none (Asm.Operand.segment operand) ->
+                directive_expressions :=
+                  (List.map (classified_assembly_item cursor) items, operand)
+                  :: !directive_expressions;
                 directive_type_definitions :=
                   List.rev_append
                     expression.assembly_expression_type_definitions
@@ -10787,8 +10851,12 @@ let parse_assembly_items cursor ~boundary ~mode ~direct =
             ~arguments:(List.rev arguments_rev)
             ~separators:(List.rev separators_rev)
             ~semicolon_item:(Some semicolon_item)
-      | Token_kind.Identifier ->
+      | Token_kind.Identifier | Token_kind.Keyword _ ->
           let name_item = take cursor in
+          ignore
+            (Symbol_visibility.Environment.add_assembly_import cursor.symbols
+               ~name:name_item.token.raw
+               ~origin:(symbol_source_origin (token_location name_item.token)));
           let arguments_rev = name_item.token :: arguments_rev in
           let comma_item = peek cursor in
           if comma_item.token.kind = Token_kind.Punctuation ',' then
@@ -10957,6 +11025,7 @@ let parse_assembly_items cursor ~boundary ~mode ~direct =
   in
   let parse_directive item directive =
     directive_type_definitions := [];
+    directive_expressions := [];
     match direct_inline_assembly_directive_form directive with
     | (Direct_inline_org | Direct_inline_align) as form ->
         if Option.is_some cursor.local_context then (
@@ -11075,7 +11144,10 @@ let parse_assembly_items cursor ~boundary ~mode ~direct =
     match lookup with
     | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local -> true
     | Symbol_visibility.Present entry ->
-        if Symbol_visibility.kind entry = Symbol_visibility.Export_system_symbol
+        if
+          Symbol_visibility.kind entry = Symbol_visibility.Export_system_symbol
+          && ((not (Symbol_visibility.is_assembly_import entry))
+             || String.starts_with ~prefix:"@@" item.token.raw)
         then true
         else (
           report cursor item ~code:"HCPARSE0177"
@@ -11083,6 +11155,7 @@ let parse_assembly_items cursor ~boundary ~mode ~direct =
               (if
                  Symbol_visibility.kind entry
                  = Symbol_visibility.Import_system_symbol
+                 || Symbol_visibility.is_assembly_import entry
                then "an imported symbol cannot be defined as an assembly label"
                else
                  Printf.sprintf "%S is a visible %s, not an assembly label"
@@ -11166,72 +11239,87 @@ let parse_assembly_items cursor ~boundary ~mode ~direct =
   in
   collect [] []
 
+let with_assembly_compilation_imports cursor run =
+  (* PrsStmt.HC:944-958,1170-1173 enters CmpJoin for function assembly and
+     top-level JIT blocks. Its child hash tables expire at CMain.HC:148-153. *)
+  match (cursor.local_context, cursor.compilation_mode) with
+  | None, Preprocessor.Aot -> run ()
+  | Some _, _ | None, Preprocessor.Jit ->
+      Symbol_visibility.Environment.with_assembly_import_scope cursor.symbols
+        run
+
 let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
-  let first_item = peek cursor in
-  if Option.is_none cursor.local_context then (
-    report cursor first_item ~code:"HCPARSE0147"
-      ~message:
-        (Printf.sprintf
-           "inline assembly item %S requires a function body; use an 'asm { \
-            ... }' block at top level"
-           first_item.token.raw);
-    recover_statement cursor ~boundary;
-    None)
-  else
-    Option.map
-      (fun (items, tokens, _) ->
-        let statement =
-          Ast.make_inline_assembly_statement ~items
-            ~location:(location_from_expression_tokens tokens)
-        in
-        ({ node = Ast.Inline_assembly_statement statement; tokens }
-          : parsed_statement))
-      (parse_assembly_items cursor ~boundary ~mode:Asm.Operand.Use64
-         ~direct:true)
+  with_assembly_compilation_imports cursor (fun () ->
+      let first_item = peek cursor in
+      if Option.is_none cursor.local_context then (
+        report cursor first_item ~code:"HCPARSE0147"
+          ~message:
+            (Printf.sprintf
+               "inline assembly item %S requires a function body; use an 'asm \
+                { ... }' block at top level"
+               first_item.token.raw);
+        recover_statement cursor ~boundary;
+        None)
+      else
+        Option.map
+          (fun (items, tokens, _) ->
+            let statement =
+              Ast.make_inline_assembly_statement ~items
+                ~location:(location_from_expression_tokens tokens)
+            in
+            ({ node = Ast.Inline_assembly_statement statement; tokens }
+              : parsed_statement))
+          (parse_assembly_items cursor ~boundary ~mode:Asm.Operand.Use64
+             ~direct:true))
 
 let parse_assembly_block_statement cursor ~boundary : parsed_statement option =
-  let keyword_item = take cursor in
-  let opening_item = peek cursor in
-  if opening_item.token.kind <> Token_kind.Punctuation '{' then (
-    report cursor opening_item ~code:"HCPARSE0145"
-      ~message:
-        (Printf.sprintf "expected '{' after 'asm', but found %s"
-           (token_description opening_item.token));
-    recover_statement cursor ~boundary;
-    None)
-  else
-    let opening_item = take cursor in
-    Option.bind
-      (parse_assembly_items cursor ~boundary:Block_boundary
-         ~mode:Asm.Operand.Use64 ~direct:false) (fun (items, body_tokens, _) ->
-        let closing_item = peek cursor in
-        if closing_item.token.kind <> Token_kind.Punctuation '}' then (
-          report cursor closing_item ~code:"HCPARSE0146"
-            ~message:"expected '}' to close the assembly block";
-          None)
-        else
-          let closing_item = take cursor in
-          let tokens =
-            (keyword_item.token :: opening_item.token :: body_tokens)
-            @ [ closing_item.token ]
-          in
-          let statement =
-            Ast.make_assembly_block_statement
-              ~keyword:(token_location keyword_item.token)
-              ~opening_brace:(token_location opening_item.token)
-              ~lines:(assembly_lines cursor body_tokens)
-              ~items
-              ~closing_brace:(token_location closing_item.token)
-              ~location:(location_from_expression_tokens tokens)
-          in
-          Some
-            ({ node = Ast.Assembly_block_statement statement; tokens }
-              : parsed_statement))
+  with_assembly_compilation_imports cursor (fun () ->
+      let keyword_item = take cursor in
+      let opening_item = peek cursor in
+      if opening_item.token.kind <> Token_kind.Punctuation '{' then (
+        report cursor opening_item ~code:"HCPARSE0145"
+          ~message:
+            (Printf.sprintf "expected '{' after 'asm', but found %s"
+               (token_description opening_item.token));
+        recover_statement cursor ~boundary;
+        None)
+      else
+        let opening_item = take cursor in
+        Option.bind
+          (parse_assembly_items cursor ~boundary:Block_boundary
+             ~mode:Asm.Operand.Use64 ~direct:false)
+          (fun (items, body_tokens, _) ->
+            let closing_item = peek cursor in
+            if closing_item.token.kind <> Token_kind.Punctuation '}' then (
+              report cursor closing_item ~code:"HCPARSE0146"
+                ~message:"expected '}' to close the assembly block";
+              None)
+            else
+              let closing_item = take cursor in
+              let tokens =
+                (keyword_item.token :: opening_item.token :: body_tokens)
+                @ [ closing_item.token ]
+              in
+              let statement =
+                Ast.make_assembly_block_statement
+                  ~keyword:(token_location keyword_item.token)
+                  ~opening_brace:(token_location opening_item.token)
+                  ~lines:(assembly_lines cursor body_tokens)
+                  ~items
+                  ~closing_brace:(token_location closing_item.token)
+                  ~location:(location_from_expression_tokens tokens)
+              in
+              Some
+                ({ node = Ast.Assembly_block_statement statement; tokens }
+                  : parsed_statement)))
 
 let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
+  | (Token_kind.Identifier | Token_kind.Keyword _)
+    when item_selects_assembly_import item ->
+      parse_expression_statement cursor ~boundary
   | (Token_kind.Identifier | Token_kind.Keyword _)
     when starts_aggregate_declaration cursor ->
       parse_aggregate_statement cursor ~boundary
@@ -12707,6 +12795,8 @@ let read_command cursor =
         Ast.Top_level_statement statement.node)
   in
   match item.token.Token.kind with
+  | (Token_kind.Identifier | Token_kind.Keyword _)
+    when item_selects_assembly_import item -> statement ()
   | Token_kind.Identifier
     when token_starts_function_label cursor item.token
          || token_starts_inline_assembly cursor item.token -> statement ()

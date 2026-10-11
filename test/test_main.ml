@@ -5,6 +5,8 @@ let () =
       ("assembly operations", Test_assembly_operations.tests);
       ("assembly encoder", Test_assembly_encoder.tests);
       ("assembly encoding API", Test_assembly_encoding_api.tests);
+      ("assembly directives", Test_assembly_directives.tests);
+      ("assembly binary input", Test_assembly_binary.tests);
       ("shared native encoder", Test_shared_native_encoder.tests);
       ("source", Test_source.tests);
       ("constant shift policy", Test_constant_shifts.tests);

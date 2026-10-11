@@ -159,10 +159,9 @@ let preflight_failures mode =
         (fun (source, message) ->
           temporary ".asm" source (fun path -> reject path message))
         [
-          ("NOP MOV RAX,UnknownTarget", "HCASM0001");
-          ("NOP DU8 1;", "HCASM0004");
-          ("NOP entry_label: RET", "HCASM0004");
-          ("NOP LIST RET", "HCASM0004");
+          ("NOP MOV RAX,UnknownTarget", "HCASM0004");
+          ("NOP ORG 16;", "HCASM0004");
+          ("IMPORT ExternalTarget; CALL ExternalTarget;", "HCASM0004");
           ("NOP MOV AH,R8u8", "HCASM0001");
         ]);
   temporary ".asm" "NOP" (fun path ->
@@ -230,6 +229,29 @@ let macro_diagnostics mode =
         && contains error "defined here")
         ("emission error lost macro provenance: " ^ error))
 
+let directive_successes mode =
+  temporary ".asm" "NOP DU8 1; entry_label: LIST RET" (fun path ->
+      let json = success mode path in
+      require
+        (json |> member "bytes" |> to_string = "9001c3")
+        "data and listing directives did not share instruction emission";
+      require
+        (json |> member "instructions" |> to_list
+        |> List.map (fun item -> item |> member "offset" |> to_int)
+        = [ 0; 2 ])
+        "instruction positions did not advance across directive data";
+      let label = json |> member "symbols" |> to_list |> List.hd in
+      require
+        (label |> member "name" |> to_string = "entry_label"
+        && label |> member "position" |> to_string = "0x0000000000000002")
+        "a label after directive data has the wrong position";
+      require
+        (json |> member "entries" |> to_list
+        |> List.filter (fun item -> item |> member "size" |> to_int > 0)
+        |> List.map (fun item -> item |> member "listing" |> to_bool)
+        = [ false; false; true ])
+        "LIST did not change the following instruction's listing state")
+
 let combined_diagnostics mode =
   let diagnostics error expected_code =
     let items = Yojson.Safe.from_string error |> to_list in
@@ -272,6 +294,7 @@ let () =
       preflight_failures mode;
       positions_and_relative_boundaries mode;
       macro_diagnostics mode;
+      directive_successes mode;
       combined_diagnostics mode)
     [ "jit"; "aot" ];
   Printf.printf "assembly encoder public CLI: %d checks passed\n" !count

@@ -53,6 +53,10 @@ val name : entry -> string
 val kind : entry -> kind
 val origin : entry -> origin
 
+val is_assembly_import : entry -> bool
+(** Uppercase assembler IMPORT creates an unresolved export with HTF_IMPORT. It
+    remains visible through the lexical mask that excludes import records. *)
+
 val public_primitive : entry -> Common.Primitive_type.t option
 (** The primitive payload of an explicitly seeded public union. A normal Class
     publication, including one with the same name or origin, carries none. *)
@@ -122,6 +126,15 @@ module Environment : sig
     kind:kind ->
     unit ->
     entry
+
+  val add_assembly_import : t -> name:string -> origin:origin -> entry
+
+  val with_assembly_import_scope : t -> (unit -> 'a) -> 'a
+  (** Remove this writer's newly published assembler imports on every exit from
+      a temporary assembly compilation context. Older bindings and other
+      publications survive. Entry identities and the lexer journal keep
+      advancing; tokens already selected within the context retain their
+      original immutable entries. *)
 
   val function_address_flags : t -> entry -> function_address_flags option
   val complete_function_definition : t -> entry:entry -> (unit, string) result

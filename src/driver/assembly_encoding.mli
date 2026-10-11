@@ -1,9 +1,40 @@
 type instruction = private {
   item_index : int;
   operation : Frontend.Ast.inline_assembly_operation;
+  selection : Asm.Instruction.selection;
   position : int64;
   offset : int;
   size : int;
+}
+
+type entry = private {
+  item_index : int;
+  kind : string;
+  position : int64;
+  offset : int;
+  size : int;
+  listing : bool;
+  location : Frontend.Ast.location;
+}
+
+type symbol = private {
+  name : string;
+  scope : string option;
+  exported : bool;
+  position : int64;
+  item_index : int;
+}
+
+type relocation = private {
+  offset : int;
+  width : int;
+  kind : string;
+  symbol : string option;
+}
+
+type binary_input = private {
+  item_index : int;
+  provenance : Frontend.Assembly_binary.provenance;
 }
 
 type t = private {
@@ -12,24 +43,33 @@ type t = private {
   position : int64;
   end_position : int64;
   instructions : instruction list;
+  entries : entry list;
+  origin : int64 option;
+  max_align_bits : int;
+  imports : string list;
+  symbols : symbol list;
+  relocations : relocation list;
+  binary_inputs : binary_input list;
+  work : int;
+  input_bytes : int;
 }
 
 val encode :
   ?position:int64 ->
+  ?config:Frontend.Preprocessor.Config.t ->
+  ?max_work:int ->
+  ?max_binary_input_bytes:int ->
   max_code_bytes:int ->
   Frontend.Ast.assembly_unit ->
   (t, Common.Diagnostic.t) result
-(** Preflight a parsed sequence of instructions, USE directives and separators.
-    Every expression must already have a known value. Labels and other
-    directives require the separate layout and directive phases. The positive
-    output limit, instruction fields and nonnegative signed 64-bit output
-    positions are checked before allocating the output buffer. This operation
-    returns bytes only; it does not load or execute them. *)
+(** Preflight instructions and ordered assembler directives before allocating
+    the complete output. Data words preserve the original low-byte stores;
+    instruction operands retain checked widths. The optional configuration
+    supplies compilation mode and explicit BINFILE input roots. No file is read
+    without it. Limits cover output bytes, directive work and cumulative raw
+    binary input. ORG remains metadata, and absolute fields have relocation
+    records; returned bytes are an unrelocated assembly image. *)
 
 val schema : string
-
 val to_yojson : Common.Source_manager.t -> t -> Yojson.Safe.t
-(** Report the encoded bytes with the exact parsed assembly retained by
-    [encode]. *)
-
 val human : t -> string

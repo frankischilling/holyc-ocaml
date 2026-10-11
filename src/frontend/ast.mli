@@ -618,6 +618,7 @@ type assembly_token_kind =
 type assembly_token = private {
   assembly_token_kind : assembly_token_kind;
   assembly_source_token : Token.t;
+  assembly_token_primitive : Common.Primitive_type.t option;
   assembly_token_location : location;
 }
 
@@ -680,6 +681,8 @@ type inline_assembly_directive = private {
   inline_assembly_directive_kind : inline_assembly_directive_kind;
   inline_assembly_directive_token : assembly_token;
   inline_assembly_directive_arguments : assembly_token list;
+  inline_assembly_directive_expressions :
+    (assembly_token list * Asm.Operand.t) list;
   inline_assembly_directive_type_definitions : aggregate_definition list;
   inline_assembly_directive_separators : location list;
   inline_assembly_directive_semicolon : location option;
@@ -1411,6 +1414,13 @@ val make_assembly_token :
   location:location ->
   assembly_token
 
+val make_assembly_token_with_primitive :
+  primitive:Common.Primitive_type.t option ->
+  kind:assembly_token_kind ->
+  source_token:Token.t ->
+  location:location ->
+  assembly_token
+
 val make_assembly_label :
   kind:assembly_label_kind ->
   name:identifier ->
@@ -1454,6 +1464,17 @@ val make_inline_assembly_operation :
   semicolon:location option ->
   location:location ->
   inline_assembly_operation
+
+val make_inline_assembly_directive_with_expressions :
+  expressions:(assembly_token list * Asm.Operand.t) list ->
+  kind:inline_assembly_directive_kind ->
+  directive:assembly_token ->
+  arguments:assembly_token list ->
+  type_definitions:aggregate_definition list ->
+  separators:location list ->
+  semicolon:location option ->
+  location:location ->
+  inline_assembly_directive
 
 val make_inline_assembly_directive :
   kind:inline_assembly_directive_kind ->

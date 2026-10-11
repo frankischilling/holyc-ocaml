@@ -426,7 +426,8 @@ let write_assembly_bytes path bytes =
         Ok ())
   with Sys_error message -> Error message
 
-let assembly_file assembly_mode emit position code_byte_limit output_path format
+let assembly_file assembly_mode emit position code_byte_limit
+    directive_work_limit binary_input_byte_limit output_path format
     include_roots templeos_root max_include_depth max_source_bytes
     max_definition_depth max_generated_bytes max_conditional_depth
     max_expression_nodes compilation_mode conditional_recovery predefined_date
@@ -434,10 +435,13 @@ let assembly_file assembly_mode emit position code_byte_limit output_path format
   let session = Holyc_lib.Session.create () in
   if
     (not emit)
-    && (position <> None || code_byte_limit <> None || output_path <> None)
+    && (position <> None || code_byte_limit <> None || output_path <> None
+       || directive_work_limit <> None
+       || binary_input_byte_limit <> None)
   then (
     print_command_error format ~command:"asm"
-      "--position, --code-byte-limit and --output require --emit";
+      "--position, --code-byte-limit, --directive-work-limit, \
+       --binary-input-byte-limit and --output require --emit";
     1)
   else
     match Holyc_lib.Session.load_source session ~path with
@@ -473,8 +477,10 @@ let assembly_file assembly_mode emit position code_byte_limit output_path format
                       code_byte_limit
                   in
                   match
-                    Holyc_lib.Assembly_encoding.encode ?position ~max_code_bytes
-                      assembly
+                    Holyc_lib.Assembly_encoding.encode ?position ~config
+                      ?max_work:directive_work_limit
+                      ?max_binary_input_bytes:binary_input_byte_limit
+                      ~max_code_bytes assembly
                   with
                   | Error diagnostic ->
                       print_diagnostics format session
@@ -541,7 +547,9 @@ let assembly_command =
     Arg.(
       value & flag
       & info [ "emit" ]
-          ~doc:"Emit checked bytes for instructions with known operands.")
+          ~doc:
+            "Emit checked instruction and directive bytes with source and \
+             relocation records.")
   in
   let position =
     Arg.(
@@ -558,8 +566,28 @@ let assembly_command =
       & opt (some int) None
       & info [ "code-byte-limit" ] ~docv:"BYTES"
           ~doc:
-            "Bound the complete emitted instruction sequence (default 16 MiB). \
-             Requires --emit.")
+            "Bound the complete emitted instruction and data sequence (default \
+             16 MiB). Requires --emit.")
+  in
+  let directive_work_limit =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "directive-work-limit" ] ~docv:"WORK"
+          ~doc:
+            "Bound assembly items, expression tokens and output bytes (default \
+             1000000). Requires --emit.")
+  in
+  let binary_input_byte_limit =
+    Arg.(
+      value
+      & opt (some int) None
+      & info
+          [ "binary-input-byte-limit" ]
+          ~docv:"BYTES"
+          ~doc:
+            "Bound cumulative raw BINFILE input before decompression (default \
+             16 MiB). Requires --emit.")
   in
   let output =
     Arg.(
@@ -567,19 +595,20 @@ let assembly_command =
       & opt (some string) None
       & info [ "o"; "output" ] ~docv:"FILE"
           ~doc:
-            "Write the checked raw bytes to this file after all instructions \
-             pass. Requires --emit.")
+            "Write the checked unrelocated bytes to this file after all \
+             assembly items pass. Requires --emit.")
   in
   let documentation =
     "Parse TempleOS assembly, inspect selected forms, or emit checked \
-     instruction bytes."
+     instruction and directive bytes."
   in
   Cmd.v
     (Cmd.info "asm" ~doc:documentation)
     (source_parser_options
        Term.(
          const assembly_file $ assembly_mode_argument $ emit $ position
-         $ code_byte_limit $ output))
+         $ code_byte_limit $ directive_work_limit $ binary_input_byte_limit
+         $ output))
 
 let print_integer_result format result =
   let module VM = Holyc_lib.Ir_integer_interpreter in
