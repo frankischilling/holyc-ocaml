@@ -13,7 +13,7 @@ issue = 718
 diagnostics = ["structured reader/model errors with artifact name and exact byte offsets", "public command errors for malformed inputs, bounded work/allocation, unresolved groups and input/output collisions"]
 verification = "Literal wire builders cover every defined record shape and malformed boundaries. Two artifacts compiled by the original TempleOS Cmp validate at two bases through API and CLI. Five public-writer artifacts reproduce exact native-loader-tested bytes; independent predictions match normalized native fields and deferred resolution. Exact budgets, one-below failures, flags, duplicate patches, MAIN order and ownership are checked."
 verification_boundary = "The parser does not call the BIN writer's decoder. The model plans before private byte mutation, uses deterministic virtual allocation and never executes MAIN or grants host symbol authority. Checked artifact ranges, work quotas and virtual allocation spacing are hosted policy. Native execution evidence remains bounded to retained fixture observations."
-remaining = ["general HolyC-to-BIN integration (#723)", "host allocation and executable loading (#719, #720)", "broader actual-loader acceptance (#721)", "full target ABI (#702)", "compressed BIN input", "bootstrap and release parity"]
+remaining = ["general HolyC-to-BIN integration (#723)", "TempleOS JIT fixups and runtime entries (#719)", "broader actual-loader acceptance (#721)", "reproducible target oracle runner (#720)", "full target ABI (#702)", "compressed BIN input", "bootstrap and release parity"]
 
 [[feature]]
 id = "HC-TEMPLEOS-BIN-WRITER"

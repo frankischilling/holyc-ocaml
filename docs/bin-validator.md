@@ -132,6 +132,7 @@ and preserves it. The pinned reference commit is
 checks four expanded ISO source files against that pinned source tree.
 
 Issue #718 covers this reader and model. General HolyC-to-BIN integration,
-host loading, the full target ABI and broader executable acceptance remain
-under #723, #719, #720, #702 and #721. The model predicts MAIN addresses and
-patches; native execution evidence applies to the named capture fixtures.
+JIT fixups and runtime entries, the full target ABI and broader executable
+acceptance remain under #723, #719, #702 and #721. The reproducible oracle
+runner remains under #720. The model predicts MAIN addresses and patches;
+native execution evidence applies to the named capture fixtures.
