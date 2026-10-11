@@ -134,6 +134,7 @@ let original_ancestry ast source =
           branch.if_else_clause
     | Ast.While_statement loop -> statement owner parents loop.while_body
     | Ast.Do_while_statement loop -> statement owner parents loop.do_body
+    | Ast.Lock_statement region -> statement owner parents region.lock_body
     | Ast.For_statement loop ->
         statement owner parents loop.for_initializer;
         Option.iter (statement owner parents) loop.for_update;

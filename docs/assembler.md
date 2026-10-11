@@ -6,7 +6,18 @@ Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28
 
 The project has a checked OCaml representation of the complete `Compiler/OpCodes.DD` file. It includes registers, language keywords, assembler directives, canonical opcode records, instruction forms, and aliases. The generator verifies the pinned blob checksum and CI rejects stale output. The HolyC parser accepts brace-delimited `asm { ... }` statements and function-local direct assembly with source-ordered instruction and directive items. Instructions retain the zero, one, or two operands named by each opcode's first form. Both paths retain their source structure in the AST.
 
-This is still not an assembler implementation. Brace-block body tokens are classified but not split into operations. Direct operands and directive arguments are structurally classified without checking instruction forms, resolving imports, emitting data, changing assembler state, or reading `BINFILE` input. Form selection, ModRM and SIB construction, instruction encoding, fixups, directive execution, and disassembly are not available. There is no `holyc asm` command, and no current command emits instruction bytes.
+Brace-block body tokens are classified but not split into operations. Direct operands and directive arguments are structurally classified without checking instruction forms, resolving imports, emitting data, changing assembler state, or reading `BINFILE` input. The source assembly paths do not select forms, encode instructions, apply fixups, execute directives, or disassemble code. There is no `holyc asm` command.
+
+The checked compiler backend has a separate native instruction encoder.
+[Lock regions](lock-operations.md) use that encoder for eligible integer
+memory updates after the source and storage checks. `Compiler/BackLib.HC`
+and the arithmetic and bit consumers define where HolyC applies the prefix;
+`Compiler/OpCodes.DD:864` defines its byte as `0xF0`. A locked memory update
+must preserve the selected width and its instruction's flag behavior.
+Register forms, widened accesses beyond an owned object, and unsupported
+prefix combinations cannot be emitted through that path. This compiler
+consumer does not enable arbitrary source `LOCK` assembly. Exact encoding,
+source image, and native contention checks cover its supported memory forms.
 
 ## Brace-delimited HolyC assembly
 

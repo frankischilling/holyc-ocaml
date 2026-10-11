@@ -521,16 +521,18 @@ let original_pointer_difference_divisions context ~owner =
             match description.operands with
             | [ bytes; size ]
               when description.opcode = Opcode.Ic_div
-                   && description.flags = 0L && description.payload = None
-                   && i64 description -> (
+                   && Lock_semantics.clear_flag description.flags = 0L
+                   && description.payload = None && i64 description -> (
                 match
                   (Values.find_opt bytes produced, Values.find_opt size produced)
                 with
                 | Some sub, Some size
-                  when sub.opcode = Opcode.Ic_sub && sub.flags = 0L
+                  when sub.opcode = Opcode.Ic_sub
+                       && Lock_semantics.clear_flag sub.flags = 0L
                        && sub.payload = None && i64 sub
                        && size.opcode = Opcode.Ic_imm_i64
-                       && size.flags = 0L && size.operands = [] && i64 size -> (
+                       && Lock_semantics.clear_flag size.flags = 0L
+                       && size.operands = [] && i64 size -> (
                     match (sub.operands, size.payload) with
                     | ( [ left; right ],
                         Some (Seq.Integer ((2L | 4L | 8L) as divisor)) ) -> (
@@ -584,7 +586,7 @@ let original_preparation_shifts context ~owner =
         in
         Instructions.filter
           (fun _ (item : Seq.description) ->
-            item.flags = 0L
+            Lock_semantics.clear_flag item.flags = 0L
             &&
             match (item.opcode, item.operands, item.payload) with
             | ( (Opcode.Ic_shl_const | Ic_shr_const),
@@ -599,7 +601,8 @@ let original_preparation_shifts context ~owner =
                 && Option.fold ~none:false
                      ~some:(fun (right : Seq.description) ->
                        right.opcode = Opcode.Ic_imm_i64
-                       && right.flags = 0L && right.operands = []
+                       && Lock_semantics.clear_flag right.flags = 0L
+                       && right.operands = []
                        && Option.fold ~none:false
                             ~some:(fun type_ ->
                               Type.pointer_depth type_ = 0
@@ -1402,7 +1405,8 @@ let require_saved_default_payload expected (item : Seq.description) =
       if Option.is_none (Prepared_parameter_default.word_bits prepared) then
         require ?span:item.span
           (item.opcode = Opcode.Ic_imm_i64
-          && item.operands = [] && item.flags = 0x2000L
+          && item.operands = []
+          && Lock_semantics.clear_flag item.flags = 0x2000L
           &&
           match item.payload with
           | Some (Seq.Saved_parameter_default original) -> original == prepared
@@ -1414,7 +1418,8 @@ let require_saved_default_payload expected (item : Seq.description) =
       if Option.is_none (Prepared_callback_default.word_bits prepared) then
         require ?span:item.span
           (item.opcode = Opcode.Ic_imm_i64
-          && item.operands = [] && item.flags = 0x2000L
+          && item.operands = []
+          && Lock_semantics.clear_flag item.flags = 0x2000L
           &&
           match item.payload with
           | Some (Seq.Saved_callback_default original) -> original == prepared
@@ -1752,14 +1757,15 @@ let callback_shape ~globals ~validate_source owner graph description =
   in
   require ?span
     (capture.opcode = Opcode.Ic_set_rax
-    && capture.result = None && capture.payload = None && capture.flags = 0L
+    && capture.result = None && capture.payload = None
+    && Lock_semantics.clear_flag capture.flags = 0L
     && capture.span = origin_span (Typed.result_origin callee)
     && Option.fold ~none:false ~some:(Type.equal pointer_word)
          capture.target_type
     && balance.opcode = Opcode.Ic_nop2
     && balance.operands = [] && balance.result = None
     && balance.payload = Some (Seq.Integer 1L)
-    && balance.flags = 0L
+    && Lock_semantics.clear_flag balance.flags = 0L
     && balance.span = capture.span
     && balance.target_type = capture.target_type)
     "callback callee snapshot does not retain original PrsFunCall ordering";
@@ -1779,7 +1785,7 @@ let callback_shape ~globals ~validate_source owner graph description =
     (Seq.Instruction_id.compare producer.instruction_id capture.instruction_id
      < 0
     && producer.opcode = Opcode.Ic_deref
-    && producer.flags = 0L
+    && Lock_semantics.clear_flag producer.flags = 0L
     && producer.span = producer_origin callee
     && producer.target_type = capture.target_type)
     "callback snapshot does not retain its original loaded address";
@@ -1947,7 +1953,9 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
           let span = item.span in
           let push = Int64.logand item.flags push_flag <> 0L in
           let ordinary_flags =
-            Int64.logand item.flags (Int64.lognot push_flag)
+            Int64.logand
+              (Lock_semantics.clear_flag item.flags)
+              (Int64.lognot push_flag)
           in
           let require_shape shape =
             require ?span
@@ -2006,7 +2014,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
             | Opcode.Ic_call_start, previous ->
                 require ?span
                   (item.operands = [] && item.result = None
-                 && item.target_type = None && item.flags = 0L)
+                 && item.target_type = None
+                  && Lock_semantics.clear_flag item.flags = 0L)
                   "invalid callback start";
                 require ?span
                   (match !stack with
@@ -2048,7 +2057,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                          pending.cb_shape.cb_description.first
                        + 1
                   && valid_result pending.cb_shape
-                  && item.result = None && item.flags = 0L
+                  && item.result = None
+                  && Lock_semantics.clear_flag item.flags = 0L
                   && item.payload = Some (Seq.Integer 1L))
                   "callback did not save RAX before its arguments";
                 pending.cb_saved <- Some item.instruction_id
@@ -2059,7 +2069,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                   && pending.cb_expected = []
                   && Option.is_some pending.cb_saved
                   && valid_result pending.cb_shape
-                  && item.result = None && item.flags = 0L
+                  && item.result = None
+                  && Lock_semantics.clear_flag item.flags = 0L
                   && item.payload = Some (Seq.Integer pending.cb_shape.cb_bytes)
                   )
                   "callback call lost its saved callee or ABI slots";
@@ -2068,7 +2079,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                 require ?span
                   (callback_active
                   && valid_result pending.cb_shape
-                  && item.result = None && item.flags = 0L)
+                  && item.result = None
+                  && Lock_semantics.clear_flag item.flags = 0L)
                   "invalid callback cleanup";
                 match pending.cb_phase with
                 | Callback_called call ->
@@ -2162,7 +2174,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
             | Opcode.Ic_call_start, _ ->
                 require ?span
                   (item.operands = [] && item.result = None
-                 && item.target_type = None && item.flags = 0L)
+                 && item.target_type = None
+                  && Lock_semantics.clear_flag item.flags = 0L)
                   "runtime call start has an invalid shape";
                 (match !stack with
                 | { phase = Called _ | Cleaned _ | Intrinsic_called _; _ } :: _
@@ -2250,7 +2263,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                    && pending.intrinsic_opcode = Some opcode ->
                 require ?span
                   (pending.phase = Collecting && item.result = None
-                 && item.payload = None && item.flags = 0L
+                 && item.payload = None
+                  && Lock_semantics.clear_flag item.flags = 0L
                   && Option.fold ~none:false
                        ~some:(Type.equal pending.shape.result_type)
                        item.target_type)
@@ -2282,7 +2296,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                               "checked internal operand has no preceding \
                                in-scope producer"
                       in
-                      require ?span (producer.flags = 0L)
+                      require ?span
+                        (Lock_semantics.clear_flag producer.flags = 0L)
                         "checked internal argument producer has noncanonical \
                          flags";
                       require ?span
@@ -2509,7 +2524,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                      (item.opcode = Opcode.Ic_imm_i64
                      && item.operands = []
                      && item.payload = Some (Seq.Integer count)
-                     && item.flags = push_flag)
+                     && Lock_semantics.clear_flag item.flags = push_flag)
                      "callback hidden count changed")
                  expected.expected_count;
                require_saved_default_payload expected item;
@@ -2560,7 +2575,7 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
                          (item.opcode = Opcode.Ic_imm_i64
                          && item.operands = []
                          && item.payload = Some (Seq.Integer count)
-                         && item.flags = push_flag)
+                         && Lock_semantics.clear_flag item.flags = push_flag)
                          "hidden variadic count is not its canonical checked \
                           immediate")
                      expected.expected_count;
@@ -2637,7 +2652,8 @@ let graph_context ~globals ~records ~function_sources ~validate_source owner
             (item.opcode = Opcode.Ic_end_exp
             && item.operands = [ call.result_value_ ]
             && item.result = None && item.target_type = None
-            && item.payload = None && item.flags = 0x200L)
+            && item.payload = None
+            && Lock_semantics.clear_flag item.flags = 0x200L)
             "implicit discard does not consume its exact checked call result"
       | None -> fail "implicit output discard is absent from its exact graph")
     !discards;
@@ -3271,7 +3287,8 @@ let create_with_exceptions ?entry_exceptions ?(function_exceptions = [])
                     | None -> false
                   in
                   require ?span:cursor.span
-                    (valid_type && cursor.operands = [] && cursor.flags = 0L
+                    (valid_type && cursor.operands = []
+                    && Lock_semantics.clear_flag cursor.flags = 0L
                     && Option.is_some cursor.result
                     && Functions.declaration_site_state
                          (Functions.resolved_declaration_site declaration)

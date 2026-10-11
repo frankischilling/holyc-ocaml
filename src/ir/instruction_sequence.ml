@@ -109,7 +109,8 @@ let switch_shape description =
     description.opcode <> Opcode.Ic_switch
     && description.opcode <> Opcode.Ic_nobound_switch
   then Error "descriptor is not a canonical switch"
-  else if description.flags <> 0L then Error "IC_SWITCH requires zero flags"
+  else if Lock_semantics.clear_flag description.flags <> 0L then
+    Error "IC_SWITCH requires no flags other than ICF_LOCK"
   else if Option.is_some description.result then
     Error "IC_SWITCH cannot produce a result"
   else if Option.is_some description.target_type then
@@ -142,7 +143,7 @@ let local_control_shape description =
   description.operands = []
   && Option.is_none description.result
   && Option.is_none description.target_type
-  && description.flags = 0L
+  && Lock_semantics.clear_flag description.flags = 0L
 
 let local_call_shape description =
   match description.payload with

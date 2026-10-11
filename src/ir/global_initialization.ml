@@ -503,7 +503,8 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                   && expected.opcode = actual.opcode
                   && expected.operands = actual.operands
                   && expected.result = actual.result
-                  && expected.flags = actual.flags
+                  && Lock_semantics.clear_flag expected.flags
+                     = Lock_semantics.clear_flag actual.flags
                   && expected.span = actual.span
                   && (match (expected.target_type, actual.target_type) with
                     | None, None -> true
@@ -546,7 +547,8 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                     let address_valid =
                       prefix_valid
                       && address.opcode = Integer_globals.storage_opcode storage
-                      && address.operands = [] && address.flags = 0L
+                      && address.operands = []
+                      && Lock_semantics.clear_flag address.flags = 0L
                       && (match (slot, address.payload) with
                         | ( Static_fragment_pending _,
                             Some (Sequence.Symbol actual) ) ->
@@ -567,7 +569,8 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                     in
                     let store_valid =
                       store.opcode = Opcode.Ic_assign
-                      && store.flags = 0L && store.payload = None
+                      && Lock_semantics.clear_flag store.flags = 0L
+                      && store.payload = None
                       && same_type expected_type store.target_type
                       &&
                       match store.operands with
@@ -579,8 +582,9 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                     in
                     let end_valid =
                       ending.opcode = Opcode.Ic_end_exp
-                      && ending.flags = 0x200L && ending.payload = None
-                      && ending.result = None && ending.target_type = None
+                      && Lock_semantics.clear_flag ending.flags = 0x200L
+                      && ending.payload = None && ending.result = None
+                      && ending.target_type = None
                       && Sequence.Instruction_id.equal ending.instruction_id
                            last
                       &&

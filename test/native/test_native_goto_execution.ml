@@ -470,7 +470,6 @@ let unsupported_regions_reject_before_native_entry () =
   let cases =
     [
       ("assembly block", "U0 F(){goto done;asm {} done:return;}F();", "asm {}");
-      ("lock region", "U0 F(){done:lock goto done;}F();", "lock goto done;");
     ]
   in
   List.iter
@@ -723,8 +722,8 @@ let () =
                 "goto preserves native word-return completeness" `Quick
                 goto_word_return_completeness;
               Alcotest.test_case
-                "assembly, lock and exception goto reject before native entry"
-                `Quick unsupported_regions_reject_before_native_entry;
+                "assembly and exception goto reject before native entry" `Quick
+                unsupported_regions_reject_before_native_entry;
               Alcotest.test_case
                 "switch goto retains local continuation ownership" `Quick
                 switch_gotos_keep_native_continuation_ownership;

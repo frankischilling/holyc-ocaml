@@ -1,5 +1,17 @@
 # Intermediate-code specification
 
+[Lock regions](lock-operations.md) retain `ICF_LOCK` (`0x010000000`) after
+the existing expression rewrites. `Ir.Lock_semantics` distinguishes eligible
+integer memory updates from operations whose original consumer ignores the
+flag. `Ir.Lock_validation` recognizes the original safe immediate ADD/SUB
+and conditional AND paths from their immutable producers and uses. Other
+unsupported locked scalar forms are diagnosed before execution.
+Selected memory updates remain observable effects and reorder barriers.
+Prefix and compound results use a separate read after the update; postfix
+results use a read before it. The source runner's existing storage ownership
+and execution bounds still apply. The linked contract records verified source,
+API, CLI, encoding, and native contention coverage.
+
 [Class value returns](class-value-returns.md) carry qualified integer
 register words while preserving nominal declaration types. Object reads
 use the selected scalar prefix; register results retain the full word.
@@ -272,7 +284,7 @@ Construction failures use the child `HCIR0001` through `HCIR0010` codes or graph
 
 The table is reconstructed from `CInit.HC` and the optimizer and backend consumers. It does not pretend that `not_const` means side effect: the generated opcode registry's constant-fold barrier remains a separate field. For example, an absolute address prevents source constant folding but has no runtime effect, while a timestamp read, port input, memory load, or machine-state read is a reorder barrier. Calls and assembly conservatively cover opaque memory and machine state until a later call-summary layer can prove less.
 
-This is an opcode-potential table. It does not yet refine a `MOV`, assignment, or stack operation from final operand modes, model aliases, assign memory regions, or classify exceptions or locks.
+This is an opcode-potential table. It does not refine a `MOV`, assignment, or stack operation from final operand modes, model aliases, or assign memory regions. Eligible [locked memory updates](lock-operations.md) retain the read-write effect and reorder barrier of their original opcodes; `Ir.Lock_semantics` separately checks the instruction flag and selected operation. Exception-region validation also remains a separate constructor boundary.
 
 ## x87 stack discipline
 

@@ -1526,6 +1526,36 @@ Goto and label parser cases read the pinned `KW_GOTO` dispatch, label lookup and
 
 Lock-statement cases read the pinned `KW_LOCK` dispatch, `lock_cnt` lifetime, `ICF_LOCK` handoff, keyword ID 42, the language guide, and braced and unbraced multicore demos. They cover JIT and AOT syntax, blocks, ordinary and empty statements, nested locks, comma-linked bodies, conditionals, loops, definitions, includes, and deterministic dumps. Negative cases exercise missing and comma-only bodies, malformed children, and the independent 256-lock hosted nesting limit. Human and JSON CLI goldens record the wrapper and `HCPARSE0077` output. These tests prove syntax and provenance only; they do not claim IR flag propagation, x86 prefix selection, or execution.
 
+The separate [lock execution suite](lock-operations.md#verification) uses
+`test/lock_execution_cases.ml`, `test/test_lock_execution.ml`,
+`test/native/test_native_lock_execution.ml`, and
+`test/test_lock_execution_cli.ml`, including `examples/lock-execution.hc`.
+Instruction bytes and contention use `test/native/test_native_lock_encoding.ml`
+and `test/native/native_lock_test_stubs.c`.
+The shared inventory contains 213 positive source fixtures and 10 runtime
+fault fixtures. Both preprocessing modes contribute to 435 interpreter
+cases and 431 native API cases. Four encoding and contention cases cover
+48 exact memory forms, generated source instructions, and three native
+threads updating shared scalar storage. The contention checks also verify
+that neighboring byte canaries keep their original values.
+
+These checks distinguish atomic scalar and bit updates from ordinary
+operations inside a region. Source-derived expectations cover widths and
+results, lexical scope, aliases, numeric callback slots, repeated calls,
+malformed IR, fault ownership, and exact resource limits. Retained tasks
+also reject foreign owners and repeated execution of one command. CLI
+checks exercise `ir`, `host-jit`, and `host-jit-task`. Controlled contention
+checks atomic mutation independently of interpreter/native agreement.
+Prefix, postfix, and compound result reads remain separate events and must
+not be asserted to identify one contended update.
+
+The complete local `@fmt`, `@all`, `@install`, `@runtest`, and `@native-tests`
+gates passed on Windows x86-64 with OCaml 5.4.1. The main suite passed all
+4,161 cases, including the 435 lock interpreter cases. The native API passed
+all 431 cases, and the four encoding/contention cases passed. Public CLI
+checks passed 73 interpreted results and 40 invalid or faulting runs, plus
+141 native and retained-task results and 80 invalid or faulting runs.
+
 Try/catch cases read the complete pinned `PrsTryBlk` flow, keyword IDs 5 and 3, unbraced compiler and kernel uses, braced and nested demo uses, and the language guide. They cover JIT and AOT syntax, both body shapes, empty and nested pairs, comma-linked bodies, conditionals, loops, locks, `for` updates, definitions, includes, and deterministic dumps. Negative cases exercise a missing body, keyword, or handler, a standalone `catch`, malformed children, block-safe recovery, and the independent 256-try hosted nesting limit. Human and JSON CLI goldens record the complete pair and `HCPARSE0080` output. The tests prove syntax and provenance only; they do not claim `SysTry` or `SysUntry` calls, handler labels, exception transfer, return unwinding, lowering, or execution.
 
 Executable exception coverage lives in the separate [exception execution

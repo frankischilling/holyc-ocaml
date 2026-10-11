@@ -24,6 +24,7 @@ type fault_kind =
   | Index_scale_overflow
   | Index_addition_overflow
   | Address_out_of_bounds
+  | Locked_address_unaligned
   | Generated_limit_exceeded
   | Stream_context_required
   | Stream_exe_context_required
@@ -990,6 +991,14 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       "native local continuation fault did not consume its \
                        instruction"
                   else make_fault Local_subroutine_continuation_unavailable None
+                else if kind = 33L then
+                  if not candidate.lock_alignment_site then
+                    Error "native LOCK alignment fault names a non-atomic site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native LOCK alignment fault did not consume its \
+                       instruction"
+                  else make_fault Locked_address_unaligned None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =

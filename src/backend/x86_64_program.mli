@@ -20,6 +20,7 @@ type fault_kind =
   | Index_scale_overflow
   | Index_addition_overflow
   | Address_out_of_bounds
+  | Locked_address_unaligned
   | Generated_limit_exceeded
   | Stream_context_required
   | Stream_exe_context_required

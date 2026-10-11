@@ -524,6 +524,8 @@ let ast_errors (ast : Ast.module_) =
             | Ast.Block_statement block ->
                 work :=
                   prepend_statements in_function block.block_statements !work
+            | Ast.Lock_statement region ->
+                work := Gate_statement (in_function, region.lock_body) :: !work
             | Ast.Sequence_statement sequence ->
                 work :=
                   List.rev_append
@@ -638,7 +640,6 @@ let ast_errors (ast : Ast.module_) =
               | Ast.Inline_assembly_statement _
               | Ast.Goto_statement _
               | Ast.Label_statement _
-              | Ast.Lock_statement _
               | Ast.No_warn_statement _ ) as statement ->
                 reject
                   (source_error (Ast.statement_location statement).span
@@ -1092,6 +1093,8 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
            bound" )
     | Image.Pointer_difference_object_mismatch ->
         ("HCIRVM0018", "pointer difference requires the same live object extent")
+    | Image.Locked_address_unaligned ->
+        ("HCLOCK0002", "locked memory access requires natural alignment")
   in
   Common.Diagnostic.make ~code ~severity:Common.Diagnostic.Error ~message
     ~primary:(Option.value fault.span ~default:fallback)

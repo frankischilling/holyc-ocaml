@@ -168,6 +168,7 @@ let kind_name = function
   | Program.Index_scale_overflow -> "index-scale-overflow"
   | Program.Index_addition_overflow -> "index-addition-overflow"
   | Program.Address_out_of_bounds -> "address-out-of-bounds"
+  | Program.Locked_address_unaligned -> "locked-address-unaligned"
   | Program.Output_limit_exceeded -> "output-limit"
   | Program.Generated_limit_exceeded -> "generated-limit"
   | Program.Stream_context_required -> "stream-context"

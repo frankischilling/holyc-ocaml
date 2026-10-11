@@ -97,6 +97,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             | Ast.Aggregate_declaration_statement _ -> ()
             | Ast.Block_statement block ->
                 List.iter (validate ~in_function) block.block_statements
+            | Ast.Lock_statement region ->
+                validate ~in_function region.lock_body
             | Ast.Sequence_statement sequence ->
                 List.iter
                   (fun element ->
@@ -768,6 +770,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                        "return has no matching checked function root")
               | Ast.Block_statement block ->
                   Lower.Block (List.map statement block.block_statements)
+              | Ast.Lock_statement region ->
+                  Lower.Lock (statement region.lock_body)
               | Ast.Sequence_statement sequence ->
                   Lower.Block
                     (List.map

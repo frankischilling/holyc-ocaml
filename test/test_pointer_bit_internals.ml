@@ -252,9 +252,6 @@ let rejected =
     declarations ^ "Bt(0,0);";
     declarations ^ "I64 F(){F64 q=0;return Bt(&q,0);}F();";
     declarations ^ "I64 F(I64 **p){return Bt(p,0);}42;";
-    "_intern 0x7b Bool F(U8 *p,I64 n);I64 q=0;F(&q,0);";
-    "_intern 0x7c Bool F(U8 *p,I64 n);I64 q=0;F(&q,0);";
-    "_intern 0x7d Bool F(U8 *p,I64 n);I64 q=0;F(&q,0);";
   ]
 
 let signatures () =

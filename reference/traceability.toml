@@ -2025,7 +2025,7 @@ execution_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-LOCK-STATEMENTS"
-description = "Lock statements preserve the lexical region around one ordinary nested statement so later lowering can apply source-compatible lock flags."
+description = "Lock statements preserve the lexical region around one ordinary nested statement; HC-LOCK-OPERATIONS consumes that region for checked execution."
 sources = [
   "Compiler/PrsStmt.HC:PrsStmt KW_LOCK dispatch and lock_cnt lifetime",
   "Compiler/PrsLib.HC:ICAdd ICF_LOCK handoff",
@@ -2060,11 +2060,11 @@ definition_and_include_provenance = "preserved"
 malformed_form_diagnostics = ["HCPARSE0077", "HCPARSE0078"]
 hosted_nesting_limit = 256
 source_nesting_limit = "none identified"
-ir_lock_flag_status = "planned"
-operation_validation_status = "planned"
-x86_prefix_status = "planned"
-lowering_status = "planned"
-execution_status = "planned"
+ir_lock_flag_status = "tracked by HC-LOCK-OPERATIONS"
+operation_validation_status = "tracked by HC-LOCK-OPERATIONS"
+x86_prefix_status = "tracked by HC-LOCK-OPERATIONS"
+lowering_status = "tracked by HC-LOCK-OPERATIONS"
+execution_status = "tracked by HC-LOCK-OPERATIONS"
 
 [[feature]]
 id = "HC-PARSER-TRY-CATCH-STATEMENTS"
@@ -12355,7 +12355,8 @@ ordering = "original source identities are separate from physical emitted order,
 storage_and_calls = "jumps retain invocation-local object and initialization state, source-derived return behavior, checked calls and full default preparation ownership; skipped initialized stores fault on a reached uninitialized read/update; U0 completion and native word-return completeness remain independently enforced"
 resources = "every goto cycle reaches a metered IC_JMP while structural empty-block fallthrough costs no IR steps; native code/block/frame/depth/active-stack bounds and checked fault unwind remain unchanged"
 verification = "ordinary source/graph/identity/provenance/error/budget tests plus explicit Windows/Linux native API/CLI tests with independent expectations, fresh public interpreter semantics and corresponding isolated-unit exact runtime meters"
-excluded = ["top-level language labels/gotos", "computed or indirect goto", "assembly-label execution and repeated-address validation", "switch/sub-switch, lock and exception-region execution", "general memory, full ABI and optimizer parity", "object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
+excluded = ["top-level language labels/gotos", "computed or indirect goto", "assembly-label execution and repeated-address validation", "switch/sub-switch and exception-region execution", "general memory, full ABI and optimizer parity", "object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
+lock_execution = "tracked by HC-LOCK-OPERATIONS, including language jumps into and out of lexical lock regions"
 native_oracle_status = "pinned source control semantics plus checked interpreter and own generated machine execution; identity proof, initialized-object faults and quotas remain hosted policies, with no new TempleOS oracle capture"
 
 [[feature]]
@@ -14109,3 +14110,69 @@ execution = "One-level integer and class pointer fields, multidimensional member
 verification = "Independent words and output cover all nine integer widths, class and self pointers, arrays, captured destinations, caller storage, same-type unions, disjoint writes and retained class replacement. Combined fixtures cover function-local pointer fields and strides, builtin member sizes and preserved selections. Faults cover unknown bytes, callee-local escape, overlapping writes, numeric reconstruction, incompatible pointees and extents. Foreign, missing and altered field proofs and strides fail at zero executed steps, including function-local field proofs. Exact and one-below frame and instruction checks cover this path. Native public and retained execution tests preserve HCBACK0002."
 verification_boundary = "These are source-derived hosted IR checks without a TempleOS runtime capture or machine-byte comparison. Virtual address bytes are not host addresses; invalid-memory policy belongs to the hosted executor. Native pointer field descriptor storage and lifetime tracking remain unfinished."
 remaining = "Native pointer fields, F64/U0/callback/multiple-layer fields, general aggregate copies, persistent objects, class pointer returns and full compiler/ABI/release parity remain open under #686/#702/#682."
+
+[[feature]]
+id = "HC-LOCK-OPERATIONS"
+title = "Execute lexical lock regions and checked integer atomic updates"
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = [
+  "Compiler/PrsStmt.HC:963-969 KW_LOCK counter around one recursive statement",
+  "Compiler/PrsLib.HC:79-96 ICAdd propagates the lexical flag",
+  "Kernel/KernelA.HH:1626-1627 ICF_LOCK bit 28",
+  "Compiler/PrsVar.HC:350-357 callback RT_PTR storage; Compiler/PrsExp.HC:40-48 compound pointer stride",
+  "Compiler/BackLib.HC:282-310 complete ICSlashOp; 445-659 complete ICMov clears and restores the flag",
+  "Compiler/BackA.HC:224-440 ordinary integer multiply/divide/modulus consumers; 442-571 complete ICAddSubEctEqu; 573-658 complete shift consumers",
+  "Compiler/BackB.HC:202-263 complete ICBitOps; 304-381 complete prefix/postfix update consumers",
+  "Compiler/BackC.HC:208-324 conditional bit consumer; 539-599 complete AND/OR/XOR compound consumers",
+  "Compiler/BackA.HC:56-164 complete immediate ADD/SUB consumer and zero-update elision; Compiler/OptPass3.HC:173-213 retained constant opcodes",
+  "Compiler/BackC.HC:1-157 complete AND test/branch consumer; 602-759 complete switch consumer",
+  "Compiler/OptPass012.HC:458-494 immediate folding; 828-853 power-of-two compound rewrites; 934-938 implicit lock bit flags",
+  "Compiler/OptLib.HC:161-177,196-223 constant-fold flag transfer; 260-289,387-416 locked bit branch rewrites",
+  "Compiler/OptLib.HC:252-258,379-385 AND and prefix-decrement branch rewrites; Compiler/OptPass789A.HC:164-170 fused decrement uses update flags",
+  "Compiler/OptPass789A.HC:449-804 integer, update and bit consumer dispatch",
+  "Kernel/KernelB.HH:13-26 plain and locked bit primitive signatures",
+  "Compiler/OpCodes.DD:864 LOCK prefix byte",
+  "Demo/MultiCore/Lock.HC:1-7,32-48 intended multicore use and invalid-emission warning",
+  "Doc/HolyC.DD:236 lexical prefix behavior"
+]
+implementation = [
+  "src/ir/lock_semantics.ml", "src/ir/lock_semantics.mli",
+  "src/ir/lock_validation.ml", "src/ir/lock_validation.mli",
+  "src/ir/integer_program_lowering.ml", "src/ir/integer_intrinsic.ml",
+  "src/ir/integer_interpreter.ml", "src/driver/integer_unit.ml",
+  "src/ir/runtime_call_context.ml", "src/ir/global_initialization.ml",
+  "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml",
+  "src/hosted/native_program.ml"
+]
+tests = [
+  "test/lock_execution_cases.ml", "test/test_lock_execution.ml",
+  "test/native/test_native_lock_execution.ml", "test/test_lock_execution_cli.ml",
+  "test/native/test_native_lock_encoding.ml", "test/native/native_lock_test_stubs.c",
+  "examples/lock-execution.hc"
+]
+documentation = [
+  "docs/lock-operations.md", "docs/intermediate-representation.md",
+  "docs/assembler.md", "docs/reference-source-map.md", "docs/compatibility.md",
+  "docs/testing.md", "docs/architecture.md", "docs/compiler-status.md"
+]
+status = "implemented"
+issue = 693
+lexical_scope = "Exactly one ordinary statement, including nested locks and comma-linked groups. Flags remain local to the original compiled region; separately compiled callees do not inherit them. A region creates no runtime lock object or whole-region critical section."
+atomic_updates = "Retained integer ADD_EQU, SUB_EQU, AND_EQU, OR_EQU, XOR_EQU and prefix/postfix increment/decrement update the original selected scalar width. Plain modifying bit primitives consume a surrounding flag; LBTS, LBTR and LBTC force it independently."
+numeric_callback_storage = "Existing numeric callback cells retain an eight-byte stride for addition/subtraction and prefix/postfix updates; bitwise compounds use raw words. Executable-owned callback targets remain protected by existing ownership checks."
+ordinary_operations = "Moves, loads, casts, comparisons, logical tests and structural control retain their effects. Residual integer multiply/divide/modulus and shift consumers, including their compound variants, ignore the flag. BT remains a read. Fullword ADD with a proven signed32 immediate on either side and SUB with an immediate RHS whose negation fits signed32 retain ordinary arithmetic. AND consumed solely by one zero/nonzero branch remains an ordinary test. Other residual scalar ADD/SUB/AND/OR/XOR shapes are diagnosed before execution."
+optimizer = "Selection follows existing source rewrites: a constant power-of-two modulus update can become locked AND_EQU, while residual modulus remains ordinary. Constant folding preserves region flags without creating locked register arithmetic. Selected memory updates remain observable effects and reorder barriers."
+original_zero_update_boundary = "BackA.HC:76-78,116-117 can omit immediate add/subtract/OR/XOR by zero before emitting LOCK. The checked memory update path retains an atomic access for a zero operand and does not claim exact emission or synchronization parity with that source no-op optimization."
+original_decrement_branch_boundary = "OptLib.HC:255-258,382-385 can fuse a prefix-decrement condition, and OptPass789A.HC:164-170 branches on the mutation flags. Checked execution evaluates the prefix result and then the condition; its separate native load may observe an intervening update. Deterministic results are preserved, but original fused branch timing under contention is not claimed."
+results = "Prefix and compound updates read the selected stored width after the atomic mutation; postfix expressions read before it. These independent reads do not promise an atomic fetch result under contention. Bit updates return the previous bit belonging to their own atomic change. Dynamic compound inputs use the checked memory destination despite invalid-emission paths in the original backend."
+memory = "Original integer object ownership, full-width bounds, initialization and lifetime checks precede mutation. Atomic natural alignment is a hosted restriction, and exact-width bit updates cannot access neighboring unowned bytes. Lock adds no general pointer or external memory authority."
+diagnostics = ["HCLOCK0001 unsupported locked operation", "HCLOCK0002 atomic alignment", "existing checked storage and resource diagnostics"]
+positive_source_fixtures = 213
+runtime_fault_fixtures = 10
+interpreter_test_cases = 435
+native_api_test_cases = 431
+encoding_and_contention_test_cases = 4
+coverage = "Shared positive fixtures run in both preprocessing modes; separate boundary cases cover malformed IR, runtime faults, exact resources, aliases, numeric callback slots, original owners and repeated command execution. Public CLI checks use ir, host-jit and host-jit-task. Encoding covers 48 explicit forms, source image bytes and invalid LOCK IMUL; three-thread contention checks scalar updates, prior-bit results and neighboring byte canaries."
+local_validation_environment = "Windows x86-64 with OCaml 5.4.1"
+local_validation = "Complete @fmt, @all, @install, @runtest and @native-tests gates passed: 4161 main tests including 435 lock interpreter cases; 431 native API cases; four encoding/contention cases; CLI 73 interpreted results and 40 invalid/faulting runs, plus 141 native/retained results and 80 invalid/faulting runs. Generated-source, pinned reference, 15 release contracts, version metadata, 528 lexer corpus files and the reviewed parser baseline also passed."
+verification_boundary = "Source-derived expected results remain separate from interpreter/native agreement. Exact memory encodings and controlled native contention establish the claimed atomic mutations. The checked path does not simulate a concurrent scheduler, add a TempleOS runtime capture, or claim universal original machine-byte parity; the zero-update and fused-decrement optimization differences remain explicit."

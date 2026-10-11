@@ -16,6 +16,7 @@ type statement =
   | Publish_array of Global_initialization.prepared_root
   | Return of Sema.Function_call_expression_result.return_result
   | Block of statement list
+  | Lock of statement
   | If of
       Sema.Function_call_expression_result.expression_result
       * statement
