@@ -643,6 +643,8 @@ type inline_assembly_operand_kind =
 
 type inline_assembly_operand = {
   inline_assembly_operand_kind : inline_assembly_operand_kind;
+  inline_assembly_operand : Asm.Operand.t;
+  inline_assembly_type_definitions : aggregate_definition list;
   inline_assembly_size_prefix : assembly_token option;
   inline_assembly_segment_prefix : assembly_token option;
   inline_assembly_operand_tokens : assembly_token list;
@@ -651,6 +653,8 @@ type inline_assembly_operand = {
 
 type inline_assembly_operation = {
   inline_assembly_opcode : assembly_token;
+  inline_assembly_mode : Asm.Operand.mode;
+  inline_assembly_selection : Asm.Instruction.selection;
   inline_assembly_operands : inline_assembly_operand list;
   inline_assembly_separator : location option;
   inline_assembly_semicolon : location option;
@@ -659,6 +663,8 @@ type inline_assembly_operation = {
 
 type inline_assembly_directive_kind =
   | Inline_assembly_import_directive
+  | Inline_assembly_org_directive
+  | Inline_assembly_align_directive
   | Inline_assembly_data_directive of { element_width_bytes : int }
   | Inline_assembly_binfile_directive
   | Inline_assembly_list_directive
@@ -669,6 +675,7 @@ type inline_assembly_directive = {
   inline_assembly_directive_kind : inline_assembly_directive_kind;
   inline_assembly_directive_token : assembly_token;
   inline_assembly_directive_arguments : assembly_token list;
+  inline_assembly_directive_type_definitions : aggregate_definition list;
   inline_assembly_directive_separators : location list;
   inline_assembly_directive_semicolon : location option;
   inline_assembly_directive_location : location;
@@ -677,6 +684,16 @@ type inline_assembly_directive = {
 type inline_assembly_item =
   | Inline_assembly_instruction of inline_assembly_operation
   | Inline_assembly_directive of inline_assembly_directive
+  | Inline_assembly_label of assembly_label
+  | Inline_assembly_empty of location
+
+type assembly_unit = {
+  assembly_unit_items : inline_assembly_item list;
+  assembly_unit_lines : assembly_line list;
+  assembly_unit_initial_mode : Asm.Operand.mode;
+  assembly_unit_final_mode : Asm.Operand.mode;
+  assembly_unit_location : location;
+}
 
 type statement =
   | Aggregate_declaration_statement of aggregate_statement
@@ -710,6 +727,7 @@ and assembly_block_statement = {
   assembly_keyword : location;
   assembly_opening_brace : location;
   assembly_lines : assembly_line list;
+  assembly_items : inline_assembly_item list;
   assembly_closing_brace : location;
   assembly_block_location : location;
 }
@@ -1513,42 +1531,48 @@ let make_assembly_line ~source_line ~labels ~tokens ~location =
     assembly_line_location = location;
   }
 
-let make_assembly_block_statement ~keyword ~opening_brace ~lines ~closing_brace
-    ~location =
+let make_assembly_block_statement ~keyword ~opening_brace ~lines ~items
+    ~closing_brace ~location =
   {
     assembly_keyword = keyword;
     assembly_opening_brace = opening_brace;
     assembly_lines = lines;
+    assembly_items = items;
     assembly_closing_brace = closing_brace;
     assembly_block_location = location;
   }
 
-let make_inline_assembly_operand ~kind ~size_prefix ~segment_prefix ~tokens
-    ~location =
+let make_inline_assembly_operand ~kind ~operand ~type_definitions ~size_prefix
+    ~segment_prefix ~tokens ~location =
   {
     inline_assembly_operand_kind = kind;
+    inline_assembly_operand = operand;
+    inline_assembly_type_definitions = type_definitions;
     inline_assembly_size_prefix = size_prefix;
     inline_assembly_segment_prefix = segment_prefix;
     inline_assembly_operand_tokens = tokens;
     inline_assembly_operand_location = location;
   }
 
-let make_inline_assembly_operation ~opcode ~operands ~separator ~semicolon
-    ~location =
+let make_inline_assembly_operation ~opcode ~mode ~selection ~operands ~separator
+    ~semicolon ~location =
   {
     inline_assembly_opcode = opcode;
+    inline_assembly_mode = mode;
+    inline_assembly_selection = selection;
     inline_assembly_operands = operands;
     inline_assembly_separator = separator;
     inline_assembly_semicolon = semicolon;
     inline_assembly_operation_location = location;
   }
 
-let make_inline_assembly_directive ~kind ~directive ~arguments ~separators
-    ~semicolon ~location =
+let make_inline_assembly_directive ~kind ~directive ~arguments ~type_definitions
+    ~separators ~semicolon ~location =
   {
     inline_assembly_directive_kind = kind;
     inline_assembly_directive_token = directive;
     inline_assembly_directive_arguments = arguments;
+    inline_assembly_directive_type_definitions = type_definitions;
     inline_assembly_directive_separators = separators;
     inline_assembly_directive_semicolon = semicolon;
     inline_assembly_directive_location = location;
@@ -1556,6 +1580,15 @@ let make_inline_assembly_directive ~kind ~directive ~arguments ~separators
 
 let make_inline_assembly_statement ~items ~location =
   { inline_assembly_items = items; inline_assembly_location = location }
+
+let make_assembly_unit ~items ~lines ~initial_mode ~final_mode ~location =
+  {
+    assembly_unit_items = items;
+    assembly_unit_lines = lines;
+    assembly_unit_initial_mode = initial_mode;
+    assembly_unit_final_mode = final_mode;
+    assembly_unit_location = location;
+  }
 
 let make_block_statement ~opening_brace ~statements ~closing_brace ~location =
   {

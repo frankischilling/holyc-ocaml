@@ -172,6 +172,8 @@ module Templeos_bin_spec = Backend.Bin_spec
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode
 module Asm_register = Asm.Register
+module Asm_operand = Asm.Operand
+module Asm_instruction = Asm.Instruction
 module Keyword = Frontend.Keyword
 module Operator = Frontend.Operator
 module Trivia = Frontend.Trivia
@@ -320,6 +322,16 @@ val parse_detailed :
   config:Preprocessor.Config.t ->
   source:Source_file.t ->
   Parser.output
+
+val parse_assembly_detailed :
+  ?mode:Asm_operand.mode ->
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  Parser.assembly_output
+(** Parse and validate a standalone TempleOS assembly stream. The result keeps
+    original source locations and instruction-form selections. Symbol relocation
+    and byte emission are separate compiler phases. *)
 
 val collect_declarations :
   Session.t -> Ast.module_ -> (Semantic_declaration_collection.t, string) result

@@ -1,3 +1,15 @@
+(test
+ (name test_assembly_operations_cli)
+ (modules test_assembly_operations_cli)
+ (libraries unix yojson)
+ (deps cli/assembly-operations.hc ../examples/assembly-operands.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:cli/assembly-operations.hc}
+   %{dep:../examples/assembly-operands.hc})))
+
 (library
  (name lock_execution_fixture)
  (wrapped false)
@@ -464,6 +476,8 @@
  (name test_main)
  (modules
   test_main
+  test_asm_instruction_forms
+  test_assembly_operations
   test_conditional_recovery
   test_retained_aggregates
   test_retained_named_aggregate

@@ -6,6 +6,8 @@ val spelling : t -> string
 val source_line : t -> int
 val aliases : t -> string list
 val first_form_argument_count : t -> int
+val forms : t -> Generated.Opcode_keywords.instruction list
+val first_form_relative_arguments : t -> bool list
 val resolve : string -> resolved option
 val resolved_opcode : resolved -> t
 val resolved_source_spelling : resolved -> string

@@ -3625,7 +3625,7 @@ ic_lowering_status = "planned IC_IMM_I64 emission"
 
 [[feature]]
 id = "HC-PARSER-ASSEMBLY-BLOCKS"
-description = "Brace-delimited assembly statements retain their source structure and checked token identities without claiming operand or encoding support."
+description = "Brace-delimited assembly statements retain source structure, checked tokens and ordered operand/form selections; encoding remains separate."
 sources = [
   "Compiler/PrsStmt.HC:PrsStmt KW_ASM dispatch",
   "Compiler/Asm.HC:PrsAsmBlk",
@@ -3679,9 +3679,9 @@ line_grouping = "deterministic display grouping by source ID and physical line; 
 definition_and_include_provenance = "preserved"
 missing_opening_diagnostic = "HCPARSE0145"
 missing_closing_diagnostic = "HCPARSE0146"
-operand_parsing = "not implemented inside brace-delimited assembly blocks"
+operand_parsing = "shared source operand parser and instruction-form selection under issue 711"
 directive_semantics = "not implemented"
-label_resolution = "not implemented"
+label_resolution = "function goto collection consumes ordered assembly labels, including labels after same-line instructions; assembler addresses and fixups remain separate"
 single_instruction_form = "zero-, one-, and two-operand opcodes and aliases are implemented by issues 155 and 157; source-ordered direct directives are implemented by issue 159"
 encoding = "not implemented"
 execution = "not implemented"
@@ -3737,7 +3737,7 @@ definition_and_include_provenance = "preserved"
 top_level_diagnostic = "HCPARSE0147"
 operand_diagnostics = ["HCPARSE0149", "HCPARSE0150", "HCPARSE0151", "HCPARSE0152"]
 operand_structure = "implemented"
-operand_validation = "not implemented"
+operand_validation = "implemented by the shared operand-mask and instruction-form selector under issue 711"
 direct_directives = "implemented as retained syntax by issue 159"
 direct_labels = "not implemented as assembly-label nodes; ordinary function-label parsing remains available"
 lowering = "not implemented"
@@ -3790,7 +3790,7 @@ diagnostics = ["HCPARSE0147", "HCPARSE0153", "HCPARSE0154", "HCPARSE0155", "HCPA
 expression_evaluation = "not implemented"
 import_publication = "not implemented"
 binfile_read = "not implemented"
-state_changes = "not implemented"
+state_changes = "USE16/USE32/USE64 affect following operations and direct-run mode resets are implemented; directive output and listing effects remain separate"
 data_emission = "not implemented"
 lowering = "not implemented"
 encoding = "not implemented"
@@ -6674,19 +6674,19 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 report_schema = "holyc-corpus-parse-comparison-v2"
 default_mode = "aot"
 source_objects = 528
-standalone_parses = 25
-standalone_diagnostics = 36999
-project_prelude_parses = 126
-project_prelude_only = 101
+standalone_parses = 17
+standalone_diagnostics = 37113
+project_prelude_parses = 123
+project_prelude_only = 106
 project_prelude_frontend_diagnostics = 30
-project_prelude_parser_diagnostics = 372
+project_prelude_parser_diagnostics = 375
 project_prelude_unresolved_name_failures = 370
-project_prelude_other_failures = 32
+project_prelude_other_failures = 35
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 20981
+project_prelude_diagnostics = 21046
 prelude_diagnostics = 23
-baseline_sha256 = "5e3ae43dfd8ccb9fa75e9c516966fe7a94104ef06a45b891599a71706bb3064a"
+baseline_sha256 = "fc32cd86304877033edf6ff97e4241d60f172983b5fb0a9ec85141c8df8c3ef9"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"
@@ -14176,3 +14176,56 @@ coverage = "Shared positive fixtures run in both preprocessing modes; separate b
 local_validation_environment = "Windows x86-64 with OCaml 5.4.1"
 local_validation = "Complete @fmt, @all, @install, @runtest and @native-tests gates passed: 4161 main tests including 435 lock interpreter cases; 431 native API cases; four encoding/contention cases; CLI 73 interpreted results and 40 invalid/faulting runs, plus 141 native/retained results and 80 invalid/faulting runs. Generated-source, pinned reference, 15 release contracts, version metadata, 528 lexer corpus files and the reviewed parser baseline also passed."
 verification_boundary = "Source-derived expected results remain separate from interpreter/native agreement. Exact memory encodings and controlled native contention establish the claimed atomic mutations. The checked path does not simulate a concurrent scheduler, add a TempleOS runtime capture, or claim universal original machine-byte parity; the zero-update and fused-decrement optimization differences remain explicit."
+
+[[feature]]
+id = "HC-ASSEMBLY-OPERANDS-AND-FORMS"
+description = "Shared TempleOS assembly operations, operand masks and source-ordered instruction-form selection."
+sources = [
+  "Compiler/Asm.HC:PrsAsmImm, PrsAsmArg, AsmMakeArgMask, PrsAsmInst and PrsAsmBlk",
+  "Compiler/AsmLib.HC:AsmLexExpression",
+  "Compiler/AsmInit.HC:AsmPrsInsFlags and AsmHashLoad",
+  "Compiler/PrsExp.HC:PrsTerm, PrsUnaryModifier and PrsFunCall",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/OpCodes.DD",
+  "Compiler/PrsStmt.HC:PrsClass, KW_ASM and CMPF_ONE_ASM_INS",
+  "Kernel/KInts.HC",
+  "Kernel/PCIBIOS.HC",
+  "Demo/Asm/AsmAndC1.HC",
+  "Demo/Asm/AsmAndC2.HC",
+  "Demo/Asm/AsmAndC3.HC"
+]
+implementation = [
+  "src/asm/operand.ml",
+  "src/asm/instruction.ml",
+  "src/asm/opcode.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/parser.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/symbol_visibility.ml",
+  "src/driver/label_resolution.ml",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_asm_instruction_forms.ml",
+  "test/test_assembly_operations.ml",
+  "test/test_assembly_operations_cli.ml",
+  "test/cli/assembly-operations.hc",
+  "examples/assembly-operands.hc",
+  "test/test_parser.ml"
+]
+status = "implemented"
+issue = 711
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+documentation = ["docs/assembler.md", "docs/holyc-language.md", "docs/reference-source-map.md", "docs/testing.md"]
+contexts = ["HolyC brace blocks", "function-local direct instruction runs", "standalone assembly"]
+assembly_modes = ["USE16", "USE32", "USE64"]
+structural_arity = "original first form; complete form list is checked separately"
+selection = "shortest original comparison count; first source form wins ties"
+unspecified_size = "original warning, retained with deterministic selected form"
+source_locations = "item and operand spans, include sources and definition/expansion provenance"
+label_collection = "ordered items, independent of physical lines"
+symbolic_values = "retained explicitly unresolved; final evaluation and relative distance checks belong to later phases"
+expression_grammar = "source modifier states, known function call shapes, typed indexing, named postfix declarators and inline aggregate definitions"
+standalone_schema = "holyc-assembly-v1"
+remaining = ["instruction byte emission", "directive execution", "symbol layout and fixups", "disassembly", "assembly execution"]

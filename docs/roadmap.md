@@ -1,5 +1,13 @@
 # holyc-ocaml roadmap
 
+Issue #711 connects shared assembler operand parsing and form selection to
+HolyC blocks, direct function instructions and the standalone `asm` command.
+The source mode, operand masks, shortest-form rule, aliases, unsized warnings
+and expression provenance appear in deterministic dumps.
+Instruction emission (#712), directive execution (#713), layout and fixups
+(#714), inline execution (#715), and disassembly (#716) remain distinct steps.
+See [assembler support](assembler.md).
+
 Issue #686 now includes owned integer and class pointer fields in IR. Member
 arrays, function-local types, captured destinations, overlap and expired
 targets use checked field proofs and stored pointer ownership. Native pointer

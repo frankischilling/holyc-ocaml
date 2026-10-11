@@ -40,6 +40,12 @@ type function_call_shape = {
   variadic : bool;
 }
 
+type function_address_flags = {
+  external_ : bool;
+  internal : bool;
+  imported : bool;
+}
+
 type owner = unit ref
 
 type entry = {
@@ -50,6 +56,8 @@ type entry = {
   origin : origin;
   public_primitive : Common.Primitive_type.t option;
   function_call_shape : function_call_shape option;
+  function_address_flags : function_address_flags option;
+  variable_call_shape : function_call_shape option option;
   alias_original : entry option;
   definition_payload : Definition.t option;
 }
@@ -60,6 +68,8 @@ let kind entry = entry.kind
 let origin entry = entry.origin
 let public_primitive entry = entry.public_primitive
 let function_call_shape entry = entry.function_call_shape
+let function_address_flags entry = entry.function_address_flags
+let variable_call_shape entry = entry.variable_call_shape
 let function_alias_original entry = entry.alias_original
 let definition_payload entry = entry.definition_payload
 
@@ -119,6 +129,7 @@ module Environment = struct
   type store = {
     entries_by_name : (string, entry list) Hashtbl.t;
     mutable entries_rev : entry list;
+    mutable completed_functions : entry list;
     mutable next_entry_id : int;
     lexical_journal : lexical_journal;
   }
@@ -157,6 +168,7 @@ module Environment = struct
         {
           entries_by_name = Hashtbl.create 128;
           entries_rev = [];
+          completed_functions = [];
           next_entry_id = 0;
           lexical_journal =
             { current_generation = { identity = ref (); preceding = None } };
@@ -202,6 +214,9 @@ module Environment = struct
         {
           entries_by_name;
           entries_rev;
+          completed_functions =
+            List.filter (visible environment)
+              environment.store.completed_functions;
           next_entry_id = environment.store.next_entry_id;
           lexical_journal = environment.store.lexical_journal;
         };
@@ -225,11 +240,15 @@ module Environment = struct
     Fun.protect ~finally:(fun () -> environment.local_contexts <- contexts) run
 
   let add_entry ?(origin = Session_registration) ?function_call_shape
-      ?alias_original ?public_primitive ?definition_payload environment ~name
-      ~kind () =
+      ?function_address_flags ?variable_call_shape ?alias_original
+      ?public_primitive ?definition_payload environment ~name ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
     if Option.is_some function_call_shape && kind <> Function then
       invalid_arg "only function symbols may carry a function call shape";
+    if Option.is_some function_address_flags && kind <> Function then
+      invalid_arg "only function symbols may carry function address flags";
+    if Option.is_some variable_call_shape && kind <> Global_variable then
+      invalid_arg "only variable symbols may carry a variable call shape";
     if environment.store.next_entry_id = max_int then
       invalid_arg "symbol visibility identity space is exhausted";
     let entry =
@@ -241,6 +260,8 @@ module Environment = struct
         origin;
         public_primitive;
         function_call_shape;
+        function_address_flags;
+        variable_call_shape;
         alias_original;
         definition_payload;
       }
@@ -255,8 +276,38 @@ module Environment = struct
     environment.store.entries_rev <- entry :: environment.store.entries_rev;
     entry
 
-  let add ?origin ?function_call_shape environment ~name ~kind () =
-    add_entry ?origin ?function_call_shape environment ~name ~kind ()
+  let add ?origin ?function_call_shape ?function_address_flags
+      ?variable_call_shape environment ~name ~kind () =
+    add_entry ?origin ?function_call_shape ?function_address_flags
+      ?variable_call_shape environment ~name ~kind ()
+
+  let function_address_flags environment entry =
+    if
+      (not (visible environment entry))
+      || not (List.exists (( == ) entry) environment.store.entries_rev)
+    then None
+    else
+      Option.map
+        (fun flags ->
+          if List.exists (( == ) entry) environment.store.completed_functions
+          then { flags with external_ = false }
+          else flags)
+        entry.function_address_flags
+
+  let complete_function_definition environment ~entry =
+    if entry.kind <> Function || Option.is_none entry.function_call_shape then
+      Error
+        "function definition completion requires a completed function header"
+    else if not (same_owner environment.owner entry.owner) then
+      Error "function definition entry belongs to another frontend owner"
+    else if not (List.exists (( == ) entry) environment.store.entries_rev) then
+      Error "function definition entry does not belong to this environment"
+    else if List.exists (( == ) entry) environment.store.completed_functions
+    then Error "function definition entry has already completed"
+    else (
+      environment.store.completed_functions <-
+        entry :: environment.store.completed_functions;
+      Ok ())
 
   let add_definition environment ~definitions ~definition =
     if not (Definition.Environment.owns definitions definition) then
@@ -301,6 +352,8 @@ module Environment = struct
         in
         Ok
           (add_entry ~origin:original_entry.origin ?function_call_shape
+             ?function_address_flags:
+               (function_address_flags environment original_entry)
              ~alias_original:original_entry environment
              ~name:original_entry.name ~kind:Function ())
 

@@ -104,30 +104,26 @@ let add_assembly_label state (label : Frontend.Ast.assembly_label) =
         ~name ~definition_kind ~origin ~occurrence_index)
     state
 
-let add_assembly_line state (line : Frontend.Ast.assembly_line) =
+let add_assembly_items state items =
   let rec add state = function
     | [] -> Ok state
-    | label :: rest -> (
+    | Frontend.Ast.Inline_assembly_label label :: rest -> (
         match add_assembly_label state label with
         | Error _ as error -> error
         | Ok state -> add state rest)
+    | ( Frontend.Ast.Inline_assembly_instruction _
+      | Frontend.Ast.Inline_assembly_directive _
+      | Frontend.Ast.Inline_assembly_empty _ )
+      :: rest -> add state rest
   in
-  add state line.assembly_line_labels
-
-let add_assembly_block state (block : Frontend.Ast.assembly_block_statement) =
-  let rec add state = function
-    | [] -> Ok state
-    | line :: rest -> (
-        match add_assembly_line state line with
-        | Error _ as error -> error
-        | Ok state -> add state rest)
-  in
-  add state block.assembly_lines
+  add state items
 
 let rec statement_occurrences state source =
   match source with
   | Frontend.Ast.Assembly_block_statement block ->
-      add_assembly_block state block
+      add_assembly_items state block.assembly_items
+  | Frontend.Ast.Inline_assembly_statement statement ->
+      add_assembly_items state statement.inline_assembly_items
   | Frontend.Ast.Block_statement block ->
       statements_occurrences state block.block_statements
   | Frontend.Ast.Do_while_statement do_while ->
@@ -164,7 +160,6 @@ let rec statement_occurrences state source =
       | Ok state -> statement_occurrences state try_catch.catch_body)
   | Frontend.Ast.While_statement while_ ->
       statement_occurrences state while_.while_body
-  | Frontend.Ast.Inline_assembly_statement _
   | Frontend.Ast.Break_statement _
   | Frontend.Ast.Empty_statement _
   | Frontend.Ast.Expression_statement _

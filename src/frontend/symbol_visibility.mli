@@ -40,6 +40,12 @@ type function_call_shape = {
   variadic : bool;
 }
 
+type function_address_flags = {
+  external_ : bool;
+  internal : bool;
+  imported : bool;
+}
+
 type entry
 
 val id : entry -> int
@@ -52,6 +58,8 @@ val public_primitive : entry -> Common.Primitive_type.t option
     publication, including one with the same name or origin, carries none. *)
 
 val function_call_shape : entry -> function_call_shape option
+val function_address_flags : entry -> function_address_flags option
+val variable_call_shape : entry -> function_call_shape option option
 
 val function_alias_original : entry -> entry option
 (** Exact immutable immediate original of an explicit function alias. Ordinary
@@ -107,12 +115,16 @@ module Environment : sig
   val add :
     ?origin:origin ->
     ?function_call_shape:function_call_shape ->
+    ?function_address_flags:function_address_flags ->
+    ?variable_call_shape:function_call_shape option ->
     t ->
     name:string ->
     kind:kind ->
     unit ->
     entry
 
+  val function_address_flags : t -> entry -> function_address_flags option
+  val complete_function_definition : t -> entry:entry -> (unit, string) result
   val find_preprocessor : t -> string -> lookup
 
   val add_definition :

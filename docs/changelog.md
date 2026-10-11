@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added shared assembler operand parsing and original instruction-form selection
+  for blocks, direct function instructions and standalone `holyc asm` input.
+  Dumps retain modes, selected source records, immediate/address fields and
+  warnings. Function label collection uses operation order, including labels
+  after instructions on the same line. See [assembler support](assembler.md).
+
 - Added bracket switches, repeated defaults, and nested start/end setup regions
   to IR and native execution. Prefixes run once on direct case entry, ordinary
   fallthrough skips their setup calls, and region breaks reach the proper end

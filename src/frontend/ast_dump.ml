@@ -131,6 +131,8 @@ let inline_assembly_directive_kind_name = function
   | Ast.Inline_assembly_binfile_directive -> "binfile"
   | Ast.Inline_assembly_list_directive -> "list"
   | Ast.Inline_assembly_nolist_directive -> "nolist"
+  | Ast.Inline_assembly_org_directive -> "org"
+  | Ast.Inline_assembly_align_directive -> "align"
   | Ast.Inline_assembly_use_directive _ -> "use"
 
 let assembly_token_kind_name = function
@@ -609,7 +611,157 @@ let print_assembly_token buffer sources ~indent index
     value details
     (location_text sources token.assembly_token_location)
 
-let rec print_statement buffer sources ~indent = function
+let rec print_inline_assembly_item buffer sources ~indent index = function
+  | Ast.Inline_assembly_instruction operation ->
+      let operation_indent = indent ^ "  " in
+      Printf.bprintf buffer
+        "%sinstruction index=%d span=%s operands=%d separator=%b semicolon=%b\n"
+        indent index
+        (location_text sources operation.inline_assembly_operation_location)
+        (List.length operation.inline_assembly_operands)
+        (Option.is_some operation.inline_assembly_separator)
+        (Option.is_some operation.inline_assembly_semicolon);
+      print_assembly_token buffer sources ~indent:operation_indent 0
+        operation.inline_assembly_opcode;
+      let selected = operation.inline_assembly_selection in
+      Printf.bprintf buffer
+        "%sselection mode=%d form=%d source_line=%d candidates=%d \
+         comparison_bytes=%d estimated_bytes=%d unresolved=%b\n"
+        operation_indent
+        (Asm.Operand.mode_bits operation.inline_assembly_mode)
+        selected.form.entry_index selected.form.source_line
+        selected.candidate_count selected.selection_bytes selected.encoded_bytes
+        selected.unresolved;
+      List.iter
+        (fun warning ->
+          Printf.bprintf buffer "%swarning message=%S\n" operation_indent
+            (Asm.Instruction.warning_message warning))
+        selected.warnings;
+      List.iteri
+        (fun operand_index (operand : Ast.inline_assembly_operand) ->
+          let operand_indent = operation_indent ^ "  " in
+          let prefix_spelling = function
+            | None -> "none"
+            | Some (token : Ast.assembly_token) ->
+                Printf.sprintf "%S" token.assembly_source_token.raw
+          in
+          Printf.bprintf buffer
+            "%soperand index=%d kind=%s size_prefix=%s segment_prefix=%s \
+             span=%s tokens=%d\n"
+            operation_indent operand_index
+            (inline_assembly_operand_kind_name
+               operand.inline_assembly_operand_kind)
+            (prefix_spelling operand.inline_assembly_size_prefix)
+            (prefix_spelling operand.inline_assembly_segment_prefix)
+            (location_text sources operand.inline_assembly_operand_location)
+            (List.length operand.inline_assembly_operand_tokens);
+          let value = operand.inline_assembly_operand in
+          let register_name = function
+            | None -> "none"
+            | Some register -> Asm.Register.spelling register
+          in
+          Printf.bprintf buffer
+            "%svalue size_bytes=%d segment=%s register1=%s register2=%s \
+             scale=%Ld indirect=%b segment_only=%b argument_mask=%Ld \
+             unresolved=%b\n"
+            operand_indent (Asm.Operand.size value)
+            (register_name (Asm.Operand.segment value))
+            (register_name (Asm.Operand.register1 value))
+            (register_name (Asm.Operand.register2 value))
+            (Asm.Operand.scale value)
+            (Asm.Operand.indirect value)
+            (Asm.Operand.just_segment value)
+            (Asm.Operand.argument_mask value)
+            (Asm.Operand.unresolved value);
+          Option.iter
+            (fun (immediate : Asm.Operand.immediate) ->
+              Printf.bprintf buffer
+                "%simmediate value=%s absolute=%b absolute_known=%b symbols=%s\n"
+                operand_indent
+                (Option.fold ~none:"unresolved" ~some:Int64.to_string
+                   immediate.value)
+                immediate.absolute immediate.absolute_known
+                (String.concat "," immediate.symbols))
+            (Asm.Operand.immediate value);
+          List.iteri
+            (print_assembly_token buffer sources ~indent:operand_indent)
+            operand.inline_assembly_operand_tokens;
+          List.iter
+            (fun definition ->
+              print_aggregate_declaration buffer sources ~indent:operand_indent
+                (Ast.Aggregate_definition definition))
+            operand.inline_assembly_type_definitions)
+        operation.inline_assembly_operands;
+      Option.iter
+        (fun separator ->
+          Printf.bprintf buffer "%sseparator spelling=\",\" span=%s\n"
+            operation_indent
+            (location_text sources separator))
+        operation.inline_assembly_separator;
+      Option.iter
+        (fun semicolon ->
+          Printf.bprintf buffer "%ssemicolon span=%s\n" operation_indent
+            (location_text sources semicolon))
+        operation.inline_assembly_semicolon
+  | Ast.Inline_assembly_directive directive ->
+      let directive_indent = indent ^ "  " in
+      let details =
+        match directive.inline_assembly_directive_kind with
+        | Ast.Inline_assembly_data_directive { element_width_bytes } ->
+            Printf.sprintf " element_width_bytes=%d" element_width_bytes
+        | Ast.Inline_assembly_use_directive { segment_width_bits } ->
+            Printf.sprintf " segment_width_bits=%d" segment_width_bits
+        | Ast.Inline_assembly_import_directive
+        | Ast.Inline_assembly_binfile_directive
+        | Ast.Inline_assembly_list_directive
+        | Ast.Inline_assembly_nolist_directive
+        | Ast.Inline_assembly_org_directive
+        | Ast.Inline_assembly_align_directive -> ""
+      in
+      Printf.bprintf buffer
+        "%sdirective index=%d kind=%s%s span=%s arguments=%d separators=%d \
+         semicolon=%b\n"
+        indent index
+        (inline_assembly_directive_kind_name
+           directive.inline_assembly_directive_kind)
+        details
+        (location_text sources directive.inline_assembly_directive_location)
+        (List.length directive.inline_assembly_directive_arguments)
+        (List.length directive.inline_assembly_directive_separators)
+        (Option.is_some directive.inline_assembly_directive_semicolon);
+      print_assembly_token buffer sources ~indent:directive_indent 0
+        directive.inline_assembly_directive_token;
+      List.iteri
+        (print_assembly_token buffer sources ~indent:directive_indent)
+        directive.inline_assembly_directive_arguments;
+      List.iter
+        (fun definition ->
+          print_aggregate_declaration buffer sources ~indent:directive_indent
+            (Ast.Aggregate_definition definition))
+        directive.inline_assembly_directive_type_definitions;
+      List.iteri
+        (fun separator_index separator ->
+          Printf.bprintf buffer "%sseparator index=%d spelling=\",\" span=%s\n"
+            directive_indent separator_index
+            (location_text sources separator))
+        directive.inline_assembly_directive_separators;
+      Option.iter
+        (fun semicolon ->
+          Printf.bprintf buffer "%ssemicolon span=%s\n" directive_indent
+            (location_text sources semicolon))
+        directive.inline_assembly_directive_semicolon
+  | Ast.Inline_assembly_label label ->
+      Printf.bprintf buffer
+        "%slabel index=%d kind=%s name=%S delimiter=%S span=%s\n" indent index
+        (assembly_label_kind_name label.assembly_label_kind)
+        label.assembly_label_name.spelling
+        label.assembly_label_delimiter_spelling
+        (location_text sources label.assembly_label_location)
+  | Ast.Inline_assembly_empty location ->
+      Printf.bprintf buffer "%sempty index=%d span=%s\n" indent index
+        (location_text sources location)
+
+and print_statement buffer sources ~indent = function
   | Ast.Aggregate_declaration_statement declaration ->
       Printf.bprintf buffer "%saggregate_declaration_statement span=%s\n" indent
         (location_text sources declaration.aggregate_statement_location);
@@ -655,6 +807,9 @@ let rec print_statement buffer sources ~indent = function
             (print_assembly_token buffer sources ~indent:line_indent)
             line.assembly_line_tokens)
         statement.assembly_lines;
+      List.iteri
+        (print_inline_assembly_item buffer sources ~indent:child_indent)
+        statement.assembly_items;
       Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
         (location_text sources statement.assembly_closing_brace)
   | Ast.Inline_assembly_statement statement ->
@@ -664,96 +819,7 @@ let rec print_statement buffer sources ~indent = function
         (location_text sources statement.inline_assembly_location)
         (List.length statement.inline_assembly_items);
       List.iteri
-        (fun index -> function
-          | Ast.Inline_assembly_instruction operation ->
-              let operation_indent = child_indent ^ "  " in
-              Printf.bprintf buffer
-                "%sinstruction index=%d span=%s operands=%d separator=%b \
-                 semicolon=%b\n"
-                child_indent index
-                (location_text sources
-                   operation.inline_assembly_operation_location)
-                (List.length operation.inline_assembly_operands)
-                (Option.is_some operation.inline_assembly_separator)
-                (Option.is_some operation.inline_assembly_semicolon);
-              print_assembly_token buffer sources ~indent:operation_indent 0
-                operation.inline_assembly_opcode;
-              List.iteri
-                (fun operand_index (operand : Ast.inline_assembly_operand) ->
-                  let operand_indent = operation_indent ^ "  " in
-                  let prefix_spelling = function
-                    | None -> "none"
-                    | Some (token : Ast.assembly_token) ->
-                        Printf.sprintf "%S" token.assembly_source_token.raw
-                  in
-                  Printf.bprintf buffer
-                    "%soperand index=%d kind=%s size_prefix=%s \
-                     segment_prefix=%s span=%s tokens=%d\n"
-                    operation_indent operand_index
-                    (inline_assembly_operand_kind_name
-                       operand.inline_assembly_operand_kind)
-                    (prefix_spelling operand.inline_assembly_size_prefix)
-                    (prefix_spelling operand.inline_assembly_segment_prefix)
-                    (location_text sources
-                       operand.inline_assembly_operand_location)
-                    (List.length operand.inline_assembly_operand_tokens);
-                  List.iteri
-                    (print_assembly_token buffer sources ~indent:operand_indent)
-                    operand.inline_assembly_operand_tokens)
-                operation.inline_assembly_operands;
-              Option.iter
-                (fun separator ->
-                  Printf.bprintf buffer "%sseparator spelling=\",\" span=%s\n"
-                    operation_indent
-                    (location_text sources separator))
-                operation.inline_assembly_separator;
-              Option.iter
-                (fun semicolon ->
-                  Printf.bprintf buffer "%ssemicolon span=%s\n" operation_indent
-                    (location_text sources semicolon))
-                operation.inline_assembly_semicolon
-          | Ast.Inline_assembly_directive directive ->
-              let directive_indent = child_indent ^ "  " in
-              let details =
-                match directive.inline_assembly_directive_kind with
-                | Ast.Inline_assembly_data_directive { element_width_bytes } ->
-                    Printf.sprintf " element_width_bytes=%d" element_width_bytes
-                | Ast.Inline_assembly_use_directive { segment_width_bits } ->
-                    Printf.sprintf " segment_width_bits=%d" segment_width_bits
-                | Ast.Inline_assembly_import_directive
-                | Ast.Inline_assembly_binfile_directive
-                | Ast.Inline_assembly_list_directive
-                | Ast.Inline_assembly_nolist_directive -> ""
-              in
-              Printf.bprintf buffer
-                "%sdirective index=%d kind=%s%s span=%s arguments=%d \
-                 separators=%d semicolon=%b\n"
-                child_indent index
-                (inline_assembly_directive_kind_name
-                   directive.inline_assembly_directive_kind)
-                details
-                (location_text sources
-                   directive.inline_assembly_directive_location)
-                (List.length directive.inline_assembly_directive_arguments)
-                (List.length directive.inline_assembly_directive_separators)
-                (Option.is_some directive.inline_assembly_directive_semicolon);
-              print_assembly_token buffer sources ~indent:directive_indent 0
-                directive.inline_assembly_directive_token;
-              List.iteri
-                (print_assembly_token buffer sources ~indent:directive_indent)
-                directive.inline_assembly_directive_arguments;
-              List.iteri
-                (fun separator_index separator ->
-                  Printf.bprintf buffer
-                    "%sseparator index=%d spelling=\",\" span=%s\n"
-                    directive_indent separator_index
-                    (location_text sources separator))
-                directive.inline_assembly_directive_separators;
-              Option.iter
-                (fun semicolon ->
-                  Printf.bprintf buffer "%ssemicolon span=%s\n" directive_indent
-                    (location_text sources semicolon))
-                directive.inline_assembly_directive_semicolon)
+        (print_inline_assembly_item buffer sources ~indent:child_indent)
         statement.inline_assembly_items
   | Ast.Block_statement statement ->
       let child_indent = indent ^ "  " in
@@ -2366,7 +2432,89 @@ let assembly_line_to_yojson sources (line : Ast.assembly_line) =
       ("location", location_to_yojson sources line.assembly_line_location);
     ]
 
-let inline_assembly_operation_to_yojson sources
+let assembly_operand_value_to_yojson operand =
+  let register = function
+    | None -> `Null
+    | Some value ->
+        `Assoc
+          [
+            ("spelling", `String (Asm.Register.spelling value));
+            ("number", `Int (Asm.Register.number value));
+          ]
+  in
+  let immediate =
+    match Asm.Operand.immediate operand with
+    | None -> `Null
+    | Some value ->
+        `Assoc
+          [
+            ( "value",
+              match value.value with
+              | None -> `Null
+              | Some word -> `String (Int64.to_string word) );
+            ( "symbols",
+              `List (List.map (fun name -> `String name) value.symbols) );
+            ("absolute", `Bool value.absolute);
+            ("absolute_known", `Bool value.absolute_known);
+          ]
+  in
+  `Assoc
+    [
+      ("mode", `Int (Asm.Operand.mode_bits (Asm.Operand.mode operand)));
+      ("size_bytes", `Int (Asm.Operand.size operand));
+      ("segment", register (Asm.Operand.segment operand));
+      ("register1", register (Asm.Operand.register1 operand));
+      ("register2", register (Asm.Operand.register2 operand));
+      ("scale", `String (Int64.to_string (Asm.Operand.scale operand)));
+      ("indirect", `Bool (Asm.Operand.indirect operand));
+      ("segment_only", `Bool (Asm.Operand.just_segment operand));
+      ("immediate", immediate);
+      ("unresolved", `Bool (Asm.Operand.unresolved operand));
+      ( "argument_mask",
+        `String (Int64.to_string (Asm.Operand.argument_mask operand)) );
+    ]
+
+let assembly_selection_to_yojson (selection : Asm.Instruction.selection) =
+  let optional_int = function
+    | None -> `Null
+    | Some value -> `Int value
+  in
+  let form = selection.form in
+  `Assoc
+    [
+      ( "form",
+        `Assoc
+          [
+            ("entry_index", `Int form.entry_index);
+            ("source_path", `String Generated.Opcode_keywords.source_path);
+            ("source_line", `Int form.source_line);
+            ( "opcode_bytes",
+              `List (List.map (fun byte -> `Int byte) form.opcode_bytes) );
+            ("argument1", `Int form.argument1);
+            ("argument2", `Int form.argument2);
+            ("size1", `Int form.size1);
+            ("size2", `Int form.size2);
+          ] );
+      ("candidate_count", `Int selection.candidate_count);
+      ("comparison_bytes", `Int selection.selection_bytes);
+      ("estimated_bytes", `Int selection.encoded_bytes);
+      ("operand_prefix", `Bool selection.operand_prefix);
+      ("address_prefix", `Bool selection.address_prefix);
+      ("segment_prefix", optional_int selection.segment_prefix);
+      ("rex", optional_int selection.rex);
+      ("modrm", optional_int selection.modrm);
+      ("sib", optional_int selection.sib);
+      ("immediate_bytes", `Int selection.immediate_bytes);
+      ("displacement_bytes", `Int selection.displacement_bytes);
+      ("unresolved", `Bool selection.unresolved);
+      ( "warnings",
+        `List
+          (List.map
+             (fun warning -> `String (Asm.Instruction.warning_message warning))
+             selection.warnings) );
+    ]
+
+let rec inline_assembly_operation_to_yojson sources
     (operation : Ast.inline_assembly_operation) =
   let operand_to_yojson (operand : Ast.inline_assembly_operand) =
     let optional_token = function
@@ -2374,25 +2522,45 @@ let inline_assembly_operation_to_yojson sources
       | Some token -> assembly_token_to_yojson sources token
     in
     `Assoc
-      [
-        ( "kind",
-          `String
-            (inline_assembly_operand_kind_name
-               operand.inline_assembly_operand_kind) );
-        ("size_prefix", optional_token operand.inline_assembly_size_prefix);
-        ("segment_prefix", optional_token operand.inline_assembly_segment_prefix);
-        ( "tokens",
-          `List
-            (List.map
-               (assembly_token_to_yojson sources)
-               operand.inline_assembly_operand_tokens) );
-        ( "location",
-          location_to_yojson sources operand.inline_assembly_operand_location );
-      ]
+      ([
+         ( "kind",
+           `String
+             (inline_assembly_operand_kind_name
+                operand.inline_assembly_operand_kind) );
+         ("size_prefix", optional_token operand.inline_assembly_size_prefix);
+         ( "segment_prefix",
+           optional_token operand.inline_assembly_segment_prefix );
+         ( "value",
+           assembly_operand_value_to_yojson operand.inline_assembly_operand );
+         ( "tokens",
+           `List
+             (List.map
+                (assembly_token_to_yojson sources)
+                operand.inline_assembly_operand_tokens) );
+         ( "location",
+           location_to_yojson sources operand.inline_assembly_operand_location
+         );
+       ]
+      @
+      match operand.inline_assembly_type_definitions with
+      | [] -> []
+      | definitions ->
+          [
+            ( "type_definitions",
+              `List
+                (List.map
+                   (fun definition ->
+                     item_to_yojson sources
+                       (Ast.Aggregate_definition definition))
+                   definitions) );
+          ])
   in
   `Assoc
     [
       ("kind", `String "instruction");
+      ("mode", `Int (Asm.Operand.mode_bits operation.inline_assembly_mode));
+      ( "selection",
+        assembly_selection_to_yojson operation.inline_assembly_selection );
       ( "opcode",
         assembly_token_to_yojson sources operation.inline_assembly_opcode );
       ( "operands",
@@ -2410,7 +2578,7 @@ let inline_assembly_operation_to_yojson sources
       );
     ]
 
-let inline_assembly_directive_to_yojson sources
+and inline_assembly_directive_to_yojson sources
     (directive : Ast.inline_assembly_directive) =
   let element_width_bytes, segment_width_bits =
     match directive.inline_assembly_directive_kind with
@@ -2421,46 +2589,72 @@ let inline_assembly_directive_to_yojson sources
     | Ast.Inline_assembly_import_directive
     | Ast.Inline_assembly_binfile_directive
     | Ast.Inline_assembly_list_directive
-    | Ast.Inline_assembly_nolist_directive -> (`Null, `Null)
+    | Ast.Inline_assembly_nolist_directive
+    | Ast.Inline_assembly_org_directive
+    | Ast.Inline_assembly_align_directive -> (`Null, `Null)
   in
   `Assoc
-    [
-      ("kind", `String "directive");
-      ( "directive_kind",
-        `String
-          (inline_assembly_directive_kind_name
-             directive.inline_assembly_directive_kind) );
-      ("element_width_bytes", element_width_bytes);
-      ("segment_width_bits", segment_width_bits);
-      ( "directive",
-        assembly_token_to_yojson sources
-          directive.inline_assembly_directive_token );
-      ( "arguments",
-        `List
-          (List.map
-             (assembly_token_to_yojson sources)
-             directive.inline_assembly_directive_arguments) );
-      ( "separators",
-        `List
-          (List.map
-             (location_to_yojson sources)
-             directive.inline_assembly_directive_separators) );
-      ( "semicolon",
-        match directive.inline_assembly_directive_semicolon with
-        | None -> `Null
-        | Some semicolon -> location_to_yojson sources semicolon );
-      ( "location",
-        location_to_yojson sources directive.inline_assembly_directive_location
-      );
-    ]
+    ([
+       ("kind", `String "directive");
+       ( "directive_kind",
+         `String
+           (inline_assembly_directive_kind_name
+              directive.inline_assembly_directive_kind) );
+       ("element_width_bytes", element_width_bytes);
+       ("segment_width_bits", segment_width_bits);
+       ( "directive",
+         assembly_token_to_yojson sources
+           directive.inline_assembly_directive_token );
+       ( "arguments",
+         `List
+           (List.map
+              (assembly_token_to_yojson sources)
+              directive.inline_assembly_directive_arguments) );
+       ( "separators",
+         `List
+           (List.map
+              (location_to_yojson sources)
+              directive.inline_assembly_directive_separators) );
+       ( "semicolon",
+         match directive.inline_assembly_directive_semicolon with
+         | None -> `Null
+         | Some semicolon -> location_to_yojson sources semicolon );
+       ( "location",
+         location_to_yojson sources directive.inline_assembly_directive_location
+       );
+     ]
+    @
+    match directive.inline_assembly_directive_type_definitions with
+    | [] -> []
+    | definitions ->
+        [
+          ( "type_definitions",
+            `List
+              (List.map
+                 (fun definition ->
+                   item_to_yojson sources (Ast.Aggregate_definition definition))
+                 definitions) );
+        ])
 
-let inline_assembly_item_to_yojson sources = function
+and inline_assembly_item_to_yojson sources = function
   | Ast.Inline_assembly_instruction operation ->
       inline_assembly_operation_to_yojson sources operation
   | Ast.Inline_assembly_directive directive ->
       inline_assembly_directive_to_yojson sources directive
+  | Ast.Inline_assembly_label label ->
+      `Assoc
+        [
+          ("kind", `String "label");
+          ("label", assembly_label_to_yojson sources label);
+        ]
+  | Ast.Inline_assembly_empty location ->
+      `Assoc
+        [
+          ("kind", `String "empty");
+          ("location", location_to_yojson sources location);
+        ]
 
-let rec statement_to_yojson sources = function
+and statement_to_yojson sources = function
   | Ast.Aggregate_declaration_statement declaration ->
       `Assoc
         [
@@ -2476,6 +2670,11 @@ let rec statement_to_yojson sources = function
         [
           ("kind", `String "assembly_block_statement");
           ("keyword", location_to_yojson sources statement.assembly_keyword);
+          ( "items",
+            `List
+              (List.map
+                 (inline_assembly_item_to_yojson sources)
+                 statement.assembly_items) );
           ( "opening_brace",
             location_to_yojson sources statement.assembly_opening_brace );
           ( "lines",
@@ -3512,3 +3711,45 @@ let to_yojson sources module_ =
 
 let json sources module_ =
   to_yojson sources module_ |> Yojson.Safe.pretty_to_string
+
+let assembly_schema = "holyc-assembly-v1"
+
+let assembly_human sources (assembly : Ast.assembly_unit) =
+  let buffer = Buffer.create 1024 in
+  Printf.bprintf buffer "%s\nreference %s\n" assembly_schema
+    Common.Primitive_type.reference_commit;
+  Printf.bprintf buffer
+    "assembly initial_mode=%d final_mode=%d items=%d span=%s\n"
+    (Asm.Operand.mode_bits assembly.assembly_unit_initial_mode)
+    (Asm.Operand.mode_bits assembly.assembly_unit_final_mode)
+    (List.length assembly.assembly_unit_items)
+    (location_text sources assembly.assembly_unit_location);
+  List.iteri
+    (print_inline_assembly_item buffer sources ~indent:"  ")
+    assembly.assembly_unit_items;
+  Buffer.contents buffer
+
+let assembly_to_yojson sources (assembly : Ast.assembly_unit) =
+  `Assoc
+    [
+      ("schema", `String assembly_schema);
+      ("reference_commit", `String Common.Primitive_type.reference_commit);
+      ( "initial_mode",
+        `Int (Asm.Operand.mode_bits assembly.assembly_unit_initial_mode) );
+      ( "final_mode",
+        `Int (Asm.Operand.mode_bits assembly.assembly_unit_final_mode) );
+      ( "items",
+        `List
+          (List.map
+             (inline_assembly_item_to_yojson sources)
+             assembly.assembly_unit_items) );
+      ( "lines",
+        `List
+          (List.map
+             (assembly_line_to_yojson sources)
+             assembly.assembly_unit_lines) );
+      ("location", location_to_yojson sources assembly.assembly_unit_location);
+    ]
+
+let assembly_json sources assembly =
+  assembly_to_yojson sources assembly |> Yojson.Safe.pretty_to_string

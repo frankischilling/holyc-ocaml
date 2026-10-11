@@ -1,6 +1,8 @@
 let () =
   Alcotest.run "holyc"
     [
+      ("assembler instruction forms", Test_asm_instruction_forms.tests);
+      ("assembly operations", Test_assembly_operations.tests);
       ("source", Test_source.tests);
       ("constant shift policy", Test_constant_shifts.tests);
       ("source constant shifts", Test_source_constant_shifts.tests);

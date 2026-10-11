@@ -1,3 +1,8 @@
+type assembly_output = {
+  assembly : Ast.assembly_unit option;
+  diagnostics : Common.Diagnostic.t list;
+}
+
 type output = {
   ast : Ast.module_ option;
   diagnostics : Common.Diagnostic.t list;
@@ -1205,6 +1210,16 @@ val parse :
     Supplying an observer does not enable a declaration or execution sink. *)
 
 val has_errors : output -> bool
+
+val parse_assembly :
+  ?mode:Asm.Operand.mode ->
+  ?lexical_lookup:(Preprocessor.lexical_lookup -> unit) ->
+  sources:Common.Source_manager.t ->
+  definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
+  config:Preprocessor.Config.t ->
+  Common.Source_file.t ->
+  assembly_output
 
 val parse_suspended :
   suspension ->

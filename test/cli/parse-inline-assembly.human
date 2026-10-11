@@ -7,10 +7,10 @@ module span=cli/parse-inline-assembly.hc:1:1..14:1 items=1
     opening_parenthesis span=cli/parse-inline-assembly.hc:1:10..1:11
     closing_parenthesis span=cli/parse-inline-assembly.hc:1:11..1:12
     body span=cli/parse-inline-assembly.hc:2:1..13:2
-      block_statement span=cli/parse-inline-assembly.hc:2:1..13:2 statements=3
+      block_statement span=cli/parse-inline-assembly.hc:2:1..13:2 statements=5
         opening_brace span=cli/parse-inline-assembly.hc:2:1..2:2
         statement index=0
-          inline_assembly_statement span=cli/parse-inline-assembly.hc:3:3..10:25 items=11
+          inline_assembly_statement span=cli/parse-inline-assembly.hc:3:3..6:14 items=6
             directive index=0 kind=import span=cli/parse-inline-assembly.hc:3:3..3:17 arguments=1 separators=0 semicolon=true
               token index=0 category=directive spelling="IMPORT" lexical_kind=identifier value="IMPORT" templeos_id=85 span=cli/parse-inline-assembly.hc:3:3..3:9
               token index=0 category=identifier spelling="Target" lexical_kind=identifier value="Target" span=cli/parse-inline-assembly.hc:3:10..3:16
@@ -35,34 +35,47 @@ module span=cli/parse-inline-assembly.hc:1:1..14:1 items=1
               token index=0 category=directive spelling="USE32" lexical_kind=identifier value="USE32" templeos_id=83 span=cli/parse-inline-assembly.hc:5:8..5:13
             instruction index=4 span=cli/parse-inline-assembly.hc:6:3..6:9 operands=0 separator=false semicolon=false
               token index=0 category=opcode spelling="PUSHFD" lexical_kind=identifier value="PUSHFD" canonical="PUSHFD" alias=false span=cli/parse-inline-assembly.hc:6:3..6:9
+              selection mode=32 form=0 source_line=234 candidates=1 comparison_bytes=1 estimated_bytes=1 unresolved=false
             instruction index=5 span=cli/parse-inline-assembly.hc:6:10..6:14 operands=0 separator=false semicolon=true
               token index=0 category=opcode spelling="CLI" lexical_kind=identifier value="CLI" canonical="CLI" alias=false span=cli/parse-inline-assembly.hc:6:10..6:13
+              selection mode=32 form=0 source_line=783 candidates=1 comparison_bytes=1 estimated_bytes=1 unresolved=false
               semicolon span=cli/parse-inline-assembly.hc:6:13..6:14
-            instruction index=6 span=cli/parse-inline-assembly.hc:7:3..7:21 operands=2 separator=true semicolon=false
+        statement index=1
+          inline_assembly_statement span=cli/parse-inline-assembly.hc:7:3..8:15 items=2
+            instruction index=0 span=cli/parse-inline-assembly.hc:7:3..7:21 operands=2 separator=true semicolon=false
               token index=0 category=opcode spelling="MOV" lexical_kind=identifier value="MOV" canonical="MOV" alias=false span=cli/parse-inline-assembly.hc:7:3..7:6
+              selection mode=64 form=7 source_line=261 candidates=1 comparison_bytes=4 estimated_bytes=4 unresolved=false
               operand index=0 kind=register size_prefix=none segment_prefix=none span=cli/parse-inline-assembly.hc:7:7..7:10 tokens=1
+                value size_bytes=8 segment=none register1=RAX register2=none scale=1 indirect=false segment_only=false argument_mask=34360295424 unresolved=false
                 token index=0 category=register spelling="RAX" lexical_kind=identifier value="RAX" register_kind=r64 register_number=0 span=cli/parse-inline-assembly.hc:7:7..7:10
               operand index=1 kind=memory size_prefix="U64" segment_prefix=none span=cli/parse-inline-assembly.hc:7:11..7:21 tokens=5
+                value size_bytes=8 segment=none register1=RBP register2=none scale=1 indirect=true segment_only=false argument_mask=8912896 unresolved=false
+                immediate value=8 absolute=false absolute_known=true symbols=
                 token index=0 category=directive spelling="U64" lexical_kind=identifier value="U64" templeos_id=75 span=cli/parse-inline-assembly.hc:7:11..7:14
                 token index=1 category=integer spelling="8" lexical_kind=integer value="0x0000000000000008" span=cli/parse-inline-assembly.hc:7:15..7:16
                 token index=2 category=punctuation spelling="[" lexical_kind=punctuation('[') span=cli/parse-inline-assembly.hc:7:16..7:17
                 token index=3 category=register spelling="RBP" lexical_kind=identifier value="RBP" register_kind=r64 register_number=5 span=cli/parse-inline-assembly.hc:7:17..7:20
                 token index=4 category=punctuation spelling="]" lexical_kind=punctuation(']') span=cli/parse-inline-assembly.hc:7:20..7:21
               separator spelling="," span=cli/parse-inline-assembly.hc:7:10..7:11
-            instruction index=7 span=cli/parse-inline-assembly.hc:8:3..8:15 operands=1 separator=false semicolon=true
+            instruction index=1 span=cli/parse-inline-assembly.hc:8:3..8:15 operands=1 separator=false semicolon=true
               token index=0 category=opcode spelling="CALL" lexical_kind=identifier value="CALL" canonical="CALL" alias=false span=cli/parse-inline-assembly.hc:8:3..8:7
+              selection mode=64 form=2 source_line=571 candidates=1 comparison_bytes=5 estimated_bytes=5 unresolved=true
               operand index=0 kind=immediate size_prefix=none segment_prefix=none span=cli/parse-inline-assembly.hc:8:8..8:14 tokens=1
+                value size_bytes=0 segment=none register1=none register2=none scale=1 indirect=false segment_only=false argument_mask=4094 unresolved=true
+                immediate value=unresolved absolute=true absolute_known=true symbols=Target
                 token index=0 category=identifier spelling="Target" lexical_kind=identifier value="Target" span=cli/parse-inline-assembly.hc:8:8..8:14
               semicolon span=cli/parse-inline-assembly.hc:8:14..8:15
-            directive index=8 kind=nolist span=cli/parse-inline-assembly.hc:9:3..9:9 arguments=0 separators=0 semicolon=false
+        statement index=2
+          inline_assembly_statement span=cli/parse-inline-assembly.hc:9:3..10:25 items=3
+            directive index=0 kind=nolist span=cli/parse-inline-assembly.hc:9:3..9:9 arguments=0 separators=0 semicolon=false
               token index=0 category=directive spelling="NOLIST" lexical_kind=identifier value="NOLIST" templeos_id=87 span=cli/parse-inline-assembly.hc:9:3..9:9
-            directive index=9 kind=use segment_width_bits=64 span=cli/parse-inline-assembly.hc:9:10..9:15 arguments=0 separators=0 semicolon=false
+            directive index=1 kind=use segment_width_bits=64 span=cli/parse-inline-assembly.hc:9:10..9:15 arguments=0 separators=0 semicolon=false
               token index=0 category=directive spelling="USE64" lexical_kind=identifier value="USE64" templeos_id=84 span=cli/parse-inline-assembly.hc:9:10..9:15
-            directive index=10 kind=binfile span=cli/parse-inline-assembly.hc:10:3..10:25 arguments=1 separators=0 semicolon=true
+            directive index=2 kind=binfile span=cli/parse-inline-assembly.hc:10:3..10:25 arguments=1 separators=0 semicolon=true
               token index=0 category=directive spelling="BINFILE" lexical_kind=identifier value="BINFILE" templeos_id=88 span=cli/parse-inline-assembly.hc:10:3..10:10
               token index=0 category=string spelling="\"fixture.bin\"" lexical_kind=string value="fixture.bin" span=cli/parse-inline-assembly.hc:10:11..10:24
               semicolon span=cli/parse-inline-assembly.hc:10:24..10:25
-        statement index=1
+        statement index=3
           if_statement span=cli/parse-inline-assembly.hc:11:3..11:17 else=false
             keyword span=cli/parse-inline-assembly.hc:11:3..11:5
             opening_parenthesis span=cli/parse-inline-assembly.hc:11:6..11:7
@@ -76,12 +89,15 @@ module span=cli/parse-inline-assembly.hc:1:1..14:1 items=1
                   inline_assembly_statement span=cli/parse-inline-assembly.hc:11:11..11:16 items=1
                     instruction index=0 span=cli/parse-inline-assembly.hc:11:11..11:16 operands=0 separator=false semicolon=false
                       token index=0 category=opcode spelling="PAUSE" lexical_kind=identifier value="PAUSE" canonical="PAUSE" alias=false span=cli/parse-inline-assembly.hc:11:11..11:16
+                      selection mode=64 form=0 source_line=1279 candidates=1 comparison_bytes=2 estimated_bytes=2 unresolved=false
                 closing_brace span=cli/parse-inline-assembly.hc:11:16..11:17
-        statement index=2
+        statement index=4
           inline_assembly_statement span=cli/parse-inline-assembly.hc:12:3..12:13 items=2
             instruction index=0 span=cli/parse-inline-assembly.hc:12:3..12:8 operands=0 separator=false semicolon=false
               token index=0 category=opcode spelling="POPFD" lexical_kind=identifier value="POPFD" canonical="POPFD" alias=false span=cli/parse-inline-assembly.hc:12:3..12:8
+              selection mode=64 form=0 source_line=250 candidates=1 comparison_bytes=1 estimated_bytes=1 unresolved=false
             instruction index=1 span=cli/parse-inline-assembly.hc:12:9..12:13 operands=0 separator=false semicolon=true
               token index=0 category=opcode spelling="BPT" lexical_kind=identifier value="BPT" canonical="INT3" alias=true span=cli/parse-inline-assembly.hc:12:9..12:12
+              selection mode=64 form=0 source_line=819 candidates=1 comparison_bytes=1 estimated_bytes=1 unresolved=false
               semicolon span=cli/parse-inline-assembly.hc:12:12..12:13
         closing_brace span=cli/parse-inline-assembly.hc:13:1..13:2
