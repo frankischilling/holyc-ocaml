@@ -1,3 +1,16 @@
+(executable
+ (name test_native_sections_cli)
+ (modules test_native_sections_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias runtest)
+ (action
+  (run
+   %{exe:test_native_sections_cli.exe}
+   %{exe:../bin/holyc.exe}
+   --assembly)))
+
 (test
  (name test_bin_validator_cli)
  (modules test_bin_validator_cli)
@@ -563,6 +576,7 @@
  (name test_main)
  (modules
   test_main
+  test_native_sections
   test_bin_module
   test_bin_validator
   test_asm_instruction_forms
@@ -837,6 +851,7 @@
   primitive_type_tools
   qcheck-alcotest)
  (deps
+  oracle/bin-validator/ASM.BIN
   ../third_party/TempleOS/Compiler/OpCodes.DD
   fixtures/assembly-encoder-forms.tsv
   oracle/source-disassembly.json

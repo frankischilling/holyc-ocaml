@@ -106,3 +106,5 @@ val decode_runtime_status :
 (** Decode the private two-word runtime status. Only 0/0 is success. Unknown,
     inconsistent or type-invalid status values are rejected. Sites are the
     bounded one-based preflight instruction positions, not sparse IR IDs. *)
+
+val native_sections : t -> Asm.Native_sections.t

@@ -561,3 +561,143 @@ let records_of_yojson ?(max_work = 1_000_000) json =
            record)
          objects)
   with Invalid error -> Error error
+
+let of_sections ?max_bytes ?max_work ?(origin = None) ?(main = [])
+    ?(records = []) object_ =
+  let module Sections = Native_sections in
+  let bad message = Error { offset = None; record_index = None; message } in
+  if Sections.mode object_ <> Sections.Aot then
+    bad
+      "BIN output requires an AOT object; hosted and JIT objects cannot be \
+       serialized"
+  else if Sections.position object_ <> 0L then
+    bad "BIN object must start at raw position zero"
+  else if
+    List.exists
+      (fun (s : Sections.section) -> s.kind = Sections.Private_data)
+      (Sections.sections object_)
+  then bad "BIN output cannot serialize private hosted storage"
+  else
+    match Sections.link ~compile_only:true ~base:0L object_ with
+    | Error e -> bad e.message
+    | Ok compiled -> (
+        let symbols = Sections.symbols object_ in
+        let ids = Hashtbl.create 16 in
+        List.iter (fun (s : Sections.symbol) -> Hashtbl.add ids s.id s) symbols;
+        let exception Invalid_object of string in
+        let fail message = raise (Invalid_object message) in
+        let offset a =
+          match Sections.address_offset object_ a with
+          | Ok n -> n
+          | Error e -> fail e.message
+        in
+        let value s =
+          match s.Sections.definition with
+          | Sections.Defined a -> Int64.of_int (offset a)
+          | Sections.Absolute n -> n
+          | Sections.Undefined -> fail "BIN export or MAIN symbol is undefined"
+        in
+        try
+          let pending = Sections.pending compiled in
+          let absolutes =
+            List.filter_map
+              (fun (r : Sections.relocation) ->
+                match r.intent with
+                | Sections.Add_bias -> Some (offset r.field)
+                | _ -> None)
+              pending
+            |> List.rev
+          in
+          let exported =
+            List.filter_map
+              (fun (s : Sections.symbol) ->
+                if s.binding <> Sections.Export then None
+                else
+                  Some
+                    (Export
+                       {
+                         kind =
+                           (match s.definition with
+                           | Sections.Absolute _ -> Entry.Imm32_export
+                           | _ -> Entry.Rel32_export);
+                         value = value s;
+                         name = s.name;
+                       }))
+              symbols
+          in
+          let mains =
+            List.map
+              (fun id ->
+                match Hashtbl.find_opt ids id with
+                | None -> fail "BIN MAIN names an unknown symbol ID"
+                | Some s -> (
+                    match s.definition with
+                    | Sections.Defined a -> Main (offset a)
+                    | _ -> fail "BIN MAIN requires a section-defined symbol"))
+              main
+          in
+          let groups = Hashtbl.create 16 and order = ref [] in
+          List.iter
+            (fun (r : Sections.relocation) ->
+              match r.intent with
+              | Sections.Add_bias | Sections.Subtract_bias -> ()
+              | Sections.Set
+                  {
+                    target = Sections.Symbol id;
+                    addend;
+                    relative_to;
+                    range = _;
+                  } ->
+                  let s = Hashtbl.find ids id in
+                  if s.binding <> Sections.Import || addend <> 0L then
+                    fail
+                      "BIN load replacements require an import symbol and zero \
+                       addend";
+                  Option.iter
+                    (fun a ->
+                      if offset a <> offset r.field + r.width then
+                        fail "BIN relative imports require a field-end anchor")
+                    relative_to;
+                  let kind =
+                    match (r.width, relative_to) with
+                    | 1, Some _ -> Entry.Rel_i8
+                    | 2, Some _ -> Entry.Rel_i16
+                    | 4, Some _ -> Entry.Rel_i32
+                    | 8, Some _ -> Entry.Rel_i64
+                    | 1, None -> Entry.Imm_u8
+                    | 2, None -> Entry.Imm_u16
+                    | 4, None -> Entry.Imm_u32
+                    | 8, None -> Entry.Imm_i64
+                    | _ -> fail "BIN import field width is unsupported"
+                  in
+                  let previous =
+                    match Hashtbl.find_opt groups id with
+                    | Some previous -> previous
+                    | None ->
+                        order := id :: !order;
+                        []
+                  in
+                  Hashtbl.replace groups id ((kind, offset r.field) :: previous)
+              | Sections.Set _ ->
+                  fail "BIN cannot preserve a load-time constant replacement")
+            pending;
+          let imports =
+            List.concat_map
+              (fun id ->
+                let s = Hashtbl.find ids id in
+                List.rev (Hashtbl.find groups id)
+                |> List.mapi (fun index (kind, offset) ->
+                    Import
+                      {
+                        kind;
+                        offset;
+                        name = (if index = 0 then s.name else "");
+                      }))
+              (List.rev !order)
+          in
+          let alignment_bits = Sections.image_alignment_bits object_ in
+          create ?max_bytes ?max_work ~alignment_bits ~origin
+            ~body:(Sections.bytes compiled)
+            ((if absolutes = [] then [] else [ Absolute_addresses absolutes ])
+            @ exported @ mains @ records @ imports)
+        with Invalid_object message -> bad message)

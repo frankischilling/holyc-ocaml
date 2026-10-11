@@ -198,6 +198,7 @@ let check_success ?(preparation = 0) ?(default_bytes = 0) report =
       "ir_instructions";
       "machine_instructions";
       "code_bytes";
+      "native_sections";
       "register_peak";
       "frame_bytes";
       "block_count";

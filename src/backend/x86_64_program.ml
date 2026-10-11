@@ -1028,3 +1028,5 @@ let private_function_count compiled =
 
 let function_slot_bindings compiled =
   Codegen.program_function_slot_bindings compiled.image
+
+let native_sections compiled = Codegen.program_sections compiled.image

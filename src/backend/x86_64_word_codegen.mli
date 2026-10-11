@@ -218,3 +218,5 @@ val program_code_owner_bindings :
 
 val program_private_function_count : program_image -> int
 val program_function_slot_bindings : program_image -> (int * int) list
+val expression_sections : expression_image -> Asm.Native_sections.t
+val program_sections : program_image -> Asm.Native_sections.t

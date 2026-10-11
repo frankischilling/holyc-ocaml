@@ -1,5 +1,9 @@
 # Compiler status and implementation notes
 
+Native emission, assembly linking and BIN output share the checked [section and relocation model](native-sections.md). Native branches and calls resolve through ordered, address-independent objects. Reports retain function/global source identities and source maps; private hosted storage remains tied to its original runtime owner.
+
+Native emission, assembly linking and BIN output share the checked [section and relocation model](native-sections.md). Native branches and calls resolve through ordered, address-independent objects. Reports retain function/global source identities and source maps; private hosted storage remains tied to its original runtime owner.
+
 Owned data pointer fields execute in IR with their original member types,
 array strides and target lifetimes. Function-local classes, nested and inherited
 fields, pointer updates and retained functions share the checked storage path.

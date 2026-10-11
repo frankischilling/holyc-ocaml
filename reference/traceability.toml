@@ -14476,3 +14476,19 @@ public_ownership = "retained selection, operands, operation modes, USE metadata 
 native_consumers = "existing checked backend selection and execution consumers use the shared writer; source byte output remains data"
 directive_emission = "HC-ASSEMBLY-DIRECTIVE-EMISSION extends the standalone byte stream with ordered data and binary input while preserving checked instruction fields"
 remaining = ["live compiler expressions and source assembly loading/execution (#715)", "general HolyC-to-BIN integration (#723)"]
+
+[[feature]]
+id = "HC-NATIVE-SECTIONS"
+description = "Shared address-independent sections, symbols and checked relocation resolution for native, assembly and BIN consumers."
+sources = ["Compiler/BackLib.HC:215-268,661-690 numeric fields and AOT addresses", "Compiler/AsmResolve.HC scoped labels and imports/exports", "Compiler/CMain.HC:174-295 compiler versus loader adjustments", "Kernel/KLoad.HC BIN loader patches"]
+implementation = ["src/asm/native_sections.ml", "src/asm/relocation.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_global_storage.ml", "src/driver/assembly_encoding.ml", "src/asm/bin_module.ml", "src/driver/assembly_bin.ml"]
+tests = ["test/test_native_sections.ml", "test/test_native_sections_cli.ml", "test/test_assembly_relocations.ml", "test/test_native_program.ml", "test/test_native_scalar_functions.ml", "test/test_bin_module_cli.ml", "test/test_bin_validator_cli.ml"]
+status = "implemented"
+issue = 707
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+documentation = ["docs/native-sections.md", "docs/scoping-and-linkage.md", "docs/templeos-bin-format.md", "docs/reference-source-map.md"]
+model = "ordered code/data sections, scoped local/import/export symbols, semantic source identities, compiler/load relocation phases and byte source maps independent of load addresses"
+consumers = "own-encoder native branches/calls/code addresses, assembly linking and AOT BIN serialization"
+checks = "checked alignment, IDs, section ranges, address/addend/relative arithmetic and one/two/four/eight-byte field ranges before final allocation"
+independent_evidence = "literal section rebases and original Cmp-produced ASM.BIN body; shared consumer agreement is separate"
+remaining = ["inline assembly execution (#715)", "runtime entry/fixup integration (#719)", "full compiler BIN emission (#723)"]

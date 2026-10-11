@@ -464,6 +464,9 @@ let render_native_view ~human ~session ~limits ~native_limits ?command_error
                ( "machine_instructions",
                  `Int (Holyc_lib.X86_64_program.machine_instructions image) );
                ("code_bytes", `Int (Holyc_lib.X86_64_program.code_bytes image));
+               ( "native_sections",
+                 Holyc_lib.Native_sections.to_yojson
+                   (Holyc_lib.X86_64_program.native_sections image) );
                ( "register_peak",
                  `Int (Holyc_lib.X86_64_program.register_peak image) );
                ("frame_bytes", `Int (Holyc_lib.X86_64_program.frame_bytes image));

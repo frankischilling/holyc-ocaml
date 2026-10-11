@@ -2220,3 +2220,7 @@ succeeds at 19 bytes; at 18 it preserves `before;child;` and rejects the final
 draft. The CLI harness runs
 `examples/stream-exe-compiler-context.hc` in both modes, checks its value and
 `before;child;after;` output, and repeats the measured resource edges.
+
+## Shared native sections
+
+`test/test_native_sections.ml` checks ordered code/data layout, sparse identities, forward references, independent rebases, deferred imports, signed field overflow, exact/one-below limits and immutable byte views. It compiles real source functions and globals in both source modes and compares a source assembly body with the independently captured original Cmp artifact. The existing assembler, BIN and native suites exercise the shared consumers. See [native sections](native-sections.md) for the source rules and evidence boundaries.
