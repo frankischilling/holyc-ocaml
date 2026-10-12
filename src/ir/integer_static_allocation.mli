@@ -45,6 +45,7 @@ val record_native_leaf :
   cell_offset:int ->
   byte_offset:int ->
   operation:Integer_initializer_layout.operation ->
+  scalar:Sema.Initializer_type.scalar option ->
   (unit, string) result
 (** Record the successful original live leaf and its checked destination in the
     initializer stream. The receipt retains no computed value or native address.

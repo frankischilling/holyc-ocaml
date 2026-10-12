@@ -3394,6 +3394,7 @@ let complete_native_static_destination task destination =
     ~cell_offset:(Static_initializer_destination.cell_offset destination)
     ~byte_offset:(Static_initializer_destination.byte_offset destination)
     ~operation:(Static_initializer_destination.operation destination)
+    ~scalar:(Static_initializer_destination.scalar destination)
 
 let complete_native_static_initializer task program =
   complete_native_static_destination task
@@ -13331,6 +13332,7 @@ let record_interpreted_static task destination =
     ~cell_offset:(Destination.cell_offset destination)
     ~byte_offset:(Destination.byte_offset destination)
     ~operation:(Destination.operation destination)
+    ~scalar:(Destination.scalar destination)
 
 let execute_task_static_initializer ?(use_active_stream = true)
     ?compiler_options ?stream_exe_print task program =
@@ -13483,6 +13485,22 @@ let execute_task_initializer ?(use_active_stream = true) ?compiler_options
           | _ ->
               invalid "HCIRVM0026"
                 "initializer destination has no live retained storage"
+        in
+        let* payload =
+          match
+            ( payload,
+              Integer_initializer_layout.scalar attempt.attempt_destination )
+          with
+          | Integer_array_initializers.Word bits, Some scalar ->
+              Integer_initializer_layout.word_bytes scalar bits
+              |> Result.map (fun bytes ->
+                  Integer_array_initializers.Bytes bytes)
+              |> Result.map_error (fun message ->
+                  [
+                    make_error ~stage:Preflight ~span ~executed_steps:0
+                      "HCIRVM0026" message;
+                  ])
+          | _ -> Ok payload
         in
         publish_array_payload ~slot
           ~cell_offset:

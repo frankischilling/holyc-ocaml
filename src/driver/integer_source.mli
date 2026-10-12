@@ -43,6 +43,7 @@ val prepare :
 
 val global_records : prepared -> Sema.Global_record_classification.t
 val global_layouts : prepared -> Sema.Global_array_layout.t
+val aggregate_headers : prepared -> Sema.Aggregate_header_resolution.t
 val aggregate_members : prepared -> Sema.Aggregate_member_index.t
 val initializers : prepared -> Sema.Global_initializer_binding.t option
 val function_outputs : prepared -> Sema.Implicit_output_argument_binding.t

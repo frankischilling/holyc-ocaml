@@ -12,6 +12,7 @@ type t = {
   byte_ : int;
   next_ : Integer_initializer_layout.stream;
   operation_ : Integer_initializer_layout.operation;
+  scalar_ : Sema.Initializer_type.scalar option;
   span_ : Common.Span.t;
 }
 
@@ -23,6 +24,7 @@ let root t = t.root_
 let cell_offset t = t.cell_
 let byte_offset t = t.byte_
 let next t = t.next_
+let scalar t = t.scalar_
 
 let copy_byte_count t =
   match t.operation_ with
@@ -75,6 +77,10 @@ let create ~allocation ~task_view ~cursor typed =
       != Sema.Compiler_record.static_allocation_receipt source
       || (not same_callback)
       || (not
+            (Option.equal ( == )
+               (Fragment.aggregate fragment_)
+               (Sema.Compiler_record.static_allocation_aggregate source)))
+      || (not
             (Sema.Type.equal (Fragment.type_ fragment_)
                (Integer_static_allocation.type_ allocation)))
       || Fragment.dimensions fragment_
@@ -85,8 +91,8 @@ let create ~allocation ~task_view ~cursor typed =
       Error "static initializer replaced its live allocation or checked shape"
     else Ok ()
   in
-  let* next_, (cell_, byte_, operation_) =
-    Integer_initializer_layout.prepare_stream cursor
+  let* next_, (cell_, byte_, operation_, scalar_) =
+    Integer_initializer_layout.prepare_stream_typed cursor
       ~delimiters:receipt.static_leaf_delimiters
       ~value:receipt.static_leaf_value
   in
@@ -137,5 +143,6 @@ let create ~allocation ~task_view ~cursor typed =
       byte_;
       next_;
       operation_;
+      scalar_;
       span_;
     }

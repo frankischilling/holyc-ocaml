@@ -31,11 +31,11 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 14 || Array.length Sys.argv = 15)
-    "expected compiler and twelve aggregate examples, optionally --native"
+    (Array.length Sys.argv = 15 || Array.length Sys.argv = 16)
+    "expected compiler and thirteen aggregate examples, optionally --native"
 
 let compiler = Sys.argv.(1)
-let native = Array.length Sys.argv = 15 && Sys.argv.(14) = "--native"
+let native = Array.length Sys.argv = 16 && Sys.argv.(15) = "--native"
 let reports = ref 0
 
 let invoke ?(status = 0) ?(options = []) target mode source =
@@ -188,11 +188,45 @@ let nested_limits target =
         "--initializer-step-limit=" ^ string_of_int (preparation - 1) );
     ]
 
+let initializer_limits target mode =
+  let source = Persistent.initializer_quota_source in
+  let baseline = invoke target mode source in
+  value 42L "" baseline;
+  let steps = baseline |> member "executed_steps" |> to_int
+  and preparation = baseline |> member "compiled_initializer_steps" |> to_int in
+  require (preparation > 1) "typed initializer preparation is counted";
+  value 42L ""
+    (invoke
+       ~options:
+         [
+           "--global-byte-limit=11";
+           "--step-limit=" ^ string_of_int steps;
+           "--initializer-step-limit=" ^ string_of_int preparation;
+         ]
+       target mode source);
+  List.iter
+    (fun (code, option) ->
+      error ~code "" (invoke ~status:1 ~options:[ option ] target mode source))
+    [
+      ( (if target = "host-jit" then "HCBACK0001" else "HCIRVM0016"),
+        "--global-byte-limit=10" );
+      ("HCIRVM0007", "--step-limit=" ^ string_of_int (steps - 1));
+      ( "HCIRVM0007",
+        "--initializer-step-limit=" ^ string_of_int (preparation - 1) );
+    ]
+
 let () =
   List.iter
     (fun mode ->
       List.iter
         (fun target ->
+          initializer_limits target mode;
+          value 42L "AB" (invoke target mode (read Sys.argv.(14)));
+          if target = "ir" && mode = "jit" then
+            List.iter
+              (fun (_, source, code, _) ->
+                error ~code "" (invoke ~status:1 target mode source))
+              Persistent.initializer_partial_faults;
           if target = "ir" then (
             List.iter
               (fun (_, source, expected, output) ->
@@ -384,6 +418,12 @@ let () =
       (Cases.pointer_values @ Cases.pointer_retained_values
      @ Persistent.pointer_values);
     value 42L "AB" (invoke_task (read Sys.argv.(13)));
+    value 42L "AB" (invoke_task (read Sys.argv.(14)));
+    initializer_limits "host-jit-task" "jit";
+    List.iter
+      (fun (_, source, code, output) ->
+        error ~code output (invoke_task ~status:1 source))
+      Persistent.initializer_partial_faults;
     value 42L "" (invoke_task (read Sys.argv.(11)));
     nested_limits "host-jit-task";
     let task_values =

@@ -2304,3 +2304,31 @@ contract and remaining work under issue #686.
 ## Shared native object model
 
 `Compiler/BackLib.HC:215-268,661-690`, `AsmResolve.HC`, `CMain.HC:174-295` and `Kernel/KLoad.HC` supply the field bases, compiler AAT adjustments, import/export identities and BIN loader patches used by the [shared native section model](native-sections.md). The own-encoder native planner, assembly linker and BIN consumer use its checked layout and field resolution while preserving the distinction between instruction-end compiler fixups and field-end loader imports.
+
+## Persistent aggregate initializers
+
+`PrsVarInit` and `PrsVarInit2` at `Compiler/PrsVar.HC:1-221` supply the
+[initializer traversal](aggregate-initializers.md). `OptClassFwd` at
+`Compiler/OptLib.HC:9-15` selects backing before the array and direct-member
+branches. `MemberAdd` at `Compiler/LexLib.HC:103-148` preserves the direct member
+chain. The initializer cursor follows that chain and advances by bytes written;
+it does not use field offsets or visit inherited members.
+
+`PrsType` at `Compiler/PrsVar.HC:285-371` gives callback fields the selected
+`RT_PTR` pointer child, independently of their return class. Numeric callback
+initializer leaves therefore copy eight bytes. Their original anonymous header
+remains part of the initializer metadata; the copied word grants no callable
+field identity.
+
+`PrsGlblInit` and `PrsStaticInit` at `Compiler/PrsVar.HC:222-246` connect the
+traversal to global and static storage. Their allocation and publication inputs
+come from complete `PrsVarLst` at `Compiler/PrsVar.HC:405-742` and
+`PrsGlblVarLst` at `Compiler/PrsStmt.HC:209-463`.
+
+The layout tests check independent byte destinations, original leaf identities
+and invalid grammar. Shared source fixtures exercise integer leaves, fixed
+arrays, numeric callback words and strings through IR and native execution.
+[The testing notes](testing.md)
+describe ownership controls, resource limits and retained output on failure.
+Live forward completion, other leaf families and full aggregate parity remain
+open. This evidence includes no TempleOS runtime or emitted-byte capture.

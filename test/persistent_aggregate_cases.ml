@@ -1,3 +1,133 @@
+let callback_initializer_values =
+  List.map
+    (fun return_type ->
+      ( "callback initializer word is independent of return type " ^ return_type,
+        Printf.sprintf
+          {|class Result{U8 tag;};class Box{U8 tag;%s (*value)(I64);U8 tail;};Box object={7,0x870605040302012a,9};I64 F(){U8 *p=(&object)(U8*);if(p[0]!=7 || p[2]!=1 || p[3]!=2 || p[4]!=3 || p[5]!=4 || p[6]!=5 || p[7]!=6 || p[8]!=0x87 || p[9]!=9)return -1;return p[1];}F();|}
+          return_type,
+        42L,
+        "" ))
+    [
+      "Bool";
+      "I8";
+      "U8";
+      "I16";
+      "U16";
+      "I32";
+      "U32";
+      "I64";
+      "U64";
+      "F64";
+      "U0";
+      "Result";
+      "I64 *";
+    ]
+
+let initializer_values =
+  callback_initializer_values
+  @ [
+      ( "callback member arrays retain the sequential eight-byte cursor",
+        {|class Box{U8 tag;U16 (*values)(I64)[2];U8 tail;};Box object={7,{0x1002a,0x20028},9};I64 F(){U8 *p=(&object)(U8*);if(p[2]!=0 || p[3]!=1 || p[8]!=0 || p[9]!=40 || p[10]!=0 || p[11]!=2 || p[16]!=0 || p[17]!=9)return -1;return p[1];}F();|},
+        42L,
+        "" );
+      ( "static callback initializer writes the complete numeric pointer word",
+        {|class Box{U8 tag;U16 (*value)(I64);U8 tail;};I64 F(){static Box object={7,0x1002a,9};U8 *p=(&object)(U8*);if(p[2]!=0 || p[3]!=1 || p[8]!=0 || p[9]!=9)return -1;return p[1];}F();|},
+        42L,
+        "" );
+      ( "multiple callback indirection retains eight-byte initializer storage",
+        {|class Box{U8 tag;U0 (**value)(I64);U8 tail;};Box object={7,0x1002a,9};I64 F(){U8 *p=(&object)(U8*);if(p[2]!=0 || p[3]!=1 || p[8]!=0 || p[9]!=9)return -1;return p[1];}F();|},
+        42L,
+        "" );
+      ( "function-local classes retain static initializer leaves",
+        {|I64 F(){class Box{U8 tag;U16 value;};static Box object={7,42};return object.value;}F();|},
+        42L,
+        "" );
+      ( "packed aggregate global leaves",
+        {|class Box{U8 tag;U16 value;};Box object={7,42};I64 F(){return object.value;}F();|},
+        42L,
+        "" );
+      ( "packed aggregate static leaves",
+        {|class Box{U8 tag;U16 value;};I64 F(){static Box object={7,42};return object.value;}F();|},
+        42L,
+        "" );
+      ( "attached aggregate initializers retain independent original roots",
+        {|class Box{U16 value;} a={20},b={22};I64 F(){return a.value+b.value;}F();|},
+        42L,
+        "" );
+      ( "nested member strings and aggregate root arrays",
+        {|extern U0 Print(U8 *fmt,...);class Item{U8 text[3];U16 value;};Item items[2]={{"AB",40},{"CD",42}};I64 F(){Print("%s",items[1].text);return items[1].value;}F();|},
+        42L,
+        "CD" );
+      ( "static nested member string leaves",
+        {|extern U0 Print(U8 *fmt,...);class Box{U8 text[3];U16 value;};I64 F(){static Box object={"AB",42};Print("%s",object.text);return object.value;}F();|},
+        42L,
+        "AB" );
+      ( "initializer cursor ignores class field padding",
+        {|class Box{U8 tag;$$=6;U16 value;};Box object={7,42};I64 F(){U8 *p=(&object)(U8*);if(p[0]!=7 || p[2]!=0)return -1;return p[1];}F();|},
+        42L,
+        "" );
+      ( "initializer cursor omits inherited members",
+        {|class Base{U8 tag;};class Box:Base{U16 value;};Box object={42};I64 F(){U8 *p=(&object)(U8*);if(p[1]!=0)return -1;return p[0];}F();|},
+        42L,
+        "" );
+      ( "inherited empty direct list copies exactly three bytes",
+        {|class Base{U8 tag;U16 value;};class Box:Base{};Box object=0x302a;I64 F(){U8 *p=(&object)(U8*);if(p[1]!=48 || p[2]!=0)return -1;return p[0];}F();|},
+        42L,
+        "" );
+      ( "backed initializer arrays advance by forwarded widths",
+        {|U16 class Box{U16 value;U8 guard;};Box objects[2]={40,42};I64 F(){U8 *p=(objects)(U8*);if(objects[0].value!=40 || p[3]!=0)return -1;return p[2];}F();|},
+        42L,
+        "" );
+      ( "zero-byte members evaluate without reserving a byte",
+        {|class Box{U0 empty;U8 value;};Box object={99,42};I64 F(){return object.value;}F();|},
+        42L,
+        "" );
+      ( "nested aggregate member and root arrays",
+        {|class I{U16 value;};class Box{U8 tag;I children[2];};Box objects[2]={{7,{{40},{41}}},{8,{{42},{43}}}};I64 F(){return objects[1].children[0].value;}F();|},
+        42L,
+        "" );
+      ( "anonymous union initializer follows the complete direct member chain",
+        {|class Box{union{U8 first;U16 second;};$$=8;U8 tail[3];};Box object={7,42,"AB"};I64 F(){U8 *p=(&object)(U8*);if(p[0]!=7 || p[2]!=0 || p[3]!=65 || p[4]!=66 || p[5]!=0)return -1;return p[1];}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width Bool",
+        {|class Box{U8 tag;Bool value;};Box object={7,-1};I64 F(){if(object.value!=-1)return -1;return 42;}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width I8",
+        {|class Box{U8 tag;I8 value;};Box object={7,-1};I64 F(){if(object.value!=-1)return -1;return 42;}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width U8",
+        {|class Box{U8 tag;U8 value;};Box object={7,-1};I64 F(){if(object.value!=255)return -1;return 42;}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width I16",
+        {|class Box{U8 tag;I16 value;};Box object={7,-1};I64 F(){if(object.value!=-1)return -1;return 42;}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width U16",
+        {|class Box{U8 tag;U16 value;};Box object={7,-1};I64 F(){if(object.value!=65535)return -1;return 42;}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width I32",
+        {|class Box{U8 tag;I32 value;};Box object={7,-1};I64 F(){if(object.value!=-1)return -1;return 42;}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width U32",
+        {|class Box{U8 tag;U32 value;};Box object={7,-1};I64 F(){if(object.value!=4294967295)return -1;return 42;}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width I64",
+        {|class Box{U8 tag;I64 value;};Box object={7,-1};I64 F(){if(object.value!=-1)return -1;return 42;}F();|},
+        42L,
+        "" );
+      ( "aggregate initializer leaf width U64",
+        {|class Box{U8 tag;U64 value;};Box object={7,-1};I64 F(){if(object.value!=-1)return -1;return 42;}F();|},
+        42L,
+        "" );
+    ]
+
 let example =
   {|extern U0 Print(U8 *fmt,...);
 class Item{U8 text[3];U16 value;};Item items[2];
@@ -10,93 +140,94 @@ let quota_source =
 I64 F(){static Item saved;saved.value=40;items[1].value=saved.value+2;return items[1].value;}F();|}
 
 let values =
-  [
-    ( "attached comma globals retain separate dimensions and roots",
-      {|class Box{U16 value;} a[2],b;I64 F(){a[1].value=20;b.value=22;return a[1].value+b.value;}F();|},
-      42L,
-      "" );
-    ( "attached class globals retain the completed original layout",
-      {|class Box{U8 tag;U16 value;} objects[2];I64 F(){objects[1].value=42;return objects[1].value;}F();|},
-      42L,
-      "" );
-    ( "static names in separate functions retain separate roots",
-      {|class Box{U16 value;};I64 F(){static Box object;object.value=20;return object.value;}I64 G(){static Box object;object.value=22;return object.value;}F()+G();|},
-      42L,
-      "" );
-    ( "class returns can be stored in a persistent backing prefix",
-      {|U16 class Box{U16 value;U8 guard;};Box object;Box Make(){return 42;}I64 F(){object.guard=9;object=Make();if(object.guard!=9)return -1;return object;}F();|},
-      42L,
-      "" );
-    ( "persistent parameter copy retains a separate source object",
-      {|class Box{I64 word;};Box saved;I64 Take(Box o){saved=o;o=99;return saved;}Take(42);|},
-      42L,
-      "" );
-    ("persistent aggregate example", example, 42L, "AB");
-    ( "packed globals and statics have separate original byte roots",
-      quota_source,
-      42L,
-      "" );
-    ( "persistent multidimensional class and member arrays",
-      {|class Item{U8 tag;U16 value;};class Box{U8 prefix;Item values[2][2];};Box objects[2][3];I64 F(){objects[1][2].values[1][1].value=42;return objects[1][2].values[1][1].value;}F();|},
-      42L,
-      "" );
-    ( "persistent class pointer parameters retain the source element stride",
-      {|class Box{U8 tag;U16 value;};Box a[2];I64 Read(Box *p){return p[1].value;}I64 F(){a[1].value=42;return Read(a);}F();|},
-      42L,
-      "" );
-    ( "persistent interior and backward class indexing",
-      {|class Box{U8 tag;U16 value;};Box a[3];I64 F(){Box *p=&a[2];p[-1].value=42;p--;return p->value;}F();|},
-      42L,
-      "" );
-    ( "inherited persistent objects preserve absolute field offsets",
-      {|class Base{U8 tag;};class Box:Base{U16 value;};Box object;I64 F(){object.tag=7;object.value=42;if(sizeof(Box)!=3 || object.tag!=7)return -1;return object.value;}F();|},
-      42L,
-      "" );
-    ( "persistent unions share integer and byte views",
-      {|union Box{U32 value;U8 bytes[4];};Box object;I64 F(){object.value=0;object.bytes[0]=42;return object.value;}F();|},
-      42L,
-      "" );
-    ( "persistent padding does not change the selected field window",
-      {|class Box{U8 tag;$$=6;U16 value;};Box object;I64 F(){object.tag=7;object.value=42;return object.value;}F();|},
-      42L,
-      "" );
-    ( "persistent backing copies retain the destination guard",
-      {|U16 class Box{U16 value;U8 guard;};Box a,b;I64 F(){a=42;a.guard=7;b.guard=9;b=a;if(b.guard!=9 || a.guard!=7)return -1;return b;}F();|},
-      42L,
-      "" );
-    ( "persistent ordinary class words use their complete eight-byte prefix",
-      {|class Box{U64 value;U8 guard;};Box object;I64 F(){object.guard=9;object=40;object+=2;if(object.guard!=9)return -1;return object;}F();|},
-      42L,
-      "" );
-    ( "static class bytes persist across recursive activations",
-      {|class Box{U16 value;};I64 once=0;I64 F(I64 n){static Box object;if(!once){object.value=40;once=1;}if(n)return F(n-1);return ++object.value;}F(2);F(1);|},
-      42L,
-      "" );
-    ( "function-local static class layouts are selected at their allocation",
-      {|I64 F(){class Box{U8 tag;U16 value;};static Box objects[2];objects[1].value=42;return objects[1].value;}F();|},
-      42L,
-      "" );
-    ( "persistent assignment captures its root before RHS pointer rebinding",
-      {|class Box{U16 value;};Box a[2];I64 F(){a[0].value=20;a[1].value=99;Box *p=a;p->value+=((p=&a[1])==&a[1])*22;if(a[1].value!=99)return -1;return a[0].value;}F();|},
-      42L,
-      "" );
-    ( "persistent class byte views retain the complete original extent",
-      {|class Box{U16 value;U8 guard;};Box a[2];I64 F(){U8 *p=(a)(U8*);p[3]=42;p[4]=0;return a[1].value;}F();|},
-      42L,
-      "" );
-    ( "persistent class sizes use source element counts instead of byte cells",
-      {|class Box{U8 tag;U16 value;};Box a[2];I64 F(){static Box b[3];a[1].value=42;if(sizeof(a)!=6 || sizeof(b)!=9 || sizeof(a.value)!=2)return -1;return a[1].value;}F();|},
-      42L,
-      "" );
-    ( "persistent integer backing is independently selected",
-      {|I64 class Box{I64 word;};Box object;I64 F(){object=42;return object;}F();|},
-      42L,
-      "" );
-    ( "persistent default whole class value",
-      {|class Box{U64 word;};Box object;I64 F(){object=42;return object;}F();|},
-      42L,
-      "" );
-  ]
+  initializer_values
+  @ [
+      ( "attached comma globals retain separate dimensions and roots",
+        {|class Box{U16 value;} a[2],b;I64 F(){a[1].value=20;b.value=22;return a[1].value+b.value;}F();|},
+        42L,
+        "" );
+      ( "attached class globals retain the completed original layout",
+        {|class Box{U8 tag;U16 value;} objects[2];I64 F(){objects[1].value=42;return objects[1].value;}F();|},
+        42L,
+        "" );
+      ( "static names in separate functions retain separate roots",
+        {|class Box{U16 value;};I64 F(){static Box object;object.value=20;return object.value;}I64 G(){static Box object;object.value=22;return object.value;}F()+G();|},
+        42L,
+        "" );
+      ( "class returns can be stored in a persistent backing prefix",
+        {|U16 class Box{U16 value;U8 guard;};Box object;Box Make(){return 42;}I64 F(){object.guard=9;object=Make();if(object.guard!=9)return -1;return object;}F();|},
+        42L,
+        "" );
+      ( "persistent parameter copy retains a separate source object",
+        {|class Box{I64 word;};Box saved;I64 Take(Box o){saved=o;o=99;return saved;}Take(42);|},
+        42L,
+        "" );
+      ("persistent aggregate example", example, 42L, "AB");
+      ( "packed globals and statics have separate original byte roots",
+        quota_source,
+        42L,
+        "" );
+      ( "persistent multidimensional class and member arrays",
+        {|class Item{U8 tag;U16 value;};class Box{U8 prefix;Item values[2][2];};Box objects[2][3];I64 F(){objects[1][2].values[1][1].value=42;return objects[1][2].values[1][1].value;}F();|},
+        42L,
+        "" );
+      ( "persistent class pointer parameters retain the source element stride",
+        {|class Box{U8 tag;U16 value;};Box a[2];I64 Read(Box *p){return p[1].value;}I64 F(){a[1].value=42;return Read(a);}F();|},
+        42L,
+        "" );
+      ( "persistent interior and backward class indexing",
+        {|class Box{U8 tag;U16 value;};Box a[3];I64 F(){Box *p=&a[2];p[-1].value=42;p--;return p->value;}F();|},
+        42L,
+        "" );
+      ( "inherited persistent objects preserve absolute field offsets",
+        {|class Base{U8 tag;};class Box:Base{U16 value;};Box object;I64 F(){object.tag=7;object.value=42;if(sizeof(Box)!=3 || object.tag!=7)return -1;return object.value;}F();|},
+        42L,
+        "" );
+      ( "persistent unions share integer and byte views",
+        {|union Box{U32 value;U8 bytes[4];};Box object;I64 F(){object.value=0;object.bytes[0]=42;return object.value;}F();|},
+        42L,
+        "" );
+      ( "persistent padding does not change the selected field window",
+        {|class Box{U8 tag;$$=6;U16 value;};Box object;I64 F(){object.tag=7;object.value=42;return object.value;}F();|},
+        42L,
+        "" );
+      ( "persistent backing copies retain the destination guard",
+        {|U16 class Box{U16 value;U8 guard;};Box a,b;I64 F(){a=42;a.guard=7;b.guard=9;b=a;if(b.guard!=9 || a.guard!=7)return -1;return b;}F();|},
+        42L,
+        "" );
+      ( "persistent ordinary class words use their complete eight-byte prefix",
+        {|class Box{U64 value;U8 guard;};Box object;I64 F(){object.guard=9;object=40;object+=2;if(object.guard!=9)return -1;return object;}F();|},
+        42L,
+        "" );
+      ( "static class bytes persist across recursive activations",
+        {|class Box{U16 value;};I64 once=0;I64 F(I64 n){static Box object;if(!once){object.value=40;once=1;}if(n)return F(n-1);return ++object.value;}F(2);F(1);|},
+        42L,
+        "" );
+      ( "function-local static class layouts are selected at their allocation",
+        {|I64 F(){class Box{U8 tag;U16 value;};static Box objects[2];objects[1].value=42;return objects[1].value;}F();|},
+        42L,
+        "" );
+      ( "persistent assignment captures its root before RHS pointer rebinding",
+        {|class Box{U16 value;};Box a[2];I64 F(){a[0].value=20;a[1].value=99;Box *p=a;p->value+=((p=&a[1])==&a[1])*22;if(a[1].value!=99)return -1;return a[0].value;}F();|},
+        42L,
+        "" );
+      ( "persistent class byte views retain the complete original extent",
+        {|class Box{U16 value;U8 guard;};Box a[2];I64 F(){U8 *p=(a)(U8*);p[3]=42;p[4]=0;return a[1].value;}F();|},
+        42L,
+        "" );
+      ( "persistent class sizes use source element counts instead of byte cells",
+        {|class Box{U8 tag;U16 value;};Box a[2];I64 F(){static Box b[3];a[1].value=42;if(sizeof(a)!=6 || sizeof(b)!=9 || sizeof(a.value)!=2)return -1;return a[1].value;}F();|},
+        42L,
+        "" );
+      ( "persistent integer backing is independently selected",
+        {|I64 class Box{I64 word;};Box object;I64 F(){object=42;return object;}F();|},
+        42L,
+        "" );
+      ( "persistent default whole class value",
+        {|class Box{U64 word;};Box object;I64 F(){object=42;return object;}F();|},
+        42L,
+        "" );
+    ]
   @ List.map
       (fun (type_, minus_one) ->
         ( "persistent field width " ^ type_,
@@ -119,6 +250,18 @@ let values =
 
 let retained_values =
   [
+    ( "aggregate initializer calls retain their original leaf order",
+      {|I64 Count=0;I64 Next(){return 40+(++Count);}class Box{U8 tag;U16 value;};Box object={Next(),Next()};I64 F(){if(Count!=2 || object.tag!=41)return -1;return object.value;}F();|},
+      42L,
+      "" );
+    ( "zero-byte initializer leaves still evaluate their source call",
+      {|I64 Count=0;I64 Next(){Count++;return 99;}class Box{U0 empty;U8 value;};Box object={Next(),41};I64 F(){return object.value+Count;}F();|},
+      42L,
+      "" );
+    ( "static aggregate initialization runs once in source order",
+      {|I64 Count=0;I64 Next(){return 40+(++Count);}class Box{U8 tag;U16 value;};I64 F(){static Box object={Next(),Next()};if(Count!=2 || object.tag!=41)return -1;return object.value;}F();F();|},
+      42L,
+      "" );
     ( "persistent runtime member dimensions prepare once",
       {|I64 Count=0;I64 Next(){Count++;return 2;}class Box{U16 values[Next()];};Box object;I64 F(){static Box saved;object.values[1]=40;saved.values[1]=1;return object.values[1]+saved.values[1]+Count;}F();|},
       42L,
@@ -204,10 +347,38 @@ let pointer_faults =
 
 let unsupported =
   [
-    ( "persistent aggregate scalar initializer awaits member leaves",
+    ( "aggregate floating initializer leaves keep their execution boundary",
+      {|class Box{U8 tag;F64 value;};Box object={7,42};0;|} );
+    ( "aggregate pointer initializer leaves cannot construct numeric ownership",
+      {|class Box{U8 tag;U16 *value;};Box object={7,0};0;|} );
+    ( "numeric callback initializer words cannot authorize a field call",
+      {|class Box{I64 (*value)(I64);};Box object={42};I64 F(){return object.value(0);}F();|}
+    );
+    ( "raw class initializer cannot copy beyond its scalar result word",
+      {|class Base{U64 words[2];};class Box:Base{};Box object=42;0;|} );
+    ( "a one-byte inherited class is not raw byte string storage",
+      {|class B{U8 tag;};class Box:B{};Box objects[3]="AB";I64 F(){return objects[0].tag;}F();|}
+    );
+    ( "plain member class scalar initializer requires braces",
       {|class Box{U64 value;};Box object=42;I64 F(){return object.value;}F();|}
     );
-    ( "static aggregate braced initializer awaits member leaves",
-      {|class Box{U16 value;};I64 F(){static Box object={42};return object.value;}F();|}
-    );
+  ]
+
+let initializer_quota_source =
+  {|class Box{U8 tag;U16 value;};Box object={7,20};I64 F(){static Box saved={9,22};return object.value+saved.value;}F();|}
+
+let initializer_partial_faults =
+  [
+    ( "missing member keeps an earlier initializer's output",
+      {|extern U0 Print(U8 *fmt,...);I64 Next(){Print("A");return 7;}class Box{U8 tag;U16 value;};Box object={Next()};0;|},
+      "HCRUN0006",
+      "A" );
+    ( "union overflow keeps an earlier initializer's output",
+      {|extern U0 Print(U8 *fmt,...);I64 Next(){Print("A");return 7;}union Box{U8 first;U16 second;};Box object={Next(),42};0;|},
+      "HCRUN0006",
+      "A" );
+    ( "short source string cannot supply an invented byte",
+      {|extern U0 Print(U8 *fmt,...);I64 Next(){Print("A");return 7;}class Box{U8 tag;U8 text[4];};Box object={Next(),"AB"};0;|},
+      "HCRUN0006",
+      "A" );
   ]

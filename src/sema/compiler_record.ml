@@ -112,9 +112,11 @@ type aggregate_field = {
   field_count : int64;
   field_dimensions : runtime_dimension_proposal list;
   field_offsets : aggregate_offset list;
+  field_counts : int64 list;
+  field_record : t option;
 }
 
-type t = {
+and t = {
   table : Symbol_table.t;
   entry : Visibility.entry;
   symbol : Symbol.t;
@@ -132,6 +134,8 @@ type t = {
   aggregate_stamp : (aggregate_stamp * unit ref) option;
   aggregate_base_snapshot : t option;
   aggregate_fields : aggregate_field list option;
+  aggregate_initializer_backing : (Type_reference.t * t option) option option;
+  aggregate_initializer_body : Parser.aggregate_phase option;
 }
 
 type aggregate_member = {
@@ -156,6 +160,15 @@ type automatic_aggregate_allocation = {
 let automatic_aggregate_size allocation = allocation.automatic_size
 let automatic_aggregate_source allocation = allocation.automatic_source
 let automatic_aggregate_local_name allocation = allocation.automatic_name
+let automatic_aggregate_record allocation = allocation.automatic_record
+
+let static_initializer_aggregate_matches ~table ~namespace ~publication ~source
+    allocation =
+  allocation.automatic_table == table
+  && allocation.automatic_namespace == namespace
+  && allocation.automatic_function == publication
+  && allocation.automatic_source == source
+  && source.Parser.allocation_storage = Ast.Static_local
 
 let automatic_aggregate_type allocation =
   Type_reference.resolved_type allocation.automatic_type
@@ -671,6 +684,8 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           aggregate_stamp = None;
           aggregate_base_snapshot = None;
           aggregate_fields = None;
+          aggregate_initializer_backing = None;
+          aggregate_initializer_body = None;
         }
 
 let seed_public_union ~table ~entry ~symbol
@@ -717,6 +732,8 @@ let seed_public_union ~table ~entry ~symbol
               aggregate_stamp = None;
               aggregate_base_snapshot = None;
               aggregate_fields = None;
+              aggregate_initializer_backing = None;
+              aggregate_initializer_body = None;
             }
 
 let aggregate_snapshot_is_current record =
@@ -1080,7 +1097,9 @@ let runtime_aggregate_offset_dimension_dependencies preparation =
 let runtime_aggregate_offset_dependencies preparation =
   preparation.runtime_offset_dependencies
 
-let begin_aggregate ?compiler_positions ~table ~namespace publication =
+let begin_aggregate ?compiler_positions ?backing_record
+    ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace publication =
   match Declaration_collection.publication_source_aggregate publication with
   | Some source
     when Option.fold ~none:true
@@ -1092,6 +1111,54 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
          && Declaration_collection.namespace_owns_publication namespace
               publication
          && Parser.aggregate_publication_is_current source ->
+      let initializer_backing =
+        match source.aggregate_backing with
+        | None -> Some None
+        | Some backing ->
+            let reference =
+              match backing.Ast.backing_type_specifier with
+              | Ast.Named_type_specifier _ as type_specifier ->
+                  Option.bind (selected_aggregate type_specifier)
+                    (fun selected ->
+                      Result.to_option
+                        (let* () =
+                           Source_type_reference.validate_selected_aggregate
+                             ~table ~namespace selected
+                         in
+                         Source_type_reference.selected_header_class selected
+                           type_specifier backing.backing_pointer_layers))
+              | type_specifier ->
+                  Result.to_option
+                    (Source_type_reference.builtin type_specifier
+                       backing.backing_pointer_layers)
+            in
+            Option.map
+              (fun reference -> Some (reference, backing_record))
+              reference
+      in
+      let* () =
+        match backing_record with
+        | None -> Ok ()
+        | Some record -> (
+            match (initializer_backing, record.aggregate_owner) with
+            | Some (Some (reference, _)), Some (owner, selected, _) -> (
+                match Type.base (Type_reference.resolved_type reference) with
+                | Type.Aggregate symbol
+                  when record.table == table && owner == namespace
+                       && Type.pointer_depth
+                            (Type_reference.resolved_type reference)
+                          = 0
+                       && Option.fold ~none:false ~some:(( == ) symbol)
+                            (Declaration_collection
+                             .publication_aggregate_identity selected) -> Ok ()
+                | _ ->
+                    Error
+                      "initializer backing replaced its original selected \
+                       class record")
+            | _ ->
+                Error
+                  "initializer backing record has no original class selection")
+      in
       let stamp = { current_stamp = ref () } in
       let compiler_positions =
         match compiler_positions with
@@ -1134,6 +1201,8 @@ let begin_aggregate ?compiler_positions ~table ~namespace publication =
                 aggregate_stamp = Some (stamp, stamp.current_stamp);
                 aggregate_base_snapshot = None;
                 aggregate_fields = Some [];
+                aggregate_initializer_backing = initializer_backing;
+                aggregate_initializer_body = None;
               };
         }
   | _ ->
@@ -1146,6 +1215,41 @@ let aggregate_field_name field =
   match field.field_phase.phase_step with
   | Parser.Aggregate_member_prepared member -> member.member_name
   | _ -> assert false
+
+let aggregate_initializer_size (record : t) = record.byte_size
+
+let aggregate_initializer_has_members (record : t) =
+  Option.is_some record.aggregate_fields
+
+let aggregate_initializer_is_complete (record : t) =
+  match record.aggregate_owner with
+  | Some (_, _, Some { Parser.aggregate_item = Ast.Aggregate_definition _; _ })
+    -> true
+  | _ -> Option.is_some record.aggregate_initializer_body
+
+let aggregate_field_type field = field.field_type
+let aggregate_field_counts field = field.field_counts
+let aggregate_field_record field = field.field_record
+
+let aggregate_field_callback field =
+  match field.field_phase.Parser.phase_step with
+  | Parser.Aggregate_member_prepared member -> member.member_callback
+  | _ -> assert false
+
+let aggregate_initializer_backing record = record.aggregate_initializer_backing
+
+let aggregate_record_matches ~(owner : t) ~type_ (record : t) =
+  record.table == owner.table
+  &&
+  match (record.aggregate_owner, owner.aggregate_owner, Type.base type_) with
+  | ( Some (namespace, publication, _),
+      Some (original, _, _),
+      Type.Aggregate symbol )
+    when Type.pointer_depth type_ = 0 ->
+      namespace == original
+      && Option.fold ~none:false ~some:(( == ) symbol)
+           (Declaration_collection.publication_aggregate_identity publication)
+  | _ -> false
 
 let aggregate_field_element_size ~table ~parent ~aggregate ~type_specifier
     ~(declarator : Ast.aggregate_member_declarator) ~type_ field =
@@ -1290,7 +1394,12 @@ let advance_aggregate
                   ~size:record.byte_size
                   ~negative_offset:progress.progress_negative_offset
               in
-              Ok { record with byte_size }
+              Ok
+                {
+                  record with
+                  byte_size;
+                  aggregate_initializer_body = Some phase;
+                }
             in
             Ok (record, scopes))
       | Parser.Aggregate_offset_reached _ -> (
@@ -1411,6 +1520,8 @@ let advance_aggregate
                         field_type;
                         field_element_size = element_size;
                         field_count;
+                        field_counts = List.map dimension_count checked;
+                        field_record = selected_record;
                         field_dimensions =
                           List.concat_map dimension_runtime_dependencies checked;
                         field_offsets =
@@ -1605,6 +1716,16 @@ let complete_aggregate ?(callbacks = fun _ -> None) ?progress
               match progress.progress_record with
               | Ok record -> record.aggregate_fields
               | Error _ -> None);
+        aggregate_initializer_backing =
+          Option.bind progress (fun progress ->
+              match progress.progress_record with
+              | Ok record -> record.aggregate_initializer_backing
+              | Error _ -> None);
+        aggregate_initializer_body =
+          Option.bind progress (fun progress ->
+              match progress.progress_record with
+              | Ok record -> record.aggregate_initializer_body
+              | Error _ -> None);
       }
 
 let retain_inherited_metadata ~table ~namespace definition record =
@@ -1780,6 +1901,7 @@ let select_global_aggregate ~table ~namespace ~publication ~selected_aggregate
     | _ ->
         Error "global class allocation lacks its exact selected class snapshot"
 
+let global_aggregate_record allocation = allocation.global_object_record
 let global_aggregate_size allocation = allocation.global_object_record.byte_size
 
 let global_aggregate_type allocation =
@@ -1856,6 +1978,8 @@ let published_scalar ?aggregate_allocation ?(dimensions = []) ~table ~namespace
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
             aggregate_fields = None;
+            aggregate_initializer_backing = None;
+            aggregate_initializer_body = None;
           }
 
 let declare_global ?aggregate_allocation ?callback
@@ -2069,6 +2193,8 @@ let bind_retained_scalar ~table ~entry global =
         aggregate_stamp = None;
         aggregate_base_snapshot = None;
         aggregate_fields = None;
+        aggregate_initializer_backing = None;
+        aggregate_initializer_body = None;
       }
 
 let return_class_size ~table ~namespace ~type_ ~(aggregate : t option) =
@@ -3396,6 +3522,8 @@ let bind_retained_global ~table ~entry ~record ~extent =
             aggregate_stamp = None;
             aggregate_base_snapshot = None;
             aggregate_fields = None;
+            aggregate_initializer_backing = None;
+            aggregate_initializer_body = None;
           }
 
 let record_callback_position positions ~parameters receipt =

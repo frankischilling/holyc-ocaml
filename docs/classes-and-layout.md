@@ -4,7 +4,10 @@
 and union globals and statics their original byte roots in IR and native execution.
 Integer fields, arrays, scalar prefixes and member size queries retain the selected
 layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
-Aggregate initializers and the remaining aggregate execution families stay open.
+[Aggregate initializers](aggregate-initializers.md) traverse completed selected
+classes, nested fixed arrays and byte strings. Integer leaves use their original
+widths and sequential byte cursor. Other leaf families and completion of selected
+forward classes during traversal remain unfinished.
 
 [Class pointer views](class-pointer-views.md) select a complete earlier class
 layout over existing owned bytes. Primitive and class views share the original
@@ -49,8 +52,8 @@ pointee layouts for indexing, arithmetic and updates. [Inherited
 storage](inherited-aggregates.md) admits completed earlier base chains with
 exact original identities and sizes. [Retained JIT class imports](retained-class-context.md)
 preserve original completed layouts, and [class default words](class-default-words.md)
-preserve the declared scalar view. Partial inherited metadata, persistent
-objects, whole-value postfix casts, callback parameters, general aggregate
+preserve the declared scalar view. Partial inherited metadata,
+whole-value postfix casts, callback parameters, general aggregate
 copies and class pointer returns remain unfinished.
 
 [Owned data pointer fields](aggregate-pointer-fields.md) execute in IR,

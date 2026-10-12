@@ -1885,6 +1885,22 @@ let selected_base_record ledger (phase : Parser.aggregate_phase) =
       )
   | _ -> Error "inherited layout read belongs to another original base phase"
 
+let selected_backing_record ledger (source : Parser.aggregate_publication) =
+  Option.bind source.aggregate_backing_selection (fun selection ->
+      Option.bind (Entries.find_opt ledger.entries selection.entry)
+        (fun assigned ->
+          Option.bind
+            (Collection.current_aggregate_publication ledger.namespace
+               assigned.publication) (fun publication ->
+              Entries.fold
+                (fun _ assigned found ->
+                  if assigned.publication != publication then found
+                  else
+                    match assigned.source with
+                    | Aggregate { record = Some (Ok record); _ } -> Some record
+                    | _ -> None)
+                ledger.entries None)))
+
 let selected_member_record ledger (phase : Parser.aggregate_phase) =
   let ( let* ) = Result.bind in
   match phase.phase_step with
@@ -2905,6 +2921,8 @@ let observe ?offset_runtime ledger event =
           | Aggregate state ->
               let progress =
                 Sema.Compiler_record.begin_aggregate ~table:ledger.table
+                  ?backing_record:(selected_backing_record ledger publication)
+                  ~selected_aggregate:(selected_aggregate_for ledger)
                   ~compiler_positions:ledger.compiler_positions
                   ~namespace:ledger.namespace assigned.publication
                 |> checked publication.aggregate_name.location.span
@@ -4964,6 +4982,15 @@ let native_static_initializer_fragment ledger ~runtime
           | _ -> []
         in
         Sema.Static_initializer_fragment.create ?callback
+          ?aggregate:
+            (match assigned.source with
+            | Function state ->
+                List.find_opt
+                  (fun allocation ->
+                    Sema.Compiler_record.automatic_aggregate_source allocation
+                    == receipt.static_allocation)
+                  state.automatic_aggregate_allocations
+            | _ -> None)
           ~selected_aggregate:(selected_aggregate_for ledger)
           ~table:ledger.table ~namespace:ledger.namespace
           ~publication:assigned.publication ~receipt ~dimensions ~environment
@@ -5178,6 +5205,9 @@ let task_static_fragment ledger ~runtime ~task_view receipt =
         Sema.Static_initializer_fragment.create_selected
           ?activation:ledger.activation
           ?callback:(Ir.Integer_static_allocation.callback_source allocation)
+          ?aggregate:
+            (Sema.Compiler_record.static_allocation_aggregate
+               (Ir.Integer_static_allocation.source allocation))
           ~selected_aggregate:(selected_aggregate_for ledger)
           ~table:ledger.table ~namespace:ledger.namespace
           ~publication:assigned.publication ~receipt

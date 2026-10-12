@@ -57,6 +57,7 @@ type native_static_preparation
 type native_preparation
 
 val prepare_native :
+  scalar:Sema.Initializer_type.scalar option ->
   authority:Sema.Initializer_fragment.authority ->
   typed:Sema.Function_call_expression_result.top_level_t ->
   cell_offset:int ->
@@ -75,6 +76,7 @@ val native_is_load : native_preparation -> bool
 val native_evidence : t -> native_preparation list
 
 val prepare_native_load :
+  scalar:Sema.Initializer_type.scalar option ->
   declaration:Sema.Compiler_record.declared_global ->
   leaf:Sema.Initializer_source.leaf ->
   cell_offset:int ->
@@ -187,6 +189,7 @@ val prepare_offset :
   (classification * int, Common.Diagnostic.t list) result
 
 val prepare_native_static :
+  scalar:Sema.Initializer_type.scalar option ->
   fragment:Sema.Static_initializer_fragment.t ->
   typed:Sema.Function_call_expression_result.top_level_t ->
   cell_offset:int ->

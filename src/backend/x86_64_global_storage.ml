@@ -330,7 +330,8 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
           match Arrays.prepared entry with
           | Some (payload, _) when root_materialized root ->
               Ok
-                ((Layout.cell_offset (Arrays.destination entry), payload)
+                (( Layout.cell_offset (Arrays.destination entry),
+                   Arrays.storage_payload entry payload )
                 :: reversed)
           | Some _ ->
               invalid ?span
@@ -555,7 +556,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
                static
         in
         let* base_initialized =
-          if (not is_array) && has_initializer && Option.is_some initializers
+          if (not byte_flags) && has_initializer && Option.is_some initializers
           then
             if
               Option.fold ~none:false
@@ -599,7 +600,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
             mark_bytes index
           done;
         let* array_image =
-          if is_array then prepared_array_image ?span global static else Ok []
+          if byte_flags then prepared_array_image ?span global static else Ok []
         in
         let seen = Bytes.make element_count '\000' in
         let initialized_count =
@@ -633,7 +634,7 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
               | Arrays.Bytes bytes ->
                   let length = String.length bytes in
                   if
-                    width <> 1 || cell_offset < 0 || length <= 0
+                    width <> 1 || cell_offset < 0 || length < 0
                     || cell_offset > element_count - length
                   then
                     invalid ?span
@@ -1279,8 +1280,9 @@ let prepare_static_copy layout request ~admitted_arena_bytes =
   let count = String.length bytes in
   if
     Scalar.byte_size slot.scalar <> 1
-    || slot.dimensions = [] || cell < 0 || byte <> cell || count <= 0
-    || cell > slot.element_count
+    || slot.dimensions = []
+       && not (Shape.is_aggregate (Globals.storage_shape slot.source_slot))
+    || cell < 0 || byte <> cell || count <= 0 || cell > slot.element_count
     || count > slot.element_count - cell
     || byte > slot.extent_bytes
     || count > slot.extent_bytes - byte

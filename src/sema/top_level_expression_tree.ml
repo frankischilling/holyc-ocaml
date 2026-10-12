@@ -791,10 +791,23 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
               let scalar_shape =
                 match Initializer_source.tree manifest with
                 | Initializer_source.Scalar _ -> true
-                | Initializer_source.Braced _ | Initializer_source.Unbraced _ ->
-                    owner |> Global_initializer_binding.global_record
-                    |> Global_resolution.global_record_global
-                    |> Global_type_resolution.global_array_dimensions <> []
+                | Initializer_source.Braced _ | Initializer_source.Unbraced _
+                  -> (
+                    let global =
+                      owner |> Global_initializer_binding.global_record
+                      |> Global_resolution.global_record_global
+                    in
+                    Global_type_resolution.global_array_dimensions global <> []
+                    ||
+                    let type_ =
+                      Global_type_resolution.global_type_reference global
+                      |> Type_reference.resolved_type
+                    in
+                    Type.pointer_depth type_ = 0
+                    &&
+                    match Type.base type_ with
+                    | Type.Aggregate _ -> true
+                    | _ -> false)
               in
               scalar_shape && switch_cases = []
               && List.for_all

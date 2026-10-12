@@ -1,6 +1,7 @@
 type t
 
 val create :
+  ?aggregate:Compiler_record.automatic_aggregate_allocation ->
   ?activation:Source_activation.t ->
   ?callback:
     Frontend.Parser.completed_callback_signature
@@ -25,6 +26,7 @@ val create :
 val owns_table : t -> Symbol_table.t -> bool
 
 val create_selected :
+  ?aggregate:Compiler_record.automatic_aggregate_allocation ->
   ?activation:Source_activation.t ->
   ?callback:
     Frontend.Parser.completed_callback_signature
@@ -52,6 +54,7 @@ val is_current : t -> bool
 (* The original live parser callback or exact active journal event. *)
 val expression : t -> Frontend.Ast.expression
 val type_ : t -> Type.t
+val aggregate : t -> Compiler_record.automatic_aggregate_allocation option
 
 val callback_source :
   t ->

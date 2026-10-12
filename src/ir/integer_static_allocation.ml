@@ -58,7 +58,7 @@ let native_leaf_executed value root =
         value.executed_
 
 let record_native_leaf ?activation value receipt ~cell_offset ~byte_offset
-    ~operation:expected =
+    ~operation:expected ~scalar:expected_scalar =
   let ( let* ) = Result.bind in
   if
     (not
@@ -77,13 +77,17 @@ let record_native_leaf ?activation value receipt ~cell_offset ~byte_offset
   then
     Error "static initializer completion replaced or replayed its original leaf"
   else
-    let* next, (cell, bytes, operation) =
-      Integer_initializer_layout.prepare_stream value.cursor_
+    let* next, (cell, bytes, operation, scalar) =
+      Integer_initializer_layout.prepare_stream_typed value.cursor_
         ~delimiters:receipt.static_leaf_delimiters
         ~value:receipt.static_leaf_value
     in
-    if cell <> cell_offset || bytes <> byte_offset || operation <> expected then
-      Error "native static completion has another original leaf destination"
+    if
+      cell <> cell_offset || bytes <> byte_offset || operation <> expected
+      || not
+           (Option.equal Sema.Initializer_type.scalar_equal scalar
+              expected_scalar)
+    then Error "native static completion has another original leaf destination"
     else (
       value.executed_ <- value.executed_ @ [ (receipt, cell, bytes) ];
       value.cursor_ <- next;

@@ -419,45 +419,47 @@ let prepare ?frame ~globals result =
 let layout_indices ~slot destination =
   let invalid message = error "HCIRL0004" message in
   match Integer_initializer_layout.operation destination with
-  | Integer_initializer_layout.Copy_bytes _ ->
-      invalid "array string copies cannot be lowered as scheduled scalar stores"
+  | Integer_initializer_layout.Copy_bytes _ -> Ok []
   | Integer_initializer_layout.Scalar_store -> (
-      let cell = Integer_initializer_layout.cell_offset destination in
-      let bytes = Integer_initializer_layout.byte_offset destination in
-      match
-        if Integer_globals.storage_is_callback slot then Some 8
-        else
-          Integer_scalar_storage.public_byte_size
-            (Integer_globals.storage_type slot)
-      with
-      | Some width
-        when cell >= 0
-             && cell < Integer_globals.storage_element_count slot
-             && bytes >= 0
-             && bytes mod width = 0
-             && bytes / width = cell ->
-          let rec coordinates offset reversed dimensions strides =
-            match (dimensions, strides) with
-            | [], [] when offset = 0L -> Ok (List.rev reversed)
-            | count :: dimensions, stride :: strides
-              when count > 0L && stride > 0L ->
-                let index = Int64.div offset stride in
-                if index >= count then
+      if Option.is_some (Integer_initializer_layout.scalar destination) then
+        Ok []
+      else
+        let cell = Integer_initializer_layout.cell_offset destination in
+        let bytes = Integer_initializer_layout.byte_offset destination in
+        match
+          if Integer_globals.storage_is_callback slot then Some 8
+          else
+            Integer_scalar_storage.public_byte_size
+              (Integer_globals.storage_type slot)
+        with
+        | Some width
+          when cell >= 0
+               && cell < Integer_globals.storage_element_count slot
+               && bytes >= 0
+               && bytes mod width = 0
+               && bytes / width = cell ->
+            let rec coordinates offset reversed dimensions strides =
+              match (dimensions, strides) with
+              | [], [] when offset = 0L -> Ok (List.rev reversed)
+              | count :: dimensions, stride :: strides
+                when count > 0L && stride > 0L ->
+                  let index = Int64.div offset stride in
+                  if index >= count then
+                    invalid
+                      "array initializer destination exceeds its checked extent"
+                  else
+                    coordinates (Int64.rem offset stride)
+                      ((stride, index) :: reversed)
+                      dimensions strides
+              | _ ->
                   invalid
-                    "array initializer destination exceeds its checked extent"
-                else
-                  coordinates (Int64.rem offset stride)
-                    ((stride, index) :: reversed)
-                    dimensions strides
-            | _ ->
-                invalid
-                  "array initializer destination has inconsistent dimensions \
-                   or strides"
-          in
-          coordinates (Int64.of_int bytes) []
-            (Integer_globals.storage_dimensions slot)
-            (Integer_globals.storage_strides slot)
-      | _ -> invalid "array initializer cell and byte destinations disagree")
+                    "array initializer destination has inconsistent dimensions \
+                     or strides"
+            in
+            coordinates (Int64.of_int bytes) []
+              (Integer_globals.storage_dimensions slot)
+              (Integer_globals.storage_strides slot)
+        | _ -> invalid "array initializer cell and byte destinations disagree")
 
 let initializer_indices ~slot ~roots ~arrays root =
   let invalid message = error "HCIRL0004" message in
@@ -472,8 +474,12 @@ let initializer_indices ~slot ~roots ~arrays root =
         match Integer_array_initializers.find arrays root with
         | None -> invalid "array initializer has no exact destination leaf"
         | Some entry ->
-            if Integer_globals.storage_dimensions slot = [] then
-              invalid "array initializer destination has no declared rank"
+            if
+              Integer_globals.storage_dimensions slot = []
+              && Option.is_none
+                   (Integer_initializer_layout.scalar
+                      (Integer_array_initializers.destination entry))
+            then invalid "array initializer destination has no declared rank"
             else
               layout_indices ~slot
                 (Integer_array_initializers.destination entry))
@@ -504,39 +510,43 @@ let prepare_static_fragment_initializer destination =
   let bytes = Destination.byte_offset destination in
   let cell = Destination.cell_offset destination in
   let* initializer_indices =
-    let width =
-      Integer_storage_shape.scalar
-        (Integer_static_allocation.shape (Destination.allocation destination))
-      |> Integer_scalar_storage.byte_size
-    in
-    if
-      cell < 0
-      || cell >= Integer_globals.storage_element_count slot
-      || bytes < 0
-      || bytes / width <> cell
-      || bytes mod width <> 0
-    then
-      error "HCIRL0004" "static initializer cell and byte destination disagree"
+    if Option.is_some (Destination.scalar destination) then Ok []
     else
-      let rec coordinates offset = function
-        | [], [] when offset = 0L -> Ok []
-        | count :: dimensions, stride :: strides when count > 0L && stride > 0L
-          ->
-            let index = Int64.div offset stride in
-            if index >= count then
-              error "HCIRL0004" "static initializer exceeds its checked extent"
-            else
-              let* rest =
-                coordinates (Int64.rem offset stride) (dimensions, strides)
-              in
-              Ok ((stride, index) :: rest)
-        | _ ->
-            error "HCIRL0004"
-              "static initializer has inconsistent checked dimensions"
+      let width =
+        Integer_storage_shape.scalar
+          (Integer_static_allocation.shape (Destination.allocation destination))
+        |> Integer_scalar_storage.byte_size
       in
-      coordinates (Int64.of_int bytes)
-        ( Integer_globals.storage_dimensions slot,
-          Integer_globals.storage_strides slot )
+      if
+        cell < 0
+        || cell >= Integer_globals.storage_element_count slot
+        || bytes < 0
+        || bytes / width <> cell
+        || bytes mod width <> 0
+      then
+        error "HCIRL0004"
+          "static initializer cell and byte destination disagree"
+      else
+        let rec coordinates offset = function
+          | [], [] when offset = 0L -> Ok []
+          | count :: dimensions, stride :: strides
+            when count > 0L && stride > 0L ->
+              let index = Int64.div offset stride in
+              if index >= count then
+                error "HCIRL0004"
+                  "static initializer exceeds its checked extent"
+              else
+                let* rest =
+                  coordinates (Int64.rem offset stride) (dimensions, strides)
+                in
+                Ok ((stride, index) :: rest)
+          | _ ->
+              error "HCIRL0004"
+                "static initializer has inconsistent checked dimensions"
+        in
+        coordinates (Int64.of_int bytes)
+          ( Integer_globals.storage_dimensions slot,
+            Integer_globals.storage_strides slot )
   in
   match Type.pointer_to (Integer_globals.storage_type slot) with
   | Error message -> error "HCIRL0004" message
@@ -604,10 +614,16 @@ let prepare_static_initializer ~globals slot root =
           ~arrays:(Integer_globals.static_array_initializers slot)
           root
       in
-      let* _ =
-        Frame_address_lowering.prepare_initializer
-          ~frame:(Integer_globals.static_frame slot)
-          root
+      let* () =
+        if
+          Integer_storage_shape.is_aggregate
+            (Integer_globals.storage_shape storage)
+        then Ok ()
+        else
+          Frame_address_lowering.prepare_initializer
+            ~frame:(Integer_globals.static_frame slot)
+            root
+          |> Stdlib.Result.map (fun _ -> ())
       in
       match
         ( Result.initializer_source root |> Source.initializer_origin,

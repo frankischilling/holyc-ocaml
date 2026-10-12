@@ -7,6 +7,7 @@ type t = {
   element_size : int;
   cell_count : int;
   aggregate_owner : (Sema.Symbol.t * Sema.Type.t) option;
+  initializer_type : Sema.Initializer_type.t option;
 }
 
 type error = Unsupported_type | Invalid_extent | Overflow
@@ -18,6 +19,7 @@ let byte_size shape = shape.byte_size
 let scalar shape = shape.scalar
 let element_size shape = shape.element_size
 let cell_count shape = shape.cell_count
+let initializer_type shape = shape.initializer_type
 let is_aggregate shape = Option.is_some shape.aggregate_owner
 
 let matches shape ~symbol ~type_ ~dimensions =
@@ -31,7 +33,8 @@ let padded_byte_size shape =
   if shape.byte_size > Int.max_int - 7 then None
   else Some ((shape.byte_size + 7) land lnot 7)
 
-let create_with_scalar ~width ~scalar ~aggregate_owner ~dimensions =
+let create_with_scalar ~width ~scalar ~aggregate_owner ~initializer_type
+    ~dimensions =
   if width <= 0 then Error Unsupported_type
   else
     let ( let* ) = Result.bind in
@@ -63,6 +66,7 @@ let create_with_scalar ~width ~scalar ~aggregate_owner ~dimensions =
           element_size = width;
           cell_count = Int64.to_int cells;
           aggregate_owner;
+          initializer_type;
         }
 
 let create ~type_ ~dimensions =
@@ -71,10 +75,13 @@ let create ~type_ ~dimensions =
       Integer_scalar_storage.of_type type_ )
   with
   | Some width, Some scalar ->
-      create_with_scalar ~width ~scalar ~aggregate_owner:None ~dimensions
+      create_with_scalar ~width ~scalar ~aggregate_owner:None
+        ~initializer_type:
+          (Sema.Initializer_type.of_type type_ |> Result.to_option)
+        ~dimensions
   | _ -> Error Unsupported_type
 
-let aggregate_shape ~symbol ~type_ ~element_size ~dimensions =
+let aggregate_shape ~initializer_type ~symbol ~type_ ~element_size ~dimensions =
   if element_size <= 0L || element_size > Int64.of_int Int.max_int then
     Error Invalid_extent
   else
@@ -82,7 +89,20 @@ let aggregate_shape ~symbol ~type_ ~element_size ~dimensions =
       ~width:(Int64.to_int element_size)
       ~scalar:Automatic_aggregate_storage.byte_scalar
       ~aggregate_owner:(Some (symbol, type_))
-      ~dimensions
+      ~initializer_type ~dimensions
+
+let create_initializer_aggregate ~allocation ~dimensions () =
+  let type_ = Sema.Compiler_record.automatic_aggregate_type allocation in
+  match Sema.Type.base type_ with
+  | Sema.Type.Aggregate symbol when Sema.Type.pointer_depth type_ = 0 ->
+      aggregate_shape ~symbol ~type_
+        ~initializer_type:
+          (Sema.Initializer_type.of_record ~type_
+             (Sema.Compiler_record.automatic_aggregate_record allocation)
+          |> Result.to_option)
+        ~element_size:(Sema.Compiler_record.automatic_aggregate_size allocation)
+        ~dimensions
+  | _ -> Error Unsupported_type
 
 let create_static_allocation ~allocation ~symbol ~dimensions =
   match Sema.Compiler_record.static_allocation_aggregate allocation with
@@ -111,6 +131,10 @@ let create_static_allocation ~allocation ~symbol ~dimensions =
       then Error Unsupported_type
       else
         aggregate_shape ~symbol ~type_
+          ~initializer_type:
+            (Sema.Initializer_type.of_record ~type_
+               (Record.automatic_aggregate_record aggregate)
+            |> Result.to_option)
           ~element_size:(Record.automatic_aggregate_size aggregate)
           ~dimensions
   | None -> Error Unsupported_type
@@ -121,6 +145,11 @@ let create_declared_global declaration =
       aggregate_shape
         ~symbol:(Sema.Compiler_record.declared_global_symbol declaration)
         ~type_:(Sema.Compiler_record.global_aggregate_type allocation)
+        ~initializer_type:
+          (Sema.Initializer_type.of_record
+             ~type_:(Sema.Compiler_record.global_aggregate_type allocation)
+             (Sema.Compiler_record.global_aggregate_record allocation)
+          |> Result.to_option)
         ~element_size:(Sema.Compiler_record.global_aggregate_size allocation)
         ~dimensions:
           (Sema.Compiler_record.declared_global_dimensions declaration)
@@ -132,7 +161,7 @@ let create_declared_global declaration =
               (Sema.Compiler_record.declared_global_dimensions declaration)
       | Error _ -> Error Unsupported_type)
 
-let create_global ~members ~global ~dimensions =
+let create_global ?headers ~members ~global ~dimensions () =
   let module Global = Sema.Global_type_resolution in
   let module Members = Sema.Aggregate_member_index in
   let type_ =
@@ -149,6 +178,12 @@ let create_global ~members ~global ~dimensions =
                 <= Global.global_item_index global
              && Global.global_declarator_kind global = Global.Object ->
           aggregate_shape ~symbol ~type_
+            ~initializer_type:
+              (Option.bind headers (fun headers ->
+                   Sema.Initializer_type.of_members ~headers ~members
+                     ~before_item_index:(Global.global_item_index global)
+                     ~type_
+                   |> Result.to_option))
             ~element_size:(Members.aggregate_size selected)
             ~dimensions
       | _ -> Error Unsupported_type)
@@ -175,6 +210,12 @@ let create_static ~frame ~location =
       else
         let shape =
           aggregate_shape ~symbol ~type_
+            ~initializer_type:
+              (Option.bind (Frame.location_aggregate_allocation location)
+                 (fun allocation ->
+                   Sema.Initializer_type.of_record ~type_
+                     (Sema.Compiler_record.automatic_aggregate_record allocation)
+                   |> Result.to_option))
             ~element_size:(Frame.location_element_size location)
             ~dimensions
         in

@@ -214,6 +214,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           let* globals_ =
             Ir.Integer_globals.create_with_layout
               ~members:(Integer_source.aggregate_members prepared)
+              ~headers:(Integer_source.aggregate_headers prepared)
               ~layout:(Integer_source.global_layouts prepared)
               ~initializers:typed ~span:ast.span
               (Integer_source.global_records prepared)

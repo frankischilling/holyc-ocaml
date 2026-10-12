@@ -6,6 +6,18 @@ type stream
 
 val begin_stream : Integer_storage_shape.t -> stream
 
+val prepare_stream_typed :
+  stream ->
+  delimiters:Frontend.Parser.initializer_delimiter list ->
+  value:Frontend.Ast.initial_value ->
+  ( stream * (int * int * operation * Sema.Initializer_type.scalar option),
+    string )
+  result
+
+(** Traverse the original fixed arrays and direct class members. Typed class
+    leaves retain their own scalar destination; byte coordinates use the source
+    initializer cursor rather than member-access offsets. *)
+
 val prepare_stream :
   stream ->
   delimiters:Frontend.Parser.initializer_delimiter list ->
@@ -13,9 +25,11 @@ val prepare_stream :
   (stream * (int * int * operation), string) result
 (** Advance the same fixed-array recursion over one scalar leaf and the original
     delimiters preceding it. The result describes its cell offset, byte offset
-    and operation. It grants no source or runtime authority and cannot construct
-    an [entry] or [t]; consumers must retain the original parser receipt and
-    match the completed source-owned layout before publishing an image. *)
+    and operation. Typed class leaves reject here; their consumers must use
+    [prepare_stream_typed]. This grants no source or runtime authority and
+    cannot construct an [entry] or [t]; consumers must retain the original
+    parser receipt and match the completed source-owned layout before publishing
+    an image. *)
 
 val begin_live : Sema.Compiler_record.declared_global -> (live, string) result
 
@@ -46,5 +60,12 @@ val leaf : entry -> Sema.Initializer_source.leaf
 val cell_offset : entry -> int
 val byte_offset : entry -> int
 val operation : entry -> operation
+val scalar : entry -> Sema.Initializer_type.scalar option
 val declared_owner : entry -> Sema.Compiler_record.declared_global option
 val find : t -> Sema.Initializer_source.leaf -> entry option
+
+val normalized_word :
+  Sema.Initializer_type.scalar -> int64 -> (int64, string) result
+
+val word_bytes :
+  Sema.Initializer_type.scalar -> int64 -> (string, string) result

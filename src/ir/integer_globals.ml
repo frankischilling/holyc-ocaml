@@ -742,7 +742,8 @@ let find_allocated_storage globals symbol =
     (fun slot -> storage_symbol slot == symbol)
     (allocated_storage_slots globals)
 
-let create_impl ?members ?layout ?initializers ~span:unit_span records =
+let create_impl ?headers ?members ?layout ?initializers ~span:unit_span records
+    =
   let ( let* ) = Result.bind in
   let invalid message =
     Error
@@ -916,7 +917,7 @@ let create_impl ?members ?layout ?initializers ~span:unit_span records =
             match
               match members with
               | Some members when Option.is_none callback ->
-                  Shape.create_global ~members ~global ~dimensions
+                  Shape.create_global ?headers ~members ~global ~dimensions ()
               | _ -> Shape.create ~type_:shape_type ~dimensions
             with
             | Ok shape -> Ok shape
@@ -941,17 +942,8 @@ let create_impl ?members ?layout ?initializers ~span:unit_span records =
               (fun (owner, roots) -> (owner, List.rev roots))
               (Symbols.find_opt (Symbol.id symbol) roots)
           in
-          let* () =
-            if
-              Shape.is_aggregate shape
-              && Option.is_some (Global.global_initializer global)
-            then
-              fail "HCRUN0006"
-                "aggregate initializer requires its original member leaf layout"
-            else Ok ()
-          in
           let* array_initializers =
-            if dimensions = [] then Ok None
+            if dimensions = [] && not (Shape.is_aggregate shape) then Ok None
             else
               match (Global.global_initializer global, owned) with
               | None, None -> Ok None
@@ -991,7 +983,7 @@ let create_impl ?members ?layout ?initializers ~span:unit_span records =
                     "array declaration and initializer roots disagree"
           in
           let* initializer_root =
-            if dimensions <> [] then Ok None
+            if dimensions <> [] || Shape.is_aggregate shape then Ok None
             else
               match (Global.global_initializer global, owned) with
               | None, None -> Ok None
@@ -1086,11 +1078,11 @@ let create_impl ?members ?layout ?initializers ~span:unit_span records =
   in
   collect 0 0 Symbols.empty [] roots (Records.records records)
 
-let create ?members ?initializers ~span records =
-  create_impl ?members ?initializers ~span records
+let create ?headers ?members ?initializers ~span records =
+  create_impl ?headers ?members ?initializers ~span records
 
-let create_with_layout ?members ~layout ?initializers ~span records =
-  create_impl ~layout ?members ?initializers ~span records
+let create_with_layout ?headers ?members ~layout ?initializers ~span records =
+  create_impl ~layout ?headers ?members ?initializers ~span records
 
 let create_task_catalog ~table =
   {
@@ -2462,7 +2454,7 @@ let storage_array_image slot =
               (fun (payload, _) ->
                 ( Integer_initializer_layout.cell_offset
                     (Arrays.destination entry),
-                  payload ))
+                  Arrays.storage_payload entry payload ))
               (Arrays.prepared entry))
   in
   match slot with

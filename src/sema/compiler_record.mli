@@ -76,6 +76,7 @@ val select_global_aggregate :
   t ->
   (global_aggregate_allocation, string) result
 
+val global_aggregate_record : global_aggregate_allocation -> t
 val global_aggregate_size : global_aggregate_allocation -> int64
 val global_aggregate_type : global_aggregate_allocation -> Type.t
 
@@ -250,6 +251,8 @@ val aggregate_offset_work : aggregate_offset -> int
 
 val begin_aggregate :
   ?compiler_positions:compiler_positions ->
+  ?backing_record:t ->
+  ?selected_aggregate:Function_type_resolution.selected_aggregate_resolver ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
   Declaration_collection.publication ->
@@ -276,6 +279,25 @@ type aggregate_member
 type aggregate_field
 
 val aggregate_fields : t -> aggregate_field list
+val aggregate_initializer_size : t -> int64
+val aggregate_initializer_has_members : t -> bool
+val aggregate_initializer_is_complete : t -> bool
+val aggregate_field_type : aggregate_field -> Type.t
+val aggregate_field_counts : aggregate_field -> int64 list
+val aggregate_field_record : aggregate_field -> t option
+
+val aggregate_field_callback :
+  aggregate_field -> Frontend.Ast.function_pointer_declarator option
+
+val aggregate_initializer_backing :
+  t -> (Type_reference.t * t option) option option
+
+val aggregate_record_matches : owner:t -> type_:Type.t -> t -> bool
+
+(** Match original class metadata by physical table, namespace and canonical
+    class identity. These reads retain source-selected initializer inputs and
+    grant no storage or executable authority. *)
+
 val aggregate_field_name : aggregate_field -> Frontend.Ast.identifier
 
 val aggregate_field_element_size :
@@ -316,6 +338,7 @@ val select_automatic_aggregate :
     reject. A zero class size is retained and cannot be enlarged by later class
     completion. The receipt does not grant storage or executable authority. *)
 
+val automatic_aggregate_record : automatic_aggregate_allocation -> t
 val automatic_aggregate_size : automatic_aggregate_allocation -> int64
 val automatic_aggregate_type : automatic_aggregate_allocation -> Type.t
 
@@ -789,3 +812,11 @@ val resolve_default_position_reads :
   (Frontend.Ast.expression * Frontend.Parser.compiler_position_source option)
   list ->
   ((Frontend.Ast.expression * compiler_position) list, string) result
+
+val static_initializer_aggregate_matches :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  publication:Declaration_collection.publication ->
+  source:Frontend.Parser.function_local_allocation ->
+  automatic_aggregate_allocation ->
+  bool

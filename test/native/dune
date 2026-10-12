@@ -207,7 +207,8 @@
   ../../examples/class-default-words.hc
   ../../examples/retained-nested-members.hc
   ../../examples/aggregate-pointer-fields.hc
-  ../../examples/persistent-aggregates.hc)
+  ../../examples/persistent-aggregates.hc
+  ../../examples/aggregate-initializers.hc)
  (action
   (run
    %{exe:../test_aggregate_members_cli.exe}
@@ -224,6 +225,7 @@
    %{dep:../../examples/retained-nested-members.hc}
    %{dep:../../examples/aggregate-pointer-fields.hc}
    %{dep:../../examples/persistent-aggregates.hc}
+   %{dep:../../examples/aggregate-initializers.hc}
    --native)))
 
 (rule

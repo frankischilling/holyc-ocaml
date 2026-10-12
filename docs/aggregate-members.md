@@ -146,9 +146,14 @@ native fixtures require rejection of those fields before execution.
 object and array storage through the same member paths. Their original
 allocation and expression receipts preserve layout timing and function ownership.
 
+[Persistent storage](persistent-aggregates.md) uses these member projections for
+class and union globals and statics. [Their initializers](aggregate-initializers.md)
+traverse original direct members and fixed arrays with a sequential byte cursor,
+separate from the offsets used by subsequent member accesses.
+
 Partial inherited bases and bases without their original completed compilation
 or retained-context proof cannot authorize object storage. Zero-sized automatic
-objects, automatic root pointer arrays, aggregate array initializers,
+objects, automatic root pointer arrays, inferred initializer dimensions,
 whole-value postfix casts, callback class
 parameters, general aggregate copies, native data pointer fields, callback
 fields, numeric/null casts to class pointers and pointer returns remain unfinished

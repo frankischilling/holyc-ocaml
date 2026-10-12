@@ -63,7 +63,10 @@ IR data pointer fields also retain their separate ownership shadows over these
 byte roots. A stored address cannot keep a retired activation alive. The native
 path continues to reject data pointer fields with `HCBACK0002`.
 
-Aggregate initializers still require their member-leaf layout implementation.
+[Aggregate initializers](aggregate-initializers.md) now traverse completed selected
+classes, integer leaves, nested fixed arrays and strings with the original source
+byte cursor. Forward completion during traversal and other leaf families remain
+open.
 Callback fields, native data pointer fields, reference returns, persistent pointer
 cells, general aggregate copies and whole-value casts remain unfinished under
 [#686](https://github.com/frankischilling/holyc-ocaml/issues/686) and related
@@ -80,8 +83,7 @@ The reference is commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 - `PrsVarLst` at `Compiler/PrsVar.HC:405-742` separates automatic and static
   allocations, rounds static storage to eight bytes and zeroes AOT statics.
 - `PrsVarInit`, `PrsVarInit2`, `PrsGlblInit` and `PrsStaticInit` at
-  `Compiler/PrsVar.HC:1-246` describe the remaining original member-leaf
-  initialization work.
+  `Compiler/PrsVar.HC:1-246` supply the original member-leaf initializer traversal.
 - Member access and indexing at `Compiler/PrsExp.HC:960-1115` retain the
   selected class offsets and element size. Scalar prefixes follow
   [backed values](backed-aggregate-values.md) and

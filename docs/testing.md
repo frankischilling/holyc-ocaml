@@ -2232,3 +2232,28 @@ draft. The CLI harness runs
 ## Shared native sections
 
 `test/test_native_sections.ml` checks ordered code/data layout, sparse identities, forward references, independent rebases, deferred imports, signed field overflow, exact/one-below limits and immutable byte views. It compiles real source functions and globals in both source modes and compares a source assembly body with the independently captured original Cmp artifact. The existing assembler, BIN and native suites exercise the shared consumers. See [native sections](native-sections.md) for the source rules and evidence boundaries.
+
+## Persistent aggregate initializer checks
+
+[Aggregate initializers](aggregate-initializers.md) follow complete
+`Compiler/PrsVar.HC:1-246`, `Compiler/PrsVar.HC:405-742`,
+`Compiler/PrsVar.HC:285-371`,
+`Compiler/PrsStmt.HC:209-463`, `Compiler/OptLib.HC:9-15` and
+`Compiler/LexLib.HC:103-148`. `test/test_aggregate_initializer_layout.ml`
+checks independent byte-cursor destinations and rejects foreign headers,
+missing or extra leaves and union overflow. The shared persistent fixtures run
+through IR, native execution and native source tasks. Public CLI controls check
+exact global, preparation and execution limits. Native source task failures keep
+earlier output; isolated IR rejects an invalid complete layout before execution.
+The maintained example is
+[`aggregate-initializers.hc`](../examples/aggregate-initializers.hc).
+
+Callback leaf fixtures inspect independent byte values for all nine integer
+return types, F64, U0, a class and a data pointer return. Static objects, callback
+member arrays and additional indirection retain the same eight-byte word. Equal-looking
+foreign callback headers fail the leaf identity check, and a numeric initializer
+cannot authorize a stored field call.
+
+This evidence covers completed selected classes and supported integer leaves.
+Live forward completion, other leaf families and full aggregate parity remain
+open. No TempleOS runtime or emitted-byte capture is included.

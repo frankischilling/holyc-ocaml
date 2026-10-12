@@ -365,6 +365,7 @@ val has_initializers : t -> bool
 val has_unprepared_statics : t -> bool
 
 val create :
+  ?headers:Sema.Aggregate_header_resolution.t ->
   ?members:Sema.Aggregate_member_index.t ->
   ?initializers:Sema.Function_call_expression_result.top_level_t ->
   span:Common.Span.t ->
@@ -376,6 +377,7 @@ val create :
     contains immutable metadata, not mutable execution storage. *)
 
 val create_with_layout :
+  ?headers:Sema.Aggregate_header_resolution.t ->
   ?members:Sema.Aggregate_member_index.t ->
   layout:Sema.Global_array_layout.t ->
   ?initializers:Sema.Function_call_expression_result.top_level_t ->

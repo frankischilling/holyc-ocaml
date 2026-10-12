@@ -535,6 +535,64 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                 match List.rev rest with
                 | ending :: store :: reversed_value when reversed_value <> [] ->
                     let expected_type = Integer_globals.storage_type storage in
+                    let aggregate_destination =
+                      let from_entry entry =
+                        let layout =
+                          Integer_array_initializers.destination entry
+                        in
+                        Option.map
+                          (fun scalar ->
+                            ( scalar,
+                              Integer_initializer_layout.byte_offset layout ))
+                          (Integer_initializer_layout.scalar layout)
+                      in
+                      match slot with
+                      | Fragment_pending destination ->
+                          let layout =
+                            Initializer_fragment_destination.layout destination
+                          in
+                          Option.map
+                            (fun scalar ->
+                              ( scalar,
+                                Integer_initializer_layout.byte_offset layout ))
+                            (Integer_initializer_layout.scalar layout)
+                      | Static_fragment_pending destination ->
+                          Option.map
+                            (fun scalar ->
+                              ( scalar,
+                                Static_initializer_destination.byte_offset
+                                  destination ))
+                            (Static_initializer_destination.scalar destination)
+                      | Global_pending (slot, root) ->
+                          Option.bind
+                            (Integer_globals.slot_array_initializers slot)
+                            (fun arrays ->
+                              Option.bind
+                                (Integer_array_initializers.find arrays root)
+                                from_entry)
+                      | Static_pending (slot, root) ->
+                          Option.bind
+                            (Integer_globals.static_array_initializers slot)
+                            (fun arrays ->
+                              Option.bind
+                                (Integer_array_initializers.find arrays root)
+                                from_entry)
+                    in
+                    let copy_destination =
+                      match slot with
+                      | Fragment_pending destination -> (
+                          let layout =
+                            Initializer_fragment_destination.layout destination
+                          in
+                          match Integer_initializer_layout.operation layout with
+                          | Copy_bytes bytes ->
+                              Some
+                                ( bytes,
+                                  Integer_initializer_layout.byte_offset layout
+                                )
+                          | Scalar_store -> None)
+                      | _ -> None
+                    in
                     let same_type expected = function
                       | Some actual -> Type.equal expected actual
                       | None -> false
@@ -567,18 +625,117 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                              same_type type_ address.target_type)
                            address_type
                     in
+                    let store_span =
+                      let at = function
+                        | Symbol.Source_location location -> Some location.span
+                        | _ -> None
+                      in
+                      match slot with
+                      | Fragment_pending destination ->
+                          Some
+                            (Initializer_fragment_destination.span destination)
+                      | Static_fragment_pending destination ->
+                          Some (Static_initializer_destination.span destination)
+                      | Global_pending (_, root) -> (
+                          match
+                            Typed.top_level_root_source root
+                            |> Sema.Top_level_expression_tree.root_role
+                          with
+                          | Global_initializer owner ->
+                              Option.bind
+                                (Sema.Global_initializer_binding
+                                 .global_initializer_origin owner)
+                                at
+                          | _ -> None)
+                      | Static_pending (_, root) ->
+                          at
+                            (Typed.initializer_source root
+                            |> Sema.Function_call_resolution.initializer_origin
+                            )
+                    in
                     let store_valid =
-                      store.opcode = Opcode.Ic_assign
-                      && Lock_semantics.clear_flag store.flags = 0L
-                      && store.payload = None
-                      && same_type expected_type store.target_type
-                      &&
-                      match store.operands with
-                      | [ target; _ ] ->
-                          Sequence.Value_id.equal
-                            (Global_address_lowering.result_value prefix)
-                            target
-                      | _ -> false
+                      match (copy_destination, aggregate_destination) with
+                      | Some (bytes, byte_offset), _ -> (
+                          let count =
+                            Aggregate_initializer_store.copy_instruction_count
+                              bytes
+                          in
+                          let rec take count reversed suffix =
+                            match (count, reversed) with
+                            | 0, _ -> Some suffix
+                            | _, item :: rest ->
+                                take (count - 1) rest (item :: suffix)
+                            | _ -> None
+                          in
+                          match take count (store :: reversed_value) [] with
+                          | Some (first :: _ as suffix) -> (
+                              match first.result with
+                              | Some result -> (
+                                  match
+                                    Aggregate_initializer_store.lower_copy
+                                      ~bytes ~byte_offset
+                                      ~root_type:expected_type
+                                      ~root:
+                                        (Global_address_lowering.result_value
+                                           prefix)
+                                      ~span:store_span
+                                      ~instruction_id:first.instruction_id
+                                      ~value_id:result.value_id
+                                  with
+                                  | Ok expected ->
+                                      List.for_all2 equal_instruction
+                                        (Aggregate_initializer_store
+                                         .descriptions expected)
+                                        suffix
+                                  | Error _ -> false)
+                              | _ -> false)
+                          | _ -> false)
+                      | None, Some (scalar, byte_offset) -> (
+                          let count =
+                            Aggregate_initializer_store.instruction_count scalar
+                          in
+                          let reversed = store :: reversed_value in
+                          let rec take count reversed suffix =
+                            match (count, reversed) with
+                            | 0, _ -> Some suffix
+                            | _, item :: rest ->
+                                take (count - 1) rest (item :: suffix)
+                            | _ -> None
+                          in
+                          match take count reversed [] with
+                          | Some (first :: _ :: conversion :: _ as suffix) -> (
+                              match (first.result, conversion.operands) with
+                              | Some result, [ word ] -> (
+                                  match
+                                    Aggregate_initializer_store.lower ~scalar
+                                      ~byte_offset ~root_type:expected_type
+                                      ~root:
+                                        (Global_address_lowering.result_value
+                                           prefix)
+                                      ~word ~span:store_span
+                                      ~instruction_id:first.instruction_id
+                                      ~value_id:result.value_id
+                                  with
+                                  | Ok expected ->
+                                      List.for_all2 equal_instruction
+                                        (Aggregate_initializer_store
+                                         .descriptions expected)
+                                        suffix
+                                  | Error _ -> false)
+                              | _ -> false)
+                          | _ -> false)
+                      | None, None -> (
+                          store.opcode = Opcode.Ic_assign
+                          && Lock_semantics.clear_flag store.flags = 0L
+                          && store.payload = None
+                          && same_type expected_type store.target_type
+                          &&
+                          match store.operands with
+                          | [ target; _ ] ->
+                              Sequence.Value_id.equal
+                                (Global_address_lowering.result_value prefix)
+                                target
+                          | _ -> false)
                     in
                     let end_valid =
                       ending.opcode = Opcode.Ic_end_exp
@@ -679,7 +836,8 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                   (fun (payload, _) ->
                     ( Integer_array_initializers.destination entry
                       |> Integer_initializer_layout.cell_offset,
-                      payload ))
+                      Integer_array_initializers.storage_payload entry payload
+                    ))
                   (Integer_array_initializers.prepared entry)))
     | Static_pending (slot, root) ->
         Option.bind (Integer_globals.static_array_initializers slot)
@@ -690,7 +848,8 @@ let create_internal ?fragment ?static_fragment ?(static_descriptions = [])
                   (fun (payload, _) ->
                     ( Integer_array_initializers.destination entry
                       |> Integer_initializer_layout.cell_offset,
-                      payload ))
+                      Integer_array_initializers.storage_payload entry payload
+                    ))
                   (Integer_array_initializers.prepared entry)))
   in
   let storage = function

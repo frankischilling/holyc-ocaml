@@ -6,6 +6,7 @@ type t = {
   activation_ : Source_activation.t option;
   expression_ : Frontend.Ast.expression;
   type_ : Type.t;
+  aggregate_ : Compiler_record.automatic_aggregate_allocation option;
   callback_source_ :
     (Frontend.Parser.completed_callback_signature
     * Function_type_resolution.function_pointer)
@@ -27,6 +28,7 @@ let is_current value =
 
 let expression value = value.expression_
 let type_ value = value.type_
+let aggregate value = value.aggregate_
 let callback_source value = value.callback_source_
 let dimensions value = value.dimensions_
 let leaf_path value = value.receipt_.Frontend.Parser.static_leaf_path
@@ -60,7 +62,7 @@ let query_for value expression =
   | Some q -> Ok q
   | None -> Error "static initializer lacks its original query"
 
-let create_selected ?activation ?callback
+let create_selected ?aggregate ?activation ?callback
     ?(selected_aggregate : Function_type_resolution.selected_aggregate_resolver =
       fun _ -> None) ~references ~table ~namespace ~publication
     ~(receipt : Frontend.Parser.static_initializer_preparation) ~dimensions
@@ -89,6 +91,29 @@ let create_selected ?activation ?callback
          callback"
     else Ok ()
   in
+  let* () =
+    match aggregate with
+    | None -> Ok ()
+    | Some selected ->
+        if
+          Compiler_record.static_initializer_aggregate_matches ~table ~namespace
+            ~publication ~source:allocation selected
+          &&
+          match allocation.allocation_local.local_source with
+          | Parser.Local_variable
+              {
+                local_type_specifier = Ast.Named_type_specifier _;
+                local_pointer_layers = [];
+                local_function_pointer = None;
+                _;
+              } -> Option.is_none callback
+          | _ -> false
+        then Ok ()
+        else
+          Error
+            "HCRUN0006: static initializer replaced its original aggregate \
+             allocation"
+  in
   let* expression =
     match receipt.static_leaf_value with
     | Ast.Scalar_initializer expression -> Ok expression
@@ -113,10 +138,18 @@ let create_selected ?activation ?callback
             Type.make_primitive ~form:Type.Internal_storage
               ~primitive:p.primitive ~pointer_depth:0
             |> Result.map (fun type_ -> (type_, source.local_array_dimensions))
-        | _ ->
-            Error
-              "HCRUN0001: native static initializers require integer object \
-               types")
+        | Ast.Named_type_specifier _ -> (
+            match aggregate with
+            | Some selected
+              when Compiler_record.static_initializer_aggregate_matches ~table
+                     ~namespace ~publication ~source:allocation selected ->
+                Ok
+                  ( Compiler_record.automatic_aggregate_type selected,
+                    source.local_array_dimensions )
+            | _ ->
+                Error
+                  "HCRUN0006: aggregate initializer lacks its original static \
+                   class allocation"))
     | Ast.Static_local, Parser.Local_variable source -> (
         let module Headers = Function_type_resolution in
         match (source.local_function_pointer, callback) with
@@ -150,12 +183,18 @@ let create_selected ?activation ?callback
     match Type.base type_ with
     | Type.Primitive (_, p)
       when Option.is_some (Primitive_type.integer_storage_info p) -> Ok ()
+    | Type.Aggregate _
+      when Option.is_some aggregate && Type.pointer_depth type_ = 0 -> Ok ()
     | _ ->
         Error
           "HCRUN0001: native static initializers require nonzero integer types"
   in
   let* () =
-    if source_dimensions = [] && receipt.static_leaf_path <> [] then
+    if
+      source_dimensions = []
+      && receipt.static_leaf_path <> []
+      && Option.is_none aggregate
+    then
       Error
         "HCRUN0001: native static scalar initializers require a scalar \
          expression"
@@ -222,6 +261,7 @@ let create_selected ?activation ?callback
       activation_ = activation;
       expression_ = expression;
       type_;
+      aggregate_ = aggregate;
       callback_source_ = callback;
       dimensions_ = dimensions;
       environment_ = environment;
@@ -229,7 +269,8 @@ let create_selected ?activation ?callback
       references_ = references;
     }
 
-let create ?activation ?callback ?selected_aggregate ~table ~namespace
-    ~publication ~receipt ~dimensions ~environment ~queries () =
-  create_selected ?activation ?callback ?selected_aggregate ~references:[]
-    ~table ~namespace ~publication ~receipt ~dimensions ~environment ~queries ()
+let create ?aggregate ?activation ?callback ?selected_aggregate ~table
+    ~namespace ~publication ~receipt ~dimensions ~environment ~queries () =
+  create_selected ?aggregate ?activation ?callback ?selected_aggregate
+    ~references:[] ~table ~namespace ~publication ~receipt ~dimensions
+    ~environment ~queries ()

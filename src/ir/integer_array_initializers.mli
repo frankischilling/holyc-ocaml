@@ -21,3 +21,5 @@ val publish :
   'root t -> ('root * payload * int) list -> ('root t, string) result
 (** Internal immutable publication requires an original root, a determined copy
     or scalar word, and positive bounded preparation work. *)
+
+val storage_payload : 'root entry -> payload -> payload

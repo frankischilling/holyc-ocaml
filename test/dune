@@ -5384,7 +5384,8 @@
   ../examples/class-default-words.hc
   ../examples/retained-nested-members.hc
   ../examples/aggregate-pointer-fields.hc
-  ../examples/persistent-aggregates.hc)
+  ../examples/persistent-aggregates.hc
+  ../examples/aggregate-initializers.hc)
  (action
   (run
    %{test}
@@ -5400,7 +5401,8 @@
    %{dep:../examples/class-default-words.hc}
    %{dep:../examples/retained-nested-members.hc}
    %{dep:../examples/aggregate-pointer-fields.hc}
-   %{dep:../examples/persistent-aggregates.hc})))
+   %{dep:../examples/persistent-aggregates.hc}
+   %{dep:../examples/aggregate-initializers.hc})))
 
 (test
  (name test_automatic_aggregate_storage)
@@ -5519,3 +5521,8 @@
    %{dep:../examples/native-stream-generation.hc}
    %{dep:../examples/native-stream-declarations.hc}
    %{dep:../examples/native-compiler-options.hc})))
+
+(test
+ (name test_aggregate_initializer_layout)
+ (modules test_aggregate_initializer_layout)
+ (libraries holyc_lib alcotest))

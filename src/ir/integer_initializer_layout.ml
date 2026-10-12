@@ -8,6 +8,7 @@ type entry = {
   cell_offset : int;
   byte_offset : int;
   operation : operation;
+  scalar_ : Sema.Initializer_type.scalar option;
   declared_owner_ : Sema.Compiler_record.declared_global option;
 }
 
@@ -20,7 +21,30 @@ let leaf entry = entry.leaf
 let cell_offset entry = entry.cell_offset
 let byte_offset entry = entry.byte_offset
 let operation entry = entry.operation
+let scalar entry = entry.scalar_
 let declared_owner entry = entry.declared_owner_
+
+let normalized_word scalar bits =
+  if Sema.Initializer_type.scalar_byte_size scalar = 0 then Ok bits
+  else
+    match
+      Integer_scalar_storage.of_type
+        (Sema.Initializer_type.scalar_value_type scalar)
+    with
+    | Some storage when Sema.Initializer_type.scalar_byte_size scalar <= 8 ->
+        Ok (Integer_scalar_storage.normalize storage bits)
+    | _ ->
+        Error
+          "HCRUN0006: initializer leaf requires supported integer value storage"
+
+let word_bytes scalar bits =
+  let ( let* ) = Result.bind in
+  let* bits = normalized_word scalar bits in
+  let count = Sema.Initializer_type.scalar_byte_size scalar in
+  Ok
+    (String.init count (fun index ->
+         Int64.shift_right_logical bits (8 * index)
+         |> Int64.logand 255L |> Int64.to_int |> Char.chr))
 
 let find layout leaf =
   List.find_opt (fun entry -> entry.leaf == leaf) layout.entries
@@ -69,121 +93,187 @@ let tokens source =
 
 let invalid detail = Error ("HCRUN0006: persistent array initializer " ^ detail)
 
+module Initializer_type = Sema.Initializer_type
+
 type continuation =
-  | Consume of int64 list
-  | Array_start of int * int64 list
-  | Array_next of int * int64 list * int
-  | Optional_comma of int
+  | Consume of Initializer_type.t * int64 list
+  | Scalar_value of Initializer_type.scalar
+  | Array_start of int * Initializer_type.t * int64 list
+  | Array_next of int * Initializer_type.t * int64 list * int
+  | Aggregate_start of Initializer_type.element list
+  | Aggregate_next of Initializer_type.element list
+  | Optional_comma of bool
   | Optional_close
+  | Required_close
+  | Missing_type
 
-type progress = { pending : continuation list; next_cell : int }
+type progress = { pending : continuation list; next_byte : int }
 
-let initial_progress dimensions =
-  { pending = [ Consume dimensions ]; next_cell = 0 }
+let initial_progress shape =
+  {
+    pending =
+      (match Shape.initializer_type shape with
+      | Some type_ -> [ Consume (type_, Shape.dimensions shape) ]
+      | None -> [ Missing_type ]);
+    next_byte = 0;
+  }
 
 let advance_tokens ~shape ~final ~expression_of_leaf ~make_entry progress input
     =
-  if Shape.is_aggregate shape then
-    invalid "requires its original aggregate member leaf layout"
-  else
-    let width = Shape.byte_size shape / Shape.element_count shape in
-    let entry leaf cell_offset operation =
-      make_entry leaf cell_offset (cell_offset * width) operation
-    in
-    let rec run work offset reversed input =
-      match (work, input) with
-      | [], [] -> Ok ({ pending = []; next_cell = offset }, List.rev reversed)
-      | [], _ -> invalid "has extra expressions or unmatched delimiters"
-      | _, [] when not final ->
-          Ok ({ pending = work; next_cell = offset }, List.rev reversed)
-      | Consume [] :: rest, Expression leaf :: input ->
-          if offset >= Shape.element_count shape then
-            invalid "scalar destination exceeds its declared object"
-          else
-            run rest (offset + 1)
-              (entry leaf offset Scalar_store :: reversed)
-              input
-      | Consume [] :: _, _ ->
-          invalid "requires an expression for each scalar element"
-      | Consume (count :: _) :: rest, Expression leaf :: input
-        when width = 1
-             &&
-             match expression_of_leaf leaf with
-             | Frontend.Ast.String_literal _ -> true
-             | _ -> false -> (
-          match expression_of_leaf leaf with
-          | Frontend.Ast.String_literal
-              { literal_value = Frontend.Ast.Bytes_value bytes; _ } ->
-              let count = Int64.to_int count in
-              if count > String.length bytes + 1 then
-                invalid "string copy extends beyond its source-owned terminator"
-              else if count > Shape.element_count shape - offset then
-                invalid "string copy extends beyond its declared object"
-              else
-                let copied =
-                  if count <= String.length bytes then String.sub bytes 0 count
-                  else bytes ^ "\000"
-                in
-                run rest (offset + count)
-                  (entry leaf offset (Copy_bytes copied) :: reversed)
-                  input
-          | _ -> invalid "has inconsistent string source evidence")
-      | Consume (count :: tail) :: rest, _ ->
-          run
-            (Array_start (Int64.to_int count, tail) :: rest)
-            offset reversed input
-      | Array_start (count, tail) :: rest, _ ->
-          let input =
-            match input with
-            | Open :: rest -> rest
-            | _ -> input
-          in
-          run (Array_next (count, tail, 0) :: rest) offset reversed input
-      | Array_next (count, _, index) :: rest, _ when count = index ->
-          run (Optional_close :: rest) offset reversed input
-      | Array_next (count, tail, index) :: rest, _ ->
-          run
-            (Consume tail :: Optional_comma count
-            :: Array_next (count, tail, index + 1)
-            :: rest)
-            offset reversed input
-      | Optional_comma count :: rest, _ ->
-          let input =
-            match input with
-            | Comma :: rest when count > 1 -> rest
-            | _ -> input
-          in
-          run rest offset reversed input
-      | Optional_close :: rest, _ ->
-          let input =
-            match input with
-            | Close :: rest -> rest
-            | _ -> input
-          in
-          run rest offset reversed input
-    in
-    run progress.pending progress.next_cell [] input
+  let physical_width = Integer_scalar_storage.byte_size (Shape.scalar shape) in
+  let entry leaf byte_offset operation scalar =
+    make_entry leaf (byte_offset / physical_width) byte_offset operation scalar
+  in
+  let fits offset bytes =
+    offset >= 0 && bytes >= 0
+    && offset <= Shape.byte_size shape
+    && bytes <= Shape.byte_size shape - offset
+  in
+  let rec run work offset reversed input =
+    match (work, input) with
+    | [], [] -> Ok ({ pending = []; next_byte = offset }, List.rev reversed)
+    | [], _ -> invalid "has extra expressions or unmatched delimiters"
+    | _, [] when not final ->
+        Ok ({ pending = work; next_byte = offset }, List.rev reversed)
+    | Missing_type :: _, _ ->
+        invalid "requires its original selected initializer type"
+    | Consume (type_, []) :: rest, _ -> (
+        let* value = Initializer_type.view type_ in
+        match value with
+        | Initializer_type.Scalar scalar ->
+            run (Scalar_value scalar :: rest) offset reversed input
+        | Initializer_type.Aggregate members ->
+            run (Aggregate_start members :: rest) offset reversed input)
+    | Consume (type_, count :: tail) :: rest, _ -> (
+        let* value = Initializer_type.view type_ in
+        match (value, input) with
+        | Initializer_type.Scalar scalar, Expression leaf :: input
+          when Initializer_type.scalar_byte_size scalar = 1
+               && (let type_ = Initializer_type.scalar_type scalar in
+                   Sema.Type.pointer_depth type_ = 0
+                   &&
+                   match Sema.Type.base type_ with
+                   | Sema.Type.Primitive
+                       (_, (Sema.Primitive_type.I8 | U8 | Bool)) -> true
+                   | _ -> false)
+               &&
+               match expression_of_leaf leaf with
+               | Frontend.Ast.String_literal _ -> true
+               | _ -> false -> (
+            match expression_of_leaf leaf with
+            | Frontend.Ast.String_literal
+                { literal_value = Frontend.Ast.Bytes_value bytes; _ } ->
+                if count <= 0L || count > Int64.of_int Int.max_int then
+                  invalid "has an invalid string count"
+                else
+                  let count = Int64.to_int count in
+                  if count > String.length bytes + 1 then
+                    invalid
+                      "string copy extends beyond its source-owned terminator"
+                  else if not (fits offset count) then
+                    invalid "string copy extends beyond its declared object"
+                  else
+                    let copied =
+                      if count <= String.length bytes then
+                        String.sub bytes 0 count
+                      else bytes ^ "\000"
+                    in
+                    run rest (offset + count)
+                      (entry leaf offset (Copy_bytes copied) None :: reversed)
+                      input
+            | _ -> invalid "has inconsistent string source evidence")
+        | _ ->
+            if count <= 0L || count > Int64.of_int Int.max_int then
+              invalid "has an invalid fixed array count"
+            else
+              run
+                (Array_start (Int64.to_int count, type_, tail) :: rest)
+                offset reversed input)
+    | Scalar_value scalar :: rest, Expression leaf :: input ->
+        let bytes = Initializer_type.scalar_byte_size scalar in
+        if not (fits offset bytes) then
+          invalid "scalar destination exceeds its declared object"
+        else
+          run rest (offset + bytes)
+            (entry leaf offset Scalar_store
+               (if Shape.is_aggregate shape then Some scalar else None)
+            :: reversed)
+            input
+    | Scalar_value _ :: _, _ ->
+        invalid "requires an expression for each scalar element"
+    | Array_start (count, type_, tail) :: rest, _ ->
+        let input =
+          match input with
+          | Open :: tail -> tail
+          | _ -> input
+        in
+        run (Array_next (count, type_, tail, 0) :: rest) offset reversed input
+    | Array_next (count, _, _, index) :: rest, _ when count = index ->
+        run (Optional_close :: rest) offset reversed input
+    | Array_next (count, type_, tail, index) :: rest, _ ->
+        run
+          (Consume (type_, tail)
+          :: Optional_comma (count > 1)
+          :: Array_next (count, type_, tail, index + 1)
+          :: rest)
+          offset reversed input
+    | Aggregate_start members :: rest, Open :: input ->
+        run (Aggregate_next members :: rest) offset reversed input
+    | Aggregate_start _ :: _, _ ->
+        invalid "requires '{' for a direct member list"
+    | Aggregate_next [] :: rest, _ ->
+        run (Required_close :: rest) offset reversed input
+    | Aggregate_next (member :: members) :: rest, _ ->
+        run
+          (Consume
+             ( Initializer_type.element_type member,
+               Initializer_type.element_dimensions member )
+          :: Optional_comma true :: Aggregate_next members :: rest)
+          offset reversed input
+    | Optional_comma consume :: rest, _ ->
+        let input =
+          match input with
+          | Comma :: tail when consume -> tail
+          | _ -> input
+        in
+        run rest offset reversed input
+    | Optional_close :: rest, _ ->
+        let input =
+          match input with
+          | Close :: tail -> tail
+          | _ -> input
+        in
+        run rest offset reversed input
+    | Required_close :: rest, Close :: input -> run rest offset reversed input
+    | Required_close :: _, _ ->
+        invalid "requires '}' after the direct member list"
+  in
+  run progress.pending progress.next_byte [] input
 
 let advance ~shape ~final work input =
   advance_tokens ~shape ~final ~expression_of_leaf:Source.leaf_expression_ast
-    ~make_entry:(fun leaf cell_offset byte_offset operation ->
-      { leaf; cell_offset; byte_offset; operation; declared_owner_ = None })
+    ~make_entry:(fun leaf cell_offset byte_offset operation scalar_ ->
+      {
+        leaf;
+        cell_offset;
+        byte_offset;
+        operation;
+        scalar_;
+        declared_owner_ = None;
+      })
     work input
 
 type stream = { stream_shape : Shape.t; stream_work : progress }
 
 let begin_stream shape =
-  {
-    stream_shape = shape;
-    stream_work = initial_progress (Shape.dimensions shape);
-  }
+  { stream_shape = shape; stream_work = initial_progress shape }
 
 let delimiter_token = function
   | Frontend.Parser.Initializer_open _ -> Open
   | Frontend.Parser.Initializer_close _ -> Close
   | Frontend.Parser.Initializer_comma _ -> Comma
 
-let prepare_stream stream ~delimiters ~value =
+let prepare_stream_typed stream ~delimiters ~value =
   match value with
   | Frontend.Ast.Braced_initializer _
   | Frontend.Ast.Unbraced_array_initializer _ ->
@@ -192,8 +282,8 @@ let prepare_stream stream ~delimiters ~value =
       let* work, entries =
         advance_tokens ~shape:stream.stream_shape ~final:false
           ~expression_of_leaf:Fun.id
-          ~make_entry:(fun _ cell_offset byte_offset operation ->
-            (cell_offset, byte_offset, operation))
+          ~make_entry:(fun _ cell byte operation scalar ->
+            (cell, byte, operation, scalar))
           stream.stream_work
           (List.map delimiter_token delimiters @ [ Expression expression ])
       in
@@ -201,11 +291,17 @@ let prepare_stream stream ~delimiters ~value =
       | [ entry ] -> Ok ({ stream with stream_work = work }, entry)
       | _ -> invalid "stream did not consume exactly one original leaf")
 
+let prepare_stream stream ~delimiters ~value =
+  let* next, (cell, byte, operation, scalar) =
+    prepare_stream_typed stream ~delimiters ~value
+  in
+  if Option.is_some scalar then
+    invalid "requires its original typed scalar destination"
+  else Ok (next, (cell, byte, operation))
+
 let create ~shape source =
   let* _, entries =
-    advance ~shape ~final:true
-      (initial_progress (Shape.dimensions shape))
-      (tokens source)
+    advance ~shape ~final:true (initial_progress shape) (tokens source)
   in
   Ok { source; entries }
 
@@ -219,34 +315,30 @@ type live = {
 }
 
 let begin_live declaration =
-  let* physical_type =
-    Sema.Compiler_record.declared_global_storage_type declaration
-    |> Result.map_error (fun _ ->
-        "HCRUN0006: persistent array initializer has no checked physical \
-         storage type")
-  in
-  let type_ =
+  let shape =
     if
       Option.is_some
         (Sema.Compiler_record.declared_global_source declaration)
           .global_function_pointer
     then
-      Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
-        ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
-      |> Result.get_ok
-    else physical_type
+      let type_ =
+        Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
+          ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+        |> Result.get_ok
+      in
+      Shape.create ~type_
+        ~dimensions:
+          (Sema.Compiler_record.declared_global_dimensions declaration)
+    else Shape.create_declared_global declaration
   in
-  let dimensions =
-    Sema.Compiler_record.declared_global_dimensions declaration
-  in
-  match Shape.create ~type_ ~dimensions with
+  match shape with
   | Error _ -> invalid "has no checked supported live storage shape"
   | Ok shape ->
       Ok
         {
           declaration;
           shape;
-          work = initial_progress dimensions;
+          work = initial_progress shape;
           entries_rev = [];
           last_delimiter = None;
           delimiters_rev = [];
@@ -366,7 +458,9 @@ let complete_live live source =
               left.leaf == right.leaf
               && left.cell_offset = right.cell_offset
               && left.byte_offset = right.byte_offset
-              && left.operation = right.operation)
+              && left.operation = right.operation
+              && Option.equal Initializer_type.scalar_equal left.scalar_
+                   right.scalar_)
             expected layout.entries)
   then invalid "completion differs from its original live destinations"
   else Ok layout

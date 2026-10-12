@@ -48,6 +48,12 @@ let create ~shape ~source ~roots ~source_leaf =
   let* entries = join [] roots (Layout.entries layout) in
   Ok { entries; scalar = Integer_storage_shape.scalar shape; steps = 0 }
 
+let storage_payload entry payload =
+  match (payload, Layout.scalar entry.destination) with
+  | Word bits, Some scalar ->
+      Bytes (Layout.word_bytes scalar bits |> Result.get_ok)
+  | _ -> payload
+
 let publish initializers updates =
   let rec validate total seen = function
     | [] -> Ok total
@@ -59,7 +65,12 @@ let publish initializers updates =
                && not (List.exists (( == ) root) seen) ->
             let* () =
               match (Layout.operation entry.destination, payload) with
-              | Layout.Scalar_store, Word _ -> Ok ()
+              | Layout.Scalar_store, Word bits -> (
+                  match Layout.scalar entry.destination with
+                  | None -> Ok ()
+                  | Some scalar ->
+                      Layout.normalized_word scalar bits
+                      |> Result.map (fun _ -> ()))
               | Layout.Copy_bytes expected, Bytes actual
                 when String.equal expected actual -> Ok ()
               | _ ->
@@ -82,7 +93,12 @@ let publish initializers updates =
               match payload with
               | Word bits ->
                   Word
-                    (Integer_scalar_storage.normalize initializers.scalar bits)
+                    (match Layout.scalar entry.destination with
+                    | None ->
+                        Integer_scalar_storage.normalize initializers.scalar
+                          bits
+                    | Some scalar ->
+                        Layout.normalized_word scalar bits |> Result.get_ok)
               | _ -> payload
             in
             { entry with prepared = Some (payload, steps) })

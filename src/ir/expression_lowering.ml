@@ -5632,11 +5632,14 @@ let condition_chain_continuations lowered = lowered.continuations_
 let condition_chain_next_block_id lowered = lowered.next_block_id_
 
 let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
-    ?optimize_division ?(callback = false) ~lower_address ~target_type ~span
-    ~instruction_id ~value_id value =
+    ?optimize_division ?aggregate_destination ?(callback = false) ~lower_address
+    ~target_type ~span ~instruction_id ~value_id value =
   let ( let* ) = Result.bind in
   let target_is_word =
-    Option.is_some (Integer_scalar_storage.of_type target_type)
+    match aggregate_destination with
+    | None -> Option.is_some (Integer_scalar_storage.of_type target_type)
+    | Some (scalar, _) ->
+        Result.is_ok (Integer_initializer_layout.normalized_word scalar 0L)
   in
   let target_is_callback = callback && callback_word_type target_type in
   let* value_type =
@@ -5671,21 +5674,44 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
               value = Sequence.Value_id.to_int value.next_value_id_;
             }
           in
-          let* instruction_id, value_id =
-            take_identity allocator span
-            |> Result.map_error (fun error -> [ error ])
-          in
-          let store : Sequence.description =
-            {
-              instruction_id;
-              opcode = Opcode.Ic_assign;
-              operands = [ address_value; value.result_value_ ];
-              result = Some { value_id };
-              target_type = Some target_type;
-              payload = None;
-              flags = 0L;
-              span;
-            }
+          let* stores, value_id, result_type =
+            match aggregate_destination with
+            | None ->
+                let* instruction_id, value_id =
+                  take_identity allocator span
+                  |> Result.map_error (fun error -> [ error ])
+                in
+                let store : Sequence.description =
+                  {
+                    instruction_id;
+                    opcode = Opcode.Ic_assign;
+                    operands = [ address_value; value.result_value_ ];
+                    result = Some { value_id };
+                    target_type = Some target_type;
+                    payload = None;
+                    flags = 0L;
+                    span;
+                  }
+                in
+                Ok ([ store ], value_id, target_type)
+            | Some (scalar, byte_offset) ->
+                let* lowered =
+                  Aggregate_initializer_store.lower ~scalar ~byte_offset
+                    ~root_type:target_type ~root:address_value
+                    ~word:value.result_value_ ~span
+                    ~instruction_id:value.next_instruction_id_
+                    ~value_id:value.next_value_id_
+                in
+                allocator.instruction <-
+                  Sequence.Instruction_id.to_int
+                    (Aggregate_initializer_store.next_instruction_id lowered);
+                allocator.value <-
+                  Sequence.Value_id.to_int
+                    (Aggregate_initializer_store.next_value_id lowered);
+                Ok
+                  ( Aggregate_initializer_store.descriptions lowered,
+                    Aggregate_initializer_store.result_value lowered,
+                    Aggregate_initializer_store.result_type lowered )
           in
           let descriptions sequence =
             Sequence.instructions sequence |> List.map Sequence.description
@@ -5694,7 +5720,7 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
             Sequence.create
               (descriptions address_sequence
               @ descriptions value.sequence_
-              @ [ store ])
+              @ stores)
           in
           let* next_instruction_id_ =
             Sequence.Instruction_id.of_int allocator.instruction
@@ -5709,7 +5735,7 @@ let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
                {
                  sequence_;
                  result_value_ = value_id;
-                 result_type_ = target_type;
+                 result_type_ = result_type;
                  next_instruction_id_;
                  next_value_id_;
                }))
@@ -5751,6 +5777,21 @@ let lower_global_initializer ~globals ?lower_call ?optimize_shifts
     ?optimize_division ~instruction_id ~value_id root =
   let ( let* ) = Result.bind in
   let* prepared = Global_address_lowering.prepare_initializer ~globals root in
+  let aggregate_destination =
+    let ( let* ) = Option.bind in
+    let* slot =
+      Integer_globals.find globals
+        (Integer_globals.storage_symbol
+           (Global_address_lowering.storage prepared))
+    in
+    let* arrays = Integer_globals.slot_array_initializers slot in
+    let* entry = Integer_array_initializers.find arrays root in
+    let destination = Integer_array_initializers.destination entry in
+    Option.map
+      (fun scalar ->
+        (scalar, Integer_initializer_layout.byte_offset destination))
+      (Integer_initializer_layout.scalar destination)
+  in
   let* target_type, span =
     match
       root |> Semantic_result.top_level_root_source
@@ -5783,7 +5824,7 @@ let lower_global_initializer ~globals ?lower_call ?optimize_shifts
         Global_address_lowering.next_value_id address )
   in
   lower_store_initializer ~globals ?lower_call ?optimize_shifts
-    ?optimize_division
+    ?optimize_division ?aggregate_destination
     ~callback:
       (Global_address_lowering.storage prepared
       |> Integer_globals.storage_is_callback)
@@ -5807,16 +5848,60 @@ let lower_fragment_initializer ?lower_call ?optimize_shifts ?optimize_division
         Global_address_lowering.next_instruction_id address,
         Global_address_lowering.next_value_id address )
   in
-  lower_store_initializer
-    ~globals:(Destination.globals destination)
-    ?lower_call ?optimize_shifts ?optimize_division ~lower_address
-    ~callback:
-      (Integer_globals.storage_is_callback (Destination.storage destination))
-    ~target_type:
-      (Integer_globals.storage_type (Destination.storage destination))
-    ~span:(Some (Destination.span destination))
-    ~instruction_id ~value_id
-    (Semantic_result.top_level_root_value (Destination.root destination))
+  match
+    Integer_initializer_layout.operation (Destination.layout destination)
+  with
+  | Integer_initializer_layout.Copy_bytes bytes ->
+      let* address, root, next_instruction, next_value =
+        lower_address ~instruction_id ~value_id
+      in
+      let* copy =
+        Aggregate_initializer_store.lower_copy ~bytes
+          ~byte_offset:
+            (Integer_initializer_layout.byte_offset
+               (Destination.layout destination))
+          ~root_type:
+            (Integer_globals.storage_type (Destination.storage destination))
+          ~root
+          ~span:(Some (Destination.span destination))
+          ~instruction_id:next_instruction ~value_id:next_value
+      in
+      let* sequence_ =
+        Sequence.create
+          ((Sequence.instructions address |> List.map Sequence.description)
+          @ Aggregate_initializer_store.descriptions copy)
+      in
+      Ok
+        (Lowered
+           {
+             sequence_;
+             result_value_ = Aggregate_initializer_store.result_value copy;
+             result_type_ = Aggregate_initializer_store.result_type copy;
+             next_instruction_id_ =
+               Aggregate_initializer_store.next_instruction_id copy;
+             next_value_id_ = Aggregate_initializer_store.next_value_id copy;
+           })
+  | Scalar_store ->
+      lower_store_initializer
+        ~globals:(Destination.globals destination)
+        ?lower_call ?optimize_shifts ?optimize_division
+        ?aggregate_destination:
+          (Option.map
+             (fun scalar ->
+               ( scalar,
+                 Integer_initializer_layout.byte_offset
+                   (Destination.layout destination) ))
+             (Integer_initializer_layout.scalar
+                (Destination.layout destination)))
+        ~lower_address
+        ~callback:
+          (Integer_globals.storage_is_callback
+             (Destination.storage destination))
+        ~target_type:
+          (Integer_globals.storage_type (Destination.storage destination))
+        ~span:(Some (Destination.span destination))
+        ~instruction_id ~value_id
+        (Semantic_result.top_level_root_value (Destination.root destination))
 
 let lower_static_initializer ~globals ?root ?lower_call ?optimize_shifts
     ?optimize_division ~instruction_id ~value_id slot =
@@ -5855,7 +5940,21 @@ let lower_static_initializer ~globals ?root ?lower_call ?optimize_shifts
       in
       lower_store_initializer
         ~frame:(Integer_globals.static_frame slot)
-        ~globals ?lower_call ?optimize_shifts ?optimize_division ~lower_address
+        ~globals ?lower_call ?optimize_shifts ?optimize_division
+        ?aggregate_destination:
+          (Option.bind (Integer_globals.static_array_initializers slot)
+             (fun arrays ->
+               Option.bind (Integer_array_initializers.find arrays root)
+                 (fun entry ->
+                   let destination =
+                     Integer_array_initializers.destination entry
+                   in
+                   Option.map
+                     (fun scalar ->
+                       ( scalar,
+                         Integer_initializer_layout.byte_offset destination ))
+                     (Integer_initializer_layout.scalar destination))))
+        ~lower_address
         ~callback:
           (Integer_globals.storage_is_callback
              (Integer_globals.static_storage slot))
@@ -5882,7 +5981,12 @@ let lower_static_fragment_initializer ?lower_call ?optimize_shifts
   in
   lower_store_initializer
     ~globals:(Destination.globals destination)
-    ?lower_call ?optimize_shifts ?optimize_division ~lower_address
+    ?lower_call ?optimize_shifts ?optimize_division
+    ?aggregate_destination:
+      (Option.map
+         (fun scalar -> (scalar, Destination.byte_offset destination))
+         (Destination.scalar destination))
+    ~lower_address
     ~callback:
       (Integer_globals.storage_is_callback (Destination.storage destination))
     ~target_type:

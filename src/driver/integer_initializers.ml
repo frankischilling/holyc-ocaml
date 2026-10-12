@@ -53,6 +53,7 @@ type native_destination = {
   cell_offset : int;
   byte_offset : int;
   operation : Layout.operation;
+  scalar : Sema.Initializer_type.scalar option;
 }
 
 type native_source =
@@ -668,11 +669,21 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
               in
               let* destination_type, compiler_options =
                 match root_ with
-                | Native_static (fragment, _, _) ->
-                    Ok (Sema.Static_initializer_fragment.type_ fragment, 0L)
-                | Native_global (fragment, _, _) ->
-                    initializer_value_type
-                      (Sema.Initializer_fragment.declaration fragment)
+                | Native_static (fragment, _, destination) ->
+                    Ok
+                      ( Option.fold
+                          ~none:
+                            (Sema.Static_initializer_fragment.type_ fragment)
+                          ~some:Sema.Initializer_type.scalar_value_type
+                          destination.scalar,
+                        0L )
+                | Native_global (fragment, _, destination) ->
+                    (match destination.scalar with
+                      | Some scalar ->
+                          Ok (Sema.Initializer_type.scalar_value_type scalar)
+                      | None ->
+                          initializer_value_type
+                            (Sema.Initializer_fragment.declaration fragment))
                     |> Result.map (fun type_ -> (type_, 0L))
                     |> Result.map_error (fun message ->
                         [
@@ -695,6 +706,25 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                     Ok
                       ( Globals.static_storage slot |> Globals.storage_type,
                         Globals.static_compiler_options slot )
+              in
+              let destination_type =
+                let destination =
+                  match root_ with
+                  | Global (slot, root) ->
+                      Option.bind (Globals.slot_array_initializers slot)
+                        (fun arrays -> Arrays.find arrays root)
+                      |> Option.map Arrays.destination
+                  | Static (slot, root) ->
+                      Option.bind (Globals.static_array_initializers slot)
+                        (fun arrays -> Arrays.find arrays root)
+                      |> Option.map Arrays.destination
+                  | Fragment destination ->
+                      Some (Destination.layout destination)
+                  | _ -> None
+                in
+                Option.bind destination Layout.scalar
+                |> Option.fold ~none:destination_type
+                     ~some:Sema.Initializer_type.scalar_value_type
               in
               let* terminal =
                 instructions (Ir.X87_stack.graph value_graph_)
@@ -1048,6 +1078,7 @@ let check_static_fragment ?retained_function_source ~top_calls
           cell_offset = D.cell_offset destination;
           byte_offset = D.byte_offset destination;
           operation = D.operation destination;
+          scalar = D.scalar destination;
         } )
     ~check_only:true ?retained_function_source ~top_callback_calls ~max_steps:1
     ~span:(D.span destination) ~globals:(D.globals destination) ~top_calls
@@ -1076,9 +1107,11 @@ let same_destination destination entry =
   destination.cell_offset = Layout.cell_offset entry
   && destination.byte_offset = Layout.byte_offset entry
   && destination.operation = Layout.operation entry
+  && Option.equal Sema.Initializer_type.scalar_equal destination.scalar
+       (Layout.scalar entry)
 
-let prepare_native_load ~declaration ~leaf ~cell_offset ~byte_offset ~operation
-    =
+let prepare_native_load ~scalar ~declaration ~leaf ~cell_offset ~byte_offset
+    ~operation =
   let module P = Frontend.Parser in
   let source = Sema.Compiler_record.declared_global_source declaration in
   let invalid message =
@@ -1103,17 +1136,19 @@ let prepare_native_load ~declaration ~leaf ~cell_offset ~byte_offset ~operation
         {
           native_source = Native_load (declaration, leaf);
           native_payload = None;
-          native_destination = { cell_offset; byte_offset; operation };
+          native_destination = { cell_offset; byte_offset; operation; scalar };
           native_steps = 0;
         }
   | _ ->
       invalid "native load initializer requires its current original AOT leaf"
 
-let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
-    ~on_progress ~max_steps =
+let prepare_native ~scalar:destination_scalar ~authority ~typed ~cell_offset
+    ~byte_offset ~operation ~on_progress ~max_steps =
   let fragment = Sema.Initializer_fragment.authorized_fragment authority in
   let leaf = Sema.Initializer_fragment.leaf fragment in
-  let destination = { cell_offset; byte_offset; operation } in
+  let destination =
+    { cell_offset; byte_offset; operation; scalar = destination_scalar }
+  in
   let span =
     (Frontend.Ast.expression_location
        (Sema.Initializer_source.leaf_expression_ast leaf))
@@ -1152,7 +1187,11 @@ let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
   let value = Typed.top_level_root_value root in
   let scalar type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_) in
   let* value_type =
-    initializer_value_type (Sema.Initializer_fragment.declaration fragment)
+    (match destination_scalar with
+      | Some scalar -> Ok (Sema.Initializer_type.scalar_value_type scalar)
+      | None ->
+          initializer_value_type
+            (Sema.Initializer_fragment.declaration fragment))
     |> Result.map_error (fun message ->
         [
           Common.Diagnostic.make ~code:"HCRUN0006"
@@ -1224,11 +1263,13 @@ let native_static_evidence value = value.static_evidence_
 let native_static_receipt value =
   Sema.Static_initializer_fragment.receipt value.static_fragment
 
-let prepare_native_static ~fragment ~typed ~cell_offset ~byte_offset ~operation
-    ~on_progress ~max_steps =
+let prepare_native_static ~scalar:destination_scalar ~fragment ~typed
+    ~cell_offset ~byte_offset ~operation ~on_progress ~max_steps =
   let module Fragment = Sema.Static_initializer_fragment in
   let expression = Fragment.expression fragment in
-  let destination = { cell_offset; byte_offset; operation } in
+  let destination =
+    { cell_offset; byte_offset; operation; scalar = destination_scalar }
+  in
   let span = (Frontend.Ast.expression_location expression).span in
   let invalid message =
     Error
@@ -1266,7 +1307,10 @@ let prepare_native_static ~fragment ~typed ~cell_offset ~byte_offset ~operation
       match operation with
       | Layout.Scalar_store ->
           if
-            (scalar (Fragment.type_ fragment)
+            (scalar
+               (Option.fold ~none:(Fragment.type_ fragment)
+                  ~some:Sema.Initializer_type.scalar_value_type
+                  destination_scalar)
             || Option.is_some (Fragment.callback_source fragment))
             && Typed.result_array_rank value = 0
             && Option.fold ~none:false ~some:scalar (Typed.result_type value)

@@ -4,7 +4,9 @@
 and union globals and statics their original byte roots in IR and native execution.
 Integer fields, arrays, scalar prefixes and member size queries retain the selected
 layout. [The example](../examples/persistent-aggregates.hc) prints `AB` and returns 42.
-Aggregate initializers and the remaining aggregate execution families stay open.
+[Aggregate initializers](aggregate-initializers.md) cover completed selected class
+records, integer leaves, nested fixed arrays and byte strings. Live forward
+completion and the remaining aggregate execution families stay open.
 
 [Class pointer views](class-pointer-views.md) cast owned integer and class
 references to complete earlier layouts in IR and native execution. The

@@ -298,7 +298,7 @@ let local_source_error (declaration : Ast.local_declaration) =
     && List.for_all
          (fun local ->
            (local.Ast.local_pointer_layers = []
-            && Option.is_none local.local_initializer
+            && (is_static || Option.is_none local.local_initializer)
            || named_pointer declaration.local_type_specifier
                 local.local_pointer_layers)
            && (local.local_array_dimensions = []
@@ -347,7 +347,10 @@ let local_source_error (declaration : Ast.local_declaration) =
           | None -> None
           | Some { local_initializer_value = Ast.Scalar_initializer _; _ } ->
               None
-          | Some _ when is_static && local.local_array_dimensions <> [] -> None
+          | Some _
+            when is_static
+                 && (local.local_array_dimensions <> [] || aggregate_object) ->
+              None
           | Some _ -> reject "native locals require scalar initializers")
       declaration.local_declarators
 

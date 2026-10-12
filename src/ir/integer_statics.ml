@@ -271,18 +271,14 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                         remaining
                     in
                     let* () =
-                      if Shape.is_aggregate shape && owned <> [] then
-                        invalid ~at ~code:"HCRUN0006"
-                          "aggregate initializer requires its original member \
-                           leaf layout"
-                      else Ok ()
-                    in
-                    let* () =
                       List.fold_left
                         (fun checked root ->
                           let* () = checked in
-                          Frame_address_lowering.prepare_initializer ~frame root
-                          |> Result.map (fun _ -> ())
+                          (if Shape.is_aggregate shape then Ok ()
+                           else
+                             Frame_address_lowering.prepare_initializer ~frame
+                               root
+                             |> Result.map (fun _ -> ()))
                           |> Result.map_error
                                (List.map
                                   (fun (error : Instruction_sequence.error) ->
@@ -295,7 +291,8 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                         (Ok ()) owned
                     in
                     let* array_initializers =
-                      if dimensions = [] then Ok None
+                      if dimensions = [] && not (Shape.is_aggregate shape) then
+                        Ok None
                       else
                         match owned with
                         | [] -> Ok None
@@ -328,7 +325,8 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                             end
                     in
                     let* initial =
-                      if dimensions <> [] then Ok None
+                      if dimensions <> [] || Shape.is_aggregate shape then
+                        Ok None
                       else
                         match owned with
                         | [] -> Ok None
